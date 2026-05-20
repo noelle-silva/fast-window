@@ -69,6 +69,7 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
+import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE, normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
@@ -108,28 +109,11 @@ function normalizeShortcutHintsEnabled(value: unknown): boolean {
   return value === true
 }
 
-function normalizeHtmlFaceDisplayMode(value: unknown): HyperCortexHtmlFaceDisplayModeV1 {
-  if (value === 'fit-window' || value === 'fixed-fit') return value
-  return 'natural'
-}
-
 function normalizeTrashAutoDeleteDays(value: unknown): number {
   const n = Math.floor(Number(value))
   if (!Number.isFinite(n)) return 30
   if (n < 0) return 0
   if (n > 3650) return 3650
-  return n
-}
-
-export const HTML_FACE_FIXED_SCALE_DEFAULT = 0.95
-const HTML_FACE_FIXED_SCALE_MIN = 0.25
-const HTML_FACE_FIXED_SCALE_MAX = 2
-
-function normalizeHtmlFaceFixedScaleDefault(value: unknown): number {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return HTML_FACE_FIXED_SCALE_DEFAULT
-  if (n < HTML_FACE_FIXED_SCALE_MIN) return HTML_FACE_FIXED_SCALE_MIN
-  if (n > HTML_FACE_FIXED_SCALE_MAX) return HTML_FACE_FIXED_SCALE_MAX
   return n
 }
 
@@ -202,6 +186,8 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
   next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
+  next.htmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(next.htmlFaceDisplayMode)
+  next.htmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(next.htmlFaceFixedScaleDefault)
   next.indexEditMode = normalizeIndexEditMode((next as any).indexEditMode)
   next.currentFolderId = String((next as any).currentFolderId || '').trim() || 'root'
 
@@ -370,8 +356,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   // ---- 回收站设置（持久化在 metadata）
   const [trashEnabled, setTrashEnabled] = React.useState(true)
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
-  const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>('natural')
-  const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE_DEFAULT)
+  const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>(DEFAULT_HTML_FACE_DISPLAY_MODE)
+  const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE.default)
   const [colorPresetId, setColorPresetId] = React.useState<HyperCortexColorPresetIdV1>(DEFAULT_COLOR_PRESET_ID)
   const colorPreset = React.useMemo(() => getColorPreset(colorPresetId), [colorPresetId])
   const theme = React.useMemo(() => createHyperCortexTheme(colorPreset), [colorPreset])
@@ -1337,8 +1323,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
-        setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(normalizedMeta.htmlFaceDisplayMode))
-        setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(normalizedMeta.htmlFaceFixedScaleDefault))
+        const normalizedHtmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(normalizedMeta.htmlFaceDisplayMode)
+        const normalizedHtmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(normalizedMeta.htmlFaceFixedScaleDefault)
+        setHtmlFaceDisplayMode(normalizedHtmlFaceDisplayMode)
+        setHtmlFaceFixedScaleDefault(normalizedHtmlFaceFixedScaleDefault)
         const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
         setColorPresetId(normalizedColorPresetId)
         setIndexEditMode(normalizeIndexEditMode((normalizedMeta as any).indexEditMode))
@@ -1400,6 +1388,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           (normalizedMeta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
           normalizedMeta.trashEnabled !== normalizedTrashEnabled ||
           normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
+          normalizedMeta.htmlFaceDisplayMode !== normalizedHtmlFaceDisplayMode ||
+          normalizedMeta.htmlFaceFixedScaleDefault !== normalizedHtmlFaceFixedScaleDefault ||
           normalizedMeta.colorPresetId !== normalizedColorPresetId
         if (shouldPersistNormalized) {
           void persistMetadataPatch({
@@ -1407,6 +1397,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             shortcutHintsEnabled: normalizedShortcutHintsEnabled,
             trashEnabled: normalizedTrashEnabled,
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
+            htmlFaceDisplayMode: normalizedHtmlFaceDisplayMode,
+            htmlFaceFixedScaleDefault: normalizedHtmlFaceFixedScaleDefault,
             colorPresetId: normalizedColorPresetId,
           }).catch(() => {})
         }
@@ -1537,7 +1529,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
     (scale: number) => {
-      const next = normalizeHtmlFaceFixedScaleDefault(scale)
+      const next = normalizeHtmlFaceFixedScale(scale)
       setHtmlFaceFixedScaleDefault(next)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ htmlFaceFixedScaleDefault: next }).catch(() => {})

@@ -22,6 +22,7 @@ import { mergeNoteResources } from '../noteResources'
 import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
+import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
 import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
@@ -168,8 +169,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     trashEnabled,
     onRequestDeleteNote,
     onPlayingChange,
-    htmlFaceDisplayMode = 'natural',
-    htmlFaceGlobalDefaultScale = 0.95,
+    htmlFaceDisplayMode = DEFAULT_HTML_FACE_DISPLAY_MODE,
+    htmlFaceGlobalDefaultScale = HTML_FACE_FIXED_SCALE.default,
   } = props
 
   const noteId = String(note.id || '').trim()

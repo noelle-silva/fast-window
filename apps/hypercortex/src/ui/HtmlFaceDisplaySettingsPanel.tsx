@@ -1,30 +1,8 @@
 import * as React from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import { HTML_FACE_DISPLAY_MODE_OPTIONS, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
 import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from './settingsUiStyles'
-
-// 三种模式的元数据：集中管理，避免在多处重复写
-const HTML_FACE_DISPLAY_MODES: {
-  id: HyperCortexHtmlFaceDisplayModeV1
-  label: string
-  description: string
-}[] = [
-  {
-    id: 'natural',
-    label: '自然撑开',
-    description: 'iframe 高度随内容自动伸展，滚动由外层页面接管。',
-  },
-  {
-    id: 'fit-window',
-    label: '随窗口自适应',
-    description: 'iframe 铺满当前可用区域，内容在 iframe 内部独立滚动。',
-  },
-  {
-    id: 'fixed-fit',
-    label: '固定视口缩放',
-    description: '以 1280×900 固定视口渲染，自动缩放以确保内容完整可见，可手动调整缩放比例。',
-  },
-]
 
 export function HtmlFaceDisplaySettingsPanel(props: {
   mode: HyperCortexHtmlFaceDisplayModeV1
@@ -46,7 +24,7 @@ export function HtmlFaceDisplaySettingsPanel(props: {
       </Box>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {HTML_FACE_DISPLAY_MODES.map(item => {
+        {HTML_FACE_DISPLAY_MODE_OPTIONS.map(item => {
           const active = mode === item.id
           return (
             <Box
@@ -113,9 +91,9 @@ export function HtmlFaceDisplaySettingsPanel(props: {
           <Box sx={{ flex: 1, minWidth: 160, maxWidth: 320, px: 0.5 }}>
             <Slider
               size="small"
-              min={0.25}
-              max={2}
-              step={0.01}
+              min={HTML_FACE_FIXED_SCALE.min}
+              max={HTML_FACE_FIXED_SCALE.max}
+              step={HTML_FACE_FIXED_SCALE.step}
               value={fixedScaleDefault}
               onChange={(_, next) => onFixedScaleDefaultChange(Array.isArray(next) ? next[0] : next)}
               aria-label="HTML 面全局默认缩放比例"

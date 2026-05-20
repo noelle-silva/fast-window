@@ -5,6 +5,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import { HTML_FACE_FIXED_SCALE, HTML_FACE_FIXED_VIEWPORT, clampHtmlFaceFixedScale, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 
 type Props = {
@@ -16,13 +17,6 @@ type Props = {
   onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
   scaleControlsVisible?: boolean
 }
-
-const FIXED_VIEWPORT_WIDTH = 1280
-const FIXED_VIEWPORT_HEIGHT = 900
-const FIXED_FIT_SCALE_MIN = 0.25
-const FIXED_FIT_SCALE_MAX = 2
-const FIXED_FIT_SCALE_STEP = 0.01
-const FALLBACK_FIXED_SCALE_DEFAULT = 0.95
 
 function createToken(): string {
   try {
@@ -40,17 +34,8 @@ function normalizeHtmlDocument(src: string): string {
   return `<!doctype html>\n${doc.documentElement.outerHTML}`
 }
 
-function clampNum(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min
-  if (value < min) return min
-  if (value > max) return max
-  return value
-}
-
-function normalizeScale(value: unknown, fallback: number): number {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return clampNum(fallback, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
-  return clampNum(n, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
+function normalizeScale(value: unknown, fallback = HTML_FACE_FIXED_SCALE.default): number {
+  return normalizeHtmlFaceFixedScale(value, fallback)
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -120,7 +105,7 @@ function FixedFitHtmlIframe(props: {
   const srcDoc = React.useMemo(() => normalizeHtmlDocument(html), [html])
   const { ref: stageRef, size: stageSize } = useElementSize<HTMLDivElement>()
   const preferredScale = noteFixedScale ?? globalDefaultScale
-  const normalizedPreferredScale = normalizeScale(preferredScale, FALLBACK_FIXED_SCALE_DEFAULT)
+  const normalizedPreferredScale = normalizeScale(preferredScale)
   const [scale, setScale] = React.useState(normalizedPreferredScale)
   const [saving, setSaving] = React.useState(false)
 
@@ -132,12 +117,12 @@ function FixedFitHtmlIframe(props: {
     const sw = stageSize.width
     const sh = stageSize.height
     if (!(sw > 0) || !(sh > 0)) return 1
-    return Math.min(sw / FIXED_VIEWPORT_WIDTH, sh / FIXED_VIEWPORT_HEIGHT)
+    return Math.min(sw / HTML_FACE_FIXED_VIEWPORT.width, sh / HTML_FACE_FIXED_VIEWPORT.height)
   }, [stageSize.height, stageSize.width])
 
-  const effectiveScale = clampNum(fitScale * scale, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
-  const renderedWidth = FIXED_VIEWPORT_WIDTH * effectiveScale
-  const renderedHeight = FIXED_VIEWPORT_HEIGHT * effectiveScale
+  const effectiveScale = clampHtmlFaceFixedScale(fitScale * scale)
+  const renderedWidth = HTML_FACE_FIXED_VIEWPORT.width * effectiveScale
+  const renderedHeight = HTML_FACE_FIXED_VIEWPORT.height * effectiveScale
   const isDirty = Math.abs(scale - normalizedPreferredScale) > 0.0001
   const hasNoteOverride = noteFixedScale != null && Number.isFinite(noteFixedScale)
 
@@ -175,9 +160,9 @@ function FixedFitHtmlIframe(props: {
           <Box sx={{ flex: 1, minWidth: 160, maxWidth: 280, px: 0.5 }}>
             <Slider
               size="small"
-              min={FIXED_FIT_SCALE_MIN}
-              max={FIXED_FIT_SCALE_MAX}
-              step={FIXED_FIT_SCALE_STEP}
+              min={HTML_FACE_FIXED_SCALE.min}
+              max={HTML_FACE_FIXED_SCALE.max}
+              step={HTML_FACE_FIXED_SCALE.step}
               value={scale}
               onChange={(_, next) => setScale(normalizeScale(Array.isArray(next) ? next[0] : next, normalizedPreferredScale))}
               aria-label="HTML 面缩放比例"
@@ -185,14 +170,14 @@ function FixedFitHtmlIframe(props: {
           </Box>
           <Tooltip title="缩小比例">
             <span>
-              <IconButton size="small" aria-label="缩小比例" onClick={() => setScale(prev => clampNum(prev / 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
+              <IconButton size="small" aria-label="缩小比例" onClick={() => setScale(prev => clampHtmlFaceFixedScale(prev / 1.1))}>
                 <RemoveRoundedIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="放大比例">
             <span>
-              <IconButton size="small" aria-label="放大比例" onClick={() => setScale(prev => clampNum(prev * 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
+              <IconButton size="small" aria-label="放大比例" onClick={() => setScale(prev => clampHtmlFaceFixedScale(prev * 1.1))}>
                 <AddRoundedIcon fontSize="small" />
               </IconButton>
             </span>
@@ -255,8 +240,8 @@ function FixedFitHtmlIframe(props: {
               scrolling="auto"
               style={{
                 display: 'block',
-                width: FIXED_VIEWPORT_WIDTH,
-                height: FIXED_VIEWPORT_HEIGHT,
+                width: HTML_FACE_FIXED_VIEWPORT.width,
+                height: HTML_FACE_FIXED_VIEWPORT.height,
                 border: 'none',
                 background: '#fff',
                 transform: `scale(${effectiveScale})`,
@@ -275,7 +260,7 @@ export function HtmlFaceIframe(props: Props) {
     html,
     mode,
     minHeightPx = 240,
-    globalDefaultScale = FALLBACK_FIXED_SCALE_DEFAULT,
+    globalDefaultScale = HTML_FACE_FIXED_SCALE.default,
     noteFixedScale,
     onSaveNoteFixedScale,
     scaleControlsVisible,
