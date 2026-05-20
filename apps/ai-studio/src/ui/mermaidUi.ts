@@ -2,6 +2,7 @@ import { clamp, now } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
 import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 import { isAssistantGenerating } from '../domain/assistantRunState'
+import { runChatMutationTransaction } from '../domain/chatMutationTransaction'
 
 export function createMermaidUi(deps: {
   getState: () => any
@@ -201,17 +202,9 @@ export function createMermaidUi(deps: {
     if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，无法编辑')
     if (target.role === 'assistant') {
       if (isAssistantGenerating(target)) throw new Error('该消息正在生成中，无法编辑')
-      try {
-        uiStreamCache.delete(String(messageId || ''))
-      } catch (_) {}
     }
 
-    target.content = String(content ?? '')
-    chat.updatedAt = now()
-    emit()
-    await save()
-
-    try {
+    const verifySavedContent = async () => {
       const kind = String(found.kind || '') === 'group' ? 'group' : 'role'
       const targetId = String(found.targetId || '')
       const cid = String(chat?.id || '')
@@ -225,10 +218,27 @@ export function createMermaidUi(deps: {
           const msgs = Array.isArray(saved?.messages) ? saved.messages : []
           const m = msgs.find((x: any) => String(x?.id || '') === mid) || null
           const savedContent = m ? String(m.content ?? '') : ''
-          const expected = String(target.content ?? '')
+          const expected = String(content ?? '')
           if (savedContent !== expected) throw new Error('存档未更新（storage 写入可能失败或被拦截）')
         }
       }
+    }
+
+    try {
+      await runChatMutationTransaction({
+        chat,
+        save,
+        verify: verifySavedContent,
+        onRollback: emit,
+        onCommit: emit,
+        afterCommit: () => {
+          if (target.role === 'assistant') uiStreamCache.delete(String(messageId || ''))
+        },
+        mutate: () => {
+          target.content = String(content ?? '')
+          chat.updatedAt = now()
+        },
+      })
     } catch (e: any) {
       throw new Error(String(e?.message || e || '存档校验失败'))
     }

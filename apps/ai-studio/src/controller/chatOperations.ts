@@ -33,6 +33,14 @@ import {
 } from '../domain/assistantRunState'
 import { hasActiveAssistantMessages, listActiveAssistantMessages } from '../domain/chatRunState'
 import { createDeletedMessagesSaveIntent, type ChatSaveIntent } from '../domain/chatSaveIntent'
+import { runChatMutationTransaction, runLocalChatMutation } from '../domain/chatMutationTransaction'
+import {
+  planDeleteMessageSubtree,
+  planDeleteSingleMessage,
+  repairBranchHeadsAfterSingleMessageDeletion,
+  repairBranchHeadsAfterSubtreeDeletion,
+} from '../domain/chatMessageDeletion'
+import { createAssistantArtifactCleanup } from './assistantArtifactCleanup'
 
 type ChatAttachmentItem = {
   id: string
@@ -81,6 +89,10 @@ export function createChatOperations(deps: {
   const { getState, aiGateway, filesImages, pickImageFiles, loadSplitMeta, showToast, save, ensureActiveChatLoaded, emit, render, renderComposer, scrollToBottomSoon, readImageFileAsDataUrl, extractTextFromFile, uiStreamCache } = deps
 
   const sa = createStateAccessors({ getState })
+  const assistantArtifactCleanup = createAssistantArtifactCleanup({
+    uiStreamCache,
+    resetAssistantRuntime: (messageId) => aiGateway.resetAssistantRuntime(messageId),
+  })
 
   function beginAssistantMessageRun(message: any, streamEnabled: boolean, mode: 'new' | 'regenerate' | 'tool-followup' = 'new') {
     return beginAssistantRun(message, {
@@ -1758,109 +1770,44 @@ export function createChatOperations(deps: {
       oldById.set(id, m)
     }
 
-    const targetParentMid = String((target as any)?.parentMid || '').trim()
-    const removedIds = new Set<string>([mid])
-
-    const groupId = String((target as any)?.groupId || '').trim()
-    const groupRole = String((target as any)?.groupRole || '').trim()
-    let nextMsgs: any[] = []
-    if (target.role === 'user' && groupId && groupRole === 'root') {
-      const rootMid = String((target as any)?.id || '').trim()
-      const next = msgs.filter((m: any) => {
-        if (!m || typeof m !== 'object') return true
-        const id = String(m?.id || '').trim()
-        if (id === mid) return false
-        if (String(m?.role || '') !== 'user') return true
-        if (String((m as any)?.groupId || '').trim() !== groupId) return true
-        if (String((m as any)?.groupRole || '').trim() !== 'attachment') return true
-        if (String((m as any)?.groupParentMid || '').trim() !== rootMid) return true
-        if (id) removedIds.add(id)
-        return false
-      })
-      nextMsgs = next
-    } else {
-      nextMsgs = msgs.filter((m: any) => String(m?.id || '').trim() !== mid)
-    }
-
-    // 关键：单节点删除要"接上来"——把后续子节点的 parentMid 指向被删节点的 parentMid
-    for (const m of nextMsgs) {
-      if (!m || typeof m !== 'object') continue
-      const pid = String((m as any)?.parentMid || '').trim()
-      if (!pid) continue
-      if (!removedIds.has(pid)) continue
-      ;(m as any).parentMid = targetParentMid
-    }
-
-    chat.messages = nextMsgs
-    chat.updatedAt = now()
-    repairChatLinearBranching(chat)
-
-    if (target.role === 'assistant') {
-      try {
-        uiStreamCache.delete(mid)
-      } catch (_) {}
-      try {
-        await aiGateway.resetAssistantRuntime(mid)
-      } catch (_) {}
-    }
-
-    // 修复各分支 headMid（避免 head 指向已删除的 mid）
-    const branching = ensureChatBranching(chat)
-    const newMsgs = Array.isArray(chat.messages) ? (chat.messages as any[]) : []
-    const newById = new Map<string, any>()
-    for (const m of newMsgs) {
-      const id = String(m?.id || '').trim()
-      if (!id || newById.has(id)) continue
-      newById.set(id, m)
-    }
-    const lastMid = newMsgs.length ? String((newMsgs[newMsgs.length - 1] as any)?.id || '').trim() : ''
-    const branches = Array.isArray((branching as any)?.branches) ? ((branching as any).branches as any[]) : []
-    for (const b of branches) {
-      const bid = normalizeBranchId((b as any)?.id)
-      if (!bid) continue
-      const head0 = String((b as any)?.headMid || '').trim()
-      if (head0 && newById.has(head0)) continue
-
-      // 1) 沿旧链往上找仍存在的祖先
-      let cur = head0
-      const seen = new Set<string>()
-      let guard = 0
-      while (cur && !newById.has(cur) && !seen.has(cur) && guard < 6000) {
-        guard++
-        seen.add(cur)
-        const m = oldById.get(cur) || null
-        cur = m ? String((m as any)?.parentMid || '').trim() : ''
-      }
-      if (cur && newById.has(cur)) {
-        ;(b as any).headMid = cur
-        continue
-      }
-
-      // 2) 找该分支里"最新"的消息作为 head（更符合"接上来"的直觉）
-      let pick = ''
-      let pickAt = -1
-      for (const m of newMsgs) {
-        if (!m || typeof m !== 'object') continue
-        if (normalizeBranchId((m as any)?.branchId) !== bid) continue
-        const t = Number((m as any)?.createdAt || 0)
-        if (t > pickAt) {
-          pickAt = t
-          pick = String((m as any)?.id || '').trim()
-        }
-      }
-
-      const fallback = targetParentMid && newById.has(targetParentMid) ? targetParentMid : lastMid
-      ;(b as any).headMid = pick || fallback || ''
-    }
-
-    emit()
+    const plan = planDeleteSingleMessage(msgs, mid, target)
+    const assistantCleanupIds = target.role === 'assistant' ? [mid] : []
     if (pendingChat) {
-      showToast?.('已删除')
+      try {
+        await runLocalChatMutation({
+          chat,
+          onRollback: emit,
+          onCommit: emit,
+          afterCommit: () => assistantArtifactCleanup.cleanup(assistantCleanupIds, { resetRuntime: true }),
+          mutate: () => {
+            chat.messages = plan.nextMessages
+            chat.updatedAt = now()
+            repairChatLinearBranching(chat)
+            repairBranchHeadsAfterSingleMessageDeletion(chat, oldById, plan.targetParentMid)
+          },
+        })
+        showToast?.('已删除')
+      } catch (e) {
+        showToast?.(String((e as any)?.message || e || '删除失败'))
+      }
       return
     }
 
     try {
-      await save(createDeletedMessagesSaveIntent(removedIds, { [mid]: targetParentMid }))
+      await runChatMutationTransaction({
+        chat,
+        intent: createDeletedMessagesSaveIntent(plan.deletedMessageIds, plan.deletedMessageParentById),
+        save,
+        onRollback: emit,
+        onCommit: emit,
+        afterCommit: () => assistantArtifactCleanup.cleanup(assistantCleanupIds, { resetRuntime: true }),
+        mutate: () => {
+          chat.messages = plan.nextMessages
+          chat.updatedAt = now()
+          repairChatLinearBranching(chat)
+          repairBranchHeadsAfterSingleMessageDeletion(chat, oldById, plan.targetParentMid)
+        },
+      })
       showToast?.('已删除')
     } catch (e) {
       showToast?.(String((e as any)?.message || e || '删除失败'))
@@ -1896,131 +1843,47 @@ export function createChatOperations(deps: {
       oldById.set(id, m)
     }
 
-    const children = new Map<string, string[]>()
-    for (const m of msgs) {
-      const id = String(m?.id || '').trim()
-      if (!id) continue
-      const pid = String((m as any)?.parentMid || '').trim()
-      if (!pid) continue
-      const list = children.get(pid) || []
-      list.push(id)
-      children.set(pid, list)
-    }
+    const plan = planDeleteMessageSubtree(msgs, mid0)
+    if (plan.nextMessages.length === msgs.length) return showToast?.('未删除任何消息')
 
-    const toDelete = new Set<string>()
-    const stack = [mid0]
-    while (stack.length) {
-      const cur = String(stack.pop() || '').trim()
-      if (!cur || toDelete.has(cur)) continue
-      toDelete.add(cur)
-      const kids = children.get(cur) || []
-      for (const k of kids) {
-        const id = String(k || '').trim()
-        if (id && !toDelete.has(id)) stack.push(id)
-      }
-    }
+    const assistantCleanupIds = Array.from(plan.deletedMessageIds).filter((id) => String(oldById.get(id)?.role || '') === 'assistant')
 
-    // 附件组：如果删除了某条"附件 root 用户消息"，一并删除其 attachment 子消息（避免遗留孤儿消息）
-    const extra = new Set<string>()
-    for (const id of toDelete) {
-      const m = oldById.get(id) || null
-      if (!m || String(m?.role || '') !== 'user') continue
-      const groupId = String((m as any)?.groupId || '').trim()
-      const groupRole = String((m as any)?.groupRole || '').trim()
-      if (!groupId || groupRole !== 'root') continue
-      const rootMid = String((m as any)?.id || '').trim()
-      for (const x of msgs) {
-        if (!x || typeof x !== 'object') continue
-        if (String(x?.role || '') !== 'user') continue
-        if (String((x as any)?.groupId || '').trim() !== groupId) continue
-        if (String((x as any)?.groupRole || '').trim() !== 'attachment') continue
-        if (String((x as any)?.groupParentMid || '').trim() !== rootMid) continue
-        const xid = String((x as any)?.id || '').trim()
-        if (xid) extra.add(xid)
-      }
-    }
-    for (const id of extra) toDelete.add(id)
-
-    const nextMsgs = msgs.filter((m: any) => {
-      const id = String(m?.id || '').trim()
-      if (!id) return true
-      return !toDelete.has(id)
-    })
-
-    if (nextMsgs.length === msgs.length) return showToast?.('未删除任何消息')
-
-    chat.messages = nextMsgs
-    chat.updatedAt = now()
-
-    // 清理 assistant 的流式缓存（避免残留）
-    for (const id of toDelete) {
-      const m = oldById.get(id) || null
-      if (!m || String(m?.role || '') !== 'assistant') continue
-      try {
-        uiStreamCache.delete(id)
-      } catch (_) {}
-      try {
-        await aiGateway.resetAssistantRuntime(id)
-      } catch (_) {}
-    }
-
-    repairChatLinearBranching(chat)
-
-    // 修复各分支 headMid（避免 head 指向已删除消息导致后续切分支"空/坏"）
-    const branching = ensureChatBranching(chat)
-    const newById = new Map<string, any>()
-    for (const m of nextMsgs) {
-      const id = String(m?.id || '').trim()
-      if (!id || newById.has(id)) continue
-      newById.set(id, m)
-    }
-    const lastMid = nextMsgs.length ? String((nextMsgs[nextMsgs.length - 1] as any)?.id || '').trim() : ''
-
-    const branches = Array.isArray((branching as any)?.branches) ? ((branching as any).branches as any[]) : []
-    for (const b of branches) {
-      const bid = normalizeBranchId((b as any)?.id)
-      if (!bid) continue
-      let head = String((b as any)?.headMid || '').trim()
-      if (head && newById.has(head)) continue
-
-      // 1) 尝试沿 parentMid 往上找仍存在的祖先
-      let cur = head
-      const seen = new Set<string>()
-      let guard = 0
-      while (cur && !newById.has(cur) && !seen.has(cur) && guard < 6000) {
-        guard++
-        seen.add(cur)
-        const m = oldById.get(cur) || null
-        cur = m ? String((m as any)?.parentMid || '').trim() : ''
-      }
-      if (cur && newById.has(cur)) {
-        ;(b as any).headMid = cur
-        continue
-      }
-
-      // 2) 找该分支里"最新"的消息作为 head
-      let pick = ''
-      let pickAt = -1
-      for (const m of nextMsgs) {
-        if (!m || typeof m !== 'object') continue
-        if (normalizeBranchId((m as any)?.branchId) !== bid) continue
-        const t = Number((m as any)?.createdAt || 0)
-        if (t > pickAt) {
-          pickAt = t
-          pick = String((m as any)?.id || '').trim()
-        }
-      }
-      ;(b as any).headMid = pick || lastMid
-    }
-
-    emit()
     if (pendingChat) {
-      showToast?.('已删除（含子节点）')
+      try {
+        await runLocalChatMutation({
+          chat,
+          onRollback: emit,
+          onCommit: emit,
+          afterCommit: () => assistantArtifactCleanup.cleanup(assistantCleanupIds, { resetRuntime: true }),
+          mutate: () => {
+            chat.messages = plan.nextMessages
+            chat.updatedAt = now()
+            repairChatLinearBranching(chat)
+            repairBranchHeadsAfterSubtreeDeletion(chat, oldById, plan.nextMessages)
+          },
+        })
+        showToast?.('已删除（含子节点）')
+      } catch (e) {
+        showToast?.(String((e as any)?.message || e || '删除失败'))
+      }
       return
     }
 
     try {
-      await save(createDeletedMessagesSaveIntent(toDelete, {}, [mid0]))
+      await runChatMutationTransaction({
+        chat,
+        intent: createDeletedMessagesSaveIntent(plan.deletedMessageIds, plan.deletedMessageParentById, plan.subtreeRootIds),
+        save,
+        onRollback: emit,
+        onCommit: emit,
+        afterCommit: () => assistantArtifactCleanup.cleanup(assistantCleanupIds, { resetRuntime: true }),
+        mutate: () => {
+          chat.messages = plan.nextMessages
+          chat.updatedAt = now()
+          repairChatLinearBranching(chat)
+          repairBranchHeadsAfterSubtreeDeletion(chat, oldById, plan.nextMessages)
+        },
+      })
       showToast?.('已删除（含子节点）')
     } catch (e) {
       showToast?.(String((e as any)?.message || e || '删除失败'))
@@ -2051,21 +1914,41 @@ export function createChatOperations(deps: {
 
     if (target.role === 'assistant') {
       if (hasActiveAssistantMessages({ messages: [target] })) return showToast?.('该消息正在生成中，无法编辑')
-      try {
-        uiStreamCache.delete(mid)
-      } catch (_) {}
     }
 
-    target.content = String(content ?? '')
-    chat.updatedAt = now()
-    repairChatLinearBranching(chat)
-
-    emit()
-
-    if (pendingChat) return showToast?.('已保存')
+    if (pendingChat) {
+      try {
+        await runLocalChatMutation({
+          chat,
+          onRollback: emit,
+          onCommit: emit,
+          afterCommit: () => assistantArtifactCleanup.cleanup(target.role === 'assistant' ? [mid] : []),
+          mutate: () => {
+            target.content = String(content ?? '')
+            chat.updatedAt = now()
+            repairChatLinearBranching(chat)
+          },
+        })
+        showToast?.('已保存')
+      } catch (e) {
+        showToast?.(String((e as any)?.message || e || '保存失败'))
+      }
+      return
+    }
 
     try {
-      await save()
+      await runChatMutationTransaction({
+        chat,
+        save,
+        onRollback: emit,
+        onCommit: emit,
+        afterCommit: () => assistantArtifactCleanup.cleanup(target.role === 'assistant' ? [mid] : []),
+        mutate: () => {
+          target.content = String(content ?? '')
+          chat.updatedAt = now()
+          repairChatLinearBranching(chat)
+        },
+      })
       showToast?.('已保存')
     } catch (e) {
       showToast?.(String((e as any)?.message || e || '保存失败'))
