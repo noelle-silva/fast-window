@@ -2,7 +2,7 @@
   "id": "calculator",
   "name": "计算器",
   "author": "fast-window",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "安全表达式计算：+ - * / ^，支持括号、历史记录、复制/粘贴",
   "main": "index.js",
   "icon": "svg:icon.svg",
