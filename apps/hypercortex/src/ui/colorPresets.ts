@@ -8,7 +8,7 @@ import type { HyperCortexColorPreset } from './colorPresetTypes'
 export type { HyperCortexColorPreset, HyperCortexColorPresetColors } from './colorPresetTypes'
 export { HYPERCORTEX_COLOR_PRESETS } from './colorPresetCatalog'
 
-export const DEFAULT_COLOR_PRESET_ID: HyperCortexColorPresetIdV1 = 'dopamine-soft'
+export const DEFAULT_COLOR_PRESET_ID: HyperCortexColorPresetIdV1 = 'claude-paper'
 
 const COLOR_PRESET_BY_ID = buildColorPresetIndex()
 
