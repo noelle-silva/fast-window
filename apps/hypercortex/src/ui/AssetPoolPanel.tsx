@@ -351,7 +351,7 @@ function AssetSelectionToolbar({
   onClearSelection,
   onCopySelectedMarkers,
   onDeleteSelected,
-  onExitSelectionMode,
+  onToggleSelectionMode,
 }: {
   selectedCount: number
   selectedVisibleCount: number
@@ -362,42 +362,13 @@ function AssetSelectionToolbar({
   onClearSelection: () => void
   onCopySelectedMarkers: () => void
   onDeleteSelected: () => void
-  onExitSelectionMode: () => void
+  onToggleSelectionMode: () => void
 }) {
   const hasSelectedAssets = selectedCount > 0
   const selectionSummaryLabel = selectedVisibleCount ? `已选 ${selectedCount}，当前分类 ${selectedVisibleCount}` : `已选 ${selectedCount}`
 
   return (
-    <>
-      <Typography sx={{ fontSize: 12, fontWeight: 900, color: hasSelectedAssets ? 'var(--hc-text)' : 'var(--hc-text-subtle)', px: 0.5 }}>
-        {selectionSummaryLabel}
-      </Typography>
-      <Button
-        variant="text"
-        size="small"
-        onClick={onSelectVisible}
-        disabled={!hasVisibleAssets || allVisibleAssetsSelected}
-        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, ...toneHoverActionSx(activeCategoryTone) }}
-      >
-        全选当前分类
-      </Button>
-      <Button
-        variant="text"
-        size="small"
-        onClick={onClearSelection}
-        disabled={!hasSelectedAssets}
-        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' } }}
-      >
-        清空
-      </Button>
-      <Button
-        variant="text"
-        size="small"
-        onClick={onExitSelectionMode}
-        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' } }}
-      >
-        退出多选
-      </Button>
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, flexWrap: 'wrap' }}>
       <Tooltip title="复制所选附件的引用标记（一行一个）" placement="bottom">
         <span>
           <IconButton
@@ -424,7 +395,36 @@ function AssetSelectionToolbar({
           </IconButton>
         </span>
       </Tooltip>
-    </>
+      <Typography sx={{ fontSize: 12, fontWeight: 900, color: hasSelectedAssets ? 'var(--hc-text)' : 'var(--hc-text-subtle)', px: 0.5 }}>
+        {selectionSummaryLabel}
+      </Typography>
+      <Button
+        variant="text"
+        size="small"
+        onClick={onSelectVisible}
+        disabled={!hasVisibleAssets || allVisibleAssetsSelected}
+        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, ...toneHoverActionSx(activeCategoryTone) }}
+      >
+        全选当前分类
+      </Button>
+      <Button
+        variant="text"
+        size="small"
+        onClick={onClearSelection}
+        disabled={!hasSelectedAssets}
+        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' } }}
+      >
+        清空
+      </Button>
+      <Button
+        variant="text"
+        size="small"
+        onClick={onToggleSelectionMode}
+        sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text)', fontWeight: 900, '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' } }}
+      >
+        取消多选
+      </Button>
+    </Box>
   )
 }
 
@@ -951,7 +951,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             onClearSelection={handleClearSelection}
             onCopySelectedMarkers={handleCopySelectedMarkers}
             onDeleteSelected={requestDeleteSelected}
-            onExitSelectionMode={handleExitSelectionMode}
+            onToggleSelectionMode={handleExitSelectionMode}
           />
         )
       : (
