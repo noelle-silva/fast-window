@@ -5,6 +5,7 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import { Box, Button, Chip, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { ImageAttachments } from '../components/ImageAttachments'
 import type { AiOnceController } from '../hooks/useAiOnceController'
@@ -35,7 +36,7 @@ export function WorkbenchView(props: WorkbenchViewProps) {
             <Stack spacing={0.75} sx={{ minHeight: 0, height: '100%' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                 <Typography variant="caption" color="text.secondary">{controller.state.dataDirStatus?.writable ? '数据目录可写' : '等待数据目录状态'}</Typography>
-                <Button startIcon={<SettingsOutlinedIcon fontSize="small" />} onClick={controller.openTemplates}>
+                <Button startIcon={<SettingsOutlinedIcon fontSize="small" />} onClick={controller.openTemplates} disabled={controller.state.busy || controller.state.asking}>
                   空间编辑
                 </Button>
               </Stack>
@@ -43,25 +44,31 @@ export function WorkbenchView(props: WorkbenchViewProps) {
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                 <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
                   <InputLabel id="template-select-label">模板</InputLabel>
-                  <Select labelId="template-select-label" label="模板" value={currentSpace.activeTemplateId} onChange={event => void controller.updateActiveTemplate(event.target.value)}>
+                  <Select labelId="template-select-label" label="模板" value={currentSpace.activeTemplateId} onChange={event => void controller.updateActiveTemplate(event.target.value)} disabled={controller.state.busy || controller.state.asking}>
                     {currentSpace.templates.map(template => <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>)}
                   </Select>
                 </FormControl>
                 <FormControl size="small" sx={{ minWidth: 180, flex: 1.4 }}>
                   <InputLabel id="model-select-label">模型坐标</InputLabel>
-                  <Select labelId="model-select-label" label="模型坐标" value={controller.state.modelDraft || controller.model} onChange={event => controller.setModelDraft(event.target.value)}>
+                  <Select labelId="model-select-label" label="模型坐标" value={controller.state.modelDraft || controller.model} onChange={event => controller.setModelDraft(event.target.value)} disabled={controller.state.busy || controller.state.asking}>
                     <MenuItem value="">选择模型</MenuItem>
                     {controller.models.map(model => <MenuItem key={model} value={model}>{model}</MenuItem>)}
                     <MenuItem value="__custom__">自定义模型坐标...</MenuItem>
                   </Select>
                 </FormControl>
-                <Button startIcon={<PlayArrowRoundedIcon fontSize="small" />} variant="contained" color="success" onClick={() => void controller.askOnce()} disabled={!controller.canAsk}>
-                  {controller.state.busy ? '发送中...' : '发送'}
+                <Button
+                  startIcon={controller.state.asking ? <StopRoundedIcon fontSize="small" /> : <PlayArrowRoundedIcon fontSize="small" />}
+                  variant="contained"
+                  color={controller.state.asking ? 'error' : 'success'}
+                  onClick={controller.state.asking ? controller.cancelAsk : () => void controller.askOnce()}
+                  disabled={controller.state.asking ? !controller.canCancelAsk : !controller.canAsk}
+                >
+                  {controller.state.asking ? '取消' : '发送'}
                 </Button>
               </Stack>
 
               {controller.state.modelDraft === '__custom__' ? (
-                <TextField label="自定义模型坐标" placeholder="供应商名称/模型ID" value={controller.state.customModel} onChange={event => controller.setCustomModel(event.target.value)} />
+                <TextField label="自定义模型坐标" placeholder="供应商名称/模型ID" value={controller.state.customModel} onChange={event => controller.setCustomModel(event.target.value)} disabled={controller.state.busy || controller.state.asking} />
               ) : null}
 
               <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={event => { if (event.target.files) void controller.addImageFiles(event.target.files); event.target.value = '' }} />
@@ -79,10 +86,11 @@ export function WorkbenchView(props: WorkbenchViewProps) {
                 onKeyDown={event => {
                   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                     event.preventDefault()
-                    void controller.askOnce()
+                    if (controller.canAsk) void controller.askOnce()
                   }
                 }}
                 placeholder="输入你的问题..."
+                disabled={controller.state.busy || controller.state.asking}
                 multiline
                 fullWidth
                 sx={{ flex: 1, minHeight: 0, '& .MuiInputBase-root': { height: '100%', alignItems: 'stretch' }, '& textarea': { height: '100% !important', overflow: 'auto !important', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', lineHeight: 1.65 } }}
@@ -111,7 +119,7 @@ export function WorkbenchView(props: WorkbenchViewProps) {
                 </Stack>
                 <Box sx={{ flex: 1 }} />
                 <Button startIcon={<ContentCopyRoundedIcon fontSize="small" />} onClick={() => void controller.copyAnswer()} disabled={!controller.state.answer}>复制</Button>
-                <Button onClick={controller.clearWorkbench} disabled={controller.state.busy}>清空</Button>
+                <Button onClick={controller.clearWorkbench} disabled={controller.state.busy || controller.state.asking}>清空</Button>
               </Stack>
               <Box
                 component="pre"
@@ -130,7 +138,7 @@ export function WorkbenchView(props: WorkbenchViewProps) {
                   lineHeight: 1.65,
                 }}
               >
-                {controller.state.answer || (controller.state.busy ? '正在请求 AI...' : '等待输出...')}
+                {controller.state.answer || (controller.state.asking ? '正在请求 AI...' : '等待输出...')}
               </Box>
             </Stack>
           </Box>

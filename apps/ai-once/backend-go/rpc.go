@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -59,24 +62,80 @@ func (s *rpcServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
+	connCtx, cancelConn := context.WithCancel(r.Context())
+	defer cancelConn()
+	var writeMu sync.Mutex
+	var requestsMu sync.Mutex
+	cancellations := map[string]context.CancelFunc{}
+	defer func() {
+		requestsMu.Lock()
+		defer requestsMu.Unlock()
+		for _, cancel := range cancellations {
+			cancel()
+		}
+	}()
+	writeResponse := func(res rpcResponse) bool {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return c.WriteJSON(res) == nil
+	}
+	cancelRequest := func(id string) {
+		requestsMu.Lock()
+		cancel := cancellations[id]
+		requestsMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	}
+	forgetRequest := func(id string) {
+		requestsMu.Lock()
+		delete(cancellations, id)
+		requestsMu.Unlock()
+	}
 	for {
 		var req rpcRequest
 		if err := c.ReadJSON(&req); err != nil {
 			return
 		}
-		result, err := s.dispatch(req.Method, req.Params)
-		res := rpcResponse{ID: req.ID, Type: "response", OK: err == nil, Result: result}
-		if err != nil {
-			res.Error = &rpcError{Message: err.Error()}
+		if req.Type == "cancel" {
+			cancelRequest(req.ID)
+			continue
 		}
-		if err := c.WriteJSON(res); err != nil {
-			return
+		if req.Type != "request" || req.ID == "" {
+			continue
 		}
+		reqCtx, cancel := context.WithCancel(connCtx)
+		requestsMu.Lock()
+		if _, exists := cancellations[req.ID]; exists {
+			requestsMu.Unlock()
+			cancel()
+			continue
+		}
+		cancellations[req.ID] = cancel
+		requestsMu.Unlock()
+		go func(req rpcRequest) {
+			defer forgetRequest(req.ID)
+			defer cancel()
+			result, err := s.dispatch(reqCtx, req.Method, req.Params)
+			res := rpcResponse{ID: req.ID, Type: "response", OK: err == nil, Result: result}
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					err = errors.New("请求已取消")
+				}
+				res.Error = &rpcError{Message: err.Error()}
+			}
+			_ = writeResponse(res)
+		}(req)
 	}
 }
 
-func (s *rpcServer) dispatch(method string, params json.RawMessage) (any, error) {
+func (s *rpcServer) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	s.svc.mu.Lock()
+	defer s.svc.mu.Unlock()
 	if err := s.svc.ensureReady(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	switch method {
@@ -93,13 +152,13 @@ func (s *rpcServer) dispatch(method string, params json.RawMessage) (any, error)
 			ProviderID string `json:"providerId"`
 		}
 		_ = json.Unmarshal(params, &p)
-		return s.svc.refreshModels(p.ProviderID)
+		return s.svc.refreshModels(ctx, p.ProviderID)
 	case "aiOnce.ask":
 		var req AskRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return s.svc.ask(req)
+		return s.svc.ask(ctx, req)
 	case "aiOnce.history.list":
 		return s.svc.readHistory()
 	case "aiOnce.history.entry":

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestServiceCreatesAiOnceDataFiles(t *testing.T) {
@@ -112,7 +115,7 @@ func TestAskBuildsImagePayload(t *testing.T) {
 	if _, err := svc.saveData(data); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "hello", Images: []DraftImage{{Name: "a.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}})
+	entry, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "hello", Images: []DraftImage{{Name: "a.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +130,70 @@ func TestAskBuildsImagePayload(t *testing.T) {
 	parts := user["content"].([]any)
 	if len(parts) != 2 || parts[1].(map[string]any)["type"] != "image_url" {
 		t.Fatalf("bad payload: %#v", got)
+	}
+}
+
+func TestAskCancellationStopsRequestWithoutHistory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FW_APP_DATA_DIR", dir)
+	started := make(chan struct{})
+	released := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		close(started)
+		select {
+		case <-r.Context().Done():
+		case <-released:
+		}
+	}))
+	defer server.Close()
+	defer close(released)
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := svc.readData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data.Settings.Providers[0].BaseURL = server.URL + "/v1"
+	data.Settings.Providers[0].APIKey = "key"
+	data.Spaces[0].DefaultModelByProvider[data.Settings.Providers[0].ID] = "m"
+	if _, err := svc.saveData(data); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := svc.ask(ctx, AskRequest{SpaceID: data.Spaces[0].ID, Input: "cancel me"})
+		errCh <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("expected AI request to start")
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected canceled request to return")
+	}
+	doc, err := svc.readHistoryRaw()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Items) != 0 {
+		t.Fatalf("expected no history for canceled request: %#v", doc.Items)
 	}
 }
 
@@ -159,7 +226,7 @@ func TestHistoryLimitPrunesRecordsAndImages(t *testing.T) {
 	if _, err := svc.saveData(data); err != nil {
 		t.Fatal(err)
 	}
-	oldest, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "one", Images: []DraftImage{{Name: "one.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}})
+	oldest, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "one", Images: []DraftImage{{Name: "one.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,10 +234,10 @@ func TestHistoryLimitPrunesRecordsAndImages(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, historyImageDir, oldestFile)); err != nil {
 		t.Fatalf("expected oldest image before prune: %v", err)
 	}
-	if _, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "two", Images: []DraftImage{{Name: "two.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,ZGVm"}}}); err != nil {
+	if _, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "two", Images: []DraftImage{{Name: "two.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,ZGVm"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "three", Images: []DraftImage{{Name: "three.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,Z2hp"}}}); err != nil {
+	if _, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "three", Images: []DraftImage{{Name: "three.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,Z2hp"}}}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.readHistoryRaw()
@@ -226,7 +293,7 @@ func TestDisabledHistoryDoesNotPersistRecordOrImages(t *testing.T) {
 	if _, err := svc.saveData(data); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "no record", Images: []DraftImage{{Name: "x.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}}); err != nil {
+	if _, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "no record", Images: []DraftImage{{Name: "x.png", Type: "image/png", Size: 3, DataURL: "data:image/png;base64,YWJj"}}}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.readHistoryRaw()
@@ -277,10 +344,10 @@ func TestSpaceHistorySettingsOverrideGlobalLimit(t *testing.T) {
 	if _, err := svc.saveData(data); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "one"}); err != nil {
+	if _, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "two"}); err != nil {
+	if _, err := svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.readHistoryRaw()
@@ -302,7 +369,7 @@ func TestAskRequiresProviderConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := svc.readData()
-	_, err = svc.ask(AskRequest{SpaceID: data.Spaces[0].ID, Input: "hello", Model: "m"})
+	_, err = svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "hello", Model: "m"})
 	if err == nil {
 		t.Fatal("expected missing provider configuration error")
 	}

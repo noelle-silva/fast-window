@@ -23,7 +23,7 @@ export function SpaceDialogs(props: SpaceDialogsProps) {
             <TextField label="空间名称" autoFocus value={state.spaceName} onChange={event => controller.setSpaceName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void controller.createSpace() }} />
             <Stack direction="row" spacing={1} justifyContent="flex-end">
               <Button onClick={controller.closeDialog}>取消</Button>
-              <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.createSpace()} disabled={state.busy}>
+              <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.createSpace()} disabled={state.busy || state.asking}>
                 创建
               </Button>
             </Stack>
@@ -41,7 +41,7 @@ export function SpaceDialogs(props: SpaceDialogsProps) {
             <TextField label="空间名称" autoFocus value={state.spaceRename.name} onChange={event => controller.setSpaceRenameName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void controller.saveSpaceRename() }} />
             <Stack direction="row" spacing={1} justifyContent="flex-end">
               <Button onClick={controller.closeDialog}>取消</Button>
-              <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveSpaceRename()} disabled={state.busy}>
+              <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveSpaceRename()} disabled={state.busy || state.asking}>
                 保存
               </Button>
             </Stack>
@@ -58,7 +58,7 @@ export function SpaceDialogs(props: SpaceDialogsProps) {
             </Box>
             <Stack direction="row" spacing={1} justifyContent="flex-end">
               <Button onClick={controller.cancelDeleteSpace}>取消</Button>
-              <Button color="error" variant="contained" startIcon={<DeleteOutlineRoundedIcon fontSize="small" />} onClick={() => void controller.confirmDeleteSpace()} disabled={state.busy}>
+              <Button color="error" variant="contained" startIcon={<DeleteOutlineRoundedIcon fontSize="small" />} onClick={() => void controller.confirmDeleteSpace()} disabled={state.busy || state.asking}>
                 删除
               </Button>
             </Stack>

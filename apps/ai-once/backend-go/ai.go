@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,7 +19,7 @@ type httpDoer interface {
 
 var httpClient httpDoer = &http.Client{Timeout: 60 * time.Second}
 
-func (s *service) refreshModels(providerID string) (AppData, error) {
+func (s *service) refreshModels(ctx context.Context, providerID string) (AppData, error) {
 	data, err := s.readData()
 	if err != nil {
 		return data, err
@@ -31,7 +32,7 @@ func (s *service) refreshModels(providerID string) (AppData, error) {
 	if err := requireProvider(p, false); err != nil {
 		return data, err
 	}
-	req, err := http.NewRequest(http.MethodGet, trimSlash(p.BaseURL)+"/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, trimSlash(p.BaseURL)+"/models", nil)
 	if err != nil {
 		return data, err
 	}
@@ -81,7 +82,7 @@ func parseModels(body []byte) ([]string, error) {
 	return sortedModelIDs(ids), nil
 }
 
-func (s *service) ask(req AskRequest) (HistoryEntry, error) {
+func (s *service) ask(ctx context.Context, req AskRequest) (HistoryEntry, error) {
 	data, err := s.readData()
 	if err != nil {
 		return HistoryEntry{}, err
@@ -119,7 +120,10 @@ func (s *service) ask(req AskRequest) (HistoryEntry, error) {
 	}
 	messages := buildMessages(tpl.SystemPrompt, input, req.Images)
 	payload := map[string]any{"model": model, "messages": messages, "temperature": 0.2, "stream": false}
-	out, callErr := callChatCompletion(p, payload)
+	out, callErr := callChatCompletion(ctx, p, payload)
+	if errors.Is(callErr, context.Canceled) {
+		return HistoryEntry{}, callErr
+	}
 	entry := HistoryEntry{ID: newID("hist"), SpaceID: space.ID, TemplateID: tpl.ID, ProviderID: providerID, Model: model, Input: input, Output: out, Images: []ImageMeta{}, CreatedAt: time.Now().Format(time.RFC3339)}
 	if callErr != nil {
 		entry.Error = callErr.Error()
@@ -156,9 +160,9 @@ func buildMessages(systemPrompt, input string, images []DraftImage) []map[string
 	return append(messages, map[string]any{"role": "user", "content": parts})
 }
 
-func callChatCompletion(p Provider, payload map[string]any) (string, error) {
+func callChatCompletion(ctx context.Context, p Provider, payload map[string]any) (string, error) {
 	b, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, trimSlash(p.BaseURL)+"/chat/completions", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, trimSlash(p.BaseURL)+"/chat/completions", bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}

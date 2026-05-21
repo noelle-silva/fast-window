@@ -14,4 +14,5 @@ export type DraftImage = { id: string; name: string; type: string; size: number;
 export type HistoryImage = { id: string; name: string; type: string; size: number; fileName?: string; dataUrl?: string }
 export type HistoryEntry = { id: string; spaceId: string; templateId: string; providerId: string; model: string; input: string; output: string; error?: string; images: HistoryImage[]; createdAt: string }
 export type HistoryDoc = { schemaVersion: number; dataVersion: number; items: HistoryEntry[] }
-export type DirectClient = { request<T>(method: string, params?: unknown): Promise<T>; close(): void }
+export type DirectRequestOptions = { signal?: AbortSignal }
+export type DirectClient = { request<T>(method: string, params?: unknown, options?: DirectRequestOptions): Promise<T>; close(): void }

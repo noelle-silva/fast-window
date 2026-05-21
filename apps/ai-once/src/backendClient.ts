@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { BackendEndpoint, DirectClient } from './types'
+import type { BackendEndpoint, DirectClient, DirectRequestOptions } from './types'
 
-type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; cleanup?: () => void }
 
 const OPEN_TIMEOUT_MS = 15_000
 const REQUEST_TIMEOUT_MS = 75_000
@@ -48,6 +48,12 @@ function installResumeTriggers(onResume: () => void) {
   }
 }
 
+function abortError(): Error {
+  const error = new Error('请求已取消')
+  error.name = 'AbortError'
+  return error
+}
+
 class AiOnceDirectClient implements DirectClient {
   private ws: WebSocket | null = null
   private connectPromise: Promise<void> | null = null
@@ -65,7 +71,8 @@ class AiOnceDirectClient implements DirectClient {
     await this.ensureConnected()
   }
 
-  request = async <T,>(method: string, params?: unknown): Promise<T> => {
+  request = async <T,>(method: string, params?: unknown, options?: DirectRequestOptions): Promise<T> => {
+    if (options?.signal?.aborted) throw abortError()
     await this.ensureConnected()
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -77,13 +84,36 @@ class AiOnceDirectClient implements DirectClient {
     if (!active || active.readyState !== WebSocket.OPEN) throw new Error('后台未连接')
     const id = `ai-once-${Date.now()}-${++this.seq}`
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('后台请求超时')) }, REQUEST_TIMEOUT_MS)
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
+      const rejectRequest = (error: Error) => {
+        const entry = this.pending.get(id)
+        if (!entry) return
+        this.pending.delete(id)
+        clearTimeout(entry.timer)
+        entry.cleanup?.()
+        reject(error)
+      }
+      const cancelBackend = () => {
+        if (active.readyState === WebSocket.OPEN) active.send(JSON.stringify({ id, type: 'cancel' }))
+      }
+      const onAbort = () => {
+        try { cancelBackend() } catch {}
+        rejectRequest(abortError())
+      }
+      const timer = setTimeout(() => { try { cancelBackend() } catch {}; rejectRequest(new Error('后台请求超时')) }, REQUEST_TIMEOUT_MS)
+      const cleanup = options?.signal ? () => options.signal?.removeEventListener('abort', onAbort) : undefined
+      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, cleanup })
+      options?.signal?.addEventListener('abort', onAbort, { once: true })
+      if (options?.signal?.aborted) {
+        onAbort()
+        return
+      }
       try {
         active.send(JSON.stringify({ id, type: 'request', method, params: params ?? {} }))
       } catch {
+        const entry = this.pending.get(id)
         this.pending.delete(id)
         clearTimeout(timer)
+        entry?.cleanup?.()
         this.markDisconnected(active, new Error('后台连接已关闭'))
         reject(new Error('后台连接已关闭'))
       }
@@ -137,6 +167,7 @@ class AiOnceDirectClient implements DirectClient {
     if (!entry) return
     this.pending.delete(id)
     clearTimeout(entry.timer)
+    entry.cleanup?.()
     if (frame.ok) entry.resolve(frame.result)
     else entry.reject(new Error(String(frame.error?.message || '后台请求失败')))
   }
@@ -169,7 +200,7 @@ class AiOnceDirectClient implements DirectClient {
   }
 
   private rejectPending(error: Error) {
-    for (const entry of this.pending.values()) { clearTimeout(entry.timer); entry.reject(error) }
+    for (const entry of this.pending.values()) { clearTimeout(entry.timer); entry.cleanup?.(); entry.reject(error) }
     this.pending.clear()
   }
 }

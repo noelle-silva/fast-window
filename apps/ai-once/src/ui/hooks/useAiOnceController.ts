@@ -34,6 +34,7 @@ export type AiOnceController = {
   historyPositionLabel: string
   isReady: boolean
   canAsk: boolean
+  canCancelAsk: boolean
   canGoHistoryBack: boolean
   canGoHistoryForward: boolean
   setView(view: AiOnceView): void
@@ -52,6 +53,7 @@ export type AiOnceController = {
   setModelDraft(value: string): void
   setCustomModel(value: string): void
   askOnce(): Promise<void>
+  cancelAsk(): void
   clearWorkbench(): void
   copyAnswer(): Promise<void>
   addImageFiles(files: FileList | File[]): Promise<void>
@@ -93,6 +95,7 @@ function revokeImages(images: DraftImage[]) {
 export function useAiOnceController(): AiOnceController {
   const [state, setState] = React.useState<AiOnceUiState>(() => createAiOnceUiState())
   const clientRef = React.useRef<DirectClient | null>(null)
+  const askAbortRef = React.useRef<AbortController | null>(null)
   const stateRef = React.useRef(state)
 
   stateRef.current = state
@@ -115,9 +118,10 @@ export function useAiOnceController(): AiOnceController {
   const historyPositionLabel = !spaceHistory.length ? '无历史' : historyCursorIndex >= 0 ? `${historyCursorIndex + 1}/${spaceHistory.length}` : `最近 ${spaceHistory.length}`
   const imageBytes = state.images.reduce((sum, image) => sum + image.size, 0)
   const isReady = state.phase === 'ready' && !!clientRef.current
-  const canAsk = Boolean(isReady && !state.busy && (state.prompt.trim() || state.images.length) && selectedProvider && parsedModel.modelId)
-  const canGoHistoryBack = Boolean(isReady && !state.busy && spaceHistory.length && (historyCursorIndex < 0 || historyCursorIndex < spaceHistory.length - 1))
-  const canGoHistoryForward = Boolean(isReady && !state.busy && historyCursorIndex > 0)
+  const canAsk = Boolean(isReady && !state.busy && !state.asking && (state.prompt.trim() || state.images.length) && selectedProvider && parsedModel.modelId)
+  const canCancelAsk = Boolean(state.asking && askAbortRef.current)
+  const canGoHistoryBack = Boolean(isReady && !state.busy && !state.asking && spaceHistory.length && (historyCursorIndex < 0 || historyCursorIndex < spaceHistory.length - 1))
+  const canGoHistoryForward = Boolean(isReady && !state.busy && !state.asking && historyCursorIndex > 0)
   const providerLine = provider?.baseUrl || state.dataDirStatus?.dataDir || '等待后台连接'
 
   const patchState = React.useCallback((patch: Partial<AiOnceUiState>) => {
@@ -135,6 +139,8 @@ export function useAiOnceController(): AiOnceController {
   }, [patchState])
 
   const closeClient = React.useCallback(() => {
+    askAbortRef.current?.abort()
+    askAbortRef.current = null
     clientRef.current?.close()
     clientRef.current = null
   }, [])
@@ -218,6 +224,7 @@ export function useAiOnceController(): AiOnceController {
   }, [saveData])
 
   const clearImages = React.useCallback(() => {
+    if (stateRef.current.busy || stateRef.current.asking) return
     setState(prev => {
       revokeImages(prev.images)
       return { ...prev, images: [], historyCursorId: '' }
@@ -369,10 +376,17 @@ export function useAiOnceController(): AiOnceController {
   }, [connect, patchState, refreshDataDirStatus])
 
   const setPrompt = React.useCallback((prompt: string) => patchState({ prompt, historyCursorId: '' }), [patchState])
-  const setModelDraft = React.useCallback((modelDraft: string) => patchState({ modelDraft, customModel: modelDraft === '__custom__' ? stateRef.current.customModel : '', historyCursorId: '' }), [patchState])
-  const setCustomModel = React.useCallback((customModel: string) => patchState({ customModel, historyCursorId: '' }), [patchState])
+  const setModelDraft = React.useCallback((modelDraft: string) => {
+    if (stateRef.current.busy || stateRef.current.asking) return
+    patchState({ modelDraft, customModel: modelDraft === '__custom__' ? stateRef.current.customModel : '', historyCursorId: '' })
+  }, [patchState])
+  const setCustomModel = React.useCallback((customModel: string) => {
+    if (stateRef.current.busy || stateRef.current.asking) return
+    patchState({ customModel, historyCursorId: '' })
+  }, [patchState])
 
   const addImageFiles = React.useCallback(async (files: FileList | File[]) => {
+    if (stateRef.current.busy || stateRef.current.asking) return
     const settings = stateRef.current.data?.settings || { imageMaxCount: 6, imageMaxMb: 8 }
     const maxBytes = settings.imageMaxMb * 1024 * 1024
     const current = stateRef.current.images
@@ -396,6 +410,7 @@ export function useAiOnceController(): AiOnceController {
   }, [patchState])
 
   const removeImage = React.useCallback((imageId: string) => {
+    if (stateRef.current.busy || stateRef.current.asking) return
     setState(prev => {
       const hit = prev.images.find(image => image.id === imageId)
       if (hit?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(hit.previewUrl)
@@ -404,6 +419,7 @@ export function useAiOnceController(): AiOnceController {
   }, [])
 
   const askOnce = React.useCallback(async () => {
+    if (stateRef.current.busy || stateRef.current.asking) return
     const client = clientRef.current
     const data = stateRef.current.data
     const space = data?.spaces.find(item => item.id === stateRef.current.spaceId) || data?.spaces[0] || null
@@ -426,7 +442,9 @@ export function useAiOnceController(): AiOnceController {
       patchState({ error: '请选择或填写模型' })
       return
     }
-    patchState({ busy: true, error: '', answer: '' })
+    const askAbort = new AbortController()
+    askAbortRef.current = askAbort
+    patchState({ asking: true, error: '', answer: '' })
     try {
       const entry = await client.request<HistoryEntry>('aiOnce.ask', {
         spaceId: space.id,
@@ -435,10 +453,14 @@ export function useAiOnceController(): AiOnceController {
         model: parsedModel.modelId,
         input: stateRef.current.prompt,
         images: stateRef.current.images.map(({ id: _id, previewUrl: _previewUrl, ...rest }) => rest),
-      })
+      }, { signal: askAbort.signal })
       const history = await loadFromClient(client)
       patchState({ answer: entry.output, historyCursorId: history.some(item => item.id === entry.id) ? entry.id : '' })
     } catch (error) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        patchState({ error: 'AI 请求已取消' })
+        return
+      }
       const message = errorMessage(error, 'AI 请求失败')
       try {
         await refreshHistory(client)
@@ -447,9 +469,14 @@ export function useAiOnceController(): AiOnceController {
         patchState({ error: `${message}；历史刷新失败：${errorMessage(historyError, '未知错误')}` })
       }
     } finally {
-      patchState({ busy: false })
+      if (askAbortRef.current === askAbort) askAbortRef.current = null
+      patchState({ asking: false })
     }
   }, [loadFromClient, patchState, refreshHistory])
+
+  const cancelAsk = React.useCallback(() => {
+    askAbortRef.current?.abort()
+  }, [])
 
   const copyAnswer = React.useCallback(async () => {
     const answer = stateRef.current.answer
@@ -669,6 +696,7 @@ export function useAiOnceController(): AiOnceController {
     historyPositionLabel,
     isReady,
     canAsk,
+    canCancelAsk,
     canGoHistoryBack,
     canGoHistoryForward,
     setView,
@@ -687,6 +715,7 @@ export function useAiOnceController(): AiOnceController {
     setModelDraft,
     setCustomModel,
     askOnce,
+    cancelAsk,
     clearWorkbench,
     copyAnswer,
     addImageFiles,

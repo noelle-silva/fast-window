@@ -24,6 +24,7 @@ export type AiOnceUiState = {
   modelDraft: string
   customModel: string
   busy: boolean
+  asking: boolean
   error: string
   editing: AppData | null
   spaceName: string
@@ -51,6 +52,7 @@ export function createAiOnceUiState(): AiOnceUiState {
     modelDraft: '',
     customModel: '',
     busy: false,
+    asking: false,
     error: '',
     editing: null,
     spaceName: '',

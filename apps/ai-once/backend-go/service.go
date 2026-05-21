@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,7 @@ const (
 
 type service struct {
 	dataDir string
+	mu      sync.Mutex
 }
 
 func newService() (*service, error) {

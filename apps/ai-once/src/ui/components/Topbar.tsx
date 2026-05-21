@@ -59,7 +59,7 @@ export function Topbar(props: TopbarProps) {
         {state.view === 'workbench' ? (
           <Tooltip title="返回空间列表">
             <span>
-              <IconButton aria-label="返回空间列表" onClick={returnToSpaces} disabled={!hasData}>
+              <IconButton aria-label="返回空间列表" onClick={returnToSpaces} disabled={!hasData || state.asking}>
                 <ArrowBackRoundedIcon fontSize="small" />
               </IconButton>
             </span>
@@ -74,9 +74,9 @@ export function Topbar(props: TopbarProps) {
 
       <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-          <TopbarAction label="新建空间" icon={AddRoundedIcon} onClick={controller.openCreateSpaceDialog} disabled={!hasData || state.busy} />
-          <TopbarAction label="供应商设置" icon={SettingsOutlinedIcon} onClick={controller.openSettings} disabled={!hasData} />
-          <TopbarAction label="应用设置" icon={SettingsOutlinedIcon} onClick={() => controller.setDialog('app-settings')} />
+          <TopbarAction label="新建空间" icon={AddRoundedIcon} onClick={controller.openCreateSpaceDialog} disabled={!hasData || state.busy || state.asking} />
+          <TopbarAction label="供应商设置" icon={SettingsOutlinedIcon} onClick={controller.openSettings} disabled={!hasData || state.asking} />
+          <TopbarAction label="应用设置" icon={SettingsOutlinedIcon} onClick={() => controller.setDialog('app-settings')} disabled={state.asking} />
         </Box>
         <Chip size="small" label={state.launchInfo.standalone ? 'standalone' : `FW ${state.launchInfo.mode}`} sx={{ display: { xs: 'none', md: 'inline-flex' } }} />
         {state.launchInfo.standalone ? <StandaloneWindowControls actions={controller.windowActions} /> : null}

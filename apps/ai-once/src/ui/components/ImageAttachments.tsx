@@ -24,11 +24,11 @@ export function ImageAttachments(props: ImageAttachmentsProps) {
             : `可上传或粘贴图片，限制 ${settings?.imageMaxCount || 6} 张 / ${settings?.imageMaxMb || 8} MB`}
         </Typography>
         <Stack direction="row" spacing={0.75}>
-          <Button startIcon={<AddPhotoAlternateRoundedIcon fontSize="small" />} onClick={onPickImages} disabled={controller.state.busy}>
+          <Button startIcon={<AddPhotoAlternateRoundedIcon fontSize="small" />} onClick={onPickImages} disabled={controller.state.busy || controller.state.asking}>
             图片
           </Button>
           {images.length ? (
-            <Button color="warning" startIcon={<DeleteSweepRoundedIcon fontSize="small" />} onClick={controller.clearImages} disabled={controller.state.busy}>
+            <Button color="warning" startIcon={<DeleteSweepRoundedIcon fontSize="small" />} onClick={controller.clearImages} disabled={controller.state.busy || controller.state.asking}>
               清空图片
             </Button>
           ) : null}
@@ -43,6 +43,7 @@ export function ImageAttachments(props: ImageAttachmentsProps) {
               <IconButton
                 aria-label={`移除 ${image.name}`}
                 onClick={() => controller.removeImage(image.id)}
+                disabled={controller.state.busy || controller.state.asking}
                 sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(255,255,255,.88)', '&:hover': { bgcolor: 'rgba(255,255,255,.96)' } }}
               >
                 <CloseRoundedIcon fontSize="inherit" />

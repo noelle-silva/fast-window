@@ -202,7 +202,7 @@ export function TemplatesDialog(props: TemplatesDialogProps) {
               </Button>
               <Stack direction="row" spacing={1}>
                 <Button onClick={controller.closeDialog}>取消</Button>
-                <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveEditing()} disabled={controller.state.busy}>
+                <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveEditing()} disabled={controller.state.busy || controller.state.asking}>
                   保存
                 </Button>
               </Stack>

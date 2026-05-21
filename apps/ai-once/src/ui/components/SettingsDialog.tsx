@@ -108,12 +108,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <Divider />
 
             <Stack direction="row" spacing={1} justifyContent="space-between" flexWrap="wrap">
-              <Button startIcon={<RefreshRoundedIcon fontSize="small" />} onClick={() => void controller.refreshModels()} disabled={controller.state.busy}>
+              <Button startIcon={<RefreshRoundedIcon fontSize="small" />} onClick={() => void controller.refreshModels()} disabled={controller.state.busy || controller.state.asking}>
                 刷新模型
               </Button>
               <Stack direction="row" spacing={1}>
                 <Button onClick={controller.closeDialog}>取消</Button>
-                <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveEditing()} disabled={controller.state.busy}>
+                <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveEditing()} disabled={controller.state.busy || controller.state.asking}>
                   保存
                 </Button>
               </Stack>
