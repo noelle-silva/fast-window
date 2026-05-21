@@ -12,109 +12,12 @@ import { EmptyState } from '../components/EmptyState'
 import { LazyImagePreview } from '../components/LazyImagePreview'
 import { formatTime, historyKey, shouldShowFoldButton } from '../clipboardUiUtils'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
+import { clipboardItemDomId, useClipboardKeyboardSelection } from '../hooks/useClipboardKeyboardSelection'
 
 const LIST_PRELOAD_ROOT_MARGIN = '1400px 0px'
-const CLIPBOARD_ITEM_ID_PREFIX = 'clipboard-item-'
 
 type ClipboardViewProps = {
   controller: ClipboardHistoryController
-}
-
-function clipboardItemId(key: string): string {
-  return `${CLIPBOARD_ITEM_ID_PREFIX}${key}`
-}
-
-function isKeyboardInputTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return !!target.closest('input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]')
-}
-
-function nextClipboardLimitForIndex(index: number, limit: number, total: number, maxHistory: number): number {
-  if (index < limit) return limit
-  return Math.min(maxHistory, Math.max(index + 1, limit + CLIPBOARD_PAGE_SIZE), total)
-}
-
-function useClipboardKeyboardSelection(params: {
-  items: ClipboardHistoryItem[]
-  limit: number
-  total: number
-  maxHistory: number
-  bootStatus: ClipboardHistoryController['bootStatus']
-  blocked: boolean
-  setClipboardLimit(limit: number): void
-  copyHistoryItem(item: ClipboardHistoryItem): Promise<void>
-}) {
-  const { items, limit, total, maxHistory, bootStatus, blocked, setClipboardLimit, copyHistoryItem } = params
-  const [selectedKey, setSelectedKey] = React.useState('')
-  const itemKeys = React.useMemo(() => items.map(historyKey), [items])
-  const selectedIndex = selectedKey ? itemKeys.indexOf(selectedKey) : -1
-
-  const ensureLimitForIndex = React.useCallback((index: number) => {
-    const next = nextClipboardLimitForIndex(index, limit, total, maxHistory)
-    if (next > limit) setClipboardLimit(next)
-  }, [limit, maxHistory, setClipboardLimit, total])
-
-  React.useEffect(() => {
-    if (!itemKeys.length) {
-      if (selectedKey) setSelectedKey('')
-      return
-    }
-    const currentIndex = selectedKey ? itemKeys.indexOf(selectedKey) : -1
-    if (currentIndex >= 0) {
-      ensureLimitForIndex(currentIndex)
-      return
-    }
-    setSelectedKey(itemKeys[0])
-  }, [ensureLimitForIndex, itemKeys, selectedKey])
-
-  React.useEffect(() => {
-    if (!selectedKey) return
-    document.getElementById(clipboardItemId(selectedKey))?.scrollIntoView({ block: 'nearest' })
-  }, [selectedKey, limit])
-
-  const selectByOffset = React.useCallback((offset: number) => {
-    if (!itemKeys.length) return
-    const fallbackIndex = offset > 0 ? -1 : itemKeys.length
-    const currentIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex
-    const nextIndex = Math.min(itemKeys.length - 1, Math.max(0, currentIndex + offset))
-    ensureLimitForIndex(nextIndex)
-    setSelectedKey(itemKeys[nextIndex])
-  }, [ensureLimitForIndex, itemKeys, selectedIndex])
-
-  const copySelected = React.useCallback(() => {
-    if (!items.length) return
-    const item = items[selectedIndex >= 0 ? selectedIndex : 0]
-    if (!item) return
-    setSelectedKey(historyKey(item))
-    void copyHistoryItem(item)
-  }, [copyHistoryItem, items, selectedIndex])
-
-  React.useEffect(() => {
-    if (bootStatus !== 'ready' || blocked) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
-      if (isKeyboardInputTarget(event.target)) return
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        selectByOffset(1)
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        selectByOffset(-1)
-        return
-      }
-      if (event.key === 'Enter' || event.key === ' ') {
-        if (event.repeat) return
-        event.preventDefault()
-        copySelected()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [blocked, bootStatus, copySelected, selectByOffset])
-
-  return { selectedKey, selectKey: setSelectedKey }
 }
 
 export function ClipboardView(props: ClipboardViewProps) {
@@ -182,7 +85,7 @@ export function ClipboardView(props: ClipboardViewProps) {
       ) : (
         <Paper
           role="list"
-          aria-label="剪贴板历史，按上下键选择，按回车或空格复制当前项"
+          aria-label="剪贴板历史，按上下键或 Ctrl 加上下键选择，按回车或空格复制当前项"
           tabIndex={0}
           sx={{
             borderRadius: 1.5,
@@ -233,7 +136,7 @@ function ClipboardCard(props: { itemKey: string; item: ClipboardHistoryItem; con
 
   return (
     <Box
-      id={clipboardItemId(itemKey)}
+      id={clipboardItemDomId(itemKey)}
       role="listitem"
       aria-current={selected ? 'true' : undefined}
       tabIndex={-1}
