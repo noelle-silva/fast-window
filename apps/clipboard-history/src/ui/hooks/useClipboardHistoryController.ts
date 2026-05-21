@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { createClipboardHistoryGateway } from '../../gateway'
 import { createHostGateway } from '../../gateway/hostGateway'
 import type { ClipboardHistoryGateway, HostGateway } from '../../gateway/types'
+import { CLIPBOARD_HISTORY_COMMANDS, normalizeClipboardHistoryCommand } from '../../shared/appCommands'
 import { CLIPBOARD_PAGE_SIZE } from '../../shared/constants'
 import {
   buildPathIds as domainBuildPathIds,
@@ -346,9 +347,16 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
   }, [isFolder, saveRecentFolder])
 
   const handleRuntimeCommand = React.useCallback((raw: unknown) => {
-    const command = String(raw || '').trim()
-    if (!command) return
-    if (command === 'open-settings') {
+    const rawCommand = String(raw || '').trim()
+    if (!rawCommand) return
+
+    const command = normalizeClipboardHistoryCommand(rawCommand)
+    if (!command) {
+      void host.toast(`未知命令：${rawCommand}`)
+      return
+    }
+
+    if (command === CLIPBOARD_HISTORY_COMMANDS.settings) {
       setState(prev => ({ ...prev, showSettings: true, showRecentMenu: false }))
       return
     }
@@ -359,26 +367,14 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     }
 
     pendingLaunchCommandRef.current = null
-    if (command === 'open-history') {
+    if (command === CLIPBOARD_HISTORY_COMMANDS.open) {
       setState(prev => ({ ...prev, view: 'clipboard' }))
       return
     }
-    if (command === 'open-folders') {
+    if (command === CLIPBOARD_HISTORY_COMMANDS.folders) {
       setState(prev => ({ ...prev, view: 'folders' }))
       return
     }
-    if (command === 'clear-history') {
-      setState(prev => ({
-        ...prev,
-        view: 'clipboard',
-        showSettings: true,
-        showClearHistoryConfirm: true,
-        showRecentMenu: false,
-      }))
-      void host.toast('请确认是否清空历史')
-      return
-    }
-    void host.toast(`未知命令：${command}`)
   }, [host])
 
   React.useEffect(() => {
