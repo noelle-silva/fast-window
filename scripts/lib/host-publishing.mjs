@@ -13,6 +13,7 @@ import {
 } from './v5-download-store.mjs'
 import { compareSemverStrict, parseSemverStrict, rootDir, run, sha256FileHex } from './v5-app-packaging.mjs'
 import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
+import { managedHostTauriBuildEnv } from './host-tauri-build-policy.mjs'
 import {
   applyHostVersionPlan,
   defaultHostVersionDeclaration,
@@ -60,7 +61,7 @@ async function findBuiltHostMsi(version) {
 
 async function buildHostMsiArtifact(opts, version) {
   if (!parseSemverStrict(version)) throw new Error(`宿主 MSI 版本号必须是 x.y.z 格式: ${version}`)
-  if (!opts.noBuild) await run('pnpm', ['run', 'tauri', 'build'], rootDir)
+  if (!opts.noBuild) await run('pnpm', ['run', 'tauri', '--', 'build', '-b', 'msi'], rootDir, { env: managedHostTauriBuildEnv() })
 
   const builtMsi = await findBuiltHostMsi(version)
   await fs.mkdir(opts.outDir, { recursive: true })

@@ -67,10 +67,10 @@ function resolveSpawnSpec(command, args) {
   return { command, args }
 }
 
-export function run(command, args, cwd) {
+export function run(command, args, cwd, opts = {}) {
   return new Promise((resolve, reject) => {
     const spec = resolveSpawnSpec(command, args)
-    const child = spawn(spec.command, spec.args, { cwd, stdio: 'inherit', shell: false })
+    const child = spawn(spec.command, spec.args, { cwd, stdio: 'inherit', shell: false, ...opts })
     child.on('error', reject)
     child.on('exit', code => {
       if ((code ?? 0) === 0) resolve()

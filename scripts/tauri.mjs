@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { assertHostTauriBuildAllowed } from './lib/host-tauri-build-policy.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -47,6 +48,13 @@ async function main() {
   const sub = (args[0] || '').trim()
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
+  try {
+    assertHostTauriBuildAllowed(args)
+  } catch (error) {
+    console.error(String(error?.message || error))
+    process.exit(1)
+    return
+  }
 
   const runTauri = (tauriArgs, opts = {}) => run('pnpm', ['exec', 'tauri', ...tauriArgs], opts)
   const withFastDevConfig = (tauriArgs) => [...tauriArgs, '--config', 'src-tauri/tauri.fast.conf.json']
