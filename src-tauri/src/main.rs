@@ -29,6 +29,7 @@ mod core;
 mod host_dialog;
 mod host_lifecycle;
 mod host_primitives;
+mod host_updater;
 mod http_api;
 mod install_fs;
 pub(crate) mod json_file;
@@ -2524,6 +2525,8 @@ fn main() {
         app_installer::inspect_local_store_app,
         app_installer::app_store_install,
         app_installer::app_store_update,
+        host_updater::host_update_download_msi,
+        host_updater::host_update_install_msi,
         // v3 稳定 process 命令入口（v2 旧命令仍保留在后面）
         process_commands::process_open_external_url,
         process_commands::process_open_external_uri,

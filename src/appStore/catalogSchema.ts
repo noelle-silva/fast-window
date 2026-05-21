@@ -3,6 +3,7 @@ import { parseSemverStrict } from './semver'
 import type {
   LegacyPluginStoreEntry,
   LegacyPluginStoreIconRef,
+  HostUpdateEntry,
   StoreAppEntry,
   StoreCatalog,
   StoreDownloadAsset,
@@ -114,6 +115,28 @@ function parseAsset(value: unknown, field: string): StoreDownloadAsset {
   }
 }
 
+function parseHostEntry(value: unknown, field: string): HostUpdateEntry | undefined {
+  if (value === undefined) return undefined
+  if (!isPlainObject(value)) throw new Error(`${field} must be an object`)
+  if (!isPlainObject(value.platforms)) throw new Error(`${field}.platforms must be an object`)
+  const windows = parseAsset(value.platforms.windows, `${field}.platforms.windows`)
+  const installerType = text((value.platforms.windows as any)?.installerType, `${field}.platforms.windows.installerType`)
+  if (installerType !== 'msi') throw new Error(`${field}.platforms.windows.installerType must be msi`)
+  const id = safeId(value.id, `${field}.id`)
+  if (id !== 'fast-window') throw new Error(`${field}.id must be fast-window`)
+  return {
+    id,
+    name: text(value.name, `${field}.name`),
+    version: semver(value.version, `${field}.version`),
+    platforms: {
+      windows: {
+        ...windows,
+        installerType: 'msi',
+      },
+    },
+  }
+}
+
 function parseAppEntry(value: unknown, index: number): StoreAppEntry {
   const field = `apps[${index}]`
   if (!isPlainObject(value)) throw new Error(`${field} must be an object`)
@@ -167,7 +190,8 @@ export function parseStoreCatalog(raw: unknown): StoreCatalog {
   if (!Array.isArray(raw.plugins)) throw new Error('catalog.plugins must be an array')
 
   const generatedAt = raw.generatedAt === undefined ? undefined : text(raw.generatedAt, 'generatedAt')
+  const host = parseHostEntry(raw.host, 'host')
   const apps = raw.apps.map(parseAppEntry).sort((a, b) => a.name.localeCompare(b.name))
   const plugins = raw.plugins.map(parsePluginEntry).sort((a, b) => a.name.localeCompare(b.name))
-  return { catalogVersion: 2, ...(generatedAt ? { generatedAt } : {}), apps, plugins }
+  return { catalogVersion: 2, ...(generatedAt ? { generatedAt } : {}), ...(host ? { host } : {}), apps, plugins }
 }

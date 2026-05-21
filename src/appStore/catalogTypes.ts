@@ -14,6 +14,19 @@ export interface StoreDownloadAsset {
   sizeBytes?: number
 }
 
+export interface HostUpdateAsset extends StoreDownloadAsset {
+  installerType: 'msi'
+}
+
+export interface HostUpdateEntry {
+  id: 'fast-window'
+  name: string
+  version: string
+  platforms: {
+    windows: HostUpdateAsset
+  }
+}
+
 export interface StoreAppEntry {
   id: string
   name: string
@@ -41,6 +54,7 @@ export interface LegacyPluginStoreEntry {
 export interface StoreCatalog {
   catalogVersion: 2
   generatedAt?: string
+  host?: HostUpdateEntry
   apps: StoreAppEntry[]
   plugins: LegacyPluginStoreEntry[]
 }

@@ -1,6 +1,6 @@
 {
   "name": "fast-window",
-  "version": "1.6.11",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -28,7 +28,11 @@
     "tauri:dev:fast": "node scripts/tauri.mjs dev --fast",
     "tauri:dev:no-plugin-watch": "node scripts/tauri.mjs dev --no-plugin-watch --no-plugin-dev-sync",
     "host:bump": "node scripts/bump-host-version.mjs",
-    "host:bump:dry": "node scripts/bump-host-version.mjs --dry-run"
+    "host:bump:dry": "node scripts/bump-host-version.mjs --dry-run",
+    "host:build:msi": "node scripts/build-host-msi.mjs",
+    "host:build:msi:dry": "node scripts/build-host-msi.mjs --dry-run",
+    "host:publish": "node scripts/publish-host-msi-to-download.mjs",
+    "host:publish:dry": "node scripts/publish-host-msi-to-download.mjs --dry-run"
   },
   "dependencies": {
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",

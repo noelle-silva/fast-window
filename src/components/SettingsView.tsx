@@ -36,6 +36,7 @@ import {
 } from '../wallpaper'
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import HostPageHeader from './HostPageHeader'
+import HostUpdatePanel from './HostUpdatePanel'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
@@ -1612,6 +1613,7 @@ export default function SettingsView(props: {
                 </Button>
               </Box>
             </Box>
+            <HostUpdatePanel currentVersion={appVersion} panelSx={panelSx} />
           </Stack>
         ) : null}
       </Box>

@@ -1028,7 +1028,7 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fast-window"
-version = "1.6.11"
+version = "1.7.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",

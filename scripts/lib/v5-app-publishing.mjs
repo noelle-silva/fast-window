@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
   DEFAULT_V5_APP_OUT_DIR,
@@ -16,14 +15,12 @@ import {
   DEFAULT_DOWNLOAD_REPO,
   V5_STORE_CATALOG_FILE,
   assertWritableToken,
-  githubJson,
-  githubUpload,
   loadCatalogOrMigrateIndex,
   loadDotEnvIfPresent,
   pickGithubToken,
-  repoApiBase,
   writeRemoteJsonFile,
 } from './v5-download-store.mjs'
+import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
 
 export const DEFAULT_V5_APP_PUBLISH_MESSAGE = 'Update catalog.json'
 
@@ -79,102 +76,15 @@ export async function planV5AppPublishToDownload(rawOpts) {
   }
 }
 
-async function listReleaseAssets(apiBase, releaseId, authToken) {
-  const assets = []
-  for (let page = 1; page <= 10; page++) {
-    const batch = await githubJson('GET', `${apiBase}/releases/${releaseId}/assets?per_page=100&page=${page}`, authToken)
-    if (!Array.isArray(batch)) throw new Error('GitHub release assets 响应格式不合法')
-    assets.push(...batch)
-    if (batch.length < 100) break
-  }
-  return assets
-}
-
-async function cleanupCreatedRelease(opts, releaseId, tag, authToken) {
-  const apiBase = repoApiBase(opts)
-  const errors = []
-  try {
-    await githubJson('DELETE', `${apiBase}/releases/${releaseId}`, authToken)
-  } catch (error) {
-    errors.push(`Release 删除失败: ${error?.message || error}`)
-  }
-  try {
-    await githubJson('DELETE', `${apiBase}/git/refs/tags/${encodeURIComponent(tag)}`, authToken)
-  } catch (error) {
-    if (Number(error?.status || 0) !== 404) errors.push(`tag 删除失败: ${error?.message || error}`)
-  }
-  if (errors.length) throw new Error(errors.join('；'))
-}
-
 async function ensureReleaseAndUpload(opts, result, authToken) {
-  const apiBase = repoApiBase(opts)
-  let release = null
-  let createdRelease = false
-  try {
-    release = await githubJson('GET', `${apiBase}/releases/tags/${encodeURIComponent(result.tag)}`, authToken)
-  } catch (error) {
-    if (Number(error?.status || 0) !== 404) throw error
-  }
-  if (!release) {
-    release = await githubJson('POST', `${apiBase}/releases`, authToken, {
-      tag_name: result.tag,
-      name: result.tag,
-      body: `Automated v5 app release for ${result.appId} ${result.version}`,
-      draft: false,
-      prerelease: false,
-    })
-    createdRelease = true
-  }
-
-  const uploadUrl = String(release.upload_url || '').split('{')[0]
-  const releaseId = Number(release.id || 0)
-  if (!uploadUrl || !releaseId) throw new Error('GitHub API release 响应缺少 upload_url 或 id')
-  const assets = await listReleaseAssets(apiBase, releaseId, authToken)
-  const existed = assets.find(asset => String(asset?.name || '') === result.zipName)
-  if (existed?.id && !opts.force) throw new Error(`GitHub Release asset 已存在，拒绝覆盖: ${result.zipName}。如必须覆盖，请显式传入 --force。`)
-  let uploaded = null
-  try {
-    const uploadName = existed?.id ? `${result.zipName}.tmp-${Date.now()}` : result.zipName
-    uploaded = await githubUpload(`${uploadUrl}?name=${encodeURIComponent(uploadName)}`, authToken, await fs.readFile(result.zipPath), 'application/zip')
-    if (existed?.id) {
-      await githubJson('DELETE', `${apiBase}/releases/assets/${existed.id}`, authToken)
-      uploaded = await githubJson('PATCH', `${apiBase}/releases/assets/${Number(uploaded?.id || 0)}`, authToken, { name: result.zipName })
-    }
-  } catch (error) {
-    if (createdRelease) {
-      try {
-        await cleanupCreatedRelease(opts, releaseId, result.tag, authToken)
-      } catch (cleanupError) {
-        throw new Error(`GitHub Release asset 上传流程失败，且新建 Release 清理失败。上传流程错误: ${error?.message || error}；清理错误: ${cleanupError?.message || cleanupError}`)
-      }
-      throw error
-    }
-    if (uploaded?.id) {
-      try {
-        await githubJson('DELETE', `${apiBase}/releases/assets/${Number(uploaded.id)}`, authToken)
-      } catch (cleanupError) {
-        throw new Error(`GitHub Release asset 上传流程失败，且临时 asset 清理失败。上传流程错误: ${error?.message || error}；清理错误: ${cleanupError?.message || cleanupError}`)
-      }
-    }
-    throw error
-  }
-  return {
-    releaseId,
+  return ensureReleaseAsset(opts, {
     tag: result.tag,
-    createdRelease,
-    uploadedAssetId: Number(uploaded?.id || 0),
-    releaseUrl: String(release.html_url || '').trim(),
-    assetUrl: String(uploaded?.browser_download_url || '').trim(),
-  }
-}
-
-async function cleanupFailedUpload(opts, release, authToken) {
-  const apiBase = repoApiBase(opts)
-  if (release.createdRelease && release.releaseId) {
-    await cleanupCreatedRelease(opts, release.releaseId, release.tag, authToken)
-    return
-  }
-  if (release.uploadedAssetId) await githubJson('DELETE', `${apiBase}/releases/assets/${release.uploadedAssetId}`, authToken)
+    name: result.tag,
+    body: `Automated v5 app release for ${result.appId} ${result.version}`,
+    assetName: result.zipName,
+    assetPath: result.zipPath,
+    contentType: 'application/zip',
+  }, authToken)
 }
 
 export async function publishV5AppToDownload(rawOpts) {
@@ -206,7 +116,7 @@ export async function publishV5AppToDownload(rawOpts) {
     commitUrl = await writeRemoteJsonFile(opts, V5_STORE_CATALOG_FILE, remote.catalogSha, nextCatalog, authToken)
   } catch (error) {
     try {
-      await cleanupFailedUpload(opts, release, authToken)
+      await cleanupUploadedReleaseAsset(opts, release, authToken)
     } catch (cleanupError) {
       throw new Error(`catalog 写回失败，且远端发布清理失败。写回错误: ${error?.message || error}；清理错误: ${cleanupError?.message || cleanupError}`)
     }
