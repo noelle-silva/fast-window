@@ -30,8 +30,6 @@
   },
   "displayMode": "default",
   "commands": [
-    { "id": "open", "title": "打开剪贴板历史" },
-    { "id": "folders", "title": "打开收藏夹" },
-    { "id": "settings", "title": "打开设置" }
+    { "id": "folders", "title": "打开收藏夹" }
   ]
 }

@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::fw_window::{apply_control_action, FwWindowState};
 
 pub(crate) const CLIPBOARD_HISTORY_APP_ID: &str = "clipboard-history";
-const COMMAND_OPEN: &str = "open";
 const COMMAND_FOLDERS: &str = "folders";
-const COMMAND_SETTINGS: &str = "settings";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,16 +51,8 @@ struct ControlRequest {
 pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
     vec![
         AppCommandDescriptor {
-            id: COMMAND_OPEN,
-            title: "打开剪贴板历史",
-        },
-        AppCommandDescriptor {
             id: COMMAND_FOLDERS,
             title: "打开收藏夹",
-        },
-        AppCommandDescriptor {
-            id: COMMAND_SETTINGS,
-            title: "打开设置",
         },
     ]
 }

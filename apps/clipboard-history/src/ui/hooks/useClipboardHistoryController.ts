@@ -356,21 +356,12 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       return
     }
 
-    if (command === CLIPBOARD_HISTORY_COMMANDS.settings) {
-      setState(prev => ({ ...prev, showSettings: true, showRecentMenu: false }))
-      return
-    }
-
     if (!gatewayRef.current) {
       pendingLaunchCommandRef.current = command
       return
     }
 
     pendingLaunchCommandRef.current = null
-    if (command === CLIPBOARD_HISTORY_COMMANDS.open) {
-      setState(prev => ({ ...prev, view: 'clipboard' }))
-      return
-    }
     if (command === CLIPBOARD_HISTORY_COMMANDS.folders) {
       setState(prev => ({ ...prev, view: 'folders' }))
       return

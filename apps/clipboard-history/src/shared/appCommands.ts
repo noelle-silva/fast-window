@@ -1,7 +1,5 @@
 export const CLIPBOARD_HISTORY_COMMANDS = {
-  open: 'open',
   folders: 'folders',
-  settings: 'settings',
 } as const
 
 export type ClipboardHistoryCommand = typeof CLIPBOARD_HISTORY_COMMANDS[keyof typeof CLIPBOARD_HISTORY_COMMANDS]
