@@ -38,6 +38,7 @@ export type AiOnceController = {
   canGoHistoryBack: boolean
   canGoHistoryForward: boolean
   setView(view: AiOnceView): void
+  setSpacesSortMode(enabled: boolean): void
   setDialog(dialog: AiOnceDialog): void
   setError(message: string): void
   connect(options?: { restartBackend?: boolean }): Promise<void>
@@ -69,7 +70,7 @@ export type AiOnceController = {
   requestDeleteSpace(spaceId: string): void
   cancelDeleteSpace(): void
   confirmDeleteSpace(): Promise<void>
-  moveSpace(spaceId: string, direction: number): Promise<void>
+  moveSpace(spaceId: string, targetSpaceId: string, position: 'before' | 'after'): Promise<void>
   updateActiveProvider(providerId: string): Promise<void>
   updateActiveTemplate(templateId: string): Promise<void>
   goHistoryBack(): Promise<void>
@@ -153,6 +154,7 @@ export function useAiOnceController(): AiOnceController {
       return {
         ...prev,
         data,
+        spacesSortMode: data.spaces.length > 1 ? prev.spacesSortMode : false,
         spaceId: hasCurrentSpace ? prev.spaceId : firstSpace?.id || '',
         historyCursorId: hasCurrentSpace ? prev.historyCursorId : '',
         editing: shouldCreateEditingDraft ? cloneData(data) : prev.editing,
@@ -253,12 +255,12 @@ export function useAiOnceController(): AiOnceController {
       return
     }
     if (command === 'ask-once') {
-      patchState({ view: 'workbench' })
+      patchState({ view: 'workbench', spacesSortMode: false })
       return
     }
     if (command === 'new-prompt') {
       clearWorkbench()
-      patchState({ view: 'workbench' })
+      patchState({ view: 'workbench', spacesSortMode: false })
     }
   }, [clearWorkbench, patchState])
 
@@ -293,7 +295,16 @@ export function useAiOnceController(): AiOnceController {
     }
   }, [closeClient, connect, handleRuntimeCommand, patchState, refreshDataDirStatus])
 
-  const setView = React.useCallback((view: AiOnceView) => patchState({ view }), [patchState])
+  const setView = React.useCallback((view: AiOnceView) => patchState({ view, spacesSortMode: view === 'spaces' ? stateRef.current.spacesSortMode : false }), [patchState])
+  const setSpacesSortMode = React.useCallback((spacesSortMode: boolean) => {
+    if (!spacesSortMode) {
+      patchState({ spacesSortMode: false })
+      return
+    }
+    const current = stateRef.current
+    if (current.view !== 'spaces' || !current.data || current.data.spaces.length <= 1 || current.busy || current.asking) return
+    patchState({ spacesSortMode: true })
+  }, [patchState])
   const setDialog = React.useCallback((dialog: AiOnceDialog) => patchState({ dialog }), [patchState])
   const closeDialog = React.useCallback(() => patchState({
     dialog: '',
@@ -503,6 +514,7 @@ export function useAiOnceController(): AiOnceController {
         ...prev,
         spaceId,
         view: 'workbench',
+        spacesSortMode: false,
         prompt: '',
         answer: '',
         images: [],
@@ -582,15 +594,25 @@ export function useAiOnceController(): AiOnceController {
     }
   }, [patchState, updateData])
 
-  const moveSpace = React.useCallback(async (spaceId: string, direction: number) => {
+  const moveSpace = React.useCallback(async (spaceId: string, targetSpaceId: string, position: 'before' | 'after') => {
+    const spaces = stateRef.current.data?.spaces || []
+    const from = spaces.findIndex(space => space.id === spaceId)
+    const target = spaces.findIndex(space => space.id === targetSpaceId)
+    if (from < 0 || target < 0 || from === target) return
+
     patchState({ busy: true, error: '' })
     try {
       await updateData(data => {
         const from = data.spaces.findIndex(space => space.id === spaceId)
-        const to = from + direction
-        if (from >= 0 && to >= 0 && to < data.spaces.length) {
-          ;[data.spaces[from], data.spaces[to]] = [data.spaces[to], data.spaces[from]]
+        if (from < 0) return
+        const [space] = data.spaces.splice(from, 1)
+        const targetAfterRemoval = data.spaces.findIndex(item => item.id === targetSpaceId)
+        if (targetAfterRemoval < 0) {
+          data.spaces.splice(from, 0, space)
+          return
         }
+        const insertAt = position === 'before' ? targetAfterRemoval : targetAfterRemoval + 1
+        data.spaces.splice(insertAt, 0, space)
       })
     } catch (error) {
       patchState({ error: errorMessage(error, '移动空间失败') })
@@ -643,6 +665,7 @@ export function useAiOnceController(): AiOnceController {
         return {
           ...prev,
           view: 'workbench',
+          spacesSortMode: false,
           spaceId: hydrated.spaceId,
           prompt: hydrated.input,
           answer: hydrated.output,
@@ -700,6 +723,7 @@ export function useAiOnceController(): AiOnceController {
     canGoHistoryBack,
     canGoHistoryForward,
     setView,
+    setSpacesSortMode,
     setDialog,
     setError,
     connect,

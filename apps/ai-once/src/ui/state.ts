@@ -16,6 +16,7 @@ export type AiOnceUiState = {
   health: Record<string, unknown> | null
   phase: AiOncePhase
   view: AiOnceView
+  spacesSortMode: boolean
   spaceId: string
   dialog: AiOnceDialog
   prompt: string
@@ -44,6 +45,7 @@ export function createAiOnceUiState(): AiOnceUiState {
     health: null,
     phase: 'starting',
     view: 'spaces',
+    spacesSortMode: false,
     spaceId: '',
     dialog: '',
     prompt: '',
