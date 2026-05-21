@@ -31,24 +31,26 @@ export async function resolveHostPublishTokens({ releaseOpts, catalogOpts, dryRu
     throw new Error(`${HOST_RELEASE_TOKEN_ENV} 与 ${DISTRIBUTION_TOKEN_ENV} 不能使用同一个 Token。两个真实仓库必须使用两把职责独立的钥匙。`)
   }
 
-  await assertHostPublishTokenWritable({
+  await assertHostPublishRepositoryWriteAccess({
     opts: releaseOpts,
     token: releaseToken,
     envName: HOST_RELEASE_TOKEN_ENV,
     role: '宿主 MSI Release 发布',
   })
-  await assertHostPublishTokenWritable({
+  await assertHostPublishRepositoryWriteAccess({
     opts: catalogOpts,
     token: catalogToken,
     envName: DISTRIBUTION_TOKEN_ENV,
     role: '分发仓 catalog.json 元数据写入',
   })
+  await assertCatalogBranchExists({ opts: catalogOpts, token: catalogToken, envName: DISTRIBUTION_TOKEN_ENV })
   return { releaseToken, catalogToken }
 }
 
-async function assertHostPublishTokenWritable({ opts, token, envName, role }) {
+async function assertHostPublishRepositoryWriteAccess({ opts, token, envName, role }) {
+  let repo = null
   try {
-    await githubJson('GET', repoApiBase(opts), token)
+    repo = await githubJson('GET', repoApiBase(opts), token)
   } catch (error) {
     const status = Number(error?.status || 0)
     if (status === 401) {
@@ -62,6 +64,26 @@ async function assertHostPublishTokenWritable({ opts, token, envName, role }) {
     }
     throw new Error(`${role} Token 校验失败：请检查 ${envName} 与仓库 ${opts.owner}/${opts.repo}。错误：${error?.message || error}`)
   }
+  assertRepositoryWritePermission(repo, { envName, role, repository: `${opts.owner}/${opts.repo}` })
+}
+
+async function assertCatalogBranchExists({ opts, token, envName }) {
+  try {
+    await githubJson('GET', `${repoApiBase(opts)}/branches/${encodeURIComponent(opts.branch)}`, token)
+  } catch (error) {
+    const status = Number(error?.status || 0)
+    if (status === 404) throw new Error(`分发仓 catalog 分支不存在或不可访问：${opts.owner}/${opts.repo}@${opts.branch}。请检查 ${envName} 的仓库授权与 --catalog-branch。`)
+    throw new Error(`分发仓 catalog 分支校验失败：${opts.owner}/${opts.repo}@${opts.branch}。错误：${error?.message || error}`)
+  }
+}
+
+function assertRepositoryWritePermission(repo, { envName, role, repository }) {
+  const permissions = repo?.permissions
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
+    throw new Error(`${role} Token 权限无法确认：GitHub 未返回 ${repository} 的 permissions 字段。请使用能返回仓库权限的 Token，并确保 ${envName} 对目标仓库具备 Contents = Read and write。`)
+  }
+  if (permissions.admin === true || permissions.maintain === true || permissions.push === true) return
+  throw new Error(`${role} Token 权限不足：${envName} 对 ${repository} 没有写权限。请确认该 Token 对目标仓库具备 Contents = Read and write。`)
 }
 
 function envToken(name) {

@@ -2,7 +2,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { scriptArgs } from './v5-cli-args.mjs'
 import { rootDir } from './v5-app-packaging.mjs'
-import { defaultHostPublishOptions, publishHostMsiToDownload } from './host-publishing.mjs'
+import { defaultHostPublishOptions, publishHostMsi } from './host-publishing.mjs'
 import { consumeHostVersionArg, hostVersionUsageLines } from './host-versioning.mjs'
 import { hostPublishTokenUsageLines } from './host-publish-tokens.mjs'
 
@@ -44,13 +44,13 @@ export function parseHostPublishArgs(argv, commandName) {
       console.log(hostPublishUsage(commandName))
       process.exit(0)
     }
-    if (arg === '--release-owner' && i + 1 < args.length) out.releaseOwner = String(args[++i] || '').trim() || out.releaseOwner
-    else if (arg === '--release-repo' && i + 1 < args.length) out.releaseRepo = String(args[++i] || '').trim() || out.releaseRepo
-    else if (arg === '--catalog-owner' && i + 1 < args.length) out.catalogOwner = String(args[++i] || '').trim() || out.catalogOwner
-    else if (arg === '--catalog-repo' && i + 1 < args.length) out.catalogRepo = String(args[++i] || '').trim() || out.catalogRepo
-    else if (arg === '--catalog-branch' && i + 1 < args.length) out.catalogBranch = String(args[++i] || '').trim() || out.catalogBranch
-    else if (arg === '--out' && i + 1 < args.length) out.outDir = path.resolve(rootDir, String(args[++i] || '').trim())
-    else if (arg === '--message' && i + 1 < args.length) out.message = String(args[++i] || '').trim() || out.message
+    if (arg === '--release-owner') out.releaseOwner = consumeRequiredValue(args, ++i, arg)
+    else if (arg === '--release-repo') out.releaseRepo = consumeRequiredValue(args, ++i, arg)
+    else if (arg === '--catalog-owner') out.catalogOwner = consumeRequiredValue(args, ++i, arg)
+    else if (arg === '--catalog-repo') out.catalogRepo = consumeRequiredValue(args, ++i, arg)
+    else if (arg === '--catalog-branch') out.catalogBranch = consumeRequiredValue(args, ++i, arg)
+    else if (arg === '--out') out.outDir = path.resolve(rootDir, consumeRequiredValue(args, ++i, arg))
+    else if (arg === '--message') out.message = consumeRequiredValue(args, ++i, arg)
     else if (arg === '--no-build') out.noBuild = true
     else if (arg === '--dry-run') out.dryRun = true
     else if (arg === '--force') out.force = true
@@ -64,6 +64,12 @@ export function parseHostPublishArgs(argv, commandName) {
 }
 
 export async function runHostPublishCli(argv, commandName) {
-  const result = await publishHostMsiToDownload(parseHostPublishArgs(argv, commandName))
+  const result = await publishHostMsi(parseHostPublishArgs(argv, commandName))
   console.log(JSON.stringify(result, null, 2))
+}
+
+function consumeRequiredValue(args, index, flag) {
+  const value = String(args[index] || '').trim()
+  if (!value || value.startsWith('--')) throw new Error(`${flag} 需要指定非空值`)
+  return value
 }

@@ -156,7 +156,7 @@ async function prepareHostPublish(rawOpts) {
   return { opts, releaseOpts, catalogOpts, tokens, versionPlan, version, tag, baseUrl, remote }
 }
 
-export async function planHostPublishToDownload(rawOpts) {
+export async function planHostPublish(rawOpts) {
   const { releaseOpts, catalogOpts, versionPlan, version, tag, remote } = await prepareHostPublish(rawOpts)
   return {
     version,
@@ -170,7 +170,7 @@ export async function planHostPublishToDownload(rawOpts) {
   }
 }
 
-export async function publishHostMsiToDownload(rawOpts) {
+export async function publishHostMsi(rawOpts) {
   const { opts, releaseOpts, catalogOpts, tokens, versionPlan, version, tag, baseUrl, remote } = await prepareHostPublish(rawOpts)
   const downloadUrl = `${baseUrl}/${HOST_CATALOG_ID}-${version}-windows-x64.msi`
 
