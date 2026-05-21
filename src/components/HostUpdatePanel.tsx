@@ -1,23 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
 import type { Theme } from '@mui/material/styles'
 import type { HostUpdateEntry } from '../appStore/catalogTypes'
-import { checkHostUpdate } from '../hostUpdate/hostUpdateClient'
 import { downloadHostUpdateMsi, installHostUpdateMsi, type HostUpdateDownloadResult } from '../hostUpdate/hostUpdateInstaller'
+import { useHostUpdateCheck } from '../hostUpdate/useHostUpdateCheck'
 import { hostToast } from '../host/hostPrimitives'
 
 type HostUpdatePanelProps = {
   currentVersion: string
   panelSx: (theme: Theme) => object
 }
-
-type CheckState =
-  | { kind: 'idle' }
-  | { kind: 'checking' }
-  | { kind: 'current'; remoteVersion: string }
-  | { kind: 'missing' }
-  | { kind: 'available'; update: HostUpdateEntry }
-  | { kind: 'error'; message: string }
 
 function toast(message: string) {
   void hostToast(message)
@@ -30,29 +22,14 @@ function formatBytes(sizeBytes?: number): string {
 }
 
 export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdatePanelProps) {
-  const [state, setState] = useState<CheckState>({ kind: 'idle' })
+  const { state, check } = useHostUpdateCheck(currentVersion)
   const [downloaded, setDownloaded] = useState<HostUpdateDownloadResult | null>(null)
   const [busy, setBusy] = useState<'download' | 'install' | ''>('')
   const [confirmInstall, setConfirmInstall] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
 
-  useEffect(() => () => abortRef.current?.abort(), [])
-
-  async function check() {
-    abortRef.current?.abort()
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-    setState({ kind: 'checking' })
+  async function checkManually() {
     setDownloaded(null)
-    try {
-      const result = await checkHostUpdate(currentVersion, ctrl.signal)
-      if (result.status === 'available') setState({ kind: 'available', update: result.update })
-      else if (result.status === 'current') setState({ kind: 'current', remoteVersion: result.remoteVersion })
-      else setState({ kind: 'missing' })
-    } catch (error: any) {
-      const msg = String(error?.message || error || '检查更新失败')
-      setState({ kind: 'error', message: msg })
-    }
+    await check()
   }
 
   async function download(update: HostUpdateEntry) {
@@ -106,7 +83,7 @@ export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdateP
               当前版本：{currentVersion || '未知'}。检查仓库清单，下载 MSI 后会校验 SHA-256，再由你确认安装。
             </Typography>
           </Box>
-          <Button size="small" variant="outlined" disabled={checking || !!busy || !currentVersion} onClick={() => void check()}>
+          <Button size="small" variant="outlined" disabled={checking || !!busy || !currentVersion} onClick={() => void checkManually()}>
             {checking ? '检查中…' : '检查更新'}
           </Button>
         </Box>

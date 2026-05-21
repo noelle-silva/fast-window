@@ -9,6 +9,7 @@ export const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 export const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 export const PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY = 'pluginAutoUpdateLastCheckMs'
 export const PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
+export const HOST_AUTO_UPDATE_CHECK_ENABLED_KEY = 'hostAutoUpdateCheckEnabled'
 export const DEFAULT_APP_STORE_CATALOG_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/catalog.json'
 export const MAX_AUTO_UPDATE_PER_RUN = 8
 

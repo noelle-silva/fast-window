@@ -1,4 +1,4 @@
-import { Box, IconButton, Typography } from '@mui/material'
+import { Box, Button, IconButton, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
@@ -37,6 +37,8 @@ export interface TitleBarProps {
   onCancelReorder?: () => void
   browseLayout?: PluginBrowseLayout
   onToggleBrowseLayout?: () => void
+  hostUpdateVersion?: string
+  onDismissHostUpdate?: () => void
   showDivider?: boolean
 }
 
@@ -62,6 +64,8 @@ export default function TitleBar(props: TitleBarProps) {
     onCancelReorder,
     browseLayout,
     onToggleBrowseLayout,
+    hostUpdateVersion,
+    onDismissHostUpdate,
     showDivider = true,
   } = props
   return (
@@ -180,6 +184,32 @@ export default function TitleBar(props: TitleBarProps) {
             </>
           )}
         </Box>
+      ) : null}
+
+      {!onBack && hostUpdateVersion && onDismissHostUpdate ? (
+        <Button
+          size="small"
+          variant="contained"
+          color="warning"
+          data-tauri-drag-region="false"
+          onClick={onDismissHostUpdate}
+          aria-label={`新版本 ${hostUpdateVersion} 可用，点击隐藏提示`}
+          sx={{
+            position: 'absolute',
+            left: 8,
+            minHeight: 24,
+            height: 24,
+            px: 1,
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 700,
+            textTransform: 'none',
+            boxShadow: 'none',
+            WebkitAppRegion: 'no-drag',
+          }}
+        >
+          新版本 v{hostUpdateVersion} 可用
+        </Button>
       ) : null}
 
       <Typography

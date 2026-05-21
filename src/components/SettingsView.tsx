@@ -38,6 +38,7 @@ import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import HostPageHeader from './HostPageHeader'
 import HostUpdatePanel from './HostUpdatePanel'
 import { hostToast } from '../host/hostPrimitives'
+import { getHostAutoUpdateCheckEnabled, setHostAutoUpdateCheckEnabled } from '../hostUpdate/hostUpdatePreferences'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import AppRegistrationPanel from '../apps/AppRegistrationPanel'
@@ -233,6 +234,8 @@ export default function SettingsView(props: {
   const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
+  const [hostAutoUpdateCheckEnabled, setHostAutoUpdateCheckEnabledState] = useState(false)
+  const [hostAutoUpdateCheckSaving, setHostAutoUpdateCheckSaving] = useState(false)
   const [mainWindowMode, setMainWindowMode] = useState<MainWindowFocusMode>('autoHide')
   const [mainWindowModeSaving, setMainWindowModeSaving] = useState(false)
   const [modeShortcutCurrent, setModeShortcutCurrent] = useState<string>('')
@@ -277,12 +280,16 @@ export default function SettingsView(props: {
 
   useEffect(() => {
     async function load() {
-      const [ver, dir, pdir, cur, st, mode, modeShot, wv, wp] = await Promise.all([
+      const [ver, dir, pdir, cur, st, hostUpdateCheckEnabled, mode, modeShot, wv, wp] = await Promise.all([
         getAppVersion().catch(() => ''),
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
+        getHostAutoUpdateCheckEnabled().catch(error => {
+          console.warn('[host-update] failed to load auto check setting:', error)
+          return false
+        }),
         invoke<MainWindowFocusMode>('get_main_window_focus_mode').catch(() => 'autoHide' as MainWindowFocusMode),
         invoke<string>('get_main_window_mode_shortcut').catch(() => ''),
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
@@ -294,6 +301,7 @@ export default function SettingsView(props: {
       setCurrent(cur)
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
+      setHostAutoUpdateCheckEnabledState(hostUpdateCheckEnabled)
       setMainWindowMode(mode)
       setModeShortcutCurrent(modeShot)
       setModeShortcutInput(modeShot)
@@ -599,6 +607,19 @@ export default function SettingsView(props: {
     }
   }
 
+  async function saveHostAutoUpdateCheckEnabled(nextEnabled: boolean) {
+    setHostAutoUpdateCheckSaving(true)
+    try {
+      const enabled = await setHostAutoUpdateCheckEnabled(nextEnabled)
+      setHostAutoUpdateCheckEnabledState(enabled)
+      toast(enabled ? '已开启启动时检查宿主更新' : '已关闭启动时检查宿主更新')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setHostAutoUpdateCheckSaving(false)
+    }
+  }
+
   async function saveMainWindowMode(nextMode: MainWindowFocusMode) {
     setMainWindowModeSaving(true)
     try {
@@ -805,6 +826,32 @@ export default function SettingsView(props: {
                 />
                 <Typography variant="caption" color="text.secondary">
                   {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={panelSx}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                启动时检查宿主更新
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                开启后每次启动 Fast Window 都会读取远程清单；如果发现新宿主版本，会在顶部栏显示一次“新版本可用”提示，点击提示即可在本次运行中隐藏。
+              </Typography>
+              <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Switch
+                      checked={hostAutoUpdateCheckEnabled}
+                      disabled={hostAutoUpdateCheckSaving || saving || recording}
+                      onChange={e => void saveHostAutoUpdateCheckEnabled(e.target.checked)}
+                      inputProps={{ 'aria-label': '启动时检查宿主更新' }}
+                    />
+                  }
+                  label={hostAutoUpdateCheckEnabled ? '已开启' : '已关闭'}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  只提示，不自动安装
                 </Typography>
               </Box>
             </Box>

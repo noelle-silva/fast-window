@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getVersion as getAppVersion } from '@tauri-apps/api/app'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
@@ -18,6 +19,8 @@ import AppBackgroundPage from './components/AppBackgroundPage'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import TitleBar from './TitleBar'
+import { getHostAutoUpdateCheckEnabled, HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT } from './hostUpdate/hostUpdatePreferences'
+import { useHostUpdateCheck } from './hostUpdate/useHostUpdateCheck'
 import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
@@ -80,6 +83,10 @@ function App() {
   const registeredAppsCtx = useRegisteredApps()
   const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, replace: replaceRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
+  const [appVersion, setAppVersion] = useState('')
+  const [hostUpdatePromptDismissed, setHostUpdatePromptDismissed] = useState(false)
+  const hostAutoUpdateCheckStartedRef = useRef(false)
+  const { state: hostUpdateState, check: checkHostUpdate } = useHostUpdateCheck(appVersion)
 
   const registeredAppPlugins: Plugin[] = useMemo(() => {
     return buildRegisteredAppListItems(registeredApps, registeredAppStatuses)
@@ -139,11 +146,38 @@ function App() {
   // === Effects ===
 
   useEffect(() => {
+    void getAppVersion().then(setAppVersion).catch(error => {
+      console.warn('[host-update] failed to read host version:', error)
+    })
     loadPlugins()
     loadRegisteredApps()
     loadBrowseLayout()
     wallpaperCtx.load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!appVersion) return
+    if (hostAutoUpdateCheckStartedRef.current) return
+    hostAutoUpdateCheckStartedRef.current = true
+
+    void (async () => {
+      const enabled = await getHostAutoUpdateCheckEnabled()
+      if (!enabled) return
+      setHostUpdatePromptDismissed(false)
+      await checkHostUpdate()
+    })().catch(error => {
+      console.warn('[host-update] automatic check failed:', error)
+    })
+  }, [appVersion, checkHostUpdate])
+
+  useEffect(() => {
+    const onSettingsChanged = (event: Event) => {
+      const custom = event as CustomEvent<{ enabled?: unknown }>
+      if (custom.detail?.enabled === false) setHostUpdatePromptDismissed(true)
+    }
+    window.addEventListener(HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT, onSettingsChanged)
   }, [])
 
   useEffect(() => {
@@ -606,6 +640,7 @@ function App() {
   )
   const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
   const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
+  const hostUpdatePrompt = hostUpdateState.kind === 'available' && !hostUpdatePromptDismissed ? hostUpdateState.update : null
 
   const wallpaperLayer = wallpaperUrl ? (
     <Box
@@ -751,6 +786,8 @@ function App() {
             onSettings={reorderMode ? undefined : () => openHostPage('settings')}
             onStore={reorderMode ? undefined : () => openHostPage('store')}
             onAppBackground={reorderMode ? undefined : () => openHostPage('appBackground')}
+            hostUpdateVersion={hostUpdatePrompt?.version}
+            onDismissHostUpdate={hostUpdatePrompt ? () => setHostUpdatePromptDismissed(true) : undefined}
             showDivider={false}
           />
         )}
