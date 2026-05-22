@@ -2,6 +2,13 @@ import { Box, Avatar, SvgIcon, Typography } from '@mui/material'
 import type { Plugin, PluginBrowseLayout } from './constants'
 import { isDataImageUrl } from './utils'
 
+const devCommandSpinKeyframes = {
+  '@keyframes fastWindowDevCommandSpin': {
+    '0%': { transform: 'rotate(0deg)' },
+    '100%': { transform: 'rotate(360deg)' },
+  },
+} as const
+
 const gridCardSx = {
   display: 'flex',
   borderRadius: 2,
@@ -44,12 +51,30 @@ const cardPointerSurfaceSx = {
 export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseLayout }) {
   const { plugin, layout } = props
   const isRegisteredAppRunning = plugin.appStatus?.type === 'registered-app' && plugin.appStatus.running
+  const isDevCommandRunning = plugin.appStatus?.type === 'registered-app' && plugin.appStatus.devCommandRunning === true
   const avatarWithBadges = (
     avatar: React.ReactNode,
     size: number,
   ) => (
     <Box sx={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       {avatar}
+      {isDevCommandRunning ? (
+        <Box
+          title="开发命令运行中"
+          aria-label="开发命令运行中"
+          sx={theme => ({
+            ...devCommandSpinKeyframes,
+            position: 'absolute',
+            inset: -4,
+            borderRadius: '999px',
+            border: `2px solid ${theme.palette.primary.main}`,
+            borderTopColor: 'transparent',
+            boxShadow: `0 0 18px ${theme.palette.primary.main}66`,
+            animation: 'fastWindowDevCommandSpin 900ms linear infinite',
+            pointerEvents: 'none',
+          })}
+        />
+      ) : null}
       {isRegisteredAppRunning ? (
         <Box
           title="运行中"

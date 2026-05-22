@@ -26,6 +26,12 @@ import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
+import {
+  appDevCommandIsRunning,
+  beginAppDevCommandRun,
+  finishAppDevCommandRun,
+  type AppDevCommandRuns,
+} from './apps/appDevCommandState'
 import { stageV5AppDev } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
@@ -85,14 +91,15 @@ function App() {
   const registeredAppsCtx = useRegisteredApps()
   const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, replace: replaceRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
+  const [appDevCommandRuns, setAppDevCommandRuns] = useState<AppDevCommandRuns>({})
   const [appVersion, setAppVersion] = useState('')
   const [hostUpdatePromptDismissed, setHostUpdatePromptDismissed] = useState(false)
   const hostAutoUpdateCheckStartedRef = useRef(false)
   const { state: hostUpdateState, check: checkHostUpdate } = useHostUpdateCheck(appVersion)
 
   const registeredAppPlugins: Plugin[] = useMemo(() => {
-    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses)
-  }, [registeredApps, registeredAppStatuses])
+    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses, appDevCommandRuns)
+  }, [appDevCommandRuns, registeredApps, registeredAppStatuses])
 
   const homeItems: Plugin[] = useMemo(() => {
     return [...registeredAppPlugins, ...plugins]
@@ -351,6 +358,10 @@ function App() {
     if (selection.type === 'appCommand') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
+        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
+          showToast(`开发命令运行中，暂不打开：${app.name}`)
+          return
+        }
         launchApp(app, 'show', selection.commandId).finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
       }
       return
@@ -358,13 +369,17 @@ function App() {
     if (selection.type === 'app') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
+        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
+          showToast(`开发命令运行中，暂不打开：${app.name}`)
+          return
+        }
         launchApp(app, 'show').finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
       }
       return
     }
     setActiveHostPage(null)
     setActivePlugin(plugin)
-  }, [registeredApps, refreshRegisteredAppStatuses])
+  }, [appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
 
   const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
     return registeredAppFromListItem(registeredApps, plugin.id)
@@ -467,6 +482,7 @@ function App() {
   }, [showToast])
 
   const stageRegisteredAppDevFromMenu = useCallback(async (app: RegisteredApp) => {
+    setAppDevCommandRuns(runs => beginAppDevCommandRun(runs, app.id))
     showToast(`开始 stage dev：${app.name}`)
     try {
       await stageV5AppDev(app.id)
@@ -475,6 +491,8 @@ function App() {
       window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
     } catch (error: any) {
       showToast(String(error?.message || error || 'stage dev 失败'))
+    } finally {
+      setAppDevCommandRuns(runs => finishAppDevCommandRun(runs, app.id))
     }
   }, [loadRegisteredApps, refreshRegisteredAppStatuses, showToast])
 
@@ -493,6 +511,7 @@ function App() {
     ]
 
     if (app) {
+      const isAppDevCommandRunning = appDevCommandIsRunning(appDevCommandRuns, app.id)
       const appDevActions: ContextMenuAction[] = IS_HOST_DEV_PROFILE
         ? [
           {
@@ -510,7 +529,7 @@ function App() {
         : []
 
       return [
-        { id: 'restart-app', label: '重启', onSelect: () => void restartRegisteredAppFromMenu(app) },
+        { id: 'restart-app', label: '重启', disabled: isAppDevCommandRunning, onSelect: () => void restartRegisteredAppFromMenu(app) },
         { id: 'open-app-folder', label: '打开 App 文件夹', onSelect: () => void openRegisteredAppFolderFromMenu(app) },
         ...appDevActions,
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
@@ -529,7 +548,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
+  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

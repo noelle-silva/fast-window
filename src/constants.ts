@@ -28,6 +28,7 @@ export interface Plugin {
   appStatus?: {
     type: 'registered-app'
     running: boolean
+    devCommandRunning?: boolean
   }
   iconBadge?: PluginIconBadge
 }
