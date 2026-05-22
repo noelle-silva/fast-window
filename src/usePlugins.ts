@@ -20,6 +20,12 @@ interface ToastFn {
   (message: string): void
 }
 
+export type PluginUninstallResult = {
+  pluginId: string
+  deletedData: boolean
+  warnings: string[]
+}
+
 export function usePlugins(toast: ToastFn) {
   const [plugins, setPlugins] = useState<Plugin[]>([])
   const [allPlugins, setAllPlugins] = useState<Plugin[]>([])
@@ -185,6 +191,19 @@ export function usePlugins(toast: ToastFn) {
     }
   }, [loadPlugins, toast])
 
+  const uninstallPlugin = useCallback(async (plugin: Plugin, deleteData: boolean): Promise<PluginUninstallResult> => {
+    const result = await invoke<PluginUninstallResult>('uninstall_plugin', { pluginId: plugin.id, deleteData })
+    setPluginRejected(prev => prev.filter(r => r.pluginId !== plugin.id))
+    setAllPlugins(prev => {
+      const next = prev.filter(p => p.id !== plugin.id)
+      allPluginsRef.current = next
+      return next
+    })
+    setPlugins(prev => prev.filter(p => p.id !== plugin.id))
+    await loadPlugins()
+    return result
+  }, [loadPlugins])
+
   const autoUpdatePlugins = useCallback(async () => {
     const enabledRaw = await invoke<string[]>('get_plugins_auto_update_enabled').catch(() => [] as string[])
     const enabledIds = Array.from(new Set(enabledRaw.map(x => String(x || '').trim()).filter(Boolean)))
@@ -287,6 +306,7 @@ export function usePlugins(toast: ToastFn) {
     toggleBrowseLayout,
     changePluginIcon,
     resetPluginIcon,
+    uninstallPlugin,
     autoUpdatePlugins,
     loadBrowseLayout,
   }

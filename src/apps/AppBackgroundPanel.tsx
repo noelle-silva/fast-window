@@ -9,12 +9,14 @@ import { launchApp, getAppStatuses } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import AppCardView from './AppCardView'
 import { hostToast } from '../host/hostPrimitives'
+import { hostButtonSx, hostDangerButtonSx, hostSurfaceSx } from '../components/hostUiStyles'
 
 interface AppBackgroundPanelProps {
   apps: RegisteredApp[]
   onClose?: () => void
   onUpdateApp: (id: string, patch: RegisteredAppUpdatePatch) => void
   embedded?: boolean
+  wallpaperEnabled?: boolean
 }
 
 function formatDuration(ms: number): string {
@@ -38,7 +40,7 @@ function runningDurationText(status: AppStatus | undefined, now: number): string
   return `已运行 ${formatDuration(now - status.startedAt)}`
 }
 
-export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded }: AppBackgroundPanelProps) {
+export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded, wallpaperEnabled = false }: AppBackgroundPanelProps) {
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({})
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -121,7 +123,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
               查看 v5 独立应用运行状态，启动、唤醒、停止或设置 FW 启动时自启。
             </Typography>
           </Box>
-          <Button size="small" variant="outlined" onClick={() => void refreshStatuses()} disabled={loading || apps.length === 0} sx={{ flexShrink: 0 }}>
+          <Button size="small" variant="text" onClick={() => void refreshStatuses()} disabled={loading || apps.length === 0} sx={{ ...hostButtonSx, flexShrink: 0 }}>
             刷新
           </Button>
         </Box>
@@ -137,7 +139,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
             const status = statuses[app.id]
             const durationText = runningDurationText(status, now)
             return (
-              <Box key={app.id} sx={{ mb: 2, p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+              <Box key={app.id} sx={theme => ({ ...hostSurfaceSx(wallpaperEnabled, { tone: 'item' })(theme), mb: 1.25 })}>
                 <AppCardView app={app} status={status} showStatus />
                 {durationText ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, mt: -0.5 }}>
@@ -148,7 +150,8 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Button
                       size="small"
-                      variant="outlined"
+                      variant="text"
+                      sx={hostButtonSx}
                       onClick={() => handleLaunch(app)}
                       disabled={busyId === app.id}
                     >
@@ -157,7 +160,8 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
                     {status?.running ? (
                       <Button
                         size="small"
-                        variant="outlined"
+                        variant="text"
+                        sx={hostDangerButtonSx}
                         color="error"
                         onClick={() => handleStop(app)}
                         disabled={busyId === app.id}

@@ -5,6 +5,7 @@ import type { HostUpdateEntry } from '../appStore/catalogTypes'
 import { downloadHostUpdateMsi, installHostUpdateMsi, type HostUpdateDownloadResult } from '../hostUpdate/hostUpdateInstaller'
 import { useHostUpdateCheck } from '../hostUpdate/useHostUpdateCheck'
 import { hostToast } from '../host/hostPrimitives'
+import { hostButtonSx } from './hostUiStyles'
 
 type HostUpdatePanelProps = {
   currentVersion: string
@@ -83,7 +84,7 @@ export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdateP
               当前版本：{currentVersion || '未知'}。检查仓库清单，下载 MSI 后会校验 SHA-256，再由你确认安装。
             </Typography>
           </Box>
-          <Button size="small" variant="outlined" disabled={checking || !!busy || !currentVersion} onClick={() => void checkManually()}>
+          <Button size="small" variant="text" sx={hostButtonSx} disabled={checking || !!busy || !currentVersion} onClick={() => void checkManually()}>
             {checking ? '检查中…' : '检查更新'}
           </Button>
         </Box>
@@ -96,19 +97,19 @@ export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdateP
         ) : null}
 
         {state.kind === 'current' ? (
-          <Alert severity="success" variant="outlined">已是最新版本（远端：v{state.remoteVersion}）。</Alert>
+          <Alert severity="success" sx={{ border: 0, borderRadius: 2.5 }}>已是最新版本（远端：v{state.remoteVersion}）。</Alert>
         ) : null}
 
         {state.kind === 'missing' ? (
-          <Alert severity="info" variant="outlined">远程清单还没有发布宿主 MSI 更新信息。</Alert>
+          <Alert severity="info" sx={{ border: 0, borderRadius: 2.5 }}>远程清单还没有发布宿主 MSI 更新信息。</Alert>
         ) : null}
 
         {state.kind === 'error' ? (
-          <Alert severity="error" variant="outlined">{state.message}</Alert>
+          <Alert severity="error" sx={{ border: 0, borderRadius: 2.5 }}>{state.message}</Alert>
         ) : null}
 
         {update && asset ? (
-          <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1 }}>
+          <Box sx={theme => ({ ...panelSx(theme), boxShadow: 'none' })}>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>
               可更新到 v{update.version}
             </Typography>
@@ -119,10 +120,10 @@ export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdateP
               SHA-256：{asset.sha256}
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-              <Button size="small" variant="contained" disabled={!!busy} onClick={() => void download(update)}>
+              <Button size="small" variant="contained" sx={hostButtonSx} disabled={!!busy} onClick={() => void download(update)}>
                 {busy === 'download' ? '下载中…' : downloaded ? '重新下载' : '下载更新'}
               </Button>
-              <Button size="small" variant="outlined" disabled={!downloaded || !!busy} onClick={() => setConfirmInstall(true)}>
+              <Button size="small" variant="text" sx={hostButtonSx} disabled={!downloaded || !!busy} onClick={() => setConfirmInstall(true)}>
                 安装已下载更新
               </Button>
             </Stack>
@@ -144,7 +145,7 @@ export default function HostUpdatePanel({ currentVersion, panelSx }: HostUpdateP
         </DialogContent>
         <DialogActions>
           <Button disabled={!!busy} onClick={() => setConfirmInstall(false)}>取消</Button>
-          <Button variant="contained" disabled={!update || !downloaded || !!busy} onClick={() => update && void install(update)} sx={{ boxShadow: 'none' }}>
+          <Button variant="contained" disabled={!update || !downloaded || !!busy} onClick={() => update && void install(update)} sx={hostButtonSx}>
             {busy === 'install' ? '启动中…' : '启动安装器'}
           </Button>
         </DialogActions>

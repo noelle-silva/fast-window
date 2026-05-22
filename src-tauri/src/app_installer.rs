@@ -929,11 +929,7 @@ fn build_registered_app_record(
         );
     }
     if !record.contains_key("commands") {
-        record.insert(
-            "commands".to_string(),
-            serde_json::to_value(&manifest.commands)
-                .map_err(|e| format!("序列化应用命令失败: {e}"))?,
-        );
+        record.insert("commands".to_string(), Value::Array(Vec::new()));
     }
     record.insert(
         "availableCommands".to_string(),

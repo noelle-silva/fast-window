@@ -1,6 +1,7 @@
 import { Avatar, Box, Button, Stack, Typography } from '@mui/material'
 import { isDataImageUrl } from '../utils'
 import type { IconImageSource } from '../iconImageInput'
+import { hostButtonSx, hostSurfaceSx } from '../components/hostUiStyles'
 
 interface AppIconEditorProps {
   name: string
@@ -35,22 +36,16 @@ export default function AppIconEditor({
       tabIndex={0}
       aria-label="主页图标编辑区"
       onPaste={handlePaste}
-      sx={{
+      sx={theme => ({
+        ...hostSurfaceSx(false, { tone: 'item' })(theme),
         display: 'flex',
         alignItems: { xs: 'stretch', sm: 'center' },
         flexDirection: { xs: 'column', sm: 'row' },
         gap: 1.25,
-        p: 1.25,
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 2,
-        bgcolor: 'action.hover',
         '&:focus-visible': {
-          outline: '2px solid',
-          outlineColor: 'primary.main',
-          outlineOffset: 2,
+          boxShadow: `0 0 0 3px ${theme.palette.primary.main}33`,
         },
-      }}
+      })}
     >
       <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', minWidth: 0, flex: 1 }}>
         <Avatar
@@ -71,13 +66,13 @@ export default function AppIconEditor({
         </Box>
       </Box>
       <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap' }}>
-        <Button size="small" variant="outlined" disabled={disabled} onClick={() => onChange('file')}>
+        <Button size="small" variant="text" sx={hostButtonSx} disabled={disabled} onClick={() => onChange('file')}>
           选择图片
         </Button>
-        <Button size="small" variant="outlined" disabled={disabled} onClick={() => onChange('clipboard')}>
+        <Button size="small" variant="text" sx={hostButtonSx} disabled={disabled} onClick={() => onChange('clipboard')}>
           粘贴图片
         </Button>
-        <Button size="small" variant="text" disabled={disabled || !canReset} onClick={onResetDefault}>
+        <Button size="small" variant="text" sx={hostButtonSx} disabled={disabled || !canReset} onClick={onResetDefault}>
           恢复默认
         </Button>
       </Stack>

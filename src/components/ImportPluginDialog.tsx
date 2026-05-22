@@ -247,7 +247,7 @@ export default function ImportPluginDialog(props: Props) {
         ) : null}
 
         {error ? (
-          <Alert sx={{ mt: 2 }} severity="error" variant="outlined">
+          <Alert sx={{ mt: 2, border: 0, borderRadius: 2.5 }} severity="error">
             {error}
           </Alert>
         ) : null}

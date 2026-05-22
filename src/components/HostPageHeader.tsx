@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Box, IconButton, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { hostButtonSx } from './hostUiStyles'
 
 type HostPageHeaderProps = {
   title: string
@@ -23,12 +24,17 @@ export default function HostPageHeader({ title, onBack, translucent, action }: H
         px: 0.75,
         bgcolor: translucent ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
         backdropFilter: translucent ? 'blur(12px)' : undefined,
-        borderBottom: 1,
-        borderColor: 'divider',
+        boxShadow: translucent ? `0 10px 28px ${alpha(theme.palette.common.black, 0.06)}` : 'none',
         WebkitAppRegion: 'drag',
       })}
     >
-      <IconButton aria-label="返回" size="small" onClick={onBack} data-tauri-drag-region="false" sx={{ WebkitAppRegion: 'no-drag' }}>
+      <IconButton
+        aria-label="返回"
+        size="small"
+        onClick={onBack}
+        data-tauri-drag-region="false"
+        sx={{ ...hostButtonSx, WebkitAppRegion: 'no-drag' }}
+      >
         <ArrowBackRoundedIcon fontSize="small" />
       </IconButton>
       <Typography

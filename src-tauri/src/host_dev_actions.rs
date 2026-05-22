@@ -64,7 +64,9 @@ impl HostDevTerminalCommandRequest {
     }
 }
 
-fn host_publish_spec(version: &HostPublishVersionRequest) -> Result<DevTerminalCommandSpec, String> {
+fn host_publish_spec(
+    version: &HostPublishVersionRequest,
+) -> Result<DevTerminalCommandSpec, String> {
     let mut args = vec!["host:publish".to_string(), "--".to_string()];
     let description = match version {
         HostPublishVersionRequest::Bump { bump } => {
@@ -105,9 +107,15 @@ fn normalize_host_release_version(version: &str) -> Result<String, String> {
         return Err("版本号不能为空".to_string());
     }
     let mut parts = version.split('.');
-    let Some(major) = parts.next() else { return Err("版本号必须是 x.y.z".to_string()) };
-    let Some(minor) = parts.next() else { return Err("版本号必须是 x.y.z".to_string()) };
-    let Some(patch) = parts.next() else { return Err("版本号必须是 x.y.z".to_string()) };
+    let Some(major) = parts.next() else {
+        return Err("版本号必须是 x.y.z".to_string());
+    };
+    let Some(minor) = parts.next() else {
+        return Err("版本号必须是 x.y.z".to_string());
+    };
+    let Some(patch) = parts.next() else {
+        return Err("版本号必须是 x.y.z".to_string());
+    };
     if parts.next().is_some() {
         return Err("版本号必须是 x.y.z".to_string());
     }

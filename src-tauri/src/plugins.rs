@@ -416,9 +416,11 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
         }
 
         async fn sync_repo_plugins_into(
+            app: &tauri::AppHandle,
             repo_plugins: &Path,
             plugins_dir: &Path,
         ) -> Result<(), String> {
+            let uninstalled_ids = crate::plugin_uninstall::dev_sync_uninstalled_plugin_ids(app);
             let Ok(entries) = std::fs::read_dir(repo_plugins) else {
                 return Ok(());
             };
@@ -430,6 +432,9 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
                 }
                 let plugin_id = e.file_name().to_string_lossy().to_string();
                 if plugin_id.starts_with('.') || !is_safe_id(&plugin_id) {
+                    continue;
+                }
+                if uninstalled_ids.contains(&plugin_id) {
                     continue;
                 }
 
@@ -478,7 +483,7 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
         std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
         if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
             // 开发同步：v2 legacy 插件只同步运行所需文件，避免 node_modules 等开发目录拖慢/失败。
-            sync_repo_plugins_into(&repo_plugins, &plugins_dir).await?;
+            sync_repo_plugins_into(&app, &repo_plugins, &plugins_dir).await?;
             return Ok(true);
         }
         Ok(false)
@@ -844,6 +849,7 @@ pub(crate) async fn install_plugin_files(
     if let Err(e) = replace_dir_from_tmp(&plugin_dir, &tmp_dir, &format!("install-{plugin_id}")) {
         return Err(format!("安装插件失败: {e}"));
     }
+    crate::plugin_uninstall::forget_dev_sync_uninstalled_plugin(&app, &plugin_id);
     Ok(())
 }
 
@@ -1112,6 +1118,8 @@ pub(crate) async fn plugin_store_install(
                 let _ = std::fs::remove_dir_all(&tmp_dir);
                 return Err(format!("安装插件失败: {e}"));
             }
+
+            crate::plugin_uninstall::forget_dev_sync_uninstalled_plugin(&app, &plugin_id);
 
             Ok(PluginStoreInstallResult { plugin_id, version })
         })

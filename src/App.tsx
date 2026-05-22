@@ -5,7 +5,6 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { usePluginBackendSupervisor } from './plugins/backendSupervisor'
-import { alpha } from '@mui/material/styles'
 import {
   Alert, Box, Button, CircularProgress, Snackbar, TextField,
   Dialog, DialogActions, DialogContent, DialogTitle,
@@ -18,11 +17,13 @@ import AppStoreView from './components/AppStoreView'
 import AppBackgroundPage from './components/AppBackgroundPage'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
+import { hostButtonSx, hostTextFieldSx } from './components/hostUiStyles'
 import TitleBar from './TitleBar'
 import { getHostAutoUpdateCheckEnabled, HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT } from './hostUpdate/hostUpdatePreferences'
 import { useHostUpdateCheck } from './hostUpdate/useHostUpdateCheck'
 import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
+import PluginUninstallDialog, { type PluginUninstallDialogState } from './PluginUninstallDialog'
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
@@ -115,7 +116,7 @@ function App() {
     allPluginsRef, autoUpdateStartedRef,
     loadPlugins, reloadPlugins, refreshPlugin,
     persistPluginOrder, toggleBrowseLayout,
-    changePluginIcon, resetPluginIcon,
+    changePluginIcon, resetPluginIcon, uninstallPlugin,
     autoUpdatePlugins, loadBrowseLayout,
   } = pluginCtx
 
@@ -165,6 +166,8 @@ function App() {
   const closePluginMenu = useCallback(() => setPluginMenu(null), [])
   const [stopAppConfirm, setStopAppConfirm] = useState<AppStopConfirmState>(null)
   const [stoppingAppId, setStoppingAppId] = useState<string | null>(null)
+  const [pluginUninstall, setPluginUninstall] = useState<PluginUninstallDialogState>(null)
+  const [uninstallingPluginId, setUninstallingPluginId] = useState<string | null>(null)
 
   // Detail dialog
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
@@ -179,7 +182,7 @@ function App() {
   const pendingActivatePluginIdRef = useRef<string | null>(null)
 
   // Backend
-  const { backgroundHosts } = usePluginBackendSupervisor({
+  const { backgroundHosts, controller: backendSupervisor } = usePluginBackendSupervisor({
     plugins: allPlugins,
     activePluginId: activePlugin?.id ?? null,
   })
@@ -474,6 +477,39 @@ function App() {
     }
   }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp])
 
+  const closePluginUninstallDialog = useCallback(() => {
+    if (uninstallingPluginId) return
+    setPluginUninstall(null)
+  }, [uninstallingPluginId])
+
+  const requestPluginUninstall = useCallback((plugin: Plugin) => {
+    setPluginUninstall({ plugin })
+  }, [])
+
+  const confirmPluginUninstall = useCallback(async (deleteData: boolean) => {
+    const plugin = pluginUninstall?.plugin
+    if (!plugin || uninstallingPluginId) return
+
+    setUninstallingPluginId(plugin.id)
+    try {
+      setPluginDetail(current => current?.id === plugin.id ? null : current)
+      setActivePlugin(current => current?.id === plugin.id ? null : current)
+      setKeepAliveUiPluginIds(prev => prev.filter(id => id !== plugin.id))
+      backendSupervisor.stopBackend(plugin.id, 'plugin-uninstall')
+      const result = await uninstallPlugin(plugin, deleteData)
+      setPluginUninstall(null)
+      const warningCount = result.warnings.length
+      showToast(warningCount > 0 ? `插件已卸载（${warningCount} 个清理提醒见控制台）` : '插件已卸载')
+      if (warningCount > 0) console.warn('[plugin-uninstall] cleanup warnings:', result.warnings)
+    } catch (e) {
+      console.error('Failed to uninstall plugin:', e)
+      const msg = typeof e === 'string' ? e : typeof (e as any)?.message === 'string' ? (e as any).message : ''
+      showToast(msg ? `卸载失败：${msg}` : '卸载失败（详情见控制台）')
+    } finally {
+      setUninstallingPluginId(null)
+    }
+  }, [backendSupervisor, pluginUninstall?.plugin, showToast, uninstallPlugin, uninstallingPluginId])
+
   const closeStopAppConfirm = useCallback(() => {
     if (stoppingAppId) return
     setStopAppConfirm(null)
@@ -504,6 +540,18 @@ function App() {
       showToast(String(error?.message || error || '重启应用失败'))
     }
   }, [refreshRegisteredAppStatuses, showToast])
+
+  const removeRegisteredAppCommandFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
+    const command = app.commands.find(command => command.id === commandId)
+    if (!command) return
+
+    try {
+      await updateRegisteredApp(app.id, { commands: app.commands.filter(command => command.id !== commandId) })
+      showToast(`已删除命令图标：${command.title}`)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '删除命令图标失败'))
+    }
+  }, [showToast, updateRegisteredApp])
 
   const openRegisteredAppFolderFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
@@ -552,6 +600,7 @@ function App() {
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return []
+    const selection = parseRegisteredAppListItemId(plugin.id)
     const app = registeredAppFromMenuItem(plugin)
     const detailAction: ContextMenuAction = app
       ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
@@ -567,6 +616,16 @@ function App() {
     ]
 
     if (app) {
+      const commandIconAction: ContextMenuAction[] = selection.type === 'appCommand'
+        ? [
+          {
+            id: 'remove-app-command-icon',
+            label: '删除此命令图标',
+            color: 'error',
+            onSelect: () => void removeRegisteredAppCommandFromMenu(app, selection.commandId),
+          },
+        ]
+        : []
       const isAppDevCommandRunning = appDevCommandIsRunning(appDevCommandRuns, app.id)
       const appDevActions: ContextMenuAction[] = IS_HOST_DEV_PROFILE
         ? [
@@ -600,6 +659,7 @@ function App() {
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
+        ...commandIconAction,
         ...commonActions,
       ]
     }
@@ -611,9 +671,16 @@ function App() {
         disabled: loading || refreshingId === plugin.id,
         onSelect: () => refreshPlugin(plugin),
       },
+      {
+        id: 'uninstall-plugin',
+        label: '卸载',
+        color: 'error',
+        disabled: loading || uninstallingPluginId === plugin.id,
+        onSelect: () => requestPluginUninstall(plugin),
+      },
       ...commonActions,
     ]
-  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
+  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCommandFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -861,6 +928,12 @@ function App() {
           onClose={() => setImportOpen(false)}
           onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
         />
+        <PluginUninstallDialog
+          state={pluginUninstall}
+          busy={!!uninstallingPluginId}
+          onClose={closePluginUninstallDialog}
+          onConfirm={confirmPluginUninstall}
+        />
         {backgroundHosts}
       </Box>
     )
@@ -904,7 +977,6 @@ function App() {
             onAppBackground={reorderMode ? undefined : () => openHostPage('appBackground')}
             hostUpdateVersion={hostUpdatePrompt?.version}
             onDismissHostUpdate={hostUpdatePrompt ? () => setHostUpdatePromptDismissed(true) : undefined}
-            showDivider={false}
           />
         )}
 
@@ -949,17 +1021,8 @@ function App() {
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="输入关键词搜索应用或插件..."
-                variant="outlined"
                 disabled={reorderMode}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    '& .MuiOutlinedInput-notchedOutline': { border: 0 },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-                    '&.Mui-focused': {
-                      boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
-                    },
-                  },
-                }}
+                sx={hostTextFieldSx}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment>
@@ -979,19 +1042,19 @@ function App() {
                     </Typography>
                   ) : null}
                   <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Button size="small" variant="outlined" onClick={() => void invoke('open_plugins_dir').catch(() => {})}>
+                    <Button size="small" variant="text" sx={hostButtonSx} onClick={() => void invoke('open_plugins_dir').catch(() => {})}>
                       打开插件目录
                     </Button>
-                    <Button size="small" variant="contained" onClick={() => openHostPage('store')} disabled={reorderMode} startIcon={<StorefrontRoundedIcon fontSize="small" />} sx={{ boxShadow: 'none' }}>
+                    <Button size="small" variant="contained" onClick={() => openHostPage('store')} disabled={reorderMode} startIcon={<StorefrontRoundedIcon fontSize="small" />} sx={hostButtonSx}>
                       去插件商店
                     </Button>
-                    <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>
+                    <Button size="small" variant="text" sx={hostButtonSx} onClick={reloadPlugins} disabled={loading}>
                       重新扫描
                     </Button>
                   </Box>
                   {pluginRejected.length ? (
                     <Box sx={{ mt: 2, mx: 'auto', maxWidth: 720, textAlign: 'left', px: 2 }}>
-                      <Alert severity="warning" variant="outlined">
+                      <Alert severity="warning" sx={{ border: 0, borderRadius: 2.5 }}>
                         <Typography variant="body2" sx={{ fontWeight: 700 }}>
                           发现 {pluginRejected.length} 个插件目录，但加载被拒绝
                         </Typography>
@@ -1065,6 +1128,12 @@ function App() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
+      />
+      <PluginUninstallDialog
+        state={pluginUninstall}
+        busy={!!uninstallingPluginId}
+        onClose={closePluginUninstallDialog}
+        onConfirm={confirmPluginUninstall}
       />
       {backgroundHosts}
     </Box>

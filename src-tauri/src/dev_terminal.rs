@@ -27,7 +27,10 @@ pub(crate) fn host_workspace_root(required_scripts: &[&str]) -> Result<PathBuf, 
     for script in required_scripts {
         let script_path = root.join(script);
         if !script_path.is_file() {
-            return Err(format!("无法定位 dev 终端命令脚本: {}", script_path.display()));
+            return Err(format!(
+                "无法定位 dev 终端命令脚本: {}",
+                script_path.display()
+            ));
         }
     }
     Ok(root)
@@ -51,7 +54,10 @@ pub(crate) async fn run_dev_terminal_command(
 }
 
 #[cfg(windows)]
-fn dev_terminal_command(workspace_root: &Path, spec: &DevTerminalCommandSpec) -> Result<Command, String> {
+fn dev_terminal_command(
+    workspace_root: &Path,
+    spec: &DevTerminalCommandSpec,
+) -> Result<Command, String> {
     let command_text = cmd_display_command(spec);
     let command_args = cmd_command_args(spec);
     let script = format!(
@@ -85,7 +91,10 @@ fn dev_terminal_command(workspace_root: &Path, spec: &DevTerminalCommandSpec) ->
 }
 
 #[cfg(not(windows))]
-fn dev_terminal_command(_workspace_root: &Path, _spec: &DevTerminalCommandSpec) -> Result<Command, String> {
+fn dev_terminal_command(
+    _workspace_root: &Path,
+    _spec: &DevTerminalCommandSpec,
+) -> Result<Command, String> {
     Err("当前平台暂不支持可视化 dev 终端命令".to_string())
 }
 
@@ -113,7 +122,10 @@ fn cmd_quote(value: &str) -> String {
     if value.is_empty() {
         return "\"\"".to_string();
     }
-    if !value.chars().any(|c| matches!(c, ' ' | '"' | '^' | '&' | '|' | '<' | '>' | '%')) {
+    if !value
+        .chars()
+        .any(|c| matches!(c, ' ' | '"' | '^' | '&' | '|' | '<' | '>' | '%'))
+    {
         return value.to_string();
     }
     let escaped = value

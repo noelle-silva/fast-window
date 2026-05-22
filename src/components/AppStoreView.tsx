@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { alpha } from '@mui/material/styles'
 import {
   Alert,
   Avatar,
@@ -34,6 +33,7 @@ import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '
 import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
 import { hostToast } from '../host/hostPrimitives'
 import HostPageHeader from './HostPageHeader'
+import { hostButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
 
 type Props = {
   onBack: () => void
@@ -249,21 +249,15 @@ export default function AppStoreView(props: Props) {
     }
   }
 
-  const panelSx = (theme: any) => ({
-    borderRadius: 3,
-    px: 1.5,
-    py: 1.35,
-    bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.6) : alpha(theme.palette.background.paper, 0.92),
-    backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
-    boxShadow: `0 10px 30px ${alpha(theme.palette.common.black, 0.06)}`,
-  })
+  const wallpaperEnabled = wallpaper?.enabled === true
+  const panelSx = hostSurfaceSx(wallpaperEnabled)
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Box sx={hostPageRootSx}>
       <HostPageHeader
         title="应用商店"
         onBack={onBack}
-        translucent={wallpaper?.enabled === true}
+        translucent={wallpaperEnabled}
         action={(
           <IconButton aria-label="刷新" size="small" onClick={() => void refresh()} disabled={loading}>
             <RefreshRoundedIcon fontSize="small" />
@@ -271,7 +265,7 @@ export default function AppStoreView(props: Props) {
         )}
       />
 
-      <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
+      <Box sx={hostPageScrollSx}>
         <Stack spacing={1.25}>
           {error ? <StoreError message={error} /> : null}
           {loading ? <StoreLoading /> : null}
@@ -283,7 +277,7 @@ export default function AppStoreView(props: Props) {
                 busy={busy}
                 defaultAppsDir={defaultAppsDir}
                 panelSx={panelSx}
-                wallpaperEnabled={wallpaper?.enabled === true}
+                wallpaperEnabled={wallpaperEnabled}
                 onAction={(item, action) => setConfirm({ kind: 'app', item, action })}
               />
               <LegacyPluginSection
@@ -291,7 +285,7 @@ export default function AppStoreView(props: Props) {
                 localPlugins={localPlugins}
                 busy={busy}
                 panelSx={panelSx}
-                wallpaperEnabled={wallpaper?.enabled === true}
+                wallpaperEnabled={wallpaperEnabled}
                 onAction={(item, action) => setConfirm({ kind: 'plugin', item, action })}
               />
             </>
@@ -306,7 +300,7 @@ export default function AppStoreView(props: Props) {
 
 function StoreError({ message }: { message: string }) {
   return (
-    <Alert severity="error" sx={{ border: 'none', borderRadius: 3, boxShadow: theme => `0 10px 24px ${alpha(theme.palette.error.main, 0.12)}` }}>
+    <Alert severity="error" sx={{ border: 0, borderRadius: 3 }}>
       {message}
     </Alert>
   )
@@ -465,23 +459,20 @@ function StoreListItem(props: {
     <ListItem
       disableGutters
       secondaryAction={action === 'none' ? (
-        <Chip size="small" label={doneText} sx={{ bgcolor: theme => alpha(theme.palette.text.primary, 0.06), border: 'none' }} />
+        <Chip size="small" label={doneText} sx={hostSoftChipSx} />
       ) : (
-        <Button variant="contained" size="small" onClick={onAction} disabled={disabled} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined} sx={{ borderRadius: 999, boxShadow: 'none' }}>
+        <Button variant="contained" size="small" onClick={onAction} disabled={disabled} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined} sx={hostButtonSx}>
           {actionText}
         </Button>
       )}
-      sx={{
+      sx={theme => ({
+        ...hostSurfaceSx(wallpaperEnabled, { tone: 'item' })(theme),
         position: 'relative',
-        py: 1.1,
-        px: 1,
-        borderRadius: 2.5,
         alignItems: 'flex-start',
         height: '100%',
         '& .MuiListItemSecondaryAction-root': { top: 10, right: 10, transform: 'none' },
-        bgcolor: theme => wallpaperEnabled ? alpha(theme.palette.background.paper, 0.55) : theme.palette.action.hover,
-        '&:hover': { bgcolor: theme => wallpaperEnabled ? alpha(theme.palette.background.paper, 0.75) : theme.palette.action.selected },
-      }}
+        '&:hover': { bgcolor: 'action.selected' },
+      })}
     >
       <ListItemAvatar sx={{ minWidth: 44, mt: 0.1 }}>
         <Avatar variant="rounded" src={iconSrc || undefined} imgProps={{ alt: `${name || id} 图标` }} sx={{ width: 34, height: 34, fontSize: 18, bgcolor: 'action.hover', color: 'text.primary' }}>
@@ -493,7 +484,7 @@ function StoreListItem(props: {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, pr: 10 }}>
             <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{name}</Typography>
             <Typography variant="caption" color="text.secondary" noWrap>{id}</Typography>
-            <Chip size="small" label={badge} variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+            <Chip size="small" label={badge} sx={{ ...hostSoftChipSx, height: 18, fontSize: 10 }} />
           </Box>
         )}
         secondary={(

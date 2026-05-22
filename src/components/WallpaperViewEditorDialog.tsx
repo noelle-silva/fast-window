@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, Stack, Typography } from '@mui/material'
 import type { WallpaperView } from '../wallpaper'
+import { hostButtonSx, hostSurfaceSx } from './hostUiStyles'
 
 function clampNumber(v: number, min: number, max: number) {
   if (!Number.isFinite(v)) return min
@@ -59,15 +60,11 @@ export default function WallpaperViewEditorDialog(props: {
       <DialogContent sx={{ pt: 1, overflow: 'hidden' }}>
         <Stack spacing={1.25}>
           <Box
-            sx={{
+            sx={theme => ({
+              ...hostSurfaceSx(false, { tone: 'item' })(theme),
               display: 'flex',
               justifyContent: 'center',
-              p: 1,
-              borderRadius: 2,
-              bgcolor: 'action.hover',
-              border: 1,
-              borderColor: 'divider',
-            }}
+            })}
           >
             <Box
               ref={frameRef}
@@ -121,7 +118,6 @@ export default function WallpaperViewEditorDialog(props: {
                 outline: 'none',
                 cursor: dragging ? 'grabbing' : 'grab',
                 touchAction: 'none',
-                border: '2px dashed rgba(255,255,255,0.85)',
               }}
             >
               <Box
@@ -152,19 +148,19 @@ export default function WallpaperViewEditorDialog(props: {
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => zoomBy(1 / 1.1)} aria-label="缩小壁纸">
+          <Button size="small" variant="text" sx={hostButtonSx} onClick={() => zoomBy(1 / 1.1)} aria-label="缩小壁纸">
             缩小
           </Button>
-          <Button size="small" variant="outlined" onClick={() => zoomBy(1.1)} aria-label="放大壁纸">
+          <Button size="small" variant="text" sx={hostButtonSx} onClick={() => zoomBy(1.1)} aria-label="放大壁纸">
             放大
           </Button>
-          <Button size="small" variant="outlined" onClick={() => setView({ x: 50, y: 50, scale: 1 })} aria-label="重置壁纸取景">
+          <Button size="small" variant="text" sx={hostButtonSx} onClick={() => setView({ x: 50, y: 50, scale: 1 })} aria-label="重置壁纸取景">
             重置
           </Button>
-          <Button size="small" onClick={onClose} variant="outlined">
+          <Button size="small" onClick={onClose} variant="text" sx={hostButtonSx}>
             取消
           </Button>
-          <Button size="small" onClick={() => onSave(normalizeView(view))} variant="contained" aria-label="保存壁纸取景">
+          <Button size="small" onClick={() => onSave(normalizeView(view))} variant="contained" sx={hostButtonSx} aria-label="保存壁纸取景">
             保存
           </Button>
         </Box>

@@ -15,6 +15,7 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import type { PluginBrowseLayout } from './constants'
+import { hostButtonSx } from './components/hostUiStyles'
 
 export interface TitleBarProps {
   title: string
@@ -39,7 +40,6 @@ export interface TitleBarProps {
   onToggleBrowseLayout?: () => void
   hostUpdateVersion?: string
   onDismissHostUpdate?: () => void
-  showDivider?: boolean
 }
 
 export default function TitleBar(props: TitleBarProps) {
@@ -66,7 +66,6 @@ export default function TitleBar(props: TitleBarProps) {
     onToggleBrowseLayout,
     hostUpdateVersion,
     onDismissHostUpdate,
-    showDivider = true,
   } = props
   return (
     <Box
@@ -84,8 +83,7 @@ export default function TitleBar(props: TitleBarProps) {
         backdropFilter: translucent
           ? `blur(${Math.max(0, Math.min(40, typeof translucentBlur === 'number' ? translucentBlur : 12))}px)`
           : undefined,
-        borderBottom: showDivider ? 1 : 0,
-        borderColor: showDivider ? 'divider' : undefined,
+        boxShadow: translucent ? (theme: any) => `0 10px 28px ${alpha(theme.palette.common.black, 0.06)}` : 'none',
         WebkitAppRegion: 'drag',
       }}
     >
@@ -195,16 +193,15 @@ export default function TitleBar(props: TitleBarProps) {
           onClick={onDismissHostUpdate}
           aria-label={`新版本 ${hostUpdateVersion} 可用，点击隐藏提示`}
           sx={{
+            ...hostButtonSx,
             position: 'absolute',
             left: 8,
             minHeight: 24,
             height: 24,
             px: 1,
-            borderRadius: 999,
             fontSize: 12,
             fontWeight: 700,
             textTransform: 'none',
-            boxShadow: 'none',
             WebkitAppRegion: 'no-drag',
           }}
         >

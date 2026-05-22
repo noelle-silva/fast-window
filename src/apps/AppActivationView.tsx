@@ -1,9 +1,10 @@
-import { Box, Typography, Button, CircularProgress, IconButton } from '@mui/material'
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { Box, Typography, Button, CircularProgress } from '@mui/material'
 import type { RegisteredApp, AppStatus } from './types'
 import { launchApp } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { hostToast } from '../host/hostPrimitives'
+import { hostButtonSx, hostDangerButtonSx } from '../components/hostUiStyles'
+import HostPageHeader from '../components/HostPageHeader'
 
 interface AppActivationViewProps {
   app: RegisteredApp
@@ -23,24 +24,7 @@ export default function AppActivationView({ app, status, onBack }: AppActivation
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box
-        sx={{
-          height: 40,
-          display: 'flex',
-          alignItems: 'center',
-          px: 0.5,
-          borderBottom: 1,
-          borderColor: 'divider',
-        }}
-      >
-        <IconButton aria-label="返回" size="small" onClick={onBack}>
-          <ArrowBackRoundedIcon fontSize="small" />
-        </IconButton>
-        <Typography variant="body2" fontWeight={600} sx={{ flex: 1, textAlign: 'center', userSelect: 'none' }}>
-          {app.name}
-        </Typography>
-        <Box sx={{ width: 32 }} />
-      </Box>
+      <HostPageHeader title={app.name} onBack={onBack} />
       <Box sx={{ flex: 1, display: 'grid', placeItems: 'center', p: 3 }}>
         {status?.running ? (
           <Box sx={{ textAlign: 'center' }}>
@@ -48,10 +32,10 @@ export default function AppActivationView({ app, status, onBack }: AppActivation
               应用正在运行
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-              <Button variant="outlined" size="small" onClick={() => launchApp(app, 'show')}>
+              <Button variant="text" size="small" sx={hostButtonSx} onClick={() => launchApp(app, 'show')}>
                 唤醒窗口
               </Button>
-              <Button variant="outlined" size="small" color="error" onClick={() => void handleStop()}>
+              <Button variant="text" size="small" sx={hostDangerButtonSx} color="error" onClick={() => void handleStop()}>
                 停止应用
               </Button>
             </Box>

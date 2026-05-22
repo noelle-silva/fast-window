@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { Box, IconButton, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
@@ -223,8 +224,7 @@ export default function BrowserBarWindow() {
         position: 'relative',
         px: 0.5,
         bgcolor: 'background.paper',
-        borderBottom: 1,
-        borderColor: 'divider',
+        boxShadow: theme => `0 10px 28px ${alpha(theme.palette.common.black, 0.06)}`,
         WebkitAppRegion: 'drag',
         userSelect: 'none',
         borderRadius: '16px 16px 0 0',
@@ -278,14 +278,12 @@ export default function BrowserBarWindow() {
               ml: 0.5,
               px: 0.5,
               py: 0.25,
-              border: 1,
-              borderColor: 'divider',
               borderRadius: 999,
               display: 'flex',
               alignItems: 'center',
               gap: 0.25,
-              bgcolor: 'background.paper',
-              boxShadow: 1,
+              bgcolor: theme => alpha(theme.palette.background.paper, 0.92),
+              boxShadow: theme => `0 10px 24px ${alpha(theme.palette.common.black, 0.08)}`,
               maxWidth: 360,
             }}
           >

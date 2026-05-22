@@ -3,6 +3,7 @@ import { Box, Button, IconButton, MenuItem, Select, Stack, TextField, Typography
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import type { RegisteredAppCommand } from './types'
 import { generateSafeId } from './ids'
+import { hostButtonSx, hostSelectSx, hostTextFieldSx } from '../components/hostUiStyles'
 
 interface AppCommandEditorProps {
   commands: RegisteredAppCommand[]
@@ -90,13 +91,14 @@ export default function AppCommandEditor({
           disabled={!selectableCommands.length}
           size="small"
           fullWidth
+          sx={hostSelectSx}
         >
           <MenuItem value="">{commandSelectPlaceholder}</MenuItem>
           {selectableCommands.map(command => (
             <MenuItem key={command.id} value={command.id}>{command.title}（{command.id}）</MenuItem>
           ))}
         </Select>
-        <Button variant="outlined" disabled={!selectedCommandId} onClick={addSelectedCommand} sx={{ flexShrink: 0 }}>
+        <Button variant="text" disabled={!selectedCommandId} onClick={addSelectedCommand} sx={{ ...hostButtonSx, flexShrink: 0 }}>
           添加
         </Button>
       </Box>
@@ -113,14 +115,14 @@ export default function AppCommandEditor({
                 value={command.title}
                 onChange={event => updateCommandTitle(command.id, event.target.value)}
                 size="small"
-                sx={{ flex: '1 1 220px' }}
+                sx={{ ...hostTextFieldSx, flex: '1 1 220px' }}
               />
               <TextField
                 label="命令 ID"
                 value={command.id}
                 onChange={event => updateCommandId(command.id, event.target.value)}
                 size="small"
-                sx={{ width: 150, flexShrink: 0 }}
+                sx={{ ...hostTextFieldSx, width: 150, flexShrink: 0 }}
               />
               <TextField
                 label="命令快捷键"
@@ -128,17 +130,17 @@ export default function AppCommandEditor({
                 size="small"
                 placeholder="未绑定"
                 InputProps={{ readOnly: true }}
-                sx={{ width: 190, flexShrink: 0 }}
+                sx={{ ...hostTextFieldSx, width: 190, flexShrink: 0 }}
               />
               <Button
-                variant={recordingCommandId === command.id ? 'contained' : 'outlined'}
+                variant={recordingCommandId === command.id ? 'contained' : 'text'}
                 color={recordingCommandId === command.id ? 'warning' : 'primary'}
                 onClick={() => onStartHotkeyRecording(command.id)}
-                sx={{ flexShrink: 0 }}
+                sx={{ ...hostButtonSx, flexShrink: 0 }}
               >
                 {recordingCommandId === command.id ? '录制中…' : '录制'}
               </Button>
-              <Button variant="outlined" onClick={() => onClearHotkey(command.id)} sx={{ flexShrink: 0 }}>
+              <Button variant="text" onClick={() => onClearHotkey(command.id)} sx={{ ...hostButtonSx, flexShrink: 0 }}>
                 清空
               </Button>
               <IconButton size="small" aria-label={`删除命令 ${command.title}`} onClick={() => removeCommand(command.id)}>
@@ -167,8 +169,9 @@ export default function AppCommandEditor({
           size="small"
           fullWidth
           placeholder="例如：新增收藏"
+          sx={hostTextFieldSx}
         />
-        <Button variant="outlined" onClick={addCommand} sx={{ flexShrink: 0 }}>
+        <Button variant="text" onClick={addCommand} sx={{ ...hostButtonSx, flexShrink: 0 }}>
           添加
         </Button>
       </Box>

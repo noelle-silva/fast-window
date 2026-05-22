@@ -1,5 +1,6 @@
 import { Box, Avatar, Typography, Chip } from '@mui/material'
 import type { RegisteredApp, AppStatus } from './types'
+import { hostSoftChipSx } from '../components/hostUiStyles'
 
 interface AppCardViewProps {
   app: RegisteredApp
@@ -36,9 +37,7 @@ export default function AppCardView({ app, status, showStatus, selected, onClick
         bgcolor: selected ? 'action.selected' : 'transparent',
         '&:hover': { bgcolor: onClick ? 'action.hover' : selected ? 'action.selected' : 'transparent' },
         '&:focus-visible': {
-          outline: onClick ? '2px solid' : 'none',
-          outlineColor: 'primary.main',
-          outlineOffset: 2,
+          boxShadow: onClick ? theme => `0 0 0 3px ${theme.palette.primary.main}33` : 'none',
         },
       }}
     >
@@ -58,7 +57,7 @@ export default function AppCardView({ app, status, showStatus, selected, onClick
             status?.running ? (
               <Chip label="运行中" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
             ) : (
-              <Chip label="未运行" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+              <Chip label="未运行" size="small" sx={{ ...hostSoftChipSx, height: 18, fontSize: 10 }} />
             )
           ) : null}
           {app.hotkey ? (

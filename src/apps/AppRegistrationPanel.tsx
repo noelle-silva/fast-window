@@ -18,6 +18,7 @@ import { inspectInstalledApp } from './installedAppInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
+import { hostButtonSx, hostDangerButtonSx, hostTextFieldSx, hostToggleGroupSx } from '../components/hostUiStyles'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
@@ -150,9 +151,9 @@ export default function AppRegistrationPanel({
       setPath(info.path)
       setIcon(info.icon || await readAppIcon(info.path))
       setDisplayMode(info.displayMode)
-      setCommands(info.commands)
+      setCommands([])
       setAvailableCommands(info.commands)
-      setCommandsEdited(false)
+      setCommandsEdited(true)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
     } finally {
@@ -255,7 +256,7 @@ export default function AppRegistrationPanel({
       const nextHotkey = hotkey.trim()
       const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
       const nextCommands = normalizedCommands()
-      const commandsToSave = commandsEdited ? nextCommands : (nextCommands.length ? nextCommands : info.commands)
+      const commandsToSave = commandsEdited ? nextCommands : []
       const nextApp: RegisteredApp = {
         id: info.id,
         name: nextName,
@@ -383,7 +384,7 @@ export default function AppRegistrationPanel({
               管理可由 Fast Window 启动和唤醒的 v5 独立应用。
             </Typography>
           </Box>
-          <Button onClick={openAdd} variant="contained" size="small" sx={{ boxShadow: 'none', flexShrink: 0 }}>
+            <Button onClick={openAdd} variant="contained" size="small" sx={{ ...hostButtonSx, flexShrink: 0 }}>
             添加应用
           </Button>
         </Box>
@@ -434,10 +435,10 @@ export default function AppRegistrationPanel({
           ) : null}
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }} onKeyDown={onKeyDown}>
-          <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth />
+          <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth sx={hostTextFieldSx} />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" />
-            <Button variant="outlined" onClick={() => void pickExecutablePath()} disabled={pickingPath || saving} sx={{ flexShrink: 0 }}>
+            <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" sx={hostTextFieldSx} />
+            <Button variant="text" onClick={() => void pickExecutablePath()} disabled={pickingPath || saving} sx={{ ...hostButtonSx, flexShrink: 0 }}>
               {pickingPath ? '选择中…' : '选择文件'}
             </Button>
           </Box>
@@ -458,12 +459,13 @@ export default function AppRegistrationPanel({
             placeholder="点击录制然后按键"
             InputProps={{ readOnly: true }}
             helperText={hotkeyRecording ? '录制中…按 ESC 取消，按下组合键即可保存到输入框里。' : '点击开始录制，然后按下组合键。'}
+            sx={hostTextFieldSx}
           />
           <Stack direction="row" spacing={1}>
-            <Button variant={hotkeyRecording ? 'contained' : 'outlined'} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
+            <Button variant={hotkeyRecording ? 'contained' : 'text'} sx={hostButtonSx} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
               {hotkeyRecording ? '录制中…' : '开始录制'}
             </Button>
-            <Button variant="outlined" onClick={() => setHotkey('')}>
+            <Button variant="text" sx={hostButtonSx} onClick={() => setHotkey('')}>
               清空快捷键
             </Button>
           </Stack>
@@ -476,6 +478,7 @@ export default function AppRegistrationPanel({
               size="small"
               disabled={!hotkey.trim()}
               aria-label="快捷键启动方式"
+              sx={hostToggleGroupSx}
             >
               <ToggleButton value="launch">可启动未运行应用</ToggleButton>
               <ToggleButton value="runningOnly">仅控制已运行应用</ToggleButton>
@@ -491,6 +494,7 @@ export default function AppRegistrationPanel({
               exclusive
               onChange={(_, v) => v && setDisplayMode(v)}
               size="small"
+              sx={hostToggleGroupSx}
             >
               <ToggleButton value="default">默认</ToggleButton>
               <ToggleButton value="window">窗口</ToggleButton>
@@ -511,7 +515,7 @@ export default function AppRegistrationPanel({
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={closeEditDialog}>取消</Button>
-          <Button disabled={saving} onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
+          <Button disabled={saving} onClick={() => void save()} variant="contained" sx={hostButtonSx}>保存</Button>
         </DialogActions>
       </Dialog>
 
@@ -534,7 +538,7 @@ export default function AppRegistrationPanel({
             color="error"
             variant="contained"
             onClick={() => removeConfirm && void removeRegisteredAppSafely(removeConfirm.app, removeConfirm.step === 'stop-running')}
-            sx={{ boxShadow: 'none' }}
+            sx={hostDangerButtonSx}
           >
             {removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册'}
           </Button>
@@ -557,7 +561,7 @@ export default function AppRegistrationPanel({
       </DialogTitle>
       <DialogContent>{content}</DialogContent>
       <DialogActions>
-        <Button onClick={openAdd} variant="contained" size="small" sx={{ boxShadow: 'none' }}>
+        <Button onClick={openAdd} variant="contained" size="small" sx={hostButtonSx}>
           添加应用
         </Button>
       </DialogActions>

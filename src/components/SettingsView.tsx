@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { getVersion as getAppVersion } from '@tauri-apps/api/app'
-import { alpha } from '@mui/material/styles'
 import {
   Avatar,
   Box,
@@ -38,6 +37,15 @@ import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import HostPageHeader from './HostPageHeader'
 import HostUpdatePanel from './HostUpdatePanel'
 import HostDevToolsPanel from './HostDevToolsPanel'
+import {
+  hostButtonSx,
+  hostPageRootSx,
+  hostPageScrollSx,
+  hostSurfaceSx,
+  hostTabsSx,
+  hostTextFieldSx,
+  hostToggleGroupSx,
+} from './hostUiStyles'
 import { hostToast } from '../host/hostPrimitives'
 import { getHostAutoUpdateCheckEnabled, setHostAutoUpdateCheckEnabled } from '../hostUpdate/hostUpdatePreferences'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
@@ -251,12 +259,11 @@ export default function SettingsView(props: {
   const [pluginManageLoading, setPluginManageLoading] = useState(false)
   const [pluginManageSavingId, setPluginManageSavingId] = useState<string>('')
 
-  const panelSx = (theme: any) => ({
-    borderRadius: 2,
-    p: 1.25,
-    bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
-    backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
-  })
+  const wallpaperEnabled = wallpaper?.enabled === true
+  const panelSx = hostSurfaceSx(wallpaperEnabled)
+  const toolbarSx = hostSurfaceSx(wallpaperEnabled, { tone: 'toolbar', dense: true })
+  const itemSx = hostSurfaceSx(wallpaperEnabled, { tone: 'item' })
+  const noticeSx = hostSurfaceSx(wallpaperEnabled, { tone: 'notice', dense: true })
 
   const wallpaperBaseUrl = useMemo(() => convertFileSrc('wallpaper', 'wallpaper'), [])
   const wallpaperView: WallpaperView = useMemo(() => {
@@ -767,11 +774,11 @@ export default function SettingsView(props: {
   }
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Box sx={hostPageRootSx}>
       <HostPageHeader title="设置" onBack={onBack} translucent={wallpaper?.enabled === true} />
 
-      <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
-        <Box sx={theme => ({ ...panelSx(theme), p: 0.5, px: 0.75, pt: 0.25, pb: 0.25 })}>
+      <Box sx={hostPageScrollSx}>
+        <Box sx={toolbarSx}>
           <Tabs
             value={tabIndex}
             onChange={(_, next) => {
@@ -787,7 +794,7 @@ export default function SettingsView(props: {
             variant="scrollable"
             allowScrollButtonsMobile
             aria-label="设置分类"
-            sx={{ minHeight: 40 }}
+            sx={hostTabsSx}
           >
             <Tab value={TAB_GENERAL} label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
             <Tab value={TAB_APPEARANCE} label="外观" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
@@ -882,6 +889,7 @@ export default function SettingsView(props: {
                   aria-label="主窗口模式"
                   size="small"
                   disabled={mainWindowModeSaving || saving || recording || modeShortcutRecording}
+                  sx={hostToggleGroupSx}
                 >
                   <ToggleButton value="autoHide" aria-label="默认模式">
                     默认模式
@@ -962,12 +970,13 @@ export default function SettingsView(props: {
               </Box>
 
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={chooseWallpaperImage} disabled={wallpaperSaving || saving || recording}>
+                <Button size="small" variant="text" sx={hostButtonSx} onClick={chooseWallpaperImage} disabled={wallpaperSaving || saving || recording}>
                   添加壁纸
                 </Button>
                 <Button
                   size="small"
-                  variant="outlined"
+                  variant="text"
+                  sx={hostButtonSx}
                   onClick={() => setWallpaperViewOpen(true)}
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                 >
@@ -1012,9 +1021,8 @@ export default function SettingsView(props: {
                           position: 'relative',
                           cursor: wallpaperSaving || saving || recording ? 'not-allowed' : 'pointer',
                           pointerEvents: wallpaperSaving || saving || recording ? 'none' : 'auto',
-                          border: 1,
-                          borderColor: active ? 'primary.main' : 'divider',
-                          boxShadow: active ? 2 : 0,
+                          boxShadow: active ? 4 : 0,
+                          transform: active ? 'translateY(-1px)' : 'none',
                           bgcolor: 'action.hover',
                         }}
                       >
@@ -1172,10 +1180,10 @@ export default function SettingsView(props: {
                 plugins: {pluginsDir || '-'}
               </Typography>
               <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={openDataDir}>
+                <Button size="small" variant="text" sx={hostButtonSx} onClick={openDataDir}>
                   打开数据目录
                 </Button>
-                <Button size="small" variant="outlined" onClick={openPluginsDir} disabled={!pluginsDir}>
+                <Button size="small" variant="text" sx={hostButtonSx} onClick={openPluginsDir} disabled={!pluginsDir}>
                   打开插件目录
                 </Button>
               </Box>
@@ -1198,30 +1206,32 @@ export default function SettingsView(props: {
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   自动更新：启动时检查商店版本，有新版本会自动下载并安装（权限声明变化会跳过，需要手动更新确认）。
                 </Typography>
-	              </Box>
-	              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-	                <Button
-	                  size="small"
-	                  variant="contained"
-	                  onClick={() => void enableAllAutoUpdates()}
-	                  disabled={pluginManageLoading || !!pluginManageSavingId || pluginManageList.length === 0}
-	                  aria-label="一键全部开启自动更新"
-	                >
-	                  全部开启自动更新
-	                </Button>
-	                <Button
-	                  size="small"
-	                  variant="outlined"
-	                  onClick={loadPluginManage}
-	                  disabled={pluginManageLoading || !!pluginManageSavingId}
-	                >
-	                  刷新
-	                </Button>
-	              </Box>
-	            </Box>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  sx={hostButtonSx}
+                  onClick={() => void enableAllAutoUpdates()}
+                  disabled={pluginManageLoading || !!pluginManageSavingId || pluginManageList.length === 0}
+                  aria-label="一键全部开启自动更新"
+                >
+                  全部开启自动更新
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  sx={hostButtonSx}
+                  onClick={loadPluginManage}
+                  disabled={pluginManageLoading || !!pluginManageSavingId}
+                >
+                  刷新
+                </Button>
+              </Box>
+            </Box>
 
             {pluginManageLoading ? (
-              <Box sx={theme => ({ ...panelSx(theme), display: 'flex', alignItems: 'center', gap: 1 })}>
+              <Box sx={theme => ({ ...noticeSx(theme), display: 'flex', alignItems: 'center', gap: 1 })}>
                 <CircularProgress size={16} />
                 <Typography variant="body2" color="text.secondary">
                   加载插件列表中…
@@ -1240,7 +1250,7 @@ export default function SettingsView(props: {
                   <Box
                     key={p.id}
                     sx={theme => ({
-                      ...panelSx(theme),
+                      ...itemSx(theme),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1307,7 +1317,7 @@ export default function SettingsView(props: {
                 )
               })}
               {!pluginManageLoading && pluginManageList.length === 0 ? (
-                <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+                <Box sx={noticeSx}>
                   <Typography variant="body2" color="text.secondary">
                     未发现任何插件
                   </Typography>
@@ -1347,7 +1357,7 @@ export default function SettingsView(props: {
               </Typography>
             </Box>
 
-            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
+            <Box sx={theme => ({ ...noticeSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
               <Typography variant="caption" color="text.secondary">
                 当前
               </Typography>
@@ -1365,11 +1375,13 @@ export default function SettingsView(props: {
               autoComplete="off"
               helperText="用 + 连接，修饰键在前，主键在最后（例如 Ctrl+Alt+Space）"
               inputProps={{ readOnly: true, 'aria-readonly': true }}
+              sx={hostTextFieldSx}
             />
 
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               <Button
-                variant={recording ? 'contained' : 'outlined'}
+                variant={recording ? 'contained' : 'text'}
+                sx={hostButtonSx}
                 color={recording ? 'warning' : 'primary'}
                 disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => setRecording(v => !v)}
@@ -1377,28 +1389,32 @@ export default function SettingsView(props: {
                 {recording ? '录制中…' : '开始录制'}
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
+                sx={hostButtonSx}
                 disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save(DEFAULT_WAKE_SHORTCUT)}
               >
                 恢复默认
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
+                sx={hostButtonSx}
                 disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('alt+Space')}
               >
                 预设 Alt+Space（Windows）
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
+                sx={hostButtonSx}
                 disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('control+alt+KeyQ')}
               >
                 预设 Ctrl+Alt+Q
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
+                sx={hostButtonSx}
                 disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('control+alt+KeyW')}
               >
@@ -1406,7 +1422,7 @@ export default function SettingsView(props: {
               </Button>
             </Stack>
 
-            <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+            <Box sx={noticeSx}>
               <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
                 {recordHint}
               </Typography>
@@ -1421,7 +1437,7 @@ export default function SettingsView(props: {
               </Typography>
             </Box>
 
-            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
+            <Box sx={theme => ({ ...noticeSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
               <Typography variant="caption" color="text.secondary">
                 当前
               </Typography>
@@ -1439,11 +1455,13 @@ export default function SettingsView(props: {
               autoComplete="off"
               helperText="录制后会立即生效（用于循环切换主窗口模式）"
               inputProps={{ readOnly: true, 'aria-readonly': true }}
+              sx={hostTextFieldSx}
             />
 
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               <Button
-                variant={modeShortcutRecording ? 'contained' : 'outlined'}
+                variant={modeShortcutRecording ? 'contained' : 'text'}
+                sx={hostButtonSx}
                 color={modeShortcutRecording ? 'warning' : 'primary'}
                 disabled={modeShortcutSaving || saving || recording || recordingPresetIndex != null || webviewSaving}
                 onClick={() => setModeShortcutRecording(v => !v)}
@@ -1451,7 +1469,8 @@ export default function SettingsView(props: {
                 {modeShortcutRecording ? '录制中…' : '开始录制'}
               </Button>
               <Button
-                variant="outlined"
+                variant="text"
+                sx={hostButtonSx}
                 disabled={modeShortcutSaving || saving || recording || recordingPresetIndex != null || webviewSaving}
                 onClick={() => saveMainWindowModeShortcut('')}
               >
@@ -1459,7 +1478,7 @@ export default function SettingsView(props: {
               </Button>
             </Stack>
 
-            <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+            <Box sx={noticeSx}>
               <Typography variant="caption" color={modeShortcutRecording ? 'warning.main' : 'text.secondary'}>
                 {modeShortcutHint}
               </Typography>
@@ -1514,10 +1533,7 @@ export default function SettingsView(props: {
                     <Box
                       key={`${idx}-${p.label}-${p.rate}`}
                       sx={theme => ({
-                        borderRadius: 2,
-                        p: 1,
-                        bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : undefined,
-                        backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
+                        ...itemSx(theme),
                         display: 'grid',
                         gridTemplateColumns: '1fr 120px 1fr auto auto auto',
                         gap: 1,
@@ -1538,6 +1554,7 @@ export default function SettingsView(props: {
                         }}
                         inputProps={{ 'aria-label': `倍速预设名称 ${idx + 1}` }}
                         disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                        sx={hostTextFieldSx}
                       />
 
                       <TextField
@@ -1556,6 +1573,7 @@ export default function SettingsView(props: {
                         }}
                         inputProps={{ min: 0.25, max: MAX_VIDEO_RATE, step: 0.25, 'aria-label': `倍速预设倍速 ${idx + 1}` }}
                         disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                        sx={hostTextFieldSx}
                       />
 
                       <TextField
@@ -1565,11 +1583,13 @@ export default function SettingsView(props: {
                         placeholder="点击右侧录制"
                         inputProps={{ readOnly: true, 'aria-readonly': true }}
                         disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                        sx={hostTextFieldSx}
                       />
 
                       <Button
                         size="small"
-                        variant={rowBusy ? 'contained' : 'outlined'}
+                        variant={rowBusy ? 'contained' : 'text'}
+                        sx={hostButtonSx}
                         color={rowBusy ? 'warning' : 'primary'}
                         disabled={!webview || webviewSaving || saving || recording || (recordingPresetIndex != null && !rowBusy)}
                         onClick={() => setRecordingPresetIndex(v => (v === idx ? null : idx))}
@@ -1615,7 +1635,8 @@ export default function SettingsView(props: {
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
                 <Button
                   size="small"
-                  variant="outlined"
+                  variant="text"
+                  sx={hostButtonSx}
                   disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
                   onClick={() => {
                     setWebview(prev => {
@@ -1630,6 +1651,7 @@ export default function SettingsView(props: {
                 <Button
                   size="small"
                   variant="contained"
+                  sx={hostButtonSx}
                   disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
                   onClick={() => webview && saveWebview(webview)}
                 >
@@ -1659,7 +1681,7 @@ export default function SettingsView(props: {
                 版本：{appVersion || '未知'}
               </Typography>
               <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={openProjectGithub}>
+                <Button size="small" variant="text" sx={hostButtonSx} onClick={openProjectGithub}>
                   打开 GitHub
                 </Button>
               </Box>

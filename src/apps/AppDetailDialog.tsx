@@ -5,6 +5,7 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { AppStatus, RegisteredApp, RegisteredAppCommand } from './types'
 import { isDataImageUrl } from '../utils'
+import { hostButtonSx, hostSoftChipSx } from '../components/hostUiStyles'
 
 interface AppDetailDialogProps {
   app: RegisteredApp | null
@@ -114,7 +115,7 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
                 label={status?.running ? '运行中' : '未运行'}
                 size="small"
                 color={status?.running ? 'success' : 'default'}
-                variant={status?.running ? 'filled' : 'outlined'}
+                sx={status?.running ? { height: 24 } : hostSoftChipSx}
               />
             </Box>
 
@@ -175,7 +176,7 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
         ) : null}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>关闭</Button>
+        <Button onClick={onClose} sx={hostButtonSx}>关闭</Button>
       </DialogActions>
     </Dialog>
   )

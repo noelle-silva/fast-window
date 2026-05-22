@@ -3,6 +3,7 @@ import { Box, Button, CircularProgress, Stack, TextField, Typography } from '@mu
 import { publishHostRelease, type HostReleaseBump } from '../host/hostDevActions'
 import { IS_HOST_DEV_PROFILE } from '../hostProfile'
 import { hostToast } from '../host/hostPrimitives'
+import { hostButtonSx, hostTextFieldSx } from './hostUiStyles'
 
 type HostDevToolsPanelProps = {
   panelSx: (theme: any) => any
@@ -88,7 +89,7 @@ export default function HostDevToolsPanel({ panelSx }: HostDevToolsPanelProps) {
               variant="contained"
               disabled={publishing}
               onClick={() => void runPublishBump(command.bump)}
-              sx={{ boxShadow: 'none' }}
+              sx={hostButtonSx}
               aria-label={command.description}
             >
               {command.label}
@@ -106,14 +107,14 @@ export default function HostDevToolsPanel({ panelSx }: HostDevToolsPanelProps) {
             disabled={publishing}
             helperText="执行 --version x.y.z"
             inputProps={{ 'aria-label': '宿主发布指定版本号' }}
-            sx={{ minWidth: 180 }}
+            sx={{ ...hostTextFieldSx, minWidth: 180 }}
           />
           <Button
             size="small"
-            variant="outlined"
+            variant="text"
             disabled={publishing || !normalizeVersionInput(versionInput)}
             onClick={() => void runPublishVersion()}
-            sx={{ mt: 0.25 }}
+            sx={{ ...hostButtonSx, mt: 0.25 }}
           >
             Publish Version
           </Button>

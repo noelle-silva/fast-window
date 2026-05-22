@@ -28,8 +28,8 @@ mod clipboard_watch;
 mod config_store;
 mod core;
 mod dev_terminal;
-mod host_dialog;
 mod host_dev_actions;
+mod host_dialog;
 mod host_lifecycle;
 mod host_primitives;
 mod host_updater;
@@ -41,6 +41,7 @@ mod os_actions;
 mod plugin_assets;
 mod plugin_files;
 mod plugin_files_delete_tree;
+mod plugin_uninstall;
 mod plugins;
 mod process_commands;
 mod process_runtime;
@@ -2521,6 +2522,7 @@ fn main() {
         read_plugins_dir,
         install_plugin_files,
         plugin_store_install,
+        plugin_uninstall::uninstall_plugin,
         app_installer::get_apps_dir,
         app_installer::open_apps_dir,
         app_installer::pick_app_install_dir,
