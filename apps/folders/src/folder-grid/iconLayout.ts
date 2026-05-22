@@ -21,6 +21,12 @@ export const DEFAULT_DESKTOP_ICON_LAYOUT: DesktopIconLayout = {
   iconScale: DESKTOP_ICON_SCALE_MIN,
 }
 
+export const DEFAULT_CONTAINER_ICON_LAYOUT: DesktopIconLayout = {
+  rowGap: DESKTOP_ICON_GAP_MIN,
+  columnGap: DESKTOP_ICON_GAP_MIN,
+  iconScale: 1,
+}
+
 export type FolderGridMetrics = {
   cellHeight: number
   cellWidth: number

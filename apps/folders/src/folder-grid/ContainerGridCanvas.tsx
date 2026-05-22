@@ -1,9 +1,9 @@
 import * as React from 'react'
-import RemoveCircleOutlineRoundedIcon from '@mui/icons-material/RemoveCircleOutlineRounded'
-import { Box, ButtonBase, IconButton, Stack, Typography } from '@mui/material'
-import { itemTargetValue } from '../categoryRegistry'
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
+import { Box } from '@mui/material'
 import type { CollectionGridLayout, CollectionItem } from '../types'
-import { DesktopIconVisual } from './DesktopIconVisual'
+import { CollectionItemIconTile } from './CollectionItemIconTile'
+import { DEFAULT_CONTAINER_ICON_LAYOUT, createFolderGridMetrics, type FolderGridMetrics } from './iconLayout'
 import {
   getFolderGridCanvasHeight,
   getFolderGridLayoutFromPixel,
@@ -26,6 +26,7 @@ type Props = {
   onDragEnd?(event: ContainerGridDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
   onDragMove?(event: ContainerGridDragEvent): void
   onDragStart?(event: ContainerGridDragEvent): void
+  onContextMenu(item: CollectionItem, x: number, y: number): void
   onOpenItem(item: CollectionItem): void
   onRemoveItem(item: CollectionItem): void
   onReady?(api: ContainerGridApi | null): void
@@ -44,15 +45,17 @@ export type { ContainerGridApi, ContainerGridDragEvent, ContainerGridPlacement }
 export function ContainerGridCanvas(props: Props): React.ReactNode {
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.items.map(item => ({ id: item.id, layout: item.containerLayout })), [props.items])
   const itemById = React.useMemo(() => new Map(props.items.map(item => [item.id, item])), [props.items])
+  const metrics = React.useMemo(() => createFolderGridMetrics(DEFAULT_CONTAINER_ICON_LAYOUT), [])
   const editor = useMuuriFolderGrid({
     items: layoutItems,
+    metrics,
     onCommit: patches => props.onLayoutCommit(toContainerPlacements(patches)),
     onDragCancel: event => props.onDragCancel?.(toContainerDragEvent(event, itemById)),
     onDragEnd: (event, patches) => props.onDragEnd?.(toContainerDragEvent(event, itemById), toContainerPlacements(patches)),
     onDragMove: event => props.onDragMove?.(toContainerDragEvent(event, itemById)),
     onDragStart: event => props.onDragStart?.(toContainerDragEvent(event, itemById)),
   })
-  const canvasHeight = getFolderGridCanvasHeight(editor.activeLayouts.values())
+  const canvasHeight = getFolderGridCanvasHeight(editor.activeLayouts.values(), metrics)
 
   React.useLayoutEffect(() => {
     if (!props.onReady) return undefined
@@ -88,7 +91,7 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
       {props.items.map(item => {
         const layout = editor.activeLayouts.get(item.id)
         if (!layout) return null
-        const rect = getFolderGridPixelRect(layout)
+        const rect = getFolderGridPixelRect(layout, metrics)
         return (
           <Box
             key={item.id}
@@ -107,6 +110,8 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
               assetUrl={props.assetUrl}
               dragging={editor.draggingId === item.id}
               item={itemById.get(item.id) || item}
+              metrics={metrics}
+              onContextMenu={(x, y) => props.onContextMenu(item, x, y)}
               onOpen={() => {
                 if (!editor.consumeSuppressedClick(item.id)) props.onOpenItem(item)
               }}
@@ -119,80 +124,23 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
   )
 }
 
-function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging: boolean; item: CollectionItem; onOpen(): void; onRemove(): void }) {
-  const target = itemTargetValue(props.item)
+function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging: boolean; item: CollectionItem; metrics: FolderGridMetrics; onContextMenu(x: number, y: number): void; onOpen(): void; onRemove(): void }) {
   return (
-    <Box
-      sx={{
-        position: 'relative',
-        width: 148,
-        height: 164,
-        display: 'grid',
-        justifyItems: 'center',
-        alignContent: 'start',
-        pt: 0.5,
-        gap: 1,
-        cursor: props.dragging ? 'grabbing' : 'grab',
-        userSelect: 'none',
-        touchAction: 'none',
-        transform: props.dragging ? 'scale(1.05)' : 'scale(1)',
-        transition: props.dragging ? 'none' : 'transform .16s ease',
-        '&:hover .container-folder-remove, &:focus-within .container-folder-remove': { opacity: 1, transform: 'translateY(0) scale(1)' },
+    <CollectionItemIconTile
+      action={{
+        ariaLabel: `移出收纳夹：${props.item.name}`,
+        icon: <LogoutRoundedIcon fontSize="small" />,
+        title: '移出到桌面',
+        onClick: props.onRemove,
       }}
-    >
-      <ButtonBase
-        disableRipple
-        onClick={props.onOpen}
-        aria-label={`打开：${props.item.name}`}
-        sx={{
-          width: 132,
-          display: 'grid',
-          justifyItems: 'center',
-          gap: 1,
-          p: 0.5,
-          borderRadius: 5,
-          textAlign: 'center',
-          '&:focus-visible': { outline: '2px solid rgba(37, 99, 235, 0.75)', outlineOffset: 4 },
-        }}
-      >
-        <DesktopIconVisual
-          assetUrl={props.assetUrl}
-          icon={props.item.icon}
-          seed={`${props.item.target.kind}:${props.item.id}:${props.item.name}`}
-          size={86}
-          radius={24}
-          targetKind={props.item.target.kind}
-        />
-        <Stack spacing={0.25} sx={{ minWidth: 0, width: '100%' }}>
-          <Typography noWrap fontWeight={850} title={props.item.name} sx={{ color: 'text.primary', fontSize: 15 }}>
-            {props.item.name}
-          </Typography>
-          <Typography noWrap title={target} variant="caption" sx={{ display: 'block', color: 'rgba(15, 23, 42, 0.45)' }}>
-            {target}
-          </Typography>
-        </Stack>
-      </ButtonBase>
-      <IconButton
-        className="container-folder-remove"
-        data-folder-grid-no-drag="1"
-        aria-label={`移出收纳夹：${props.item.name}`}
-        onClick={props.onRemove}
-        size="small"
-        sx={{
-          position: 'absolute',
-          top: -4,
-          right: 18,
-          opacity: { xs: 1, sm: 0 },
-          transform: { xs: 'translateY(0) scale(1)', sm: 'translateY(-4px) scale(0.92)' },
-          transition: 'opacity .16s ease, transform .16s ease, background-color .16s ease',
-          bgcolor: 'rgba(255, 255, 255, 0.92)',
-          boxShadow: '0 10px 22px rgba(15, 23, 42, 0.16)',
-          '&:hover': { bgcolor: '#FFFFFF', color: 'error.main' },
-        }}
-      >
-        <RemoveCircleOutlineRoundedIcon fontSize="small" />
-      </IconButton>
-    </Box>
+      assetUrl={props.assetUrl}
+      dragging={props.dragging}
+      item={props.item}
+      metrics={props.metrics}
+      variant="container"
+      onContextMenu={props.onContextMenu}
+      onOpen={props.onOpen}
+    />
   )
 }
 

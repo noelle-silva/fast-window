@@ -206,8 +206,9 @@ export type DesktopGridEntry = {
 }
 
 export type EntryContextMenuState = { kind: 'entry'; entry: DesktopGridEntry; x: number; y: number }
+export type ContainerItemContextMenuState = { kind: 'container-item'; container: CollectionContainer; item: CollectionItem; x: number; y: number }
 export type DesktopContextMenuState = { kind: 'desktop'; x: number; y: number }
-export type ContextMenuState = EntryContextMenuState | DesktopContextMenuState | null
+export type ContextMenuState = EntryContextMenuState | ContainerItemContextMenuState | DesktopContextMenuState | null
 
 // Compatibility alias for visual grid modules that still describe square icon layout geometry.
 export type FolderGridLayout = CollectionGridLayout

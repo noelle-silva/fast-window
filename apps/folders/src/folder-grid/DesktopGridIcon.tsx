@@ -1,14 +1,13 @@
 import * as React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
-import type { SvgIconComponent } from '@mui/icons-material'
-import { categoryDefinition, itemTargetValue } from '../categoryRegistry'
+import { categoryDefinition } from '../categoryRegistry'
 import type { CategoryWorkspace, DesktopGridEntry } from '../types'
+import { CollectionItemIconTile } from './CollectionItemIconTile'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
 import {
   DESKTOP_ICON_DRAG_SHADOW,
   DESKTOP_ICON_TITLE_SHADOW,
-  getDesktopIconPalette,
 } from './desktopIconTokens'
 
 type Props = {
@@ -22,14 +21,25 @@ type Props = {
 }
 
 export function DesktopGridIcon(props: Props): React.ReactNode {
-  const icon = props.entry.icon
-  const color = icon?.kind === 'color' ? icon.color : undefined
-  const palette = getDesktopIconPalette(`${props.entry.kind}:${props.entry.id}:${props.entry.name}`, color)
+  if (props.entry.kind === 'item') {
+    if (!props.entry.item) throw new Error(`desktop item entry missing item: ${props.entry.id}`)
+    const sourceCategory = props.entry.item.sourceCategoryId ? categoryDefinition(props.entry.item.sourceCategoryId) : null
+    return (
+      <CollectionItemIconTile
+        assetUrl={props.assetUrl}
+        dragging={props.dragging}
+        item={props.entry.item}
+        metrics={props.metrics}
+        sourceCategory={sourceCategory}
+        variant="desktop"
+        onContextMenu={props.onContextMenu}
+        onOpen={props.onOpen}
+      />
+    )
+  }
+
   const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个项目` : null
-  const sourceCategory = props.entry.item?.sourceCategoryId ? categoryDefinition(props.entry.item.sourceCategoryId) : null
   const containerItems = props.entry.kind === 'container' ? props.workspace.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
-  const surfaceShadow = props.entry.kind === 'container' ? '0 18px 34px rgba(15, 23, 42, 0.18)' : palette.shadow
-  const title = props.entry.item ? itemTargetValue(props.entry.item) : props.entry.name
 
   return (
     <Box
@@ -54,7 +64,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
         disableRipple
         onClick={props.onOpen}
         aria-label={`打开：${props.entry.name}`}
-        title={title}
+        title={props.entry.name}
         sx={{
           width: props.metrics.itemWidth,
           height: props.metrics.itemHeight,
@@ -69,17 +79,9 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           textAlign: 'center',
           '&:hover .desktop-grid-icon-surface': {
             transform: 'translateY(-3px)',
-            boxShadow: surfaceShadow,
-          },
-          '&:hover .desktop-grid-source-badge': {
-            transform: 'translateY(-3px) scale(1.08)',
-            bgcolor: 'rgba(37, 99, 235, 0.92)',
-            boxShadow: '0 12px 24px rgba(37, 99, 235, 0.28), 0 8px 18px rgba(15, 23, 42, 0.24)',
+            boxShadow: '0 18px 34px rgba(15, 23, 42, 0.18)',
           },
           '&:active .desktop-grid-icon-surface': {
-            transform: 'translateY(0) scale(0.98)',
-          },
-          '&:active .desktop-grid-source-badge': {
             transform: 'translateY(0) scale(0.98)',
           },
           '&:focus-visible': {
@@ -89,26 +91,12 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           },
         }}
       >
-        {props.entry.kind === 'container' ? (
-          <ContainerFolderPreview
-            assetUrl={props.assetUrl}
-            dragging={props.dragging}
-            items={containerItems}
-            metrics={props.metrics}
-          />
-        ) : (
-          <DesktopIconVisual
-            assetUrl={props.assetUrl}
-            className="desktop-grid-icon-surface"
-            dragging={props.dragging}
-            icon={icon}
-            radius={props.metrics.iconRadius}
-            seed={`${props.entry.item?.target.kind || 'folder'}:${props.entry.id}:${props.entry.name}`}
-            size={props.metrics.iconSize}
-            targetKind={props.entry.item?.target.kind}
-          />
-        )}
-        {sourceCategory ? <SourceCategoryBadge icon={sourceCategory.icon} label={sourceCategory.label} /> : null}
+        <ContainerFolderPreview
+          assetUrl={props.assetUrl}
+          dragging={props.dragging}
+          items={containerItems}
+          metrics={props.metrics}
+        />
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
           <Typography
             component="span"
@@ -154,38 +142,6 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           ) : null}
         </Box>
       </ButtonBase>
-    </Box>
-  )
-}
-
-function SourceCategoryBadge(props: { icon: SvgIconComponent; label: string }) {
-  const BadgeIcon = props.icon
-  return (
-    <Box
-      className="desktop-grid-source-badge"
-      aria-label={`来源分类：${props.label}`}
-      title={`来源分类：${props.label}`}
-      sx={{
-        position: 'absolute',
-        right: 12,
-        top: 42,
-        width: 24,
-        height: 24,
-        display: 'grid',
-        placeItems: 'center',
-        borderRadius: '50%',
-        bgcolor: 'rgba(15, 23, 42, 0.76)',
-        border: '1px solid rgba(255, 255, 255, 0.72)',
-        color: '#FFFFFF',
-        boxShadow: '0 8px 18px rgba(15, 23, 42, 0.28)',
-        pointerEvents: 'none',
-        backdropFilter: 'blur(12px) saturate(1.12)',
-        WebkitBackdropFilter: 'blur(12px) saturate(1.12)',
-        transform: 'translateY(0) scale(1)',
-        transition: 'transform .18s ease, background-color .18s ease, box-shadow .18s ease',
-      }}
-    >
-      <BadgeIcon sx={{ fontSize: 15, filter: 'drop-shadow(0 1px 2px rgba(15, 23, 42, 0.42))' }} />
     </Box>
   )
 }

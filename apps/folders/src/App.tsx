@@ -50,7 +50,7 @@ import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
 import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
-import { DesktopContextMenu } from './DesktopContextMenu'
+import { CollectionContextMenu } from './CollectionContextMenu'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
@@ -595,6 +595,15 @@ export function App() {
   function openDesktopEntry(entry: DesktopGridEntry) {
     if (entry.kind === 'item' && entry.item) void openItem(entry.item)
     if (entry.kind === 'container' && entry.container) { setContainerDropViewState(null); setContainerView(entry.container); setContextMenu(null) }
+  }
+
+  function closeContextMenu() {
+    setContextMenu(null)
+  }
+
+  function openContainerItemContextMenu(container: CollectionContainer | null, item: CollectionItem, x: number, y: number) {
+    if (!container) throw new Error(`container context menu missing container for item: ${item.id}`)
+    setContextMenu({ kind: 'container-item', container, item, x, y })
   }
 
   async function saveDesktopLayouts(patches: DesktopGridLayoutPatch[]) {
@@ -1282,7 +1291,7 @@ export function App() {
   return (
     <Box
       component="main"
-      onClick={() => setContextMenu(null)}
+      onClick={closeContextMenu}
       sx={{
         position: 'relative',
         height: '100vh',
@@ -1350,14 +1359,14 @@ export function App() {
 
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
-      <DesktopContextMenu
+      <CollectionContextMenu
         busy={busy}
         canCreateContainer={!isAllView && Boolean(selectedGroup)}
         canEdit={phase === 'ready'}
         menu={contextMenu}
         groups={doc.groups}
         doc={doc}
-        onClose={() => setContextMenu(null)}
+        onClose={closeContextMenu}
         onCreateContainer={openAddContainer}
         onCreateGroup={() => openGroupEditor()}
         onCreateItem={openAdd}
@@ -1367,6 +1376,8 @@ export function App() {
         onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
         onCopyToGroup={(item, targetGroupId) => void copyItemToGroup(item, targetGroupId)}
         onMoveToGroup={(item, targetGroupId) => void moveItemToGroup(item, targetGroupId)}
+        onOpenItem={item => void openItem(item)}
+        onRemoveFromContainer={item => void saveItemContainer([item.id], '')}
         onDelete={entry => setConfirm({ kind: entry.kind, id: entry.id, label: entry.name })}
       />
 
@@ -1452,12 +1463,14 @@ export function App() {
         dropTargetActive={isContainerDropTargetActive(desktopDrag, containerView)}
         doc={doc}
         onClose={() => setContainerView(null)}
+        onDismissContextMenu={closeContextMenu}
         onGridReady={handleContainerGridReady}
         onItemDragCancel={handleContainerItemDragCancel}
         onItemDragEnd={handleContainerItemDragEnd}
         onItemDragMove={handleContainerItemDragMove}
         onItemDragStart={handleContainerItemDragStart}
         onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
+        onContextMenu={(item, x, y) => openContainerItemContextMenu(containerView, item, x, y)}
         onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
         onRename={(container, name) => renameContainer(container, name)}
@@ -1472,12 +1485,14 @@ export function App() {
         doc={doc}
         hiddenItemId={dropContainerHiddenItemId}
         onClose={() => setContainerDropViewState(null)}
+        onDismissContextMenu={closeContextMenu}
         onGridReady={handleContainerGridReady}
         onItemDragCancel={undefined}
         onItemDragEnd={undefined}
         onItemDragMove={undefined}
         onItemDragStart={undefined}
         onLayoutCommit={patches => containerDropView ? void placeContainerItems(containerDropView.id, null, patches) : undefined}
+        onContextMenu={(item, x, y) => openContainerItemContextMenu(containerDropView, item, x, y)}
         onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
         onRename={(container, name) => renameContainer(container, name)}

@@ -15,11 +15,13 @@ type Props = {
   doc: CategoryWorkspaceView
   hiddenItemId?: string
   onClose(): void
+  onDismissContextMenu(): void
   onItemDragCancel?(event: ContainerItemDragEvent): void
   onItemDragEnd?(event: ContainerItemDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
   onItemDragMove?(event: ContainerItemDragEvent): void
   onItemDragStart?(event: ContainerItemDragEvent): void
   onLayoutCommit(patches: ContainerGridPlacement[]): void
+  onContextMenu(item: CollectionItem, x: number, y: number): void
   onOpenItem(item: CollectionItem): void
   onRemoveItem(item: CollectionItem): void
   onRename(container: CollectionContainer, name: string): Promise<void> | void
@@ -31,7 +33,7 @@ export type ContainerItemDragEvent = ContainerGridDragEvent & { boundary: DOMRec
 
 export function ContainerOverlay(props: Props): React.ReactNode {
   const container = props.container
-  const { onClose } = props
+  const { closeDisabled, onClose, onDismissContextMenu } = props
   const instanceId = React.useId()
   const panelRef = React.useRef<HTMLDivElement | null>(null)
   const [editingName, setEditingName] = React.useState(false)
@@ -39,8 +41,20 @@ export function ContainerOverlay(props: Props): React.ReactNode {
   const [savingName, setSavingName] = React.useState(false)
   const items = React.useMemo(() => (container ? props.doc.items.filter(item => item.containerId === container.id && item.id !== props.hiddenItemId) : []), [container, props.doc.items, props.hiddenItemId])
   const requestClose = React.useCallback(() => {
-    if (!props.closeDisabled) onClose()
-  }, [onClose, props.closeDisabled])
+    onDismissContextMenu()
+    if (!closeDisabled) onClose()
+  }, [closeDisabled, onClose, onDismissContextMenu])
+
+  const dismissPanelClick: React.MouseEventHandler = event => {
+    event.stopPropagation()
+    onDismissContextMenu()
+  }
+
+  const dismissPanelContextMenu: React.MouseEventHandler = event => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDismissContextMenu()
+  }
 
   React.useEffect(() => {
     setEditingName(false)
@@ -112,7 +126,7 @@ export function ContainerOverlay(props: Props): React.ReactNode {
             disabled={savingName}
             onBlur={() => { void commitNameEdit() }}
             onChange={event => setDraftName(event.target.value)}
-            onClick={event => event.stopPropagation()}
+            onClick={dismissPanelClick}
             onFocus={event => event.currentTarget.select()}
             onKeyDown={event => {
               if (event.key === 'Escape') {
@@ -142,7 +156,7 @@ export function ContainerOverlay(props: Props): React.ReactNode {
             type="button"
             aria-label="点击修改收纳夹名称"
             title="点击修改名称"
-            onClick={event => { event.stopPropagation(); setEditingName(true) }}
+            onClick={event => { dismissPanelClick(event); setEditingName(true) }}
             onKeyDown={event => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
@@ -186,7 +200,8 @@ export function ContainerOverlay(props: Props): React.ReactNode {
 
       <ScrollArea
         ref={panelRef}
-        onClick={event => event.stopPropagation()}
+        onClick={dismissPanelClick}
+        onContextMenu={dismissPanelContextMenu}
         sx={{
           alignSelf: 'center',
           justifySelf: 'center',
@@ -212,6 +227,7 @@ export function ContainerOverlay(props: Props): React.ReactNode {
             onDragMove={event => props.onItemDragMove?.(withBoundary(event, panelRef.current))}
             onDragStart={event => props.onItemDragStart?.(withBoundary(event, panelRef.current))}
             onLayoutCommit={props.onLayoutCommit}
+            onContextMenu={props.onContextMenu}
             onOpenItem={props.onOpenItem}
             onRemoveItem={props.onRemoveItem}
             onReady={api => props.onGridReady?.(container.id, instanceId, api)}
