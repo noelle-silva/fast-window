@@ -64,13 +64,14 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawGateway } from '../gateway/types'
 import { createAiDrawController, type AiDrawImageImportTarget } from '../controller/createController'
-import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
+import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, resolveModel, type AiDrawProvider, type UiMode } from '../core/schema'
 import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
 import { useLazyListLimit } from './hooks/useLazyListLimit'
 import { ImageLightboxDialog } from './components/ImageLightboxDialog'
 import { ProviderSettingsPanel, createProviderDraft, type ProviderDraft } from './components/ProviderSettingsPanel'
+import { ImageGenerationOptionsPanel } from './components/ImageGenerationOptionsPanel'
 import { SortHandleButton, SortModeButton } from './components/SortControls'
 import {
   SortableItem,
@@ -322,6 +323,8 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
 
   const data = state.data
   const provider = activeProviderFromState(data)
+  const activeModel = resolveModel(provider)
+  const activeProtocol = String((provider as any)?.protocol || 'images') === 'chat' ? 'chat' : 'images'
   const providers = Array.isArray(data?.providers) ? data!.providers : []
 
   const [settingsOpen, setSettingsOpen] = React.useState(false)
@@ -351,6 +354,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
   const [taskHistoryMenuAnchorEl, setTaskHistoryMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = React.useState(false)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [imageOptionsAnchorEl, setImageOptionsAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [providerSortMode, setProviderSortMode] = React.useState(false)
@@ -436,6 +440,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
     setImageGalleryExporting(false)
     setImageGalleryDeleteConfirm({ open: false, paths: [] })
     setImageDetailAnchorEl(null)
+    setImageOptionsAnchorEl(null)
     setNormalMoreAnchorEl(null)
     setDeleteConfirmOpen(false)
     setTaskAnchorEl(null)
@@ -714,6 +719,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
   )
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
+  const showImageOptionsButton = uiMode === UI_MODE_NORMAL && activeProtocol === 'images'
   const autoSave = !!data?.autoSave
 
   const imageIndexText =
@@ -1097,6 +1103,30 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                 </Select>
               </FormControl>
 
+              {showImageOptionsButton ? (
+                <Tooltip title={`图像参数：质量 ${state.imageOptions.quality} · 尺寸 ${state.imageOptions.size}`}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={(event) => setImageOptionsAnchorEl(event.currentTarget)}
+                      disabled={state.submitting}
+                      aria-label={`打开图像参数，当前质量 ${state.imageOptions.quality}，尺寸 ${state.imageOptions.size}`}
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        flex: '0 0 auto',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        bgcolor: imageOptionsAnchorEl ? 'action.selected' : 'background.paper',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
+                      <ImageRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              ) : null}
+
               <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 0.75 }}>
                 <TextField
                   size="small"
@@ -1264,6 +1294,26 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
               </Alert>
             ) : null}
           </Paper>
+
+          <Popover
+            open={!!imageOptionsAnchorEl && showImageOptionsButton}
+            anchorEl={imageOptionsAnchorEl}
+            onClose={() => setImageOptionsAnchorEl(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            PaperProps={{ sx: { mt: 1, borderRadius: 3, overflow: 'hidden', boxShadow: '0 18px 48px rgba(15,23,42,0.20)' } }}
+          >
+            <Box sx={{ width: 420, maxWidth: 'calc(100vw - 32px)' }}>
+              <ImageGenerationOptionsPanel
+                options={state.imageOptions}
+                model={activeModel}
+                protocol={activeProtocol}
+                hasRefImages={!!state.refImages.length}
+                disabled={state.submitting}
+                onChange={controller.setImageOptions}
+              />
+            </Box>
+          </Popover>
 
           <Paper sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Box sx={{ p: 1.5 }}>

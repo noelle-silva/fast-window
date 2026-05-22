@@ -16,7 +16,6 @@ export type ProviderDraft = {
   modelsText: string
   model: string
   customModel: string
-  size: string
   chatSystemPrompt: string
 }
 
@@ -35,8 +34,6 @@ type ProviderSettingsPanelProps = {
   onDraftChange: (next: ProviderDraft) => void
 }
 
-const PROVIDER_SIZE_OPTIONS = ['1024x1024', '1024x1536', '1536x1024', '512x512']
-
 export function createProviderDraft(provider: AiDrawProvider | null): ProviderDraft | null {
   if (!provider) return null
   return {
@@ -47,7 +44,6 @@ export function createProviderDraft(provider: AiDrawProvider | null): ProviderDr
     modelsText: Array.isArray(provider.models) ? provider.models.join('\n') : '',
     model: String(provider.model || ''),
     customModel: String(provider.customModel || ''),
-    size: String(provider.size || '1024x1024'),
     chatSystemPrompt: String(provider.chatSystemPrompt || ''),
   }
 }
@@ -295,30 +291,12 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
                 }}
               />
 
-              <Stack direction="row" spacing={2}>
-                <TextField
-                  size="small"
-                  label="尺寸"
-                  select
-                  value={draft.size}
-                  onChange={(event) => updateDraft({ size: String(event.target.value || '1024x1024') })}
-                  sx={{ width: 220 }}
-                >
-                  {PROVIDER_SIZE_OPTIONS.map((size) => (
-                    <MenuItem key={size} value={size}>
-                      {size}
-                    </MenuItem>
-                  ))}
-                </TextField>
-
-                <TextField
-                  size="small"
-                  label="自定义模型名（当选择自定义时生效）"
-                  value={draft.customModel}
-                  onChange={(event) => updateDraft({ customModel: event.target.value })}
-                  sx={{ flex: 1 }}
-                />
-              </Stack>
+              <TextField
+                size="small"
+                label="自定义模型名（当选择自定义时生效）"
+                value={draft.customModel}
+                onChange={(event) => updateDraft({ customModel: event.target.value })}
+              />
 
               <TextField
                 size="small"

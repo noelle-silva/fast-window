@@ -36,6 +36,7 @@ func (svc *generationService) createNormal(params json.RawMessage) (any, error) 
 	if err := validateNormalRequest(payload.Request); err != nil {
 		return nil, err
 	}
+	payload.Request.ImageOptions = normalizeImageGenerationOptions(payload.Request.ImageOptions)
 	batchCount := clampInt(payload.Request.BatchCount, 1, maxBatchCount, 1)
 	tasks := make([]generationTask, 0, batchCount)
 	for i := 0; i < batchCount; i++ {
@@ -167,7 +168,22 @@ func validateNormalRequest(req createNormalGenerationRequest) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return newDirectError(errorBadRequest, "提示词为空")
 	}
-	return validateProviderBasics(req.Provider)
+	if err := validateProviderBasics(req.Provider); err != nil {
+		return err
+	}
+	protocol := strings.TrimSpace(req.Provider.Protocol)
+	if protocol == "" {
+		protocol = "images"
+	}
+	requestKind := protocolKindImages
+	if len(req.RefImages) > 0 {
+		requestKind = protocolKindImagesEdits
+	}
+	options := normalizeImageGenerationOptions(req.ImageOptions)
+	if errors := validateImageGenerationOptions(options, resolveProviderModel(req.Provider), protocol, requestKind); len(errors) > 0 {
+		return newDirectError(errorBadRequest, strings.Join(errors, "\n"))
+	}
+	return nil
 }
 
 func validateLocalEditRequest(req createLocalEditGenerationRequest) error {

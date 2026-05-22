@@ -45,14 +45,15 @@ type generationCropImage struct {
 }
 
 type createNormalGenerationRequest struct {
-	Provider          generationProvider   `json:"provider"`
-	Prompt            string               `json:"prompt"`
-	RefImages         []generationRefImage `json:"refImages"`
-	BatchCount        int                  `json:"batchCount"`
-	AutoSave          bool                 `json:"autoSave"`
-	ShrinkRefImages   bool                 `json:"shrinkRefImages"`
-	DebugMode         bool                 `json:"debugMode"`
-	RequestTimeoutSec int                  `json:"requestTimeoutSec"`
+	Provider          generationProvider     `json:"provider"`
+	Prompt            string                 `json:"prompt"`
+	RefImages         []generationRefImage   `json:"refImages"`
+	BatchCount        int                    `json:"batchCount"`
+	ImageOptions      imageGenerationOptions `json:"imageOptions"`
+	AutoSave          bool                   `json:"autoSave"`
+	ShrinkRefImages   bool                   `json:"shrinkRefImages"`
+	DebugMode         bool                   `json:"debugMode"`
+	RequestTimeoutSec int                    `json:"requestTimeoutSec"`
 }
 
 type createLocalEditGenerationRequest struct {

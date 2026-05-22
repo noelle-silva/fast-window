@@ -28,7 +28,8 @@ async function dataUrlToTauriImage(dataUrl: string) {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 不可用')
   ctx.drawImage(image, 0, 0, width, height)
-  return TauriImage.new(ctx.getImageData(0, 0, width, height).data, width, height)
+  const rgba = ctx.getImageData(0, 0, width, height).data
+  return TauriImage.new(new Uint8Array(rgba.buffer.slice(0)), width, height)
 }
 
 async function tauriClipboardImageToPngDataUrl(image: TauriClipboardImage) {

@@ -71,6 +71,26 @@ func TestGenerationServiceLocalEditKeepsImageDataURL(t *testing.T) {
 	}
 }
 
+func TestGenerationServiceCreateNormalRejectsInvalidImageOptionsBeforeTask(t *testing.T) {
+	svc := newGenerationService(newImageStore(t.TempDir()), fakeImageProvider{generate: func(ctx context.Context, input imageGenerationInput) (imageGenerationResult, error) {
+		t.Fatalf("provider should not be called for invalid image options")
+		return imageGenerationResult{}, nil
+	}}, &recordingSink{})
+
+	params := mustJSON(t, map[string]any{"request": map[string]any{
+		"provider": map[string]any{"id": "p1", "name": "P", "baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-1", "protocol": "images"},
+		"prompt":   "draw cat", "batchCount": 1, "autoSave": false, "requestTimeoutSec": 5,
+		"imageOptions": map[string]any{"size": "1024x1024", "quality": "high", "outputFormat": "jpeg", "background": "transparent"},
+	}})
+	_, err := svc.createNormal(params)
+	if err == nil {
+		t.Fatalf("expected invalid image options error")
+	}
+	if len(svc.registry.list(10)) != 0 {
+		t.Fatalf("invalid options should not create tasks")
+	}
+}
+
 func TestGenerationServiceCancel(t *testing.T) {
 	started := make(chan struct{})
 	svc := newGenerationService(newImageStore(t.TempDir()), fakeImageProvider{generate: func(ctx context.Context, input imageGenerationInput) (imageGenerationResult, error) {

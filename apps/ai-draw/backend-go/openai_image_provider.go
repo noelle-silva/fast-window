@@ -174,13 +174,22 @@ func buildProviderRequestData(input imageGenerationInput, config validatedProvid
 	if len(input.Normal.RefImages) > 0 {
 		return buildImagesEditsRequestData(input.Normal, config, headers)
 	}
-	body, err := json.Marshal(map[string]any{
-		"model":           config.Model,
-		"prompt":          input.Normal.Prompt,
-		"size":            providerSize(config.Provider),
-		"n":               1,
-		"response_format": "b64_json",
-	})
+	optionFields, err := buildOpenAIImageOptionFields(input.Normal.ImageOptions, config.Model, protocolKindImages, protocolKindImages)
+	if err != nil {
+		return providerRequestData{}, err
+	}
+	bodyMap := map[string]any{
+		"model":  config.Model,
+		"prompt": input.Normal.Prompt,
+		"n":      1,
+	}
+	for key, value := range optionFields {
+		bodyMap[key] = value
+	}
+	if shouldSendLegacyResponseFormat(config.Model) {
+		bodyMap["response_format"] = "b64_json"
+	}
+	body, err := json.Marshal(bodyMap)
 	if err != nil {
 		return providerRequestData{}, err
 	}
@@ -189,11 +198,19 @@ func buildProviderRequestData(input imageGenerationInput, config validatedProvid
 }
 
 func buildImagesEditsRequestData(req *createNormalGenerationRequest, config validatedProviderConfig, headers map[string]string) (providerRequestData, error) {
+	optionFields, err := buildOpenAIImageOptionFields(req.ImageOptions, config.Model, protocolKindImages, protocolKindImagesEdits)
+	if err != nil {
+		return providerRequestData{}, err
+	}
 	parts := []multipartPart{
 		{Name: "model", Value: config.Model},
 		{Name: "prompt", Value: req.Prompt},
-		{Name: "size", Value: providerSize(config.Provider)},
-		{Name: "response_format", Value: "b64_json"},
+	}
+	for _, key := range orderedImageOptionFieldKeys(optionFields) {
+		parts = append(parts, multipartPart{Name: key, Value: fmt.Sprint(optionFields[key])})
+	}
+	if shouldSendLegacyResponseFormat(config.Model) {
+		parts = append(parts, multipartPart{Name: "response_format", Value: "b64_json"})
 	}
 	var imageBytes int64
 	for index, image := range req.RefImages {
@@ -218,10 +235,32 @@ func buildImagesEditsRequestData(req *createNormalGenerationRequest, config vali
 		URL:          config.BaseURL + "/images/edits",
 		Headers:      headers,
 		Body:         body,
-		DebugBody:    fmt.Sprintf("[multipart/form-data] fields=model,prompt,size,response_format; images=%d; bytes=%s", len(req.RefImages), formatBytes(int64(len(body)))),
+		DebugBody:    fmt.Sprintf("[multipart/form-data] fields=%s; images=%d; bytes=%s", debugMultipartFieldNames(parts), len(req.RefImages), formatBytes(int64(len(body)))),
 		DebugSummary: fmt.Sprintf("图片总字节：%s", formatBytes(imageBytes)),
 		ProtocolKind: protocolKindImagesEdits,
 	}, nil
+}
+
+func orderedImageOptionFieldKeys(fields map[string]any) []string {
+	order := []string{"size", "quality", "output_format", "output_compression", "background", "moderation", "input_fidelity", "style"}
+	out := []string{}
+	for _, key := range order {
+		if _, ok := fields[key]; ok {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func debugMultipartFieldNames(parts []multipartPart) string {
+	names := []string{}
+	for _, part := range parts {
+		if part.Filename != "" {
+			continue
+		}
+		names = append(names, part.Name)
+	}
+	return strings.Join(names, ",")
 }
 
 func buildNormalChatBody(req *createNormalGenerationRequest, model string) map[string]any {
@@ -324,12 +363,4 @@ func debugMode(input imageGenerationInput) bool {
 		return input.Normal.DebugMode
 	}
 	return false
-}
-
-func providerSize(provider generationProvider) string {
-	size := strings.TrimSpace(provider.Size)
-	if size == "" {
-		return "1024x1024"
-	}
-	return size
 }

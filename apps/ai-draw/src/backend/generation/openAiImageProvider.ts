@@ -2,6 +2,7 @@ import { inferImageMimeFromBase64, normalizeImageBase64 } from '../../core/image
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../../core/httpParse'
 import { formatBytes, isHttpBaseUrl, trimSlash } from '../../core/utils'
 import { resolveModel, type AiDrawProvider } from '../../core/schema'
+import { buildOpenAiImageOptionFields, detectImageModelFamily, normalizeImageGenerationOptions } from '../../core/imageGenerationOptions'
 import type { AiDrawCreateLocalEditGenerationRequest, AiDrawCreateNormalGenerationRequest, AiDrawGenerationDebugRecord } from '../../shared/domain'
 import { buildMultipartFormDataBytes, type MultipartPart } from './multipartNode'
 
@@ -48,7 +49,6 @@ export async function requestOpenAiImage(input: {
   const { baseUrl, apiKey, model } = validateProvider(provider)
   const timeoutMs = Math.max(5, Number(requestTimeoutSec) || 120) * 1000
   const protocol = String(provider.protocol || 'images') === 'chat' ? 'chat' : 'images'
-  const size = String(provider.size || '').trim() || '1024x1024'
   let url = ''
   let body: string | Buffer = ''
   let headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` }
@@ -78,6 +78,15 @@ export async function requestOpenAiImage(input: {
     debugBodyText = body
   } else {
     const req = input.request as AiDrawCreateNormalGenerationRequest
+    const modelFamily = detectImageModelFamily(model)
+    const imageOptions = normalizeImageGenerationOptions(req.imageOptions)
+    const optionFields = buildOpenAiImageOptionFields({
+      options: imageOptions,
+      model,
+      protocol: 'images',
+      requestKind: req.refImages.length ? 'edits' : 'generations',
+    })
+    const responseFormatFields = modelFamily === 'dall-e-2' || modelFamily === 'dall-e-3' ? { response_format: 'b64_json' } : {}
     if (req.refImages.length) {
       protocolKind = 'images-edits'
       url = `${baseUrl}/images/edits`
@@ -85,9 +94,10 @@ export async function requestOpenAiImage(input: {
       const parts: MultipartPart[] = [
         { name: 'model', value: model },
         { name: 'prompt', value: prompt },
-        { name: 'size', value: size },
-        { name: 'response_format', value: 'b64_json' },
       ]
+      Object.entries({ ...optionFields, ...responseFormatFields }).forEach(([name, value]) => {
+        parts.push({ name, value: String(value) })
+      })
       let totalImageBytes = 0
       req.refImages.forEach((image, index) => {
         const mime = inferImageMimeFromBase64(image.dataUrl) || 'image/png'
@@ -97,13 +107,13 @@ export async function requestOpenAiImage(input: {
       })
       body = buildMultipartFormDataBytes(boundary, parts)
       headers = { ...headers, 'Content-Type': `multipart/form-data; boundary=${boundary}` }
-      debugBodyText = `[multipart/form-data] fields=model,prompt,size,response_format; images=${req.refImages.length}; bytes=${formatBytes((body as Buffer).length)}`
+      debugBodyText = `[multipart/form-data] fields=${parts.filter((part) => !('filename' in part)).map((part) => part.name).join(',')}; images=${req.refImages.length}; bytes=${formatBytes((body as Buffer).length)}`
       debugSummary = `图片总字节：${formatBytes(totalImageBytes)}`
     } else {
       protocolKind = 'images'
       url = `${baseUrl}/images/generations`
       headers = { ...headers, 'Content-Type': 'application/json' }
-      body = JSON.stringify({ model, prompt, size, n: 1, response_format: 'b64_json' })
+      body = JSON.stringify({ model, prompt, n: 1, ...optionFields, ...responseFormatFields })
       debugBodyText = body
     }
   }
