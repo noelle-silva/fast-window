@@ -15,8 +15,10 @@ import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/
 import type { HyperCortexGateway } from '../gateway'
 import type { AssetUploadTaskSnapshot } from '../gateway/types'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
+import { startPastedAssetUploadTask } from '../services/pastedAssetUpload'
 import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
 import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
+import { useClipboardFilesPaste } from './useClipboardFilesPaste'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
 import { softButtonSx } from './pluginUiStyles'
 import { assetToneFromKind, FEATURE_TONES, toneChipSx, toneEmphasisButtonSx, toneFgVar, toneHoverActionSx, toneTabSx, type HyperCortexToneId } from './uiTones'
@@ -651,6 +653,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [startingUpload, setStartingUpload] = React.useState(false)
+  const [startingPastedUpload, setStartingPastedUpload] = React.useState(false)
   const [rebuildingThumbnails, setRebuildingThumbnails] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
   const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
@@ -660,6 +663,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [selectedAssetKeys, setSelectedAssetKeys] = React.useState<ReadonlySet<string>>(() => new Set())
   const [deleteTargets, setDeleteTargets] = React.useState<AssetEntry[]>([])
   const [deleting, setDeleting] = React.useState(false)
+  const uploadLaunchPendingRef = React.useRef(false)
   const selectionMode = interactionMode === 'select'
 
   /* ---- 加载资源列表 ---- */
@@ -713,6 +717,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const thumbnailTargets = React.useMemo(() => visibleAssets.filter(canHaveThumbnail), [visibleAssets])
   const hasAnyThumbnailTargets = React.useMemo(() => assets.some(canHaveThumbnail), [assets])
   const activeUploadCount = React.useMemo(() => uploadTaskSnapshots.filter(isActiveUploadTask).length, [uploadTaskSnapshots])
+  const uploadLaunchPending = startingUpload || startingPastedUpload
 
   /* ---- 加载图片/视频缩略图（后端统一缓存，按需增量生成） ---- */
   React.useEffect(() => {
@@ -743,7 +748,8 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
 
   /* ---- 文件选择 & 上传任务 ---- */
   const handleStartUploadTask = React.useCallback(async () => {
-    if (startingUpload) return
+    if (uploadLaunchPending || uploadLaunchPendingRef.current) return
+    uploadLaunchPendingRef.current = true
     setStartingUpload(true)
     try {
       const task = await startPickedLocalAssetUploadTask(gateway, scope)
@@ -755,9 +761,34 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     } catch (err: any) {
       gateway.host.toast(`上传失败：${String(err?.message || err || '未知错误')}`)
     } finally {
+      uploadLaunchPendingRef.current = false
       setStartingUpload(false)
     }
-  }, [gateway, scope, startingUpload, upsertUploadTask])
+  }, [gateway, scope, uploadLaunchPending, upsertUploadTask])
+
+  const handleStartPastedUploadTask = React.useCallback(async (files: File[]) => {
+    if (uploadLaunchPending || uploadLaunchPendingRef.current) {
+      gateway.host.toast('正在处理粘贴的附件，请稍后再试')
+      return
+    }
+    uploadLaunchPendingRef.current = true
+    setStartingPastedUpload(true)
+    try {
+      const task = await startPastedAssetUploadTask(gateway, scope, files)
+      if (!task) return
+      upsertUploadTask(task)
+      setUploadTaskView('active')
+      setUploadPanelOpen(true)
+      gateway.host.toast(files.length > 1 ? `已开始上传 ${files.length} 个粘贴附件` : '已开始上传粘贴附件')
+    } catch (err: any) {
+      gateway.host.toast(`粘贴附件失败：${String(err?.message || err || '未知错误')}`)
+    } finally {
+      uploadLaunchPendingRef.current = false
+      setStartingPastedUpload(false)
+    }
+  }, [gateway, scope, uploadLaunchPending, upsertUploadTask])
+
+  useClipboardFilesPaste({ enabled: deleteTargets.length === 0, onPasteFiles: handleStartPastedUploadTask })
 
   const handlePauseUploadTask = React.useCallback(async (taskId: string) => {
     try {
@@ -973,7 +1004,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       uploadTaskView={uploadTaskView}
       loading={loading}
       rebuildingThumbnails={rebuildingThumbnails}
-      startingUpload={startingUpload}
+      startingUpload={uploadLaunchPending}
       showVisibleThumbnailAction={category !== 'document'}
       thumbnailTargetsCount={thumbnailTargets.length}
       hasAnyThumbnailTargets={hasAnyThumbnailTargets}
@@ -1013,9 +1044,11 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       />
 
       {/* 概览 */}
-      {!loading && assets.length > 0 ? (
+      {!loading ? (
         <Typography sx={{ fontSize: 12, color: 'var(--hc-text-subtle)' }}>
-          当前分类 {visibleAssets.length} 个，共 {assets.length} 个，{humanSize(statsByCategory.totalSize)}
+          {assets.length > 0
+            ? `当前分类 ${visibleAssets.length} 个，共 ${assets.length} 个，${humanSize(statsByCategory.totalSize)} · 可直接 Ctrl+V 粘贴图片或文件`
+            : '可直接 Ctrl+V 粘贴图片或文件，也可以点击“添加文件”。'}
         </Typography>
       ) : null}
 

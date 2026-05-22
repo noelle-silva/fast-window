@@ -7,8 +7,23 @@ import type { HyperCortexNoteResourceRef } from '../noteSchema'
 const UPLOAD_POLL_INTERVAL_MS = 300
 
 export function filesFromClipboardData(data: DataTransfer | null | undefined): File[] {
-  const files = Array.from(data?.files || [])
-  return files.filter(file => file.size > 0)
+  const directFiles = Array.from(data?.files || []).filter(isUsableClipboardFile)
+  if (directFiles.length) return directFiles
+
+  return Array.from(data?.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter(isUsableClipboardFile)
+}
+
+export async function startPastedAssetUploadTask(
+  gateway: HyperCortexGateway,
+  scope: VaultScope,
+  files: File[],
+): Promise<AssetUploadTaskSnapshot | null> {
+  const uploadFiles = await Promise.all(files.filter(isUsableClipboardFile).map(fileToLocalAssetFile))
+  if (!uploadFiles.length) return null
+  return gateway.assets.startUpload(scope, uploadFiles)
 }
 
 export async function uploadPastedAssetFiles(
@@ -16,10 +31,14 @@ export async function uploadPastedAssetFiles(
   scope: VaultScope,
   files: File[],
 ): Promise<HyperCortexNoteResourceRef[]> {
-  const uploadFiles = await Promise.all(files.map(fileToLocalAssetFile))
-  const task = await gateway.assets.startUpload(scope, uploadFiles)
+  const task = await startPastedAssetUploadTask(gateway, scope, files)
+  if (!task) return []
   const completed = await waitForUploadTask(gateway, task)
   return completed.result || (completed.files.map(file => file.resource).filter(Boolean) as HyperCortexNoteResourceRef[])
+}
+
+function isUsableClipboardFile(file: File | null | undefined): file is File {
+  return Boolean(file && file.size > 0)
 }
 
 async function fileToLocalAssetFile(file: File): Promise<LocalAssetFile> {
