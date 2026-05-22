@@ -93,6 +93,7 @@ export function applyContainerItemDesktopExtractionView(workspace: CategoryWorks
     schemaVersion: workspace.schemaVersion,
     dataVersion: workspace.dataVersion,
     categoryOrder: workspace.categoryOrder,
+    uiState: workspace.uiState,
   }
 }
 

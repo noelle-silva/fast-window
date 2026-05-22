@@ -129,6 +129,12 @@ export type CategoryWorkspaceView = CategoryWorkspace & {
   schemaVersion: number
   dataVersion: number
   categoryOrder: CollectionViewCategoryId[]
+  uiState: FoldersUiState
+}
+
+export type FoldersUiState = {
+  activeCategoryId: CollectionViewCategoryId
+  groupIdByCategory: Record<CollectionViewCategoryId, string>
 }
 
 export type CollectionsDoc = {
@@ -137,6 +143,7 @@ export type CollectionsDoc = {
   activeCategoryId: CollectionCategoryId
   categoryOrder: CollectionViewCategoryId[]
   categories: CategoryWorkspace[]
+  uiState: FoldersUiState
   updatedAt: string
 }
 

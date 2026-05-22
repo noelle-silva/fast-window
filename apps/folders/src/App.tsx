@@ -94,6 +94,7 @@ import type {
   AllViewItemCandidate,
   IconAppearanceCandidate,
   FwLaunchInfo,
+  FoldersUiState,
   GroupFormState,
   Phase,
   WebIconDiscoveryResult,
@@ -226,43 +227,75 @@ export function App() {
     setWallpaperDeck(current => wallpaperDeckWithWorkspace(current, workspace))
   }, [])
 
-  const loadCategory = React.useCallback(async (categoryId: CollectionViewCategoryId, nextClient = client) => {
+  const saveUIState = React.useCallback(async (nextUIState: FoldersUiState, nextClient = client) => {
     if (!nextClient) return
+    await nextClient.request<FoldersUiState>('collections.ui-state.save', { uiState: nextUIState })
+  }, [client])
+
+  const uiStateFromSelection = React.useCallback((categoryId: CollectionViewCategoryId, selections: GroupSelectionByCategory): FoldersUiState => ({
+    activeCategoryId: categoryId,
+    groupIdByCategory: {
+      all: selections.all ?? DEFAULT_GROUP_ID,
+      folder: selections.folder ?? '',
+      url: selections.url ?? '',
+      file: selections.file ?? '',
+    },
+  }), [])
+
+  const loadCategory = React.useCallback(async (categoryId: CollectionViewCategoryId, nextClient = client, preferredGroupId?: string) => {
+    if (!nextClient) return null
     cancelWebIconDiscovery()
     setBusy(true); setError(null)
     try {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
       setDoc(nextDoc)
       updateWallpaperDeckCategory(nextDoc)
-      setGroupId(resolveGroupSelection(nextDoc, groupIdByCategory[categoryId] || ''))
+      setGroupId(resolveGroupSelection(nextDoc, preferredGroupId ?? groupIdByCategory[categoryId] ?? ''))
       setSearch('')
       setEditing(null)
       setContainerView(null)
       setContainerDropViewState(null)
       setContextMenu(null)
       void refreshWallpaperDeck(nextClient)
+      return nextDoc
     } catch (e) {
       setError(errorMessage(e, '切换类别失败'))
+      return null
     } finally { setBusy(false) }
   }, [client, groupIdByCategory, refreshWallpaperDeck, updateWallpaperDeckCategory])
 
   const selectGroup = React.useCallback((nextGroupId: string) => {
     const resolvedGroupId = resolveGroupSelection(doc, nextGroupId)
     setGroupId(resolvedGroupId)
-    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
-  }, [activeCategoryId, doc])
+    setGroupIdByCategory(current => {
+      const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      return nextSelections
+    })
+  }, [activeCategoryId, doc, saveUIState, uiStateFromSelection])
 
   const selectResolvedGroup = React.useCallback((resolvedGroupId: string) => {
     setGroupId(resolvedGroupId)
-    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
-  }, [activeCategoryId])
+    setGroupIdByCategory(current => {
+      const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      return nextSelections
+    })
+  }, [activeCategoryId, saveUIState, uiStateFromSelection])
 
   const selectCategory = React.useCallback((categoryId: CollectionViewCategoryId) => {
     if (categoryId === activeCategoryId) return
-    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, groupId))
+    const nextSelections = rememberGroupSelection(groupIdByCategory, activeCategoryId, groupId)
     setActiveCategoryId(categoryId)
-    void loadCategory(categoryId)
-  }, [activeCategoryId, groupId, loadCategory])
+    setGroupIdByCategory(nextSelections)
+    void loadCategory(categoryId, client, nextSelections[categoryId]).then(nextDoc => {
+      if (!nextDoc) return
+      const resolvedTargetGroupId = resolveGroupSelection(nextDoc, nextSelections[categoryId] ?? '')
+      const savedSelections = rememberGroupSelection(nextSelections, categoryId, resolvedTargetGroupId)
+      setGroupIdByCategory(savedSelections)
+      void saveUIState(uiStateFromSelection(categoryId, savedSelections)).catch(e => setError(errorMessage(e, '保存上次分类失败')))
+    })
+  }, [activeCategoryId, client, groupId, groupIdByCategory, loadCategory, saveUIState, uiStateFromSelection])
 
   const handleContainerGridReady = React.useCallback((containerId: string, instanceId: string, api: ContainerGridApi | null) => {
     const apis = containerGridApiByIdRef.current.get(containerId) || new Map<string, ContainerGridApi>()
@@ -297,12 +330,16 @@ export function App() {
         setClient(nextClient); setPhase('data-error'); setError(health.data.error || '数据文件无法迁移到当前版本'); await refreshStatus()
         return
       }
-      const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
-      setClient(nextClient); setDoc(nextDoc); setGroupId(resolveGroupSelection(nextDoc, groupIdByCategory[activeCategoryId] || groupId)); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
+      const initialUIState = await nextClient.request<FoldersUiState>('collections.ui-state.get')
+      const initialCategoryId = initialUIState.activeCategoryId
+      const initialGroupIdByCategory = initialUIState.groupIdByCategory
+      const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: initialCategoryId })
+      const initialGroupId = resolveGroupSelection(nextDoc, initialGroupIdByCategory[initialCategoryId] ?? '')
+      setClient(nextClient); setActiveCategoryId(initialCategoryId); setGroupIdByCategory(initialGroupIdByCategory); setDoc(nextDoc); setGroupId(initialGroupId); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
     } catch (e) {
       setPhase('failed'); setError(errorMessage(e, '启动收藏集后台失败')); await refreshStatus()
     } finally { setBusy(false) }
-  }, [activeCategoryId, client, groupId, groupIdByCategory, refreshStatus, refreshWallpaperDeck])
+  }, [client, refreshStatus, refreshWallpaperDeck])
 
   React.useEffect(() => {
     if (!readyRef.current) { readyRef.current = true; void invoke('app_ready').catch(() => {}) }
@@ -346,8 +383,12 @@ export function App() {
     const resolvedGroupId = resolveGroupSelection(doc, groupId)
     if (resolvedGroupId === groupId) return
     setGroupId(resolvedGroupId)
-    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
-  }, [activeCategoryId, doc, groupId])
+    setGroupIdByCategory(current => {
+      const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      return nextSelections
+    })
+  }, [activeCategoryId, doc, groupId, saveUIState, uiStateFromSelection])
   React.useEffect(() => {
     if (!editing || !client) return
     const onPaste = (event: ClipboardEvent) => {
@@ -1151,7 +1192,7 @@ export function App() {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { activeCategoryId, categoryOrder })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { categoryOrder })
       setDoc(nextDoc)
       setWallpaperDeck(current => current ? { ...current, schemaVersion: nextDoc.schemaVersion, dataVersion: nextDoc.dataVersion, categories: reorderWallpaperDeckCategories(current.categories, nextDoc.categoryOrder) } : wallpaperDeckFromWorkspace(nextDoc))
     }

@@ -1,4 +1,4 @@
-import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FwLaunchInfo, GroupFormState, CollectionViewCategoryId } from './types'
+import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FoldersUiState, FwLaunchInfo, GroupFormState, CollectionViewCategoryId } from './types'
 import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
 import { emptyIconAppearanceState, iconAppearanceStateForItem } from './iconAppearanceModel'
 import { ALL_VIEW_CATEGORY_ID, DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
@@ -6,14 +6,19 @@ import { ALL_VIEW_CATEGORY_ID, DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } fr
 export const DEFAULT_GROUP_ID = 'default'
 export const DEFAULT_DATA_CATEGORY_ID: CollectionCategoryId = 'folder'
 export const DEFAULT_VIEW_CATEGORY_ID: CollectionViewCategoryId = ALL_VIEW_CATEGORY_ID
+export const DEFAULT_UI_STATE: FoldersUiState = {
+  activeCategoryId: DEFAULT_VIEW_CATEGORY_ID,
+  groupIdByCategory: { all: DEFAULT_GROUP_ID, folder: DEFAULT_GROUP_ID, url: DEFAULT_GROUP_ID, file: DEFAULT_GROUP_ID },
+}
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: true, mode: 'standalone' }
 
 export const DEFAULT_DOC: CollectionsDoc = {
   schemaVersion: 1,
-  dataVersion: 8,
+  dataVersion: 9,
   activeCategoryId: DEFAULT_DATA_CATEGORY_ID,
   categoryOrder: DEFAULT_VIEW_CATEGORY_ORDER,
   categories: [createDefaultWorkspace('folder'), createDefaultWorkspace('url'), createDefaultWorkspace('file')],
+  uiState: DEFAULT_UI_STATE,
   updatedAt: '',
 }
 
@@ -22,6 +27,7 @@ export const DEFAULT_WORKSPACE_VIEW: CategoryWorkspaceView = {
   schemaVersion: DEFAULT_DOC.schemaVersion,
   dataVersion: DEFAULT_DOC.dataVersion,
   categoryOrder: DEFAULT_DOC.categoryOrder,
+  uiState: DEFAULT_UI_STATE,
 }
 
 export const EMPTY_ITEM_FORM: CollectionItemFormState = createEmptyItemForm()

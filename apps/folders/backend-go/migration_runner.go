@@ -149,6 +149,7 @@ func registeredMigrations() []dataMigration {
 		categoryOrderMigration(),
 		allViewMigration(),
 		viewCategoryOrderMigration(),
+		uiStateMigration(),
 	}
 }
 
@@ -211,7 +212,7 @@ func viewCategoryOrderMigration() dataMigration {
 	return dataMigration{
 		ID:          "2026-05-16-folders-data-v7-to-v8-view-category-order",
 		FromVersion: 7,
-		ToVersion:   dataVersion,
+		ToVersion:   8,
 		Description: "Include the all-category aggregate view in persisted category order settings",
 		Recovery: migrationRecoverySpec{
 			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
@@ -221,6 +222,24 @@ func viewCategoryOrderMigration() dataMigration {
 		},
 		Apply: func(svc *service) error {
 			return svc.migrateViewCategoryOrder()
+		},
+	}
+}
+
+func uiStateMigration() dataMigration {
+	return dataMigration{
+		ID:          "2026-05-22-folders-data-v8-to-v9-ui-state",
+		FromVersion: 8,
+		ToVersion:   dataVersion,
+		Description: "Persist last selected folders view category and group selections",
+		Recovery: migrationRecoverySpec{
+			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
+			Notes: []string{
+				"The migration adds uiState as the single source of truth for the last selected view category and per-category group selection.",
+			},
+		},
+		Apply: func(svc *service) error {
+			return svc.migrateUIState()
 		},
 	}
 }

@@ -97,8 +97,8 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
 	applied := state["applied"].([]any)
-	if len(applied) != 4 {
-		t.Fatalf("expected four migration records, got %#v", applied)
+	if len(applied) != 5 {
+		t.Fatalf("expected five migration records, got %#v", applied)
 	}
 	entry := applied[0].(map[string]any)
 	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != 5 {
@@ -113,10 +113,17 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 		t.Fatalf("unexpected all view migration entry: %#v", entry)
 	}
 	entry = applied[3].(map[string]any)
-	if entry["id"] != "2026-05-16-folders-data-v7-to-v8-view-category-order" || int(entry["fromVersion"].(float64)) != 7 || int(entry["toVersion"].(float64)) != dataVersion {
+	if entry["id"] != "2026-05-16-folders-data-v7-to-v8-view-category-order" || int(entry["fromVersion"].(float64)) != 7 || int(entry["toVersion"].(float64)) != 8 {
 		t.Fatalf("unexpected view category order migration entry: %#v", entry)
 	}
-	assertRecoveryPackageCount(t, svc, 4)
+	entry = applied[4].(map[string]any)
+	if entry["id"] != "2026-05-22-folders-data-v8-to-v9-ui-state" || int(entry["fromVersion"].(float64)) != 8 || int(entry["toVersion"].(float64)) != dataVersion {
+		t.Fatalf("unexpected ui state migration entry: %#v", entry)
+	}
+	if doc.UIState.ActiveCategoryID != "all" || doc.UIState.GroupIDByCategory["folder"] != defaultGroupID || doc.UIState.GroupIDByCategory["all"] != defaultGroupID {
+		t.Fatalf("unexpected migrated ui state: %#v", doc.UIState)
+	}
+	assertRecoveryPackageCount(t, svc, 5)
 	if health := svc.health(); !health.Data.OK {
 		t.Fatalf("expected healthy migrated data: %#v", health)
 	}
@@ -133,15 +140,15 @@ func TestRunMigrationsIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
-	if applied := state["applied"].([]any); len(applied) != 4 {
+	if applied := state["applied"].([]any); len(applied) != 5 {
 		t.Fatalf("migration should apply once, got %#v", applied)
 	}
-	assertRecoveryPackageCount(t, svc, 4)
+	assertRecoveryPackageCount(t, svc, 5)
 }
 
 func TestEnsureReadyRejectsNewerDataVersion(t *testing.T) {
 	svc := newTestService(t)
-	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":9,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":10,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
 	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("expected newer version error, got %v", err)
 	}
@@ -615,21 +622,15 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	svc := newTestService(t)
 	missingAllView := `{"schemaVersion":1,"dataVersion":8,"activeCategoryId":"folder","categoryOrder":["all","folder","url","file"],"categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
 	writeRawData(t, svc, missingAllView)
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "allView") {
-		t.Fatalf("expected missing all view read error, got %v", err)
-	}
-	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "allView") {
-		t.Fatalf("expected missing all view health error, got %#v", health)
+	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "allView") {
+		t.Fatalf("expected missing all view migration error, got %v", err)
 	}
 }
 
 func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	svc := readyService(t)
 
-	doc, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"}, "all")
+	doc, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +647,10 @@ func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	if got := []string{persisted.Categories[0].ID, persisted.Categories[1].ID, persisted.Categories[2].ID}; !sameStrings(got, []string{"url", "file", "folder"}) {
 		t.Fatalf("expected categories to follow categoryOrder, got categories=%#v order=%#v", got, persisted.CategoryOrder)
 	}
-	folderDoc, err := svc.saveCategoryOrder([]string{"all", "url", "file", "folder"}, "folder")
+	if _, err := svc.saveUIState(foldersUIState{ActiveCategoryID: "folder", GroupIDByCategory: map[string]string{"all": defaultGroupID, "folder": defaultGroupID, "url": defaultGroupID, "file": defaultGroupID}}); err != nil {
+		t.Fatal(err)
+	}
+	folderDoc, err := svc.saveCategoryOrder([]string{"all", "url", "file", "folder"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,11 +661,8 @@ func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	if folderDoc.ID != "folder" || persisted.ActiveCategoryID != defaultCategoryID {
 		t.Fatalf("expected explicit active category to control returned view, got doc=%#v persisted=%#v", folderDoc.ID, persisted.ActiveCategoryID)
 	}
-	if _, err := svc.saveCategoryOrder([]string{"url", "url", "file", "folder"}, "all"); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if _, err := svc.saveCategoryOrder([]string{"url", "url", "file", "folder"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("expected duplicate category order error, got %v", err)
-	}
-	if _, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"}, ""); err == nil || !strings.Contains(err.Error(), "invalid active category") {
-		t.Fatalf("expected invalid active category error, got %v", err)
 	}
 }
 

@@ -33,7 +33,7 @@ import (
 
 const (
 	dataSchemaVersion     = 1
-	dataVersion           = 8
+	dataVersion           = 9
 	dataFile              = "data.json"
 	metaFile              = "_meta.json"
 	assetsDir             = "assets"
@@ -264,6 +264,16 @@ type allCategoryViewInput struct {
 	Desktop *desktopStateInput           `json:"desktop"`
 }
 
+type foldersUIState struct {
+	ActiveCategoryID  string            `json:"activeCategoryId"`
+	GroupIDByCategory map[string]string `json:"groupIdByCategory"`
+}
+
+type foldersUIStateInput struct {
+	ActiveCategoryID  *string            `json:"activeCategoryId"`
+	GroupIDByCategory *map[string]string `json:"groupIdByCategory"`
+}
+
 type categoryWorkspace struct {
 	ID         string             `json:"id"`
 	Groups     []collectionGroup  `json:"groups"`
@@ -287,6 +297,7 @@ type collectionsDoc struct {
 	CategoryOrder    []string            `json:"categoryOrder"`
 	Categories       []categoryWorkspace `json:"categories"`
 	AllView          allCategoryView     `json:"allView"`
+	UIState          foldersUIState      `json:"uiState"`
 	UpdatedAt        string              `json:"updatedAt"`
 
 	Groups     []collectionGroup  `json:"-"`
@@ -302,6 +313,7 @@ type collectionsDocInput struct {
 	CategoryOrder    *[]string                 `json:"categoryOrder"`
 	Categories       *[]categoryWorkspaceInput `json:"categories"`
 	AllView          *allCategoryViewInput     `json:"allView"`
+	UIState          *foldersUIStateInput      `json:"uiState"`
 	UpdatedAt        *string                   `json:"updatedAt"`
 }
 
@@ -314,6 +326,7 @@ type categoryWorkspaceView struct {
 	Items         []collectionItem   `json:"items"`
 	Containers    []desktopContainer `json:"containers"`
 	Desktop       desktopState       `json:"desktop"`
+	UIState       foldersUIState     `json:"uiState"`
 }
 
 type categoryDesktopWallpaper struct {
@@ -346,8 +359,11 @@ type allViewItemCandidate struct {
 }
 
 type categoryOrderPayload struct {
-	ActiveCategoryID string   `json:"activeCategoryId"`
-	CategoryOrder    []string `json:"categoryOrder"`
+	CategoryOrder []string `json:"categoryOrder"`
+}
+
+type uiStatePayload struct {
+	UIState foldersUIState `json:"uiState"`
 }
 
 type itemPayload struct {
@@ -611,6 +627,18 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 			return nil, fmt.Errorf("invalid category payload: %w", err)
 		}
 		return svc.readWorkspaceView(payload.CategoryID)
+	case "collections.ui-state.get":
+		doc, err := svc.readCollections()
+		if err != nil {
+			return nil, err
+		}
+		return doc.UIState, nil
+	case "collections.ui-state.save":
+		var payload uiStatePayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid ui state payload: %w", err)
+		}
+		return svc.saveUIState(payload.UIState)
 	case "collections.all-view.candidates":
 		return svc.readAllViewCandidates()
 	case "collections.all-view.selection.save":
@@ -624,7 +652,7 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid category order payload: %w", err)
 		}
-		return svc.saveCategoryOrder(payload.CategoryOrder, payload.ActiveCategoryID)
+		return svc.saveCategoryOrder(payload.CategoryOrder)
 	case "collections.desktop.wallpaper.deck":
 		return svc.readDesktopWallpaperDeck()
 	case "collections.assets.import":
@@ -846,6 +874,25 @@ func (svc *service) readWorkspaceView(categoryID string) (categoryWorkspaceView,
 	return workspaceView(doc, workspace), nil
 }
 
+func (svc *service) saveUIState(raw foldersUIState) (foldersUIState, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return foldersUIState{}, err
+	}
+	next, err := normalizeUIState(raw, doc.Categories)
+	if err != nil {
+		return foldersUIState{}, err
+	}
+	doc.UIState = next
+	if concreteCategoryID := normalizeCategoryID(next.ActiveCategoryID); concreteCategoryID != "" {
+		doc.ActiveCategoryID = concreteCategoryID
+	}
+	if err := svc.writeCollections(doc); err != nil {
+		return foldersUIState{}, err
+	}
+	return next, nil
+}
+
 func (svc *service) readAllViewCandidates() ([]allViewItemCandidate, error) {
 	doc, err := svc.readCollections()
 	if err != nil {
@@ -921,27 +968,20 @@ func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
 	return desktopWallpaperDeck{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, Categories: categories}, nil
 }
 
-func (svc *service) saveCategoryOrder(rawOrder []string, activeCategoryID string) (categoryWorkspaceView, error) {
+func (svc *service) saveCategoryOrder(rawOrder []string) (categoryWorkspaceView, error) {
 	categoryOrder, err := normalizeViewCategoryOrder(rawOrder)
 	if err != nil {
 		return categoryWorkspaceView{}, err
-	}
-	activeViewCategoryID := normalizeViewCategoryID(activeCategoryID)
-	if activeViewCategoryID == "" {
-		return categoryWorkspaceView{}, fmt.Errorf("invalid active category: %s", strings.TrimSpace(activeCategoryID))
 	}
 	doc, err := svc.readCollections()
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
 	doc.CategoryOrder = categoryOrder
-	if concreteCategoryID := normalizeCategoryID(activeViewCategoryID); concreteCategoryID != "" {
-		doc.ActiveCategoryID = concreteCategoryID
-	}
 	if err := svc.writeCollections(doc); err != nil {
 		return categoryWorkspaceView{}, err
 	}
-	return svc.readWorkspaceView(activeViewCategoryID)
+	return svc.readWorkspaceView(doc.UIState.ActiveCategoryID)
 }
 
 func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *categoryWorkspace) error) (categoryWorkspaceView, error) {
@@ -957,6 +997,11 @@ func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *ca
 		return categoryWorkspaceView{}, err
 	}
 	doc.Categories[index] = workspace
+	uiState, err := uiStateWithWorkspaceSelection(doc.UIState, workspace)
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	doc.UIState = uiState
 	doc.ActiveCategoryID = workspace.ID
 	if err := svc.writeCollections(doc); err != nil {
 		return categoryWorkspaceView{}, err
@@ -965,7 +1010,7 @@ func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *ca
 }
 
 func workspaceView(doc collectionsDoc, workspace categoryWorkspace) categoryWorkspaceView {
-	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}
+	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop, UIState: doc.UIState}
 }
 
 func allWorkspaceView(doc collectionsDoc) (categoryWorkspaceView, error) {
@@ -973,7 +1018,7 @@ func allWorkspaceView(doc collectionsDoc) (categoryWorkspaceView, error) {
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
-	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}, nil
+	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop, UIState: doc.UIState}, nil
 }
 
 func buildAllCategoryWorkspace(doc collectionsDoc) (categoryWorkspace, error) {
@@ -1123,6 +1168,77 @@ func normalizeViewCategoryOrder(rawOrder []string) ([]string, error) {
 		}
 	}
 	return order, nil
+}
+
+func normalizeUIState(raw foldersUIState, categories []categoryWorkspace) (foldersUIState, error) {
+	activeCategoryID := normalizeViewCategoryID(raw.ActiveCategoryID)
+	if activeCategoryID == "" {
+		return foldersUIState{}, fmt.Errorf("uiState activeCategoryId is invalid: %s", strings.TrimSpace(raw.ActiveCategoryID))
+	}
+	if raw.GroupIDByCategory == nil {
+		return foldersUIState{}, errors.New("uiState groupIdByCategory is required")
+	}
+	workspaceByCategory := map[string]categoryWorkspace{}
+	for _, workspace := range categories {
+		workspaceByCategory[workspace.ID] = workspace
+	}
+	groupIDByCategory := map[string]string{}
+	for categoryID, rawGroupID := range raw.GroupIDByCategory {
+		viewCategoryID := normalizeViewCategoryID(categoryID)
+		if viewCategoryID == "" {
+			return foldersUIState{}, fmt.Errorf("uiState group category is invalid: %s", strings.TrimSpace(categoryID))
+		}
+		groupID := safeID(rawGroupID, 32)
+		if groupID == "" && !viewHasNoGroups(viewCategoryID, workspaceByCategory) {
+			return foldersUIState{}, fmt.Errorf("uiState group id is required for category: %s", viewCategoryID)
+		}
+		if groupID != "" && !viewGroupExists(viewCategoryID, groupID, workspaceByCategory) {
+			return foldersUIState{}, fmt.Errorf("uiState group not found: %s:%s", viewCategoryID, groupID)
+		}
+		groupIDByCategory[viewCategoryID] = groupID
+	}
+	for _, categoryID := range defaultViewCategoryOrder() {
+		if _, ok := groupIDByCategory[categoryID]; !ok {
+			return foldersUIState{}, fmt.Errorf("uiState group is required for category: %s", categoryID)
+		}
+	}
+	return foldersUIState{ActiveCategoryID: activeCategoryID, GroupIDByCategory: groupIDByCategory}, nil
+}
+
+func viewHasNoGroups(categoryID string, workspaceByCategory map[string]categoryWorkspace) bool {
+	if categoryID == "all" {
+		return false
+	}
+	workspace, ok := workspaceByCategory[categoryID]
+	return ok && len(workspace.Groups) == 0
+}
+
+func uiStateWithWorkspaceSelection(raw foldersUIState, workspace categoryWorkspace) (foldersUIState, error) {
+	next := foldersUIState{ActiveCategoryID: raw.ActiveCategoryID, GroupIDByCategory: map[string]string{}}
+	for categoryID, groupID := range raw.GroupIDByCategory {
+		next.GroupIDByCategory[categoryID] = groupID
+	}
+	currentGroupID := next.GroupIDByCategory[workspace.ID]
+	if currentGroupID != "" && hasGroup(workspace.Groups, currentGroupID) {
+		return next, nil
+	}
+	if len(workspace.Groups) > 0 {
+		next.GroupIDByCategory[workspace.ID] = workspace.Groups[0].ID
+	} else {
+		next.GroupIDByCategory[workspace.ID] = ""
+	}
+	return next, nil
+}
+
+func viewGroupExists(categoryID string, groupID string, workspaceByCategory map[string]categoryWorkspace) bool {
+	if categoryID == "all" {
+		return groupID == defaultGroupID
+	}
+	workspace, ok := workspaceByCategory[categoryID]
+	if !ok {
+		return false
+	}
+	return hasGroup(workspace.Groups, groupID)
 }
 
 func orderedGroupsByID(groups []collectionGroup, rawOrder []string) ([]collectionGroup, error) {
@@ -2267,12 +2383,29 @@ func defaultCollectionsDoc() collectionsDoc {
 		CategoryOrder:    defaultViewCategoryOrder(),
 		Categories:       categories,
 		AllView:          defaultAllCategoryView(),
+		UIState:          defaultUIState(categories),
 		UpdatedAt:        nowText(),
 		Groups:           active.Groups,
 		Items:            active.Items,
 		Containers:       active.Containers,
 		Desktop:          active.Desktop,
 	}
+}
+
+func defaultUIState(categories []categoryWorkspace) foldersUIState {
+	return foldersUIState{ActiveCategoryID: "all", GroupIDByCategory: defaultGroupIDByCategory(categories)}
+}
+
+func defaultGroupIDByCategory(categories []categoryWorkspace) map[string]string {
+	groupIDByCategory := map[string]string{"all": defaultGroupID}
+	for _, workspace := range categories {
+		if len(workspace.Groups) > 0 {
+			groupIDByCategory[workspace.ID] = workspace.Groups[0].ID
+		} else {
+			groupIDByCategory[workspace.ID] = ""
+		}
+	}
+	return groupIDByCategory
 }
 
 func defaultCategoryWorkspace(id string) categoryWorkspace {
@@ -2315,6 +2448,9 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 	if input.AllView == nil {
 		return collectionsDoc{}, errors.New("collections data allView is required")
 	}
+	if input.UIState == nil {
+		return collectionsDoc{}, errors.New("collections data uiState is required")
+	}
 	categories := make([]categoryWorkspace, 0, len(*input.Categories))
 	for index, raw := range *input.Categories {
 		workspace, err := decodeCategoryWorkspace(raw)
@@ -2324,6 +2460,10 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 		categories = append(categories, workspace)
 	}
 	allView, err := decodeAllCategoryView(*input.AllView)
+	if err != nil {
+		return collectionsDoc{}, err
+	}
+	uiState, err := decodeUIState(*input.UIState)
 	if err != nil {
 		return collectionsDoc{}, err
 	}
@@ -2338,9 +2478,20 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 		CategoryOrder:    *input.CategoryOrder,
 		Categories:       categories,
 		AllView:          allView,
+		UIState:          uiState,
 		UpdatedAt:        updatedAt,
 	}
 	return normalizeCollectionsDoc(doc)
+}
+
+func decodeUIState(input foldersUIStateInput) (foldersUIState, error) {
+	if input.ActiveCategoryID == nil {
+		return foldersUIState{}, errors.New("collections data uiState.activeCategoryId is required")
+	}
+	if input.GroupIDByCategory == nil {
+		return foldersUIState{}, errors.New("collections data uiState.groupIdByCategory is required")
+	}
+	return foldersUIState{ActiveCategoryID: *input.ActiveCategoryID, GroupIDByCategory: *input.GroupIDByCategory}, nil
 }
 
 func decodeAllCategoryView(input allCategoryViewInput) (allCategoryView, error) {
@@ -2455,8 +2606,15 @@ func normalizeCollectionsDocWithOrder(doc collectionsDoc, categoryOrder []string
 		return collectionsDoc{}, err
 	}
 	allView := defaultAllCategoryView()
-	if version >= dataVersion {
+	if version >= 8 {
 		allView, err = normalizeAllCategoryView(doc.AllView, categories)
+		if err != nil {
+			return collectionsDoc{}, err
+		}
+	}
+	uiState := defaultUIState(categories)
+	if version >= dataVersion {
+		uiState, err = normalizeUIState(doc.UIState, categories)
 		if err != nil {
 			return collectionsDoc{}, err
 		}
@@ -2467,6 +2625,7 @@ func normalizeCollectionsDocWithOrder(doc collectionsDoc, categoryOrder []string
 		ActiveCategoryID: activeCategoryID,
 		Categories:       categories,
 		AllView:          allView,
+		UIState:          uiState,
 		UpdatedAt:        firstNonEmpty(doc.UpdatedAt, nowText()),
 		Groups:           active.Groups,
 		Items:            active.Items,
