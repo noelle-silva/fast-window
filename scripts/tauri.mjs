@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { assertHostTauriBuildAllowed } from './lib/host-tauri-build-policy.mjs'
+import { assertHostTauriBuildAllowed, hostDevProfileEnv } from './lib/host-tauri-build-policy.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -11,10 +11,6 @@ const HOST_DEV_CONFIG = 'src-tauri/tauri.conf.dev.json'
 const HOST_FAST_DEV_CONFIG = 'src-tauri/tauri.fast.conf.json'
 const HOST_DEV_PROFILE_CONFIGS = [HOST_DEV_CONFIG]
 const HOST_FAST_DEV_PROFILE_CONFIGS = [HOST_DEV_CONFIG, HOST_FAST_DEV_CONFIG]
-const HOST_DEV_PROFILE_ENV = {
-  FAST_WINDOW_HOST_PROFILE: 'dev',
-  VITE_FAST_WINDOW_HOST_PROFILE: 'dev',
-}
 
 function run(cmd, args, opts = {}) {
   return spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts })
@@ -70,10 +66,7 @@ async function runPluginBuild(pluginFilter) {
 }
 
 function withHostDevProfileEnv(env = process.env) {
-  return {
-    ...env,
-    ...HOST_DEV_PROFILE_ENV,
-  }
+  return hostDevProfileEnv(env)
 }
 
 function withDevSyncDisabledEnv(env = process.env) {
