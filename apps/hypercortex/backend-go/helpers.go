@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,121 +346,18 @@ func htmlEscape(value string) string {
 }
 
 func mimeFromExt(ext string) string {
-	ext = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(ext)), ".")
-	switch ext {
-	case "jpg", "jpeg":
-		return "image/jpeg"
-	case "png":
-		return "image/png"
-	case "webp":
-		return "image/webp"
-	case "gif":
-		return "image/gif"
-	case "svg":
-		return "image/svg+xml"
-	case "mp3":
-		return "audio/mpeg"
-	case "wav":
-		return "audio/wav"
-	case "ogg":
-		return "audio/ogg"
-	case "flac":
-		return "audio/flac"
-	case "aac":
-		return "audio/aac"
-	case "m4a":
-		return "audio/mp4"
-	case "mp4":
-		return "video/mp4"
-	case "m4v":
-		return "video/x-m4v"
-	case "webm":
-		return "video/webm"
-	case "mov":
-		return "video/quicktime"
-	case "ogv":
-		return "video/ogg"
-	case "pdf":
-		return "application/pdf"
-	case "txt":
-		return "text/plain"
-	case "csv":
-		return "text/csv"
-	case "zip":
-		return "application/zip"
-	case "docx":
-		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case "xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case "pptx":
-		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	}
-	if m := mime.TypeByExtension("." + ext); m != "" {
-		return strings.Split(m, ";")[0]
-	}
-	return "application/octet-stream"
+	return assetFileMimeFromExt(ext)
 }
 
 func extFromMime(m string) string {
-	m = strings.ToLower(strings.TrimSpace(m))
-	switch m {
-	case "image/jpeg":
-		return "jpg"
-	case "image/png":
-		return "png"
-	case "image/webp":
-		return "webp"
-	case "image/gif":
-		return "gif"
-	case "image/svg+xml":
-		return "svg"
-	case "video/mp4":
-		return "mp4"
-	case "video/x-m4v":
-		return "m4v"
-	case "video/webm":
-		return "webm"
-	case "video/quicktime":
-		return "mov"
-	case "video/ogg":
-		return "ogv"
-	case "audio/mpeg":
-		return "mp3"
-	case "audio/wav":
-		return "wav"
-	case "audio/ogg":
-		return "ogg"
-	case "audio/flac":
-		return "flac"
-	case "audio/aac":
-		return "aac"
-	case "audio/mp4":
-		return "m4a"
-	case "application/pdf":
-		return "pdf"
-	case "text/plain":
-		return "txt"
-	case "text/csv":
-		return "csv"
-	case "application/zip":
-		return "zip"
-	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		return "docx"
-	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-		return "xlsx"
-	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-		return "pptx"
-	default:
-		exts, _ := mime.ExtensionsByType(m)
-		if len(exts) > 0 {
-			return strings.TrimPrefix(exts[0], ".")
-		}
-		return "bin"
-	}
+	return assetFileExtFromMime(m)
 }
 
 func kindFromMime(m string) string {
-	m = strings.ToLower(strings.TrimSpace(m))
+	m = normalizeAssetMime(m)
+	if kind := assetFileKindFromMime(m); kind != "" {
+		return kind
+	}
 	if strings.HasPrefix(m, "image/") {
 		return "image"
 	}

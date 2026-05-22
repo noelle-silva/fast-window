@@ -15,13 +15,6 @@ import (
 	"time"
 )
 
-var allowedAssetExts = map[string]bool{
-	"jpg": true, "png": true, "webp": true, "gif": true, "svg": true,
-	"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true,
-	"mp4": true, "m4v": true, "webm": true, "mov": true, "ogv": true,
-	"pdf": true, "txt": true, "csv": true, "zip": true, "docx": true, "xlsx": true, "pptx": true,
-}
-
 type assetUploadFileInput struct {
 	Path        string `json:"path"`
 	Name        string `json:"name"`
@@ -262,8 +255,8 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 		return preparedAssetUploadFile{}, errors.New("不能导入文件夹")
 	}
 
-	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(sourcePath)), ".")
-	if !allowedAssetExts[ext] {
+	ext := normalizeAssetFileExt(filepath.Ext(sourcePath))
+	if !isAllowedAssetExt(ext) {
 		return preparedAssetUploadFile{}, fmt.Errorf("不支持的附件类型：.%s", ext)
 	}
 	mimeType := mimeFromExt(ext)
@@ -287,11 +280,11 @@ func (svc *service) prepareAssetUploadContent(scope string, stagingDir string, i
 		name = strings.TrimSpace(input.DisplayName)
 	}
 	mimeType := strings.TrimSpace(input.Mime)
-	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
+	ext := normalizeAssetFileExt(filepath.Ext(name))
 	if ext == "" && mimeType != "" {
 		ext = extFromMime(mimeType)
 	}
-	if !allowedAssetExts[ext] {
+	if !isAllowedAssetExt(ext) {
 		return preparedAssetUploadFile{}, fmt.Errorf("不支持的附件类型：.%s", ext)
 	}
 	if mimeType == "" {

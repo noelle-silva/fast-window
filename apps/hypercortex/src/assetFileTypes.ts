@@ -1,75 +1,80 @@
+import assetFileTypes from '../backend-go/shared/asset_file_types.json'
+
+type AssetFileKind = 'image' | 'audio' | 'video' | 'document'
+
+type AssetFileType = {
+  ext: string
+  mime: string
+  kind: AssetFileKind
+  mimeAliases?: readonly string[]
+}
+
+const ASSET_FILE_TYPES = loadAssetFileTypes(assetFileTypes as readonly AssetFileType[])
+
+const ASSET_FILE_TYPE_BY_EXT = new Map(ASSET_FILE_TYPES.map(item => [item.ext, item]))
+const EXT_BY_MIME = new Map<string, string>()
+const KIND_BY_MIME = new Map<string, AssetFileKind>()
+
+for (const item of ASSET_FILE_TYPES) {
+  setPreferredMimeExt(item.mime, item.ext)
+  setPreferredMimeKind(item.mime, item.kind)
+  for (const alias of item.mimeAliases || []) setPreferredMimeExt(alias, item.ext)
+  for (const alias of item.mimeAliases || []) setPreferredMimeKind(alias, item.kind)
+}
+
 export function extFromMime(mime: string): string {
-  const m = String(mime || '').toLowerCase()
-  if (m === 'image/jpeg') return 'jpg'
-  if (m === 'image/png') return 'png'
-  if (m === 'image/webp') return 'webp'
-  if (m === 'image/gif') return 'gif'
-  if (m === 'image/svg+xml') return 'svg'
-
-  if (m === 'audio/mpeg') return 'mp3'
-  if (m === 'audio/wav') return 'wav'
-  if (m === 'audio/ogg') return 'ogg'
-  if (m === 'audio/flac') return 'flac'
-  if (m === 'audio/aac') return 'aac'
-  if (m === 'audio/mp4') return 'm4a'
-
-  if (m === 'video/mp4') return 'mp4'
-  if (m === 'video/x-m4v') return 'm4v'
-  if (m === 'video/webm') return 'webm'
-  if (m === 'video/quicktime') return 'mov'
-  if (m === 'video/ogg') return 'ogv'
-
-  if (m === 'application/pdf') return 'pdf'
-  if (m === 'application/epub+zip') return 'epub'
-  if (m === 'text/plain') return 'txt'
-  if (m === 'text/csv') return 'csv'
-  if (m === 'application/zip') return 'zip'
-  if (m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
-  if (m === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx'
-  if (m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'pptx'
-  return ''
+  return EXT_BY_MIME.get(normalizeMime(mime)) || ''
 }
 
 export function mimeFromExt(ext: string): string {
-  const e = String(ext || '').toLowerCase().replace(/^\./, '').trim()
-  if (e === 'jpg') return 'image/jpeg'
-  if (e === 'png') return 'image/png'
-  if (e === 'webp') return 'image/webp'
-  if (e === 'gif') return 'image/gif'
-  if (e === 'svg') return 'image/svg+xml'
-
-  if (e === 'mp3') return 'audio/mpeg'
-  if (e === 'wav') return 'audio/wav'
-  if (e === 'ogg') return 'audio/ogg'
-  if (e === 'flac') return 'audio/flac'
-  if (e === 'aac') return 'audio/aac'
-  if (e === 'm4a') return 'audio/mp4'
-
-  if (e === 'mp4') return 'video/mp4'
-  if (e === 'm4v') return 'video/x-m4v'
-  if (e === 'webm') return 'video/webm'
-  if (e === 'mov') return 'video/quicktime'
-  if (e === 'ogv') return 'video/ogg'
-
-  if (e === 'pdf') return 'application/pdf'
-  if (e === 'epub') return 'application/epub+zip'
-  if (e === 'txt') return 'text/plain'
-  if (e === 'csv') return 'text/csv'
-  if (e === 'zip') return 'application/zip'
-  if (e === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  if (e === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  if (e === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-  return ''
+  return ASSET_FILE_TYPE_BY_EXT.get(normalizeExt(ext))?.mime || ''
 }
 
 export function kindFromMime(mime: string): string {
-  const m = String(mime || '').toLowerCase().trim()
+  const m = normalizeMime(mime)
+  const catalogKind = KIND_BY_MIME.get(m)
+  if (catalogKind) return catalogKind
   if (m.startsWith('image/')) return 'image'
   if (m.startsWith('audio/')) return 'audio'
   if (m.startsWith('video/')) return 'video'
   return 'document'
 }
 
-export const ACCEPTED_FILE_EXTENSIONS = [
-  'jpg', 'png', 'webp', 'gif', 'svg', 'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'mp4', 'm4v', 'webm', 'mov', 'ogv', 'pdf', 'epub', 'txt', 'csv', 'zip', 'docx', 'xlsx', 'pptx',
-] as const
+export const ACCEPTED_FILE_EXTENSIONS = ASSET_FILE_TYPES.map(item => item.ext)
+
+function normalizeExt(ext: string): string {
+  return String(ext || '').toLowerCase().replace(/^\./, '').trim()
+}
+
+function normalizeMime(mime: string): string {
+  return String(mime || '').toLowerCase().split(';')[0].trim()
+}
+
+function setPreferredMimeExt(mime: string, ext: string): void {
+  const normalizedMime = normalizeMime(mime)
+  if (!normalizedMime || EXT_BY_MIME.has(normalizedMime)) return
+  EXT_BY_MIME.set(normalizedMime, ext)
+}
+
+function setPreferredMimeKind(mime: string, kind: AssetFileKind): void {
+  const normalizedMime = normalizeMime(mime)
+  if (!normalizedMime || KIND_BY_MIME.has(normalizedMime)) return
+  KIND_BY_MIME.set(normalizedMime, kind)
+}
+
+function loadAssetFileTypes(items: readonly AssetFileType[]): readonly AssetFileType[] {
+  if (!items.length) throw new Error('asset file types cannot be empty')
+  const seenExts = new Set<string>()
+  for (const item of items) {
+    const ext = normalizeExt(item.ext)
+    const mime = normalizeMime(item.mime)
+    if (!ext || !mime || !isAssetFileKind(item.kind)) throw new Error(`invalid asset file type: ${JSON.stringify(item)}`)
+    if (seenExts.has(ext)) throw new Error(`duplicate asset file extension: ${ext}`)
+    seenExts.add(ext)
+  }
+  return items
+}
+
+function isAssetFileKind(kind: unknown): kind is AssetFileKind {
+  return kind === 'image' || kind === 'audio' || kind === 'video' || kind === 'document'
+}

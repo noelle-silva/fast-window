@@ -109,6 +109,54 @@ func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
 	}
 }
 
+func TestRunAssetUploadPipelineSupportsMainstreamDocumentFormats(t *testing.T) {
+	svc := newTestService(t)
+	dir := t.TempDir()
+	cases := []struct {
+		name string
+		ext  string
+		mime string
+	}{
+		{name: "epub reader format", ext: "epub", mime: "application/epub+zip"},
+		{name: "markdown notes", ext: "md", mime: "text/markdown"},
+		{name: "open document text", ext: "odt", mime: "application/vnd.oasis.opendocument.text"},
+		{name: "legacy word document", ext: "doc", mime: "application/msword"},
+		{name: "structured json", ext: "json", mime: "application/json"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.ext, func(t *testing.T) {
+			content := []byte("document format: " + tc.ext)
+			source := filepath.Join(dir, "sample."+tc.ext)
+			if err := os.WriteFile(source, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: tc.name}}, nil)
+			if err != nil {
+				t.Fatalf("runAssetUploadPipeline failed: %v", err)
+			}
+			if len(result) != 1 || result[0].Ext != tc.ext || result[0].Mime != tc.mime || result[0].Kind != "document" {
+				t.Fatalf("result = %#v, want %s document resource", result, tc.ext)
+			}
+		})
+	}
+}
+
+func TestRunAssetUploadPipelineInfersPastedEpubFromMime(t *testing.T) {
+	svc := newTestService(t)
+	content := []byte("epub pasted content")
+	input := assetUploadFileInput{DisplayName: "Pasted EPUB", Mime: "application/epub+zip", Size: int64(len(content)), DataBase64: "ZXB1YiBwYXN0ZWQgY29udGVudA=="}
+
+	result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{input}, nil)
+	if err != nil {
+		t.Fatalf("runAssetUploadPipeline failed: %v", err)
+	}
+	if len(result) != 1 || result[0].Ext != "epub" || result[0].Mime != "application/epub+zip" || result[0].Kind != "document" {
+		t.Fatalf("result = %#v, want pasted epub document resource", result)
+	}
+}
+
 func TestEnsureAssetIndexMigratesV1ToV2Metadata(t *testing.T) {
 	svc := newTestService(t)
 	rel := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", "asset.txt"))
