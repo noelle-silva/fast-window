@@ -7,6 +7,14 @@ import { assertHostTauriBuildAllowed } from './lib/host-tauri-build-policy.mjs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
+const HOST_DEV_CONFIG = 'src-tauri/tauri.conf.dev.json'
+const HOST_FAST_DEV_CONFIG = 'src-tauri/tauri.fast.conf.json'
+const HOST_DEV_PROFILE_CONFIGS = [HOST_DEV_CONFIG]
+const HOST_FAST_DEV_PROFILE_CONFIGS = [HOST_DEV_CONFIG, HOST_FAST_DEV_CONFIG]
+const HOST_DEV_PROFILE_ENV = {
+  FAST_WINDOW_HOST_PROFILE: 'dev',
+  VITE_FAST_WINDOW_HOST_PROFILE: 'dev',
+}
 
 function run(cmd, args, opts = {}) {
   return spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts })
@@ -27,24 +35,57 @@ function waitExit(p) {
   return new Promise(resolve => p.on('exit', code => resolve(code ?? 0)))
 }
 
+function withConfigFiles(tauriArgs, configFiles) {
+  const separatorIndex = tauriArgs.indexOf('--')
+  const insertIndex = separatorIndex === -1 ? tauriArgs.length : separatorIndex
+  const configArgs = configFiles.flatMap(configFile => ['--config', configFile])
+
+  return [
+    ...tauriArgs.slice(0, insertIndex),
+    ...configArgs,
+    ...tauriArgs.slice(insertIndex),
+  ]
+}
+
+function parseHostWrapperArgs(rawArgs) {
+  const separatorIndex = rawArgs.indexOf('--')
+  const wrapperArgEndIndex = separatorIndex === -1 ? rawArgs.length : separatorIndex
+  const wrapperArgs = rawArgs.slice(0, wrapperArgEndIndex)
+  const passthroughArgs = separatorIndex === -1 ? [] : rawArgs.slice(separatorIndex)
+
+  return {
+    fastDev: wrapperArgs.includes('--fast'),
+    skipPluginWatch: process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || wrapperArgs.includes('--no-plugin-watch'),
+    skipPluginDevSync: process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC === '1' || wrapperArgs.includes('--no-plugin-dev-sync'),
+    args: [
+      ...wrapperArgs.filter(arg => arg !== '--fast' && arg !== '--no-plugin-watch' && arg !== '--no-plugin-dev-sync'),
+      ...passthroughArgs,
+    ],
+  }
+}
+
 async function runPluginBuild(pluginFilter) {
   const build = run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build'])
   return waitExit(build)
 }
 
-function withDevSyncDisabledEnv() {
+function withHostDevProfileEnv(env = process.env) {
   return {
-    ...process.env,
-    FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC: process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC || '1',
+    ...env,
+    ...HOST_DEV_PROFILE_ENV,
+  }
+}
+
+function withDevSyncDisabledEnv(env = process.env) {
+  return {
+    ...env,
+    FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC: env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC || '1',
   }
 }
 
 async function main() {
   const rawArgs = process.argv.slice(2)
-  const fastDev = rawArgs.includes('--fast')
-  const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
-  const skipPluginDevSync = process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC === '1' || rawArgs.includes('--no-plugin-dev-sync')
-  const args = rawArgs.filter(arg => arg !== '--fast' && arg !== '--no-plugin-watch' && arg !== '--no-plugin-dev-sync')
+  const { fastDev, skipPluginWatch, skipPluginDevSync, args } = parseHostWrapperArgs(rawArgs)
   const sub = (args[0] || '').trim()
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
@@ -57,7 +98,8 @@ async function main() {
   }
 
   const runTauri = (tauriArgs, opts = {}) => run('pnpm', ['exec', 'tauri', ...tauriArgs], opts)
-  const withFastDevConfig = (tauriArgs) => [...tauriArgs, '--config', 'src-tauri/tauri.fast.conf.json']
+  const withHostDevProfile = (tauriArgs) => withConfigFiles(tauriArgs, HOST_DEV_PROFILE_CONFIGS)
+  const withHostFastDevProfile = (tauriArgs) => withConfigFiles(tauriArgs, HOST_FAST_DEV_PROFILE_CONFIGS)
   const pluginFilter = String(process.env.FAST_WINDOW_PLUGIN || '').trim()
 
   if (isDev) {
@@ -68,14 +110,16 @@ async function main() {
         return
       }
 
-      const code = await waitExit(runTauri(withFastDevConfig(args), { env: withDevSyncDisabledEnv() }))
+      const code = await waitExit(runTauri(withHostFastDevProfile(args), { env: withDevSyncDisabledEnv(withHostDevProfileEnv()) }))
       process.exit(code)
       return
     }
 
     if (skipPluginWatch) {
-      const opts = skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {}
-      const code = await waitExit(runTauri(args, opts))
+      const opts = {
+        env: skipPluginDevSync ? withDevSyncDisabledEnv(withHostDevProfileEnv()) : withHostDevProfileEnv(),
+      }
+      const code = await waitExit(runTauri(withHostDevProfile(args), opts))
       process.exit(code)
       return
     }
@@ -87,7 +131,9 @@ async function main() {
     }
 
     const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
-    const tauri = runTauri(args, skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {})
+    const tauri = runTauri(withHostDevProfile(args), {
+      env: skipPluginDevSync ? withDevSyncDisabledEnv(withHostDevProfileEnv()) : withHostDevProfileEnv(),
+    })
     const procs = [watch, tauri]
 
     const shutdown = (code) => {

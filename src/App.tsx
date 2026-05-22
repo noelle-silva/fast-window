@@ -26,6 +26,7 @@ import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
+import { stageV5AppDev } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
 import {
@@ -49,6 +50,7 @@ import { useSearch } from './useSearch'
 import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
+import { IS_HOST_DEV_PROFILE } from './hostProfile'
 import { movePluginById } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 
@@ -464,6 +466,18 @@ function App() {
     }
   }, [showToast])
 
+  const stageRegisteredAppDevFromMenu = useCallback(async (app: RegisteredApp) => {
+    showToast(`开始 stage dev：${app.name}`)
+    try {
+      await stageV5AppDev(app.id)
+      showToast(`已完成 stage dev：${app.name}`)
+      await loadRegisteredApps()
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
+    } catch (error: any) {
+      showToast(String(error?.message || error || 'stage dev 失败'))
+    }
+  }, [loadRegisteredApps, refreshRegisteredAppStatuses, showToast])
+
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return []
@@ -479,9 +493,26 @@ function App() {
     ]
 
     if (app) {
+      const appDevActions: ContextMenuAction[] = IS_HOST_DEV_PROFILE
+        ? [
+          {
+            id: 'app-dev-actions',
+            label: '开发',
+            children: [
+              {
+                id: 'stage-v5-app-dev',
+                label: 'Stage Dev 包',
+                onSelect: () => void stageRegisteredAppDevFromMenu(app),
+              },
+            ],
+          },
+        ]
+        : []
+
       return [
         { id: 'restart-app', label: '重启', onSelect: () => void restartRegisteredAppFromMenu(app) },
         { id: 'open-app-folder', label: '打开 App 文件夹', onSelect: () => void openRegisteredAppFolderFromMenu(app) },
+        ...appDevActions,
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
@@ -498,7 +529,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu])
+  }, [changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -522,8 +553,9 @@ function App() {
 
   const handleContextMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
     e.preventDefault()
+    e.stopPropagation()
     if (reorderMode) return
-    setPluginMenu({ plugin, mouseX: e.clientX + 2, mouseY: e.clientY + 2 })
+    setPluginMenu({ plugin, mouseX: e.clientX, mouseY: e.clientY })
   }, [reorderMode])
 
   // Reorder

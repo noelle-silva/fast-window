@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fast Window-dev",
+  "identifier": "com.fastwindow.app.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "Fast Window-dev",
+        "width": 1020,
+        "height": 605,
+        "center": true,
+        "resizable": true,
+        "minWidth": 420,
+        "minHeight": 260,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ]
+  }
+}

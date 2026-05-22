@@ -15,6 +15,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
 mod app_autostart;
+mod app_dev_actions;
 mod app_installer;
 mod app_layout;
 mod app_lifecycle;
@@ -121,7 +122,7 @@ static HTTP_STREAM_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
 #[cfg(debug_assertions)]
-const AUTO_START_REG_VALUE: &str = "Fast Window (Dev)";
+const AUTO_START_REG_VALUE: &str = "Fast Window-dev";
 #[cfg(not(debug_assertions))]
 const AUTO_START_REG_VALUE: &str = "Fast Window";
 
@@ -2543,6 +2544,7 @@ fn main() {
         app_lifecycle::manager::app_status,
         app_lifecycle::manager::app_status_many,
         app_lifecycle::manager::app_icon_data_url,
+        app_dev_actions::app_dev_stage_v5,
         app_registry::app_registry_load,
         app_registry::app_registry_save,
         app_registry::app_registry_add,

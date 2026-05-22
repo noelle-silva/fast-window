@@ -11,11 +11,13 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
+import AppIconEditor from './AppIconEditor'
 import { getAppStatus } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { inspectInstalledApp } from './installedAppInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
+import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
@@ -61,6 +63,7 @@ export default function AppRegistrationPanel({
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [icon, setIcon] = useState('')
+  const [iconChanging, setIconChanging] = useState(false)
   const [hotkey, setHotkey] = useState('')
   const [hotkeyLaunchBehavior, setHotkeyLaunchBehavior] = useState<AppHotkeyLaunchBehavior>('launch')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
@@ -95,6 +98,7 @@ export default function AppRegistrationPanel({
     setName('')
     setPath('')
     setIcon('')
+    setIconChanging(false)
     setHotkey('')
     setHotkeyLaunchBehavior('launch')
     setRecordingCommandHotkeyId(null)
@@ -113,6 +117,7 @@ export default function AppRegistrationPanel({
     setName(app.name)
     setPath(app.path)
     setIcon(app.icon || '')
+    setIconChanging(false)
     setHotkey(app.hotkey ?? '')
     setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
     setRecordingCommandHotkeyId(null)
@@ -158,6 +163,45 @@ export default function AppRegistrationPanel({
   const normalizedCommands = () => commands
     .map(command => ({ ...command, id: command.id.trim(), title: command.title.trim(), hotkey: command.hotkey?.trim() || undefined }))
     .filter(command => command.id && command.title)
+
+  const changeIcon = async (source: IconImageSource) => {
+    setIconChanging(true)
+    try {
+      const dataUrl = await readIconImageDataUrl(source)
+      if (!dataUrl) return
+      setIcon(dataUrl)
+      await hostToast('图标已更新，保存后生效')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '更改图标失败'))
+    } finally {
+      setIconChanging(false)
+    }
+  }
+
+  const resetIconToDefault = async () => {
+    const p = path.trim()
+    if (!p) {
+      await hostToast('请先选择可执行文件')
+      return
+    }
+
+    setIconChanging(true)
+    try {
+      const info = await inspectInstalledApp(p)
+      const defaultIcon = info.icon || await readAppIcon(info.path)
+      setPath(info.path)
+      setIcon(defaultIcon || '')
+      await hostToast('已恢复默认图标，保存后生效')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '恢复默认图标失败'))
+    } finally {
+      setIconChanging(false)
+    }
+  }
+
+  const resolveIconForSave = async (appPath: string, inspectedIcon: string) => {
+    return icon || inspectedIcon || await readAppIcon(appPath) || ''
+  }
 
   const openRemoveConfirm = (app: RegisteredApp) => {
     closeEditMenu()
@@ -207,7 +251,7 @@ export default function AppRegistrationPanel({
       const info = await inspectInstalledApp(p)
       const nextName = n || info.name
       const existingApp = editingId ? apps.find(app => app.id === editingId) : null
-      const nextIcon = info.icon || icon || existingApp?.icon || await readAppIcon(info.path) || ''
+      const nextIcon = await resolveIconForSave(info.path, info.icon)
       const nextHotkey = hotkey.trim()
       const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
       const nextCommands = normalizedCommands()
@@ -397,6 +441,15 @@ export default function AppRegistrationPanel({
               {pickingPath ? '选择中…' : '选择文件'}
             </Button>
           </Box>
+          <AppIconEditor
+            name={name}
+            icon={icon}
+            saving={saving}
+            changing={iconChanging}
+            canReset={!!path.trim()}
+            onChange={source => void changeIcon(source)}
+            onResetDefault={() => void resetIconToDefault()}
+          />
           <TextField
             label="快捷键（可选）"
             value={hotkey}

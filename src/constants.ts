@@ -1,7 +1,8 @@
 import type { ComponentType } from 'react'
 import type { PluginCapability, PluginManifest } from './plugins/pluginContract'
+import { HOST_APP_TITLE } from './hostProfile'
 
-export const APP_TITLE = 'Fast Window'
+export const APP_TITLE = HOST_APP_TITLE
 
 export const APP_STORAGE_ID = '__app'
 export const PLUGIN_ORDER_KEY = 'pluginOrder'
