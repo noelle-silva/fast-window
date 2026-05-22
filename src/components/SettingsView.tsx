@@ -37,12 +37,14 @@ import {
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import HostPageHeader from './HostPageHeader'
 import HostUpdatePanel from './HostUpdatePanel'
+import HostDevToolsPanel from './HostDevToolsPanel'
 import { hostToast } from '../host/hostPrimitives'
 import { getHostAutoUpdateCheckEnabled, setHostAutoUpdateCheckEnabled } from '../hostUpdate/hostUpdatePreferences'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import AppRegistrationPanel from '../apps/AppRegistrationPanel'
 import type { AppRegistrationEditRequest, RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
+import { IS_HOST_DEV_PROFILE } from '../hostProfile'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -57,6 +59,7 @@ const TAB_APP_REGISTRATION = 4
 const TAB_SHORTCUT = 5
 const TAB_WEBVIEW = 6
 const TAB_ABOUT = 7
+const TAB_DEV = 8
 
 function toast(message: string) {
   void hostToast(message)
@@ -794,6 +797,7 @@ export default function SettingsView(props: {
             <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
             <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
             <Tab value={TAB_ABOUT} label="关于" id="settings-tab-7" aria-controls="settings-tabpanel-7" />
+            {IS_HOST_DEV_PROFILE ? <Tab value={TAB_DEV} label="Dev" id="settings-tab-8" aria-controls="settings-tabpanel-8" /> : null}
           </Tabs>
         </Box>
 
@@ -1664,6 +1668,11 @@ export default function SettingsView(props: {
           </Stack>
         ) : null}
       </Box>
+      {IS_HOST_DEV_PROFILE ? (
+        <Box role="tabpanel" hidden={tabIndex !== TAB_DEV} id="settings-tabpanel-8" aria-labelledby="settings-tab-8" sx={{ pt: 0.5 }}>
+          {tabIndex === TAB_DEV ? <HostDevToolsPanel panelSx={panelSx} /> : null}
+        </Box>
+      ) : null}
       </Box>
     </Box>
   )

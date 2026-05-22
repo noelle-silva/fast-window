@@ -1,16 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::process::Command;
 
 use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager};
+use crate::dev_terminal::{host_workspace_root, run_dev_terminal_command, DevTerminalCommandSpec};
 
 const HOST_DEV_PROFILE_ENV: &str = "FAST_WINDOW_HOST_PROFILE";
 const HOST_DEV_PROFILE_VALUE: &str = "dev";
 const APP_COMMAND_SCRIPTS: &[&str] = &["scripts/stage-v5-app.mjs", "scripts/release-v5-app.mjs"];
-
-#[cfg(windows)]
-const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -45,12 +41,6 @@ impl AppReleaseBump {
     }
 }
 
-struct AppDevTerminalCommandSpec {
-    title: String,
-    description: String,
-    args: Vec<String>,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppDevTerminalCommandResult {
@@ -69,7 +59,7 @@ pub(crate) async fn app_dev_run_terminal_command(
     let app_id = normalize_dev_action_app_id(app_id)?;
 
     let stop_result = stop_registered_app_for_update(lifecycle.inner(), &app_id).await?;
-    let workspace_root = host_workspace_root()?;
+    let workspace_root = host_workspace_root(APP_COMMAND_SCRIPTS)?;
     let spec = request.to_spec(&app_id);
     run_app_dev_terminal_command(&workspace_root, &spec).await?;
 
@@ -81,9 +71,9 @@ pub(crate) async fn app_dev_run_terminal_command(
 }
 
 impl AppDevTerminalCommandRequest {
-    fn to_spec(&self, app_id: &str) -> AppDevTerminalCommandSpec {
+    fn to_spec(&self, app_id: &str) -> DevTerminalCommandSpec {
         match self {
-            Self::StageDev => AppDevTerminalCommandSpec {
+            Self::StageDev => DevTerminalCommandSpec {
                 title: format!("Fast Window Stage Dev - {app_id}"),
                 description: format!("stage dev app: {app_id}"),
                 args: vec![
@@ -93,7 +83,7 @@ impl AppDevTerminalCommandRequest {
                     app_id.to_string(),
                 ],
             },
-            Self::Release { bump } => AppDevTerminalCommandSpec {
+            Self::Release { bump } => DevTerminalCommandSpec {
                 title: format!("Fast Window {} - {app_id}", bump.label()),
                 description: format!("release app: {app_id} ({})", bump.as_arg()),
                 args: vec![
@@ -106,14 +96,6 @@ impl AppDevTerminalCommandRequest {
                 ],
             },
         }
-    }
-}
-
-impl AppDevTerminalCommandSpec {
-    fn command_preview(&self) -> Vec<String> {
-        let mut command = vec!["pnpm".to_string(), "run".to_string()];
-        command.extend(self.args.clone());
-        command
     }
 }
 
@@ -136,107 +118,9 @@ fn normalize_dev_action_app_id(app_id: String) -> Result<String, String> {
     Ok(app_id)
 }
 
-fn host_workspace_root() -> Result<PathBuf, String> {
-    let tauri_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let Some(root) = tauri_dir.parent() else {
-        return Err("无法定位宿主仓库根目录".to_string());
-    };
-    let root = root.to_path_buf();
-    for script in APP_COMMAND_SCRIPTS {
-        let script_path = root.join(script);
-        if !script_path.is_file() {
-            return Err(format!("无法定位 app 终端命令脚本: {}", script_path.display()));
-        }
-    }
-    Ok(root)
-}
-
 async fn run_app_dev_terminal_command(
-    workspace_root: &Path,
-    spec: &AppDevTerminalCommandSpec,
+    workspace_root: &std::path::Path,
+    spec: &DevTerminalCommandSpec,
 ) -> Result<(), String> {
-    let mut command = app_dev_terminal_command(workspace_root, spec)?;
-    let status = command
-        .status()
-        .await
-        .map_err(|error| format!("启动 app 终端命令失败: {error}"))?;
-
-    if !status.success() {
-        return Err(format!("app 终端命令失败，退出码: {status}"));
-    }
-
-    Ok(())
-}
-
-#[cfg(windows)]
-fn app_dev_terminal_command(workspace_root: &Path, spec: &AppDevTerminalCommandSpec) -> Result<Command, String> {
-    let command_text = cmd_display_command(spec);
-    let command_args = cmd_command_args(spec);
-    let script = format!(
-        "title {} && \
-         echo [fast-window] {} && \
-         echo [fast-window] command: {} && \
-         echo. && \
-         call pnpm.cmd {} & \
-         set \"FW_EXIT_CODE=!ERRORLEVEL!\" & \
-         echo. & \
-         if !FW_EXIT_CODE! EQU 0 (echo [fast-window] command completed.) else (echo [fast-window] command failed with exit code !FW_EXIT_CODE!.) & \
-         echo [fast-window] window will close in 5 seconds... & \
-         timeout /t 5 /nobreak >nul & \
-         exit /b !FW_EXIT_CODE!",
-        cmd_quote(&spec.title),
-        spec.description,
-        command_text,
-        command_args,
-    );
-
-    let mut command = Command::new("cmd.exe");
-    command
-        .current_dir(workspace_root)
-        .creation_flags(CREATE_NEW_CONSOLE)
-        .arg("/d")
-        .arg("/s")
-        .arg("/v:on")
-        .arg("/c")
-        .arg(script);
-    Ok(command)
-}
-
-#[cfg(not(windows))]
-fn app_dev_terminal_command(_workspace_root: &Path, _spec: &AppDevTerminalCommandSpec) -> Result<Command, String> {
-    Err("当前平台暂不支持可视化终端执行 app 命令".to_string())
-}
-
-#[cfg(windows)]
-fn cmd_display_command(spec: &AppDevTerminalCommandSpec) -> String {
-    spec.command_preview()
-        .into_iter()
-        .map(|arg| cmd_quote(&arg))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg(windows)]
-fn cmd_command_args(spec: &AppDevTerminalCommandSpec) -> String {
-    let mut args = vec!["run".to_string()];
-    args.extend(spec.args.clone());
-    args.into_iter()
-        .map(|arg| cmd_quote(&arg))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg(windows)]
-fn cmd_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "\"\"".to_string();
-    }
-    if !value.chars().any(|c| matches!(c, ' ' | '"' | '^' | '&' | '|' | '<' | '>' | '%')) {
-        return value.to_string();
-    }
-    let escaped = value
-        .replace('%', "%%")
-        .replace('^', "^^")
-        .replace('"', "^\"");
-    format!("\"{escaped}\"")
+    run_dev_terminal_command(workspace_root, spec).await
 }

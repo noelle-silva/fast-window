@@ -27,7 +27,9 @@ mod clipboard_snapshot;
 mod clipboard_watch;
 mod config_store;
 mod core;
+mod dev_terminal;
 mod host_dialog;
+mod host_dev_actions;
 mod host_lifecycle;
 mod host_primitives;
 mod host_updater;
@@ -2545,6 +2547,7 @@ fn main() {
         app_lifecycle::manager::app_status_many,
         app_lifecycle::manager::app_icon_data_url,
         app_dev_actions::app_dev_run_terminal_command,
+        host_dev_actions::host_dev_run_terminal_command,
         app_registry::app_registry_load,
         app_registry::app_registry_save,
         app_registry::app_registry_add,
