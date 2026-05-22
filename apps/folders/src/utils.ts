@@ -1,23 +1,24 @@
-import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FwLaunchInfo, GroupFormState } from './types'
+import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FwLaunchInfo, GroupFormState, CollectionViewCategoryId } from './types'
 import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
 import { emptyIconAppearanceState, iconAppearanceStateForItem } from './iconAppearanceModel'
-import { DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
+import { ALL_VIEW_CATEGORY_ID, DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
 
 export const DEFAULT_GROUP_ID = 'default'
-export const DEFAULT_CATEGORY_ID: CollectionCategoryId = 'folder'
+export const DEFAULT_DATA_CATEGORY_ID: CollectionCategoryId = 'folder'
+export const DEFAULT_VIEW_CATEGORY_ID: CollectionViewCategoryId = ALL_VIEW_CATEGORY_ID
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: true, mode: 'standalone' }
 
 export const DEFAULT_DOC: CollectionsDoc = {
   schemaVersion: 1,
   dataVersion: 8,
-  activeCategoryId: DEFAULT_CATEGORY_ID,
+  activeCategoryId: DEFAULT_DATA_CATEGORY_ID,
   categoryOrder: DEFAULT_VIEW_CATEGORY_ORDER,
   categories: [createDefaultWorkspace('folder'), createDefaultWorkspace('url'), createDefaultWorkspace('file')],
   updatedAt: '',
 }
 
 export const DEFAULT_WORKSPACE_VIEW: CategoryWorkspaceView = {
-  ...createDefaultWorkspace(DEFAULT_CATEGORY_ID),
+  ...createDefaultWorkspace(DEFAULT_VIEW_CATEGORY_ID, '全部'),
   schemaVersion: DEFAULT_DOC.schemaVersion,
   dataVersion: DEFAULT_DOC.dataVersion,
   categoryOrder: DEFAULT_DOC.categoryOrder,
@@ -27,10 +28,10 @@ export const EMPTY_ITEM_FORM: CollectionItemFormState = createEmptyItemForm()
 export const EMPTY_GROUP_FORM: GroupFormState = { id: '', name: '' }
 export const EMPTY_CONTAINER_FORM: ContainerFormState = { id: '', name: '' }
 
-export function createDefaultWorkspace(id: CollectionCategoryId): CategoryWorkspace {
+export function createDefaultWorkspace(id: CollectionViewCategoryId, groupName = '默认'): CategoryWorkspace {
   return {
     id,
-    groups: [{ id: DEFAULT_GROUP_ID, name: '默认' }],
+    groups: [{ id: DEFAULT_GROUP_ID, name: groupName }],
     items: [],
     containers: [],
     desktop: { iconLayout: DEFAULT_DESKTOP_ICON_LAYOUT },

@@ -346,7 +346,8 @@ type allViewItemCandidate struct {
 }
 
 type categoryOrderPayload struct {
-	CategoryOrder []string `json:"categoryOrder"`
+	ActiveCategoryID string   `json:"activeCategoryId"`
+	CategoryOrder    []string `json:"categoryOrder"`
 }
 
 type itemPayload struct {
@@ -373,6 +374,11 @@ type removePayload struct {
 type groupPayload struct {
 	CategoryID string          `json:"categoryId"`
 	Group      collectionGroup `json:"group"`
+}
+
+type groupOrderPayload struct {
+	CategoryID string   `json:"categoryId"`
+	GroupOrder []string `json:"groupOrder"`
 }
 
 type groupRemovePayload struct {
@@ -618,7 +624,7 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid category order payload: %w", err)
 		}
-		return svc.saveCategoryOrder(payload.CategoryOrder)
+		return svc.saveCategoryOrder(payload.CategoryOrder, payload.ActiveCategoryID)
 	case "collections.desktop.wallpaper.deck":
 		return svc.readDesktopWallpaperDeck()
 	case "collections.assets.import":
@@ -755,6 +761,12 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 			return nil, fmt.Errorf("invalid group payload: %w", err)
 		}
 		return svc.updateCollectionGroup(payload.CategoryID, payload.Group)
+	case "collections.groups.order.save":
+		var payload groupOrderPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid group order payload: %w", err)
+		}
+		return svc.saveCollectionGroupOrder(payload.CategoryID, payload.GroupOrder)
 	case "collections.groups.remove":
 		var payload groupRemovePayload
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -909,20 +921,27 @@ func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
 	return desktopWallpaperDeck{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, Categories: categories}, nil
 }
 
-func (svc *service) saveCategoryOrder(rawOrder []string) (categoryWorkspaceView, error) {
+func (svc *service) saveCategoryOrder(rawOrder []string, activeCategoryID string) (categoryWorkspaceView, error) {
 	categoryOrder, err := normalizeViewCategoryOrder(rawOrder)
 	if err != nil {
 		return categoryWorkspaceView{}, err
+	}
+	activeViewCategoryID := normalizeViewCategoryID(activeCategoryID)
+	if activeViewCategoryID == "" {
+		return categoryWorkspaceView{}, fmt.Errorf("invalid active category: %s", strings.TrimSpace(activeCategoryID))
 	}
 	doc, err := svc.readCollections()
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
 	doc.CategoryOrder = categoryOrder
+	if concreteCategoryID := normalizeCategoryID(activeViewCategoryID); concreteCategoryID != "" {
+		doc.ActiveCategoryID = concreteCategoryID
+	}
 	if err := svc.writeCollections(doc); err != nil {
 		return categoryWorkspaceView{}, err
 	}
-	return svc.readWorkspaceView(doc.ActiveCategoryID)
+	return svc.readWorkspaceView(activeViewCategoryID)
 }
 
 func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *categoryWorkspace) error) (categoryWorkspaceView, error) {
@@ -1104,6 +1123,39 @@ func normalizeViewCategoryOrder(rawOrder []string) ([]string, error) {
 		}
 	}
 	return order, nil
+}
+
+func orderedGroupsByID(groups []collectionGroup, rawOrder []string) ([]collectionGroup, error) {
+	if len(rawOrder) != len(groups) {
+		return nil, errors.New("groupOrder must include every group exactly once")
+	}
+	groupByID := map[string]collectionGroup{}
+	for _, group := range groups {
+		groupByID[group.ID] = group
+	}
+	ordered := make([]collectionGroup, 0, len(groups))
+	seen := map[string]bool{}
+	for _, raw := range rawOrder {
+		id := safeID(raw, 32)
+		if id == "" {
+			return nil, errors.New("groupOrder group id is required")
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("duplicate groupOrder group: %s", id)
+		}
+		group, ok := groupByID[id]
+		if !ok {
+			return nil, fmt.Errorf("groupOrder group not found: %s", id)
+		}
+		seen[id] = true
+		ordered = append(ordered, group)
+	}
+	for _, group := range groups {
+		if !seen[group.ID] {
+			return nil, fmt.Errorf("groupOrder group is required: %s", group.ID)
+		}
+	}
+	return ordered, nil
 }
 
 func concreteCategoryOrder(viewOrder []string) []string {
@@ -1979,6 +2031,17 @@ func (svc *service) updateCollectionGroup(categoryID string, payload collectionG
 			}
 		}
 		return fmt.Errorf("group not found: %s", group.ID)
+	})
+}
+
+func (svc *service) saveCollectionGroupOrder(categoryID string, rawOrder []string) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		ordered, err := orderedGroupsByID(workspace.Groups, rawOrder)
+		if err != nil {
+			return err
+		}
+		workspace.Groups = ordered
+		return nil
 	})
 }
 

@@ -629,7 +629,7 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	svc := readyService(t)
 
-	doc, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"})
+	doc, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"}, "all")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,8 +646,22 @@ func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	if got := []string{persisted.Categories[0].ID, persisted.Categories[1].ID, persisted.Categories[2].ID}; !sameStrings(got, []string{"url", "file", "folder"}) {
 		t.Fatalf("expected categories to follow categoryOrder, got categories=%#v order=%#v", got, persisted.CategoryOrder)
 	}
-	if _, err := svc.saveCategoryOrder([]string{"url", "url", "file", "folder"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	folderDoc, err := svc.saveCategoryOrder([]string{"all", "url", "file", "folder"}, "folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err = svc.readCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folderDoc.ID != "folder" || persisted.ActiveCategoryID != defaultCategoryID {
+		t.Fatalf("expected explicit active category to control returned view, got doc=%#v persisted=%#v", folderDoc.ID, persisted.ActiveCategoryID)
+	}
+	if _, err := svc.saveCategoryOrder([]string{"url", "url", "file", "folder"}, "all"); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("expected duplicate category order error, got %v", err)
+	}
+	if _, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"}, ""); err == nil || !strings.Contains(err.Error(), "invalid active category") {
+		t.Fatalf("expected invalid active category error, got %v", err)
 	}
 }
 
@@ -1066,6 +1080,41 @@ func TestGroupIDGenerationDoesNotDependOnDisplayName(t *testing.T) {
 	}
 	if len(doc.Groups) != 3 || doc.Groups[1].Name != doc.Groups[2].Name || doc.Groups[1].ID == doc.Groups[2].ID {
 		t.Fatalf("expected group identity to be independent from display name: %#v", doc.Groups)
+	}
+}
+
+func TestGroupOrderSavePersistsExactWorkspaceOrder(t *testing.T) {
+	svc := readyService(t)
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "design", Name: "设计"}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := svc.saveCollectionGroupOrder("folder", []string{"design", defaultGroupID, "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []string{doc.Groups[0].ID, doc.Groups[1].ID, doc.Groups[2].ID}; !sameStrings(got, []string{"design", defaultGroupID, "work"}) {
+		t.Fatalf("unexpected workspace view group order: %#v", got)
+	}
+	persisted, err := svc.readCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err := workspaceByID(persisted, "folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []string{workspace.Groups[0].ID, workspace.Groups[1].ID, workspace.Groups[2].ID}; !sameStrings(got, []string{"design", defaultGroupID, "work"}) {
+		t.Fatalf("unexpected persisted group order: %#v", got)
+	}
+	if _, err := svc.saveCollectionGroupOrder("folder", []string{"design", "design", "work"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("expected duplicate group order error, got %v", err)
+	}
+	if _, err := svc.saveCollectionGroupOrder("folder", []string{"design", defaultGroupID}); err == nil || !strings.Contains(err.Error(), "every group") {
+		t.Fatalf("expected missing group order error, got %v", err)
 	}
 }
 

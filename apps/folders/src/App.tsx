@@ -4,8 +4,6 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
-import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
@@ -23,6 +21,7 @@ import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   Chip,
   CircularProgress,
   Dialog,
@@ -46,7 +45,7 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { ALL_VIEW_CATEGORY_ID, categoryDefinition, moveViewCategoryOrder, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
+import { ALL_VIEW_CATEGORY_ID, categoryDefinition, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
@@ -57,6 +56,8 @@ import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
 import { iconAppearanceCandidateFromWebIcon, importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate, upsertIconCandidates } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
+import { SortHandleButton, SortModeButton } from './sortable/SortControls'
+import { SortableItem, SortableRoot, SortableSection, moveSortableId } from './sortable/SortableDnd'
 import { resolveContainerDropSurface } from './containerDropResolution'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
@@ -114,7 +115,7 @@ import {
   normalizeDesktopIconLayout,
 } from './folder-grid/iconLayout'
 import {
-  DEFAULT_CATEGORY_ID,
+  DEFAULT_VIEW_CATEGORY_ID,
   DEFAULT_GROUP_ID,
   DEFAULT_WORKSPACE_VIEW,
   EMPTY_ITEM_FORM,
@@ -167,7 +168,7 @@ export function App() {
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [doc, setDoc] = React.useState<CategoryWorkspaceView>(DEFAULT_WORKSPACE_VIEW)
   const [wallpaperDeck, setWallpaperDeck] = React.useState<DesktopWallpaperDeck | null>(null)
-  const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionViewCategoryId>(DEFAULT_CATEGORY_ID)
+  const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionViewCategoryId>(DEFAULT_VIEW_CATEGORY_ID)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -894,6 +895,16 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
   }
 
+  async function saveGroupOrder(groupOrder: string[]) {
+    if (!client || isAllView) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.order.save', requestParams({ groupOrder }))
+      setDoc(nextDoc)
+      selectResolvedGroup(resolveGroupSelection(nextDoc, groupId))
+    } catch (e) { setError(errorMessage(e, '保存分组顺序失败')) } finally { setBusy(false) }
+  }
+
   async function saveContainer() {
     if (!client || isAllView) return
     const name = containerForm.name.trim()
@@ -1140,7 +1151,7 @@ export function App() {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { categoryOrder })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { activeCategoryId, categoryOrder })
       setDoc(nextDoc)
       setWallpaperDeck(current => current ? { ...current, schemaVersion: nextDoc.schemaVersion, dataVersion: nextDoc.dataVersion, categories: reorderWallpaperDeckCategories(current.categories, nextDoc.categoryOrder) } : wallpaperDeckFromWorkspace(nextDoc))
     }
@@ -1348,6 +1359,7 @@ export function App() {
         onChange={setGroupForm}
         onClose={() => setGroupEditorOpen(false)}
         onDelete={group => setConfirm({ kind: 'group', id: group.id, label: group.name })}
+        onMoveGroup={groupOrder => void saveGroupOrder(groupOrder)}
         onNew={() => setGroupForm(EMPTY_GROUP_FORM)}
         onSave={() => void saveGroup()}
       />
@@ -1884,10 +1896,15 @@ function GroupDialog(props: {
   onChange(form: GroupFormState): void
   onClose(): void
   onDelete(group: CollectionGroup): void
+  onMoveGroup(groupOrder: string[]): void
   onNew(): void
   onSave(): void
 }) {
   const selected = props.editableGroups.find(group => group.id === props.form.id)
+  const [groupSortMode, setGroupSortMode] = React.useState(false)
+  const groupIds = props.editableGroups.map(group => group.id)
+  const moveGroup = (activeId: string, overId: string) => props.onMoveGroup(moveSortableId(groupIds, activeId, overId))
+
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="sm">
       <DialogContent sx={{ p: 3 }}>
@@ -1906,19 +1923,62 @@ function GroupDialog(props: {
           />
           {props.editableGroups.length ? (
             <Stack spacing={1}>
-              <Typography variant="caption" color="text.secondary">已有分组</Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>已有分组</Typography>
+                <SortModeButton enabled={groupSortMode} onClick={() => setGroupSortMode(current => !current)} disabled={props.busy || groupIds.length <= 1} />
+              </Stack>
               <ScrollArea sx={{ maxHeight: 240 }} viewportSx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {props.editableGroups.map(group => (
-                  <Button
-                    key={group.id}
-                    variant={group.id === props.form.id ? 'contained' : 'text'}
-                    onClick={() => props.onChange({ id: group.id, name: group.name })}
-                    sx={{ justifyContent: 'space-between', bgcolor: group.id === props.form.id ? undefined : theme => alpha(theme.palette.primary.main, 0.06) }}
-                  >
-                    <span>{group.name}</span>
-                    <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个项目 · ${groupContainerCount(props.doc, group.id)} 个收纳夹`} />
-                  </Button>
-                ))}
+                <SortableRoot onMove={moveGroup}>
+                  <SortableSection items={groupIds}>
+                    {props.editableGroups.map(group => {
+                      const active = group.id === props.form.id
+                      return (
+                        <SortableItem key={group.id} id={group.id} disabled={!groupSortMode || props.busy}>
+                          {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                            <Paper
+                              ref={setNodeRef}
+                              elevation={active ? 1 : 0}
+                              sx={{
+                                borderRadius: 2,
+                                bgcolor: active ? 'primary.main' : theme => alpha(theme.palette.primary.main, 0.06),
+                                color: active ? 'primary.contrastText' : 'text.primary',
+                                opacity: isDragging ? 0.55 : 1,
+                                overflow: 'hidden',
+                              }}
+                              style={style}
+                            >
+                              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minHeight: 42, px: 0.75 }}>
+                                <SortHandleButton
+                                  enabled={groupSortMode}
+                                  label={`拖拽排序分组 ${group.name}`}
+                                  handleRef={setHandleRef}
+                                  handleProps={handleProps}
+                                  isDragging={isDragging}
+                                />
+                                <ButtonBase
+                                  onClick={() => props.onChange({ id: group.id, name: group.name })}
+                                  sx={{
+                                    flex: 1,
+                                    minWidth: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 1,
+                                    py: 0.75,
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  <Typography noWrap fontWeight={900}>{group.name}</Typography>
+                                  <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个项目 · ${groupContainerCount(props.doc, group.id)} 个收纳夹`} />
+                                </ButtonBase>
+                              </Stack>
+                            </Paper>
+                          )}
+                        </SortableItem>
+                      )
+                    })}
+                  </SortableSection>
+                </SortableRoot>
               </ScrollArea>
             </Stack>
           ) : null}
@@ -1955,9 +2015,10 @@ function SettingsDialog(props: {
 }) {
   const iconLayout = normalizeDesktopIconLayout(props.iconLayout)
   const categories = orderedViewCategoryDefinitions(props.doc.categoryOrder)
+  const [categorySortMode, setCategorySortMode] = React.useState(false)
   const updateDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onPreviewIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
   const saveDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onSaveIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
-  const moveCategory = (categoryId: CollectionViewCategoryId, direction: -1 | 1) => props.onSaveCategoryOrder(moveViewCategoryOrder(props.doc.categoryOrder, categoryId, direction))
+  const moveCategory = (activeId: string, overId: string) => props.onSaveCategoryOrder(moveSortableId(props.doc.categoryOrder, activeId as CollectionViewCategoryId, overId as CollectionViewCategoryId))
 
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
@@ -1969,53 +2030,57 @@ function SettingsDialog(props: {
           </Box>
           <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
             <Stack spacing={1.5}>
-              <Box>
-                <Typography fontWeight={900}>分类顺序</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>调整顶部收藏类别的展示顺序，保存后会立即同步到主界面。</Typography>
-              </Box>
-              <Stack spacing={1}>
-                {categories.map((category, index) => {
-                  const CategoryIcon = category.icon
-                  return (
-                    <Paper
-                      key={category.id}
-                      elevation={0}
-                      sx={{
-                        p: 1.25,
-                        borderRadius: 2.5,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.25,
-                        bgcolor: 'rgba(255,255,255,0.72)',
-                      }}
-                    >
-                      <Box sx={{ width: 28, height: 28, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.primary.main, 0.12), color: 'primary.main' }}>
-                        <CategoryIcon fontSize="small" />
-                      </Box>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography fontWeight={900}>{category.label}</Typography>
-                        <Typography variant="caption" color="text.secondary">第 {index + 1} 位</Typography>
-                      </Box>
-                      <Stack direction="row" spacing={0.75}>
-                        <Tooltip title="上移">
-                          <span>
-                            <IconButton aria-label={`上移${category.label}`} size="small" onClick={() => moveCategory(category.id, -1)} disabled={props.busy || index === 0}>
-                              <ArrowUpwardRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title="下移">
-                          <span>
-                            <IconButton aria-label={`下移${category.label}`} size="small" onClick={() => moveCategory(category.id, 1)} disabled={props.busy || index === categories.length - 1}>
-                              <ArrowDownwardRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </Stack>
-                    </Paper>
-                  )
-                })}
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography fontWeight={900}>分类顺序</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>调整顶部收藏类别的展示顺序，保存后会立即同步到主界面。</Typography>
+                </Box>
+                <SortModeButton enabled={categorySortMode} onClick={() => setCategorySortMode(current => !current)} disabled={props.busy || categories.length <= 1} />
               </Stack>
+              <SortableRoot onMove={moveCategory}>
+                <SortableSection items={props.doc.categoryOrder}>
+                  <Stack spacing={1}>
+                    {categories.map((category, index) => {
+                      const CategoryIcon = category.icon
+                      return (
+                        <SortableItem key={category.id} id={category.id} disabled={!categorySortMode || props.busy}>
+                          {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                            <Paper
+                              ref={setNodeRef}
+                              elevation={0}
+                              sx={{
+                                p: 1.25,
+                                borderRadius: 2.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.25,
+                                bgcolor: 'rgba(255,255,255,0.72)',
+                                opacity: isDragging ? 0.55 : 1,
+                              }}
+                              style={style}
+                            >
+                              <SortHandleButton
+                                enabled={categorySortMode}
+                                label={`拖拽排序分类 ${category.label}`}
+                                handleRef={setHandleRef}
+                                handleProps={handleProps}
+                                isDragging={isDragging}
+                              />
+                              <Box sx={{ width: 28, height: 28, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.primary.main, 0.12), color: 'primary.main' }}>
+                                <CategoryIcon fontSize="small" />
+                              </Box>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography fontWeight={900}>{category.label}</Typography>
+                                <Typography variant="caption" color="text.secondary">第 {index + 1} 位</Typography>
+                              </Box>
+                            </Paper>
+                          )}
+                        </SortableItem>
+                      )
+                    })}
+                  </Stack>
+                </SortableSection>
+              </SortableRoot>
             </Stack>
           </Paper>
           <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
