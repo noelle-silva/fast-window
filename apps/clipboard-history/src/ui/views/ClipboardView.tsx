@@ -1,13 +1,15 @@
 import * as React from 'react'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { Box, Button, Chip, IconButton, Paper, Stack, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { CLIPBOARD_PAGE_SIZE } from '../../shared/constants'
-import type { ClipboardHistoryItem } from '../../shared/types'
+import type { ClipboardFileEntry, ClipboardHistoryItem } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import { LazyImagePreview } from '../components/LazyImagePreview'
 import { formatTime, historyKey, shouldShowFoldButton } from '../clipboardUiUtils'
@@ -27,7 +29,12 @@ export function ClipboardView(props: ClipboardViewProps) {
   const filtered = React.useMemo(() => {
     const q = state.clipboardSearchQuery.trim().toLowerCase()
     if (!q) return state.history
-    return state.history.filter((it) => it.type !== 'image' && String(it.content).toLowerCase().includes(q))
+    return state.history.filter((it) => {
+      if (it.type === 'image') return false
+      if (String(it.content).toLowerCase().includes(q)) return true
+      if (it.type !== 'files') return false
+      return (it.files || []).some(file => `${file.name}\n${file.path}`.toLowerCase().includes(q))
+    })
   }, [state.clipboardSearchQuery, state.history])
 
   const total = filtered.length
@@ -126,6 +133,7 @@ export function ClipboardView(props: ClipboardViewProps) {
 function ClipboardCard(props: { itemKey: string; item: ClipboardHistoryItem; controller: ClipboardHistoryController; selected: boolean; onSelect(): void }) {
   const { itemKey, item, controller, selected, onSelect } = props
   const isImage = item.type === 'image'
+  const isFiles = item.type === 'files'
   const expanded = !!controller.state.clipboardExpanded[itemKey]
   const armed = controller.isDeleteArmed(itemKey)
 
@@ -148,7 +156,7 @@ function ClipboardCard(props: { itemKey: string; item: ClipboardHistoryItem; con
         cursor: 'pointer',
         position: 'relative',
         transition: 'background-color 120ms ease, box-shadow 120ms ease',
-        ...(isImage ? null : { contentVisibility: 'auto', containIntrinsicSize: '80px' }),
+        ...(isImage || isFiles ? null : { contentVisibility: 'auto', containIntrinsicSize: '80px' }),
         bgcolor: selected ? theme => alpha(theme.palette.primary.main, 0.04) : 'transparent',
         boxShadow: selected ? theme => `inset 2px 0 0 ${alpha(theme.palette.primary.main, 0.2)}` : 'none',
         '&:hover': {
@@ -158,6 +166,8 @@ function ClipboardCard(props: { itemKey: string; item: ClipboardHistoryItem; con
     >
       {isImage ? (
         <ImageClipboardContent item={item} controller={controller} armed={armed} />
+      ) : isFiles ? (
+        <FilesClipboardContent item={item} itemKey={itemKey} controller={controller} expanded={expanded} armed={armed} />
       ) : (
         <TextClipboardContent item={item} itemKey={itemKey} controller={controller} expanded={expanded} armed={armed} />
       )}
@@ -169,13 +179,19 @@ function ClipboardTools(props: { item: ClipboardHistoryItem; controller: Clipboa
   const { item, controller, armed } = props
   return (
     <Stack direction="row" spacing={0.75} alignItems="center" onClick={(event) => event.stopPropagation()}>
-      <Typography variant="caption" color="text.secondary">{item.type === 'image' ? '图片' : '文本'}</Typography>
+      <Typography variant="caption" color="text.secondary">{clipboardTypeLabel(item)}</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{item.time ? formatTime(item.time) : ''}</Typography>
       <IconButton size="small" title={armed ? '再点一次确认删除' : '删除'} onClick={() => void controller.deleteHistoryItem(item)}>
         {armed ? <WarningAmberRoundedIcon color="warning" fontSize="small" /> : <DeleteOutlineRoundedIcon fontSize="small" />}
       </IconButton>
     </Stack>
   )
+}
+
+function clipboardTypeLabel(item: ClipboardHistoryItem): string {
+  if (item.type === 'image') return '图片'
+  if (item.type === 'files') return '文件'
+  return '文本'
 }
 
 function TextClipboardContent(props: { item: ClipboardHistoryItem; itemKey: string; controller: ClipboardHistoryController; expanded: boolean; armed: boolean }) {
@@ -236,4 +252,81 @@ function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: 
       <Chip size="small" icon={<ImageRoundedIcon fontSize="small" />} label="图片" />
     </Stack>
   )
+}
+
+function FilesClipboardContent(props: { item: ClipboardHistoryItem; itemKey: string; controller: ClipboardHistoryController; expanded: boolean; armed: boolean }) {
+  const { item, itemKey, controller, expanded, armed } = props
+  const files = item.files || []
+  const visibleFiles = expanded ? files : files.slice(0, 4)
+  const showFold = files.length > visibleFiles.length
+
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', columnGap: 1.25, rowGap: 1, alignItems: 'start' }}>
+      <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+          <Chip size="small" icon={<InsertDriveFileRoundedIcon fontSize="small" />} label={`${files.length} 个文件项`} />
+          {files.some(file => file.kind === 'directory') ? <Chip size="small" icon={<FolderRoundedIcon fontSize="small" />} label="包含文件夹" /> : null}
+        </Stack>
+        <Stack spacing={0.5}>
+          {visibleFiles.map(file => <FileEntryRow key={file.path} file={file} />)}
+        </Stack>
+      </Stack>
+      <ClipboardTools item={item} controller={controller} armed={armed} />
+      {showFold || expanded ? (
+        <Button
+          size="small"
+          variant="text"
+          startIcon={expanded ? <KeyboardArrowUpRoundedIcon fontSize="small" /> : <KeyboardArrowDownRoundedIcon fontSize="small" />}
+          onClick={(event) => {
+            event.stopPropagation()
+            controller.toggleClipboardExpanded(itemKey)
+          }}
+          sx={{ gridColumn: '1 / -1', justifySelf: 'flex-start' }}
+        >
+          {expanded ? '收起文件列表' : `展开全部 ${files.length} 项`}
+        </Button>
+      ) : null}
+    </Box>
+  )
+}
+
+function FileEntryRow(props: { file: ClipboardFileEntry }) {
+  const { file } = props
+  const isDirectory = file.kind === 'directory'
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+        columnGap: 0.75,
+        alignItems: 'center',
+        minWidth: 0,
+        px: 0.75,
+        py: 0.5,
+        borderRadius: 1,
+        bgcolor: theme => alpha(theme.palette.text.primary, 0.035),
+      }}
+    >
+      {isDirectory ? <FolderRoundedIcon fontSize="small" color="warning" /> : <InsertDriveFileRoundedIcon fontSize="small" color="action" />}
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.path}</Typography>
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{fileLabel(file)}</Typography>
+    </Box>
+  )
+}
+
+function fileLabel(file: ClipboardFileEntry): string {
+  if (file.kind === 'directory') return '文件夹'
+  if (typeof file.sizeBytes === 'number') return formatFileSize(file.sizeBytes)
+  return file.extension || '文件'
+}
+
+function formatFileSize(size: number): string {
+  if (!Number.isFinite(size) || size < 0) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`
 }

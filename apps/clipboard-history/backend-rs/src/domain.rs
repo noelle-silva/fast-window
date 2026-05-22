@@ -1,6 +1,6 @@
 use crate::model::{
-    ClipboardHistoryItem, ClipboardHistorySettings, CollectionItemContent, CollectionNode,
-    CollectionsDoc, DeletedHistoryMap, InternalCopyMarker,
+    ClipboardFileEntry, ClipboardHistoryItem, ClipboardHistorySettings, CollectionItemContent,
+    CollectionNode, CollectionsDoc, DeletedHistoryMap, InternalCopyMarker,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -77,18 +77,34 @@ pub fn history_uniq_key(item: &ClipboardHistoryItem) -> String {
 
 pub fn normalize_history_item(raw: &Value, fallback_now: u64) -> Option<ClipboardHistoryItem> {
     let obj = raw.as_object()?;
-    let item_type = if obj.get("type").and_then(Value::as_str) == Some("image") {
-        "image"
-    } else {
-        "text"
+    let item_type = match obj.get("type").and_then(Value::as_str) {
+        Some("image") => "image",
+        Some("files") => "files",
+        _ => "text",
     };
-    let content = obj
+    let mut content = obj
         .get("content")
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim()
         .to_string();
+    let files = if item_type == "files" {
+        let entries = normalize_file_entries(obj.get("files"));
+        if content.is_empty() {
+            content = entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+        Some(entries)
+    } else {
+        None
+    };
     if content.is_empty() {
+        return None;
+    }
+    if item_type == "files" && files.as_ref().map(|value| value.is_empty()).unwrap_or(true) {
         return None;
     }
     let time = obj
@@ -108,7 +124,54 @@ pub fn normalize_history_item(raw: &Value, fallback_now: u64) -> Option<Clipboar
         content,
         time,
         path,
+        files,
     })
+}
+
+fn normalize_file_entries(raw: Option<&Value>) -> Vec<ClipboardFileEntry> {
+    let Some(Value::Array(list)) = raw else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for item in list {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let path = obj.get("path").and_then(Value::as_str).unwrap_or("").trim();
+        if path.is_empty() || !seen.insert(path.to_ascii_lowercase()) {
+            continue;
+        }
+        let name = obj
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(path)
+            .to_string();
+        let kind = match obj.get("kind").and_then(Value::as_str).unwrap_or("file") {
+            "directory" => "directory",
+            "unknown" => "unknown",
+            _ => "file",
+        };
+        out.push(ClipboardFileEntry {
+            path: path.to_string(),
+            name,
+            kind: kind.to_string(),
+            extension: obj
+                .get("extension")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            size_bytes: obj.get("sizeBytes").and_then(Value::as_u64),
+            modified_at: obj.get("modifiedAt").and_then(Value::as_u64),
+        });
+        if out.len() >= 256 {
+            break;
+        }
+    }
+    out
 }
 
 pub fn normalize_history_items(raw: Option<Value>, limit: usize) -> Vec<ClipboardHistoryItem> {

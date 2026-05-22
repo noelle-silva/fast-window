@@ -8,6 +8,7 @@ export const ClipboardHistoryRpc = {
   clipboard: {
     writeText: 'clipboardHistory.clipboard.writeText',
     writeImage: 'clipboardHistory.clipboard.writeImage',
+    writeFiles: 'clipboardHistory.clipboard.writeFiles',
   },
   images: {
     readOutput: 'clipboardHistory.images.readOutput',

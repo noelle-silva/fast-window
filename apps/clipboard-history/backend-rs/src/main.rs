@@ -1,6 +1,7 @@
 mod clipboard;
 mod data_contract;
 mod domain;
+mod file_clipboard;
 mod http_util;
 mod image_codec;
 mod image_http;

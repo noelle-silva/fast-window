@@ -24,6 +24,7 @@ function createGatewayFromClient(client: DirectBackgroundClient): Omit<Clipboard
     clipboard: {
       writeText: text => client.invoke(ClipboardHistoryRpc.clipboard.writeText, { text }),
       writeImage: req => client.invoke(ClipboardHistoryRpc.clipboard.writeImage, typeof req === 'string' ? { dataUrl: req } : req),
+      writeFiles: paths => client.invoke(ClipboardHistoryRpc.clipboard.writeFiles, { paths }),
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),

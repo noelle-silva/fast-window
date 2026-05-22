@@ -3,6 +3,10 @@ use crate::clipboard::{
     write_text_clipboard,
 };
 use crate::domain::*;
+use crate::file_clipboard::{
+    classify_files_clipboard, history_item_from_files, read_files_clipboard, write_files_clipboard,
+    ClipboardFilesClassification,
+};
 use crate::image_codec::{decode_image_data_url, image_data_url, normalize_image_bytes_to_png};
 use crate::image_store::{
     delete_orphan_managed_images, delete_unreferenced_managed_collection_images,
@@ -22,6 +26,7 @@ const RPC_STATE_CLEAR_HISTORY: &str = "clipboardHistory.state.clearHistory";
 const RPC_STATE_DELETE_HISTORY_ITEM: &str = "clipboardHistory.state.deleteHistoryItem";
 const RPC_CLIPBOARD_WRITE_TEXT: &str = "clipboardHistory.clipboard.writeText";
 const RPC_CLIPBOARD_WRITE_IMAGE: &str = "clipboardHistory.clipboard.writeImage";
+const RPC_CLIPBOARD_WRITE_FILES: &str = "clipboardHistory.clipboard.writeFiles";
 const RPC_IMAGES_READ_OUTPUT: &str = "clipboardHistory.images.readOutput";
 const RPC_IMAGES_READ_CLIPBOARD: &str = "clipboardHistory.images.readClipboard";
 const RPC_IMAGES_SCAN_ORPHANS: &str = "clipboardHistory.images.scanOrphans";
@@ -47,6 +52,7 @@ pub struct ClipboardHistoryService {
     internal_copy: InternalCopyMarker,
     current_text: String,
     current_image: String,
+    current_files: String,
     monitor_latest_text: String,
     event_senders: Vec<Sender<String>>,
 }
@@ -70,6 +76,11 @@ impl ClipboardHistoryService {
             .find(|item| item.item_type == "image")
             .map(|v| v.content.clone())
             .unwrap_or_default();
+        let current_files = history
+            .iter()
+            .find(|item| item.item_type == "files")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
         let service = Self {
             store,
             output_root,
@@ -81,6 +92,7 @@ impl ClipboardHistoryService {
             internal_copy: empty_internal_copy(),
             current_text,
             current_image,
+            current_files,
             monitor_latest_text: String::new(),
             event_senders: Vec::new(),
         };
@@ -121,6 +133,7 @@ impl ClipboardHistoryService {
                 self.write_text(params.get("text").and_then(Value::as_str).unwrap_or(""))
             }
             RPC_CLIPBOARD_WRITE_IMAGE => self.write_image(params),
+            RPC_CLIPBOARD_WRITE_FILES => self.write_files(params),
             RPC_IMAGES_READ_OUTPUT => read_output_image(
                 &self.output_root,
                 params.get("path").and_then(Value::as_str).unwrap_or(""),
@@ -202,40 +215,98 @@ impl ClipboardHistoryService {
             return;
         }
 
-        if let Ok(text) = read_text_clipboard() {
-            if text.trim().is_empty() {
-                self.monitor_latest_text.clear();
-            } else if text != self.monitor_latest_text {
-                self.monitor_latest_text = text.clone();
-                let item = ClipboardHistoryItem {
-                    item_type: "text".to_string(),
-                    content: text,
-                    time: now_ms(),
-                    path: None,
-                };
-                let _ = self.handle_monitor_change(item);
-            }
+        let file_paths = read_files_clipboard()
+            .ok()
+            .flatten()
+            .map(|files| files.paths);
+        self.poll_text_clipboard_once();
+        let file_classification = file_paths.as_deref().and_then(classify_files_clipboard);
+        if self.poll_image_clipboard_once(file_classification.as_ref()) {
+            return;
         }
+        self.poll_files_clipboard_once(file_classification);
+    }
 
-        let Ok(image) = read_image_clipboard() else {
+    fn poll_text_clipboard_once(&mut self) {
+        let Ok(text) = read_text_clipboard() else {
             return;
         };
-        let Some(image) = image else {
+        if text.trim().is_empty() {
+            self.monitor_latest_text.clear();
             return;
+        }
+        if text == self.monitor_latest_text {
+            return;
+        }
+        self.monitor_latest_text = text.clone();
+        let item = ClipboardHistoryItem {
+            item_type: "text".to_string(),
+            content: text,
+            time: now_ms(),
+            path: None,
+            files: None,
         };
-        let Ok(asset) =
-            write_managed_png_image(&self.output_root, &image.png, image.width, image.height)
-        else {
-            return;
+        let _ = self.handle_monitor_change(item);
+    }
+
+    fn poll_image_clipboard_once(
+        &mut self,
+        file_classification: Option<&ClipboardFilesClassification>,
+    ) -> bool {
+        let asset = if let Some(ClipboardFilesClassification::SingleImage(image_path)) =
+            file_classification
+        {
+            let Ok(bytes) = std::fs::read(&image_path) else {
+                return true;
+            };
+            let Ok(encoded) = normalize_image_bytes_to_png(&bytes) else {
+                return true;
+            };
+            let Ok(asset) = write_managed_png_image(
+                &self.output_root,
+                &encoded.png,
+                encoded.width,
+                encoded.height,
+            ) else {
+                return true;
+            };
+            asset
+        } else if matches!(
+            file_classification,
+            Some(ClipboardFilesClassification::Files(_))
+        ) {
+            return false;
+        } else {
+            let Ok(Some(image)) = read_image_clipboard() else {
+                return false;
+            };
+            let Ok(asset) =
+                write_managed_png_image(&self.output_root, &image.png, image.width, image.height)
+            else {
+                return false;
+            };
+            asset
         };
         if asset.reference == self.current_image {
-            return;
+            return true;
         }
         let item = ClipboardHistoryItem {
             item_type: "image".to_string(),
             content: asset.reference,
             time: now_ms(),
             path: Some(asset.path),
+            files: None,
+        };
+        let _ = self.handle_monitor_change(item);
+        true
+    }
+
+    fn poll_files_clipboard_once(
+        &mut self,
+        file_classification: Option<ClipboardFilesClassification>,
+    ) {
+        let Some(ClipboardFilesClassification::Files(item)) = file_classification else {
+            return;
         };
         let _ = self.handle_monitor_change(item);
     }
@@ -250,6 +321,8 @@ impl ClipboardHistoryService {
                 self.current_text = item.content;
             } else if item.item_type == "image" {
                 self.current_image = item.content;
+            } else if item.item_type == "files" {
+                self.current_files = item.content;
             }
             return Ok(());
         }
@@ -272,6 +345,12 @@ impl ClipboardHistoryService {
                 return Ok(());
             }
             self.current_image = item.content.clone();
+        }
+        if item.item_type == "files" {
+            if item.content == self.current_files {
+                return Ok(());
+            }
+            self.current_files = item.content.clone();
         }
         let next_history =
             merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
@@ -321,6 +400,7 @@ impl ClipboardHistoryService {
             content: text.to_string(),
             time: now_ms(),
             path: None,
+            files: None,
         };
         let next_history =
             merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
@@ -374,7 +454,31 @@ impl ClipboardHistoryService {
             } else {
                 Some(item_path)
             },
+            files: None,
         };
+        let next_history =
+            merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        self.replace_history(next_history);
+        self.save_clipboard()?;
+        self.emit_snapshot();
+        serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
+    }
+
+    fn write_files(&mut self, params: Value) -> Result<Value, String> {
+        let paths = params
+            .get("paths")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "文件剪贴板写入需要 paths".to_string())?
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|value| PathBuf::from(value.trim()))
+            .filter(|path| !path.as_os_str().is_empty())
+            .collect::<Vec<_>>();
+        write_files_clipboard(&paths)?;
+        let item = history_item_from_files(&paths)
+            .ok_or_else(|| "文件剪贴板写入需要至少一个可用路径".to_string())?;
+        self.internal_copy = internal_copy("files");
+        self.current_files = item.content.clone();
         let next_history =
             merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
         self.replace_history(next_history);
@@ -470,6 +574,12 @@ impl ClipboardHistoryService {
             .history
             .iter()
             .find(|item| item.item_type == "image")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
+        self.current_files = self
+            .history
+            .iter()
+            .find(|item| item.item_type == "files")
             .map(|v| v.content.clone())
             .unwrap_or_default();
         self.internal_copy = empty_internal_copy();

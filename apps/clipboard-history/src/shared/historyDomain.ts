@@ -1,5 +1,6 @@
 import { CLIPBOARD_HISTORY_THEME_IDS, DEFAULT_SETTINGS } from './constants'
 import type {
+  ClipboardFileEntry,
   ClipboardHistoryItem,
   ClipboardHistorySettings,
   ClipboardHistoryThemeId,
@@ -21,6 +22,33 @@ export function nowId(now = new Date()): string {
 
 export function historyUniqKey(item: Pick<ClipboardHistoryItem, 'type' | 'content'>): string {
   return `${item.type}\n${item.content}`
+}
+
+function normalizeFileEntries(raw: unknown): ClipboardFileEntry[] {
+  const list = Array.isArray(raw) ? raw : []
+  const out: ClipboardFileEntry[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    const obj = item && typeof item === 'object' ? (item as Record<string, unknown>) : null
+    const path = String(obj?.path || '').trim()
+    if (!path) continue
+    const key = path.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const kindRaw = String(obj?.kind || 'file')
+    const kind: ClipboardFileEntry['kind'] = kindRaw === 'directory' || kindRaw === 'unknown' ? kindRaw : 'file'
+    const name = String(obj?.name || path).trim() || path
+    const extension = String(obj?.extension || '').trim()
+    const sizeBytes = Number(obj?.sizeBytes)
+    const modifiedAt = Number(obj?.modifiedAt)
+    const entry: ClipboardFileEntry = { path, name, kind }
+    if (extension) entry.extension = extension
+    if (Number.isFinite(sizeBytes) && sizeBytes >= 0) entry.sizeBytes = Math.floor(sizeBytes)
+    if (Number.isFinite(modifiedAt) && modifiedAt > 0) entry.modifiedAt = Math.floor(modifiedAt)
+    out.push(entry)
+    if (out.length >= 256) break
+  }
+  return out
 }
 
 export function normalizeDeletedMap(raw: unknown, nowMs = Date.now()): DeletedHistoryMap {
@@ -68,9 +96,12 @@ export function normalizeSettings(raw: unknown): ClipboardHistorySettings {
 
 export function normalizeHistoryItem(raw: unknown, nowMs = Date.now()): ClipboardHistoryItem | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
-  const type = obj && obj.type === 'image' ? 'image' : 'text'
-  const content = String(obj && obj.content ? obj.content : '').trim()
+  const type = obj && obj.type === 'image' ? 'image' : obj && obj.type === 'files' ? 'files' : 'text'
+  const files = type === 'files' ? normalizeFileEntries(obj?.files) : []
+  let content = String(obj && obj.content ? obj.content : '').trim()
+  if (type === 'files' && !content) content = files.map(file => file.path).join('\n')
   if (!content) return null
+  if (type === 'files' && !files.length) return null
   const timeRaw = Number(obj && obj.time)
   const path = type === 'image' && obj && typeof obj.path === 'string' ? String(obj.path).trim() : ''
   const out: ClipboardHistoryItem = {
@@ -79,6 +110,7 @@ export function normalizeHistoryItem(raw: unknown, nowMs = Date.now()): Clipboar
     time: Number.isFinite(timeRaw) && timeRaw > 0 ? Math.floor(timeRaw) : nowMs,
   }
   if (type === 'image' && path) out.path = path
+  if (type === 'files') out.files = files
   return out
 }
 
@@ -121,6 +153,7 @@ export function isSameHistory(a: unknown, b: unknown): boolean {
     if (!left || !right) return false
     if (left.type !== right.type || left.content !== right.content || left.time !== right.time) return false
     if (left.type === 'image' && String(left.path || '') !== String(right.path || '')) return false
+    if (left.type === 'files' && JSON.stringify(left.files || []) !== JSON.stringify(right.files || [])) return false
   }
   return true
 }

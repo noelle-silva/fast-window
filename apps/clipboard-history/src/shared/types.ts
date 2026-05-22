@@ -1,3 +1,12 @@
+export type ClipboardFileEntry = {
+  path: string
+  name: string
+  kind: 'file' | 'directory' | 'unknown'
+  extension?: string
+  sizeBytes?: number
+  modifiedAt?: number
+}
+
 export type ClipboardHistoryThemeId =
   | 'calm-blue'
   | 'catppuccin-latte'
@@ -12,10 +21,11 @@ export type ClipboardHistoryThemeId =
   | 'radix-graphite'
 
 export type ClipboardHistoryItem = {
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'files'
   content: string
   time: number
   path?: string
+  files?: ClipboardFileEntry[]
 }
 
 export type ClipboardHistorySettings = {

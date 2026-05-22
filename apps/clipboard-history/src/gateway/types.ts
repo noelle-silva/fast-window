@@ -22,6 +22,7 @@ export type HostGateway = {
 export type ClipboardGateway = {
   writeText(text: string): Promise<ClipboardHistorySnapshot>
   writeImage(dataUrlOrRequest: string | { dataUrl?: string; path?: string }): Promise<ClipboardHistorySnapshot>
+  writeFiles(paths: string[]): Promise<ClipboardHistorySnapshot>
 }
 
 export type ImageGateway = {

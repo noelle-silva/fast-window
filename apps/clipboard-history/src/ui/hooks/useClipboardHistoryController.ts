@@ -665,7 +665,9 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     try {
       const snapshot = item.type === 'image'
         ? await gateway.clipboard.writeImage(await loadClipboardImage(item))
-        : await gateway.clipboard.writeText(item.content)
+        : item.type === 'files'
+          ? await gateway.clipboard.writeFiles((item.files || []).map(file => file.path).filter(Boolean))
+          : await gateway.clipboard.writeText(item.content)
       applySnapshot(snapshot)
       void host.toast('复制成功')
     } catch (error) {
