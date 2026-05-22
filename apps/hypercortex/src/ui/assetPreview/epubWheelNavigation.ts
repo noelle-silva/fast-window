@@ -1,11 +1,8 @@
 import type { Contents as EpubContents, Rendition } from 'epubjs'
+import { dominantAssetReaderWheelDelta, isInteractiveAssetReaderWheelTarget, normalizeAssetReaderWheelDelta, READER_WHEEL_DELTA_PAGE } from './assetReaderWheelInput'
 
 const WHEEL_PAGE_DELTA_UNIT = 120
 const DISCRETE_PIXEL_WHEEL_MIN_DELTA = 4
-const WHEEL_DELTA_LINE = 1
-const WHEEL_DELTA_PAGE = 2
-const WHEEL_LINE_HEIGHT = 40
-const INTERACTIVE_WHEEL_TARGET_SELECTOR = 'input, textarea, select, button, [role="button"], [contenteditable="true"], [data-epub-wheel-ignore]'
 
 type WheelDirection = 'previous' | 'next'
 
@@ -25,33 +22,13 @@ export type EpubWheelNavigationHandle = {
   destroy: () => void
 }
 
-function closestWheelTarget(target: EventTarget | null): { closest: (selector: string) => Element | null } | null {
-  if (!target || typeof (target as { closest?: unknown }).closest !== 'function') return null
-  return target as { closest: (selector: string) => Element | null }
-}
-
-function isInteractiveWheelTarget(target: EventTarget | null): boolean {
-  return Boolean(closestWheelTarget(target)?.closest(INTERACTIVE_WHEEL_TARGET_SELECTOR))
-}
-
-function dominantWheelDelta(event: WheelEvent): number {
-  return Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-}
-
-function normalizeWheelDelta(event: WheelEvent, rawDelta: number, surface: HTMLElement): number {
-  if (!Number.isFinite(rawDelta) || rawDelta === 0) return 0
-  if (event.deltaMode === WHEEL_DELTA_LINE) return rawDelta * WHEEL_LINE_HEIGHT
-  if (event.deltaMode === WHEEL_DELTA_PAGE) return rawDelta * Math.max(surface.clientHeight, 1)
-  return rawDelta
-}
-
 function isDiscreteWheelStep(event: WheelEvent, rawDelta: number, normalizedDelta: number): boolean {
   if (event.deltaMode !== 0) return true
   return Number.isInteger(rawDelta) && Math.abs(normalizedDelta) >= DISCRETE_PIXEL_WHEEL_MIN_DELTA
 }
 
 function discreteWheelPageTurnCount(event: WheelEvent, rawDelta: number, normalizedDelta: number): number {
-  if (event.deltaMode === WHEEL_DELTA_PAGE) return Math.max(1, Math.round(Math.abs(rawDelta)))
+  if (event.deltaMode === READER_WHEEL_DELTA_PAGE) return Math.max(1, Math.round(Math.abs(rawDelta)))
   return Math.max(1, Math.round(Math.abs(normalizedDelta) / WHEEL_PAGE_DELTA_UNIT))
 }
 
@@ -105,9 +82,9 @@ export function attachEpubWheelNavigation({
   }
 
   const onWheel = (event: WheelEvent) => {
-    if (event.ctrlKey || event.metaKey || isInteractiveWheelTarget(event.target)) return
-    const rawDelta = dominantWheelDelta(event)
-    const delta = normalizeWheelDelta(event, rawDelta, surface)
+    if (event.ctrlKey || event.metaKey || isInteractiveAssetReaderWheelTarget(event.target)) return
+    const rawDelta = dominantAssetReaderWheelDelta(event)
+    const delta = normalizeAssetReaderWheelDelta(event, rawDelta, surface)
     if (!delta) return
 
     event.preventDefault()

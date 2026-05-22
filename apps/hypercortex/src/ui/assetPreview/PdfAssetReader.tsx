@@ -6,13 +6,14 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import { createPdfDocumentLoadingTask, type PdfDocumentProxy, type PdfPageProxy } from '../../pdf/pdfRuntime'
 import { isPdfRenderCancelled, pdfPageRenderQueue, type QueuedPdfRender } from '../../pdf/pdfRenderQueue'
 import type { AssetPreviewContext } from './registry'
+import { attachAssetReaderCtrlWheelZoom } from './assetReaderCtrlWheelZoom'
 import { AssetPreviewToolbarPortal } from './assetPreviewToolbar'
 import { softButtonSx } from '../pluginUiStyles'
 
-const PDF_SCALE_MIN = 0.6
-const PDF_SCALE_MAX = 2.4
+const PDF_SCALE_MIN = 0.2
+const PDF_SCALE_MAX = 1
 const PDF_SCALE_STEP = 0.15
-const DEFAULT_PDF_SCALE = 1.2
+const DEFAULT_PDF_SCALE = 1
 const PAGE_ESTIMATED_WIDTH = 720
 const PAGE_ESTIMATED_HEIGHT = 1018
 const PAGE_OBSERVER_ROOT_MARGIN = '900px 0px'
@@ -249,6 +250,7 @@ export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
   const [scale, setScale] = React.useState(DEFAULT_PDF_SCALE)
   const [targetPage, setTargetPage] = React.useState('1')
   const [error, setError] = React.useState<string | null>(null)
+  const scaleRef = React.useRef(DEFAULT_PDF_SCALE)
   const scrollRootRef = React.useRef<HTMLDivElement | null>(null)
 
   const pageCount = pdf?.numPages || 0
@@ -282,6 +284,30 @@ export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
   }, [blobUrl])
 
   React.useEffect(() => {
+    scaleRef.current = scale
+  }, [scale])
+
+  const updateScale = React.useCallback((nextScale: number) => {
+    scaleRef.current = nextScale
+    setScale(nextScale)
+  }, [])
+
+  React.useEffect(() => {
+    const scrollRoot = scrollRootRef.current
+    if (!scrollRoot) return
+
+    const wheelZoom = attachAssetReaderCtrlWheelZoom({
+      surface: scrollRoot,
+      getScale: () => scaleRef.current,
+      setScale: updateScale,
+      step: PDF_SCALE_STEP,
+      clampScale,
+    })
+
+    return () => wheelZoom.destroy()
+  }, [pdf, updateScale])
+
+  React.useEffect(() => {
     if (pdf) setTargetPage('1')
   }, [pdf])
 
@@ -295,9 +321,9 @@ export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [pdf, targetPage])
 
-  const zoomOut = React.useCallback(() => setScale(v => clampScale(v - PDF_SCALE_STEP)), [])
-  const resetZoom = React.useCallback(() => setScale(DEFAULT_PDF_SCALE), [])
-  const zoomIn = React.useCallback(() => setScale(v => clampScale(v + PDF_SCALE_STEP)), [])
+  const zoomOut = React.useCallback(() => updateScale(clampScale(scaleRef.current - PDF_SCALE_STEP)), [updateScale])
+  const resetZoom = React.useCallback(() => updateScale(DEFAULT_PDF_SCALE), [updateScale])
+  const zoomIn = React.useCallback(() => updateScale(clampScale(scaleRef.current + PDF_SCALE_STEP)), [updateScale])
 
   if (error) {
     return (
