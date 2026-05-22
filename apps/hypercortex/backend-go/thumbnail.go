@@ -1,12 +1,11 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const defaultThumbnailWidth = 320
@@ -39,22 +38,13 @@ func normalizeThumbnailSize(width int, height int) (int, int) {
 }
 
 func runFFmpeg(args []string) error {
-	cmd := exec.Command(resolveFFmpegBinary(), args...)
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, exec.ErrNotFound) {
-		return fmt.Errorf("视频缩略图依赖 ffmpeg 不可用：%w", err)
-	}
-	message := strings.TrimSpace(string(output))
-	if len(message) > 16*1024 {
-		message = message[:16*1024]
-	}
-	if message == "" {
-		message = err.Error()
-	}
-	return fmt.Errorf("视频缩略图生成失败：%s", message)
+	return runThumbnailCommand(thumbnailCommand{
+		Binary:          resolveFFmpegBinary(),
+		Args:            args,
+		DependencyLabel: "视频缩略图依赖 ffmpeg ",
+		FailureLabel:    "视频缩略图生成失败",
+		Timeout:         45 * time.Second,
+	})
 }
 
 func resolveFFmpegBinary() string {

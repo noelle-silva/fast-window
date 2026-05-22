@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,6 @@ import (
 
 const (
 	thumbnailCacheVersion  = 1
-	thumbnailGeneratorID   = "thumbnail-cache-v1"
 	thumbnailCacheDir      = "cache"
 	thumbnailCacheSubdir   = "thumbnails"
 	thumbnailIndexFile     = "_index.json"
@@ -34,17 +34,18 @@ type thumbnailResult struct {
 }
 
 type thumbnailCacheSpec struct {
-	Version     int    `json:"version"`
-	GeneratorID string `json:"generatorId"`
-	Scope       string `json:"scope"`
-	AssetID     string `json:"assetId"`
-	Ext         string `json:"ext"`
-	RelPath     string `json:"relPath"`
-	MediaKind   string `json:"mediaKind"`
-	Size        int64  `json:"size"`
-	ModifiedMs  int64  `json:"modifiedMs"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
+	Version      int    `json:"version"`
+	GeneratorID  string `json:"generatorId"`
+	Scope        string `json:"scope"`
+	AssetID      string `json:"assetId"`
+	Ext          string `json:"ext"`
+	RelPath      string `json:"relPath"`
+	DisplayTitle string `json:"displayTitle"`
+	MediaKind    string `json:"mediaKind"`
+	Size         int64  `json:"size"`
+	ModifiedMs   int64  `json:"modifiedMs"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
 }
 
 type thumbnailIndex struct {
@@ -120,22 +121,24 @@ func (svc *service) getAssetThumbnailByRelPath(scope string, relPath string, wid
 	}
 	width, height = normalizeThumbnailSize(width, height)
 	mediaKind := kindFromMime(mimeFromExt(ext))
-	if mediaKind != "image" && mediaKind != "video" {
-		return thumbnailResult{}, errors.New("仅图片和视频支持缩略图")
+	profile, ok := thumbnailProfileFor(ext, mediaKind)
+	if !ok {
+		return thumbnailResult{}, unsupportedThumbnailError(ext, mediaKind)
 	}
 	modifiedMs := info.ModTime().UnixMilli()
 	spec := thumbnailCacheSpec{
-		Version:     thumbnailCacheVersion,
-		GeneratorID: thumbnailGeneratorID,
-		Scope:       scope,
-		AssetID:     strings.TrimSpace(assetID),
-		Ext:         strings.Trim(strings.ToLower(strings.TrimSpace(ext)), "."),
-		RelPath:     filepath.ToSlash(cleanRel),
-		MediaKind:   mediaKind,
-		Size:        info.Size(),
-		ModifiedMs:  modifiedMs,
-		Width:       width,
-		Height:      height,
+		Version:      thumbnailCacheVersion,
+		GeneratorID:  profile.ID,
+		Scope:        scope,
+		AssetID:      strings.TrimSpace(assetID),
+		Ext:          strings.Trim(strings.ToLower(strings.TrimSpace(ext)), "."),
+		RelPath:      filepath.ToSlash(cleanRel),
+		DisplayTitle: svc.assetThumbnailDisplayTitle(scope, assetID, ext, cleanRel),
+		MediaKind:    mediaKind,
+		Size:         info.Size(),
+		ModifiedMs:   modifiedMs,
+		Width:        width,
+		Height:       height,
 	}
 	cacheKey, err := thumbnailCacheKey(spec)
 	if err != nil {
@@ -174,6 +177,45 @@ func (svc *service) rebuildAssetThumbnail(scope string, assetID string, ext stri
 	return svc.getAssetThumbnail(scope, assetID, ext, width, height, true)
 }
 
+func (svc *service) assetThumbnailDisplayTitle(scope string, assetID string, ext string, relPath string) string {
+	key := assetKey(assetID, ext)
+	if idx, err := svc.ensureAssetIndex(scope); err == nil {
+		if entry, ok := idx.Assets[key]; ok {
+			if title := assetDisplayTitleFromMetadata(entry); title != "" {
+				return title
+			}
+		}
+	}
+	base := strings.TrimSpace(filepath.Base(relPath))
+	if base == "" || base == key || isHexHashLike(strings.TrimSuffix(base, filepath.Ext(base))) {
+		return ""
+	}
+	return trimAssetTitleExt(base, ext)
+}
+
+func assetDisplayTitleFromMetadata(entry assetIndexEntry) string {
+	if title := strings.TrimSpace(entry.DisplayName); title != "" {
+		return trimAssetTitleExt(title, entry.Ext)
+	}
+	if title := strings.TrimSpace(entry.SourceName); title != "" {
+		return trimAssetTitleExt(title, entry.Ext)
+	}
+	return ""
+}
+
+func trimAssetTitleExt(title string, ext string) string {
+	title = strings.TrimSpace(title)
+	ext = normalizeAssetFileExt(ext)
+	if title == "" || ext == "" {
+		return title
+	}
+	suffix := "." + ext
+	if strings.EqualFold(filepath.Ext(title), suffix) {
+		return strings.TrimSpace(strings.TrimSuffix(title, filepath.Ext(title)))
+	}
+	return title
+}
+
 func (svc *service) rebuildAllThumbnails(scope string, width int, height int) (thumbnailRebuildReport, error) {
 	width, height = normalizeThumbnailSize(width, height)
 	assets, err := svc.listAssets(scope)
@@ -189,7 +231,7 @@ func (svc *service) rebuildAllThumbnails(scope string, width int, height int) (t
 	for _, asset := range assets {
 		assetID, ext := parseAssetFileName(asset.Name)
 		kind := kindFromMime(mimeFromExt(ext))
-		if kind != "image" && kind != "video" {
+		if _, ok := thumbnailProfileFor(ext, kind); !ok {
 			report.Skipped++
 			continue
 		}
@@ -227,6 +269,10 @@ func (svc *service) generateThumbnailCache(source string, cachePath string, spec
 		}
 	case "video":
 		if err := generateVideoThumbnailFile(source, tmp, spec.Width, spec.Height); err != nil {
+			return err
+		}
+	case "document":
+		if err := generateDocumentThumbnailFile(source, tmp, spec); err != nil {
 			return err
 		}
 	default:
@@ -350,6 +396,12 @@ func thumbnailOutputFormat(spec thumbnailCacheSpec) (string, string) {
 	if spec.MediaKind == "image" && strings.EqualFold(spec.Ext, thumbnailSVGExtension) {
 		return thumbnailSVGExtension, thumbnailSVGMime
 	}
+	if spec.MediaKind == "document" && isDocumentPageRenderExt(spec.Ext) {
+		return thumbnailJPEGExtension, thumbnailJPEGMime
+	}
+	if spec.MediaKind == "document" {
+		return thumbnailSVGExtension, thumbnailSVGMime
+	}
 	return thumbnailJPEGExtension, thumbnailJPEGMime
 }
 
@@ -357,6 +409,9 @@ func readThumbnailDataURL(path string, mimeType string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
+	}
+	if mimeType == thumbnailSVGMime {
+		return "data:" + mimeType + ";charset=utf-8," + url.PathEscape(string(data)), nil
 	}
 	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }

@@ -15,6 +15,7 @@ export type AssetEntry = {
   remark?: string
   tags?: string[]
   thumbnailUrl?: string
+  thumbnailError?: string
 }
 
 export function assetRefKey(asset: Pick<AssetEntry, 'assetId' | 'ext'>): string {

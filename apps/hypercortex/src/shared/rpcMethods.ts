@@ -14,6 +14,12 @@ export const HyperCortexRpc = {
     saveHtmlFace: 'hypercortex.notes.saveHtmlFace',
     deleteHtmlFace: 'hypercortex.notes.deleteHtmlFace',
     saveHtmlFaceFixedScale: 'hypercortex.notes.saveHtmlFaceFixedScale',
+    versions: {
+      publish: 'hypercortex.notes.versions.publish',
+      list: 'hypercortex.notes.versions.list',
+      load: 'hypercortex.notes.versions.load',
+      restore: 'hypercortex.notes.versions.restore',
+    },
   },
   assets: {
     ensureIndex: 'hypercortex.assets.ensureIndex',

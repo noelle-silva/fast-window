@@ -11,6 +11,7 @@ import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
@@ -36,6 +37,7 @@ import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandl
 import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreviewButton'
 import { usePreviewController } from './preview/usePreviewController'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
+import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 
 type NoteFaceId = string
 type TextEditorMode = 'source' | 'live'
@@ -222,6 +224,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
   const [deleteHtmlConfirmOpen, setDeleteHtmlConfirmOpen] = React.useState(false)
   const [htmlFullscreenOpen, setHtmlFullscreenOpen] = React.useState(false)
+  const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'html' | ''>('')
 
   const [base, setBase] = React.useState<NoteContent>(
@@ -313,6 +316,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       void gateway.host.toast(String(e?.message || e || '打开目录失败'))
     }
   }, [closeMoreMenu, gateway, isDraft, note.dir, scope])
+
+  const requestOpenVersionHistory = React.useCallback(() => {
+    closeMoreMenu()
+    if (isDraft || !String(note.dir || '').trim()) {
+      void gateway.host.toast('请先保存笔记，再发布版本')
+      return
+    }
+    setVersionHistoryOpen(true)
+  }, [closeMoreMenu, gateway, isDraft, note.dir])
 
   const handlePasteFiles = React.useCallback(async (files: File[], insertText: (text: string) => void) => {
     if (pastingAssets) {
@@ -617,8 +629,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [base, doc?.resources, saving])
 
   const handleSave = React.useCallback(async () => {
-    if (!noteId) return
-    if (saving) return
+    if (!noteId) return false
+    if (saving) return false
     setSaving(true)
     try {
       const originalId = noteId
@@ -712,12 +724,54 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       onDirtyChange?.({ noteId: originalId, dirty: false })
       if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
       await gateway.host.toast(toastMsg)
+      return true
     } catch (e: any) {
       await gateway.host.toast(String(e?.message || e || '保存失败'))
+      return false
     } finally {
       setSaving(false)
     }
   }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+
+  const saveCurrentForVersionPublish = React.useCallback(async () => {
+    const saved = await handleSave()
+    if (!saved) throw new Error('保存当前笔记失败，已停止发布版本')
+  }, [handleSave])
+
+  const handleRestoreVersion = React.useCallback(async (versionId: string) => {
+    const dir = String(note.dir || '').trim()
+    if (!dir) throw new Error('请先保存笔记，再恢复版本')
+    const result = await gateway.notes.restoreNoteVersion(scope, dir, versionId)
+    const restoredHtml = await gateway.notes.loadHtmlFace(scope, result.meta.dir)
+    const nextFaces = normalizeFaceOrder(result.manifest.faceOrder, result.manifest.faces)
+    const nextBase: NoteContent = {
+      title: result.doc.title || '未命名',
+      description: result.doc.description || '',
+      body: result.doc.body || '',
+      tags: (result.doc.tags || []).slice(),
+      html: restoredHtml.html || '',
+    }
+
+    setDoc(result.doc)
+    setHtmlFace(restoredHtml)
+    setFaceManifests(result.manifest.faces)
+    setFaces(nextFaces)
+    setFace(prev => nextFaces.includes(prev) ? prev : nextFaces[0] || 'text')
+    setBase(nextBase)
+    setEditTitle(nextBase.title)
+    setEditDescription(nextBase.description)
+    setEditBody(nextBase.body)
+    setEditTags(nextBase.tags.slice())
+    setEditHtml(nextBase.html)
+    setEditResources(result.doc.resources || [])
+    setTagInput('')
+    setEditing(false)
+    setTextEditorMode('live')
+
+    const refsForIndex = extractNoteRefs(result.doc.body || '').filter(id => !!allNotesById[id])
+    onSaved({ originalId: noteId, meta: result.meta, refsForIndex })
+    onDirtyChange?.({ noteId, dirty: false })
+  }, [allNotesById, gateway, note.dir, noteId, onDirtyChange, onSaved, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -735,7 +789,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     enterEditMode: () => setEditing(true),
     toggleMode: () => handleToggleMode(),
     cycleFace: () => handleCycleFace(),
-    save: () => handleSave(),
+    save: async () => { await handleSave() },
     discardChanges: () => handleDiscard(),
   }), [dirty, handleCycleFace, handleDiscard, handleSave, handleToggleMode, saving])
 
@@ -927,6 +981,23 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               </Tooltip>
             ) : null}
 
+            <Tooltip title="版本历史" placement="bottom-end">
+              <IconButton
+                size="small"
+                aria-label="版本历史"
+                onClick={requestOpenVersionHistory}
+                disabled={isDraft || !String(note.dir || '').trim()}
+                sx={{
+                  color: 'rgba(0,0,0,.58)',
+                  bgcolor: 'transparent',
+                  '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
+                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                }}
+              >
+                <HistoryRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
             <Tooltip title="更多操作" placement="bottom-end">
               <IconButton
                 size="small"
@@ -953,6 +1024,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 disabled={isDraft || !String(note.dir || '').trim()}
               >
                 打开当前笔记文件夹
+              </MenuItem>
+              <MenuItem
+                onClick={requestOpenVersionHistory}
+                disabled={isDraft || !String(note.dir || '').trim()}
+              >
+                版本历史…
               </MenuItem>
               <MenuItem
                 onClick={() => requestDeleteNote()}
@@ -1406,6 +1483,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           </Button>
         </DialogActions>
       </Dialog>
+
+      {!isDraft && String(note.dir || '').trim() ? (
+        <NoteVersionHistoryDialog
+          open={versionHistoryOpen}
+          gateway={gateway}
+          scope={scope}
+          packageDir={note.dir}
+          dirty={dirty}
+          onClose={() => setVersionHistoryOpen(false)}
+          onSaveCurrent={saveCurrentForVersionPublish}
+          onRestoreVersion={handleRestoreVersion}
+        />
+      ) : null}
 
       <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
       <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />

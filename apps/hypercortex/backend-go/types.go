@@ -3,18 +3,21 @@ package main
 import "encoding/json"
 
 const (
-	stateDirName    = "state"
-	libraryDirName  = "library"
-	notesDir        = "Notes"
-	assetsDir       = "Assets"
-	trashDir        = "Trash"
-	indexFile       = "hypercortex-index.json"
-	metadataFile    = "hypercortex-metadata.json"
-	favoritesFile   = "hypercortex-favorites.json"
-	refsIndexFile   = "hypercortex-refs.json"
-	assetsIndexFile = "hypercortex-assets-index.json"
-	manifestFile    = "manifest.json"
-	trashMetaFile   = "trash-meta.json"
+	stateDirName        = "state"
+	libraryDirName      = "library"
+	notesDir            = "Notes"
+	assetsDir           = "Assets"
+	trashDir            = "Trash"
+	indexFile           = "hypercortex-index.json"
+	metadataFile        = "hypercortex-metadata.json"
+	favoritesFile       = "hypercortex-favorites.json"
+	refsIndexFile       = "hypercortex-refs.json"
+	assetsIndexFile     = "hypercortex-assets-index.json"
+	manifestFile        = "manifest.json"
+	versionsDirName     = "versions"
+	versionsIndexFile   = "index.json"
+	versionSnapshotFile = "snapshot.json"
+	trashMetaFile       = "trash-meta.json"
 )
 
 type requestFrame struct {
