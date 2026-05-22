@@ -1,6 +1,7 @@
 import { esc, uid } from '../core/utils'
-import { ICON_AI, ICON_COPY, ICON_FAIL, ICON_OK } from './icons'
+import { ICON_AI, ICON_COPY, ICON_FAIL, ICON_IMAGE, ICON_OK } from './icons'
 import { copyTextToClipboard, setCopyBtnState } from './copy'
+import { exportSvgElementToPngDataUrl } from './mermaidExport'
 import { sanitizeSvg } from './sanitize'
 import type { BoolRef, RenderSafetyPolicy } from './types'
 import type { AiChatCapabilities } from '../gateway/capabilities'
@@ -8,6 +9,81 @@ import { AI_STUDIO_CONTROLLER_KEY } from '../runtime/aiStudioGlobals'
 
 export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgCache: Map<string, string>; capabilities: AiChatCapabilities }) {
   const { mermaidInited, mermaidSvgCache, capabilities } = opts
+  const renderedMermaidSources = new WeakMap<HTMLElement, string>()
+
+  function setMermaidImageCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail') {
+    if (state === 'ok') {
+      btn.innerHTML = ICON_OK
+      btn.setAttribute('data-state', 'ok')
+      btn.setAttribute('title', '已复制图片')
+      btn.setAttribute('aria-label', '已复制图片')
+      return
+    }
+    if (state === 'fail') {
+      btn.innerHTML = ICON_FAIL
+      btn.setAttribute('data-state', 'fail')
+      btn.setAttribute('title', '复制图片失败')
+      btn.setAttribute('aria-label', '复制图片失败')
+      return
+    }
+
+    btn.innerHTML = ICON_IMAGE
+    btn.removeAttribute('data-state')
+    btn.setAttribute('title', '复制 Mermaid 图片')
+    btn.setAttribute('aria-label', '复制 Mermaid 图片')
+  }
+
+  function setMermaidSourceCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail') {
+    setCopyBtnState(btn, state, '复制 Mermaid 源码')
+  }
+
+  function resetMermaidCopyButton(btn: HTMLButtonElement, reset: () => void) {
+    window.setTimeout(() => {
+      if (!btn.isConnected) return
+      reset()
+      btn.disabled = false
+    }, 1200)
+  }
+
+  function getRenderedMermaidBlock(button: HTMLButtonElement) {
+    const block = button.closest('.mermaid-block[data-mermaid="1"]')
+    return block instanceof HTMLElement ? block : null
+  }
+
+  function getMermaidSourceFromBlock(block: HTMLElement) {
+    return String(renderedMermaidSources.get(block) || '')
+  }
+
+  function formatMermaidSourceForCopy(src: string) {
+    const text = String(src || '').trim()
+    return text ? `\`\`\`mermaid\n${text}\n\`\`\`` : ''
+  }
+
+  function enhanceRenderedMermaidBlock(holder: HTMLElement, src: string) {
+    holder.classList.add('mermaid-block-ready')
+    renderedMermaidSources.set(holder, src)
+
+    const toolbar = document.createElement('div')
+    toolbar.className = 'mermaid-block-toolbar'
+    toolbar.setAttribute('aria-label', 'Mermaid 操作')
+    toolbar.setAttribute('data-stop', '1')
+
+    const imageBtn = document.createElement('button')
+    imageBtn.type = 'button'
+    imageBtn.className = 'mermaid-block-action mermaid-block-copy-image'
+    imageBtn.setAttribute('data-act', 'copy-mermaid-image')
+    setMermaidImageCopyBtnState(imageBtn, 'copy')
+
+    const sourceBtn = document.createElement('button')
+    sourceBtn.type = 'button'
+    sourceBtn.className = 'mermaid-block-action mermaid-block-copy-source'
+    sourceBtn.setAttribute('data-act', 'copy-mermaid-source')
+    setMermaidSourceCopyBtnState(sourceBtn, 'copy')
+
+    toolbar.appendChild(imageBtn)
+    toolbar.appendChild(sourceBtn)
+    holder.appendChild(toolbar)
+  }
 
   function setMermaidFixBtnState(btn: HTMLButtonElement, state: 'ai' | 'loading' | 'ok' | 'fail') {
     if (state === 'loading') {
@@ -49,23 +125,86 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
 
       const box = btn.closest('.mermaid-error-box')
       const srcEl = box?.querySelector?.('.mermaid-error-src')
-      const text = srcEl ? String(srcEl.textContent || '') : ''
+      const text = formatMermaidSourceForCopy(srcEl ? String(srcEl.textContent || '') : '')
       if (!text.trim()) return
 
       btn.disabled = true
       copyTextToClipboard(text)
         .then((ok) => {
-          setCopyBtnState(btn, ok ? 'ok' : 'fail')
+          setMermaidSourceCopyBtnState(btn, ok ? 'ok' : 'fail')
         })
         .catch(() => {
-          setCopyBtnState(btn, 'fail')
+          setMermaidSourceCopyBtnState(btn, 'fail')
         })
         .finally(() => {
           window.setTimeout(() => {
             if (!btn.isConnected) return
-            setCopyBtnState(btn, 'copy')
+            setMermaidSourceCopyBtnState(btn, 'copy')
             btn.disabled = false
           }, 1200)
+        })
+    })
+  }
+
+  function ensureMermaidBlockCopyHandlerOnce(root: HTMLElement) {
+    if (root.getAttribute('data-fw-mm-copy-hook') === '1') return
+    root.setAttribute('data-fw-mm-copy-hook', '1')
+
+    root.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const imageBtn = target?.closest?.('button[data-act="copy-mermaid-image"]')
+      const sourceBtn = target?.closest?.('button[data-act="copy-mermaid-source"]')
+      const btn = imageBtn || sourceBtn
+      if (!(btn instanceof HTMLButtonElement)) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      const block = getRenderedMermaidBlock(btn)
+      if (!block) return
+
+      if (imageBtn) {
+        const svgEl = block.querySelector('svg')
+        if (!(svgEl instanceof SVGSVGElement)) return
+        const writeImage = capabilities.clipboard?.writeImage
+        if (typeof writeImage !== 'function') {
+          setMermaidImageCopyBtnState(btn, 'fail')
+          capabilities.ui.showToast?.('未授权：clipboard.writeImage')
+          resetMermaidCopyButton(btn, () => setMermaidImageCopyBtnState(btn, 'copy'))
+          return
+        }
+
+        btn.disabled = true
+        exportSvgElementToPngDataUrl(svgEl)
+          .then((dataUrl) => writeImage(dataUrl))
+          .then(() => {
+            setMermaidImageCopyBtnState(btn, 'ok')
+            capabilities.ui.showToast?.('已复制 Mermaid 图片')
+          })
+          .catch((err) => {
+            setMermaidImageCopyBtnState(btn, 'fail')
+            capabilities.ui.showToast?.(`复制图片失败：${String(err?.message || err || '未知错误')}`)
+          })
+          .finally(() => {
+            resetMermaidCopyButton(btn, () => setMermaidImageCopyBtnState(btn, 'copy'))
+          })
+        return
+      }
+
+      const text = formatMermaidSourceForCopy(getMermaidSourceFromBlock(block))
+      if (!text.trim()) return
+
+      btn.disabled = true
+      copyTextToClipboard(text)
+        .then((ok) => {
+          setMermaidSourceCopyBtnState(btn, ok ? 'ok' : 'fail')
+          if (ok) capabilities.ui.showToast?.('已复制 Mermaid 源码')
+        })
+        .catch(() => {
+          setMermaidSourceCopyBtnState(btn, 'fail')
+        })
+        .finally(() => {
+          resetMermaidCopyButton(btn, () => setMermaidSourceCopyBtnState(btn, 'copy'))
         })
     })
   }
@@ -199,6 +338,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
         holder.innerHTML = cached
         holder.setAttribute('data-mermaid', '1')
         holder.setAttribute('data-act', 'open-mermaid')
+        enhanceRenderedMermaidBlock(holder, src)
         continue
       }
 
@@ -216,6 +356,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
         holder.innerHTML = safe
         holder.setAttribute('data-mermaid', '1')
         holder.setAttribute('data-act', 'open-mermaid')
+        enhanceRenderedMermaidBlock(holder, src)
         if (r && typeof r.bindFunctions === 'function') {
           try {
             r.bindFunctions(holder)
@@ -246,6 +387,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
     initMermaidOnce,
     renderMermaidInto,
     ensureMermaidErrorCopyHandlerOnce,
+    ensureMermaidBlockCopyHandlerOnce,
     ensureMermaidErrorAiFixHandlerOnce,
   }
 }

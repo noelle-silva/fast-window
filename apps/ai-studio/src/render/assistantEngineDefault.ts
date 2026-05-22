@@ -110,6 +110,7 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
 
     el.innerHTML = safe
     enhanceCodeBlocks(el)
+    mermaidSupport.ensureMermaidBlockCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorAiFixHandlerOnce(el)
     markPreviewImages(el)

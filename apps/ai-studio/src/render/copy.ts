@@ -1,6 +1,6 @@
 import { ICON_COPY, ICON_FAIL, ICON_OK } from './icons'
 
-export function setCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail') {
+export function setCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail', label = '复制代码') {
   if (state === 'ok') {
     btn.innerHTML = ICON_OK
     btn.setAttribute('data-state', 'ok')
@@ -17,8 +17,8 @@ export function setCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | '
   }
   btn.innerHTML = ICON_COPY
   btn.removeAttribute('data-state')
-  btn.setAttribute('title', '复制代码')
-  btn.setAttribute('aria-label', '复制代码')
+  btn.setAttribute('title', label)
+  btn.setAttribute('aria-label', label)
 }
 
 export async function copyTextToClipboard(text: string) {

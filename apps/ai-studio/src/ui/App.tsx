@@ -86,12 +86,6 @@ import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
 import { isAssistantGenerating } from '../domain/assistantRunState'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 
-const MERMAID_COPY_IMAGE_MIN_SCALE = 3
-const MERMAID_COPY_IMAGE_MAX_SCALE = 6
-const MERMAID_COPY_IMAGE_DPR_FACTOR = 3
-const MERMAID_COPY_IMAGE_MAX_SIDE = 12288
-const MERMAID_COPY_IMAGE_BG = '#ffffff'
-
 type SettingsTab = 'appearance' | 'attachments' | 'data' | 'groups' | 'roles' | 'providers' | 'services' | 'stickers'
 
 type DataDirectoryStatus = {
@@ -347,6 +341,7 @@ function AssistantContent(props: {
     const t = e.target as any
     const root = chatRootRef.current
     if (!root || !(t instanceof Element)) return
+    if (t.closest?.('[data-stop="1"]')) return
     const block = t.closest?.('.mermaid-block[data-mermaid="1"]')
     if (!block) return
     controller.actions.openMermaidViewer(root, block)
@@ -2936,8 +2931,8 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
             '&:disabled': { opacity: 0.75, cursor: 'default' },
             '&:focus-visible': { outline: '2px solid rgba(255,255,255,.35)', outlineOffset: 2 },
           },
-          '.prose pre.fw-code-block .fw-code-copy[data-state="ok"]': { color: '#34d399' },
-          '.prose pre.fw-code-block .fw-code-copy[data-state="fail"]': { color: '#f87171' },
+          '.prose pre.fw-code-block .fw-code-copy[data-state="ok"], .mermaid-block-action[data-state="ok"]': { color: '#34d399' },
+          '.prose pre.fw-code-block .fw-code-copy[data-state="fail"], .mermaid-block-action[data-state="fail"]': { color: '#f87171' },
           '.prose code': { fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace' },
           '.prose blockquote': {
             margin: '10px 0',
@@ -3011,6 +3006,52 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
            '.mermaid-block': { margin: '10px 0', overflowX: 'auto', textAlign: 'center' },
             '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
              '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto' },
+            '.mermaid-block-ready': {
+              position: 'relative',
+              borderRadius: 12,
+            },
+            '.mermaid-block-toolbar': {
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              zIndex: 2,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              opacity: 0,
+              visibility: 'hidden',
+              pointerEvents: 'none',
+              transform: 'translateY(-2px)',
+              transition: 'opacity 120ms ease, transform 120ms ease, visibility 120ms ease',
+            },
+            '.mermaid-block-ready:hover > .mermaid-block-toolbar, .mermaid-block-ready:focus-within > .mermaid-block-toolbar': {
+              opacity: 1,
+              visibility: 'visible',
+              pointerEvents: 'auto',
+              transform: 'translateY(0)',
+            },
+            '.mermaid-block-action': {
+              width: 30,
+              height: 30,
+              padding: 0,
+              borderRadius: 999,
+              border: '1px solid rgba(15,23,42,.12)',
+              background: 'rgba(255,255,255,.88)',
+              color: 'rgba(15,23,42,.72)',
+              cursor: 'pointer',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              boxShadow: '0 8px 20px rgba(15,23,42,.10)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              '&:hover': { background: 'rgba(255,255,255,.96)', color: 'rgba(15,23,42,.88)' },
+              '&:active': { background: 'rgba(255,255,255,1)' },
+              '&:disabled': { opacity: 0.78, cursor: 'default' },
+              '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+            },
            '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
            '.mermaid-error-box': {
              position: 'relative',
@@ -7688,88 +7729,5 @@ function DataSettingsPanel(props: { dataDirectory?: AiChatDataDirectory; loading
       </Paper>
     </Box>
   )
-}
-
-function parseSvgSize(raw: string) {
-  try {
-    const doc = new DOMParser().parseFromString(raw, 'image/svg+xml')
-    const root = doc.querySelector('svg') || doc.documentElement
-    if (!root) return { w: 0, h: 0 }
-    const vb = String(root.getAttribute('viewBox') || '').trim()
-    if (vb) {
-      const nums = vb
-        .split(/[\s,]+/g)
-        .map((x) => Number(x))
-        .filter((x) => isFinite(x))
-      if (nums.length >= 4) return { w: Math.max(0, nums[2]), h: Math.max(0, nums[3]) }
-    }
-    const w = String(root.getAttribute('width') || '').trim()
-    const h = String(root.getAttribute('height') || '').trim()
-    if (w.endsWith('%') || h.endsWith('%')) return { w: 0, h: 0 }
-    const nw = parseFloat(w)
-    const nh = parseFloat(h)
-    return { w: Math.max(0, isFinite(nw) ? nw : 0), h: Math.max(0, isFinite(nh) ? nh : 0) }
-  } catch (_) {
-    return { w: 0, h: 0 }
-  }
-}
-
-function getMermaidCopyBitmapSize(baseW: number, baseH: number) {
-  const exportScale = Math.min(
-    MERMAID_COPY_IMAGE_MAX_SCALE,
-    Math.max(MERMAID_COPY_IMAGE_MIN_SCALE, Number(window.devicePixelRatio || 1) * MERMAID_COPY_IMAGE_DPR_FACTOR),
-  )
-  const scaledLongest = Math.max(baseW, baseH) * exportScale
-  const fitScale = scaledLongest > MERMAID_COPY_IMAGE_MAX_SIDE ? MERMAID_COPY_IMAGE_MAX_SIDE / scaledLongest : 1
-  const pixelScale = exportScale * fitScale
-  return {
-    width: Math.max(1, Math.round(baseW * pixelScale)),
-    height: Math.max(1, Math.round(baseH * pixelScale)),
-  }
-}
-
-function normalizeSvgForExport(raw: string, baseW: number, baseH: number) {
-  const svgDoc = new DOMParser().parseFromString(raw, 'image/svg+xml')
-  const root = svgDoc.querySelector('svg') || svgDoc.documentElement
-  if (!root) throw new Error('SVG 内容无效')
-  if (!root.getAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-  if (!root.getAttribute('xmlns:xlink')) root.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
-  root.setAttribute('width', String(baseW))
-  root.setAttribute('height', String(baseH))
-  if (!String(root.getAttribute('viewBox') || '').trim()) root.setAttribute('viewBox', `0 0 ${baseW} ${baseH}`)
-  return new XMLSerializer().serializeToString(root)
-}
-
-async function rasterizeSvgToPngDataUrl(svgMarkup: string, width: number, height: number) {
-  const blob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  try {
-    return await new Promise<string>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas')
-          canvas.width = width
-          canvas.height = height
-          const ctx = canvas.getContext('2d')
-          if (!ctx) return reject(new Error('无法创建画布'))
-          ctx.fillStyle = MERMAID_COPY_IMAGE_BG
-          ctx.fillRect(0, 0, width, height)
-          ctx.imageSmoothingEnabled = true
-          ;(ctx as any).imageSmoothingQuality = 'high'
-          ctx.drawImage(img, 0, 0, width, height)
-          const out = canvas.toDataURL('image/png')
-          if (!String(out || '').startsWith('data:image/')) return reject(new Error('导出图片失败'))
-          resolve(out)
-        } catch (e) {
-          reject(e)
-        }
-      }
-      img.onerror = () => reject(new Error('SVG 转图片失败'))
-      img.src = url
-    })
-  } finally {
-    URL.revokeObjectURL(url)
-  }
 }
 
