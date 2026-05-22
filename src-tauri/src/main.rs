@@ -2544,7 +2544,7 @@ fn main() {
         app_lifecycle::manager::app_status,
         app_lifecycle::manager::app_status_many,
         app_lifecycle::manager::app_icon_data_url,
-        app_dev_actions::app_dev_stage_v5,
+        app_dev_actions::app_dev_run_terminal_command,
         app_registry::app_registry_load,
         app_registry::app_registry_save,
         app_registry::app_registry_add,

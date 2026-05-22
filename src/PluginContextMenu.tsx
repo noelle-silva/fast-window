@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Menu, MenuItem } from '@mui/material'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ListItemText, Menu, MenuItem } from '@mui/material'
+import KeyboardArrowRightRoundedIcon from '@mui/icons-material/KeyboardArrowRightRounded'
 import type { Plugin } from './constants'
 
 const HOST_CONTEXT_MENU_PAPER_ATTR = 'data-host-context-menu-paper'
@@ -49,6 +50,11 @@ export type ContextMenuAction = {
 
 type ContextMenuLevel = 'root' | 'submenu'
 
+type SubMenuState = {
+  parentId: string
+  anchorEl: HTMLElement
+} | null
+
 interface PluginContextMenuProps {
   plugin: Plugin | null
   mouseX: number
@@ -62,21 +68,38 @@ export default function PluginContextMenu({
   actions, onClose,
 }: PluginContextMenuProps) {
   const open = !!plugin
-  const [subMenuAnchor, setSubMenuAnchor] = useState<HTMLElement | null>(null)
-  const [subMenuActions, setSubMenuActions] = useState<ContextMenuAction[]>([])
+  const [subMenu, setSubMenu] = useState<SubMenuState>(null)
+
+  const subMenuActions = useMemo(() => {
+    if (!subMenu) return []
+    return actions.find(action => action.id === subMenu.parentId)?.children ?? []
+  }, [actions, subMenu])
+
+  const openSubMenu = useCallback((action: ContextMenuAction, anchorEl: HTMLElement) => {
+    if (!action.children?.length || action.disabled) return
+    setSubMenu({ parentId: action.id, anchorEl })
+  }, [])
 
   const closeAll = useCallback(() => {
-    setSubMenuAnchor(null)
-    setSubMenuActions([])
+    setSubMenu(null)
     onClose()
   }, [onClose])
 
   const closeSubMenu = useCallback(() => {
-    setSubMenuAnchor(null)
-    setSubMenuActions([])
+    setSubMenu(null)
   }, [])
 
-  useCloseOnOutsidePrimaryPointer(open || !!subMenuAnchor, closeAll)
+  useEffect(() => {
+    if (!open) closeSubMenu()
+  }, [closeSubMenu, open])
+
+  useEffect(() => {
+    if (!subMenu) return
+    const activeSubmenuStillExists = actions.some(action => action.id === subMenu.parentId && !!action.children?.length)
+    if (!activeSubmenuStillExists) closeSubMenu()
+  }, [actions, closeSubMenu, subMenu])
+
+  useCloseOnOutsidePrimaryPointer(open || !!subMenu, closeAll)
 
   const renderAction = (action: ContextMenuAction, level: ContextMenuLevel) => {
     const hasChildren = !!action.children?.length
@@ -92,24 +115,32 @@ export default function PluginContextMenu({
             return
           }
           if (level !== 'root') return
-          if (action.disabled) return
-          setSubMenuAnchor(event.currentTarget)
-          setSubMenuActions(action.children ?? [])
+          openSubMenu(action, event.currentTarget)
+        }}
+        onKeyDown={event => {
+          if (level === 'root' && hasChildren && event.key === 'ArrowRight') {
+            event.preventDefault()
+            openSubMenu(action, event.currentTarget)
+          }
+          if (level === 'submenu' && event.key === 'ArrowLeft') {
+            event.preventDefault()
+            closeSubMenu()
+          }
         }}
         onClick={event => {
           event.stopPropagation()
           if (hasChildren) {
-            if (action.disabled) return
-            setSubMenuAnchor(event.currentTarget)
-            setSubMenuActions(action.children ?? [])
+            openSubMenu(action, event.currentTarget)
             return
           }
           closeAll()
           action.onSelect?.()
         }}
+        aria-haspopup={hasChildren ? 'menu' : undefined}
+        aria-expanded={hasChildren ? subMenu?.parentId === action.id : undefined}
       >
-        <span style={{ flex: 1 }}>{action.label}</span>
-        {hasChildren ? <span style={{ marginLeft: 18, opacity: 0.64 }}>{'>'}</span> : null}
+        <ListItemText primary={action.label} />
+        {hasChildren ? <KeyboardArrowRightRoundedIcon fontSize="small" sx={{ ml: 2, opacity: 0.64 }} /> : null}
       </MenuItem>
     )
   }
@@ -127,8 +158,8 @@ export default function PluginContextMenu({
         {actions.map(action => renderAction(action, 'root'))}
       </Menu>
       <Menu
-        open={!!subMenuAnchor}
-        anchorEl={subMenuAnchor}
+        open={!!subMenu}
+        anchorEl={subMenu?.anchorEl ?? null}
         onClose={closeSubMenu}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}

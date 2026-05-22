@@ -32,7 +32,7 @@ import {
   finishAppDevCommandRun,
   type AppDevCommandRuns,
 } from './apps/appDevCommandState'
-import { stageV5AppDev } from './apps/appDevActions'
+import { releaseV5App, stageV5AppDev, type AppReleaseBump } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
 import {
@@ -61,6 +61,38 @@ import { movePluginById } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 
 type HostPageId = 'settings' | 'store' | 'appBackground'
+
+type AppTerminalMenuCommand = {
+  id: string
+  label: string
+  startedToast: (appName: string) => string
+  completedToast: (appName: string) => string
+  run: (appId: string) => Promise<unknown>
+}
+
+type IconContextMenuHandlers = {
+  chooseImage: () => void
+  pasteImage: () => void
+  resetDefault: () => void
+}
+
+function buildIconContextMenuAction(handlers: IconContextMenuHandlers): ContextMenuAction {
+  return {
+    id: 'icon-actions',
+    label: '图标',
+    children: [
+      { id: 'change-icon', label: '选择图片更改图标…', onSelect: handlers.chooseImage },
+      { id: 'paste-icon', label: '粘贴图片为图标', onSelect: handlers.pasteImage },
+      { id: 'reset-icon', label: '恢复默认图标', onSelect: handlers.resetDefault },
+    ],
+  }
+}
+
+const APP_RELEASE_BUMP_COMMANDS: Array<{ bump: AppReleaseBump; label: string }> = [
+  { bump: 'patch', label: 'Release Patch' },
+  { bump: 'minor', label: 'Release Minor' },
+  { bump: 'major', label: 'Release Major' },
+]
 
 function App() {
   if (WebviewWindow.getCurrent().label === 'browser_bar') {
@@ -481,20 +513,41 @@ function App() {
     }
   }, [showToast])
 
-  const stageRegisteredAppDevFromMenu = useCallback(async (app: RegisteredApp) => {
+  const runRegisteredAppTerminalCommandFromMenu = useCallback(async (app: RegisteredApp, command: AppTerminalMenuCommand) => {
     setAppDevCommandRuns(runs => beginAppDevCommandRun(runs, app.id))
-    showToast(`开始 stage dev：${app.name}`)
+    showToast(command.startedToast(app.name))
     try {
-      await stageV5AppDev(app.id)
-      showToast(`已完成 stage dev：${app.name}`)
+      await command.run(app.id)
+      showToast(command.completedToast(app.name))
       await loadRegisteredApps()
       window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
     } catch (error: any) {
-      showToast(String(error?.message || error || 'stage dev 失败'))
+      showToast(String(error?.message || error || `${command.label} 失败`))
     } finally {
       setAppDevCommandRuns(runs => finishAppDevCommandRun(runs, app.id))
     }
   }, [loadRegisteredApps, refreshRegisteredAppStatuses, showToast])
+
+  const stageRegisteredAppDevFromMenu = useCallback(async (app: RegisteredApp) => {
+    await runRegisteredAppTerminalCommandFromMenu(app, {
+      id: 'stage-v5-app-dev',
+      label: 'Stage Dev 包',
+      startedToast: appName => `开始 stage dev：${appName}`,
+      completedToast: appName => `已完成 stage dev：${appName}`,
+      run: appId => stageV5AppDev(appId),
+    })
+  }, [runRegisteredAppTerminalCommandFromMenu])
+
+  const releaseRegisteredAppFromMenu = useCallback(async (app: RegisteredApp, bump: AppReleaseBump) => {
+    const label = APP_RELEASE_BUMP_COMMANDS.find(command => command.bump === bump)?.label ?? `Release ${bump}`
+    await runRegisteredAppTerminalCommandFromMenu(app, {
+      id: `release-v5-app-${bump}`,
+      label,
+      startedToast: appName => `开始 ${label}：${appName}`,
+      completedToast: appName => `已完成 ${label}：${appName}`,
+      run: appId => releaseV5App(appId, bump),
+    })
+  }, [runRegisteredAppTerminalCommandFromMenu])
 
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
@@ -503,11 +556,14 @@ function App() {
     const detailAction: ContextMenuAction = app
       ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
       : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
+    const iconAction = buildIconContextMenuAction({
+      chooseImage: () => void changeMenuItemIcon('file'),
+      pasteImage: () => void changeMenuItemIcon('clipboard'),
+      resetDefault: () => void resetMenuItemIcon(),
+    })
     const commonActions: ContextMenuAction[] = [
       detailAction,
-      { id: 'change-icon', label: '选择图片更改图标…', onSelect: () => void changeMenuItemIcon('file') },
-      { id: 'paste-icon', label: '粘贴图片为图标', onSelect: () => void changeMenuItemIcon('clipboard') },
-      { id: 'reset-icon', label: '恢复默认图标', onSelect: () => void resetMenuItemIcon() },
+      iconAction,
     ]
 
     if (app) {
@@ -524,6 +580,15 @@ function App() {
                 onSelect: () => void stageRegisteredAppDevFromMenu(app),
               },
             ],
+          },
+          {
+            id: 'app-release-actions',
+            label: '发布',
+            children: APP_RELEASE_BUMP_COMMANDS.map(command => ({
+              id: `release-v5-app-${command.bump}`,
+              label: command.label,
+              onSelect: () => void releaseRegisteredAppFromMenu(app, command.bump),
+            })),
           },
         ]
         : []
@@ -548,7 +613,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
+  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
