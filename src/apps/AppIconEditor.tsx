@@ -61,7 +61,7 @@ export default function AppIconEditor({
             主页图标
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            支持选择图片、按钮粘贴，或聚焦此区域后按 Ctrl+V 粘贴图片；保存后会显示在主页入口和命令入口。
+            支持选择图片、按钮粘贴，或聚焦此区域后按 Ctrl+V 粘贴图片；未设置独立图标的命令入口会跟随主页图标。
           </Typography>
         </Box>
       </Box>

@@ -12,6 +12,7 @@ import type {
 
 const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/
 const SHA256_RE = /^[a-fA-F0-9]{64}$/
+const COMMAND_ICON_DATA_URL_MAX_LEN = 700 * 1024
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -88,6 +89,18 @@ function parseLegacyPluginIcon(value: unknown, field: string): LegacyPluginStore
   throw new Error(`${field}.type is unsupported`)
 }
 
+function parseCommandIcon(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined
+  const icon = text(value, field)
+  if (icon.startsWith('data:image/') && icon.length > COMMAND_ICON_DATA_URL_MAX_LEN) throw new Error(`${field} is too long`)
+  if (!icon.startsWith('data:image/') && !isShortIconText(icon)) throw new Error(`${field} is invalid`)
+  return icon
+}
+
+function isShortIconText(icon: string): boolean {
+  return icon.length <= 8 && !/[\\/.:]/.test(icon)
+}
+
 function parseCommands(value: unknown, field: string): RegisteredAppCommand[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`)
@@ -99,8 +112,9 @@ function parseCommands(value: unknown, field: string): RegisteredAppCommand[] | 
     if (seen.has(id)) throw new Error(`${field}[${index}].id is duplicated`)
     seen.add(id)
     const title = text(item.title, `${field}[${index}].title`)
+    const icon = parseCommandIcon(item.icon, `${field}[${index}].icon`)
     const hotkey = item.hotkey === undefined ? undefined : text(item.hotkey, `${field}[${index}].hotkey`)
-    out.push(hotkey ? { id, title, hotkey } : { id, title })
+    out.push({ id, title, ...(icon ? { icon } : {}), ...(hotkey ? { hotkey } : {}) })
   }
   return out
 }

@@ -1,17 +1,29 @@
 import { useState } from 'react'
-import { Box, Button, IconButton, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { Avatar, Box, Button, IconButton, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import type { RegisteredAppCommand } from './types'
 import { generateSafeId } from './ids'
+import { isDataImageUrl } from '../utils'
+import type { IconImageSource } from '../iconImageInput'
 import { hostButtonSx, hostSelectSx, hostTextFieldSx } from '../components/hostUiStyles'
 
 interface AppCommandEditorProps {
   commands: RegisteredAppCommand[]
   availableCommands?: RegisteredAppCommand[]
+  appIcon: string
+  appName: string
+  disabled?: boolean
+  changingCommandIconId?: string | null
   onChange: (commands: RegisteredAppCommand[]) => void
+  onChangeIcon: (commandId: string, source: IconImageSource) => void
+  onResetIcon: (commandId: string) => void
   recordingCommandId?: string | null
   onStartHotkeyRecording: (commandId: string) => void
   onClearHotkey: (commandId: string) => void
+}
+
+function commandIconDisplay(command: RegisteredAppCommand, appIcon: string): string {
+  return command.icon || appIcon || command.title[0] || 'C'
 }
 
 function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
@@ -29,7 +41,13 @@ function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
 export default function AppCommandEditor({
   commands,
   availableCommands = [],
+  appIcon,
+  appName,
+  disabled = false,
+  changingCommandIconId = null,
   onChange,
+  onChangeIcon,
+  onResetIcon,
   recordingCommandId = null,
   onStartHotkeyRecording,
   onClearHotkey,
@@ -79,7 +97,7 @@ export default function AppCommandEditor({
           应用命令
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          命令会出现在主搜索列表里。命令 ID 会传给 App；命令快捷键会直接执行对应命令。
+          命令会出现在主搜索列表里。每条命令可以设置独立图标；未设置时跟随主页图标。
         </Typography>
       </Box>
 
@@ -108,46 +126,84 @@ export default function AppCommandEditor({
 
       {commands.length ? (
         <Stack spacing={1}>
-          {commands.map(command => (
-            <Box key={command.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <TextField
-                label="命令名称"
-                value={command.title}
-                onChange={event => updateCommandTitle(command.id, event.target.value)}
-                size="small"
-                sx={{ ...hostTextFieldSx, flex: '1 1 220px' }}
-              />
-              <TextField
-                label="命令 ID"
-                value={command.id}
-                onChange={event => updateCommandId(command.id, event.target.value)}
-                size="small"
-                sx={{ ...hostTextFieldSx, width: 150, flexShrink: 0 }}
-              />
-              <TextField
-                label="命令快捷键"
-                value={command.hotkey || ''}
-                size="small"
-                placeholder="未绑定"
-                InputProps={{ readOnly: true }}
-                sx={{ ...hostTextFieldSx, width: 190, flexShrink: 0 }}
-              />
-              <Button
-                variant={recordingCommandId === command.id ? 'contained' : 'text'}
-                color={recordingCommandId === command.id ? 'warning' : 'primary'}
-                onClick={() => onStartHotkeyRecording(command.id)}
-                sx={{ ...hostButtonSx, flexShrink: 0 }}
-              >
-                {recordingCommandId === command.id ? '录制中…' : '录制'}
-              </Button>
-              <Button variant="text" onClick={() => onClearHotkey(command.id)} sx={{ ...hostButtonSx, flexShrink: 0 }}>
-                清空
-              </Button>
-              <IconButton size="small" aria-label={`删除命令 ${command.title}`} onClick={() => removeCommand(command.id)}>
-                <DeleteRoundedIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          ))}
+          {commands.map(command => {
+            const displayIcon = commandIconDisplay(command, appIcon)
+            const iconAsImage = isDataImageUrl(displayIcon) ? displayIcon : undefined
+            const iconChanging = changingCommandIconId === command.id
+
+            return (
+              <Box key={command.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Avatar
+                  variant="rounded"
+                  src={iconAsImage}
+                  imgProps={{ alt: `${command.title || appName || '命令'} 图标预览` }}
+                  sx={{ width: 36, height: 36, fontSize: 17, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
+                >
+                  {iconAsImage ? null : displayIcon}
+                </Avatar>
+                <TextField
+                  label="命令名称"
+                  value={command.title}
+                  onChange={event => updateCommandTitle(command.id, event.target.value)}
+                  size="small"
+                  sx={{ ...hostTextFieldSx, flex: '1 1 220px' }}
+                />
+                <TextField
+                  label="命令 ID"
+                  value={command.id}
+                  onChange={event => updateCommandId(command.id, event.target.value)}
+                  size="small"
+                  sx={{ ...hostTextFieldSx, width: 150, flexShrink: 0 }}
+                />
+                <TextField
+                  label="命令快捷键"
+                  value={command.hotkey || ''}
+                  size="small"
+                  placeholder="未绑定"
+                  InputProps={{ readOnly: true }}
+                  sx={{ ...hostTextFieldSx, width: 190, flexShrink: 0 }}
+                />
+                <Button
+                  variant={recordingCommandId === command.id ? 'contained' : 'text'}
+                  color={recordingCommandId === command.id ? 'warning' : 'primary'}
+                  onClick={() => onStartHotkeyRecording(command.id)}
+                  sx={{ ...hostButtonSx, flexShrink: 0 }}
+                >
+                  {recordingCommandId === command.id ? '录制中…' : '录制'}
+                </Button>
+                <Button variant="text" onClick={() => onClearHotkey(command.id)} sx={{ ...hostButtonSx, flexShrink: 0 }}>
+                  清空
+                </Button>
+                <Button
+                  variant="text"
+                  disabled={disabled || iconChanging}
+                  onClick={() => onChangeIcon(command.id, 'file')}
+                  sx={{ ...hostButtonSx, flexShrink: 0 }}
+                >
+                  {iconChanging ? '更新中…' : '选图标'}
+                </Button>
+                <Button
+                  variant="text"
+                  disabled={disabled || iconChanging}
+                  onClick={() => onChangeIcon(command.id, 'clipboard')}
+                  sx={{ ...hostButtonSx, flexShrink: 0 }}
+                >
+                  粘贴图标
+                </Button>
+                <Button
+                  variant="text"
+                  disabled={disabled || iconChanging || !command.icon}
+                  onClick={() => onResetIcon(command.id)}
+                  sx={{ ...hostButtonSx, flexShrink: 0 }}
+                >
+                  跟随主页
+                </Button>
+                <IconButton size="small" aria-label={`删除命令 ${command.title}`} onClick={() => removeCommand(command.id)}>
+                  <DeleteRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            )
+          })}
         </Stack>
       ) : (
         <Typography variant="caption" color="text.secondary">

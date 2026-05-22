@@ -47,6 +47,8 @@ struct AppPackageCommand {
     id: String,
     title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     hotkey: Option<String>,
 }
 
@@ -401,7 +403,7 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
             .filter(|mode| !mode.is_empty())
             .unwrap_or("default")
             .to_string(),
-        commands: installed.manifest.commands.clone(),
+        commands: resolve_app_commands(&installed.manifest, &installed.manifest_dir)?,
     })
 }
 
@@ -701,6 +703,8 @@ fn validate_commands(commands: &[AppPackageCommand]) -> Result<(), String> {
         if title.is_empty() || title.len() > 80 {
             return Err(format!("fw-app.commands.title 不合法: {id}"));
         }
+        validate_icon(command.icon.as_deref())
+            .map_err(|e| format!("fw-app.commands.icon 不合法: {id}, {e}"))?;
         if let Some(hotkey) = command
             .hotkey
             .as_deref()
@@ -786,6 +790,20 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
         let rel = safe_relative_path_no_curdir(icon)?;
         if !root.join(rel).is_file() {
             return Err("应用图标文件不存在（fw-app.icon）".to_string());
+        }
+    }
+    for command in &manifest.commands {
+        let Some(icon) = command.icon.as_deref().map(str::trim).filter(|icon| {
+            !icon.is_empty() && !icon.starts_with("data:image/") && !is_short_icon_text(icon)
+        }) else {
+            continue;
+        };
+        let rel = safe_relative_path_no_curdir(icon)?;
+        if !root.join(rel).is_file() {
+            return Err(format!(
+                "命令图标文件不存在（fw-app.commands.icon）: {}",
+                command.id
+            ));
         }
     }
     Ok(())
@@ -933,7 +951,8 @@ fn build_registered_app_record(
     }
     record.insert(
         "availableCommands".to_string(),
-        serde_json::to_value(&manifest.commands).map_err(|e| format!("序列化应用命令失败: {e}"))?,
+        serde_json::to_value(resolve_app_commands(manifest, manifest_dir)?)
+            .map_err(|e| format!("序列化应用命令失败: {e}"))?,
     );
     if !record.contains_key("autoStart") {
         record.insert("autoStart".to_string(), Value::Bool(false));
@@ -952,21 +971,60 @@ fn resolve_app_icon(
         .map(str::trim)
         .filter(|icon| !icon.is_empty())
     {
-        if icon.starts_with("data:image/") || is_short_icon_text(icon) {
-            return Ok(icon.to_string());
-        }
-        let rel = safe_relative_path_no_curdir(icon)?;
-        let full = app_root.join(rel);
-        let bytes = std::fs::read(&full).map_err(|e| format!("读取应用图标失败: {e}"))?;
-        if bytes.len() > 512 * 1024 {
-            return Err("应用图标过大（>512KB）".to_string());
-        }
-        let mime = image_mime_by_ext(&full);
-        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-        return Ok(format!("data:{mime};base64,{b64}"));
+        return resolve_manifest_icon(icon, app_root, "应用图标");
     }
     crate::thumbnails::file_thumbnail_png_data_url(exe_path, 64, 64)
         .map_err(|e| format!("提取应用图标失败: {e}"))
+}
+
+fn resolve_app_commands(
+    manifest: &AppPackageManifest,
+    app_root: &Path,
+) -> Result<Vec<AppPackageCommand>, String> {
+    manifest
+        .commands
+        .iter()
+        .map(|command| {
+            let icon = match command
+                .icon
+                .as_deref()
+                .map(str::trim)
+                .filter(|icon| !icon.is_empty())
+            {
+                Some(icon) if icon.starts_with("data:image/") || is_short_icon_text(icon) => {
+                    Some(icon.to_string())
+                }
+                Some(icon) => Some(resolve_manifest_icon(icon, app_root, "命令图标")?),
+                None => None,
+            };
+            Ok(AppPackageCommand {
+                id: command.id.trim().to_string(),
+                title: command.title.trim().to_string(),
+                icon,
+                hotkey: command
+                    .hotkey
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|hotkey| !hotkey.is_empty())
+                    .map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+fn resolve_manifest_icon(icon: &str, app_root: &Path, label: &str) -> Result<String, String> {
+    if icon.starts_with("data:image/") || is_short_icon_text(icon) {
+        return Ok(icon.to_string());
+    }
+    let rel = safe_relative_path_no_curdir(icon)?;
+    let full = app_root.join(rel);
+    let bytes = std::fs::read(&full).map_err(|e| format!("读取{label}失败: {e}"))?;
+    if bytes.len() > 512 * 1024 {
+        return Err(format!("{label}过大（>512KB）"));
+    }
+    let mime = image_mime_by_ext(&full);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
 }
 
 fn is_short_icon_text(icon: &str) -> bool {

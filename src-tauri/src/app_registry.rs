@@ -8,6 +8,7 @@ use tauri_plugin_global_shortcut::Shortcut;
 
 const REGISTRY_KEY: &str = "registeredApps";
 const REGISTERED_APPS_CHANGED_EVENT: &str = "fast-window:registered-apps-changed";
+const COMMAND_ICON_DATA_URL_MAX_LEN: usize = 700 * 1024;
 const HIDDEN_POSITION_THRESHOLD: i32 = -9_000;
 const MAX_ABS_POSITION: i32 = 100_000;
 const MIN_WINDOW_WIDTH: u32 = 200;
@@ -28,6 +29,8 @@ pub(crate) struct AppWindowBounds {
 pub(crate) struct AppReportedCommand {
     pub(crate) id: String,
     pub(crate) title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) icon: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) hotkey: Option<String>,
 }
@@ -324,6 +327,7 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
         if title.len() > 80 {
             return Err(format!("{app_id} 的{label}名称过长: {title}"));
         }
+        validate_command_icon(command.get("icon"), app_id, label, command_id)?;
         if let Some(raw_hotkey) = command_hotkey_from_value(command) {
             Shortcut::from_str(raw_hotkey)
                 .map_err(|e| format!("{app_id} 的{label}快捷键格式不合法: {e}"))?;
@@ -332,8 +336,55 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
     Ok(())
 }
 
+fn validate_command_icon(
+    value: Option<&Value>,
+    app_id: &str,
+    label: &str,
+    command_id: &str,
+) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let Some(icon) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|icon| !icon.is_empty())
+    else {
+        return Err(format!("{app_id} 的{label}图标必须是字符串: {command_id}"));
+    };
+    if icon.starts_with("data:image/") && icon.len() > COMMAND_ICON_DATA_URL_MAX_LEN {
+        return Err(format!("{app_id} 的{label}图标过大: {command_id}"));
+    }
+    if is_valid_command_icon(icon) {
+        return Ok(());
+    }
+    Err(format!("{app_id} 的{label}图标不合法: {command_id}"))
+}
+
+fn is_short_icon_text(icon: &str) -> bool {
+    icon.len() <= 8
+        && !icon.contains('/')
+        && !icon.contains('\\')
+        && !icon.contains('.')
+        && !icon.contains(':')
+}
+
+fn is_valid_command_icon(icon: &str) -> bool {
+    if icon.starts_with("data:image/") {
+        return icon.len() <= COMMAND_ICON_DATA_URL_MAX_LEN;
+    }
+    is_short_icon_text(icon)
+}
+
 fn command_to_value(command: AppReportedCommand) -> Value {
     let mut value = serde_json::json!({ "id": command.id, "title": command.title });
+    if let Some(icon) = command
+        .icon
+        .map(|icon| icon.trim().to_string())
+        .filter(|icon| !icon.is_empty() && is_valid_command_icon(icon))
+    {
+        value["icon"] = Value::String(icon);
+    }
     if let Some(hotkey) = command
         .hotkey
         .map(|hotkey| hotkey.trim().to_string())
@@ -365,10 +416,21 @@ fn normalize_reported_commands(commands: Vec<AppReportedCommand>) -> Vec<Value> 
                     .map(|shortcut| shortcut.to_string()),
                 None => None,
             };
+            let icon = command
+                .icon
+                .as_deref()
+                .map(str::trim)
+                .filter(|icon| !icon.is_empty() && is_valid_command_icon(icon))
+                .map(str::to_string);
             if seen.insert(id.clone(), ()).is_some() {
                 return None;
             }
-            Some(command_to_value(AppReportedCommand { id, title, hotkey }))
+            Some(command_to_value(AppReportedCommand {
+                id,
+                title,
+                icon,
+                hotkey,
+            }))
         })
         .collect()
 }

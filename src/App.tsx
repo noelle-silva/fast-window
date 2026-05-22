@@ -50,7 +50,7 @@ import {
   parseRegisteredAppListItemId,
   registeredAppFromListItem,
 } from './apps/listItems'
-import type { AppRegistrationEditRequest, AppStatus, RegisteredApp } from './apps/types'
+import type { AppRegistrationEditRequest, AppStatus, RegisteredApp, RegisteredAppCommand } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
@@ -420,6 +420,19 @@ function App() {
     return registeredAppFromListItem(registeredApps, plugin.id)
   }, [registeredApps])
 
+  const updateRegisteredAppCommand = useCallback(async (
+    app: RegisteredApp,
+    commandId: string,
+    updateCommand: (command: RegisteredAppCommand) => RegisteredAppCommand,
+  ) => {
+    const commandExists = app.commands.some(command => command.id === commandId)
+    if (!commandExists) return false
+    await updateRegisteredApp(app.id, {
+      commands: app.commands.map(command => command.id === commandId ? updateCommand(command) : command),
+    })
+    return true
+  }, [updateRegisteredApp])
+
   const appDetail = useMemo(() => {
     if (!appDetailId) return null
     return registeredApps.find(app => app.id === appDetailId) ?? null
@@ -449,14 +462,20 @@ function App() {
     try {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
+      const selection = parseRegisteredAppListItemId(plugin.id)
+      if (selection.type === 'appCommand') {
+        const updated = await updateRegisteredAppCommand(app, selection.commandId, command => ({ ...command, icon: dataUrl }))
+        showToast(updated ? '命令图标已更新' : '命令不存在，未更改图标')
+        return
+      }
       await updateRegisteredApp(app.id, { icon: dataUrl })
-      showToast('图标已更新')
+      showToast('应用图标已更新')
     } catch (error: any) {
       console.error('Failed to change registered app icon:', error)
       const msg = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
       showToast(msg ? `更改图标失败：${msg}` : '更改图标失败')
     }
-  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateRegisteredApp])
+  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateRegisteredApp, updateRegisteredAppCommand])
 
   const resetMenuItemIcon = useCallback(async () => {
     const plugin = pluginMenu?.plugin
@@ -468,14 +487,23 @@ function App() {
     }
 
     try {
+      const selection = parseRegisteredAppListItemId(plugin.id)
+      if (selection.type === 'appCommand') {
+        const updated = await updateRegisteredAppCommand(app, selection.commandId, command => {
+          const { icon: _icon, ...nextCommand } = command
+          return nextCommand
+        })
+        showToast(updated ? '命令图标已恢复为跟随应用' : '命令不存在，未恢复图标')
+        return
+      }
       const icon = await invoke<string>('app_icon_data_url', { exePath: app.path }).catch(() => '')
       await updateRegisteredApp(app.id, { icon })
-      showToast('已恢复默认图标')
+      showToast('应用图标已恢复默认')
     } catch (error: any) {
       console.error('Failed to reset registered app icon:', error)
       showToast('恢复默认图标失败（详情见控制台）')
     }
-  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp])
+  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp, updateRegisteredAppCommand])
 
   const closePluginUninstallDialog = useCallback(() => {
     if (uninstallingPluginId) return
@@ -541,17 +569,20 @@ function App() {
     }
   }, [refreshRegisteredAppStatuses, showToast])
 
-  const removeRegisteredAppCommandFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
+  const clearRegisteredAppCommandIconFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
     const command = app.commands.find(command => command.id === commandId)
     if (!command) return
 
     try {
-      await updateRegisteredApp(app.id, { commands: app.commands.filter(command => command.id !== commandId) })
-      showToast(`已删除命令图标：${command.title}`)
+      const updated = await updateRegisteredAppCommand(app, commandId, command => {
+        const { icon: _icon, ...nextCommand } = command
+        return nextCommand
+      })
+      if (updated) showToast(`已清除命令图标：${command.title}`)
     } catch (error: any) {
-      showToast(String(error?.message || error || '删除命令图标失败'))
+      showToast(String(error?.message || error || '清除命令图标失败'))
     }
-  }, [showToast, updateRegisteredApp])
+  }, [showToast, updateRegisteredAppCommand])
 
   const openRegisteredAppFolderFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
@@ -616,13 +647,17 @@ function App() {
     ]
 
     if (app) {
+      const selectedCommand = selection.type === 'appCommand'
+        ? app.commands.find(command => command.id === selection.commandId)
+        : null
       const commandIconAction: ContextMenuAction[] = selection.type === 'appCommand'
         ? [
           {
             id: 'remove-app-command-icon',
-            label: '删除此命令图标',
+            label: '清除此命令图标',
             color: 'error',
-            onSelect: () => void removeRegisteredAppCommandFromMenu(app, selection.commandId),
+            disabled: !selectedCommand?.icon,
+            onSelect: () => void clearRegisteredAppCommandIconFromMenu(app, selection.commandId),
           },
         ]
         : []
@@ -680,7 +715,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCommandFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
+  }, [appDevCommandRuns, changeMenuItemIcon, clearRegisteredAppCommandIconFromMenu, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

@@ -77,7 +77,7 @@ export function buildRegisteredAppListItems(
       id: registeredAppCommandListItemId(app.id, command.id),
       name: command.title,
       description: `${app.name} · 命令`,
-      icon,
+      icon: command.icon || icon,
       keyword: `${app.id} ${command.id} ${command.title}`,
       disabled: false,
       component: NullRegisteredAppView,

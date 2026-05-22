@@ -7,6 +7,7 @@ export type AppHotkeyLaunchBehavior = 'launch' | 'runningOnly'
 export interface RegisteredAppCommand {
   id: string
   title: string
+  icon?: string
   hotkey?: string
 }
 

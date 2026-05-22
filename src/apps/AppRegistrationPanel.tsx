@@ -65,6 +65,7 @@ export default function AppRegistrationPanel({
   const [path, setPath] = useState('')
   const [icon, setIcon] = useState('')
   const [iconChanging, setIconChanging] = useState(false)
+  const [changingCommandIconId, setChangingCommandIconId] = useState<string | null>(null)
   const [hotkey, setHotkey] = useState('')
   const [hotkeyLaunchBehavior, setHotkeyLaunchBehavior] = useState<AppHotkeyLaunchBehavior>('launch')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
@@ -89,6 +90,7 @@ export default function AppRegistrationPanel({
   const closeEditDialog = () => {
     setHotkeyRecording(false)
     setRecordingCommandHotkeyId(null)
+    setChangingCommandIconId(null)
     closeEditMenu()
     setEditOpen(false)
   }
@@ -100,6 +102,7 @@ export default function AppRegistrationPanel({
     setPath('')
     setIcon('')
     setIconChanging(false)
+    setChangingCommandIconId(null)
     setHotkey('')
     setHotkeyLaunchBehavior('launch')
     setRecordingCommandHotkeyId(null)
@@ -119,6 +122,7 @@ export default function AppRegistrationPanel({
     setPath(app.path)
     setIcon(app.icon || '')
     setIconChanging(false)
+    setChangingCommandIconId(null)
     setHotkey(app.hotkey ?? '')
     setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
     setRecordingCommandHotkeyId(null)
@@ -162,7 +166,13 @@ export default function AppRegistrationPanel({
   }
 
   const normalizedCommands = () => commands
-    .map(command => ({ ...command, id: command.id.trim(), title: command.title.trim(), hotkey: command.hotkey?.trim() || undefined }))
+    .map(command => ({
+      ...command,
+      id: command.id.trim(),
+      title: command.title.trim(),
+      icon: command.icon?.trim() || undefined,
+      hotkey: command.hotkey?.trim() || undefined,
+    }))
     .filter(command => command.id && command.title)
 
   const changeIcon = async (source: IconImageSource) => {
@@ -198,6 +208,35 @@ export default function AppRegistrationPanel({
     } finally {
       setIconChanging(false)
     }
+  }
+
+  const changeCommandIcon = async (commandId: string, source: IconImageSource) => {
+    if (!commands.some(command => command.id === commandId)) {
+      await hostToast('命令不存在，未更改图标')
+      return
+    }
+
+    setChangingCommandIconId(commandId)
+    try {
+      const dataUrl = await readIconImageDataUrl(source)
+      if (!dataUrl) return
+      setCommandsEdited(true)
+      setCommands(prev => prev.map(command => command.id === commandId ? { ...command, icon: dataUrl } : command))
+      await hostToast('命令图标已更新，保存后生效')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '更改命令图标失败'))
+    } finally {
+      setChangingCommandIconId(null)
+    }
+  }
+
+  const resetCommandIconToAppIcon = (commandId: string) => {
+    setCommandsEdited(true)
+    setCommands(prev => prev.map(command => {
+      if (command.id !== commandId) return command
+      const { icon: _icon, ...nextCommand } = command
+      return nextCommand
+    }))
   }
 
   const resolveIconForSave = async (appPath: string, inspectedIcon: string) => {
@@ -501,15 +540,21 @@ export default function AppRegistrationPanel({
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
           </Box>
-            <AppCommandEditor
-              commands={commands}
-              availableCommands={availableCommands}
-              recordingCommandId={recordingCommandHotkeyId}
-              onStartHotkeyRecording={startCommandHotkeyRecording}
-              onClearHotkey={clearCommandHotkey}
-              onChange={nextCommands => {
-                setCommandsEdited(true)
-                setCommands(nextCommands)
+          <AppCommandEditor
+            commands={commands}
+            availableCommands={availableCommands}
+            appIcon={icon}
+            appName={name}
+            disabled={saving}
+            changingCommandIconId={changingCommandIconId}
+            recordingCommandId={recordingCommandHotkeyId}
+            onChangeIcon={(commandId, source) => void changeCommandIcon(commandId, source)}
+            onResetIcon={resetCommandIconToAppIcon}
+            onStartHotkeyRecording={startCommandHotkeyRecording}
+            onClearHotkey={clearCommandHotkey}
+            onChange={nextCommands => {
+              setCommandsEdited(true)
+              setCommands(nextCommands)
             }}
           />
         </DialogContent>
