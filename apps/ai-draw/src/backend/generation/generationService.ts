@@ -1,6 +1,6 @@
 import { AI_DRAW_ERROR_CODE, AiDrawDirectError } from '../../shared/errors'
 import type { AiDrawCreateLocalEditGenerationRequest, AiDrawCreateNormalGenerationRequest } from '../../shared/domain'
-import { normalizeImageGenerationOptions, validateImageGenerationOptions } from '../../core/imageGenerationOptions'
+import { normalizeImageGenerationOptions, validateRawImageGenerationOptions } from '../../core/imageGenerationOptions'
 import type { ImageStore } from '../images/imageStore'
 import { requestOpenAiImage } from './openAiImageProvider'
 import { createTaskRegistry, type TaskRegistry } from './taskRegistry'
@@ -53,14 +53,15 @@ export function createGenerationService(outputStore: ImageStore): GenerationServ
     async createNormal(params) {
       const request = (params as any)?.request as AiDrawCreateNormalGenerationRequest
       if (!request || typeof request !== 'object') throw new AiDrawDirectError(AI_DRAW_ERROR_CODE.badRequest, 'generation.createNormal 参数无效')
-      const normalizedRequest = { ...request, imageOptions: normalizeImageGenerationOptions(request.imageOptions) }
-      const errors = validateImageGenerationOptions({
-        options: normalizedRequest.imageOptions,
-        model: providerSnapshot(normalizedRequest).model,
-        protocol: String(normalizedRequest.provider?.protocol || 'images') === 'chat' ? 'chat' : 'images',
-        requestKind: normalizedRequest.refImages?.length ? 'edits' : 'generations',
+      const protocol = String(request.provider?.protocol || 'images') === 'chat' ? 'chat' : 'images'
+      const errors = validateRawImageGenerationOptions({
+        raw: request.imageOptions,
+        model: providerSnapshot(request).model,
+        protocol,
+        requestKind: request.refImages?.length ? 'edits' : 'generations',
       })
       if (errors.length) throw new AiDrawDirectError(AI_DRAW_ERROR_CODE.badRequest, errors.join('\n'))
+      const normalizedRequest = { ...request, imageOptions: normalizeImageGenerationOptions(request.imageOptions) }
       const batchCount = Math.max(1, Math.min(20, Math.floor(Number(request.batchCount) || 1)))
       const snap = providerSnapshot(normalizedRequest)
       const tasks = Array.from({ length: batchCount }, () => registry.create({ mode: 'normal', prompt: String(normalizedRequest.prompt || ''), ...snap }))

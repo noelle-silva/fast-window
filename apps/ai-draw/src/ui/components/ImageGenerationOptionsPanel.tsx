@@ -5,8 +5,6 @@ import {
   IMAGE_INPUT_FIDELITY_OPTIONS,
   IMAGE_MODERATION_OPTIONS,
   IMAGE_OUTPUT_FORMAT_OPTIONS,
-  IMAGE_QUALITY_OPTIONS,
-  IMAGE_STYLE_OPTIONS,
   getImageGenerationOptionAvailability,
   supportedImageSizes,
   supportedImageQualities,
@@ -29,8 +27,6 @@ const QUALITY_LABELS: Record<string, string> = {
   low: 'low',
   medium: 'medium',
   high: 'high',
-  standard: 'standard',
-  hd: 'hd',
 }
 
 export function ImageGenerationOptionsPanel(props: ImageGenerationOptionsPanelProps) {
@@ -41,6 +37,8 @@ export function ImageGenerationOptionsPanel(props: ImageGenerationOptionsPanelPr
   const qualityOptions = React.useMemo(() => supportedImageQualities(model, requestKind), [model, requestKind])
   const errors = validateImageGenerationOptions({ options, model, protocol, requestKind })
   const inactive = disabled || protocol === 'chat'
+  const showModeration = requestKind === 'generations'
+  const showInputFidelity = requestKind === 'edits'
 
   return (
     <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.96)', border: 0 }}>
@@ -116,49 +114,38 @@ export function ImageGenerationOptionsPanel(props: ImageGenerationOptionsPanelPr
             </Select>
           </FormControl>
 
-          <FormControl size="small" disabled={inactive || !availability.moderation}>
-            <InputLabel id="ai-draw-moderation-label">审核</InputLabel>
-            <Select
-              labelId="ai-draw-moderation-label"
-              label="审核"
-              value={options.moderation}
-              onChange={(event) => onChange({ moderation: event.target.value as AiDrawImageGenerationOptions['moderation'] })}
-            >
-              {IMAGE_MODERATION_OPTIONS.map((moderation) => (
-                <MenuItem key={moderation} value={moderation}>{moderation}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {showModeration ? (
+            <FormControl size="small" disabled={inactive || !availability.moderation}>
+              <InputLabel id="ai-draw-moderation-label">审核</InputLabel>
+              <Select
+                labelId="ai-draw-moderation-label"
+                label="审核"
+                value={options.moderation}
+                onChange={(event) => onChange({ moderation: event.target.value as AiDrawImageGenerationOptions['moderation'] })}
+              >
+                {IMAGE_MODERATION_OPTIONS.map((moderation) => (
+                  <MenuItem key={moderation} value={moderation}>{moderation}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : null}
 
-          <FormControl size="small" disabled={inactive || !availability.style}>
-            <InputLabel id="ai-draw-style-label">风格</InputLabel>
-            <Select
-              labelId="ai-draw-style-label"
-              label="风格"
-              value={options.style || ''}
-              onChange={(event) => onChange({ style: String(event.target.value || '') as AiDrawImageGenerationOptions['style'] || null })}
-            >
-              <MenuItem value="">不发送</MenuItem>
-              {IMAGE_STYLE_OPTIONS.map((style) => (
-                <MenuItem key={style} value={style}>{style}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl size="small" disabled={inactive || !availability.inputFidelity}>
-            <InputLabel id="ai-draw-input-fidelity-label">参考保真</InputLabel>
-            <Select
-              labelId="ai-draw-input-fidelity-label"
-              label="参考保真"
-              value={options.inputFidelity || ''}
-              onChange={(event) => onChange({ inputFidelity: String(event.target.value || '') as AiDrawImageGenerationOptions['inputFidelity'] || null })}
-            >
-              <MenuItem value="">不发送</MenuItem>
-              {IMAGE_INPUT_FIDELITY_OPTIONS.map((fidelity) => (
-                <MenuItem key={fidelity} value={fidelity}>{fidelity}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {showInputFidelity ? (
+            <FormControl size="small" disabled={inactive || !availability.inputFidelity}>
+              <InputLabel id="ai-draw-input-fidelity-label">参考保真</InputLabel>
+              <Select
+                labelId="ai-draw-input-fidelity-label"
+                label="参考保真"
+                value={options.inputFidelity || ''}
+                onChange={(event) => onChange({ inputFidelity: String(event.target.value || '') as AiDrawImageGenerationOptions['inputFidelity'] || null })}
+              >
+                <MenuItem value="">不发送</MenuItem>
+                {IMAGE_INPUT_FIDELITY_OPTIONS.map((fidelity) => (
+                  <MenuItem key={fidelity} value={fidelity}>{fidelity}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : null}
         </Box>
 
         <Collapse in={!!errors.length || protocol === 'chat'}>

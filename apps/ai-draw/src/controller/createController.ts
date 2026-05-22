@@ -25,9 +25,9 @@ import {
 } from '../core/schema'
 import {
   DEFAULT_IMAGE_GENERATION_OPTIONS,
-  buildOpenAiImageOptionFields,
   normalizeImageGenerationOptions,
   patchImageGenerationOptions,
+  validateRawImageGenerationOptions,
   type AiDrawImageGenerationOptions,
 } from '../core/imageGenerationOptions'
 import { normalizeImageDataUrlOrBase64 } from '../core/images'
@@ -1177,13 +1177,16 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       }
       if (String(p?.protocol || 'images') !== 'chat' && refImages.length) host.toast('已选参考图：自动使用 /images/edits（多图参考）')
 
-      const imageOptions = normalizeImageGenerationOptions(state.imageOptions)
-      buildOpenAiImageOptionFields({
-        options: imageOptions,
+      const rawImageOptions = state.imageOptions
+      const imageOptionErrors = validateRawImageGenerationOptions({
+        raw: rawImageOptions,
         model,
         protocol: String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images',
         requestKind: refImages.length ? 'edits' : 'generations',
       })
+      if (imageOptionErrors.length) throw new Error(imageOptionErrors.join('\n'))
+
+      const imageOptions = normalizeImageGenerationOptions(rawImageOptions)
 
       const tasks = await generation.createNormal({
         provider: p,

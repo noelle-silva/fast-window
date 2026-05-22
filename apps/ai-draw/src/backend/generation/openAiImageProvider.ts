@@ -2,7 +2,7 @@ import { inferImageMimeFromBase64, normalizeImageBase64 } from '../../core/image
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../../core/httpParse'
 import { formatBytes, isHttpBaseUrl, trimSlash } from '../../core/utils'
 import { resolveModel, type AiDrawProvider } from '../../core/schema'
-import { buildOpenAiImageOptionFields, detectImageModelFamily, normalizeImageGenerationOptions } from '../../core/imageGenerationOptions'
+import { buildOpenAiImageOptionFields, normalizeImageGenerationOptions } from '../../core/imageGenerationOptions'
 import type { AiDrawCreateLocalEditGenerationRequest, AiDrawCreateNormalGenerationRequest, AiDrawGenerationDebugRecord } from '../../shared/domain'
 import { buildMultipartFormDataBytes, type MultipartPart } from './multipartNode'
 
@@ -78,7 +78,6 @@ export async function requestOpenAiImage(input: {
     debugBodyText = body
   } else {
     const req = input.request as AiDrawCreateNormalGenerationRequest
-    const modelFamily = detectImageModelFamily(model)
     const imageOptions = normalizeImageGenerationOptions(req.imageOptions)
     const optionFields = buildOpenAiImageOptionFields({
       options: imageOptions,
@@ -86,7 +85,6 @@ export async function requestOpenAiImage(input: {
       protocol: 'images',
       requestKind: req.refImages.length ? 'edits' : 'generations',
     })
-    const responseFormatFields = modelFamily === 'dall-e-2' || modelFamily === 'dall-e-3' ? { response_format: 'b64_json' } : {}
     if (req.refImages.length) {
       protocolKind = 'images-edits'
       url = `${baseUrl}/images/edits`
@@ -95,7 +93,7 @@ export async function requestOpenAiImage(input: {
         { name: 'model', value: model },
         { name: 'prompt', value: prompt },
       ]
-      Object.entries({ ...optionFields, ...responseFormatFields }).forEach(([name, value]) => {
+      Object.entries(optionFields).forEach(([name, value]) => {
         parts.push({ name, value: String(value) })
       })
       let totalImageBytes = 0
@@ -113,7 +111,7 @@ export async function requestOpenAiImage(input: {
       protocolKind = 'images'
       url = `${baseUrl}/images/generations`
       headers = { ...headers, 'Content-Type': 'application/json' }
-      body = JSON.stringify({ model, prompt, n: 1, ...optionFields, ...responseFormatFields })
+      body = JSON.stringify({ model, prompt, n: 1, ...optionFields })
       debugBodyText = body
     }
   }

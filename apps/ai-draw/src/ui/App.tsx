@@ -1153,7 +1153,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                 label="自定义模型"
                 value={String((provider as any)?.customModel || '')}
                 onChange={(e) => (provider ? void controller.saveProvider(provider.id, { customModel: e.target.value }) : undefined)}
-                placeholder="例如：dall-e-3 / sdxl / 自建网关模型名"
+                placeholder="例如：gpt-image-2"
               />
             ) : null}
 

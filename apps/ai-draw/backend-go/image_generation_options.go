@@ -8,30 +8,23 @@ import (
 )
 
 const (
-	imageQualityAuto     = "auto"
-	imageQualityLow      = "low"
-	imageQualityMedium   = "medium"
-	imageQualityHigh     = "high"
-	imageQualityStandard = "standard"
-	imageQualityHD       = "hd"
+	imageQualityAuto   = "auto"
+	imageQualityLow    = "low"
+	imageQualityMedium = "medium"
+	imageQualityHigh   = "high"
 
 	imageOutputFormatPNG  = "png"
 	imageOutputFormatJPEG = "jpeg"
 	imageOutputFormatWebP = "webp"
 
-	imageBackgroundAuto        = "auto"
-	imageBackgroundTransparent = "transparent"
-	imageBackgroundOpaque      = "opaque"
+	imageBackgroundAuto   = "auto"
+	imageBackgroundOpaque = "opaque"
 
 	imageModerationAuto = "auto"
 	imageModerationLow  = "low"
 
-	imageModelFamilyGPTImage1     = "gpt-image-1"
-	imageModelFamilyGPTImage1Mini = "gpt-image-1-mini"
-	imageModelFamilyGPTImage2     = "gpt-image-2"
-	imageModelFamilyDalle2        = "dall-e-2"
-	imageModelFamilyDalle3        = "dall-e-3"
-	imageModelFamilyUnknown       = "unknown"
+	imageModelFamilyGPTImage2   = "gpt-image-2"
+	imageModelFamilyUnsupported = "unsupported"
 )
 
 type imageGenerationOptions struct {
@@ -41,7 +34,6 @@ type imageGenerationOptions struct {
 	OutputCompression *int   `json:"outputCompression"`
 	Background        string `json:"background"`
 	Moderation        string `json:"moderation"`
-	Style             string `json:"style"`
 	InputFidelity     string `json:"inputFidelity"`
 }
 
@@ -62,20 +54,17 @@ func normalizeImageGenerationOptions(raw imageGenerationOptions) imageGeneration
 	if size := strings.TrimSpace(raw.Size); isImageSizeSyntax(size) {
 		out.Size = size
 	}
-	if oneOf(raw.Quality, imageQualityAuto, imageQualityLow, imageQualityMedium, imageQualityHigh, imageQualityStandard, imageQualityHD) {
+	if oneOf(raw.Quality, imageQualityAuto, imageQualityLow, imageQualityMedium, imageQualityHigh) {
 		out.Quality = strings.TrimSpace(raw.Quality)
 	}
 	if oneOf(raw.OutputFormat, imageOutputFormatPNG, imageOutputFormatJPEG, imageOutputFormatWebP) {
 		out.OutputFormat = strings.TrimSpace(raw.OutputFormat)
 	}
-	if oneOf(raw.Background, imageBackgroundAuto, imageBackgroundTransparent, imageBackgroundOpaque) {
+	if oneOf(raw.Background, imageBackgroundAuto, imageBackgroundOpaque) {
 		out.Background = strings.TrimSpace(raw.Background)
 	}
 	if oneOf(raw.Moderation, imageModerationAuto, imageModerationLow) {
 		out.Moderation = strings.TrimSpace(raw.Moderation)
-	}
-	if oneOf(raw.Style, "vivid", "natural") {
-		out.Style = strings.TrimSpace(raw.Style)
 	}
 	if oneOf(raw.InputFidelity, imageQualityLow, imageQualityHigh) {
 		out.InputFidelity = strings.TrimSpace(raw.InputFidelity)
@@ -93,55 +82,125 @@ func normalizeImageGenerationOptions(raw imageGenerationOptions) imageGeneration
 	return out
 }
 
+func validateRawImageGenerationOptions(raw map[string]any, model string, protocol string, requestKind string) []string {
+	if strings.TrimSpace(protocol) == protocolKindChat || strings.TrimSpace(protocol) == "chat" {
+		return nil
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	errors := validateRawImageOptionChoices(raw)
+	if len(errors) == 0 {
+		errors = append(errors, validateImageGenerationOptions(rawImageOptionsToStruct(raw), model, protocol, requestKind)...)
+	}
+	return errors
+}
+
+func validateRawImageOptionChoices(raw map[string]any) []string {
+	errors := []string{}
+	validateRawStringChoice(&errors, raw["size"], "size", isImageSizeSyntax, "尺寸格式必须是 auto 或 宽x高")
+	validateRawStringChoice(&errors, raw["quality"], "quality", func(value string) bool {
+		return oneOf(value, imageQualityAuto, imageQualityLow, imageQualityMedium, imageQualityHigh)
+	}, "画质仅支持 auto/low/medium/high")
+	validateRawStringChoice(&errors, coalesceRaw(raw, "outputFormat", "output_format"), "output_format", func(value string) bool {
+		return oneOf(value, imageOutputFormatPNG, imageOutputFormatJPEG, imageOutputFormatWebP)
+	}, "输出格式仅支持 png/jpeg/webp")
+	validateRawStringChoice(&errors, raw["background"], "background", func(value string) bool {
+		return oneOf(value, imageBackgroundAuto, imageBackgroundOpaque)
+	}, "背景仅支持 auto/opaque")
+	validateRawStringChoice(&errors, raw["moderation"], "moderation", func(value string) bool {
+		return oneOf(value, imageModerationAuto, imageModerationLow)
+	}, "审核仅支持 auto/low")
+	validateRawStringChoice(&errors, coalesceRaw(raw, "inputFidelity", "input_fidelity"), "input_fidelity", func(value string) bool {
+		return oneOf(value, imageQualityLow, imageQualityHigh)
+	}, "参考保真仅支持 low/high")
+	if hasRawText(raw["style"]) {
+		errors = append(errors, "style 已移除，gpt-image-2 不支持旧版风格字段")
+	}
+	if rawCompression := coalesceRaw(raw, "outputCompression", "output_compression"); rawCompression != nil && strings.TrimSpace(fmt.Sprint(rawCompression)) != "" {
+		value, err := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(rawCompression)), 64)
+		if err != nil || value < 0 || value > 100 {
+			errors = append(errors, "output_compression 必须是 0 到 100 的数字")
+		}
+		rawFormat := rawString(coalesceRaw(raw, "outputFormat", "output_format"))
+		if rawFormat == "" {
+			rawFormat = imageOutputFormatPNG
+		}
+		if rawFormat == imageOutputFormatPNG {
+			errors = append(errors, "output_compression 仅对 jpeg/webp 生效")
+		}
+	}
+	return errors
+}
+
+func rawImageOptionsToStruct(raw map[string]any) imageGenerationOptions {
+	out := imageGenerationOptions{}
+	out.Size = rawString(raw["size"])
+	out.Quality = rawString(raw["quality"])
+	out.OutputFormat = rawString(coalesceRaw(raw, "outputFormat", "output_format"))
+	out.Background = rawString(raw["background"])
+	out.Moderation = rawString(raw["moderation"])
+	out.InputFidelity = rawString(coalesceRaw(raw, "inputFidelity", "input_fidelity"))
+	if rawCompression := coalesceRaw(raw, "outputCompression", "output_compression"); rawCompression != nil && strings.TrimSpace(fmt.Sprint(rawCompression)) != "" {
+		value, err := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(rawCompression)), 64)
+		if err == nil {
+			intValue := int(value)
+			out.OutputCompression = &intValue
+		}
+	}
+	return normalizeImageGenerationOptions(out)
+}
+
+func validateRawStringChoice(errors *[]string, raw any, field string, isValid func(string) bool, message string) {
+	if !hasRawText(raw) {
+		return
+	}
+	value := strings.TrimSpace(fmt.Sprint(raw))
+	if !isValid(value) {
+		*errors = append(*errors, fmt.Sprintf("%s: %s", field, message))
+	}
+}
+
+func coalesceRaw(raw map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := raw[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func rawString(value any) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func hasRawText(value any) bool {
+	return value != nil && strings.TrimSpace(fmt.Sprint(value)) != ""
+}
+
 func validateImageGenerationOptions(options imageGenerationOptions, model string, protocol string, requestKind string) []string {
 	if strings.TrimSpace(protocol) == protocolKindChat || strings.TrimSpace(protocol) == "chat" {
 		return nil
 	}
 	family := detectImageModelFamily(model)
 	errors := []string{}
+	if family != imageModelFamilyGPTImage2 {
+		return []string{"当前 Image API 参数仅支持 gpt-image-2"}
+	}
 	if !isSupportedImageSize(options.Size, family) {
 		errors = append(errors, fmt.Sprintf("当前模型不支持尺寸 %s", options.Size))
 	}
 	if !isSupportedImageQuality(options.Quality, family, requestKind) {
 		errors = append(errors, fmt.Sprintf("当前模型不支持画质 %s", options.Quality))
 	}
-	if !isGptImageFamily(family) {
-		if options.OutputFormat != imageOutputFormatPNG {
-			errors = append(errors, "DALL·E 模型不支持 output_format")
-		}
-		if options.OutputCompression != nil {
-			errors = append(errors, "DALL·E 模型不支持 output_compression")
-		}
-		if options.Background != imageBackgroundAuto {
-			errors = append(errors, "DALL·E 模型不支持 background")
-		}
-		if options.Moderation != imageModerationAuto {
-			errors = append(errors, "DALL·E 模型不支持 moderation")
-		}
-		if options.InputFidelity != "" {
-			errors = append(errors, "DALL·E 模型不支持 input_fidelity")
-		}
-	}
-	if family != imageModelFamilyDalle3 && options.Style != "" {
-		errors = append(errors, "style 仅支持 DALL·E 3")
-	}
-	if requestKind == protocolKindImagesEdits && family == imageModelFamilyDalle3 {
-		errors = append(errors, "DALL·E 3 不支持 /images/edits 参考图编辑")
-	}
 	if requestKind == protocolKindImagesEdits && options.Moderation != imageModerationAuto {
 		errors = append(errors, "moderation 仅在普通生成时可用")
 	}
 	if requestKind == protocolKindImages && options.InputFidelity != "" {
 		errors = append(errors, "input_fidelity 仅在参考图编辑时可用")
-	}
-	if requestKind == protocolKindImagesEdits && options.InputFidelity != "" && family == imageModelFamilyGPTImage1Mini {
-		errors = append(errors, "gpt-image-1-mini 不支持 input_fidelity")
-	}
-	if family == imageModelFamilyGPTImage2 && options.Background == imageBackgroundTransparent {
-		errors = append(errors, "gpt-image-2 不支持透明背景")
-	}
-	if options.Background == imageBackgroundTransparent && options.OutputFormat == imageOutputFormatJPEG {
-		errors = append(errors, "透明背景需要 png 或 webp 输出格式")
 	}
 	if options.OutputCompression != nil && options.OutputFormat == imageOutputFormatPNG {
 		errors = append(errors, "output_compression 仅对 jpeg/webp 生效")
@@ -159,7 +218,7 @@ func buildOpenAIImageOptionFields(options imageGenerationOptions, model string, 
 	}
 	family := detectImageModelFamily(model)
 	fields := map[string]any{"size": options.Size}
-	if isGptImageFamily(family) {
+	if family == imageModelFamilyGPTImage2 {
 		fields["quality"] = options.Quality
 		fields["output_format"] = options.OutputFormat
 		fields["background"] = options.Background
@@ -172,50 +231,25 @@ func buildOpenAIImageOptionFields(options imageGenerationOptions, model string, 
 		if requestKind == protocolKindImagesEdits && options.InputFidelity != "" {
 			fields["input_fidelity"] = options.InputFidelity
 		}
-	} else if family == imageModelFamilyDalle3 && options.Quality != imageQualityAuto {
-		fields["quality"] = options.Quality
-	}
-	if family == imageModelFamilyDalle3 && options.Style != "" {
-		fields["style"] = options.Style
 	}
 	return fields, nil
-}
-
-func shouldSendLegacyResponseFormat(model string) bool {
-	family := detectImageModelFamily(model)
-	return family == imageModelFamilyDalle2 || family == imageModelFamilyDalle3
 }
 
 func detectImageModelFamily(model string) string {
 	name := strings.ToLower(strings.TrimSpace(model))
 	if name == "" {
-		return imageModelFamilyUnknown
-	}
-	if name == imageModelFamilyDalle2 || name == imageModelFamilyDalle3 || name == imageModelFamilyGPTImage1Mini {
-		return name
+		return imageModelFamilyUnsupported
 	}
 	if name == imageModelFamilyGPTImage2 || strings.HasPrefix(name, "gpt-image-2-") {
 		return imageModelFamilyGPTImage2
 	}
-	if name == imageModelFamilyGPTImage1 || name == "gpt-image-1.5" || strings.HasPrefix(name, "gpt-image-1-") || name == "chatgpt-image-latest" {
-		return imageModelFamilyGPTImage1
-	}
-	return imageModelFamilyUnknown
-}
-
-func isGptImageFamily(family string) bool {
-	return family == imageModelFamilyGPTImage1 || family == imageModelFamilyGPTImage1Mini || family == imageModelFamilyGPTImage2 || family == imageModelFamilyUnknown
+	return imageModelFamilyUnsupported
 }
 
 func isSupportedImageQuality(quality string, family string, requestKind string) bool {
-	if isGptImageFamily(family) {
+	_ = requestKind
+	if family == imageModelFamilyGPTImage2 {
 		return oneOf(quality, imageQualityAuto, imageQualityLow, imageQualityMedium, imageQualityHigh)
-	}
-	if family == imageModelFamilyDalle3 {
-		return requestKind == protocolKindImages && oneOf(quality, imageQualityAuto, imageQualityStandard, imageQualityHD)
-	}
-	if family == imageModelFamilyDalle2 {
-		return oneOf(quality, imageQualityAuto, imageQualityStandard)
 	}
 	return false
 }
@@ -224,12 +258,8 @@ func isSupportedImageSize(size string, family string) bool {
 	switch family {
 	case imageModelFamilyGPTImage2:
 		return isGPTImage2Size(size)
-	case imageModelFamilyDalle2:
-		return oneOf(size, "256x256", "512x512", "1024x1024")
-	case imageModelFamilyDalle3:
-		return oneOf(size, "1024x1024", "1792x1024", "1024x1792")
 	default:
-		return oneOf(size, "auto", "1024x1024", "1024x1536", "1536x1024")
+		return false
 	}
 }
 

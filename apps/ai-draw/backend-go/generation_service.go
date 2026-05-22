@@ -33,10 +33,11 @@ func (svc *generationService) createNormal(params json.RawMessage) (any, error) 
 	if err := decodeRequest(params, &payload); err != nil {
 		return nil, err
 	}
-	if err := validateNormalRequest(payload.Request); err != nil {
+	rawImageOptions := rawImageOptionsFromCreateNormalParams(params)
+	if err := validateNormalRequest(payload.Request, rawImageOptions); err != nil {
 		return nil, err
 	}
-	payload.Request.ImageOptions = normalizeImageGenerationOptions(payload.Request.ImageOptions)
+	payload.Request.ImageOptions = rawImageOptionsToStruct(rawImageOptions)
 	batchCount := clampInt(payload.Request.BatchCount, 1, maxBatchCount, 1)
 	tasks := make([]generationTask, 0, batchCount)
 	for i := 0; i < batchCount; i++ {
@@ -164,7 +165,7 @@ func decodeRequest(raw json.RawMessage, target any) error {
 	return nil
 }
 
-func validateNormalRequest(req createNormalGenerationRequest) error {
+func validateNormalRequest(req createNormalGenerationRequest, rawImageOptions map[string]any) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return newDirectError(errorBadRequest, "提示词为空")
 	}
@@ -179,11 +180,26 @@ func validateNormalRequest(req createNormalGenerationRequest) error {
 	if len(req.RefImages) > 0 {
 		requestKind = protocolKindImagesEdits
 	}
-	options := normalizeImageGenerationOptions(req.ImageOptions)
-	if errors := validateImageGenerationOptions(options, resolveProviderModel(req.Provider), protocol, requestKind); len(errors) > 0 {
+	if errors := validateRawImageGenerationOptions(rawImageOptions, resolveProviderModel(req.Provider), protocol, requestKind); len(errors) > 0 {
 		return newDirectError(errorBadRequest, strings.Join(errors, "\n"))
 	}
 	return nil
+}
+
+func rawImageOptionsFromCreateNormalParams(params json.RawMessage) map[string]any {
+	payload, err := decodeMap(params)
+	if err != nil {
+		return nil
+	}
+	request, ok := payload["request"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	imageOptions, ok := request["imageOptions"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return imageOptions
 }
 
 func validateLocalEditRequest(req createLocalEditGenerationRequest) error {

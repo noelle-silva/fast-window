@@ -186,9 +186,6 @@ func buildProviderRequestData(input imageGenerationInput, config validatedProvid
 	for key, value := range optionFields {
 		bodyMap[key] = value
 	}
-	if shouldSendLegacyResponseFormat(config.Model) {
-		bodyMap["response_format"] = "b64_json"
-	}
 	body, err := json.Marshal(bodyMap)
 	if err != nil {
 		return providerRequestData{}, err
@@ -208,9 +205,6 @@ func buildImagesEditsRequestData(req *createNormalGenerationRequest, config vali
 	}
 	for _, key := range orderedImageOptionFieldKeys(optionFields) {
 		parts = append(parts, multipartPart{Name: key, Value: fmt.Sprint(optionFields[key])})
-	}
-	if shouldSendLegacyResponseFormat(config.Model) {
-		parts = append(parts, multipartPart{Name: "response_format", Value: "b64_json"})
 	}
 	var imageBytes int64
 	for index, image := range req.RefImages {
@@ -242,7 +236,7 @@ func buildImagesEditsRequestData(req *createNormalGenerationRequest, config vali
 }
 
 func orderedImageOptionFieldKeys(fields map[string]any) []string {
-	order := []string{"size", "quality", "output_format", "output_compression", "background", "moderation", "input_fidelity", "style"}
+	order := []string{"size", "quality", "output_format", "output_compression", "background", "moderation", "input_fidelity"}
 	out := []string{}
 	for _, key := range order {
 		if _, ok := fields[key]; ok {

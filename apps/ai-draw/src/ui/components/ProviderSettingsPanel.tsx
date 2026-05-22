@@ -305,7 +305,7 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
                 onChange={(event) => updateDraft({ modelsText: event.target.value })}
                 multiline
                 minRows={4}
-                placeholder={'例如：\n' + 'gpt-image-1\n' + 'dall-e-3'}
+                placeholder={'例如：\n' + 'gpt-image-2'}
               />
 
               <FormControl size="small">

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,7 +24,7 @@ func TestGenerationServiceCreateNormalAutoSaveAndEvents(t *testing.T) {
 	}}, sink)
 
 	params := mustJSON(t, map[string]any{"request": map[string]any{
-		"provider": map[string]any{"id": "p1", "name": "P", "baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-1", "protocol": "images"},
+		"provider": map[string]any{"id": "p1", "name": "P", "baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-2", "protocol": "images"},
 		"prompt":   "draw cat", "batchCount": 2, "autoSave": true, "requestTimeoutSec": 5,
 	}})
 	result, err := svc.createNormal(params)
@@ -78,13 +79,16 @@ func TestGenerationServiceCreateNormalRejectsInvalidImageOptionsBeforeTask(t *te
 	}}, &recordingSink{})
 
 	params := mustJSON(t, map[string]any{"request": map[string]any{
-		"provider": map[string]any{"id": "p1", "name": "P", "baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-1", "protocol": "images"},
+		"provider": map[string]any{"id": "p1", "name": "P", "baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-2", "protocol": "images"},
 		"prompt":   "draw cat", "batchCount": 1, "autoSave": false, "requestTimeoutSec": 5,
-		"imageOptions": map[string]any{"size": "1024x1024", "quality": "high", "outputFormat": "jpeg", "background": "transparent"},
+		"imageOptions": map[string]any{"size": "1024x1024", "quality": "high", "outputFormat": "jpeg", "style": "vivid"},
 	}})
 	_, err := svc.createNormal(params)
 	if err == nil {
 		t.Fatalf("expected invalid image options error")
+	}
+	if !strings.Contains(err.Error(), "style 已移除") {
+		t.Fatalf("expected removed style field error, got %v", err)
 	}
 	if len(svc.registry.list(10)) != 0 {
 		t.Fatalf("invalid options should not create tasks")
@@ -100,7 +104,7 @@ func TestGenerationServiceCancel(t *testing.T) {
 	}}, &recordingSink{})
 
 	params := mustJSON(t, map[string]any{"request": map[string]any{
-		"provider": map[string]any{"baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-1", "protocol": "images"},
+		"provider": map[string]any{"baseUrl": "http://example.test", "apiKey": "secret", "model": "gpt-image-2", "protocol": "images"},
 		"prompt":   "draw cat", "batchCount": 1, "autoSave": false, "requestTimeoutSec": 5,
 	}})
 	result, err := svc.createNormal(params)
