@@ -3,13 +3,11 @@ import { Box, Button, CircularProgress, IconButton, TextField, Typography } from
 import ZoomInRoundedIcon from '@mui/icons-material/ZoomInRounded'
 import ZoomOutRoundedIcon from '@mui/icons-material/ZoomOutRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
-import pdfWorkerSource from 'pdfjs-dist/legacy/build/pdf.worker.mjs?raw'
+import { createPdfDocumentLoadingTask, type PdfDocumentProxy, type PdfPageProxy } from '../../pdf/pdfRuntime'
+import { isPdfRenderCancelled, pdfPageRenderQueue, type QueuedPdfRender } from '../../pdf/pdfRenderQueue'
 import type { AssetPreviewContext } from './registry'
 import { AssetPreviewToolbarPortal } from './assetPreviewToolbar'
 import { softButtonSx } from '../pluginUiStyles'
-
-type PdfDocumentProxy = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>
 
 const PDF_SCALE_MIN = 0.6
 const PDF_SCALE_MAX = 2.4
@@ -18,17 +16,8 @@ const DEFAULT_PDF_SCALE = 1.2
 const PAGE_ESTIMATED_WIDTH = 720
 const PAGE_ESTIMATED_HEIGHT = 1018
 const PAGE_OBSERVER_ROOT_MARGIN = '900px 0px'
-
-let pdfWorkerUrl = ''
-
-function ensurePdfWorker(): void {
-  if (pdfWorkerUrl) return
-  const source = String(pdfWorkerSource || '')
-  if (!source) throw new Error('PDF worker 资源为空')
-  const blob = new Blob([source], { type: 'text/javascript' })
-  pdfWorkerUrl = URL.createObjectURL(blob)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-}
+const CANVAS_MAX_AREA = 16_000_000
+const CANVAS_MAX_SIDE = 16_384
 
 function clampScale(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_PDF_SCALE
@@ -43,6 +32,16 @@ function parseTargetPage(value: string, maxPage: number): number | null {
   const parsed = Number(trimmed)
   if (!Number.isFinite(parsed)) return null
   return Math.min(Math.max(Math.floor(parsed), 1), Math.max(maxPage, 1))
+}
+
+function getCanvasOutputScale(width: number, height: number): number {
+  const dpr = window.devicePixelRatio || 1
+  const safeWidth = Math.max(1, width)
+  const safeHeight = Math.max(1, height)
+  const areaLimitScale = Math.sqrt(CANVAS_MAX_AREA / (safeWidth * safeHeight))
+  const sideLimitScale = Math.min(CANVAS_MAX_SIDE / safeWidth, CANVAS_MAX_SIDE / safeHeight)
+  const scale = Math.min(dpr, areaLimitScale, sideLimitScale)
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
 function usePageVisibility(rootRef: React.RefObject<HTMLDivElement>, pageNumber: number, scale: number): [React.RefObject<HTMLDivElement>, boolean] {
@@ -93,32 +92,44 @@ function PdfPageCanvas({
     if (!visible) return
     let cancelled = false
     let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null
+    let queuedRender: QueuedPdfRender<void> | null = null
     setError(null)
     setRendering(true)
 
     ;(async () => {
       try {
-        const page = await pdf.getPage(pageNumber)
-        if (cancelled) return
-        const viewport = page.getViewport({ scale })
-        setSize({ width: Math.floor(viewport.width), height: Math.floor(viewport.height) })
-        const canvas = canvasRef.current
-        if (!canvas) return
-        const context = canvas.getContext('2d')
-        if (!context) throw new Error('无法创建 PDF 画布')
+        queuedRender = pdfPageRenderQueue.enqueue(async () => {
+          let page: PdfPageProxy | null = null
+          try {
+            page = await pdf.getPage(pageNumber)
+            if (cancelled) return
+            const viewport = page.getViewport({ scale })
+            const viewportWidth = Math.floor(viewport.width)
+            const viewportHeight = Math.floor(viewport.height)
+            setSize({ width: viewportWidth, height: viewportHeight })
+            const canvas = canvasRef.current
+            if (!canvas) return
+            const context = canvas.getContext('2d')
+            if (!context) throw new Error('无法创建 PDF 画布')
 
-        const ratio = window.devicePixelRatio || 1
-        canvas.width = Math.floor(viewport.width * ratio)
-        canvas.height = Math.floor(viewport.height * ratio)
-        canvas.style.width = `${Math.floor(viewport.width)}px`
-        canvas.style.height = `${Math.floor(viewport.height)}px`
-        context.setTransform(ratio, 0, 0, ratio, 0, 0)
-        context.clearRect(0, 0, viewport.width, viewport.height)
+            const ratio = getCanvasOutputScale(viewport.width, viewport.height)
+            canvas.width = Math.max(1, Math.floor(viewport.width * ratio))
+            canvas.height = Math.max(1, Math.floor(viewport.height * ratio))
+            canvas.style.width = `${viewportWidth}px`
+            canvas.style.height = `${viewportHeight}px`
+            context.setTransform(ratio, 0, 0, ratio, 0, 0)
+            context.fillStyle = '#fff'
+            context.fillRect(0, 0, viewport.width, viewport.height)
 
-        renderTask = page.render({ canvasContext: context, viewport })
-        await renderTask.promise
+            renderTask = page.render({ canvas, canvasContext: context, viewport })
+            await renderTask.promise
+          } finally {
+            page?.cleanup()
+          }
+        })
+        await queuedRender.promise
       } catch (e: any) {
-        if (!cancelled && String(e?.name || '') !== 'RenderingCancelledException') {
+        if (!cancelled && !isPdfRenderCancelled(e)) {
           setError(String(e?.message || e || 'PDF 页面渲染失败'))
         }
       } finally {
@@ -128,6 +139,7 @@ function PdfPageCanvas({
 
     return () => {
       cancelled = true
+      queuedRender?.cancel()
       renderTask?.cancel()
     }
   }, [pageNumber, pdf, scale, visible])
@@ -243,19 +255,19 @@ export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
 
   React.useEffect(() => {
     let cancelled = false
-    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null
+    let loadingTask: ReturnType<typeof createPdfDocumentLoadingTask> | null = null
     setPdf(null)
     setError(null)
 
     ;(async () => {
       try {
-        ensurePdfWorker()
-        const bytes = new Uint8Array(await fetch(blobUrl).then(response => {
+        const arrayBuffer = await fetch(blobUrl).then(response => {
           if (!response.ok) throw new Error(`读取 PDF 文件失败：${response.status}`)
           return response.arrayBuffer()
-        }))
+        })
+        const bytes = new Uint8Array(arrayBuffer)
         if (cancelled) return
-        loadingTask = pdfjsLib.getDocument({ data: bytes })
+        loadingTask = createPdfDocumentLoadingTask(bytes)
         const nextPdf = await loadingTask.promise
         if (!cancelled) setPdf(nextPdf)
       } catch (e: any) {
