@@ -9,6 +9,7 @@ import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
 import { Box, Button, Chip, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
 import type { ClipboardImageDraft, CollectionFolderNode } from '../../shared/types'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
+import { ScrollArea } from '../components/ScrollArea'
 
 type FolderDialogsProps = {
   controller: ClipboardHistoryController
@@ -362,18 +363,20 @@ function MovePickerDialog(props: FolderDialogsProps) {
             {!folders.length ? (
               <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>没有可用的目标收藏夹</Box>
             ) : (
-              <List dense disablePadding sx={{ maxHeight: '42vh', overflow: 'auto' }}>
-                {folders.map((folder) => (
-                  <React.Fragment key={folder.id}>
-                    <ListItemButton onClick={() => void controller.pickMoveTarget(folder.id)}>
-                      <ListItemIcon sx={{ minWidth: 32 }}>
-                        <FolderRoundedIcon fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText primary={folder.label} />
-                    </ListItemButton>
-                  </React.Fragment>
-                ))}
-              </List>
+              <ScrollArea ariaLabel="目标收藏夹列表" viewportSx={{ maxHeight: '42vh' }}>
+                <List dense disablePadding>
+                  {folders.map((folder) => (
+                    <React.Fragment key={folder.id}>
+                      <ListItemButton onClick={() => void controller.pickMoveTarget(folder.id)}>
+                        <ListItemIcon sx={{ minWidth: 32 }}>
+                          <FolderRoundedIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText primary={folder.label} />
+                      </ListItemButton>
+                    </React.Fragment>
+                  ))}
+                </List>
+              </ScrollArea>
             )}
           </Paper>
         </Stack>

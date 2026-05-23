@@ -9,6 +9,7 @@ import { Alert, Box, Button, Chip, Dialog, Stack, Switch, TextField, Typography 
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 import { ThemePicker } from './ThemePicker'
 import type { ClipboardHistoryThemeId, OrphanImageCleanupReport, OrphanImageReport } from '../../shared/types'
+import { ScrollArea } from './ScrollArea'
 
 type SettingsPanelProps = {
   controller: ClipboardHistoryController
@@ -94,7 +95,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           },
         }}
       >
-        <Box sx={{ p: { xs: 1.5, sm: 2 }, overflow: 'auto' }}>
+        <ScrollArea ariaLabel="设置内容" viewportSx={{ maxHeight: 'min(82vh, 720px)', p: { xs: 1.5, sm: 2 } }}>
           <Stack spacing={1.5}>
             <Box>
               <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>设置</Typography>
@@ -190,7 +191,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             {state.legacyImportReport ? <LegacyImportReport controller={controller} /> : null}
             {dataDirStatus?.error ? <Alert severity="warning">{String(dataDirStatus.error)}</Alert> : null}
           </Stack>
-        </Box>
+        </ScrollArea>
       </Dialog>
 
       <Dialog
