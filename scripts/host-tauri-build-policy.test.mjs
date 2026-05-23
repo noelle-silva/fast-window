@@ -4,6 +4,7 @@ import {
   HOST_PROFILE_DEV,
   HOST_PROFILE_ENV,
   HOST_PROFILE_RELEASE,
+  TAURI_CONFIG_ENV,
   HOST_TAURI_BUILD_CHANNEL_ENV,
   HOST_TAURI_BUILD_CHANNEL_MANAGED,
   HOST_VITE_PROFILE_ENV,
@@ -25,11 +26,13 @@ test('managed host build env overrides inherited dev profile with release profil
   const env = managedHostTauriBuildEnv({
     [HOST_PROFILE_ENV]: HOST_PROFILE_DEV,
     [HOST_VITE_PROFILE_ENV]: HOST_PROFILE_DEV,
+    [TAURI_CONFIG_ENV]: '{"productName":"Fast Window-dev"}',
   })
 
   assert.equal(env[HOST_PROFILE_ENV], HOST_PROFILE_RELEASE)
   assert.equal(env[HOST_VITE_PROFILE_ENV], HOST_PROFILE_RELEASE)
   assert.equal(env[HOST_TAURI_BUILD_CHANNEL_ENV], HOST_TAURI_BUILD_CHANNEL_MANAGED)
+  assert.equal(env[TAURI_CONFIG_ENV], undefined)
 })
 
 test('managed host tauri build rejects non-release profile env', () => {
@@ -47,4 +50,14 @@ test('managed host tauri build accepts release profile env', () => {
   assert.doesNotThrow(() => assertHostTauriBuildAllowed(['build', '-b', 'msi'], hostReleaseProfileEnv({
     [HOST_TAURI_BUILD_CHANNEL_ENV]: HOST_TAURI_BUILD_CHANNEL_MANAGED,
   })))
+})
+
+test('managed host tauri build rejects inherited tauri config', () => {
+  assert.throws(
+    () => assertHostTauriBuildAllowed(['build', '-b', 'msi'], hostReleaseProfileEnv({
+      [HOST_TAURI_BUILD_CHANNEL_ENV]: HOST_TAURI_BUILD_CHANNEL_MANAGED,
+      [TAURI_CONFIG_ENV]: '{"productName":"Fast Window-dev"}',
+    })),
+    /TAURI_CONFIG/,
+  )
 })
