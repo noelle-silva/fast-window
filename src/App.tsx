@@ -75,6 +75,8 @@ type IconContextMenuHandlers = {
   chooseImage: () => void
   pasteImage: () => void
   resetDefault: () => void
+  resetDefaultLabel?: string
+  resetDefaultDisabled?: boolean
 }
 
 function buildIconContextMenuAction(handlers: IconContextMenuHandlers): ContextMenuAction {
@@ -84,7 +86,12 @@ function buildIconContextMenuAction(handlers: IconContextMenuHandlers): ContextM
     children: [
       { id: 'change-icon', label: '选择图片更改图标…', onSelect: handlers.chooseImage },
       { id: 'paste-icon', label: '粘贴图片为图标', onSelect: handlers.pasteImage },
-      { id: 'reset-icon', label: '恢复默认图标', onSelect: handlers.resetDefault },
+      {
+        id: 'reset-icon',
+        label: handlers.resetDefaultLabel ?? '恢复默认图标',
+        disabled: handlers.resetDefaultDisabled,
+        onSelect: handlers.resetDefault,
+      },
     ],
   }
 }
@@ -505,6 +512,20 @@ function App() {
     }
   }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp, updateRegisteredAppCommand])
 
+  const removeRegisteredAppCommandFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
+    const command = app.commands.find(command => command.id === commandId)
+    if (!command) return
+
+    try {
+      await updateRegisteredApp(app.id, {
+        commands: app.commands.filter(command => command.id !== commandId),
+      })
+      showToast(`已从主页移除快捷命令：${command.title}`)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '移除快捷命令失败'))
+    }
+  }, [showToast, updateRegisteredApp])
+
   const closePluginUninstallDialog = useCallback(() => {
     if (uninstallingPluginId) return
     setPluginUninstall(null)
@@ -569,21 +590,6 @@ function App() {
     }
   }, [refreshRegisteredAppStatuses, showToast])
 
-  const clearRegisteredAppCommandIconFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
-    const command = app.commands.find(command => command.id === commandId)
-    if (!command) return
-
-    try {
-      const updated = await updateRegisteredAppCommand(app, commandId, command => {
-        const { icon: _icon, ...nextCommand } = command
-        return nextCommand
-      })
-      if (updated) showToast(`已清除命令图标：${command.title}`)
-    } catch (error: any) {
-      showToast(String(error?.message || error || '清除命令图标失败'))
-    }
-  }, [showToast, updateRegisteredAppCommand])
-
   const openRegisteredAppFolderFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
       await openAppFolder(app)
@@ -636,10 +642,15 @@ function App() {
     const detailAction: ContextMenuAction = app
       ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
       : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
+    const selectedCommand = app && selection.type === 'appCommand'
+      ? app.commands.find(command => command.id === selection.commandId)
+      : null
     const iconAction = buildIconContextMenuAction({
       chooseImage: () => void changeMenuItemIcon('file'),
       pasteImage: () => void changeMenuItemIcon('clipboard'),
       resetDefault: () => void resetMenuItemIcon(),
+      resetDefaultLabel: selection.type === 'appCommand' ? '恢复为跟随 App 图标' : undefined,
+      resetDefaultDisabled: selection.type === 'appCommand' ? !selectedCommand?.icon : undefined,
     })
     const commonActions: ContextMenuAction[] = [
       detailAction,
@@ -647,17 +658,13 @@ function App() {
     ]
 
     if (app) {
-      const selectedCommand = selection.type === 'appCommand'
-        ? app.commands.find(command => command.id === selection.commandId)
-        : null
-      const commandIconAction: ContextMenuAction[] = selection.type === 'appCommand'
+      const commandActions: ContextMenuAction[] = selection.type === 'appCommand'
         ? [
           {
-            id: 'remove-app-command-icon',
-            label: '清除此命令图标',
+            id: 'remove-app-command-entry',
+            label: '从主页移除此快捷命令',
             color: 'error',
-            disabled: !selectedCommand?.icon,
-            onSelect: () => void clearRegisteredAppCommandIconFromMenu(app, selection.commandId),
+            onSelect: () => void removeRegisteredAppCommandFromMenu(app, selection.commandId),
           },
         ]
         : []
@@ -694,7 +701,7 @@ function App() {
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
-        ...commandIconAction,
+        ...commandActions,
         ...commonActions,
       ]
     }
@@ -715,7 +722,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appDevCommandRuns, changeMenuItemIcon, clearRegisteredAppCommandIconFromMenu, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
+  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCommandFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
