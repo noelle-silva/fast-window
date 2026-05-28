@@ -10,7 +10,7 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import { Box, FormControl, InputLabel, ListItemIcon, ListItemText, Menu, MenuItem, Select } from '@mui/material'
 import { ALL_VIEW_CATEGORY_ID } from './categoryRegistry'
-import type { CategoryWorkspaceView, CollectionContainer, CollectionGroup, CollectionItem, ContextMenuState, DesktopGridEntry } from './types'
+import type { BlankContextMenuState, CategoryWorkspaceView, CollectionContainer, CollectionGroup, CollectionItem, ContextMenuState, DesktopGridEntry } from './types'
 
 function suppressNativeContextMenu(event: React.MouseEvent) {
   event.preventDefault()
@@ -37,7 +37,7 @@ type CollectionContextMenuProps = {
   onClose(): void
   onCreateContainer(): void
   onCreateGroup(): void
-  onCreateItem(): void
+  onCreateItem(menu: BlankContextMenuState): void
   onCopyToGroup(item: CollectionItem, groupId: string): void
   onDelete(entry: DesktopGridEntry): void
   onEdit(item: CollectionItem): void
@@ -55,6 +55,8 @@ export function CollectionContextMenu(props: CollectionContextMenuProps): React.
   const anchorPosition = menu ? { left: menu.x, top: menu.y } : undefined
   const label = menu?.kind === 'desktop'
     ? '桌面空白处操作'
+    : menu?.kind === 'container-blank'
+      ? '收纳夹空白处操作'
     : menu?.kind === 'container-item'
       ? '收纳夹内图标操作'
       : '桌面图标操作'
@@ -82,7 +84,14 @@ export function CollectionContextMenu(props: CollectionContextMenuProps): React.
           isAllView={isAllView}
           onCreateContainer={() => runAndClose(props.onCreateContainer)}
           onCreateGroup={() => runAndClose(props.onCreateGroup)}
-          onCreateItem={() => runAndClose(props.onCreateItem)}
+          onCreateItem={() => runAndClose(() => props.onCreateItem(menu))}
+        />
+      ) : menu?.kind === 'container-blank' ? (
+        <ContainerBlankMenuItems
+          busy={props.busy}
+          canEdit={props.canEdit}
+          isAllView={isAllView}
+          onCreateItem={() => runAndClose(() => props.onCreateItem(menu))}
         />
       ) : menu?.kind === 'entry' ? (
         <DesktopEntryMenuItems
@@ -145,6 +154,21 @@ function DesktopBlankMenuItems(props: {
         <ListItemText>新建分组</ListItemText>
       </MenuItem>
     </React.Fragment>
+  )
+}
+
+function ContainerBlankMenuItems(props: {
+  busy: boolean
+  canEdit: boolean
+  isAllView: boolean
+  onCreateItem(): void
+}) {
+  const actionDisabled = props.busy || !props.canEdit || props.isAllView
+  return (
+    <MenuItem onClick={props.onCreateItem} disabled={actionDisabled}>
+      <ListItemIcon><AddRoundedIcon fontSize="small" /></ListItemIcon>
+      <ListItemText>新建</ListItemText>
+    </MenuItem>
   )
 }
 

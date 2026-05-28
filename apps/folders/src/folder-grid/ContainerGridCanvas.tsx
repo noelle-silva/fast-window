@@ -97,6 +97,7 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
             key={item.id}
             className={editor.muuriItemClassName}
             data-entry-key={item.id}
+            data-container-grid-item="true"
             sx={{
               position: 'absolute',
               width: rect.width,

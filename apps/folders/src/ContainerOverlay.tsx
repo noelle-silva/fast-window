@@ -21,6 +21,7 @@ type Props = {
   onItemDragMove?(event: ContainerItemDragEvent): void
   onItemDragStart?(event: ContainerItemDragEvent): void
   onLayoutCommit(patches: ContainerGridPlacement[]): void
+  onBlankContextMenu(container: CollectionContainer, x: number, y: number): void
   onContextMenu(item: CollectionItem, x: number, y: number): void
   onOpenItem(item: CollectionItem): void
   onRemoveItem(item: CollectionItem): void
@@ -50,10 +51,12 @@ export function ContainerOverlay(props: Props): React.ReactNode {
     onDismissContextMenu()
   }
 
-  const dismissPanelContextMenu: React.MouseEventHandler = event => {
+  const openBlankContextMenu: React.MouseEventHandler = event => {
     event.preventDefault()
     event.stopPropagation()
-    onDismissContextMenu()
+    if (!container) throw new Error('container blank context menu missing container')
+    if (isContainerGridItemTarget(event.target)) return
+    props.onBlankContextMenu(container, event.clientX, event.clientY)
   }
 
   React.useEffect(() => {
@@ -201,7 +204,7 @@ export function ContainerOverlay(props: Props): React.ReactNode {
       <ScrollArea
         ref={panelRef}
         onClick={dismissPanelClick}
-        onContextMenu={dismissPanelContextMenu}
+        onContextMenu={openBlankContextMenu}
         sx={{
           alignSelf: 'center',
           justifySelf: 'center',
@@ -241,6 +244,10 @@ export function ContainerOverlay(props: Props): React.ReactNode {
       </ScrollArea>
     </Box>
   )
+}
+
+function isContainerGridItemTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('[data-container-grid-item]'))
 }
 
 function withBoundary(event: ContainerGridDragEvent, panel: HTMLDivElement | null): ContainerItemDragEvent {

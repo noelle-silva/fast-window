@@ -82,9 +82,9 @@ export function createGroupID(): string {
   return `group-${timePart}-${randomPart}`
 }
 
-export function itemTemplate(categoryId: CollectionCategoryId, groupId: string): CollectionItem {
+export function itemTemplate(categoryId: CollectionCategoryId, groupId: string, containerId?: string): CollectionItem {
   const target = categoryId === 'url' ? { kind: 'url' as const, url: '' } : { kind: categoryId, path: '' }
-  return { id: '', name: '', target, groupId, pageOrder: 0, createdAt: '', updatedAt: '', createdAtMs: 0, updatedAtMs: 0 }
+  return { id: '', name: '', target, groupId, containerId, pageOrder: 0, createdAt: '', updatedAt: '', createdAtMs: 0, updatedAtMs: 0 }
 }
 
 export function containerTemplate(): ContainerFormState {

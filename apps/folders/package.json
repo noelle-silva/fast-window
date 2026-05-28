@@ -6,6 +6,7 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
+    "test:item-creation-target": "node --test --import ./scripts/register-layout-tests.mjs scripts/item-creation-target.test.mjs",
     "test:groups": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-membership.test.mjs",
     "test:group-selection": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-selection.test.mjs",
     "test:group-shortcut-navigation": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-shortcut-navigation.test.mjs",

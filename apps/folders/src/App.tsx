@@ -27,6 +27,7 @@ import {
   Dialog,
   Checkbox,
   DialogContent,
+  FormHelperText,
   FormControl,
   IconButton,
   InputAdornment,
@@ -69,6 +70,7 @@ import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/Con
 import { buildAllDesktopGridEntries, buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
 import { rememberGroupSelection, resolveGroupSelection, type GroupSelectionByCategory } from './groupSelection'
+import { assertItemCreationTarget, containerItemCreationTarget, desktopItemCreationTarget, type ItemCreationTarget } from './itemCreationTarget'
 import { useGroupShortcutNavigation } from './useGroupShortcutNavigation'
 import { useWebIconDiscoverySession } from './webIconDiscoverySession'
 import type {
@@ -93,6 +95,7 @@ import type {
   CollectionsHealth,
   CollectionItem,
   AllViewItemCandidate,
+  BlankContextMenuState,
   IconAppearanceCandidate,
   FwLaunchInfo,
   FoldersUiState,
@@ -437,11 +440,23 @@ export function App() {
   }
 
   function openAdd() {
+    openAddFromTarget(() => desktopItemCreationTarget(doc, resolveGroupSelection(doc, groupId)))
+  }
+
+  function openAddInContainer(container: CollectionContainer) {
+    openAddFromTarget(() => containerItemCreationTarget(doc, container))
+  }
+
+  function openAddFromTarget(resolveTarget: () => ItemCreationTarget) {
     if (!activeCategory) return
     cancelWebIconDiscovery()
-    const selectedGroupId = resolveGroupSelection(doc, groupId)
-    setEditing(itemTemplate(activeCategory.id, selectedGroupId))
-    setForm(createEmptyItemForm(selectedGroupId))
+    try {
+      const target = resolveTarget()
+      setEditing(itemTemplate(activeCategory.id, target.groupId, target.containerId))
+      setForm(createEmptyItemForm(target.groupId))
+    } catch (e) {
+      setError(errorMessage(e, '请先创建分组，再添加收藏项'))
+    }
   }
 
   function openEdit(item: CollectionItem) {
@@ -477,13 +492,21 @@ export function App() {
     try {
       let targetGroupId = groupIdForPage(form.groupId)
       const newGroupName = form.newGroupName.trim()
+      if (editing.containerId) {
+        if (newGroupName) { setError('收纳夹内项目跟随收纳夹分组，不能新建分组'); return }
+        try { assertItemCreationTarget(doc, { groupId: targetGroupId, containerId: editing.containerId }) }
+        catch (e) { setError(errorMessage(e, '收纳夹内项目必须属于收纳夹所在分组')); return }
+      }
+      let targetDoc = doc
       if (newGroupName) {
         const newGroupId = createGroupID()
         const afterGroupAdd = await client.request<CategoryWorkspaceView>('collections.groups.add', requestParams({ group: { id: newGroupId, name: newGroupName } }))
         setDoc(afterGroupAdd)
+        targetDoc = afterGroupAdd
         targetGroupId = newGroupId
       }
       if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
+      assertItemCreationTarget(targetDoc, { groupId: targetGroupId, containerId: editing.containerId })
       const now = Date.now()
       const nowText = new Date(now).toISOString()
       const draftIcon = await resolveFormDraftIcon()
@@ -594,6 +617,16 @@ export function App() {
   function openContainerItemContextMenu(container: CollectionContainer | null, item: CollectionItem, x: number, y: number) {
     if (!container) throw new Error(`container context menu missing container for item: ${item.id}`)
     setContextMenu({ kind: 'container-item', container, item, x, y })
+  }
+
+  function openContainerBlankContextMenu(container: CollectionContainer | null, x: number, y: number) {
+    if (!container) throw new Error('container blank context menu missing container')
+    setContextMenu({ kind: 'container-blank', container, x, y })
+  }
+
+  function createItemFromContextMenu(menu: BlankContextMenuState) {
+    if (menu.kind === 'container-blank') openAddInContainer(menu.container)
+    else openAdd()
   }
 
   async function saveDesktopLayouts(patches: DesktopGridLayoutPatch[]) {
@@ -1359,7 +1392,7 @@ export function App() {
         onClose={closeContextMenu}
         onCreateContainer={openAddContainer}
         onCreateGroup={() => openGroupEditor()}
-        onCreateItem={openAdd}
+        onCreateItem={createItemFromContextMenu}
         onOpen={openDesktopEntry}
         onEdit={openEdit}
         onEditContainer={openEditContainer}
@@ -1460,6 +1493,7 @@ export function App() {
         onItemDragMove={handleContainerItemDragMove}
         onItemDragStart={handleContainerItemDragStart}
         onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
+        onBlankContextMenu={(container, x, y) => openContainerBlankContextMenu(container, x, y)}
         onContextMenu={(item, x, y) => openContainerItemContextMenu(containerView, item, x, y)}
         onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
@@ -1482,6 +1516,7 @@ export function App() {
         onItemDragMove={undefined}
         onItemDragStart={undefined}
         onLayoutCommit={patches => containerDropView ? void placeContainerItems(containerDropView.id, null, patches) : undefined}
+        onBlankContextMenu={(container, x, y) => openContainerBlankContextMenu(container, x, y)}
         onContextMenu={(item, x, y) => openContainerItemContextMenu(containerDropView, item, x, y)}
         onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
@@ -1856,6 +1891,7 @@ function ItemDialog(props: {
 }) {
   const open = Boolean(props.editing)
   const targetValue = props.form.target.trim()
+  const targetContainer = props.editing?.containerId ? props.doc.containers.find(container => container.id === props.editing?.containerId) : null
   const canFetchIcon = Boolean(targetValue) && !props.category.validateTarget(targetValue)
   const iconDisabledText = props.category.id === 'url' ? '请先填写有效网址' : '请先填写有效路径'
   return (
@@ -1885,7 +1921,7 @@ function ItemDialog(props: {
             {props.category.pickCommand ? <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickTarget} sx={{ minWidth: 96 }}>选择</Button> : null}
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems="flex-start">
-            <FormControl variant="filled" fullWidth size="small" disabled={props.busy}>
+            <FormControl variant="filled" fullWidth size="small" disabled={props.busy || Boolean(targetContainer)}>
               <InputLabel id="folder-dialog-group-label">所属分类页</InputLabel>
               <Select
                 variant="filled"
@@ -1896,12 +1932,15 @@ function ItemDialog(props: {
               >
                 {props.doc.groups.length ? props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>) : <MenuItem value="" disabled>请先创建分组或填写新分组</MenuItem>}
               </Select>
+              {targetContainer ? <FormHelperText>收纳夹内新建会跟随“{targetContainer.name}”所在分组</FormHelperText> : null}
             </FormControl>
             <TextField
               label="新分组（可选）"
               value={props.form.newGroupName}
               onChange={event => props.onChange({ ...props.form, newGroupName: event.target.value })}
               placeholder="输入新分组名"
+              disabled={Boolean(targetContainer)}
+              helperText={targetContainer ? '收纳夹内项目不能单独新建分组' : undefined}
               fullWidth
             />
           </Stack>
