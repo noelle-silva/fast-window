@@ -8,6 +8,7 @@
     "build:resources": "node scripts/build-resources.mjs",
     "test:groups": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-membership.test.mjs",
     "test:group-selection": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-selection.test.mjs",
+    "test:group-shortcut-navigation": "node --test --import ./scripts/register-layout-tests.mjs scripts/group-shortcut-navigation.test.mjs",
     "test:layout": "node --test --import ./scripts/register-layout-tests.mjs scripts/folder-grid-layout.test.mjs",
     "test:desktop-drag": "node --test --import ./scripts/register-layout-tests.mjs scripts/desktop-drag-state.test.mjs",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
