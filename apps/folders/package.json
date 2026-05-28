@@ -1,7 +1,7 @@
 {
   "name": "@fast-window/app-folders",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
