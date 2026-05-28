@@ -9,7 +9,7 @@ import {
   loadDotEnvIfPresent,
   writeRemoteJsonFile,
 } from './v5-download-store.mjs'
-import { compareSemverStrict, parseSemverStrict, rootDir, run, sha256FileHex } from './v5-app-packaging.mjs'
+import { buildStoreCatalog, compareSemverStrict, parseSemverStrict, rootDir, run, sha256FileHex } from './v5-app-packaging.mjs'
 import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
 import { managedHostTauriBuildEnv } from './host-tauri-build-policy.mjs'
 import { resolveHostPublishTokens } from './host-publish-tokens.mjs'
@@ -131,14 +131,7 @@ function assertHostPublishVersionPolicy(catalog, version, force) {
 }
 
 function upsertHostCatalogEntry(catalog, entry) {
-  return {
-    ...catalog,
-    catalogVersion: 2,
-    generatedAt: new Date().toISOString(),
-    host: entry,
-    apps: Array.isArray(catalog.apps) ? catalog.apps : [],
-    plugins: Array.isArray(catalog.plugins) ? catalog.plugins : [],
-  }
+  return buildStoreCatalog(catalog, { generatedAt: new Date().toISOString(), host: entry })
 }
 
 async function prepareHostPublish(rawOpts) {

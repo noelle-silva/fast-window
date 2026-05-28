@@ -6,9 +6,12 @@ import test from 'node:test'
 import { spawn } from 'node:child_process'
 
 import {
+  buildStoreCatalog,
   buildV5AppPackage,
+  removeStoreApp,
   stageV5AppPackage,
   syncV5AppExecutable,
+  upsertStoreApp,
   v5AppStagePackageDir,
 } from './lib/v5-app-packaging.mjs'
 import { scriptArgs } from './lib/v5-cli-args.mjs'
@@ -196,6 +199,70 @@ test('v5 script args remove pnpm separator', () => {
   assert.deepEqual(
     scriptArgs(['node', 'script.mjs', '--', '--app', 'fake-app', '--no-build']),
     ['--app', 'fake-app', '--no-build']
+  )
+})
+
+function fakeHostCatalogEntry() {
+  return {
+    id: 'fast-window',
+    name: 'Fast Window',
+    version: '1.8.5',
+    platforms: {
+      windows: {
+        installerType: 'msi',
+        downloadUrl: 'https://github.com/noelle-silva/fast-window/releases/download/vhost-1.8.5/fast-window-1.8.5-windows-x64.msi',
+        sha256: 'a'.repeat(64),
+        sizeBytes: 123,
+      },
+    },
+  }
+}
+
+test('store catalog rebuild preserves host metadata when upserting apps', () => {
+  const host = fakeHostCatalogEntry()
+  const catalog = {
+    catalogVersion: 2,
+    generatedAt: '2026-05-01T00:00:00.000Z',
+    host,
+    apps: [{ id: 'z-app', name: 'Z App', description: 'old app', version: '1.0.0', icon: { type: 'data', dataUrl: 'data:image/svg+xml;base64,AA==' }, platforms: { windows: { downloadUrl: 'https://example.com/z.zip', sha256: 'b'.repeat(64) } } }],
+    plugins: [{ id: 'z-plugin', name: 'Z Plugin' }, { id: 'a-plugin', name: 'A Plugin' }],
+  }
+  const next = upsertStoreApp(catalog, {
+    id: 'a-app',
+    name: 'A App',
+    description: 'new app',
+    version: '1.0.0',
+    icon: { type: 'data', dataUrl: 'data:image/svg+xml;base64,AA==' },
+    platforms: { windows: { downloadUrl: 'https://example.com/a.zip', sha256: 'c'.repeat(64) } },
+  }, '2026-05-02T00:00:00.000Z')
+
+  assert.deepEqual(next.host, host)
+  assert.equal(next.generatedAt, '2026-05-02T00:00:00.000Z')
+  assert.deepEqual(next.apps.map(app => app.id), ['a-app', 'z-app'])
+  assert.deepEqual(next.plugins.map(plugin => plugin.id), ['a-plugin', 'z-plugin'])
+})
+
+test('store catalog rebuild preserves host metadata when removing apps', () => {
+  const host = fakeHostCatalogEntry()
+  const { catalog, removed } = removeStoreApp({
+    catalogVersion: 2,
+    host,
+    apps: [
+      { id: 'remove-me', name: 'Remove Me', description: 'old app', version: '1.0.0', icon: { type: 'data', dataUrl: 'data:image/svg+xml;base64,AA==' }, platforms: { windows: { downloadUrl: 'https://example.com/remove.zip', sha256: 'd'.repeat(64) } } },
+      { id: 'keep-me', name: 'Keep Me', description: 'old app', version: '1.0.0', icon: { type: 'data', dataUrl: 'data:image/svg+xml;base64,AA==' }, platforms: { windows: { downloadUrl: 'https://example.com/keep.zip', sha256: 'e'.repeat(64) } } },
+    ],
+    plugins: [],
+  }, 'remove-me', '2026-05-03T00:00:00.000Z')
+
+  assert.equal(removed.id, 'remove-me')
+  assert.deepEqual(catalog.host, host)
+  assert.deepEqual(catalog.apps.map(app => app.id), ['keep-me'])
+})
+
+test('store catalog rebuild rejects invalid host metadata', () => {
+  assert.throws(
+    () => buildStoreCatalog({ catalogVersion: 2, host: { ...fakeHostCatalogEntry(), id: 'other' }, apps: [], plugins: [] }),
+    /catalog\.host\.id 必须是 fast-window/
   )
 })
 
