@@ -16,6 +16,7 @@ import {
 } from './lib/v5-app-packaging.mjs'
 import { scriptArgs } from './lib/v5-cli-args.mjs'
 import { normalizeV5AppPackageManifest } from './lib/v5-app-package-manifest.mjs'
+import { TAURI_CONFIG_ENV } from './lib/tauri-build-env-policy.mjs'
 
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -48,6 +49,9 @@ async function createFakeApp() {
   await fs.writeFile(path.join(appDir, 'build', 'fake.exe'), 'first exe', 'utf8')
   await fs.writeFile(path.join(appDir, 'build', 'assets', 'icon.svg'), '<svg />', 'utf8')
   await fs.writeFile(path.join(appDir, 'version.json'), JSON.stringify({ version: '1.2.3' }), 'utf8')
+  await fs.mkdir(path.join(appDir, 'src-tauri'), { recursive: true })
+  await fs.writeFile(path.join(appDir, 'src-tauri', 'tauri.conf.json'), JSON.stringify({ productName: 'Fake App' }), 'utf8')
+  await fs.writeFile(path.join(appDir, 'src-tauri', 'tauri.conf.dev.json'), JSON.stringify({ productName: 'Fake App Dev' }), 'utf8')
 
   return {
     root,
@@ -83,6 +87,17 @@ async function createFakeApp() {
       commands: [{ id: 'open', title: 'Open' }],
     },
   }
+}
+
+async function createEnvProbeApp(profile = 'release') {
+  const app = await createFakeApp()
+  const probePath = path.join(app.config.appDir, 'build', `${profile}-env.json`)
+  const script = [
+    "const fs = require('node:fs')",
+    `fs.writeFileSync(${JSON.stringify(probePath)}, JSON.stringify({ TAURI_CONFIG: process.env.TAURI_CONFIG || null, FAST_WINDOW_HOST_PROFILE: process.env.FAST_WINDOW_HOST_PROFILE || null, VITE_FAST_WINDOW_HOST_PROFILE: process.env.VITE_FAST_WINDOW_HOST_PROFILE || null }))`,
+  ].join('; ')
+  app.config.profiles[profile].buildCommand = { command: 'node', args: ['-e', script] }
+  return { ...app, probePath }
 }
 
 async function writePackageManifest(appDir, overrides = {}) {
@@ -129,7 +144,7 @@ async function zipEntryNames(zipPath) {
 test('stage keeps container data and replaces only package', async () => {
   const { root, config } = await createFakeApp()
   try {
-    const first = await stageV5AppPackage(config, { noBuild: true })
+    const first = await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
     assert.equal(first.packageDir, v5AppStagePackageDir(first.stageDir))
     assert.equal(first.executablePath, path.join(first.packageDir, 'fake.exe'))
     assert.equal(first.manifestPath, path.join(first.packageDir, 'fw-app.json'))
@@ -139,7 +154,7 @@ test('stage keeps container data and replaces only package', async () => {
     await fs.writeFile(dataFile, 'keep me', 'utf8')
     await fs.writeFile(path.join(config.appDir, 'build', 'fake.exe'), 'second exe', 'utf8')
 
-    await stageV5AppPackage(config, { noBuild: true })
+    await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
 
     assert.equal(await fs.readFile(dataFile, 'utf8'), 'keep me')
     assert.equal(await fs.readFile(path.join(first.packageDir, 'fake.exe'), 'utf8'), 'second exe')
@@ -153,13 +168,13 @@ test('stage keeps container data and replaces only package', async () => {
 test('sync updates executable inside package without touching data', async () => {
   const { root, config } = await createFakeApp()
   try {
-    const staged = await stageV5AppPackage(config, { noBuild: true })
+    const staged = await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
     const dataFile = path.join(staged.stageDir, 'data', 'sentinel.txt')
     await fs.mkdir(path.dirname(dataFile), { recursive: true })
     await fs.writeFile(dataFile, 'keep me', 'utf8')
     await fs.writeFile(path.join(config.appDir, 'build', 'fake.exe'), 'synced exe', 'utf8')
 
-    const synced = await syncV5AppExecutable(config, { noBuild: true })
+    const synced = await syncV5AppExecutable(config, { noBuild: true, validateArtifacts: false })
 
     assert.equal(synced.executablePath, path.join(staged.packageDir, 'fake.exe'))
     assert.equal(await fs.readFile(dataFile, 'utf8'), 'keep me')
@@ -172,7 +187,7 @@ test('sync updates executable inside package without touching data', async () =>
 test('package zip is built from package only and excludes container data', async () => {
   const { root, config } = await createFakeApp()
   try {
-    const staged = await stageV5AppPackage(config, { noBuild: true })
+    const staged = await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
     const dataFile = path.join(staged.stageDir, 'data', 'sentinel.txt')
     await fs.mkdir(path.dirname(dataFile), { recursive: true })
     await fs.writeFile(dataFile, 'do not ship', 'utf8')
@@ -181,6 +196,7 @@ test('package zip is built from package only and excludes container data', async
       noBuild: true,
       outDir: path.join(root, 'out'),
       baseUrl: 'https://example.com/apps',
+      validateArtifacts: false,
     })
     const entries = await zipEntryNames(result.zipPath)
 
@@ -200,6 +216,51 @@ test('v5 script args remove pnpm separator', () => {
     scriptArgs(['node', 'script.mjs', '--', '--app', 'fake-app', '--no-build']),
     ['--app', 'fake-app', '--no-build']
   )
+})
+
+test('v5 app stage build does not inherit host dev tauri config', async () => {
+  const { root, config, probePath } = await createEnvProbeApp('release')
+  try {
+    await stageV5AppPackage(config, {
+      validateArtifacts: false,
+      env: {
+        ...process.env,
+        [TAURI_CONFIG_ENV]: '{"productName":"Fast Window-dev"}',
+        FAST_WINDOW_HOST_PROFILE: 'dev',
+        VITE_FAST_WINDOW_HOST_PROFILE: 'dev',
+      },
+    })
+
+    const captured = JSON.parse(await fs.readFile(probePath, 'utf8'))
+    assert.equal(captured.TAURI_CONFIG, null)
+    assert.equal(captured.FAST_WINDOW_HOST_PROFILE, null)
+    assert.equal(captured.VITE_FAST_WINDOW_HOST_PROFILE, null)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('v5 app sync build does not inherit host dev tauri config', async () => {
+  const { root, config, probePath } = await createEnvProbeApp('release')
+  try {
+    await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
+    await syncV5AppExecutable(config, {
+      validateArtifacts: false,
+      env: {
+        ...process.env,
+        [TAURI_CONFIG_ENV]: '{"productName":"Fast Window-dev"}',
+        FAST_WINDOW_HOST_PROFILE: 'dev',
+        VITE_FAST_WINDOW_HOST_PROFILE: 'dev',
+      },
+    })
+
+    const captured = JSON.parse(await fs.readFile(probePath, 'utf8'))
+    assert.equal(captured.TAURI_CONFIG, null)
+    assert.equal(captured.FAST_WINDOW_HOST_PROFILE, null)
+    assert.equal(captured.VITE_FAST_WINDOW_HOST_PROFILE, null)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
 })
 
 function fakeHostCatalogEntry() {

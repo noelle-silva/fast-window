@@ -15,6 +15,8 @@ import {
   readJson,
   rootDir,
 } from './v5-app-package-manifest.mjs'
+import { isolatedV5AppTauriBuildEnv } from './tauri-build-env-policy.mjs'
+import { validateV5AppWindowsExecutableMetadata } from './v5-app-artifact-validation.mjs'
 
 export { DEFAULT_V5_APP_PROFILE, compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
 
@@ -77,6 +79,15 @@ export function run(command, args, cwd, opts = {}) {
       else reject(new Error(`${command} ${args.join(' ')} failed with exit ${code}`))
     })
   })
+}
+
+function v5AppBuildRunOptions(opts = {}) {
+  return { env: isolatedV5AppTauriBuildEnv(opts.env) }
+}
+
+async function validateV5AppArtifact(config, profileId, executablePath, opts = {}) {
+  if (opts.validateArtifacts === false) return
+  await validateV5AppWindowsExecutableMetadata(config, profileId, executablePath)
 }
 
 export async function sha256FileHex(filePath) {
@@ -286,7 +297,7 @@ async function populateV5AppStageDir(config, profileConfig, packageRoot, version
 export async function stageV5AppPackage(config, opts = {}) {
   const profile = getV5AppProfile(config, opts.profile)
   if (!opts.noBuild) {
-    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir)
+    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir, v5AppBuildRunOptions(opts))
   }
 
   const version = await loadV5AppVersion(config)
@@ -303,13 +314,15 @@ export async function stageV5AppPackage(config, opts = {}) {
   try {
     const manifest = await populateV5AppStageDir(config, profile, tmpDir, version)
     await replaceDirAtomic(tmpDir, packageDir)
+    const executablePath = path.join(packageDir, manifest.windowsExecutable)
+    await validateV5AppArtifact(config, profile.id, executablePath, opts)
     return {
       appId: config.id,
       profile: profile.id,
       version,
       stageDir,
       packageDir,
-      executablePath: path.join(packageDir, manifest.windowsExecutable),
+      executablePath,
       manifestPath: path.join(packageDir, 'fw-app.json'),
       manifest,
     }
@@ -336,7 +349,7 @@ function sameJson(a, b) {
 export async function syncV5AppExecutable(config, opts = {}) {
   const profile = getV5AppProfile(config, opts.profile)
   if (!opts.noBuild) {
-    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir)
+    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir, v5AppBuildRunOptions(opts))
   }
 
   const version = await loadV5AppVersion(config)
@@ -368,6 +381,7 @@ export async function syncV5AppExecutable(config, opts = {}) {
   }
 
   await validateStagedV5App(packageDir, expectedManifest)
+  await validateV5AppArtifact(config, profile.id, dst, opts)
   return {
     appId: config.id,
     profile: profile.id,
@@ -389,6 +403,8 @@ export async function buildV5AppPackage(config, opts) {
     noBuild: opts?.noBuild,
     profile,
     stageDir: opts?.stageDir,
+    validateArtifacts: opts?.validateArtifacts,
+    env: opts?.env,
   })
   const { version } = staged
   const outDir = String(opts?.outDir || DEFAULT_V5_APP_OUT_DIR)
