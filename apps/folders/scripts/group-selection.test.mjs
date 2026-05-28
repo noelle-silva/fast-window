@@ -44,6 +44,12 @@ describe('group selection resolution', () => {
     assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }, { id: 'work', name: '工作' }]), 'default', 'previous'), 'work')
   })
 
+  it('stops adjacent group navigation at workspace edges when requested', () => {
+    assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }, { id: 'work', name: '工作' }]), 'work', 'next', 'stop'), null)
+    assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }, { id: 'work', name: '工作' }]), 'default', 'previous', 'stop'), null)
+    assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }, { id: 'work', name: '工作' }]), 'default', 'next', 'stop'), 'work')
+  })
+
   it('does not invent an adjacent group when the current group is invalid', () => {
     assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }, { id: 'work', name: '工作' }]), 'missing', 'next'), null)
   })
