@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
 import { Box } from '@mui/material'
 import AppBackgroundPanel from '../apps/AppBackgroundPanel'
 import type { RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
-import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
 import HostPageHeader from './HostPageHeader'
 import { hostPageRootSx, hostPageScrollSx, hostSurfaceSx } from './hostUiStyles'
+import { useHostAppearance } from './hostAppearance'
 
 type AppBackgroundPageProps = {
   onBack: () => void
@@ -13,21 +12,15 @@ type AppBackgroundPageProps = {
 }
 
 export default function AppBackgroundPage({ onBack, apps, onUpdateApp }: AppBackgroundPageProps) {
-  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
-
-  useEffect(() => {
-    void getWallpaperSettings().then(setWallpaper)
-  }, [])
-
-  const wallpaperEnabled = wallpaper?.enabled === true
-  const panelSx = hostSurfaceSx(wallpaperEnabled)
+  const hostAppearance = useHostAppearance()
+  const panelSx = hostSurfaceSx(hostAppearance.surfaceMode)
 
   return (
     <Box sx={hostPageRootSx}>
-      <HostPageHeader title="后台管理" onBack={onBack} translucent={wallpaperEnabled} />
+      <HostPageHeader title="后台管理" onBack={onBack} translucent={hostAppearance.glassEnabled} />
       <Box sx={hostPageScrollSx}>
         <Box sx={panelSx}>
-          <AppBackgroundPanel embedded apps={apps} onUpdateApp={onUpdateApp} wallpaperEnabled={wallpaperEnabled} />
+          <AppBackgroundPanel embedded apps={apps} onUpdateApp={onUpdateApp} />
         </Box>
       </Box>
     </Box>

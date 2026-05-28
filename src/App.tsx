@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getVersion as getAppVersion } from '@tauri-apps/api/app'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { usePluginBackendSupervisor } from './plugins/backendSupervisor'
@@ -52,7 +52,7 @@ import {
 } from './apps/listItems'
 import type { AppRegistrationEditRequest, AppStatus, RegisteredApp, RegisteredAppCommand } from './apps/types'
 import { usePlugins } from './usePlugins'
-import { useWallpaper, getWallpaperView } from './useWallpaper'
+import { useWallpaper } from './useWallpaper'
 import { useSearch } from './useSearch'
 import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
@@ -60,6 +60,7 @@ import { APP_TITLE } from './constants'
 import { IS_HOST_DEV_PROFILE } from './hostProfile'
 import { movePluginById } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
+import { HostAppearanceProvider, useHostAppearanceValue } from './components/hostAppearance'
 
 type HostPageId = 'settings' | 'store' | 'appBackground'
 
@@ -156,6 +157,7 @@ function App() {
   // Wallpaper
   const wallpaperCtx = useWallpaper()
   const { wallpaper, switching: wallpaperSwitching, cycle: cycleWallpaper } = wallpaperCtx
+  const hostAppearance = useHostAppearanceValue(wallpaper)
 
   // Keep-alive UI plugins
   const [keepAliveUiPluginIds, setKeepAliveUiPluginIds] = useState<string[]>([])
@@ -855,16 +857,15 @@ function App() {
       : keepAliveUiPluginIds
 
   // Wallpaper
-  const wallpaperUrl =
-    wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
+  const wallpaperUrl = hostAppearance.wallpaperUrl
   const hasWallpaper = !!wallpaperUrl
-  const wallpaperView = getWallpaperView(wallpaper)
+  const wallpaperView = hostAppearance.wallpaperView
   const canSwitchWallpaper = !!(
     wallpaper?.enabled && wallpaper.filePath &&
     Array.isArray(wallpaper.items) && wallpaper.items.length > 1
   )
-  const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
-  const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
+  const titlebarOpacity = hostAppearance.titlebarOpacity
+  const titlebarBlur = hostAppearance.titlebarBlur
   const hostUpdatePrompt = hostUpdateState.kind === 'available' && !hostUpdatePromptDismissed ? hostUpdateState.update : null
 
   const wallpaperLayer = wallpaperUrl ? (
@@ -908,6 +909,13 @@ function App() {
       return (
         <SettingsView
           onBack={closeActiveView}
+          wallpaper={wallpaper}
+          onWallpaperSettingsChange={wallpaperCtx.updateSettings}
+          onWallpaperImageAdd={wallpaperCtx.addImage}
+          onWallpaperImageSelect={wallpaperCtx.selectImage}
+          onWallpaperImageRemove={wallpaperCtx.removeImage}
+          onWallpaperViewChange={wallpaperCtx.updateView}
+          onWallpaperPreviewChange={wallpaperCtx.setWallpaper}
           registeredApps={registeredApps}
           onAddRegisteredApp={addRegisteredApp}
           onReplaceRegisteredApp={replaceRegisteredApp}
@@ -933,6 +941,7 @@ function App() {
   // Loading state
   if (loading) {
     return (
+      <HostAppearanceProvider value={hostAppearance}>
       <Box
         onKeyDown={handleShellKeyDown}
         onKeyDownCapture={blockListShortcutActivationLeak}
@@ -978,10 +987,12 @@ function App() {
         />
         {backgroundHosts}
       </Box>
+      </HostAppearanceProvider>
     )
   }
 
   return (
+    <HostAppearanceProvider value={hostAppearance}>
     <Box
       onKeyDown={handleShellKeyDown}
       onKeyDownCapture={blockListShortcutActivationLeak}
@@ -1179,6 +1190,7 @@ function App() {
       />
       {backgroundHosts}
     </Box>
+    </HostAppearanceProvider>
   )
 }
 

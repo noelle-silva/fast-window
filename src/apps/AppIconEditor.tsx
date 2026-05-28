@@ -2,6 +2,7 @@ import { Avatar, Box, Button, Stack, Typography } from '@mui/material'
 import { isDataImageUrl } from '../utils'
 import type { IconImageSource } from '../iconImageInput'
 import { hostButtonSx, hostSurfaceSx } from '../components/hostUiStyles'
+import { useHostAppearance } from '../components/hostAppearance'
 
 interface AppIconEditorProps {
   name: string
@@ -22,6 +23,7 @@ export default function AppIconEditor({
   onChange,
   onResetDefault,
 }: AppIconEditorProps) {
+  const hostAppearance = useHostAppearance()
   const iconAsImage = isDataImageUrl(icon) ? icon : undefined
   const disabled = saving || changing
 
@@ -37,7 +39,7 @@ export default function AppIconEditor({
       aria-label="主页图标编辑区"
       onPaste={handlePaste}
       sx={theme => ({
-        ...hostSurfaceSx(false, { tone: 'item' })(theme),
+        ...hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })(theme),
         display: 'flex',
         alignItems: { xs: 'stretch', sm: 'center' },
         flexDirection: { xs: 'column', sm: 'row' },

@@ -30,10 +30,10 @@ import { cmpSemver, parseSemverStrict } from '../appStore/semver'
 import { loadRegistry } from '../apps/appRegistry'
 import { pluginStoreInstall } from '../plugins/pluginStore'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
-import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
 import { hostToast } from '../host/hostPrimitives'
 import HostPageHeader from './HostPageHeader'
 import { hostButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
+import { useHostAppearance, type HostSurfaceMode } from './hostAppearance'
 
 type Props = {
   onBack: () => void
@@ -125,7 +125,6 @@ function iconDisplay(icon: string, fallback: string): { src: string; text: strin
 export default function AppStoreView(props: Props) {
   const { onBack } = props
 
-  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const [catalog, setCatalog] = useState<StoreCatalog | null>(null)
   const [localApps, setLocalApps] = useState<Map<string, LocalStoreApp>>(new Map())
   const [localPlugins, setLocalPlugins] = useState<LocalPluginMeta>({ versions: new Map(), icons: new Map() })
@@ -136,12 +135,6 @@ export default function AppStoreView(props: Props) {
   const [busy, setBusy] = useState<BusyState | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const requestSeqRef = useRef(0)
-
-  useEffect(() => {
-    void getWallpaperSettings()
-      .then(v => setWallpaper(v))
-      .catch(() => setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null }))
-  }, [])
 
   useEffect(() => {
     return () => {
@@ -249,15 +242,15 @@ export default function AppStoreView(props: Props) {
     }
   }
 
-  const wallpaperEnabled = wallpaper?.enabled === true
-  const panelSx = hostSurfaceSx(wallpaperEnabled)
+  const hostAppearance = useHostAppearance()
+  const panelSx = hostSurfaceSx(hostAppearance.surfaceMode)
 
   return (
     <Box sx={hostPageRootSx}>
       <HostPageHeader
         title="应用商店"
         onBack={onBack}
-        translucent={wallpaperEnabled}
+        translucent={hostAppearance.glassEnabled}
         action={(
           <IconButton aria-label="刷新" size="small" onClick={() => void refresh()} disabled={loading}>
             <RefreshRoundedIcon fontSize="small" />
@@ -277,7 +270,7 @@ export default function AppStoreView(props: Props) {
                 busy={busy}
                 defaultAppsDir={defaultAppsDir}
                 panelSx={panelSx}
-                wallpaperEnabled={wallpaperEnabled}
+                surfaceMode={hostAppearance.surfaceMode}
                 onAction={(item, action) => setConfirm({ kind: 'app', item, action })}
               />
               <LegacyPluginSection
@@ -285,7 +278,7 @@ export default function AppStoreView(props: Props) {
                 localPlugins={localPlugins}
                 busy={busy}
                 panelSx={panelSx}
-                wallpaperEnabled={wallpaperEnabled}
+                surfaceMode={hostAppearance.surfaceMode}
                 onAction={(item, action) => setConfirm({ kind: 'plugin', item, action })}
               />
             </>
@@ -321,10 +314,10 @@ function StoreAppSection(props: {
   busy: BusyState | null
   defaultAppsDir: string
   panelSx: (theme: any) => any
-  wallpaperEnabled: boolean
+  surfaceMode: HostSurfaceMode
   onAction: (item: StoreAppEntry, action: 'install' | 'update') => void
 }) {
-  const { items, localApps, busy, defaultAppsDir, panelSx, wallpaperEnabled, onAction } = props
+  const { items, localApps, busy, defaultAppsDir, panelSx, surfaceMode, onAction } = props
   return (
     <Box sx={panelSx}>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>v5 应用（{items.length}）</Typography>
@@ -362,7 +355,7 @@ function StoreAppSection(props: {
                 doneText={local ? '已是最新' : '已安装'}
                 busy={busyThis}
                 disabled={!!busy}
-                wallpaperEnabled={wallpaperEnabled}
+                surfaceMode={surfaceMode}
                 onAction={() => action !== 'none' && onAction(item, action)}
               />
             )
@@ -378,10 +371,10 @@ function LegacyPluginSection(props: {
   localPlugins: LocalPluginMeta
   busy: BusyState | null
   panelSx: (theme: any) => any
-  wallpaperEnabled: boolean
+  surfaceMode: HostSurfaceMode
   onAction: (item: LegacyPluginStoreEntry, action: 'install' | 'update') => void
 }) {
-  const { items, localPlugins, busy, panelSx, wallpaperEnabled, onAction } = props
+  const { items, localPlugins, busy, panelSx, surfaceMode, onAction } = props
   return (
     <Box sx={panelSx}>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>Legacy v2 插件（{items.length}）</Typography>
@@ -419,7 +412,7 @@ function LegacyPluginSection(props: {
                 doneText="已是最新"
                 busy={busyThis}
                 disabled={!!busy}
-                wallpaperEnabled={wallpaperEnabled}
+                surfaceMode={surfaceMode}
                 onAction={() => action !== 'none' && onAction(item, action)}
               />
             )
@@ -451,10 +444,10 @@ function StoreListItem(props: {
   doneText: string
   busy: boolean
   disabled: boolean
-  wallpaperEnabled: boolean
+  surfaceMode: HostSurfaceMode
   onAction: () => void
 }) {
-  const { id, name, description, versionText, iconSrc, iconText, badge, action, actionText, doneText, busy, disabled, wallpaperEnabled, onAction } = props
+  const { id, name, description, versionText, iconSrc, iconText, badge, action, actionText, doneText, busy, disabled, surfaceMode, onAction } = props
   return (
     <ListItem
       disableGutters
@@ -466,7 +459,7 @@ function StoreListItem(props: {
         </Button>
       )}
       sx={theme => ({
-        ...hostSurfaceSx(wallpaperEnabled, { tone: 'item' })(theme),
+        ...hostSurfaceSx(surfaceMode, { tone: 'item' })(theme),
         position: 'relative',
         alignItems: 'flex-start',
         height: '100%',

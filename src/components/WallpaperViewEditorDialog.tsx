@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, Stack, Typography } from '@mui/material'
 import type { WallpaperView } from '../wallpaper'
 import { hostButtonSx, hostSurfaceSx } from './hostUiStyles'
+import { useHostAppearance } from './hostAppearance'
 
 function clampNumber(v: number, min: number, max: number) {
   if (!Number.isFinite(v)) return min
@@ -24,6 +25,7 @@ export default function WallpaperViewEditorDialog(props: {
   onClose: () => void
   onSave: (view: WallpaperView) => void
 }) {
+  const hostAppearance = useHostAppearance()
   const { open, imageUrl, targetAspect, initialView, onClose, onSave } = props
   const [view, setView] = useState<WallpaperView>(() => normalizeView(initialView))
   const [dragging, setDragging] = useState(false)
@@ -61,7 +63,7 @@ export default function WallpaperViewEditorDialog(props: {
         <Stack spacing={1.25}>
           <Box
             sx={theme => ({
-              ...hostSurfaceSx(false, { tone: 'item' })(theme),
+              ...hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })(theme),
               display: 'flex',
               justifyContent: 'center',
             })}

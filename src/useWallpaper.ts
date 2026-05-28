@@ -1,17 +1,28 @@
-import { useState, useCallback } from 'react'
-import { cycleWallpaper as cycleWallpaperCmd, DEFAULT_WALLPAPER_VIEW, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
+import { useRef, useState, useCallback } from 'react'
+import {
+  addWallpaperImage,
+  cycleWallpaper as cycleWallpaperCmd,
+  DEFAULT_WALLPAPER_VIEW,
+  getWallpaperSettings,
+  removeWallpaperItem,
+  setActiveWallpaper,
+  setWallpaperSettings,
+  setWallpaperView,
+  type WallpaperSettings,
+} from './wallpaper'
 
 export function useWallpaper() {
   const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const [switching, setSwitching] = useState(false)
-  const switchingRef = { current: false }
+  const switchingRef = useRef(false)
 
   const load = useCallback(async () => {
     try {
       const wp = await getWallpaperSettings()
       setWallpaper(wp)
-    } catch (_) {
-      setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
+    } catch (error) {
+      console.warn('[wallpaper] failed to load settings:', error)
+      setWallpaper(null)
     }
   }, [])
 
@@ -31,7 +42,48 @@ export function useWallpaper() {
     }
   }, [])
 
-  return { wallpaper, switching, load, cycle }
+  const updateSettings = useCallback(async (payload: {
+    enabled: boolean
+    opacity: number
+    blur: number
+    titlebarOpacity?: number
+    titlebarBlur?: number
+  }) => {
+    const next = await setWallpaperSettings(payload)
+    setWallpaper(next)
+    window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    return next
+  }, [])
+
+  const addImage = useCallback(async (dataUrl: string) => {
+    const next = await addWallpaperImage(dataUrl)
+    setWallpaper(next)
+    window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    return next
+  }, [])
+
+  const selectImage = useCallback(async (id: string) => {
+    const next = await setActiveWallpaper(id)
+    setWallpaper(next)
+    window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    return next
+  }, [])
+
+  const removeImage = useCallback(async (id: string) => {
+    const next = await removeWallpaperItem(id)
+    setWallpaper(next)
+    window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    return next
+  }, [])
+
+  const updateView = useCallback(async (payload: { id?: string | null; x: number; y: number; scale: number }) => {
+    const next = await setWallpaperView(payload)
+    setWallpaper(next)
+    window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    return next
+  }, [])
+
+  return { wallpaper, switching, load, cycle, updateSettings, addImage, selectImage, removeImage, updateView, setWallpaper }
 }
 
 export function getWallpaperView(wallpaper: WallpaperSettings | null) {

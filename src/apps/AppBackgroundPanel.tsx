@@ -10,13 +10,13 @@ import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import AppCardView from './AppCardView'
 import { hostToast } from '../host/hostPrimitives'
 import { hostButtonSx, hostDangerButtonSx, hostSurfaceSx } from '../components/hostUiStyles'
+import { useHostAppearance } from '../components/hostAppearance'
 
 interface AppBackgroundPanelProps {
   apps: RegisteredApp[]
   onClose?: () => void
   onUpdateApp: (id: string, patch: RegisteredAppUpdatePatch) => void
   embedded?: boolean
-  wallpaperEnabled?: boolean
 }
 
 function formatDuration(ms: number): string {
@@ -40,7 +40,8 @@ function runningDurationText(status: AppStatus | undefined, now: number): string
   return `已运行 ${formatDuration(now - status.startedAt)}`
 }
 
-export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded, wallpaperEnabled = false }: AppBackgroundPanelProps) {
+export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded }: AppBackgroundPanelProps) {
+  const hostAppearance = useHostAppearance()
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({})
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -139,7 +140,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
             const status = statuses[app.id]
             const durationText = runningDurationText(status, now)
             return (
-              <Box key={app.id} sx={theme => ({ ...hostSurfaceSx(wallpaperEnabled, { tone: 'item' })(theme), mb: 1.25 })}>
+              <Box key={app.id} sx={theme => ({ ...hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })(theme), mb: 1.25 })}>
                 <AppCardView app={app} status={status} showStatus />
                 {durationText ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, mt: -0.5 }}>

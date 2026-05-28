@@ -23,13 +23,7 @@ import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordR
 import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
 import {
-  addWallpaperImage,
   DEFAULT_WALLPAPER_VIEW,
-  getWallpaperSettings,
-  removeWallpaperItem,
-  setActiveWallpaper as setActiveWallpaperCmd,
-  setWallpaperSettings,
-  setWallpaperView,
   type WallpaperView,
   type WallpaperSettings,
 } from '../wallpaper'
@@ -46,6 +40,7 @@ import {
   hostTextFieldSx,
   hostToggleGroupSx,
 } from './hostUiStyles'
+import { useHostAppearance } from './hostAppearance'
 import { hostToast } from '../host/hostPrimitives'
 import { getHostAutoUpdateCheckEnabled, setHostAutoUpdateCheckEnabled } from '../hostUpdate/hostUpdatePreferences'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
@@ -207,6 +202,13 @@ const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
 
 export default function SettingsView(props: {
   onBack: () => void
+  wallpaper: WallpaperSettings | null
+  onWallpaperSettingsChange: (payload: { enabled: boolean; opacity: number; blur: number; titlebarOpacity?: number; titlebarBlur?: number }) => Promise<WallpaperSettings>
+  onWallpaperImageAdd: (dataUrl: string) => Promise<WallpaperSettings>
+  onWallpaperImageSelect: (id: string) => Promise<WallpaperSettings>
+  onWallpaperImageRemove: (id: string) => Promise<WallpaperSettings>
+  onWallpaperViewChange: (payload: { id?: string | null; x: number; y: number; scale: number }) => Promise<WallpaperSettings>
+  onWallpaperPreviewChange: (wallpaper: WallpaperSettings | null) => void
   registeredApps?: RegisteredApp[]
   onAddRegisteredApp?: (app: RegisteredApp) => void
   onReplaceRegisteredApp?: (previousId: string, app: RegisteredApp) => void
@@ -217,6 +219,13 @@ export default function SettingsView(props: {
 }) {
   const {
     onBack,
+    wallpaper,
+    onWallpaperSettingsChange,
+    onWallpaperImageAdd,
+    onWallpaperImageSelect,
+    onWallpaperImageRemove,
+    onWallpaperViewChange,
+    onWallpaperPreviewChange,
     registeredApps = [],
     onAddRegisteredApp = () => {},
     onReplaceRegisteredApp = () => {},
@@ -234,7 +243,6 @@ export default function SettingsView(props: {
   const [recording, setRecording] = useState(false)
   const [webview, setWebview] = useState<WebviewSettings | null>(null)
   const [webviewSaving, setWebviewSaving] = useState(false)
-  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const [wallpaperSaving, setWallpaperSaving] = useState(false)
   const [wallpaperViewOpen, setWallpaperViewOpen] = useState(false)
   const [targetAspect, setTargetAspect] = useState(() => {
@@ -259,11 +267,11 @@ export default function SettingsView(props: {
   const [pluginManageLoading, setPluginManageLoading] = useState(false)
   const [pluginManageSavingId, setPluginManageSavingId] = useState<string>('')
 
-  const wallpaperEnabled = wallpaper?.enabled === true
-  const panelSx = hostSurfaceSx(wallpaperEnabled)
-  const toolbarSx = hostSurfaceSx(wallpaperEnabled, { tone: 'toolbar', dense: true })
-  const itemSx = hostSurfaceSx(wallpaperEnabled, { tone: 'item' })
-  const noticeSx = hostSurfaceSx(wallpaperEnabled, { tone: 'notice', dense: true })
+  const hostAppearance = useHostAppearance()
+  const panelSx = hostSurfaceSx(hostAppearance.surfaceMode)
+  const toolbarSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'toolbar', dense: true })
+  const itemSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })
+  const noticeSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'notice', dense: true })
 
   const wallpaperBaseUrl = useMemo(() => convertFileSrc('wallpaper', 'wallpaper'), [])
   const wallpaperView: WallpaperView = useMemo(() => {
@@ -290,7 +298,7 @@ export default function SettingsView(props: {
 
   useEffect(() => {
     async function load() {
-      const [ver, dir, pdir, cur, st, hostUpdateCheckEnabled, mode, modeShot, wv, wp] = await Promise.all([
+      const [ver, dir, pdir, cur, st, hostUpdateCheckEnabled, mode, modeShot, wv] = await Promise.all([
         getAppVersion().catch(() => ''),
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
@@ -303,7 +311,6 @@ export default function SettingsView(props: {
         invoke<MainWindowFocusMode>('get_main_window_focus_mode').catch(() => 'autoHide' as MainWindowFocusMode),
         invoke<string>('get_main_window_mode_shortcut').catch(() => ''),
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
-        getWallpaperSettings().catch(() => null),
       ])
       setAppVersion(ver)
       setDataDir(dir)
@@ -316,9 +323,6 @@ export default function SettingsView(props: {
       setModeShortcutCurrent(modeShot)
       setModeShortcutInput(modeShot)
       setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
-      setWallpaper(
-        wp || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null, items: [], activeId: null },
-      )
     }
     load()
   }, [])
@@ -340,9 +344,7 @@ export default function SettingsView(props: {
       }
       if (typeof next.titlebarOpacity === 'number') payload.titlebarOpacity = next.titlebarOpacity
       if (typeof next.titlebarBlur === 'number') payload.titlebarBlur = next.titlebarBlur
-      const normalized = await setWallpaperSettings(payload)
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      await onWallpaperSettingsChange(payload)
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
     } finally {
@@ -354,9 +356,7 @@ export default function SettingsView(props: {
     if (!wallpaper?.filePath) return
     setWallpaperSaving(true)
     try {
-      const normalized = await setWallpaperView({ id: wallpaper.activeId || null, x: next.x, y: next.y, scale: next.scale })
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      await onWallpaperViewChange({ id: wallpaper.activeId || null, x: next.x, y: next.y, scale: next.scale })
       toast('已保存取景')
       setWallpaperViewOpen(false)
     } catch (e) {
@@ -377,9 +377,7 @@ export default function SettingsView(props: {
         return
       }
       const dataUrl = await makeWallpaperDataUrl(file, 2560)
-      const normalized = await addWallpaperImage(dataUrl)
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      await onWallpaperImageAdd(dataUrl)
       toast('壁纸已添加')
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
@@ -393,9 +391,7 @@ export default function SettingsView(props: {
     if (!wid) return
     setWallpaperSaving(true)
     try {
-      const normalized = await setActiveWallpaperCmd(wid)
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      await onWallpaperImageSelect(wid)
     } catch (e: any) {
       toast(String(e?.message || e || '切换失败'))
     } finally {
@@ -408,9 +404,7 @@ export default function SettingsView(props: {
     if (!wid) return
     setWallpaperSaving(true)
     try {
-      const normalized = await removeWallpaperItem(wid)
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      await onWallpaperImageRemove(wid)
       toast('已删除壁纸')
     } catch (e: any) {
       toast(String(e?.message || e || '删除失败'))
@@ -775,7 +769,7 @@ export default function SettingsView(props: {
 
   return (
     <Box sx={hostPageRootSx}>
-      <HostPageHeader title="设置" onBack={onBack} translucent={wallpaper?.enabled === true} />
+      <HostPageHeader title="设置" onBack={onBack} translucent={hostAppearance.glassEnabled} />
 
       <Box sx={hostPageScrollSx}>
         <Box sx={toolbarSx}>
@@ -1086,7 +1080,7 @@ export default function SettingsView(props: {
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                   onChange={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
-                    setWallpaper(prev => (prev ? { ...prev, opacity: val / 100 } : prev))
+                    onWallpaperPreviewChange(wallpaper ? { ...wallpaper, opacity: val / 100 } : wallpaper)
                   }}
                   onChangeCommitted={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
@@ -1108,7 +1102,7 @@ export default function SettingsView(props: {
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                   onChange={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
-                    setWallpaper(prev => (prev ? { ...prev, blur: val } : prev))
+                    onWallpaperPreviewChange(wallpaper ? { ...wallpaper, blur: val } : wallpaper)
                   }}
                   onChangeCommitted={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
@@ -1130,7 +1124,7 @@ export default function SettingsView(props: {
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                   onChange={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
-                    setWallpaper(prev => (prev ? { ...prev, titlebarOpacity: val / 100 } : prev))
+                    onWallpaperPreviewChange(wallpaper ? { ...wallpaper, titlebarOpacity: val / 100 } : wallpaper)
                   }}
                   onChangeCommitted={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
@@ -1152,7 +1146,7 @@ export default function SettingsView(props: {
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                   onChange={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0
-                    setWallpaper(prev => (prev ? { ...prev, titlebarBlur: val } : prev))
+                    onWallpaperPreviewChange(wallpaper ? { ...wallpaper, titlebarBlur: val } : wallpaper)
                   }}
                   onChangeCommitted={(_, v) => {
                     const val = typeof v === 'number' ? v : v[0] ?? 0

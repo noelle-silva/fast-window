@@ -1,4 +1,5 @@
 import { alpha, type Theme } from '@mui/material/styles'
+import type { HostSurfaceMode } from './hostAppearance'
 
 export type HostSurfaceSx = (theme: Theme) => object
 
@@ -25,20 +26,32 @@ const SURFACE_PADDING = {
   notice: { px: 1.15, py: 1 },
 } as const satisfies Record<HostSurfaceTone, { px: number; py: number }>
 
-function surfaceBackground(theme: Theme, wallpaperEnabled: boolean, tone: HostSurfaceTone) {
-  if (wallpaperEnabled) {
-    const opacity = tone === 'item' ? 0.52 : tone === 'toolbar' ? 0.58 : 0.64
-    return alpha(theme.palette.background.paper, opacity)
-  }
+const GLASS_SURFACE_OPACITY = {
+  panel: 0.64,
+  toolbar: 0.58,
+  item: 0.52,
+  field: 0.56,
+  notice: 0.6,
+} as const satisfies Record<HostSurfaceTone, number>
 
-  if (tone === 'panel') return alpha(theme.palette.background.paper, 0.94)
-  if (tone === 'toolbar') return alpha(theme.palette.action.hover, 0.7)
-  if (tone === 'field') return alpha(theme.palette.action.hover, 0.72)
-  if (tone === 'notice') return alpha(theme.palette.action.selected, 0.78)
-  return alpha(theme.palette.action.hover, 0.62)
+const SOLID_SURFACE_OPACITY = {
+  panel: 0.035,
+  toolbar: 0.045,
+  item: 0.045,
+  field: 0.055,
+  notice: 0.055,
+} as const satisfies Record<HostSurfaceTone, number>
+
+function hostNeutralTint(theme: Theme, opacity: number) {
+  return alpha(theme.palette.text.primary, opacity)
 }
 
-export function hostSurfaceSx(wallpaperEnabled: boolean, options: HostSurfaceOptions = {}): HostSurfaceSx {
+function surfaceBackground(theme: Theme, surfaceMode: HostSurfaceMode, tone: HostSurfaceTone) {
+  if (surfaceMode === 'glass') return alpha(theme.palette.background.paper, GLASS_SURFACE_OPACITY[tone])
+  return hostNeutralTint(theme, SOLID_SURFACE_OPACITY[tone])
+}
+
+export function hostSurfaceSx(surfaceMode: HostSurfaceMode, options: HostSurfaceOptions = {}): HostSurfaceSx {
   const tone = options.tone ?? 'panel'
   const padding = SURFACE_PADDING[tone]
 
@@ -46,9 +59,9 @@ export function hostSurfaceSx(wallpaperEnabled: boolean, options: HostSurfaceOpt
     borderRadius: SURFACE_RADIUS[tone],
     px: options.dense ? Math.max(0.75, padding.px - 0.25) : padding.px,
     py: options.dense ? Math.max(0.5, padding.py - 0.25) : padding.py,
-    bgcolor: surfaceBackground(theme, wallpaperEnabled, tone),
-    backdropFilter: wallpaperEnabled ? 'blur(12px)' : undefined,
-    boxShadow: wallpaperEnabled
+    bgcolor: surfaceBackground(theme, surfaceMode, tone),
+    backdropFilter: surfaceMode === 'glass' ? 'blur(12px)' : undefined,
+    boxShadow: surfaceMode === 'glass'
       ? `0 12px 34px ${alpha(theme.palette.common.black, 0.07)}`
       : tone === 'panel'
         ? `0 10px 28px ${alpha(theme.palette.common.black, 0.045)}`
@@ -77,9 +90,9 @@ export const hostButtonSx = {
   boxShadow: 'none',
   textTransform: 'none',
   '&.MuiButton-text': {
-    bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.06),
+    bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.06),
     color: 'text.primary',
-    '&:hover': { bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.1) },
+    '&:hover': { bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.1) },
   },
   '&.MuiButton-contained': {
     boxShadow: 'none',
@@ -99,7 +112,7 @@ export const hostDangerButtonSx = {
 export const hostTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: 2.25,
-    bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.055),
+    bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.055),
     '& .MuiOutlinedInput-notchedOutline': { border: 0 },
     '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
     '&.Mui-focused': {
@@ -110,7 +123,7 @@ export const hostTextFieldSx = {
 
 export const hostSelectSx = {
   borderRadius: 2.25,
-  bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.055),
+  bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.055),
   '& .MuiOutlinedInput-notchedOutline': { border: 0 },
   '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
   '&.Mui-focused': {
@@ -125,8 +138,8 @@ export const hostToggleGroupSx = {
     border: 0,
     borderRadius: '999px !important',
     px: 1.25,
-    bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.055),
-    '&:hover': { bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.09) },
+    bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.055),
+    '&:hover': { bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.09) },
     '&.Mui-selected': {
       bgcolor: (theme: Theme) => alpha(theme.palette.primary.main, 0.14),
       color: 'primary.main',
@@ -153,6 +166,6 @@ export const hostTabsSx = {
 
 export const hostSoftChipSx = {
   border: 0,
-  bgcolor: (theme: Theme) => alpha(theme.palette.text.primary, 0.07),
+  bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.07),
   color: 'text.secondary',
 } as const
