@@ -1,9 +1,16 @@
-import type { GroupNavigationDirection } from './groupSelection'
+import type { SelectionNavigationDirection } from './selectionNavigation'
 
 const WHEEL_DELTA_LINE = 1
 const WHEEL_DELTA_PAGE = 2
 const WHEEL_NAVIGATION_THRESHOLD_PX = 80
 const WHEEL_GESTURE_RESET_MS = 250
+
+export type ShortcutNavigationScope = 'group' | 'category'
+
+export type ShortcutNavigationCommand = {
+  scope: ShortcutNavigationScope
+  direction: SelectionNavigationDirection
+}
 
 export type GroupShortcutWheelGesture = {
   accumulatedDeltaY: number
@@ -17,16 +24,18 @@ export type GroupShortcutWheelInput = {
 
 export type GroupShortcutWheelResolution = {
   gesture: GroupShortcutWheelGesture
-  direction: GroupNavigationDirection | null
+  direction: SelectionNavigationDirection | null
 }
 
 export function emptyGroupShortcutWheelGesture(): GroupShortcutWheelGesture {
   return { accumulatedDeltaY: 0, lastEventAt: 0 }
 }
 
-export function resolveGroupShortcutArrowDirection(key: string): GroupNavigationDirection | null {
-  if (key === 'ArrowUp') return 'previous'
-  if (key === 'ArrowDown') return 'next'
+export function resolveShortcutKeyNavigationCommand(key: string): ShortcutNavigationCommand | null {
+  if (key === 'ArrowUp') return { scope: 'group', direction: 'previous' }
+  if (key === 'ArrowDown') return { scope: 'group', direction: 'next' }
+  if (key === 'ArrowLeft') return { scope: 'category', direction: 'previous' }
+  if (key === 'ArrowRight') return { scope: 'category', direction: 'next' }
   return null
 }
 

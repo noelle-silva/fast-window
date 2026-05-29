@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
+import { resolveAdjacentCategoryId } from '../src/categorySelection.ts'
 import { rememberGroupSelection, resolveAdjacentGroupId, resolveGroupSelection } from '../src/groupSelection.ts'
 
 function workspace(groups) {
@@ -57,5 +58,15 @@ describe('group selection resolution', () => {
   it('does not navigate when there is no real adjacent group', () => {
     assert.equal(resolveAdjacentGroupId(workspace([{ id: 'default', name: '默认' }]), 'default', 'next'), null)
     assert.equal(resolveAdjacentGroupId(workspace([]), 'default', 'previous'), null)
+  })
+
+  it('resolves adjacent categories and stops at category edges when requested', () => {
+    const categoryOrder = ['all', 'folder', 'url', 'file']
+
+    assert.equal(resolveAdjacentCategoryId(categoryOrder, 'folder', 'previous'), 'all')
+    assert.equal(resolveAdjacentCategoryId(categoryOrder, 'file', 'next'), 'all')
+    assert.equal(resolveAdjacentCategoryId(categoryOrder, 'url', 'next', 'stop'), 'file')
+    assert.equal(resolveAdjacentCategoryId(categoryOrder, 'file', 'next', 'stop'), null)
+    assert.equal(resolveAdjacentCategoryId(categoryOrder, 'all', 'previous', 'stop'), null)
   })
 })

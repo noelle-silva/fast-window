@@ -1,13 +1,15 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
-import { advanceGroupShortcutWheelGesture, emptyGroupShortcutWheelGesture, normalizeGroupShortcutWheelDeltaY, resolveGroupShortcutArrowDirection } from '../src/groupShortcutNavigation.ts'
+import { advanceGroupShortcutWheelGesture, emptyGroupShortcutWheelGesture, normalizeGroupShortcutWheelDeltaY, resolveShortcutKeyNavigationCommand } from '../src/shortcutNavigation.ts'
 
 describe('group shortcut navigation gestures', () => {
-  it('maps vertical arrow keys to group navigation directions', () => {
-    assert.equal(resolveGroupShortcutArrowDirection('ArrowUp'), 'previous')
-    assert.equal(resolveGroupShortcutArrowDirection('ArrowDown'), 'next')
-    assert.equal(resolveGroupShortcutArrowDirection('ArrowLeft'), null)
+  it('maps arrow keys to collection navigation commands', () => {
+    assert.deepEqual(resolveShortcutKeyNavigationCommand('ArrowUp'), { scope: 'group', direction: 'previous' })
+    assert.deepEqual(resolveShortcutKeyNavigationCommand('ArrowDown'), { scope: 'group', direction: 'next' })
+    assert.deepEqual(resolveShortcutKeyNavigationCommand('ArrowLeft'), { scope: 'category', direction: 'previous' })
+    assert.deepEqual(resolveShortcutKeyNavigationCommand('ArrowRight'), { scope: 'category', direction: 'next' })
+    assert.equal(resolveShortcutKeyNavigationCommand('Enter'), null)
   })
 
   it('normalizes wheel delta units to pixels', () => {

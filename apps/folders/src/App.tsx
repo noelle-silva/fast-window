@@ -71,7 +71,7 @@ import { buildAllDesktopGridEntries, buildDesktopGridEntries, filterDesktopGridE
 import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
 import { rememberGroupSelection, resolveGroupSelection, type GroupSelectionByCategory } from './groupSelection'
 import { assertItemCreationTarget, containerItemCreationTarget, desktopItemCreationTarget, type ItemCreationTarget } from './itemCreationTarget'
-import { useGroupShortcutNavigation } from './useGroupShortcutNavigation'
+import { useCollectionShortcutNavigation } from './useCollectionShortcutNavigation'
 import { useWebIconDiscoverySession } from './webIconDiscoverySession'
 import type {
   ConfirmState,
@@ -301,10 +301,13 @@ export function App() {
     })
   }, [activeCategoryId, client, groupId, groupIdByCategory, loadCategory, saveUIState, uiStateFromSelection])
 
-  useGroupShortcutNavigation({
-    enabled: !isAllView,
+  useCollectionShortcutNavigation({
+    enabled: phase === 'ready',
+    groupNavigationEnabled: !isAllView,
     workspace: doc,
+    activeCategoryId,
     groupId,
+    onSelectCategory: selectCategory,
     onSelectGroup: selectGroup,
   })
 
