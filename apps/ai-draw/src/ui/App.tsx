@@ -63,7 +63,7 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawGateway } from '../gateway/types'
-import { createAiDrawController, type AiDrawImageImportTarget } from '../controller/createController'
+import { createAiDrawController } from '../controller/createController'
 import { DEFAULT_REQUEST_TIMEOUT_SEC, MIN_REQUEST_TIMEOUT_SEC, UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, resolveModel, type AiDrawProvider, type UiMode } from '../core/schema'
 import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 import { createClaudeTheme } from './theme'
@@ -90,6 +90,48 @@ type LightboxState =
 
 type SettingsTab = 'provider' | 'draw'
 export type AiDrawRuntimeCommand = { id: string; seq: number }
+
+function isImageFile(file: File) {
+  const type = String((file as any)?.type || '').toLowerCase()
+  const name = String((file as any)?.name || '').toLowerCase()
+  return type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/.test(name)
+}
+
+function getClipboardImageFiles(data: DataTransfer | null | undefined) {
+  const out: File[] = []
+  const seen = new Set<string>()
+  const push = (file: File | null | undefined) => {
+    if (!file || !isImageFile(file)) return
+    const key = [file.name || '', file.type || '', file.size || 0, file.lastModified || 0].join('\u0000')
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(file)
+  }
+
+  for (const file of data?.files ? Array.from(data.files) : []) push(file)
+  if (out.length) return out
+
+  for (const item of data?.items ? Array.from(data.items) : []) {
+    if (!item || item.kind !== 'file') continue
+    const type = String(item.type || '')
+    if (type && !type.startsWith('image/')) continue
+    push(item.getAsFile?.())
+    if (out.length) break
+  }
+  return out
+}
+
+function clipboardDataMayContainImage(data: DataTransfer | null | undefined) {
+  if (!data) return true
+  if (getClipboardImageFiles(data).length) return true
+  return (data.types ? Array.from(data.types) : []).some((type) => String(type || '').toLowerCase().startsWith('image/'))
+}
+
+function isEditablePasteTarget(target: EventTarget | null) {
+  const el = target as HTMLElement | null
+  if (!el || typeof el.closest !== 'function') return false
+  return !!el.closest('input, textarea, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')
+}
 
 function useAiDrawController(gateway: AiDrawGateway) {
   const controller = React.useMemo(() => createAiDrawController(gateway), [gateway])
@@ -964,21 +1006,45 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
     controller.setBatchCount(String(clampBatch(base + delta)))
   }
 
+  const getActiveRefLibraryFolderId = React.useCallback(() => {
+    if (refActiveView.kind !== 'folder') return ''
+    return String(refActiveView.folderId || '').trim()
+  }, [refActiveView])
+
+  const importClipboardToRefLibrary = React.useCallback(
+    (event: ClipboardEvent | React.ClipboardEvent) => {
+      if (event.defaultPrevented) return false
+      if (!refLibraryOpen || state.refLibrary.busy) return false
+      if (isEditablePasteTarget(event.target)) return false
+      const files = getClipboardImageFiles(event.clipboardData)
+      if (files.length) {
+        event.preventDefault()
+        void controller.importRefLibraryImagesFromFiles(files, getActiveRefLibraryFolderId())
+        return true
+      }
+      if (!clipboardDataMayContainImage(event.clipboardData)) return false
+      event.preventDefault()
+      void controller.importClipboardImageToRefLibrary(getActiveRefLibraryFolderId())
+      return true
+    },
+    [controller, getActiveRefLibraryFolderId, refLibraryOpen, state.refLibrary.busy],
+  )
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    const handlePaste = (event: ClipboardEvent) => {
+      importClipboardToRefLibrary(event)
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [importClipboardToRefLibrary, refLibraryOpen])
+
   const onPaste = (e: React.ClipboardEvent) => {
     if (state.loading || state.submitting) return
-    const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : []
-    const files: File[] = []
-    for (const it of items) {
-      if (!it || it.kind !== 'file') continue
-      const type = String(it.type || '')
-      if (!type.startsWith('image/')) continue
-      const f = it.getAsFile?.()
-      if (f) files.push(f)
-    }
+    const files = getClipboardImageFiles(e.clipboardData)
     if (!files.length) return
     e.preventDefault()
-    const target: AiDrawImageImportTarget = 'reference'
-    void controller.importImagesFromFiles(files, target)
+    void controller.importImagesFromFiles(files, 'reference')
   }
 
   return (
@@ -2893,11 +2959,12 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
             <Button
               size="small"
               variant="contained"
-              onClick={() => void controller.importRefLibraryFromPicker()}
+              onClick={() => void controller.importRefLibraryFromPicker(getActiveRefLibraryFolderId())}
               disabled={state.refLibrary.busy}
             >
-              导入图片到参考库
+              {refActiveView.kind === 'folder' ? '导入到当前收藏夹' : '导入图片到参考库'}
             </Button>
+            <Chip size="small" variant="outlined" label="Ctrl+V 粘贴图片" />
             <Box sx={{ flex: 1 }} />
             <Button
               size="small"
@@ -3216,7 +3283,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                         ? refActiveView.kind === 'folder'
                           ? '当前收藏夹为空。先点左侧“全部”，在图片菜单里把图片收藏进来。'
                           : '暂无图片。'
-                        : '参考库为空。你可以点上面的“导入图片到参考库”。'}
+                        : '参考库为空。你可以点上面的“导入图片到参考库”，也可以直接 Ctrl+V 粘贴图片。'}
                       </Typography>
                     )}
 

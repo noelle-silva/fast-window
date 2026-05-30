@@ -53,6 +53,7 @@ import {
 
 const MAX_BATCH_COUNT = 20
 const MAX_REF_IMAGES = 8
+const MAX_REF_LIBRARY_IMPORT_COUNT = 12
 const REF_SHRINK_MAX_DIMENSION = 960
 const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
 
@@ -138,7 +139,9 @@ export type AiDrawController = {
   clearRefImages: () => void
   refreshRefLibrary: () => Promise<void>
   ensureRefLibraryItemLoaded: (path: string) => void
-  importRefLibraryFromPicker: () => Promise<void>
+  importRefLibraryFromPicker: (folderId?: string) => Promise<void>
+  importRefLibraryImagesFromFiles: (files: File[], folderId?: string) => Promise<void>
+  importClipboardImageToRefLibrary: (folderId?: string) => Promise<void>
   deleteRefLibraryItem: (path: string) => Promise<void>
   deleteRefLibraryItems: (paths: string[]) => Promise<void>
   addRefImageFromLibrary: (path: string) => Promise<void>
@@ -250,7 +253,7 @@ function getRefItemFolderIdsFromIndex(index: RefLibraryIndexV1, path: string) {
   return Array.isArray(raw) ? raw.map((x) => String(x || '').trim()).filter(Boolean) : []
 }
 
-function normalizeOutputImagePaths(paths: string[]) {
+function normalizeImagePaths(paths: string[]) {
   const raw = Array.isArray(paths) ? paths : []
   const uniq: string[] = []
   for (const x of raw) {
@@ -1420,6 +1423,18 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     if (ok) host.toast('已粘贴为底图')
   }
 
+  async function runRefLibraryImport(task: () => Promise<boolean>) {
+    if (state.refLibrary.busy) return false
+    state.refLibrary.busy = true
+    notify()
+    try {
+      return await task()
+    } finally {
+      state.refLibrary.busy = false
+      notify()
+    }
+  }
+
   function normalizeImportableImage(image: ImportableImage): PickedImage | null {
     const raw =
       typeof image?.dataUrl === 'string'
@@ -1552,47 +1567,115 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       })
   }
 
-  async function importRefLibraryFromPicker() {
-    if (state.refLibrary.busy) return
-    state.refLibrary.busy = true
-    notify()
-    try {
-      const picked = await referenceImages.pick(12).catch((e: any) => {
+  function getRefLibraryImportFolderId(folderId?: string) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return ''
+    const d = ensureRefLibraryIndexData()
+    return d.folders.some((f) => f.id === fid) ? fid : ''
+  }
+
+  async function addRefLibraryPathsToFolder(paths: string[], folderId?: string) {
+    const fid = getRefLibraryImportFolderId(folderId)
+    if (!fid) return false
+    const d = ensureRefLibraryIndexData()
+    const uniq = normalizeImagePaths(paths)
+    if (!uniq.length) return false
+
+    let changed = false
+    for (const p of uniq) {
+      const cur = getRefItemFolderIdsFromIndex(d, p)
+      if (cur.includes(fid)) continue
+      d.folderIdsByPath[p] = cur.concat([fid]).slice(0, 50)
+      changed = true
+    }
+    if (!changed) return false
+
+    const existingOrder = getOrderedRefFolderPaths(d, fid)
+    d.folderItemOrderByFolderId[fid] = uniq.concat(existingOrder.filter((p) => !uniq.includes(p)))
+    await saveRefLibraryIndex().catch(() => {})
+    return true
+  }
+
+  async function saveImportableImagesToRefLibrary(images: ImportableImage[], options?: { folderId?: string; emptyMessage?: string }) {
+    const normalized = (Array.isArray(images) ? images : []).map(normalizeImportableImage).filter(Boolean) as PickedImage[]
+    if (!normalized.length) {
+      if (options?.emptyMessage) host.toast(options.emptyMessage)
+      return false
+    }
+
+    const folderId = getRefLibraryImportFolderId(options?.folderId)
+    const list = normalized.slice(0, MAX_REF_LIBRARY_IMPORT_COUNT)
+    const truncated = Math.max(0, normalized.length - list.length)
+    const savedPaths: string[] = []
+    let ok = 0
+    let failed = 0
+    let firstError = ''
+
+    for (const image of list) {
+      try {
+        const savedPath = await referenceImages.saveBase64(image.dataUrl)
+        if (savedPath) {
+          ok++
+          savedPaths.push(savedPath)
+          state.refLibrary.itemsByPath[savedPath] = { dataUrl: image.dataUrl, loading: false, error: '' }
+        } else {
+          failed++
+        }
+      } catch (e: any) {
+        failed++
+        if (!firstError) firstError = String(e?.message || e || 'unknown')
+      }
+    }
+
+    if (savedPaths.length) await addRefLibraryPathsToFolder(savedPaths, folderId)
+
+    const importedText = folderId ? `已导入 ${ok} 张并收藏到当前收藏夹` : `已导入 ${ok} 张到参考图库`
+    const limitText = truncated ? `（单次最多 ${MAX_REF_LIBRARY_IMPORT_COUNT} 张）` : ''
+    if (ok && failed) host.toast(`${importedText}，失败 ${failed} 张${firstError ? `：${firstError}` : ''}${limitText}`)
+    else if (ok) host.toast(`${importedText}${limitText}`)
+    else if (failed) host.toast(`导入失败：${firstError || '请稍后重试'}`)
+
+    await refreshRefLibrary()
+    return ok > 0
+  }
+
+  async function importRefLibraryFromPicker(folderId?: string) {
+    await runRefLibraryImport(async () => {
+      const picked = await referenceImages.pick(MAX_REF_LIBRARY_IMPORT_COUNT).catch((e: any) => {
         host.toast(`选择图片失败：${String(e?.message || e)}`)
         return []
       })
-      const list = Array.isArray(picked) ? picked : []
-      let ok = 0
-      let failed = 0
-      let firstError = ''
-      for (const it of list) {
-        const raw =
-          typeof (it as any)?.dataUrl === 'string'
-            ? (it as any).dataUrl
-            : typeof (it as any)?.data_url === 'string'
-              ? (it as any).data_url
-              : typeof (it as any)?.base64 === 'string'
-                ? (it as any).base64
-                : ''
-        const u = normalizeImageDataUrlOrBase64(raw)
-        if (!u.startsWith('data:image/')) continue
+      return saveImportableImagesToRefLibrary(Array.isArray(picked) ? picked : [], { folderId })
+    })
+  }
+
+  async function importRefLibraryImagesFromFiles(files: File[], folderId?: string) {
+    await runRefLibraryImport(async () => {
+      const list = Array.isArray(files) ? files.slice(0, MAX_REF_LIBRARY_IMPORT_COUNT) : []
+      const out: ImportableImage[] = []
+      for (const f of list) {
+        const type = String((f as any)?.type || '')
+        if (type && !type.startsWith('image/')) continue
         try {
-          const savedPath = await referenceImages.saveBase64(u)
-          if (savedPath) ok++
-          else failed++
-        } catch (e: any) {
-          failed++
-          if (!firstError) firstError = String(e?.message || e || 'unknown')
-        }
+          const dataUrl = await readFileAsDataUrl(f)
+          out.push({ name: String(f?.name || '图片'), dataUrl })
+        } catch (_) {}
       }
-      if (ok && failed) host.toast(`已导入 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
-      else if (ok) host.toast(`已导入 ${ok} 张到参考图库`)
-      else if (failed) host.toast(`导入失败：${firstError || '请稍后重试'}`)
-      await refreshRefLibrary()
-    } finally {
-      state.refLibrary.busy = false
-      notify()
-    }
+      return saveImportableImagesToRefLibrary(out, { folderId, emptyMessage: '未识别到图片' })
+    })
+  }
+
+  async function importClipboardImageToRefLibrary(folderId?: string) {
+    await runRefLibraryImport(async () => {
+      let image: ImportableImage | null = null
+      try {
+        image = await clipboard.readImage()
+      } catch (e: any) {
+        host.toast(`读取剪贴板图片失败：${String(e?.message || e)}`)
+        return false
+      }
+      return saveImportableImagesToRefLibrary(image ? [image] : [], { folderId, emptyMessage: '剪贴板里没有图片' })
+    })
   }
 
   async function deleteRefLibraryItem(path: string) {
@@ -1711,7 +1794,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   }
 
   async function exportOutputImages(paths: string[]) {
-    const uniq = normalizeOutputImagePaths(paths)
+    const uniq = normalizeImagePaths(paths)
     if (!uniq.length) return
 
     const targetDir = await outputImages.pickExportDir().catch((e: any) => {
@@ -1784,7 +1867,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   }
 
   async function deleteOutputImages(paths: string[]) {
-    const uniq = normalizeOutputImagePaths(paths)
+    const uniq = normalizeImagePaths(paths)
     if (!uniq.length) return
 
     const currentPath = String(state.savedPath || '').trim()
@@ -2219,6 +2302,8 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     refreshRefLibrary,
     ensureRefLibraryItemLoaded,
     importRefLibraryFromPicker,
+    importRefLibraryImagesFromFiles,
+    importClipboardImageToRefLibrary,
     deleteRefLibraryItem,
     deleteRefLibraryItems,
     addRefImageFromLibrary,
