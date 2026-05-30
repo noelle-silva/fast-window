@@ -3,6 +3,8 @@ import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
 import { emptyIconAppearanceState, iconAppearanceStateForItem } from './iconAppearanceModel'
 import { ALL_VIEW_CATEGORY_ID, DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
 
+export { deriveNameFromTarget } from './targetNaming'
+
 export const DEFAULT_GROUP_ID = 'default'
 export const DEFAULT_DATA_CATEGORY_ID: CollectionCategoryId = 'folder'
 export const DEFAULT_VIEW_CATEGORY_ID: CollectionViewCategoryId = ALL_VIEW_CATEGORY_ID
@@ -58,18 +60,6 @@ export function errorMessage(error: unknown, fallback: string): string {
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest('button,input,select,textarea,a,[role="button"],[role="combobox"],[role="listbox"],[role="option"],[data-window-control]'))
-}
-
-export function deriveNameFromTarget(target: string): string {
-  const trimmed = target.trim()
-  if (!trimmed) return ''
-  try {
-    const url = new URL(trimmed)
-    return url.hostname || trimmed
-  } catch {
-    const parts = trimmed.replace(/\\/g, '/').split('/').filter(Boolean)
-    return parts[parts.length - 1] || trimmed
-  }
 }
 
 export function createID(): string {

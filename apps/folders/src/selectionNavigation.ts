@@ -1,11 +1,11 @@
 export type SelectionNavigationDirection = 'previous' | 'next'
 export type SelectionNavigationBoundary = 'wrap' | 'stop'
 
-export function resolveAdjacentSelectionId<T extends string>(ids: T[], currentId: T, direction: SelectionNavigationDirection, boundary: SelectionNavigationBoundary = 'wrap'): T | null {
+export function resolveAdjacentSelectionId<T extends string>(ids: T[], currentId: string, direction: SelectionNavigationDirection, boundary: SelectionNavigationBoundary = 'wrap'): T | null {
   const current = currentId.trim()
   if (ids.length < 2 || !current) return null
 
-  const currentIndex = ids.indexOf(current)
+  const currentIndex = ids.findIndex(id => id === current)
   if (currentIndex < 0) return null
 
   if (boundary === 'stop') {

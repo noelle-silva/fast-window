@@ -7,6 +7,7 @@ mod control_server;
 mod data_dir;
 mod fw_window;
 mod native_dialog;
+mod path_target;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
@@ -166,6 +167,7 @@ fn main() {
             pick_image_path,
             restart_backend,
             hide_to_tray,
+            path_target::inspect_path_target,
             system_icon::system_icon_data_url,
             app_ready,
             fw_initial_command,

@@ -36,6 +36,7 @@ import {
   Paper,
   Select,
   Slider,
+  Snackbar,
   Stack,
   TextField,
   Tooltip,
@@ -47,6 +48,7 @@ import {
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
 import { ALL_VIEW_CATEGORY_ID, categoryDefinition, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
+import { parseClipboardTextTarget, resolvedClipboardTargetFromPathInspection, type ClipboardPathInspection, type ResolvedClipboardTextTarget } from './clipboardTextTarget'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
@@ -108,6 +110,7 @@ import type {
 type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
 type CategoryWallpaperEntry = DesktopWallpaperDeck['categories'][number]
 type AllViewSelectionState = Record<string, boolean>
+type ToastState = { key: number; message: string; severity: 'success' | 'info' | 'warning' | 'error' } | null
 import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalItemDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
@@ -177,6 +180,7 @@ export function App() {
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [toast, setToast] = React.useState<ToastState>(null)
   const [search, setSearch] = React.useState('')
   const [groupId, setGroupId] = React.useState(resolveGroupSelection(DEFAULT_WORKSPACE_VIEW, DEFAULT_GROUP_ID))
   const [groupIdByCategory, setGroupIdByCategory] = React.useState<GroupSelectionByCategory>({})
@@ -212,6 +216,10 @@ export function App() {
   const activeCategory = activeCategoryId === ALL_VIEW_CATEGORY_ID ? null : categoryDefinition(activeCategoryId)
   const isAllView = activeCategoryId === ALL_VIEW_CATEGORY_ID
   const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
+  const requestParamsForCategory = React.useCallback((categoryId: CollectionCategoryId, params?: Record<string, unknown>) => ({ categoryId, ...(params || {}) }), [])
+  const showToast = React.useCallback((message: string, severity: NonNullable<ToastState>['severity'] = 'info') => {
+    setToast({ key: Date.now(), message, severity })
+  }, [])
 
   const cancelWebIconDiscovery = React.useCallback(() => {
     webIconAutoSelectRef.current = false
@@ -420,6 +428,19 @@ export function App() {
     return () => window.removeEventListener('paste', onPaste)
   }, [client, editing])
   React.useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented || phase !== 'ready' || busy || !client) return
+      if (editing || settingsOpen || groupEditorOpen || containerEditorOpen || allViewSelectorOpen || confirm || containerView || containerDropView || desktopDrag || containerExtractDrag) return
+      if (isInteractiveTarget(event.target)) return
+      const text = event.clipboardData?.getData('text/plain') || ''
+      if (!text.trim()) return
+      event.preventDefault()
+      void createItemFromClipboardText(text)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [activeCategoryId, allViewSelectorOpen, busy, cancelWebIconDiscovery, client, confirm, containerDropView, containerEditorOpen, containerExtractDrag, containerView, desktopDrag, doc, editing, groupEditorOpen, groupId, groupIdByCategory, phase, requestParamsForCategory, saveUIState, settingsOpen, showToast, uiStateFromSelection, updateWallpaperDeckCategory])
+  React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
     window.addEventListener('scroll', close, true)
@@ -525,6 +546,107 @@ export function App() {
       setDoc(nextDoc); setEditing(null)
       if (newGroupName) selectResolvedGroup(targetGroupId)
     } catch (e) { setError(errorMessage(e, `保存${activeCategory.singularLabel}失败`)) } finally { setBusy(false) }
+  }
+
+  async function createItemFromClipboardText(text: string) {
+    if (!client) return
+    const parsed = parseClipboardTextTarget(text)
+    if (!parsed) {
+      showToast('不支持此粘贴内容：仅支持 http/https 网址、真实文件夹路径、真实文件路径', 'warning')
+      return
+    }
+
+    setBusy(true); setError(null); setContextMenu(null)
+    try {
+      const resolved = parsed.kind === 'path'
+        ? resolvedClipboardTargetFromPathInspection(await invoke<ClipboardPathInspection>('inspect_path_target', { path: parsed.target }))
+        : parsed
+      const created = await createResolvedClipboardItem(resolved)
+      const iconResult = await autoApplyClipboardItemIcon(created.categoryId, created.itemId, resolved)
+      if (iconResult.doc) setDoc(iconResult.doc)
+      const warnings = [...created.warnings, ...(iconResult.warning ? [iconResult.warning] : [])]
+      const itemLabel = categoryDefinition(resolved.categoryId).singularLabel
+      showToast(
+        warnings.length ? `已创建${itemLabel}：${resolved.name}；${warnings.join('；')}` : `已创建${itemLabel}并应用图标：${resolved.name}`,
+        warnings.length ? 'warning' : 'success',
+      )
+    } catch (e) {
+      showToast(errorMessage(e, '粘贴内容不支持创建图标'), 'warning')
+    } finally { setBusy(false) }
+  }
+
+  async function createResolvedClipboardItem(target: ResolvedClipboardTextTarget): Promise<{ categoryId: CollectionCategoryId; itemId: string; warnings: string[] }> {
+    if (!client) throw new Error('后台未连接，无法创建图标')
+    const category = categoryDefinition(target.categoryId)
+    const targetError = category.validateTarget(target.target)
+    if (targetError) throw new Error(targetError)
+
+    const targetDoc = activeCategoryId === target.categoryId
+      ? doc
+      : await client.request<CategoryWorkspaceView>('collections.category.get', requestParamsForCategory(target.categoryId))
+    const selectionSnapshot = rememberGroupSelection(groupIdByCategory, activeCategoryId, groupId)
+    const targetGroupId = resolveGroupSelection(targetDoc, selectionSnapshot[target.categoryId] ?? DEFAULT_GROUP_ID)
+    if (!targetGroupId) throw new Error(`请先创建${category.label}分组，再粘贴创建图标`)
+
+    const now = Date.now()
+    const itemId = createID()
+    const item: CollectionItemFormPayload = {
+      id: itemId,
+      name: target.name.trim() || deriveNameFromTarget(target.target),
+      target: category.buildTarget(target.target),
+      groupId: targetGroupId,
+      pageOrder: 0,
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+      createdAtMs: now,
+      updatedAtMs: now,
+      icon: null,
+    }
+    const nextDoc = await client.request<CategoryWorkspaceView>('collections.items.add', requestParamsForCategory(target.categoryId, { item }))
+    const nextSelections = rememberGroupSelection(selectionSnapshot, target.categoryId, targetGroupId)
+
+    setActiveCategoryId(target.categoryId)
+    setGroupIdByCategory(nextSelections)
+    setGroupId(targetGroupId)
+    setDoc(nextDoc)
+    updateWallpaperDeckCategory(nextDoc)
+    setSearch('')
+    setEditing(null)
+    setContainerView(null)
+    setContainerDropViewState(null)
+    cancelWebIconDiscovery()
+    const warnings: string[] = []
+    try {
+      await saveUIState(uiStateFromSelection(target.categoryId, nextSelections))
+    } catch (e) {
+      warnings.push(errorMessage(e, '保存上次分类失败'))
+    }
+
+    return { categoryId: target.categoryId, itemId, warnings }
+  }
+
+  async function autoApplyClipboardItemIcon(categoryId: CollectionCategoryId, itemId: string, target: ResolvedClipboardTextTarget): Promise<{ doc: CategoryWorkspaceView | null; warning?: string }> {
+    if (!client) return { doc: null, warning: '后台未连接，无法保存图标' }
+    try {
+      const icon = await firstClipboardIcon(target)
+      return { doc: await client.request<CategoryWorkspaceView>('collections.icon.save', requestParamsForCategory(categoryId, { id: itemId, icon })) }
+    } catch (e) {
+      return { doc: null, warning: `自动图标获取失败：${errorMessage(e, '未知错误')}` }
+    }
+  }
+
+  async function firstClipboardIcon(target: ResolvedClipboardTextTarget): Promise<DesktopIcon> {
+    if (!client) throw new Error('后台未连接，无法保存图标')
+    if (target.categoryId === 'url') {
+      const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target.target })
+      const candidate = result.candidates[0]
+      if (!candidate?.assetId) throw new Error('未发现可用网页图标')
+      return { kind: 'image', assetId: candidate.assetId }
+    }
+
+    const dataUrl = await invoke<string>('system_icon_data_url', { path: target.target })
+    const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
+    return { kind: 'image', assetId: asset.id }
   }
 
   async function removeItem(item: CollectionItem) {
@@ -1384,6 +1506,16 @@ export function App() {
       <DesktopDragHint containerExtractDrag={containerExtractDrag} drag={desktopDrag} />
 
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
+
+      <Snackbar
+        key={toast?.key}
+        open={Boolean(toast)}
+        autoHideDuration={3600}
+        onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null) }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {toast ? <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: 3, boxShadow: '0 18px 42px rgba(15, 23, 42, 0.22)' }}>{toast.message}</Alert> : undefined}
+      </Snackbar>
 
       <CollectionContextMenu
         busy={busy}
