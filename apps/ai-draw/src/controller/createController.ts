@@ -15,7 +15,7 @@ import {
   normalizeUiMode,
   resolveModel,
   type AiDrawProvider,
-  type AiDrawSettingsV1,
+  type AiDrawSettings,
   type PromptLibraryFolder,
   type PromptLibraryPrompt,
   type PromptLibraryV1,
@@ -91,7 +91,7 @@ export type AiDrawControllerState = {
     indexLoading: boolean
     index: RefLibraryIndexV1 | null
   }
-  data: AiDrawSettingsV1 | null
+  data: AiDrawSettings | null
   outputDir: string
   savedPath: string
   imageDataUrl: string
@@ -191,7 +191,7 @@ export type AiDrawController = {
   movePrompt: (folderId: string, promptId: string, targetPromptId: string, position: SortDropPosition) => Promise<void>
   usePromptText: (text: string) => void
 
-  saveDrawSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
+  saveDrawSettings: (patch: Partial<Pick<AiDrawSettings, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
   clearPromptHistory: () => Promise<void>
 
   deletePromptHistoryItem: (text: string) => Promise<void>
@@ -228,7 +228,7 @@ function moveArrayItemRelative<T>(items: T[], getKey: (item: T) => string, activ
   return next
 }
 
-function activeProvider(data: AiDrawSettingsV1 | null): AiDrawProvider | null {
+function activeProvider(data: AiDrawSettings | null): AiDrawProvider | null {
   if (!data) return null
   const pid = String(data.activeProviderId || '')
   const ps = Array.isArray(data.providers) ? data.providers : []
@@ -1869,7 +1869,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     notify()
   }
 
-  async function saveDrawSettings(patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) {
+  async function saveDrawSettings(patch: Partial<Pick<AiDrawSettings, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) {
     if (!state.data) return
     if (typeof patch.autoSave === 'boolean') state.data.autoSave = patch.autoSave
     if (typeof patch.shrinkRefImages === 'boolean') state.data.shrinkRefImages = patch.shrinkRefImages

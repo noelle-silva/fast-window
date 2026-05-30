@@ -63,7 +63,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawGateway } from '../gateway/types'
 import { createAiDrawController } from '../controller/createController'
-import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
+import { DEFAULT_REQUEST_TIMEOUT_SEC, MIN_REQUEST_TIMEOUT_SEC, UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
 import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
@@ -1608,11 +1608,13 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
                 />
                 <TextField
                   size="small"
-                  label="请求超时（秒）"
+                  type="number"
+                  label="全局请求超时（秒）"
                   value={pluginDraft?.requestTimeoutSec ?? ''}
                   onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), requestTimeoutSec: e.target.value }))}
-                  sx={{ width: 220 }}
-                  inputProps={{ inputMode: 'numeric' }}
+                  helperText={`全局生效，默认 ${DEFAULT_REQUEST_TIMEOUT_SEC} 秒`}
+                  sx={{ width: 260 }}
+                  inputProps={{ inputMode: 'numeric', min: MIN_REQUEST_TIMEOUT_SEC, step: 1 }}
                 />
               </Stack>
 

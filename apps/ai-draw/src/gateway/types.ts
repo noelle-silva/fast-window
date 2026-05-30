@@ -3,7 +3,7 @@ import type {
   AiDrawCreateNormalGenerationRequest,
   AiDrawGenerationEvent,
   AiDrawGenerationTask,
-  AiDrawSettingsV1,
+  AiDrawSettings,
   AiDrawTaskHistoryItem,
   PromptLibraryV1,
   RefLibraryIndexV1,
@@ -44,8 +44,8 @@ export type AiDrawGateway = {
   }
 
   settingsStore: {
-    read: () => Promise<AiDrawSettingsV1 | null>
-    write: (settings: AiDrawSettingsV1) => Promise<void>
+    read: () => Promise<AiDrawSettings | null>
+    write: (settings: AiDrawSettings) => Promise<void>
   }
 
   taskHistoryStore: {

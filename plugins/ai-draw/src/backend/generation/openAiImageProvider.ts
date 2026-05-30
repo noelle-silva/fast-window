@@ -1,7 +1,7 @@
 import { inferImageMimeFromBase64, normalizeImageBase64 } from '../../core/images'
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../../core/httpParse'
 import { formatBytes, isHttpBaseUrl, trimSlash } from '../../core/utils'
-import { resolveModel, type AiDrawProvider } from '../../core/schema'
+import { normalizeRequestTimeoutSec, resolveModel, type AiDrawProvider } from '../../core/schema'
 import type { AiDrawCreateLocalEditGenerationRequest, AiDrawCreateNormalGenerationRequest, AiDrawGenerationDebugRecord } from '../../shared/domain'
 import { buildMultipartFormDataBytes, type MultipartPart } from './multipartNode'
 
@@ -46,7 +46,7 @@ export async function requestOpenAiImage(input: {
 }): Promise<{ imageDataUrl: string; debug: AiDrawGenerationDebugRecord | null }> {
   const { provider, prompt, debugMode, requestTimeoutSec } = input.request
   const { baseUrl, apiKey, model } = validateProvider(provider)
-  const timeoutMs = Math.max(5, Number(requestTimeoutSec) || 120) * 1000
+  const timeoutMs = normalizeRequestTimeoutSec(requestTimeoutSec) * 1000
   const protocol = String(provider.protocol || 'images') === 'chat' ? 'chat' : 'images'
   const size = String(provider.size || '').trim() || '1024x1024'
   let url = ''

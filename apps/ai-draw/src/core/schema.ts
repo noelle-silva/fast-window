@@ -1,14 +1,14 @@
 import { id, trimSlash } from './utils'
 import { DEFAULT_TASK_HISTORY_LIMIT, normalizeTaskHistoryLimit } from './taskHistory'
 
-export const AI_DRAW_VERSION = 1
+export const AI_DRAW_VERSION = 2
 export const PROMPT_LIBRARY_VERSION = 1
 export const REF_LIBRARY_INDEX_VERSION = 1
 export const DEFAULT_PROMPT_HISTORY_LIMIT = 50
 export const MAX_PROMPT_HISTORY_LIMIT = 200
-export const DEFAULT_REQUEST_TIMEOUT_SEC = 120
+const LEGACY_DEFAULT_REQUEST_TIMEOUT_SEC = 120
+export const DEFAULT_REQUEST_TIMEOUT_SEC = 300
 export const MIN_REQUEST_TIMEOUT_SEC = 5
-export const MAX_REQUEST_TIMEOUT_SEC = 3600
 
 export const UI_MODE_NORMAL = 'normal' as const
 export const UI_MODE_LOCAL_EDIT = 'local-edit' as const
@@ -27,7 +27,7 @@ export type AiDrawProvider = {
   chatSystemPrompt: string
 }
 
-export type AiDrawSettingsV1 = {
+export type AiDrawSettings = {
   version: number
   autoSave: boolean
   shrinkRefImages: boolean
@@ -70,7 +70,7 @@ export function defaultProvider(): AiDrawProvider {
   }
 }
 
-export function defaultSettings(): AiDrawSettingsV1 {
+export function defaultSettings(): AiDrawSettings {
   const p = defaultProvider()
   return {
     version: AI_DRAW_VERSION,
@@ -102,8 +102,14 @@ export function normalizeRequestTimeoutSec(raw: any) {
   if (!Number.isFinite(n)) return DEFAULT_REQUEST_TIMEOUT_SEC
   const v = Math.floor(n)
   if (v < MIN_REQUEST_TIMEOUT_SEC) return MIN_REQUEST_TIMEOUT_SEC
-  if (v > MAX_REQUEST_TIMEOUT_SEC) return MAX_REQUEST_TIMEOUT_SEC
   return v
+}
+
+function normalizeSettingsRequestTimeoutSec(s: any) {
+  const value = normalizeRequestTimeoutSec(s?.requestTimeoutSec)
+  const version = Math.floor(Number(s?.version) || 1)
+  if (version < 2 && value === LEGACY_DEFAULT_REQUEST_TIMEOUT_SEC) return DEFAULT_REQUEST_TIMEOUT_SEC
+  return value
 }
 
 export function normalizePromptHistory(list: any, limitRaw: any) {
@@ -167,7 +173,7 @@ export function normalizeUiMode(raw: any): UiMode {
   return v === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
 }
 
-function migrateLegacySettingsToSettingsV1(s: any): AiDrawSettingsV1 {
+function migrateLegacySettings(s: any): AiDrawSettings {
   const p = defaultProvider()
   p.name = String(s?.providerName || p.name)
   p.baseUrl = trimSlash(String(s?.baseUrl || p.baseUrl))
@@ -189,16 +195,16 @@ function migrateLegacySettingsToSettingsV1(s: any): AiDrawSettingsV1 {
   out.uiMode = UI_MODE_NORMAL
   out.promptHistoryLimit = normalizePromptHistoryLimit(s?.promptHistoryLimit)
   out.taskHistoryLimit = normalizeTaskHistoryLimit(s?.taskHistoryLimit)
-  out.requestTimeoutSec = normalizeRequestTimeoutSec(s?.requestTimeoutSec)
+  out.requestTimeoutSec = normalizeSettingsRequestTimeoutSec(s)
   out.promptHistory = normalizePromptHistory(s?.promptHistory, out.promptHistoryLimit)
   return out
 }
 
-export function normalizeSettings(raw: any): AiDrawSettingsV1 {
+export function normalizeSettings(raw: any): AiDrawSettings {
   if (!raw || typeof raw !== 'object') return defaultSettings()
 
   if (!Array.isArray((raw as any).providers)) {
-    return migrateLegacySettingsToSettingsV1(raw)
+    return migrateLegacySettings(raw)
   }
 
   const d: any = raw
@@ -210,7 +216,7 @@ export function normalizeSettings(raw: any): AiDrawSettingsV1 {
   out.uiMode = normalizeUiMode(d.uiMode)
   out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
   out.taskHistoryLimit = normalizeTaskHistoryLimit(d.taskHistoryLimit)
-  out.requestTimeoutSec = normalizeRequestTimeoutSec(d.requestTimeoutSec)
+  out.requestTimeoutSec = normalizeSettingsRequestTimeoutSec(d)
   out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
   out.pendingTaskId = String(d.pendingTaskId || '').trim()
 

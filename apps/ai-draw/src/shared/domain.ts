@@ -1,4 +1,4 @@
-export type { AiDrawProvider, AiDrawSettingsV1, PromptLibraryV1, RefLibraryIndexV1 } from '../core/schema'
+export type { AiDrawProvider, AiDrawSettings, PromptLibraryV1, RefLibraryIndexV1 } from '../core/schema'
 export type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 export type { AiDrawImageGenerationOptions } from '../core/imageGenerationOptions'
 
