@@ -767,7 +767,7 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid wallpaper payload: %w", err)
 		}
-		return svc.saveCollectionDesktopWallpaper(payload.CategoryID, payload.Wallpaper)
+		return svc.saveDesktopWallpaper(payload.CategoryID, payload.Wallpaper)
 	case "collections.desktop.icon-layout.save":
 		var payload categoryIconLayoutPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -1007,6 +1007,20 @@ func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *ca
 		return categoryWorkspaceView{}, err
 	}
 	return svc.readWorkspaceView(workspace.ID)
+}
+
+func (svc *service) updateAllViewDesktop(mutate func(desktop *desktopState) error) (categoryWorkspaceView, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	if err := mutate(&doc.AllView.Desktop); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	if err := svc.writeCollections(doc); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView("all")
 }
 
 func workspaceView(doc collectionsDoc, workspace categoryWorkspace) categoryWorkspaceView {
@@ -2082,6 +2096,17 @@ func (svc *service) saveCollectionItemIcon(categoryID string, id string, icon *d
 	})
 }
 
+func (svc *service) saveDesktopWallpaper(categoryID string, wallpaper *desktopWallpaper) (categoryWorkspaceView, error) {
+	switch viewCategoryID := normalizeViewCategoryID(categoryID); viewCategoryID {
+	case "all":
+		return svc.saveAllViewDesktopWallpaper(wallpaper)
+	case "folder", "url", "file":
+		return svc.saveCollectionDesktopWallpaper(viewCategoryID, wallpaper)
+	default:
+		return categoryWorkspaceView{}, fmt.Errorf("category not found: %s", strings.TrimSpace(categoryID))
+	}
+}
+
 func (svc *service) saveCollectionDesktopWallpaper(categoryID string, wallpaper *desktopWallpaper) (categoryWorkspaceView, error) {
 	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
 		normalized, err := validateDesktopWallpaper(wallpaper)
@@ -2089,6 +2114,17 @@ func (svc *service) saveCollectionDesktopWallpaper(categoryID string, wallpaper 
 			return err
 		}
 		workspace.Desktop.Wallpaper = normalized
+		return nil
+	})
+}
+
+func (svc *service) saveAllViewDesktopWallpaper(wallpaper *desktopWallpaper) (categoryWorkspaceView, error) {
+	return svc.updateAllViewDesktop(func(desktop *desktopState) error {
+		normalized, err := validateDesktopWallpaper(wallpaper)
+		if err != nil {
+			return err
+		}
+		desktop.Wallpaper = normalized
 		return nil
 	})
 }
@@ -2105,19 +2141,14 @@ func (svc *service) saveCollectionDesktopIconLayout(categoryID string, iconLayou
 }
 
 func (svc *service) saveAllViewDesktopIconLayout(iconLayout desktopIconLayout) (categoryWorkspaceView, error) {
-	doc, err := svc.readCollections()
-	if err != nil {
-		return categoryWorkspaceView{}, err
-	}
-	normalized, err := normalizeDesktopIconLayout(iconLayout)
-	if err != nil {
-		return categoryWorkspaceView{}, err
-	}
-	doc.AllView.Desktop.IconLayout = normalized
-	if err := svc.writeCollections(doc); err != nil {
-		return categoryWorkspaceView{}, err
-	}
-	return svc.readWorkspaceView("all")
+	return svc.updateAllViewDesktop(func(desktop *desktopState) error {
+		normalized, err := normalizeDesktopIconLayout(iconLayout)
+		if err != nil {
+			return err
+		}
+		desktop.IconLayout = normalized
+		return nil
+	})
 }
 
 func (svc *service) addCollectionGroup(categoryID string, payload collectionGroup) (categoryWorkspaceView, error) {

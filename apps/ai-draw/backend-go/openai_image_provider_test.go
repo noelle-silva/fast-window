@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -66,6 +68,51 @@ func TestOpenAIImageProviderImagesGenerationSuccessAndDebugRedaction(t *testing.
 	}
 	if result.Debug.Request.Headers["Authorization"] != "[REDACTED]" {
 		t.Fatalf("expected redacted auth header, got %q", result.Debug.Request.Headers["Authorization"])
+	}
+}
+
+func TestOpenAIImageProviderDownloadsHTTPImageURL(t *testing.T) {
+	pngBytes, err := base64.StdEncoding.DecodeString(testPNGBase64)
+	if err != nil {
+		t.Fatalf("decode test png failed: %v", err)
+	}
+	var imageFetched atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/images/generations":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"url": "http://" + r.Host + "/remote/image.png"}}})
+		case "/remote/image.png":
+			imageFetched.Store(true)
+			if r.Header.Get("Authorization") != "" {
+				t.Fatalf("remote image request must not forward upstream auth")
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	provider := newOpenAIImageProvider(server.Client())
+	result, err := provider.Generate(context.Background(), imageGenerationInput{
+		TaskID: "task-http-url",
+		Mode:   generationModeNormal,
+		Normal: &createNormalGenerationRequest{
+			Provider:          generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "gpt-image-2"},
+			Prompt:            "draw cat",
+			RequestTimeoutSec: 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !imageFetched.Load() {
+		t.Fatalf("expected provider to fetch remote image URL")
+	}
+	if !strings.HasPrefix(result.ImageDataURL, "data:image/png;base64,") {
+		t.Fatalf("expected downloaded image data URL, got %q", result.ImageDataURL)
 	}
 }
 

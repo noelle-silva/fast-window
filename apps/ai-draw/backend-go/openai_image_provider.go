@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,9 @@ import (
 )
 
 const (
-	maxDebugTextChars = 64 * 1024
-	maxBodyBytes      = 10 * 1024 * 1024
+	maxDebugTextChars   = 64 * 1024
+	maxBodyBytes        = 10 * 1024 * 1024
+	maxRemoteImageBytes = 25 * 1024 * 1024
 )
 
 type openAIImageProvider struct {
@@ -78,14 +80,68 @@ func (provider *openAIImageProvider) Generate(ctx context.Context, input imageGe
 		return imageGenerationResult{}, providerError{Message: fmt.Sprintf("HTTP %d：%s", response.StatusCode, errorText), Debug: debug}
 	}
 
-	dataURL := parseImageDataURLFromHTTPBodyText(bodyText)
-	if dataURL == "" {
+	imageSource := parseImageSourceFromHTTPBodyText(bodyText)
+	if imageSource == "" {
 		if debug != nil {
 			debug.Response.ErrorText = "未拿到图片数据"
 		}
 		return imageGenerationResult{}, providerError{Message: "未拿到图片数据", Debug: debug}
 	}
+	dataURL, err := provider.resolveImageSource(req.Context(), imageSource)
+	if err != nil {
+		if debug != nil {
+			debug.Response.ErrorText = err.Error()
+		}
+		return imageGenerationResult{}, providerError{Message: err.Error(), Debug: debug}
+	}
 	return imageGenerationResult{ImageDataURL: dataURL, Debug: debug}, nil
+}
+
+func (provider *openAIImageProvider) resolveImageSource(ctx context.Context, source string) (string, error) {
+	value := strings.TrimSpace(source)
+	if value == "" {
+		return "", fmt.Errorf("图片数据为空")
+	}
+	if imageURL := normalizeHTTPURL(value); imageURL != "" {
+		return provider.fetchHTTPImageDataURL(ctx, imageURL)
+	}
+	dataURL := normalizeImageDataURLOrBase64(value)
+	if !strings.HasPrefix(dataURL, "data:image/") {
+		return "", fmt.Errorf("图片数据无效")
+	}
+	return dataURL, nil
+}
+
+func (provider *openAIImageProvider) fetchHTTPImageDataURL(ctx context.Context, imageURL string) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "image/png,image/jpeg,image/webp,image/gif;q=0.9,*/*;q=0.1")
+	response, err := provider.client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("下载远程图片失败：%w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("下载远程图片失败：HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > maxRemoteImageBytes {
+		return "", fmt.Errorf("远程图片过大（约 %s）", formatBytes(response.ContentLength))
+	}
+	bytes, err := io.ReadAll(io.LimitReader(response.Body, maxRemoteImageBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("读取远程图片失败：%w", err)
+	}
+	if int64(len(bytes)) > maxRemoteImageBytes {
+		return "", fmt.Errorf("远程图片过大（超过 %s）", formatBytes(maxRemoteImageBytes))
+	}
+	mime := inferKnownImageMime(bytes)
+	if mime == "" {
+		return "", fmt.Errorf("远程 URL 返回的不是可识别图片")
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(bytes), nil
 }
 
 func (provider *openAIImageProvider) buildRequest(ctx context.Context, input imageGenerationInput) (*http.Request, *generationDebugRecord, func(), error) {

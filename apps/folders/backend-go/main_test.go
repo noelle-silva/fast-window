@@ -540,6 +540,36 @@ func TestDesktopWallpaperRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDesktopWallpaperSaveSupportsAllView(t *testing.T) {
+	svc := readyService(t)
+	wallpaperAsset := wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"
+
+	doc := dispatchWallpaperSave(t, svc, "all", wallpaperWithPreset("all-main", wallpaperAsset, desktopWallpaperView{X: 35.678, Y: 64.321, Scale: 1.456}))
+	if doc.ID != "all" || doc.Desktop.Wallpaper == nil || doc.Desktop.Wallpaper.ActiveID != "all-main" {
+		t.Fatalf("unexpected all view wallpaper: %#v", doc)
+	}
+	if doc.Desktop.Wallpaper.Presets[0].View.Scale != 1.46 {
+		t.Fatalf("unexpected all view wallpaper normalization: %#v", doc.Desktop.Wallpaper.Presets[0].View)
+	}
+
+	deck, err := svc.readDesktopWallpaperDeck()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallpapers := map[string]*desktopWallpaper{}
+	for _, category := range deck.Categories {
+		wallpapers[category.CategoryID] = category.Wallpaper
+	}
+	if wallpapers["all"] == nil || wallpapers["all"].ActiveID != "all-main" {
+		t.Fatalf("expected all view wallpaper in deck: %#v", wallpapers["all"])
+	}
+
+	doc = dispatchWallpaperSave(t, svc, "all", nil)
+	if doc.ID != "all" || doc.Desktop.Wallpaper != nil {
+		t.Fatalf("expected all view wallpaper to be cleared: %#v", doc.Desktop.Wallpaper)
+	}
+}
+
 func TestDesktopWallpaperDeckIncludesAllCategories(t *testing.T) {
 	svc := readyService(t)
 	folderAsset := wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"
@@ -1295,6 +1325,23 @@ func wallpaperWithPreset(id string, assetID string, view desktopWallpaperView) *
 			View:    view,
 		}},
 	}
+}
+
+func dispatchWallpaperSave(t *testing.T, svc *service, categoryID string, wallpaper *desktopWallpaper) categoryWorkspaceView {
+	t.Helper()
+	payload, err := json.Marshal(categoryWallpaperPayload{CategoryID: categoryID, Wallpaper: wallpaper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.dispatch(context.Background(), "collections.desktop.wallpaper.save", payload, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, ok := result.(categoryWorkspaceView)
+	if !ok {
+		t.Fatalf("unexpected wallpaper save result: %#v", result)
+	}
+	return doc
 }
 
 func writeRawData(t *testing.T, svc *service, data string) {

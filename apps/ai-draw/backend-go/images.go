@@ -295,6 +295,13 @@ func normalizeImageBase64(input string) string {
 }
 
 func inferMime(bytes []byte) string {
+	if mime := inferKnownImageMime(bytes); mime != "" {
+		return mime
+	}
+	return "image/png"
+}
+
+func inferKnownImageMime(bytes []byte) string {
 	if len(bytes) >= 8 && string(bytes[:8]) == "\x89PNG\r\n\x1a\n" {
 		return "image/png"
 	}
@@ -307,7 +314,7 @@ func inferMime(bytes []byte) string {
 	if len(bytes) >= 6 && (string(bytes[:6]) == "GIF87a" || string(bytes[:6]) == "GIF89a") {
 		return "image/gif"
 	}
-	return "image/png"
+	return ""
 }
 
 func mimeFromExt(path string) string {
