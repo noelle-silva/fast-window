@@ -69,10 +69,21 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	}
 }
 
-func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
+func TestRunAssetUploadPipelineCommitsStagedPastedFileAndDeletesSource(t *testing.T) {
 	svc := newTestService(t)
 	content := []byte("hello pasted upload")
-	inputs := []assetUploadFileInput{{Name: "paste.txt", DisplayName: "Pasted Upload", Mime: "text/plain", Size: int64(len(content)), DataBase64: "aGVsbG8gcGFzdGVkIHVwbG9hZA=="}}
+	stagingDir, err := svc.pastedAssetUploadStagingDir("library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(stagingDir, "pasted-source.txt")
+	if err := os.WriteFile(source, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs := []assetUploadFileInput{{Path: source, Name: "paste.txt", DisplayName: "Pasted Upload", Size: int64(len(content)), DeleteSourceAfterUpload: true}}
 	task := svc.uploadTasks.create("library", newAssetUploadTaskFiles(inputs))
 	if err := task.markRunning(); err != nil {
 		t.Fatalf("markRunning failed: %v", err)
@@ -83,6 +94,9 @@ func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
 	task.markCompleted(result)
+	if exists(source) {
+		t.Fatalf("staged source still exists after upload: %s", source)
+	}
 
 	expectedID := fmt.Sprintf("%x", sha256.Sum256(content))
 	if len(result) != 1 || result[0].AssetID != expectedID || result[0].Ext != "txt" || result[0].Name != "Pasted Upload" {
@@ -106,6 +120,23 @@ func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
 	}
 	if string(written) != string(content) {
 		t.Fatalf("committed content = %q, want %q", string(written), string(content))
+	}
+}
+
+func TestRunAssetUploadPipelineDoesNotDeleteExternalSource(t *testing.T) {
+	svc := newTestService(t)
+	content := []byte("external source must remain")
+	source := filepath.Join(t.TempDir(), "external.txt")
+	if err := os.WriteFile(source, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: "External", Size: int64(len(content)), DeleteSourceAfterUpload: true}}, nil)
+	if err != nil {
+		t.Fatalf("runAssetUploadPipeline failed: %v", err)
+	}
+	if !exists(source) {
+		t.Fatalf("external source was deleted: %s", source)
 	}
 }
 
@@ -143,10 +174,21 @@ func TestRunAssetUploadPipelineSupportsMainstreamDocumentFormats(t *testing.T) {
 	}
 }
 
-func TestRunAssetUploadPipelineInfersPastedEpubFromMime(t *testing.T) {
+func TestRunAssetUploadPipelineUsesStagedPastedFileExtension(t *testing.T) {
 	svc := newTestService(t)
 	content := []byte("epub pasted content")
-	input := assetUploadFileInput{DisplayName: "Pasted EPUB", Mime: "application/epub+zip", Size: int64(len(content)), DataBase64: "ZXB1YiBwYXN0ZWQgY29udGVudA=="}
+	stagingDir, err := svc.pastedAssetUploadStagingDir("library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(stagingDir, "pasted-source.epub")
+	if err := os.WriteFile(source, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input := assetUploadFileInput{Path: source, DisplayName: "Pasted EPUB", Size: int64(len(content)), DeleteSourceAfterUpload: true}
 
 	result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{input}, nil)
 	if err != nil {

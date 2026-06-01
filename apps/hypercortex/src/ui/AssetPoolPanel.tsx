@@ -10,9 +10,10 @@ import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import { type VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { buildAssetMarker } from '../assetMarker'
-import type { AssetEntry } from '../assetTypes'
+import { assetRefKey, type AssetEntry } from '../assetTypes'
 import { canAssetHaveThumbnail } from '../assetThumbnailCapabilities'
 import { loadAssetThumbnail } from '../assetThumbnailProvider'
+import { applyAssetThumbnailResults, mergeAssetThumbnailState, updateAssetThumbnailState } from '../assetThumbnailState'
 import { buildAssetEntries } from '../assetEntryModel'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 import type { HyperCortexGateway } from '../gateway'
@@ -23,6 +24,7 @@ import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
 import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
 import { useClipboardFilesPaste } from './useClipboardFilesPaste'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
+import { useAssetThumbnailLoader } from './useAssetThumbnailLoader'
 import { softButtonSx } from './pluginUiStyles'
 import { assetToneFromKind, FEATURE_TONES, toneChipSx, toneEmphasisButtonSx, toneFgVar, toneHoverActionSx, toneTabSx, type HyperCortexToneId } from './uiTones'
 
@@ -53,10 +55,6 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function assetSelectionKey(asset: Pick<AssetEntry, 'assetId' | 'ext'>): string {
-  return asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
 }
 
 /* ------------------------------------------------------------------ */
@@ -688,7 +686,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [startingPastedUpload, setStartingPastedUpload] = React.useState(false)
   const [rebuildingThumbnails, setRebuildingThumbnails] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
-  const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
+  const [assetListRevision, setAssetListRevision] = React.useState(0)
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false)
   const [uploadTaskView, setUploadTaskView] = React.useState<AssetUploadTaskView>('active')
   const [interactionMode, setInteractionMode] = React.useState<AssetInteractionMode>('browse')
@@ -706,8 +704,8 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       const items = await gateway.assets.listAssets(scope)
       const entries: AssetEntry[] = buildAssetEntries(items)
         .sort((a, b) => b.modifiedMs - a.modifiedMs)
-      setAssets(entries)
-      setThumbLoadTick(t => t + 1)
+      setAssets(prev => mergeAssetThumbnailState(entries, prev))
+      setAssetListRevision(revision => revision + 1)
     } catch (e: any) {
       setError(String(e?.message || e || '加载失败'))
     } finally {
@@ -722,17 +720,17 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   }, [assets, category])
 
   const selectedAssets = React.useMemo(() => {
-    return assets.filter(asset => selectedAssetKeys.has(assetSelectionKey(asset)))
+    return assets.filter(asset => selectedAssetKeys.has(assetRefKey(asset)))
   }, [assets, selectedAssetKeys])
 
   const selectedVisibleCount = React.useMemo(() => {
-    return visibleAssets.filter(asset => selectedAssetKeys.has(assetSelectionKey(asset))).length
+    return visibleAssets.filter(asset => selectedAssetKeys.has(assetRefKey(asset))).length
   }, [visibleAssets, selectedAssetKeys])
 
   React.useEffect(() => {
     setSelectedAssetKeys(prev => {
       if (!prev.size) return prev
-      const liveKeys = new Set(assets.map(assetSelectionKey))
+      const liveKeys = new Set(assets.map(assetRefKey))
       const next = new Set(Array.from(prev).filter(key => liveKeys.has(key)))
       return next.size === prev.size ? prev : next
     })
@@ -751,29 +749,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const activeUploadCount = React.useMemo(() => uploadTaskSnapshots.filter(isActiveUploadTask).length, [uploadTaskSnapshots])
   const uploadLaunchPending = startingUpload || startingPastedUpload
 
-  /* ---- 加载缩略图（后端统一能力注册和持久缓存，按需增量生成） ---- */
-  React.useEffect(() => {
-    let cancelled = false
-    const candidates = assets.filter(a => canHaveThumbnail(a) && !a.thumbnailUrl && !a.thumbnailError && categoryFromKind(a.kind) === category).slice(0, category === 'video' ? 8 : 20)
-    if (!candidates.length) return
-    ;(async () => {
-      for (const asset of candidates) {
-        if (cancelled) break
-        try {
-          const thumbnailUrl = await loadAssetThumbnail({ gateway, scope, asset, width: 320, height: 180 })
-          if (cancelled) break
-          setAssets(prev =>
-            prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl, thumbnailError: undefined } : a)),
-          )
-        } catch (e: any) {
-          const hostMsg = String(e?.message || e || 'unknown error')
-          console.warn('[HyperCortex][thumb] cached thumbnail failed:', { asset: `${asset.assetId}.${asset.ext}`, relPath: asset.relPath, hostMsg })
-          setAssets(prev => prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailError: hostMsg } : a)))
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [gateway, scope, thumbLoadTick, category, assets.length])
+  useAssetThumbnailLoader({ gateway, scope, assets: visibleAssets, setAssets, revision: assetListRevision })
 
   /* ---- 文件选择 & 上传任务 ---- */
   const handleStartUploadTask = React.useCallback(async () => {
@@ -868,14 +844,14 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       for (const asset of targets) {
         try {
           await gateway.trash.moveAssetToTrash(scope, asset.assetId, asset.ext)
-          deletedKeys.push(assetSelectionKey(asset))
+          deletedKeys.push(assetRefKey(asset))
         } catch {
           failed += 1
         }
       }
       if (deletedKeys.length) {
         const deletedKeySet = new Set(deletedKeys)
-        setAssets(prev => prev.filter(asset => !deletedKeySet.has(assetSelectionKey(asset))))
+        setAssets(prev => prev.filter(asset => !deletedKeySet.has(assetRefKey(asset))))
         setSelectedAssetKeys(prev => new Set(Array.from(prev).filter(key => !deletedKeySet.has(key))))
       }
       gateway.host.toast(failed ? `已移入回收站 ${deletedKeys.length} 个，失败 ${failed} 个` : `已移入回收站 ${deletedKeys.length} 个附件`)
@@ -888,7 +864,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   }, [deleteTargets, deleting, gateway, scope])
 
   const handleToggleSelected = React.useCallback((asset: AssetEntry) => {
-    const key = assetSelectionKey(asset)
+    const key = assetRefKey(asset)
     setSelectedAssetKeys(prev => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -900,7 +876,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const handleSelectVisibleAssets = React.useCallback(() => {
     setSelectedAssetKeys(prev => {
       const next = new Set(prev)
-      for (const asset of visibleAssets) next.add(assetSelectionKey(asset))
+      for (const asset of visibleAssets) next.add(assetRefKey(asset))
       return next
     })
   }, [visibleAssets])
@@ -931,18 +907,18 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     if (!canHaveThumbnail(asset)) return
     try {
       const thumbnailUrl = await loadAssetThumbnail({ gateway, scope, asset, width: 320, height: 180, force: true })
-      setAssets(prev => prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl, thumbnailError: undefined } : a)))
+      setAssets(prev => updateAssetThumbnailState(prev, asset, { thumbnailUrl, thumbnailError: undefined }))
       gateway.host.toast('缩略图已重建')
     } catch (err: any) {
       const message = String(err?.message || err || '未知错误')
-      setAssets(prev => prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: undefined, thumbnailError: message } : a)))
+      setAssets(prev => updateAssetThumbnailState(prev, asset, { thumbnailUrl: undefined, thumbnailError: message }))
       gateway.host.toast(`重建缩略图失败：${message}`)
     }
   }, [gateway, scope])
 
   const handleThumbnailLoadError = React.useCallback((asset: AssetEntry, message: string) => {
-    console.warn('[HyperCortex][thumb] image load failed:', { asset: `${asset.assetId}.${asset.ext}`, relPath: asset.relPath, message })
-    setAssets(prev => prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: undefined, thumbnailError: message } : a)))
+    console.warn('[HyperCortex][thumb] image load failed:', { asset: assetRefKey(asset), relPath: asset.relPath, message })
+    setAssets(prev => updateAssetThumbnailState(prev, asset, { thumbnailUrl: undefined, thumbnailError: message }))
   }, [])
 
   const handleRebuildVisibleThumbnails = React.useCallback(async () => {
@@ -950,28 +926,22 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     if (!targets.length || rebuildingThumbnails) return
     setRebuildingThumbnails(true)
     try {
-      const nextByKey = new Map<string, string>()
-      const errorsByKey = new Map<string, string>()
+      const thumbnailUrlsByKey = new Map<string, string>()
+      const thumbnailErrorsByKey = new Map<string, string>()
       let failed = 0
       for (const asset of targets) {
         try {
           const thumbnailUrl = await loadAssetThumbnail({ gateway, scope, asset, width: 320, height: 180, force: true })
-          nextByKey.set(`${asset.assetId}.${asset.ext}`, thumbnailUrl)
+          thumbnailUrlsByKey.set(assetRefKey(asset), thumbnailUrl)
         } catch (err: any) {
           failed += 1
-          errorsByKey.set(`${asset.assetId}.${asset.ext}`, String(err?.message || err || '未知错误'))
+          thumbnailErrorsByKey.set(assetRefKey(asset), String(err?.message || err || '未知错误'))
         }
       }
-      if (nextByKey.size || errorsByKey.size) {
-        setAssets(prev => prev.map(asset => {
-          const key = `${asset.assetId}.${asset.ext}`
-          const hit = nextByKey.get(key)
-          if (hit) return { ...asset, thumbnailUrl: hit, thumbnailError: undefined }
-          const message = errorsByKey.get(key)
-          return message ? { ...asset, thumbnailUrl: undefined, thumbnailError: message } : asset
-        }))
+      if (thumbnailUrlsByKey.size || thumbnailErrorsByKey.size) {
+        setAssets(prev => applyAssetThumbnailResults(prev, { thumbnailUrlsByKey, thumbnailErrorsByKey }))
       }
-      gateway.host.toast(failed ? `缩略图重建完成，失败 ${failed} 个` : `已重建 ${nextByKey.size} 个缩略图`)
+      gateway.host.toast(failed ? `缩略图重建完成，失败 ${failed} 个` : `已重建 ${thumbnailUrlsByKey.size} 个缩略图`)
     } finally {
       setRebuildingThumbnails(false)
     }
@@ -982,25 +952,19 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     setRebuildingThumbnails(true)
     try {
       const targets = assets.filter(canHaveThumbnail)
-      const nextByKey = new Map<string, string>()
-      const errorsByKey = new Map<string, string>()
+      const thumbnailUrlsByKey = new Map<string, string>()
+      const thumbnailErrorsByKey = new Map<string, string>()
       for (const asset of targets) {
-        const key = `${asset.assetId}.${asset.ext}`
+        const key = assetRefKey(asset)
         try {
           const thumbnailUrl = await loadAssetThumbnail({ gateway, scope, asset, width: 320, height: 180, force: true })
-          nextByKey.set(key, thumbnailUrl)
+          thumbnailUrlsByKey.set(key, thumbnailUrl)
         } catch (err: any) {
-          errorsByKey.set(key, String(err?.message || err || '缩略图生成失败'))
+          thumbnailErrorsByKey.set(key, String(err?.message || err || '缩略图生成失败'))
         }
       }
-      setAssets(prev => prev.map(asset => {
-        const key = `${asset.assetId}.${asset.ext}`
-        const hit = nextByKey.get(key)
-        if (hit) return { ...asset, thumbnailUrl: hit, thumbnailError: undefined }
-        const message = errorsByKey.get(key)
-        return message ? { ...asset, thumbnailUrl: undefined, thumbnailError: message } : asset
-      }))
-      gateway.host.toast(errorsByKey.size ? `全部支持类型缩略图重建完成，失败 ${errorsByKey.size} 个` : `已重建 ${nextByKey.size} 个缩略图`)
+      setAssets(prev => applyAssetThumbnailResults(prev, { thumbnailUrlsByKey, thumbnailErrorsByKey }))
+      gateway.host.toast(thumbnailErrorsByKey.size ? `全部支持类型缩略图重建完成，失败 ${thumbnailErrorsByKey.size} 个` : `已重建 ${thumbnailUrlsByKey.size} 个缩略图`)
     } catch (err: any) {
       gateway.host.toast(`全部重建失败：${String(err?.message || err || '未知错误')}`)
     } finally {
@@ -1130,11 +1094,11 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           >
             {visibleAssets.map(asset => (
               <AssetCard
-                key={`${asset.assetId}.${asset.ext}`}
+                key={assetRefKey(asset)}
                 gateway={gateway}
                 asset={asset}
                 selectionMode={selectionMode}
-                selected={selectedAssetKeys.has(assetSelectionKey(asset))}
+                selected={selectedAssetKeys.has(assetRefKey(asset))}
                 onDelete={requestDelete}
                 onToggleSelected={handleToggleSelected}
                 onRebuildThumbnail={a => void handleRebuildThumbnail(a)}

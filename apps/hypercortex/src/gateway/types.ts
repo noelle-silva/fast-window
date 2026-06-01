@@ -92,9 +92,8 @@ export type LocalAssetFile = {
   path?: string
   name?: string
   displayName?: string
-  mime?: string
   size?: number
-  dataBase64?: string
+  deleteSourceAfterUpload?: boolean
 }
 
 export type AssetUploadTaskStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'canceled'

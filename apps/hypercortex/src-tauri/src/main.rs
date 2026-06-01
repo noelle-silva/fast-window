@@ -7,6 +7,7 @@ mod control_server;
 mod data_dir;
 mod fw_window;
 mod native_dialog;
+mod pasted_asset_staging;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
@@ -204,6 +205,8 @@ fn main() {
             restart_backend,
             pick_legacy_data_dir,
             pick_asset_files,
+            pasted_asset_staging::stage_pasted_asset_file,
+            pasted_asset_staging::cleanup_staged_pasted_asset_files,
             hide_to_tray,
             write_clipboard_text,
             app_ready,

@@ -349,10 +349,6 @@ func mimeFromExt(ext string) string {
 	return assetFileMimeFromExt(ext)
 }
 
-func extFromMime(m string) string {
-	return assetFileExtFromMime(m)
-}
-
 func kindFromMime(m string) string {
 	m = normalizeAssetMime(m)
 	if kind := assetFileKindFromMime(m); kind != "" {

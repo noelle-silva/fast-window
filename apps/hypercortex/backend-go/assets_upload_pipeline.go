@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,12 +14,11 @@ import (
 )
 
 type assetUploadFileInput struct {
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-	Mime        string `json:"mime"`
-	Size        int64  `json:"size"`
-	DataBase64  string `json:"dataBase64"`
+	Path                    string `json:"path"`
+	Name                    string `json:"name"`
+	DisplayName             string `json:"displayName"`
+	Size                    int64  `json:"size"`
+	DeleteSourceAfterUpload bool   `json:"deleteSourceAfterUpload"`
 }
 
 type preparedAssetUploadFile struct {
@@ -45,6 +42,8 @@ type committedAssetUploadFile struct {
 	fileIndex int
 	resource  resourceRef
 }
+
+const pastedUploadStagingDirName = "pasted"
 
 func (svc *service) dispatchAssetUploadTask(method string, params json.RawMessage) (any, bool, error) {
 	switch method {
@@ -239,13 +238,13 @@ func (svc *service) runAssetUploadPipeline(scope string, inputs []assetUploadFil
 }
 
 func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, input assetUploadFileInput, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
-	if strings.TrimSpace(input.DataBase64) != "" {
-		return svc.prepareAssetUploadContent(scope, stagingDir, input, task, fileIndex)
-	}
-
 	sourcePath, err := normalizeAssetUploadSourcePath(input.Path)
 	if err != nil {
 		return preparedAssetUploadFile{}, err
+	}
+	cleanupSource := svc.shouldCleanupAssetUploadSource(scope, stagingDir, input, sourcePath)
+	if cleanupSource {
+		defer cleanupAssetUploadSource(sourcePath)
 	}
 	info, err := os.Stat(sourcePath)
 	if err != nil {
@@ -274,33 +273,21 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 	return svc.prepareAssetUploadStoredFile(scope, stagingDir, source, ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, sourcePath), sourceName, float64(info.ModTime().UnixMilli()), task, fileIndex)
 }
 
-func (svc *service) prepareAssetUploadContent(scope string, stagingDir string, input assetUploadFileInput, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		name = strings.TrimSpace(input.DisplayName)
+func (svc *service) shouldCleanupAssetUploadSource(scope string, stagingDir string, input assetUploadFileInput, sourcePath string) bool {
+	if !input.DeleteSourceAfterUpload || strings.TrimSpace(sourcePath) == "" {
+		return false
 	}
-	mimeType := strings.TrimSpace(input.Mime)
-	ext := normalizeAssetFileExt(filepath.Ext(name))
-	if ext == "" && mimeType != "" {
-		ext = extFromMime(mimeType)
-	}
-	if !isAllowedAssetExt(ext) {
-		return preparedAssetUploadFile{}, fmt.Errorf("不支持的附件类型：.%s", ext)
-	}
-	if mimeType == "" {
-		mimeType = mimeFromExt(ext)
-	}
-	kind := kindFromMime(mimeType)
-
-	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(input.DataBase64))
+	assetStagingDir, err := svc.pastedAssetUploadStagingDir(scope)
 	if err != nil {
-		return preparedAssetUploadFile{}, fmt.Errorf("解析粘贴附件内容失败：%w", err)
+		return false
 	}
-	if len(data) == 0 {
-		return preparedAssetUploadFile{}, errors.New("粘贴附件内容为空")
-	}
+	return isInside(assetStagingDir, sourcePath) && isInside(stagingDir, sourcePath)
+}
 
-	return svc.prepareAssetUploadStoredFile(scope, stagingDir, bytes.NewReader(data), ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, name), name, nowMs(), task, fileIndex)
+func cleanupAssetUploadSource(path string) {
+	if strings.TrimSpace(path) != "" {
+		_ = os.Remove(path)
+	}
 }
 
 func (svc *service) prepareAssetUploadStoredFile(scope string, stagingDir string, source io.Reader, ext string, mimeType string, kind string, displayName string, sourceName string, modifiedMs float64, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
@@ -402,6 +389,10 @@ func (svc *service) assetUploadTargetRelPath(scope string, assetID string, ext s
 
 func (svc *service) assetUploadStagingDir(scope string) (string, error) {
 	return svc.resolvePath(scope, filepath.Join(assetsDir, ".uploading"))
+}
+
+func (svc *service) pastedAssetUploadStagingDir(scope string) (string, error) {
+	return svc.resolvePath(scope, filepath.Join(assetsDir, ".uploading", pastedUploadStagingDirName))
 }
 
 func normalizeAssetUploadSourcePath(input string) (string, error) {

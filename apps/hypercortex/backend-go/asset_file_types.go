@@ -20,7 +20,6 @@ type assetFileType struct {
 var assetFileTypes = mustLoadAssetFileTypes()
 
 var assetFileTypeByExt = buildAssetFileTypeByExt(assetFileTypes)
-var assetExtByMime = buildAssetExtByMime(assetFileTypes)
 var assetKindByMime = buildAssetKindByMime(assetFileTypes)
 
 func isAllowedAssetExt(ext string) bool {
@@ -35,10 +34,6 @@ func assetFileMimeFromExt(ext string) string {
 	return ""
 }
 
-func assetFileExtFromMime(mimeType string) string {
-	return assetExtByMime[normalizeAssetMime(mimeType)]
-}
-
 func assetFileKindFromMime(mimeType string) string {
 	return assetKindByMime[normalizeAssetMime(mimeType)]
 }
@@ -47,18 +42,6 @@ func buildAssetFileTypeByExt(items []assetFileType) map[string]assetFileType {
 	out := map[string]assetFileType{}
 	for _, item := range items {
 		out[normalizeAssetFileExt(item.Ext)] = item
-	}
-	return out
-}
-
-func buildAssetExtByMime(items []assetFileType) map[string]string {
-	out := map[string]string{}
-	for _, item := range items {
-		ext := normalizeAssetFileExt(item.Ext)
-		setPreferredAssetMimeExt(out, item.Mime, ext)
-		for _, alias := range item.MimeAliases {
-			setPreferredAssetMimeExt(out, alias, ext)
-		}
 	}
 	return out
 }
@@ -97,17 +80,6 @@ func mustLoadAssetFileTypes() []assetFileType {
 		seenExts[ext] = true
 	}
 	return items
-}
-
-func setPreferredAssetMimeExt(target map[string]string, mimeType string, ext string) {
-	normalizedMime := normalizeAssetMime(mimeType)
-	if normalizedMime == "" {
-		return
-	}
-	if _, exists := target[normalizedMime]; exists {
-		return
-	}
-	target[normalizedMime] = ext
 }
 
 func setPreferredAssetMimeKind(target map[string]string, mimeType string, kind string) {
