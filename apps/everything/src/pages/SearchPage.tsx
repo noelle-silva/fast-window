@@ -13,8 +13,7 @@ type SearchPageProps = {
   onRevealPath: (path: string) => void
 }
 
-function emptyResultText(setupRequired: boolean, lastSearchedQuery: string) {
-  if (setupRequired) return '先到设置页启用全局索引，再开始搜索。'
+function emptyResultText(lastSearchedQuery: string) {
   if (lastSearchedQuery) return '没有结果。若刚启用索引，请等 Everything 建库完成后再试。'
   return '输入关键词后按 Enter 搜索。'
 }
@@ -52,21 +51,10 @@ export function SearchPage(props: SearchPageProps) {
     onCopyPath,
     onRevealPath,
   } = props
-  const setupRequired = Boolean(setup && !setup.configured)
-  const emptyText = emptyResultText(setupRequired, lastSearchedQuery)
+  const emptyText = emptyResultText(lastSearchedQuery)
 
   return (
     <section className="everything-page everything-search-page" aria-label="Everything 搜索">
-      {setupRequired ? (
-        <div className="everything-setup-callout" aria-live="polite">
-          <div>
-            <strong>需要先完成一次性索引设置</strong>
-            <p>到设置页启用全局索引后，Everything 会通过已授权服务建立电脑全局文件索引。</p>
-          </div>
-          <button type="button" className="everything-secondary-button" onClick={onOpenSettings}>打开设置</button>
-        </div>
-      ) : null}
-
       <article className="everything-results-region">
         <div className="everything-panel-title-row">
           <div>

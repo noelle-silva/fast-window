@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient, errorMessage, type DirectClient } from './backendClient'
 import { OperationBanner } from './components/OperationBanner'
+import { SetupConsentDialog } from './components/SetupConsentDialog'
 import { TopBar } from './components/TopBar'
 import { SearchPage } from './pages/SearchPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -62,6 +63,7 @@ export function App() {
   const queryRef = React.useRef<HTMLInputElement | null>(null)
   const searchRunIdRef = React.useRef(0)
   const busy = Boolean(operation)
+  const setupConsentOpen = Boolean(setup && !setup.configured)
 
   const markAppReady = React.useCallback(() => {
     if (readyRef.current) return
@@ -344,6 +346,13 @@ export function App() {
       </div>
 
       {error ? <section className="everything-error-card" role="alert">{error}</section> : null}
+      <SetupConsentDialog
+        open={setupConsentOpen}
+        busy={Boolean(operation?.key === 'globalSetup')}
+        clientReady={Boolean(client)}
+        error={error}
+        onAuthorize={enableGlobal}
+      />
     </main>
   )
 }
