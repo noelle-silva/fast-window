@@ -21,7 +21,7 @@ import type { AssetUploadTaskSnapshot } from '../gateway/types'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { startPastedAssetUploadTask } from '../services/pastedAssetUpload'
 import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
-import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
+import { type AssetUploadTaskView, isActiveUploadTask, isFailedUploadTask } from './assetUploadTasks'
 import { useClipboardFilesPaste } from './useClipboardFilesPaste'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
 import { useAssetThumbnailLoader } from './useAssetThumbnailLoader'
@@ -543,6 +543,7 @@ function AssetCategoryBar({
 
 function AssetGlobalToolbar({
   activeUploadCount,
+  unseenFailedUploadCount,
   uploadPanelOpen,
   uploadTasks,
   uploadTaskView,
@@ -565,6 +566,7 @@ function AssetGlobalToolbar({
   onStartUploadTask,
 }: {
   activeUploadCount: number
+  unseenFailedUploadCount: number
   uploadPanelOpen: boolean
   uploadTasks: AssetUploadTaskSnapshot[]
   uploadTaskView: AssetUploadTaskView
@@ -587,6 +589,12 @@ function AssetGlobalToolbar({
   onStartUploadTask: () => void
 }) {
   const uploadButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const uploadBadgeCount = unseenFailedUploadCount > 0 ? unseenFailedUploadCount : activeUploadCount
+  const uploadButtonLabel = unseenFailedUploadCount > 0
+    ? `上传任务，${unseenFailedUploadCount} 个失败任务未查看`
+    : activeUploadCount > 0
+      ? `上传任务，${activeUploadCount} 个任务上传中`
+      : '上传任务'
 
   return (
     <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -594,14 +602,14 @@ function AssetGlobalToolbar({
         <IconButton
           ref={uploadButtonRef}
           size="small"
-          aria-label="上传任务"
+          aria-label={uploadButtonLabel}
           onClick={onToggleUploadPanel}
-          sx={{ color: activeUploadCount ? toneFgVar(FEATURE_TONES.assets) : 'var(--hc-text-muted)', ...toneHoverActionSx(FEATURE_TONES.assets) }}
+          sx={{ color: uploadBadgeCount ? toneFgVar(FEATURE_TONES.assets) : 'var(--hc-text-muted)', ...toneHoverActionSx(FEATURE_TONES.assets) }}
         >
           <CloudUploadRoundedIcon fontSize="small" />
-          {activeUploadCount ? (
-            <Box sx={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, px: 0.25, borderRadius: 999, bgcolor: 'var(--hc-danger)', color: 'var(--hc-surface)', fontSize: 9, fontWeight: 900, lineHeight: '14px', textAlign: 'center' }}>
-              {activeUploadCount > 9 ? '9+' : activeUploadCount}
+          {uploadBadgeCount ? (
+            <Box sx={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, px: 0.25, borderRadius: 999, bgcolor: unseenFailedUploadCount > 0 ? 'var(--hc-danger)' : 'var(--hc-primary)', color: 'var(--hc-surface)', fontSize: 9, fontWeight: 900, lineHeight: '14px', textAlign: 'center' }}>
+              {uploadBadgeCount > 9 ? '9+' : uploadBadgeCount}
             </Box>
           ) : null}
         </IconButton>
@@ -611,6 +619,7 @@ function AssetGlobalToolbar({
         open={uploadPanelOpen}
         tasks={uploadTasks}
         view={uploadTaskView}
+        unseenFailedTaskCount={unseenFailedUploadCount}
         onViewChange={onUploadTaskViewChange}
         onClose={onCloseUploadPanel}
         onPause={onPauseUploadTask}
@@ -689,6 +698,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [assetListRevision, setAssetListRevision] = React.useState(0)
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false)
   const [uploadTaskView, setUploadTaskView] = React.useState<AssetUploadTaskView>('active')
+  const [seenFailedUploadTaskIds, setSeenFailedUploadTaskIds] = React.useState<ReadonlySet<string>>(() => new Set())
   const [interactionMode, setInteractionMode] = React.useState<AssetInteractionMode>('browse')
   const [selectedAssetKeys, setSelectedAssetKeys] = React.useState<ReadonlySet<string>>(() => new Set())
   const [deleteTargets, setDeleteTargets] = React.useState<AssetEntry[]>([])
@@ -747,7 +757,42 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const thumbnailTargets = React.useMemo(() => visibleAssets.filter(canHaveThumbnail), [visibleAssets])
   const hasAnyThumbnailTargets = React.useMemo(() => assets.some(canHaveThumbnail), [assets])
   const activeUploadCount = React.useMemo(() => uploadTaskSnapshots.filter(isActiveUploadTask).length, [uploadTaskSnapshots])
+  const failedUploadTasks = React.useMemo(() => uploadTaskSnapshots.filter(isFailedUploadTask), [uploadTaskSnapshots])
+  const unseenFailedUploadCount = React.useMemo(() => failedUploadTasks.filter(task => !seenFailedUploadTaskIds.has(task.id)).length, [failedUploadTasks, seenFailedUploadTaskIds])
   const uploadLaunchPending = startingUpload || startingPastedUpload
+
+  const markFailedUploadTasksSeen = React.useCallback(() => {
+    if (!failedUploadTasks.length) return
+    setSeenFailedUploadTaskIds(prev => {
+      const next = new Set(prev)
+      let changed = false
+      for (const task of failedUploadTasks) {
+        if (next.has(task.id)) continue
+        next.add(task.id)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [failedUploadTasks])
+
+  React.useEffect(() => {
+    setSeenFailedUploadTaskIds(prev => {
+      if (!prev.size) return prev
+      const failedIds = new Set(failedUploadTasks.map(task => task.id))
+      const next = new Set(Array.from(prev).filter(id => failedIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [failedUploadTasks])
+
+  React.useEffect(() => {
+    if (!uploadPanelOpen || uploadTaskView !== 'failed') return
+    markFailedUploadTasksSeen()
+  }, [markFailedUploadTasksSeen, uploadPanelOpen, uploadTaskView])
+
+  const handleToggleUploadPanel = React.useCallback(() => {
+    if (!uploadPanelOpen && unseenFailedUploadCount > 0) setUploadTaskView('failed')
+    setUploadPanelOpen(open => !open)
+  }, [unseenFailedUploadCount, uploadPanelOpen])
 
   useAssetThumbnailLoader({ gateway, scope, assets: visibleAssets, setAssets, revision: assetListRevision })
 
@@ -1020,6 +1065,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const globalToolbar = (
     <AssetGlobalToolbar
       activeUploadCount={activeUploadCount}
+      unseenFailedUploadCount={unseenFailedUploadCount}
       uploadPanelOpen={uploadPanelOpen}
       uploadTasks={uploadTaskSnapshots}
       uploadTaskView={uploadTaskView}
@@ -1030,7 +1076,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       thumbnailTargetsCount={thumbnailTargets.length}
       hasAnyThumbnailTargets={hasAnyThumbnailTargets}
       activeCategoryTone={activeCategoryTone}
-      onToggleUploadPanel={() => setUploadPanelOpen(open => !open)}
+      onToggleUploadPanel={handleToggleUploadPanel}
       onUploadTaskViewChange={setUploadTaskView}
       onCloseUploadPanel={() => setUploadPanelOpen(false)}
       onPauseUploadTask={taskId => void handlePauseUploadTask(taskId)}

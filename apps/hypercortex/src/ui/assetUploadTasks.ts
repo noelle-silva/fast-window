@@ -1,13 +1,37 @@
 import type { AssetUploadTaskSnapshot } from '../gateway/types'
 
-export type AssetUploadTaskView = 'active' | 'completed'
+export type AssetUploadTaskView = 'active' | 'failed' | 'completed'
+
+export const ASSET_UPLOAD_TASK_VIEWS: AssetUploadTaskView[] = ['active', 'failed', 'completed']
 
 export function isActiveUploadTask(task: AssetUploadTaskSnapshot): boolean {
-  return task.status === 'queued' || task.status === 'running' || task.status === 'paused' || task.status === 'failed'
+  return task.status === 'queued' || task.status === 'running' || task.status === 'paused'
+}
+
+export function isFailedUploadTask(task: AssetUploadTaskSnapshot): boolean {
+  return task.status === 'failed'
 }
 
 export function isCompletedUploadTask(task: AssetUploadTaskSnapshot): boolean {
   return task.status === 'completed' || task.status === 'canceled'
+}
+
+export function filterUploadTasksByView(tasks: AssetUploadTaskSnapshot[], view: AssetUploadTaskView): AssetUploadTaskSnapshot[] {
+  if (view === 'active') return tasks.filter(isActiveUploadTask)
+  if (view === 'failed') return tasks.filter(isFailedUploadTask)
+  return tasks.filter(isCompletedUploadTask)
+}
+
+export function uploadTaskViewLabel(view: AssetUploadTaskView): string {
+  if (view === 'active') return '上传中'
+  if (view === 'failed') return '失败'
+  return '已完成'
+}
+
+export function uploadTaskViewEmptyText(view: AssetUploadTaskView): string {
+  if (view === 'active') return '没有正在上传的任务'
+  if (view === 'failed') return '没有失败的任务'
+  return '还没有完成的任务'
 }
 
 export function isPollingUploadTask(task: AssetUploadTaskSnapshot): boolean {

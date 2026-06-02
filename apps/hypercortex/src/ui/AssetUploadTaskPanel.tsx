@@ -7,14 +7,16 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded'
 import type { AssetUploadTaskSnapshot } from '../gateway/types'
 import {
+  ASSET_UPLOAD_TASK_VIEWS,
   type AssetUploadTaskView,
   clampUploadProgress,
+  filterUploadTasksByView,
   formatUploadBytes,
-  isActiveUploadTask,
-  isCompletedUploadTask,
   uploadTaskError,
   uploadTaskStatusText,
   uploadTaskTitle,
+  uploadTaskViewEmptyText,
+  uploadTaskViewLabel,
 } from './assetUploadTasks'
 
 type Props = {
@@ -22,6 +24,7 @@ type Props = {
   open: boolean
   tasks: AssetUploadTaskSnapshot[]
   view: AssetUploadTaskView
+  unseenFailedTaskCount: number
   onViewChange: (view: AssetUploadTaskView) => void
   onClose: () => void
   onPause: (taskId: string) => void
@@ -47,9 +50,10 @@ function TaskRow({ task, onPause, onResume, onCancel }: {
   const canResume = task.status === 'paused'
   const canCancel = task.status === 'running' || task.status === 'queued' || task.status === 'paused'
   const actionLabel = taskActionLabel(task)
+  const failed = task.status === 'failed'
 
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2.5, bgcolor: '#fff', boxShadow: '0 10px 24px rgba(15,23,42,.07)' }}>
+    <Box sx={{ p: 1.25, borderRadius: 2.5, bgcolor: failed ? 'rgba(254,242,242,.96)' : '#fff', border: `1px solid ${failed ? 'rgba(220,38,38,.18)' : 'transparent'}`, boxShadow: failed ? '0 10px 24px rgba(220,38,38,.08)' : '0 10px 24px rgba(15,23,42,.07)' }}>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 900, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadTaskTitle(task)}>
@@ -90,11 +94,30 @@ function TaskRow({ task, onPause, onResume, onCancel }: {
   )
 }
 
+function TaskViewTabLabel({ view, count, unseenFailedTaskCount }: {
+  view: AssetUploadTaskView
+  count: number
+  unseenFailedTaskCount: number
+}) {
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+      <Box component="span">{uploadTaskViewLabel(view)} ({count})</Box>
+      {view === 'failed' && unseenFailedTaskCount > 0 ? (
+        <Box component="span" aria-hidden sx={{ width: 7, height: 7, borderRadius: 999, bgcolor: 'var(--hc-danger)', boxShadow: '0 0 0 3px var(--hc-danger-soft)' }} />
+      ) : null}
+    </Box>
+  )
+}
+
 export function AssetUploadTaskPanel(props: Props) {
-  const { anchorEl, open, tasks, view, onViewChange, onClose, onPause, onResume, onCancel } = props
-  const activeTasks = React.useMemo(() => tasks.filter(isActiveUploadTask), [tasks])
-  const completedTasks = React.useMemo(() => tasks.filter(isCompletedUploadTask), [tasks])
-  const visibleTasks = view === 'active' ? activeTasks : completedTasks
+  const { anchorEl, open, tasks, view, unseenFailedTaskCount, onViewChange, onClose, onPause, onResume, onCancel } = props
+  const taskCounts = React.useMemo(() => {
+    return ASSET_UPLOAD_TASK_VIEWS.reduce<Record<AssetUploadTaskView, number>>((counts, nextView) => {
+      counts[nextView] = filterUploadTasksByView(tasks, nextView).length
+      return counts
+    }, { active: 0, failed: 0, completed: 0 })
+  }, [tasks])
+  const visibleTasks = React.useMemo(() => filterUploadTasksByView(tasks, view), [tasks, view])
 
   return (
     <Popper open={open} anchorEl={anchorEl} placement="bottom-end" sx={{ zIndex: 1400 }} modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}>
@@ -117,8 +140,9 @@ export function AssetUploadTaskPanel(props: Props) {
           aria-label="上传任务分类"
           sx={{ minHeight: 36, px: 1.25, '& .MuiTabs-indicator': { height: 0 }, '& .MuiTab-root': { minHeight: 34, borderRadius: 2, fontSize: 12, fontWeight: 900, textTransform: 'none', color: 'var(--hc-text-muted)' }, '& .Mui-selected': { color: 'var(--hc-text)', bgcolor: 'var(--hc-surface-soft)', boxShadow: '0 8px 18px var(--hc-shadow)' } }}
         >
-          <Tab value="active" label={`上传中 (${activeTasks.length})`} />
-          <Tab value="completed" label={`已完成 (${completedTasks.length})`} />
+          {ASSET_UPLOAD_TASK_VIEWS.map(taskView => (
+            <Tab key={taskView} value={taskView} label={<TaskViewTabLabel view={taskView} count={taskCounts[taskView]} unseenFailedTaskCount={unseenFailedTaskCount} />} />
+          ))}
         </Tabs>
 
         <Box sx={{ maxHeight: 380, overflow: 'auto', p: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -126,7 +150,7 @@ export function AssetUploadTaskPanel(props: Props) {
             <TaskRow key={task.id} task={task} onPause={onPause} onResume={onResume} onCancel={onCancel} />
           )) : (
             <Box sx={{ py: 5, textAlign: 'center', color: 'rgba(15,23,42,.42)' }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 800 }}>{view === 'active' ? '没有正在上传的任务' : '还没有完成的任务'}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 800 }}>{uploadTaskViewEmptyText(view)}</Typography>
             </Box>
           )}
         </Box>
