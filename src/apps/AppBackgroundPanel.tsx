@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Box, Typography, IconButton, Dialog, DialogTitle, DialogContent,
-  Switch, Button, CircularProgress,
+  Button, CircularProgress,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import type { RegisteredApp, RegisteredAppUpdatePatch, AppStatus } from './types'
+import type { RegisteredApp, AppStatus } from './types'
 import { launchApp, getAppStatuses } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import AppCardView from './AppCardView'
@@ -15,7 +15,6 @@ import { useHostAppearance } from '../components/hostAppearance'
 interface AppBackgroundPanelProps {
   apps: RegisteredApp[]
   onClose?: () => void
-  onUpdateApp: (id: string, patch: RegisteredAppUpdatePatch) => void
   embedded?: boolean
 }
 
@@ -40,7 +39,7 @@ function runningDurationText(status: AppStatus | undefined, now: number): string
   return `已运行 ${formatDuration(now - status.startedAt)}`
 }
 
-export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded }: AppBackgroundPanelProps) {
+export default function AppBackgroundPanel({ apps, onClose, embedded }: AppBackgroundPanelProps) {
   const hostAppearance = useHostAppearance()
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({})
   const [loading, setLoading] = useState(false)
@@ -121,7 +120,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
               {loading ? <CircularProgress size={14} /> : null}
             </Box>
             <Typography variant="caption" color="text.secondary">
-              查看 v5 独立应用运行状态，启动、唤醒、停止或设置 FW 启动时自启。
+              查看 v5 独立应用运行状态，启动、唤醒或停止正在后台运行的应用。
             </Typography>
           </Box>
           <Button size="small" variant="text" onClick={() => void refreshStatuses()} disabled={loading || apps.length === 0} sx={{ ...hostButtonSx, flexShrink: 0 }}>
@@ -147,38 +146,28 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
                     {durationText}
                   </Typography>
                 ) : null}
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    sx={hostButtonSx}
+                    onClick={() => handleLaunch(app)}
+                    disabled={busyId === app.id}
+                  >
+                    {status?.running ? '唤醒' : '启动'}
+                  </Button>
+                  {status?.running ? (
                     <Button
                       size="small"
                       variant="text"
-                      sx={hostButtonSx}
-                      onClick={() => handleLaunch(app)}
+                      sx={hostDangerButtonSx}
+                      color="error"
+                      onClick={() => handleStop(app)}
                       disabled={busyId === app.id}
                     >
-                      {status?.running ? '唤醒' : '启动'}
+                      停止
                     </Button>
-                    {status?.running ? (
-                      <Button
-                        size="small"
-                        variant="text"
-                        sx={hostDangerButtonSx}
-                        color="error"
-                        onClick={() => handleStop(app)}
-                        disabled={busyId === app.id}
-                      >
-                        停止
-                      </Button>
-                    ) : null}
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="caption" color="text.secondary">自启</Typography>
-                    <Switch
-                      size="small"
-                      checked={app.autoStart}
-                      onChange={(_, v) => onUpdateApp(app.id, { autoStart: v })}
-                    />
-                  </Box>
+                  ) : null}
                 </Box>
               </Box>
             )

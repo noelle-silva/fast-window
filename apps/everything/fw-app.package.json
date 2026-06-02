@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "id": "everything",
+  "name": "Everything",
+  "description": "Fast Window v5 Everything 搜索应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/everything.exe", "to": "everything.exe" },
+        { "from": "src-tauri/target/release/everything-backend.exe", "to": "everything-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" },
+        { "from": "vendor/everything/windows-x64", "to": "vendor/everything/windows-x64" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/everything.exe", "to": "everything.exe" },
+        { "from": "src-tauri/target/debug/everything-backend.exe", "to": "everything-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" },
+        { "from": "vendor/everything/windows-x64", "to": "vendor/everything/windows-x64" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "everything.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-search", "title": "打开 Everything 搜索" },
+    { "id": "focus-query", "title": "聚焦搜索框" },
+    { "id": "show-setup", "title": "打开 Everything 设置" }
+  ]
+}

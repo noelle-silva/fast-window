@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   Box, Typography, IconButton, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
+  FormControlLabel, Stack, Switch, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
@@ -71,6 +71,7 @@ export default function AppRegistrationPanel({
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [recordingCommandHotkeyId, setRecordingCommandHotkeyId] = useState<string | null>(null)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
+  const [autoStart, setAutoStart] = useState(false)
   const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
   const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
   const [commandsEdited, setCommandsEdited] = useState(false)
@@ -107,6 +108,7 @@ export default function AppRegistrationPanel({
     setHotkeyLaunchBehavior('launch')
     setRecordingCommandHotkeyId(null)
     setDisplayMode('default')
+    setAutoStart(false)
     setCommands([])
     setAvailableCommands([])
     setCommandsEdited(false)
@@ -127,6 +129,7 @@ export default function AppRegistrationPanel({
     setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
     setRecordingCommandHotkeyId(null)
     setDisplayMode(app.displayMode)
+    setAutoStart(app.autoStart)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
     setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
     setCommandsEdited(true)
@@ -307,7 +310,7 @@ export default function AppRegistrationPanel({
         displayMode,
         commands: commandsToSave,
         availableCommands: info.commands,
-        autoStart: existingApp?.autoStart ?? false,
+        autoStart,
         windowWidth: existingApp?.windowWidth,
         windowHeight: existingApp?.windowHeight,
         windowX: existingApp?.windowX,
@@ -324,6 +327,7 @@ export default function AppRegistrationPanel({
             hotkey: nextHotkey || null,
             hotkeyLaunchBehavior: nextHotkeyLaunchBehavior ?? null,
             displayMode,
+            autoStart,
             commands: commandsToSave,
             availableCommands: info.commands,
           })
@@ -539,6 +543,25 @@ export default function AppRegistrationPanel({
               <ToggleButton value="window">窗口</ToggleButton>
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>FW 启动时自启</Typography>
+            <FormControlLabel
+              sx={{ m: 0 }}
+              control={
+                <Switch
+                  size="small"
+                  checked={autoStart}
+                  disabled={saving}
+                  onChange={e => setAutoStart(e.target.checked)}
+                  inputProps={{ 'aria-label': 'FW 启动时自启' }}
+                />
+              }
+              label={autoStart ? '已开启' : '已关闭'}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+              开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
+            </Typography>
           </Box>
           <AppCommandEditor
             commands={commands}

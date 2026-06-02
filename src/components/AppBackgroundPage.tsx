@@ -1,6 +1,6 @@
 import { Box } from '@mui/material'
 import AppBackgroundPanel from '../apps/AppBackgroundPanel'
-import type { RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
+import type { RegisteredApp } from '../apps/types'
 import HostPageHeader from './HostPageHeader'
 import { hostPageRootSx, hostPageScrollSx, hostSurfaceSx } from './hostUiStyles'
 import { useHostAppearance } from './hostAppearance'
@@ -8,10 +8,9 @@ import { useHostAppearance } from './hostAppearance'
 type AppBackgroundPageProps = {
   onBack: () => void
   apps: RegisteredApp[]
-  onUpdateApp: (id: string, patch: RegisteredAppUpdatePatch) => void
 }
 
-export default function AppBackgroundPage({ onBack, apps, onUpdateApp }: AppBackgroundPageProps) {
+export default function AppBackgroundPage({ onBack, apps }: AppBackgroundPageProps) {
   const hostAppearance = useHostAppearance()
   const panelSx = hostSurfaceSx(hostAppearance.surfaceMode)
 
@@ -20,7 +19,7 @@ export default function AppBackgroundPage({ onBack, apps, onUpdateApp }: AppBack
       <HostPageHeader title="后台管理" onBack={onBack} translucent={hostAppearance.glassEnabled} />
       <Box sx={hostPageScrollSx}>
         <Box sx={panelSx}>
-          <AppBackgroundPanel embedded apps={apps} onUpdateApp={onUpdateApp} />
+          <AppBackgroundPanel embedded apps={apps} />
         </Box>
       </Box>
     </Box>

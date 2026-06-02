@@ -932,7 +932,7 @@ function App() {
     }
 
     if (page === 'appBackground') {
-      return <AppBackgroundPage onBack={closeActiveView} apps={registeredApps} onUpdateApp={updateRegisteredApp} />
+      return <AppBackgroundPage onBack={closeActiveView} apps={registeredApps} />
     }
 
     return null

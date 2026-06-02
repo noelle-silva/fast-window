@@ -1,0 +1,39 @@
+{
+  "name": "@fast-window/app-everything",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:backend": "node scripts/build-backend.mjs",
+    "build:resources": "node scripts/check-vendor.mjs && node scripts/build-resources.mjs",
+    "vendor:check": "node scripts/check-vendor.mjs",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
+    "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
+    "build:exe": "pnpm build:ui && pnpm tauri build",
+    "build:app": "node ../../scripts/stage-v5-app.mjs",
+    "build:app:dev": "node ../../scripts/stage-v5-app.mjs --profile dev",
+    "build:app:exe": "node ../../scripts/sync-v5-app-exe.mjs",
+    "build:app:exe:dev": "node ../../scripts/sync-v5-app-exe.mjs --profile dev",
+    "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --check",
+    "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --dry-run",
+    "apps:bump": "node ../../scripts/bump-v5-app-version.mjs",
+    "apps:release:dry": "node ../../scripts/release-v5-app.mjs --dry-run",
+    "apps:release": "node ../../scripts/release-v5-app.mjs",
+    "dev": "vite --host 127.0.0.1 --port 1437",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
+  }
+}
