@@ -72,16 +72,16 @@ export function SearchPage(props: SearchPageProps) {
             {results.map(item => (
               <div className="everything-result-row" role="listitem" key={`${item.fullPath}-${item.modifiedAt}`}>
                 <button type="button" className="everything-result-open" onClick={() => onOpenPath(item.fullPath)}>
-                  <div className={`everything-result-icon everything-kind-${item.kind}`}>{resultKindLabel(item.kind)}</div>
-                  <div className="everything-result-main">
+                  <span className={`everything-result-icon everything-kind-${item.kind}`}>{resultKindLabel(item.kind)}</span>
+                  <span className="everything-result-main">
                     <span className="everything-result-name">{item.name}</span>
                     <span className="everything-result-path">{item.path}</span>
-                  </div>
-                  <div className="everything-result-meta">
-                    <span>{formatSize(item.size)}</span>
-                    <span>{item.modifiedAt || '-'}</span>
-                  </div>
+                  </span>
                 </button>
+                <div className="everything-result-meta" aria-label="文件信息">
+                  <span>{formatSize(item.size)}</span>
+                  <span>{item.modifiedAt || '-'}</span>
+                </div>
                 <button type="button" className="everything-reveal-button" onClick={() => onRevealPath(item.fullPath)} aria-label={`在文件夹中显示 ${item.name}`} title="在文件夹中显示">
                   <IconFolder />
                 </button>

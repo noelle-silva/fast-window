@@ -54,6 +54,20 @@ async function sleep(ms) {
   await new Promise(resolve => setTimeout(resolve, ms))
 }
 
+async function removeTempDirWhenReleased(tempDir) {
+  let lastError = null
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await rm(tempDir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      lastError = error
+      await sleep(125 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
 function iniValue(value) {
   return String(value).replaceAll('\\', '\\\\')
 }
@@ -137,7 +151,7 @@ async function runResultSmoke(es) {
     const rows = text.split(/\r?\n/).filter(Boolean)
     return { query: 'everything.exe', count: rows.length, sample: rows[0] }
   } finally {
-    await rm(tempDir, { recursive: true, force: true })
+    await removeTempDirWhenReleased(tempDir)
   }
 }
 
