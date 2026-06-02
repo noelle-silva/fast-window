@@ -14,6 +14,14 @@ func (svc *service) openPathLocked(params json.RawMessage) error {
 	return openFileWithDefaultApp(path)
 }
 
+func (svc *service) copyPathLocked(params json.RawMessage) error {
+	path, err := pathFromParams(params)
+	if err != nil {
+		return err
+	}
+	return copyPathToClipboard(path)
+}
+
 func (svc *service) revealPathLocked(params json.RawMessage) error {
 	path, err := pathFromParams(params)
 	if err != nil {

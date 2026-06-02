@@ -82,6 +82,7 @@ export type SearchResult = {
 export type SearchResponse = {
   query: string
   limit: number
+  scopePath: string
   results: SearchResult[]
 }
 

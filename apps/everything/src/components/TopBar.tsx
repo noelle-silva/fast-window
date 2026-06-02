@@ -6,6 +6,7 @@ type TopBarProps = {
   view: AppView
   phase: AppPhase
   query: string
+  searchScopePath: string
   queryRef: React.Ref<HTMLInputElement>
   searching: boolean
   busy: boolean
@@ -13,6 +14,8 @@ type TopBarProps = {
   onViewChange: (view: AppView) => void
   onQueryChange: (query: string) => void
   onClearQuery: () => void
+  onPickSearchScope: () => void
+  onClearSearchScope: () => void
   onSearch: () => void
   onStartDrag: () => Promise<void> | void
   standalone: boolean
@@ -45,6 +48,14 @@ function IconClear() {
   )
 }
 
+function IconScopeFolder() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17">
+      <path fill="currentColor" d="M3 6.75A2.75 2.75 0 0 1 5.75 4h4.08c.73 0 1.43.29 1.94.8l1.2 1.2h5.28A2.75 2.75 0 0 1 21 8.75v8.5A2.75 2.75 0 0 1 18.25 20H5.75A2.75 2.75 0 0 1 3 17.25V6.75Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v.75h15v-.75c0-.69-.56-1.25-1.25-1.25h-5.9l-1.64-1.64a1.25 1.25 0 0 0-.88-.36H5.75ZM4.5 9v8.25c0 .69.56 1.25 1.25 1.25h12.5c.69 0 1.25-.56 1.25-1.25V9h-15Z" />
+    </svg>
+  )
+}
+
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false
   return Boolean(target.closest('button,input,select,textarea,a,[role="button"],[data-window-control]'))
@@ -55,6 +66,7 @@ export function TopBar(props: TopBarProps) {
     view,
     phase,
     query,
+    searchScopePath,
     queryRef,
     searching,
     busy,
@@ -62,6 +74,8 @@ export function TopBar(props: TopBarProps) {
     onViewChange,
     onQueryChange,
     onClearQuery,
+    onPickSearchScope,
+    onClearSearchScope,
     onSearch,
     onStartDrag,
     standalone,
@@ -106,6 +120,19 @@ export function TopBar(props: TopBarProps) {
             </button>
           ) : null}
         </div>
+
+        <button type="button" className="everything-scope-picker-button" onClick={onPickSearchScope} disabled={inputDisabled} aria-label="选择搜索范围文件夹" title="选择搜索范围文件夹">
+          <IconScopeFolder />
+        </button>
+
+        {searchScopePath ? (
+          <span className="everything-scope-chip" title={searchScopePath}>
+            <span className="everything-scope-chip-path">{searchScopePath}</span>
+            <button type="button" className="everything-scope-clear-button" onClick={onClearSearchScope} aria-label="清空搜索范围" title="回到全局搜索">
+              <IconClear />
+            </button>
+          </span>
+        ) : null}
       </form>
 
       <div className="everything-topbar-spacer" />

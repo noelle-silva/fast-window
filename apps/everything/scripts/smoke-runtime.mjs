@@ -127,6 +127,26 @@ async function waitForVersion(es) {
 }
 
 async function runResultSmoke(es) {
+  const { rows } = await runExportedSearch(es, ['everything.exe'])
+  if (rows.length === 0) throw new Error('Everything result smoke exported no rows')
+  return { query: 'everything.exe', count: rows.length, sample: rows[0] }
+}
+
+async function runScopedResultSmoke(es) {
+  const deadline = Date.now() + 20_000
+  let lastRows = []
+  while (Date.now() < deadline) {
+    const { rows } = await runExportedSearch(es, ['-path', BIN_DIR, 'Everything.exe'])
+    lastRows = rows
+    if (rows.some(row => row.toLowerCase().includes(`"${BIN_DIR.toLowerCase()}"`))) {
+      return { query: 'Everything.exe', scopePath: BIN_DIR, count: rows.length, sample: rows[0] }
+    }
+    await sleep(750)
+  }
+  throw new Error(`Everything scoped result smoke exported no matching rows for ${BIN_DIR}. Last rows: ${lastRows.join(' | ')}`)
+}
+
+async function runExportedSearch(es, searchArgs) {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'fast-window-everything-smoke-'))
   const exportPath = path.join(tempDir, 'results.csv')
   try {
@@ -141,15 +161,15 @@ async function runResultSmoke(es) {
       '-size',
       '-date-modified',
       '-n', '10',
-      'everything.exe',
+      ...searchArgs,
     ], { cwd: BIN_DIR, timeoutMs: 15_000 })
     if (search.code !== 0) {
       throw new Error(`Everything result smoke failed: exit=${search.code} stdout=${search.stdout} stderr=${search.stderr}`)
     }
     const text = (await readFile(exportPath, 'utf8')).replace(/^\uFEFF/, '').trim()
-    if (!text) throw new Error('Everything result smoke exported no rows')
+    if (!text) return { rows: [] }
     const rows = text.split(/\r?\n/).filter(Boolean)
-    return { query: 'everything.exe', count: rows.length, sample: rows[0] }
+    return { rows }
   } finally {
     await removeTempDirWhenReleased(tempDir)
   }
@@ -169,7 +189,8 @@ async function main() {
   ], BIN_DIR)
   const version = await waitForVersion(es)
   const result = await runResultSmoke(es)
-  console.log(JSON.stringify({ ok: true, instance: INSTANCE, service: SERVICE_NAME, version, runtimeDir: RUNTIME_DIR, result }, null, 2))
+  const scopedResult = await runScopedResultSmoke(es)
+  console.log(JSON.stringify({ ok: true, instance: INSTANCE, service: SERVICE_NAME, version, runtimeDir: RUNTIME_DIR, result, scopedResult }, null, 2))
 }
 
 main().catch(error => {

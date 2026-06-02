@@ -28,28 +28,34 @@ type searchResult struct {
 }
 
 type searchResponse struct {
-	Query   string         `json:"query"`
-	Limit   int            `json:"limit"`
-	Results []searchResult `json:"results"`
+	Query     string         `json:"query"`
+	Limit     int            `json:"limit"`
+	ScopePath string         `json:"scopePath"`
+	Results   []searchResult `json:"results"`
 }
 
 func (svc *service) searchLocked(params json.RawMessage) (searchResponse, error) {
 	var payload struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Query     string `json:"query"`
+		Limit     int    `json:"limit"`
+		ScopePath string `json:"scopePath"`
 	}
 	if err := json.Unmarshal(params, &payload); err != nil && len(params) > 0 {
 		return searchResponse{}, fmt.Errorf("invalid search payload: %w", err)
 	}
 	query := strings.TrimSpace(payload.Query)
+	scopePath, err := normalizeSearchScopePath(payload.ScopePath)
+	if err != nil {
+		return searchResponse{}, err
+	}
 	if query == "" {
-		return searchResponse{Query: query, Limit: normalizeLimit(payload.Limit), Results: []searchResult{}}, nil
+		return searchResponse{Query: query, Limit: normalizeLimit(payload.Limit), ScopePath: scopePath, Results: []searchResult{}}, nil
 	}
 	if err := svc.ensureRuntimeReadyForSearchLocked(); err != nil {
 		return searchResponse{}, err
 	}
 	limit := normalizeLimit(payload.Limit)
-	text, err := runEverythingSearchCSV(searchTimeout, svc.runtimeEsExePath(), query, limit)
+	text, err := runEverythingSearchCSV(searchTimeout, svc.runtimeEsExePath(), query, limit, scopePath)
 	if err != nil {
 		return searchResponse{}, fmt.Errorf("Everything search failed: %w", err)
 	}
@@ -57,10 +63,10 @@ func (svc *service) searchLocked(params json.RawMessage) (searchResponse, error)
 	if err != nil {
 		return searchResponse{}, err
 	}
-	return searchResponse{Query: query, Limit: limit, Results: results}, nil
+	return searchResponse{Query: query, Limit: limit, ScopePath: scopePath, Results: results}, nil
 }
 
-func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, limit int) (string, error) {
+func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, limit int, scopePath string) (string, error) {
 	file, err := os.CreateTemp("", "fast-window-everything-search-*.csv")
 	if err != nil {
 		return "", fmt.Errorf("create Everything search export failed: %w", err)
@@ -72,7 +78,7 @@ func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, 
 	}
 	defer os.Remove(csvPath)
 
-	args := everythingSearchArgs(query, limit, csvPath)
+	args := everythingSearchArgs(query, limit, csvPath, scopePath)
 	if _, err := runCommandOutput(timeout, esPath, args...); err != nil {
 		return "", err
 	}
@@ -83,8 +89,8 @@ func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, 
 	return string(content), nil
 }
 
-func everythingSearchArgs(query string, limit int, csvPath string) []string {
-	return []string{
+func everythingSearchArgs(query string, limit int, csvPath string, scopePath string) []string {
+	args := []string{
 		"-instance", instanceName,
 		"-timeout", strconv.FormatInt(timeoutMilliseconds(searchConnectTimeout), 10),
 		"-export-csv", csvPath,
@@ -95,8 +101,19 @@ func everythingSearchArgs(query string, limit int, csvPath string) []string {
 		"-size",
 		"-date-modified",
 		"-n", strconv.Itoa(limit),
-		query,
 	}
+	if strings.TrimSpace(scopePath) != "" {
+		args = append(args, "-path", scopePath)
+	}
+	return append(args, query)
+}
+
+func normalizeSearchScopePath(value string) (string, error) {
+	path := strings.TrimSpace(value)
+	if path == "" {
+		return "", nil
+	}
+	return normalizeExistingLocalPath(path, "search scope path", true)
 }
 
 func (svc *service) ensureRuntimeReadyForSearchLocked() error {

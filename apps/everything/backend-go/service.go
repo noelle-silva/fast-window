@@ -99,6 +99,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.restartRuntimeLocked()
 	case "everything.openPath":
 		return nil, svc.openPathLocked(params)
+	case "everything.copyPath":
+		return nil, svc.copyPathLocked(params)
 	case "everything.revealPath":
 		return nil, svc.revealPathLocked(params)
 	default:

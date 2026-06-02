@@ -104,6 +104,23 @@ func TestSetupInfoReusesExistingGlobalService(t *testing.T) {
 	}
 }
 
+func TestNormalizeExistingLocalPathRequiresFolder(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(file, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeExistingLocalPath(dir, "test path", true); err != nil {
+		t.Fatalf("folder path should pass: %v", err)
+	}
+	if _, err := normalizeExistingLocalPath(file, "test path", true); err == nil {
+		t.Fatal("file path must fail when folder is required")
+	}
+	if _, err := normalizeExistingLocalPath(file, "test path", false); err != nil {
+		t.Fatalf("existing file path should pass when folder is not required: %v", err)
+	}
+}
+
 func TestRuntimeConfigUsesGlobalIndexOnly(t *testing.T) {
 	svc := testService(t)
 	state := defaultSetupState()
@@ -158,7 +175,7 @@ func TestEverythingVersionProbeTimeoutBudgetMatchesEsTimeout(t *testing.T) {
 }
 
 func TestEverythingSearchArgsUsePathColumn(t *testing.T) {
-	args := everythingSearchArgs("everything.exe", 10, `C:\Temp\results.csv`)
+	args := everythingSearchArgs("everything.exe", 10, `C:\Temp\results.csv`, "")
 	if !containsAll(strings.Join(args, "\n"), "-path-column", "everything.exe") {
 		t.Fatalf("search args missing expected path output column: %+v", args)
 	}
@@ -169,9 +186,23 @@ func TestEverythingSearchArgsUsePathColumn(t *testing.T) {
 	}
 }
 
+func TestEverythingSearchArgsUseScopePathFilter(t *testing.T) {
+	scopePath := `D:\Projects`
+	args := everythingSearchArgs("todo.md", 10, `C:\Temp\results.csv`, scopePath)
+	joined := strings.Join(args, "\n")
+	if !containsAll(joined, "-path-column", "-path", scopePath, "todo.md") {
+		t.Fatalf("search args missing scoped search contract: %+v", args)
+	}
+	for index, arg := range args {
+		if arg == "-path" && (index == len(args)-1 || args[index+1] != scopePath) {
+			t.Fatalf("search scope path must follow -path: %+v", args)
+		}
+	}
+}
+
 func TestEverythingSearchArgsExportUTF8CSV(t *testing.T) {
 	csvPath := `C:\Temp\results.csv`
-	args := everythingSearchArgs("中文.mp4", 10, csvPath)
+	args := everythingSearchArgs("中文.mp4", 10, csvPath, "")
 	joined := strings.Join(args, "\n")
 	if !containsAll(joined, "-export-csv", csvPath, "-utf8-bom", "中文.mp4") {
 		t.Fatalf("search args missing UTF-8 export contract: %+v", args)

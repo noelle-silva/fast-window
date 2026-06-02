@@ -50,6 +50,7 @@ export function App() {
   const [setup, setSetup] = React.useState<SetupInfo | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [query, setQuery] = React.useState('')
+  const [searchScopePath, setSearchScopePath] = React.useState('')
   const [searchLimit, setSearchLimit] = React.useState(readStoredSearchLimit)
   const [lastSearchedQuery, setLastSearchedQuery] = React.useState('')
   const [results, setResults] = React.useState<SearchResult[]>([])
@@ -174,7 +175,7 @@ export function App() {
 
   React.useEffect(() => () => client?.close(), [client])
 
-  const runSearch = React.useCallback(async () => {
+  const runSearch = React.useCallback(async (nextScopePath = searchScopePath) => {
     if (!client) return
     if (operation) {
       setError(`${operation.title}，完成后再搜索。`)
@@ -197,8 +198,9 @@ export function App() {
     setSearching(true)
     setError(null)
     try {
-      const response = await client.request<SearchResponse>('everything.search', { query: trimmed, limit: searchLimit })
+      const response = await client.request<SearchResponse>('everything.search', { query: trimmed, limit: searchLimit, scopePath: nextScopePath })
       if (searchRunIdRef.current !== runId) return
+      setSearchScopePath(response.scopePath || nextScopePath)
       setLastSearchedQuery(response.query)
       setResults(response.results)
     } catch (e) {
@@ -207,7 +209,7 @@ export function App() {
     } finally {
       if (searchRunIdRef.current === runId) setSearching(false)
     }
-  }, [client, operation, query, searchLimit, setup])
+  }, [client, operation, query, searchLimit, searchScopePath, setup])
 
   const runTopbarSearch = React.useCallback(() => {
     setView('search')
@@ -223,6 +225,24 @@ export function App() {
     setError(null)
     window.setTimeout(() => queryRef.current?.focus(), 0)
   }, [])
+
+  const pickSearchScope = React.useCallback(async () => {
+    const picked = await invoke<string | null>('pick_search_folder').catch(e => {
+      setError(errorMessage(e, '选择搜索文件夹失败'))
+      return null
+    })
+    if (!picked) return
+    setView('search')
+    setSearchScopePath(picked)
+    if (query.trim()) void runSearch(picked)
+    else window.setTimeout(() => queryRef.current?.focus(), 0)
+  }, [query, runSearch])
+
+  const clearSearchScope = React.useCallback(() => {
+    setSearchScopePath('')
+    if (query.trim()) void runSearch('')
+    else window.setTimeout(() => queryRef.current?.focus(), 0)
+  }, [query, runSearch])
 
   const updateSearchLimit = React.useCallback((value: number) => {
     const next = normalizeSearchLimit(value)
@@ -258,6 +278,11 @@ export function App() {
     await client.request('everything.openPath', { path }).catch(e => setError(errorMessage(e, '打开文件失败')))
   }, [client])
 
+  const copyPath = React.useCallback(async (path: string) => {
+    if (!client) return
+    await client.request('everything.copyPath', { path }).catch(e => setError(errorMessage(e, '复制文件失败')))
+  }, [client])
+
   const revealPath = React.useCallback(async (path: string) => {
     if (!client) return
     await client.request('everything.revealPath', { path }).catch(e => setError(errorMessage(e, '打开所在位置失败')))
@@ -269,6 +294,7 @@ export function App() {
         view={view}
         phase={phase}
         query={query}
+        searchScopePath={searchScopePath}
         queryRef={queryRef}
         searching={searching}
         busy={busy}
@@ -276,6 +302,8 @@ export function App() {
         onViewChange={setView}
         onQueryChange={setQuery}
         onClearQuery={clearQuery}
+        onPickSearchScope={() => void pickSearchScope()}
+        onClearSearchScope={clearSearchScope}
         onSearch={runTopbarSearch}
         onStartDrag={() => appWindow.startDragging()}
         standalone={launchInfo.standalone}
@@ -309,6 +337,7 @@ export function App() {
             lastSearchedQuery={lastSearchedQuery}
             onOpenSettings={() => setView('settings')}
             onOpenPath={path => void openPath(path)}
+            onCopyPath={path => void copyPath(path)}
             onRevealPath={path => void revealPath(path)}
           />
         )}

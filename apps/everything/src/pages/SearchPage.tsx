@@ -9,6 +9,7 @@ type SearchPageProps = {
   lastSearchedQuery: string
   onOpenSettings: () => void
   onOpenPath: (path: string) => void
+  onCopyPath: (path: string) => void
   onRevealPath: (path: string) => void
 }
 
@@ -32,6 +33,14 @@ function IconFolder() {
   )
 }
 
+function IconCopy() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path fill="currentColor" d="M8 3.75A2.75 2.75 0 0 1 10.75 1h6.5A2.75 2.75 0 0 1 20 3.75v9.5A2.75 2.75 0 0 1 17.25 16h-6.5A2.75 2.75 0 0 1 8 13.25v-9.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v9.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25v-9.5c0-.69-.56-1.25-1.25-1.25h-6.5ZM4 7.75A2.75 2.75 0 0 1 6.75 5H7v1.5h-.25c-.69 0-1.25.56-1.25 1.25v11.5c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V19H18v.25A2.75 2.75 0 0 1 15.25 22h-8.5A2.75 2.75 0 0 1 4 19.25V7.75Z" />
+    </svg>
+  )
+}
+
 export function SearchPage(props: SearchPageProps) {
   const {
     setup,
@@ -40,6 +49,7 @@ export function SearchPage(props: SearchPageProps) {
     lastSearchedQuery,
     onOpenSettings,
     onOpenPath,
+    onCopyPath,
     onRevealPath,
   } = props
   const setupRequired = Boolean(setup && !setup.configured)
@@ -82,9 +92,14 @@ export function SearchPage(props: SearchPageProps) {
                   <span>{formatSize(item.size)}</span>
                   <span>{item.modifiedAt || '-'}</span>
                 </div>
-                <button type="button" className="everything-reveal-button" onClick={() => onRevealPath(item.fullPath)} aria-label={`在文件夹中显示 ${item.name}`} title="在文件夹中显示">
-                  <IconFolder />
-                </button>
+                <div className="everything-result-actions" aria-label="文件操作">
+                  <button type="button" className="everything-result-action-button" onClick={() => onCopyPath(item.fullPath)} aria-label={`复制 ${item.name}`} title="复制文件">
+                    <IconCopy />
+                  </button>
+                  <button type="button" className="everything-result-action-button" onClick={() => onRevealPath(item.fullPath)} aria-label={`在文件夹中显示 ${item.name}`} title="在文件夹中显示">
+                    <IconFolder />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

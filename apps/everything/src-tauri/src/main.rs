@@ -46,6 +46,14 @@ fn data_dir_status(
 }
 
 #[tauri::command]
+fn pick_search_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择搜索范围文件夹").pick_folder()
+    })?
+    .map(|path| path.display().to_string()))
+}
+
+#[tauri::command]
 fn hide_to_tray(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<FwWindowState>>,
@@ -95,6 +103,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             backend_endpoint,
             data_dir_status,
+            pick_search_folder,
             hide_to_tray,
             app_ready,
             fw_initial_command,
