@@ -67,7 +67,7 @@ export function SearchPage(props: SearchPageProps) {
         </div>
       ) : null}
 
-      <article className="everything-results-panel">
+      <article className="everything-results-region">
         <div className="everything-panel-title-row">
           <div>
             <p className="everything-kicker">Results</p>
