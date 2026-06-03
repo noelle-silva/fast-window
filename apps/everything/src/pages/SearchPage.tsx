@@ -1,16 +1,28 @@
 import * as React from 'react'
 import { formatSize } from '../format'
-import type { SearchResult, SetupInfo } from '../types'
+import { SEARCH_LAYOUTS, type SearchLayout, type SearchResult } from '../types'
 
 type SearchPageProps = {
-  setup: SetupInfo | null
   searching: boolean
+  layout: SearchLayout
   results: SearchResult[]
   lastSearchedQuery: string
-  onOpenSettings: () => void
+  onCycleLayout: () => void
   onOpenPath: (path: string) => void
   onCopyPath: (path: string) => void
   onRevealPath: (path: string) => void
+}
+
+type LayoutCopy = {
+  label: string
+  icon: string
+}
+
+const LAYOUT_COPY: Record<SearchLayout, LayoutCopy> = {
+  list: { label: '列表', icon: 'L1' },
+  compact: { label: '紧凑', icon: 'L2' },
+  detail: { label: '详情', icon: 'L3' },
+  grid: { label: '网格', icon: 'L4' },
 }
 
 function emptyResultText(lastSearchedQuery: string) {
@@ -22,6 +34,11 @@ function resultKindLabel(kind: SearchResult['kind']) {
   if (kind === 'folder') return 'DIR'
   if (kind === 'file') return 'FILE'
   return 'ITEM'
+}
+
+function nextLayout(layout: SearchLayout) {
+  const index = SEARCH_LAYOUTS.indexOf(layout)
+  return SEARCH_LAYOUTS[(index + 1) % SEARCH_LAYOUTS.length]
 }
 
 function IconFolder() {
@@ -42,16 +59,18 @@ function IconCopy() {
 
 export function SearchPage(props: SearchPageProps) {
   const {
-    setup,
     searching,
+    layout,
     results,
     lastSearchedQuery,
-    onOpenSettings,
+    onCycleLayout,
     onOpenPath,
     onCopyPath,
     onRevealPath,
   } = props
   const emptyText = emptyResultText(lastSearchedQuery)
+  const currentLayout = LAYOUT_COPY[layout]
+  const nextLayoutCopy = LAYOUT_COPY[nextLayout(layout)]
 
   return (
     <section className="everything-page everything-search-page" aria-label="Everything 搜索">
@@ -61,12 +80,24 @@ export function SearchPage(props: SearchPageProps) {
             <p className="everything-kicker">Results</p>
             <h2>搜索结果</h2>
           </div>
-          <span>{searching ? '搜索中' : `${results.length} 项`}</span>
+          <div className="everything-results-toolbar">
+            <button
+              type="button"
+              className="everything-layout-switch"
+              onClick={onCycleLayout}
+              aria-label={`当前布局：${currentLayout.label}。点击切换为${nextLayoutCopy.label}`}
+              title={`切换为${nextLayoutCopy.label}`}
+            >
+              <span className="everything-layout-switch-icon" aria-hidden="true">{currentLayout.icon}</span>
+              <span>{currentLayout.label}</span>
+            </button>
+            <span className="everything-results-count">{searching ? '搜索中' : `${results.length} 项`}</span>
+          </div>
         </div>
         {results.length === 0 ? (
           <div className="everything-empty-state">{emptyText}</div>
         ) : (
-          <div className="everything-results-list" role="list">
+          <div className={`everything-results-list everything-results-layout-${layout}`} role="list">
             {results.map(item => (
               <div className="everything-result-row" role="listitem" key={`${item.fullPath}-${item.modifiedAt}`}>
                 <button type="button" className="everything-result-open" onClick={() => onOpenPath(item.fullPath)}>

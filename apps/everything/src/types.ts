@@ -89,6 +89,10 @@ export type SearchResponse = {
   results: SearchResult[]
 }
 
+export const SEARCH_LAYOUTS = ['list', 'compact', 'detail', 'grid'] as const
+
+export type SearchLayout = typeof SEARCH_LAYOUTS[number]
+
 export type AppPhase = 'starting' | 'ready' | 'failed'
 
 export type AppView = 'search' | 'settings'
@@ -100,3 +104,5 @@ export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {
 }
 
 export const DEFAULT_SEARCH_LIMIT = 120
+
+export const DEFAULT_SEARCH_LAYOUT: SearchLayout = SEARCH_LAYOUTS[0]

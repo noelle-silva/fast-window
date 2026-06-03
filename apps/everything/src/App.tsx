@@ -10,13 +10,16 @@ import { SearchPage } from './pages/SearchPage'
 import { SettingsPage } from './pages/SettingsPage'
 import {
   DEFAULT_LAUNCH_INFO,
+  DEFAULT_SEARCH_LAYOUT,
   DEFAULT_SEARCH_LIMIT,
+  SEARCH_LAYOUTS,
   type AppPhase,
   type AppView,
   type DataDirStatus,
   type FwLaunchInfo,
   type HealthInfo,
   type RuntimeStatus,
+  type SearchLayout,
   type SearchResponse,
   type SearchResult,
   type SetupInfo,
@@ -25,6 +28,7 @@ import { UI_OPERATIONS, type UiOperation } from './uiOperations'
 
 const appWindow = getCurrentWindow()
 const SEARCH_LIMIT_STORAGE_KEY = 'everything.searchLimit'
+const SEARCH_LAYOUT_STORAGE_KEY = 'everything.searchLayout'
 const SEARCH_LIMIT_MIN = 20
 const SEARCH_LIMIT_MAX = 500
 const SEARCH_LIMIT_STEP = 20
@@ -41,6 +45,19 @@ function readStoredSearchLimit() {
   return normalizeSearchLimit(Number(raw))
 }
 
+function normalizeSearchLayout(value: string | null): SearchLayout {
+  return SEARCH_LAYOUTS.includes(value as SearchLayout) ? (value as SearchLayout) : DEFAULT_SEARCH_LAYOUT
+}
+
+function readStoredSearchLayout() {
+  return normalizeSearchLayout(window.localStorage.getItem(SEARCH_LAYOUT_STORAGE_KEY))
+}
+
+function nextSearchLayout(current: SearchLayout) {
+  const index = SEARCH_LAYOUTS.indexOf(current)
+  return SEARCH_LAYOUTS[(index + 1) % SEARCH_LAYOUTS.length]
+}
+
 export function App() {
   const [view, setView] = React.useState<AppView>('search')
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -53,6 +70,7 @@ export function App() {
   const [query, setQuery] = React.useState('')
   const [searchScopePath, setSearchScopePath] = React.useState('')
   const [searchLimit, setSearchLimit] = React.useState(readStoredSearchLimit)
+  const [searchLayout, setSearchLayout] = React.useState(readStoredSearchLayout)
   const [lastSearchedQuery, setLastSearchedQuery] = React.useState('')
   const [results, setResults] = React.useState<SearchResult[]>([])
   const [phase, setPhase] = React.useState<AppPhase>('starting')
@@ -252,6 +270,14 @@ export function App() {
     window.localStorage.setItem(SEARCH_LIMIT_STORAGE_KEY, String(next))
   }, [])
 
+  const cycleSearchLayout = React.useCallback(() => {
+    setSearchLayout(current => {
+      const next = nextSearchLayout(current)
+      window.localStorage.setItem(SEARCH_LAYOUT_STORAGE_KEY, next)
+      return next
+    })
+  }, [])
+
   const enableGlobal = React.useCallback(async () => {
     if (!client) return
     await runOperation(UI_OPERATIONS.globalSetup, async () => {
@@ -333,11 +359,11 @@ export function App() {
           />
         ) : (
           <SearchPage
-            setup={setup}
             searching={searching}
+            layout={searchLayout}
             results={results}
             lastSearchedQuery={lastSearchedQuery}
-            onOpenSettings={() => setView('settings')}
+            onCycleLayout={cycleSearchLayout}
             onOpenPath={path => void openPath(path)}
             onCopyPath={path => void copyPath(path)}
             onRevealPath={path => void revealPath(path)}
