@@ -55,7 +55,7 @@ func TestParseSearchCSVRemovesUTF8BOM(t *testing.T) {
 
 func TestSetupStateRoundTrip(t *testing.T) {
 	svc := testService(t)
-	state := defaultSetupState()
+	state := svc.defaultSetupState()
 	state.EnabledAt = nowText()
 	if err := writeJSON(svc.setupPath(), state); err != nil {
 		t.Fatal(err)
@@ -64,8 +64,28 @@ func TestSetupStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Mode != setupModeGlobal || loaded.ServiceName != serviceName {
+	if loaded.Mode != setupModeGlobal || loaded.ServiceName != svc.identity.ServiceName {
 		t.Fatalf("unexpected setup state: %+v", loaded)
+	}
+}
+
+func TestIdentityForChannelSeparatesDevAndRelease(t *testing.T) {
+	dev, err := identityForChannel(channelDev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := identityForChannel(channelRelease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.InstanceName == release.InstanceName || dev.ServiceName == release.ServiceName || dev.RuntimeDirName == release.RuntimeDirName || dev.SetupFile == release.SetupFile {
+		t.Fatalf("dev and release identities must not share system roots: dev=%+v release=%+v", dev, release)
+	}
+	if !containsAll(dev.InstanceName, "dev") || !containsAll(dev.ServiceName, "dev") {
+		t.Fatalf("dev identity must be visibly marked as dev: %+v", dev)
+	}
+	if !containsAll(release.InstanceName, "release") || !containsAll(release.ServiceName, "release") {
+		t.Fatalf("release identity must be visibly marked as release: %+v", release)
 	}
 }
 
@@ -99,7 +119,7 @@ func TestSetupInfoReusesExistingGlobalService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Configured || info.State.InstanceName != instanceName || info.State.ServiceName != serviceName {
+	if !info.Configured || info.State.InstanceName != svc.identity.InstanceName || info.State.ServiceName != svc.identity.ServiceName {
 		t.Fatalf("unexpected setup info: %+v", info)
 	}
 }
@@ -123,7 +143,7 @@ func TestNormalizeExistingLocalPathRequiresFolder(t *testing.T) {
 
 func TestRuntimeConfigUsesGlobalIndexOnly(t *testing.T) {
 	svc := testService(t)
-	state := defaultSetupState()
+	state := svc.defaultSetupState()
 	if err := svc.writeRuntimeConfigLocked(state); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +178,7 @@ func TestEnsureReadyPreparesControlPlaneWithoutStartingRuntime(t *testing.T) {
 
 func TestEverythingVersionProbeTimeoutBudgetMatchesEsTimeout(t *testing.T) {
 	probeTimeout := 5 * time.Second
-	args := everythingVersionArgs(probeTimeout)
+	args := everythingVersionArgs("everything-test-instance", probeTimeout)
 	var cliTimeout string
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] == "-timeout" {
@@ -175,7 +195,7 @@ func TestEverythingVersionProbeTimeoutBudgetMatchesEsTimeout(t *testing.T) {
 }
 
 func TestEverythingSearchArgsUsePathColumn(t *testing.T) {
-	args := everythingSearchArgs("everything.exe", 10, `C:\Temp\results.csv`, "")
+	args := everythingSearchArgs("everything-test-instance", "everything.exe", 10, `C:\Temp\results.csv`, "")
 	if !containsAll(strings.Join(args, "\n"), "-path-column", "everything.exe") {
 		t.Fatalf("search args missing expected path output column: %+v", args)
 	}
@@ -188,7 +208,7 @@ func TestEverythingSearchArgsUsePathColumn(t *testing.T) {
 
 func TestEverythingSearchArgsUseScopePathFilter(t *testing.T) {
 	scopePath := `D:\Projects`
-	args := everythingSearchArgs("todo.md", 10, `C:\Temp\results.csv`, scopePath)
+	args := everythingSearchArgs("everything-test-instance", "todo.md", 10, `C:\Temp\results.csv`, scopePath)
 	joined := strings.Join(args, "\n")
 	if !containsAll(joined, "-path-column", "-path", scopePath, "todo.md") {
 		t.Fatalf("search args missing scoped search contract: %+v", args)
@@ -202,7 +222,7 @@ func TestEverythingSearchArgsUseScopePathFilter(t *testing.T) {
 
 func TestEverythingSearchArgsExportUTF8CSV(t *testing.T) {
 	csvPath := `C:\Temp\results.csv`
-	args := everythingSearchArgs("中文.mp4", 10, csvPath, "")
+	args := everythingSearchArgs("everything-test-instance", "中文.mp4", 10, csvPath, "")
 	joined := strings.Join(args, "\n")
 	if !containsAll(joined, "-export-csv", csvPath, "-utf8-bom", "中文.mp4") {
 		t.Fatalf("search args missing UTF-8 export contract: %+v", args)
@@ -272,13 +292,13 @@ func TestWindowsServiceNotFoundDetection(t *testing.T) {
 func TestWindowsServiceBinaryPathParsing(t *testing.T) {
 	text := `[SC] QueryServiceConfig SUCCESS
 
-SERVICE_NAME: Everything (fast-window-everything)
+SERVICE_NAME: Everything (fast-window-everything-release)
         TYPE               : 10  WIN32_OWN_PROCESS
-        BINARY_PATH_NAME   : "C:\Data\Everything.exe" -svc -instance "fast-window-everything"
-        DISPLAY_NAME       : Everything (fast-window-everything)
+        BINARY_PATH_NAME   : "C:\Data\Everything.exe" -svc -instance "fast-window-everything-release"
+        DISPLAY_NAME       : Everything (fast-window-everything-release)
 `
 	path := windowsServiceBinaryPath(text)
-	if path != `"C:\Data\Everything.exe" -svc -instance "fast-window-everything"` {
+	if path != `"C:\Data\Everything.exe" -svc -instance "fast-window-everything-release"` {
 		t.Fatalf("binary path = %q", path)
 	}
 	if exe := serviceBinaryExecutablePath(path); exe != `C:\Data\Everything.exe` {
@@ -302,7 +322,11 @@ func TestWindowsExplorerSelectArgsSeparatePathFromSwitch(t *testing.T) {
 
 func testService(t *testing.T) *service {
 	t.Helper()
-	return &service{dataDir: t.TempDir(), packageDir: t.TempDir(), serviceOps: fakeGlobalServiceOps{}}
+	identity, err := identityForChannel(channelRelease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &service{dataDir: t.TempDir(), packageDir: t.TempDir(), identity: identity, serviceOps: fakeGlobalServiceOps{}}
 }
 
 type fakeGlobalServiceOps struct {

@@ -9,6 +9,8 @@ use crate::backend_lifecycle::BackendProcessState;
 use crate::control_server::random_token;
 use crate::data_dir;
 
+const EVERYTHING_INSTANCE_PREFIX: &str = "fast-window-everything";
+
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -25,6 +27,11 @@ pub(crate) struct BackendEndpoint {
 #[derive(Default)]
 pub(crate) struct BackendState {
     process: BackendProcessState<BackendEndpoint>,
+}
+
+struct EverythingIdentity {
+    channel: &'static str,
+    instance_name: String,
 }
 
 impl BackendState {
@@ -71,6 +78,7 @@ fn spawn_backend_child(
     cmd.env("FW_APP_SESSION_TOKEN", session_token);
     cmd.env("FW_APP_DATA_DIR", &data_dir);
     cmd.env("FW_APP_PACKAGE_DIR", resolve_package_dir(app)?);
+    cmd.env("FW_EVERYTHING_CHANNEL", everything_identity().channel);
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
@@ -143,6 +151,18 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Err(format!("Everything 后台 sidecar 不存在: {exe_name}"))
 }
 
+fn everything_identity() -> EverythingIdentity {
+    let channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "release"
+    };
+    EverythingIdentity {
+        channel,
+        instance_name: format!("{EVERYTHING_INSTANCE_PREFIX}-{channel}"),
+    }
+}
+
 fn resolve_package_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let candidates = [
         std::env::current_exe()
@@ -175,7 +195,28 @@ pub(crate) fn stop_everything_runtime(app: &tauri::AppHandle) {
     if !exe.is_file() {
         return;
     }
+    let identity = everything_identity();
     let _ = std::process::Command::new(exe)
-        .args(["-instance", "fast-window-everything", "-exit"])
+        .args(["-instance", identity.instance_name.as_str(), "-exit"])
         .status();
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn identity_matches_build_profile() {
+        let identity = super::everything_identity();
+        let expected = if cfg!(debug_assertions) {
+            "dev"
+        } else {
+            "release"
+        };
+        let expected_instance = if cfg!(debug_assertions) {
+            "fast-window-everything-dev"
+        } else {
+            "fast-window-everything-release"
+        };
+        assert_eq!(identity.channel, expected);
+        assert_eq!(identity.instance_name, expected_instance);
+    }
 }

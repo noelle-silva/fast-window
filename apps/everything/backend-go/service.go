@@ -20,6 +20,7 @@ const (
 type service struct {
 	dataDir             string
 	packageDir          string
+	identity            appIdentity
 	serviceOps          globalServiceOps
 	runtimeStartupError string
 	mu                  sync.Mutex
@@ -49,8 +50,12 @@ func newService() (*service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve package dir failed: %w", err)
 	}
+	identity, err := identityFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
 
-	return &service{dataDir: dataAbs, packageDir: packageAbs, serviceOps: windowsGlobalServiceOps{}}, nil
+	return &service{dataDir: dataAbs, packageDir: packageAbs, identity: identity, serviceOps: windowsGlobalServiceOps{}}, nil
 }
 
 func (svc *service) ensureReady() error {
@@ -120,6 +125,7 @@ func (svc *service) healthLocked() (map[string]any, error) {
 	}
 	return map[string]any{
 		"ok":         vendorErr == nil && setupErr == nil && serviceErr == nil && configured && runtime.Ready,
+		"channel":    svc.identity.Channel,
 		"dataDir":    svc.dataDir,
 		"packageDir": svc.packageDir,
 		"time":       time.Now().UTC().Format(time.RFC3339),

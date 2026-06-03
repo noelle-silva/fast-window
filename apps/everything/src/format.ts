@@ -1,8 +1,14 @@
-import type { AppPhase, SetupMode } from './types'
+import type { AppPhase, EverythingChannel, SetupMode } from './types'
 
 export function modeLabel(mode?: SetupMode) {
   if (mode === 'global') return '全局索引'
   return '未配置'
+}
+
+export function channelLabel(channel?: EverythingChannel) {
+  if (channel === 'dev') return '开发版'
+  if (channel === 'release') return '正式版'
+  return '读取中'
 }
 
 export function phaseLabel(phase: AppPhase) {

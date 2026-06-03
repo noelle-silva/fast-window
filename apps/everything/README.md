@@ -7,9 +7,10 @@ Fast Window v5 registered app for packaged voidtools Everything search.
 - The app packages official `Everything.exe` and `es.exe` under `vendor/everything/windows-x64/`.
 - Build and runtime validation use `vendor-manifest.json` sha256 entries.
 - Runtime settings, database and setup state are written under the app data directory.
-- The Everything instance name is fixed to `fast-window-everything` to avoid touching the user's default Everything instance.
-- Global indexing is rooted in the app-owned `Everything (fast-window-everything)` service.
-- Development builds validate the single service root and fail fast on mismatches.
+- Development and release builds use separate app-owned Everything identities so both packages can coexist.
+- Development global indexing uses `fast-window-everything-dev` and `Everything (fast-window-everything-dev)`.
+- Release global indexing uses `fast-window-everything-release` and `Everything (fast-window-everything-release)`.
+- Each channel validates its own service root and fails fast on runtime path mismatches.
 - Search runs through the packaged `es.exe` against the app-owned global Everything instance.
 
 ## Build

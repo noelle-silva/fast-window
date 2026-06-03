@@ -8,10 +8,7 @@ import (
 )
 
 const (
-	setupFile       = "everything-global-setup.json"
 	setupModeGlobal = "global"
-	instanceName    = "fast-window-everything"
-	serviceName     = "Everything (fast-window-everything)"
 )
 
 type setupState struct {
@@ -60,7 +57,7 @@ func (svc *service) readSetupStateLocked() (setupState, error) {
 }
 
 func (svc *service) readSetupStateWithFlagLocked() (setupState, bool, error) {
-	state := defaultSetupState()
+	state := svc.defaultSetupState()
 	path := svc.setupPath()
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return state, false, nil
@@ -68,7 +65,7 @@ func (svc *service) readSetupStateWithFlagLocked() (setupState, bool, error) {
 	if err := readJSON(path, &state); err != nil {
 		return setupState{}, false, fmt.Errorf("read Everything setup failed: %w", err)
 	}
-	if err := normalizeSetupState(&state); err != nil {
+	if err := svc.normalizeSetupState(&state); err != nil {
 		return setupState{}, false, err
 	}
 	return state, true, nil
@@ -78,7 +75,7 @@ func (svc *service) enableGlobalSetupLocked() (setupInfo, error) {
 	if err := svc.installOrValidateGlobalServiceLocked(); err != nil {
 		return setupInfo{}, err
 	}
-	state := defaultSetupState()
+	state := svc.defaultSetupState()
 	state.EnabledAt = nowText()
 	state.UpdatedAt = nowText()
 	if err := svc.attachRuntimeFingerprintLocked(&state); err != nil {
@@ -94,31 +91,31 @@ func (svc *service) enableGlobalSetupLocked() (setupInfo, error) {
 }
 
 func (svc *service) setupPath() string {
-	return filepath.Join(svc.dataDir, setupFile)
+	return filepath.Join(svc.dataDir, svc.identity.SetupFile)
 }
 
-func defaultSetupState() setupState {
+func (svc *service) defaultSetupState() setupState {
 	now := nowText()
 	return setupState{
 		SchemaVersion: 1,
 		Mode:          setupModeGlobal,
-		InstanceName:  instanceName,
-		ServiceName:   serviceName,
+		InstanceName:  svc.identity.InstanceName,
+		ServiceName:   svc.identity.ServiceName,
 		UpdatedAt:     now,
 	}
 }
 
-func normalizeSetupState(state *setupState) error {
+func (svc *service) normalizeSetupState(state *setupState) error {
 	if state.SchemaVersion != 1 {
 		return fmt.Errorf("Everything setup schemaVersion must be 1")
 	}
-	if state.InstanceName != instanceName {
+	if state.InstanceName != svc.identity.InstanceName {
 		return fmt.Errorf("Everything setup instanceName mismatch")
 	}
 	if state.ServiceName == "" {
-		state.ServiceName = serviceName
+		state.ServiceName = svc.identity.ServiceName
 	}
-	if state.ServiceName != serviceName {
+	if state.ServiceName != svc.identity.ServiceName {
 		return fmt.Errorf("Everything setup serviceName mismatch")
 	}
 	switch state.Mode {

@@ -8,6 +8,8 @@
     "build:resources": "node scripts/check-vendor.mjs && node scripts/build-resources.mjs",
     "vendor:check": "node scripts/check-vendor.mjs",
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "smoke:runtime:dev": "node scripts/smoke-runtime.mjs --channel dev",
+    "smoke:runtime:release": "node scripts/smoke-runtime.mjs --channel release",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
     "build:exe": "pnpm build:ui && pnpm tauri build",

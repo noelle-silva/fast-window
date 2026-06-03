@@ -55,7 +55,7 @@ func (svc *service) searchLocked(params json.RawMessage) (searchResponse, error)
 		return searchResponse{}, err
 	}
 	limit := normalizeLimit(payload.Limit)
-	text, err := runEverythingSearchCSV(searchTimeout, svc.runtimeEsExePath(), query, limit, scopePath)
+	text, err := runEverythingSearchCSV(searchTimeout, svc.runtimeEsExePath(), svc.identity.InstanceName, query, limit, scopePath)
 	if err != nil {
 		return searchResponse{}, fmt.Errorf("Everything search failed: %w", err)
 	}
@@ -66,8 +66,8 @@ func (svc *service) searchLocked(params json.RawMessage) (searchResponse, error)
 	return searchResponse{Query: query, Limit: limit, ScopePath: scopePath, Results: results}, nil
 }
 
-func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, limit int, scopePath string) (string, error) {
-	file, err := os.CreateTemp("", "fast-window-everything-search-*.csv")
+func runEverythingSearchCSV(timeout time.Duration, esPath string, instance string, query string, limit int, scopePath string) (string, error) {
+	file, err := os.CreateTemp("", "everything-search-*.csv")
 	if err != nil {
 		return "", fmt.Errorf("create Everything search export failed: %w", err)
 	}
@@ -78,7 +78,7 @@ func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, 
 	}
 	defer os.Remove(csvPath)
 
-	args := everythingSearchArgs(query, limit, csvPath, scopePath)
+	args := everythingSearchArgs(instance, query, limit, csvPath, scopePath)
 	if _, err := runCommandOutput(timeout, esPath, args...); err != nil {
 		return "", err
 	}
@@ -89,9 +89,9 @@ func runEverythingSearchCSV(timeout time.Duration, esPath string, query string, 
 	return string(content), nil
 }
 
-func everythingSearchArgs(query string, limit int, csvPath string, scopePath string) []string {
+func everythingSearchArgs(instance string, query string, limit int, csvPath string, scopePath string) []string {
 	args := []string{
-		"-instance", instanceName,
+		"-instance", instance,
 		"-timeout", strconv.FormatInt(timeoutMilliseconds(searchConnectTimeout), 10),
 		"-export-csv", csvPath,
 		"-utf8-bom",

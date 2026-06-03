@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	runtimeDirName        = "everything-runtime"
 	runtimeBinDirName     = "runtime-bin"
 	runtimeReadyTimeout   = 30 * time.Second
 	runtimeProbeTimeout   = 5 * time.Second
@@ -53,7 +52,7 @@ func (windowsGlobalServiceOps) UsesExecutable(name, expectedExe string) (bool, e
 }
 
 func (svc *service) runtimeDir() string {
-	return filepath.Join(svc.dataDir, runtimeDirName)
+	return filepath.Join(svc.dataDir, svc.identity.RuntimeDirName)
 }
 
 func (svc *service) runtimeBinDir() string {
@@ -94,12 +93,12 @@ func (svc *service) startRuntimeLocked() error {
 	if err := svc.writeRuntimeConfigLocked(setup); err != nil {
 		return err
 	}
-	if err := svc.serviceOps.EnsureRunning(serviceName); err != nil {
+	if err := svc.serviceOps.EnsureRunning(svc.identity.ServiceName); err != nil {
 		return err
 	}
 	_ = svc.stopRuntimeLocked()
 	args := []string{
-		"-instance", instanceName,
+		"-instance", svc.identity.InstanceName,
 		"-config", svc.runtimeConfigPath(),
 		"-db", svc.runtimeDatabasePath(),
 		"-startup",
@@ -112,7 +111,7 @@ func (svc *service) startRuntimeLocked() error {
 
 func (svc *service) restartRuntimeLocked() (runtimeStatus, error) {
 	if err := svc.restartRuntimeOnlyLocked(); err != nil {
-		return svc.runtimeStatusLocked(defaultSetupState()), err
+		return svc.runtimeStatusLocked(svc.defaultSetupState()), err
 	}
 	setup, _ := svc.readSetupStateLocked()
 	return svc.runtimeStatusLocked(setup), nil
@@ -130,7 +129,7 @@ func (svc *service) restartRuntimeOnlyLocked() error {
 }
 
 func (svc *service) stopRuntimeLocked() error {
-	if _, err := runCommandOutput(runtimeCommandTimeout, svc.runtimeEverythingExePath(), "-instance", instanceName, "-exit"); err != nil {
+	if _, err := runCommandOutput(runtimeCommandTimeout, svc.runtimeEverythingExePath(), "-instance", svc.identity.InstanceName, "-exit"); err != nil {
 		return fmt.Errorf("stop Everything runtime failed: %w", err)
 	}
 	return nil
@@ -138,7 +137,7 @@ func (svc *service) stopRuntimeLocked() error {
 
 func (svc *service) runtimeStatusLocked(setup setupState) runtimeStatus {
 	status := runtimeStatus{
-		InstanceName: instanceName,
+		InstanceName: svc.identity.InstanceName,
 		Mode:         setup.Mode,
 		ConfigPath:   svc.runtimeConfigPath(),
 		DatabasePath: svc.runtimeDatabasePath(),
@@ -182,7 +181,7 @@ func (svc *service) waitRuntimeReadyLocked() error {
 }
 
 func (svc *service) everythingVersionLocked(timeout time.Duration) (string, error) {
-	text, err := runCommandOutput(commandTimeoutWithGrace(timeout), svc.runtimeEsExePath(), everythingVersionArgs(timeout)...)
+	text, err := runCommandOutput(commandTimeoutWithGrace(timeout), svc.runtimeEsExePath(), everythingVersionArgs(svc.identity.InstanceName, timeout)...)
 	if err != nil {
 		return "", err
 	}
@@ -193,8 +192,8 @@ func (svc *service) everythingVersionLocked(timeout time.Duration) (string, erro
 	return text, nil
 }
 
-func everythingVersionArgs(timeout time.Duration) []string {
-	return []string{"-instance", instanceName, "-timeout", strconv.FormatInt(timeoutMilliseconds(timeout), 10), "-get-everything-version"}
+func everythingVersionArgs(instance string, timeout time.Duration) []string {
+	return []string{"-instance", instance, "-timeout", strconv.FormatInt(timeoutMilliseconds(timeout), 10), "-get-everything-version"}
 }
 
 func (svc *service) writeRuntimeConfigLocked(setup setupState) error {
@@ -253,10 +252,10 @@ func (svc *service) installOrValidateGlobalServiceLocked() error {
 	if err := svc.syncRuntimeBinariesLocked(); err != nil {
 		return err
 	}
-	if err := svc.writeRuntimeConfigLocked(defaultSetupState()); err != nil {
+	if err := svc.writeRuntimeConfigLocked(svc.defaultSetupState()); err != nil {
 		return err
 	}
-	exists, err := svc.serviceOps.Exists(serviceName)
+	exists, err := svc.serviceOps.Exists(svc.identity.ServiceName)
 	if err != nil {
 		return err
 	}
@@ -267,14 +266,14 @@ func (svc *service) installOrValidateGlobalServiceLocked() error {
 		if err := svc.syncRuntimeCLILocked(); err != nil {
 			return err
 		}
-		if err := svc.writeRuntimeConfigLocked(defaultSetupState()); err != nil {
+		if err := svc.writeRuntimeConfigLocked(svc.defaultSetupState()); err != nil {
 			return err
 		}
-		return svc.serviceOps.EnsureRunning(serviceName)
+		return svc.serviceOps.EnsureRunning(svc.identity.ServiceName)
 	}
 	_ = svc.stopRuntimeLocked()
 	_, err = runCommandOutput(runtimeCommandTimeout, svc.runtimeEverythingExePath(),
-		"-instance", instanceName,
+		"-instance", svc.identity.InstanceName,
 		"-install-service",
 	)
 	if err != nil {
@@ -283,14 +282,14 @@ func (svc *service) installOrValidateGlobalServiceLocked() error {
 	if err := svc.validateGlobalServiceLocked(); err != nil {
 		return err
 	}
-	return svc.serviceOps.EnsureRunning(serviceName)
+	return svc.serviceOps.EnsureRunning(svc.identity.ServiceName)
 }
 
 func (svc *service) globalServiceConfiguredLocked() (bool, error) {
 	if runtime.GOOS != "windows" {
 		return false, nil
 	}
-	exists, err := svc.serviceOps.Exists(serviceName)
+	exists, err := svc.serviceOps.Exists(svc.identity.ServiceName)
 	if err != nil || !exists {
 		return false, err
 	}
@@ -301,7 +300,7 @@ func (svc *service) globalServiceConfiguredLocked() (bool, error) {
 }
 
 func (svc *service) validateGlobalServiceLocked() error {
-	matches, err := svc.serviceOps.UsesExecutable(serviceName, svc.runtimeEverythingExePath())
+	matches, err := svc.serviceOps.UsesExecutable(svc.identity.ServiceName, svc.runtimeEverythingExePath())
 	if err != nil {
 		return err
 	}

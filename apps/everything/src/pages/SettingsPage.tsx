@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { modeLabel } from '../format'
+import { channelLabel, modeLabel } from '../format'
 import { SettingsTabs, type SettingsTabItem } from '../components/SettingsTabs'
 import { TracklessSlider } from '../components/TracklessSlider'
 import type { DataDirStatus, HealthInfo, SetupInfo } from '../types'
@@ -109,8 +109,9 @@ export function SettingsPage(props: SettingsPageProps) {
             <dl>
               <FieldValue label="Vendor" value={health?.vendor.ready ? `Everything ${health.vendor.runtimeVersion}` : health?.vendor.error || '读取中'} />
               <FieldValue label="Runtime" value={health?.runtime.ready ? `运行中 ${health.runtime.version || ''}` : health?.runtime.error || '启动中'} />
-              <FieldValue label="实例" value={setup?.state.instanceName || 'fast-window-everything'} />
-              <FieldValue label="服务" value={setup?.state.serviceName || 'Everything (fast-window-everything)'} />
+              <FieldValue label="通道" value={channelLabel(health?.channel)} />
+              <FieldValue label="实例" value={setup?.state.instanceName || '等待授权后生成'} />
+              <FieldValue label="服务" value={setup?.state.serviceName || '等待授权后生成'} />
               <FieldValue label="数据目录" value={status?.dataDir || '读取中'} />
               <FieldValue label="可写" value={status?.writable ? '是' : '否'} />
             </dl>

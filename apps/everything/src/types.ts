@@ -31,6 +31,8 @@ export type VendorStatus = {
 
 export type SetupMode = 'global'
 
+export type EverythingChannel = 'dev' | 'release'
+
 export type RuntimeStatus = {
   ready: boolean
   instanceName: string
@@ -61,6 +63,7 @@ export type SetupInfo = {
 
 export type HealthInfo = {
   ok: boolean
+  channel: EverythingChannel
   dataDir: string
   packageDir: string
   time: string

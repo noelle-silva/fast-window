@@ -24,7 +24,7 @@ import {
 import { UI_OPERATIONS, type UiOperation } from './uiOperations'
 
 const appWindow = getCurrentWindow()
-const SEARCH_LIMIT_STORAGE_KEY = 'fast-window-everything.searchLimit'
+const SEARCH_LIMIT_STORAGE_KEY = 'everything.searchLimit'
 const SEARCH_LIMIT_MIN = 20
 const SEARCH_LIMIT_MAX = 500
 const SEARCH_LIMIT_STEP = 20

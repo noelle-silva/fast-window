@@ -7,12 +7,80 @@ import path from 'node:path'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const VENDOR_DIR = path.join(ROOT, 'vendor', 'everything', 'windows-x64')
-const DATA_DIR = process.env.FW_EVERYTHING_SMOKE_DATA_DIR || path.join(ROOT, 'dist-app', 'v5-windows-dev', 'data')
-const RUNTIME_DIR = path.join(DATA_DIR, 'everything-runtime')
+const EVERYTHING_INSTANCE_PREFIX = 'fast-window-everything'
+const CLI_OPTIONS = parseOptions(process.argv.slice(2))
+const CHANNEL = normalizeChannel(CLI_OPTIONS.channel || process.env.FW_EVERYTHING_SMOKE_CHANNEL || process.env.FW_EVERYTHING_CHANNEL || 'dev')
+const IDENTITY = identityForChannel(CHANNEL)
+const DATA_DIR = CLI_OPTIONS.dataDir || process.env.FW_EVERYTHING_SMOKE_DATA_DIR || defaultDataDirForChannel(CHANNEL)
+const RUNTIME_DIR = path.join(DATA_DIR, IDENTITY.runtimeDirName)
 const BIN_DIR = path.join(RUNTIME_DIR, 'runtime-bin')
-const INSTANCE = 'fast-window-everything'
-const SERVICE_NAME = 'Everything (fast-window-everything)'
+const INSTANCE = IDENTITY.instanceName
+const SERVICE_NAME = IDENTITY.serviceName
 const TIMEOUT_MS = 15_000
+
+function parseOptions(args) {
+  const options = {}
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--channel') {
+      options.channel = optionValue(args, index, arg)
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--channel=')) {
+      options.channel = assignedOptionValue(arg, '--channel')
+      continue
+    }
+    if (arg === '--data-dir') {
+      options.dataDir = optionValue(args, index, arg)
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--data-dir=')) {
+      options.dataDir = assignedOptionValue(arg, '--data-dir')
+      continue
+    }
+    throw new Error(`unknown smoke option: ${arg}`)
+  }
+  return options
+}
+
+function optionValue(args, index, option) {
+  const value = args[index + 1]
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${option} requires a value`)
+  }
+  return value
+}
+
+function assignedOptionValue(arg, option) {
+  const value = arg.slice(`${option}=`.length)
+  if (!value) {
+    throw new Error(`${option} requires a value`)
+  }
+  return value
+}
+
+function normalizeChannel(channel) {
+  const value = String(channel).trim().toLowerCase()
+  if (value === 'dev' || value === 'release') return value
+  throw new Error(`unsupported Everything smoke channel: ${channel}`)
+}
+
+function identityForChannel(channel) {
+  const suffix = normalizeChannel(channel)
+  const instanceName = `${EVERYTHING_INSTANCE_PREFIX}-${suffix}`
+  return {
+    instanceName,
+    serviceName: `Everything (${instanceName})`,
+    runtimeDirName: `everything-runtime-${suffix}`,
+  }
+}
+
+function defaultDataDirForChannel(channel) {
+  const profile = channel === 'dev' ? 'v5-windows-dev' : 'v5-windows'
+  return path.join(ROOT, 'dist-app', profile, 'data')
+}
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -147,7 +215,7 @@ async function runScopedResultSmoke(es) {
 }
 
 async function runExportedSearch(es, searchArgs) {
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'fast-window-everything-smoke-'))
+  const tempDir = await mkdtemp(path.join(tmpdir(), `fast-window-everything-${CHANNEL}-smoke-`))
   const exportPath = path.join(tempDir, 'results.csv')
   try {
     const search = await run(es, [
@@ -190,7 +258,7 @@ async function main() {
   const version = await waitForVersion(es)
   const result = await runResultSmoke(es)
   const scopedResult = await runScopedResultSmoke(es)
-  console.log(JSON.stringify({ ok: true, instance: INSTANCE, service: SERVICE_NAME, version, runtimeDir: RUNTIME_DIR, result, scopedResult }, null, 2))
+  console.log(JSON.stringify({ ok: true, channel: CHANNEL, instance: INSTANCE, service: SERVICE_NAME, version, runtimeDir: RUNTIME_DIR, result, scopedResult }, null, 2))
 }
 
 main().catch(error => {
