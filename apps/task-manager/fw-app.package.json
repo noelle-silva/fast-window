@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "id": "task-manager",
+  "name": "Task Manager",
+  "description": "Fast Window v5 任务记录与管理应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/task-manager.exe", "to": "task-manager.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/task-manager.exe", "to": "task-manager.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "task-manager.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-tasks", "title": "打开任务管理" },
+    { "id": "new-board", "title": "新建任务分组" },
+    { "id": "new-task", "title": "新建任务" }
+  ]
+}
