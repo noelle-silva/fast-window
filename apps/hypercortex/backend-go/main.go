@@ -180,13 +180,22 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return nil, svc.writeRawJSON("data", metadataFile, payload["meta"])
 
 	case "hypercortex.favorites.tryLoad":
-		return svc.tryLoadJSON("data", favoritesFile)
+		doc, changed, err := svc.tryLoadFavorites()
+		if err != nil || doc.Version != 1 {
+			return nil, err
+		}
+		if changed {
+			if err := svc.saveFavoritesDoc(doc); err != nil {
+				return nil, err
+			}
+		}
+		return doc, nil
 	case "hypercortex.favorites.ensure":
 		return svc.ensureFavorites()
 	case "hypercortex.favorites.save":
 		payload := map[string]json.RawMessage{}
 		_ = json.Unmarshal(params, &payload)
-		return nil, svc.writeRawJSON("data", favoritesFile, payload["doc"])
+		return nil, svc.saveFavorites(payload["doc"])
 
 	case "hypercortex.notes.loadIndex":
 		return svc.loadNoteIndex(requireScope(params))

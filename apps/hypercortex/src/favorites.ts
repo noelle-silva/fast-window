@@ -222,6 +222,10 @@ function normalizeFavoritesDocV1(nowMs: number, rawDoc: any): { doc: HyperCortex
   return { doc: normalized, changed }
 }
 
+export function normalizeFavoritesDoc(rawDoc: any): { doc: HyperCortexFavoritesDocV1; changed: boolean } {
+  return normalizeFavoritesDocV1(Date.now(), rawDoc)
+}
+
 async function tryLoadFavoritesInternal(
   api: Api,
 ): Promise<{ doc: HyperCortexFavoritesDocV1; changed: boolean } | null> {
@@ -273,7 +277,8 @@ export async function ensureFavorites(api: Api): Promise<HyperCortexFavoritesDoc
 }
 
 export async function saveFavorites(api: Api, doc: HyperCortexFavoritesDocV1): Promise<void> {
-  await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(doc, null, 2), overwrite: true })
+  const normalized = normalizeFavoritesDoc(doc).doc
+  await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(normalized, null, 2), overwrite: true })
 }
 
 export function getRefsByFolderId(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {

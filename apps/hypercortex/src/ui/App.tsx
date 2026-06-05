@@ -28,7 +28,7 @@ import { type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { isDraftNoteId } from '../drafts'
-import { addRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, normalizeFavoritesDoc, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -1473,8 +1473,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const handleFavoritesDocChange = React.useCallback(
     (nextDoc: HyperCortexFavoritesDocV1) => {
-      setFavoritesDoc(nextDoc)
-      void gateway.favorites.saveFavorites(nextDoc).catch(() => {})
+      const normalizedDoc = normalizeFavoritesDoc(nextDoc).doc
+      setFavoritesDoc(normalizedDoc)
+      void gateway.favorites.saveFavorites(normalizedDoc).catch(() => {})
     },
     [gateway],
   )

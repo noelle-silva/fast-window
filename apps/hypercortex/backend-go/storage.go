@@ -10,39 +10,6 @@ import (
 	"time"
 )
 
-func (svc *service) ensureFavorites() (any, error) {
-	existing, err := svc.tryLoadJSON("data", favoritesFile)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return existing, nil
-	}
-	now := nowMs()
-	fresh := map[string]any{
-		"version":      1,
-		"rootFolderId": "root",
-		"folders": map[string]any{
-			"root": map[string]any{
-				"id":          "root",
-				"title":       "根目录",
-				"description": "",
-				"createdAtMs": now,
-				"updatedAtMs": now,
-			},
-		},
-		"refsByFolderId": map[string]any{"root": []any{}},
-	}
-	target, err := svc.resolvePath("data", favoritesFile)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeJSONFile(target, fresh); err != nil {
-		return nil, err
-	}
-	return fresh, nil
-}
-
 func (svc *service) loadNoteIndex(scope string) (noteIndex, error) {
 	path, err := svc.resolvePath(scope, indexFile)
 	if err != nil {
