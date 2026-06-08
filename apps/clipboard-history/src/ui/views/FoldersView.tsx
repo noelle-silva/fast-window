@@ -1,7 +1,6 @@
 import * as React from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
@@ -15,6 +14,7 @@ import { itemText } from '../../shared/collectionsDomain'
 import type { CollectionImageContent, CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import { LazyImagePreview } from '../components/LazyImagePreview'
+import { imageFileFromClipboardData } from '../clipboardImageDraft'
 import {
   resolveSortMovePosition,
   SortableDragStatus,
@@ -38,6 +38,8 @@ type FolderListProps = FoldersViewProps & {
 }
 
 type DropVisualState = Pick<SortableDropTargetRenderArgs, 'dragMode' | 'isDropCandidate' | 'isDropTarget'>
+
+type CopyableSectionKind = 'text' | 'image'
 
 const dropTargetSx = (drop: DropVisualState) => ({
   bgcolor: drop.isDropTarget ? 'primary.main' : drop.isDropCandidate ? 'action.hover' : undefined,
@@ -76,6 +78,22 @@ export function FoldersView(props: FoldersViewProps) {
   const sourceChildIds = React.useMemo(() => folderChildren.map(node => node.id), [folderChildren])
   const [optimisticChildIds, setOptimisticChildIds] = React.useState<string[] | null>(null)
   const childIds = optimisticChildIds || sourceChildIds
+
+  React.useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (!event.clipboardData || event.defaultPrevented || !controller.isReady) return
+      if (shouldIgnoreFolderPaste(event.target, state)) return
+      const hasText = String(event.clipboardData.getData('text/plain') || '').trim()
+      const hasImage = !!imageFileFromClipboardData(event.clipboardData)
+      if (!hasText && !hasImage) return
+      event.preventDefault()
+      void controller.createItemFromPaste(event.clipboardData).catch(error => {
+        void controller.host.toast(String((error as any)?.message || error || '收藏失败'))
+      })
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [controller, controller.isReady, state])
 
   React.useEffect(() => {
     setOptimisticChildIds(null)
@@ -138,6 +156,12 @@ export function FoldersView(props: FoldersViewProps) {
       </Stack>
     </SortableRoot>
   )
+}
+
+function shouldIgnoreFolderPaste(target: EventTarget | null, state: ClipboardHistoryController['state']): boolean {
+  if (state.showFolderEditor || state.showItemEditor || state.editDialog.open || state.movePicker.open || state.showSettings) return true
+  if (!(target instanceof HTMLElement)) return false
+  return !!target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')
 }
 
 function FoldersSubbar(props: FoldersViewProps) {
@@ -232,7 +256,7 @@ function FolderList(props: FolderListProps) {
     )
   }
 
-  if (!folderChildren.length) return <EmptyState message="当前收藏夹为空" />
+  if (!folderChildren.length) return <EmptyState message="当前收藏夹为空，按 Ctrl+V 可直接收藏剪贴板内容" />
 
   return (
     <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
@@ -264,15 +288,21 @@ function orderNodesByIds(nodes: CollectionNode[], ids: string[]): CollectionNode
 
 function SearchResultCard(props: { item: CollectionItemNode; folderId: string; path: string; controller: ClipboardHistoryController }) {
   const { item, folderId, path, controller } = props
+  const isMixed = item.content.type === 'mixed'
   return (
     <Box
-      role="button"
-      tabIndex={0}
-      onClick={() => void controller.copyFolderItem(item.id)}
-      sx={{ p: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+      role={isMixed ? 'group' : 'button'}
+      tabIndex={isMixed ? undefined : 0}
+      onClick={() => { if (!isMixed) void controller.copyFolderItem(item.id) }}
+      onKeyDown={(event) => {
+        if (isMixed || (event.key !== 'Enter' && event.key !== ' ')) return
+        event.preventDefault()
+        void controller.copyFolderItem(item.id)
+      }}
+      sx={{ p: 1.25, cursor: isMixed ? 'default' : 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
     >
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.75 }} onClick={(event) => event.stopPropagation()}>
-        <Chip size="small" label={item.content.type === 'image' ? '图片' : '文本'} />
+        <Chip size="small" label={contentKindLabel(item.content.type)} />
         <Chip size="small" label={path} />
         <Box sx={{ flex: 1 }} />
         <IconButton size="small" title="打开所在收藏夹" onClick={() => {
@@ -281,11 +311,8 @@ function SearchResultCard(props: { item: CollectionItemNode; folderId: string; p
         }}>
           <FolderOpenRoundedIcon fontSize="small" />
         </IconButton>
-        <IconButton size="small" title="复制" onClick={() => void controller.copyFolderItem(item.id)}>
-          <ContentCopyRoundedIcon fontSize="small" />
-        </IconButton>
       </Stack>
-      <ItemContentPreview content={item.content} controller={controller} />
+      <ItemContentPreview item={item} controller={controller} />
     </Box>
   )
 }
@@ -298,12 +325,13 @@ function FolderCard(props: {
   const { node, controller, sortable } = props
   const armed = controller.isDeleteArmed(node.id)
   const dropSx = dropTargetSx(sortable)
+  const isMixedItem = node.type === 'item' && node.content.type === 'mixed'
 
   return (
     <Box
       ref={sortable.setNodeRef}
-      role="button"
-      tabIndex={0}
+      role={node.type === 'folder' || !isMixedItem ? 'button' : 'group'}
+      tabIndex={node.type === 'folder' || !isMixedItem ? 0 : undefined}
       style={sortable.style}
       {...sortable.dropActivatorProps}
       onContextMenu={(event) => {
@@ -316,11 +344,18 @@ function FolderCard(props: {
           return
         }
         if (node.type === 'folder') controller.navigateFolder(node.id)
+        else if (!isMixedItem) void controller.copyFolderItem(node.id)
+      }}
+      onKeyDown={(event) => {
+        if (sortable.isDragging || (event.key !== 'Enter' && event.key !== ' ')) return
+        if (node.type !== 'folder' && isMixedItem) return
+        event.preventDefault()
+        if (node.type === 'folder') controller.navigateFolder(node.id)
         else void controller.copyFolderItem(node.id)
       }}
       sx={{
         p: 1.25,
-        cursor: 'pointer',
+        cursor: isMixedItem ? 'default' : 'pointer',
         ...dropSx,
         bgcolor: sortable.isDragging && !sortable.isDropTarget && !sortable.isDropCandidate ? 'action.selected' : dropSx.bgcolor,
         opacity: sortable.isDragging ? 0.82 : 1,
@@ -348,19 +383,11 @@ function FolderCard(props: {
           </>
         ) : (
           <>
-            <Chip size="small" icon={node.content.type === 'image' ? <ImageRoundedIcon fontSize="small" /> : undefined} label={node.content.type === 'image' ? '图片' : '文本'} />
+            <Chip size="small" icon={node.content.type === 'image' ? <ImageRoundedIcon fontSize="small" /> : undefined} label={contentKindLabel(node.content.type)} />
             <Chip size="small" label={node.title || ''} />
           </>
         )}
         <Box sx={{ flex: 1 }} />
-        {node.type === 'item' ? (
-          <IconButton size="small" title="复制" onClick={(event) => {
-            event.stopPropagation()
-            void controller.copyFolderItem(node.id)
-          }}>
-            <ContentCopyRoundedIcon fontSize="small" />
-          </IconButton>
-        ) : null}
         <IconButton size="small" title={armed ? '再点一次确认删除' : '删除'} onClick={(event) => {
           event.stopPropagation()
           void controller.deleteNode(node.id)
@@ -369,16 +396,78 @@ function FolderCard(props: {
         </IconButton>
       </Stack>
       {node.type === 'item' ? (
-        <ItemContentPreview content={node.content} controller={controller} />
+        <ItemContentPreview item={node} controller={controller} />
       ) : null}
     </Box>
   )
 }
 
-function ItemContentPreview(props: { content: CollectionItemNode['content']; controller: ClipboardHistoryController }) {
-  const { content, controller } = props
+function contentKindLabel(type: CollectionItemNode['content']['type']): string {
+  if (type === 'mixed') return '图文'
+  return type === 'image' ? '图片' : '文本'
+}
+
+function ItemContentPreview(props: { item: CollectionItemNode; controller: ClipboardHistoryController }) {
+  const { item, controller } = props
+  const { content } = item
+  if (content.type === 'mixed') return <MixedContentPreview item={item} controller={controller} />
   if (content.type === 'image') return <CollectionImagePreview image={content} controller={controller} />
   return <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{itemText(content)}</Typography>
+}
+
+function MixedContentPreview(props: { item: CollectionItemNode; controller: ClipboardHistoryController }) {
+  const { item, controller } = props
+  if (item.content.type !== 'mixed') return null
+  return (
+    <Stack spacing={1}>
+      <CopyableContentSection kind="text" onCopy={() => void controller.copyFolderItemText(item.id)}>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{item.content.text}</Typography>
+      </CopyableContentSection>
+      <CopyableContentSection kind="image" onCopy={() => void controller.copyFolderItemImage(item.id)}>
+        <CollectionImagePreview image={item.content.image} controller={controller} />
+      </CopyableContentSection>
+    </Stack>
+  )
+}
+
+function CopyableContentSection(props: { kind: CopyableSectionKind; onCopy: () => void; children: React.ReactNode }) {
+  const label = props.kind === 'text' ? '文字区' : '图片区'
+  const color: 'primary' | 'warning' = props.kind === 'text' ? 'primary' : 'warning'
+  return (
+    <Paper
+      role="button"
+      tabIndex={0}
+      aria-label={`复制${label}`}
+      title={`点击复制${label}`}
+      data-dnd-ignore="true"
+      variant="outlined"
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onCopy()
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        event.stopPropagation()
+        props.onCopy()
+      }}
+      sx={{
+        p: 1,
+        borderRadius: 1.5,
+        cursor: 'pointer',
+        bgcolor: props.kind === 'text' ? 'rgba(14, 116, 144, 0.04)' : 'rgba(245, 158, 11, 0.08)',
+        transition: 'background-color 120ms ease, border-color 120ms ease, transform 120ms ease',
+        '&:hover': {
+          bgcolor: props.kind === 'text' ? 'rgba(14, 116, 144, 0.08)' : 'rgba(245, 158, 11, 0.14)',
+          borderColor: `${color}.main`,
+        },
+        '&:active': { transform: 'scale(0.995)' },
+      }}
+    >
+      <Chip size="small" label={label} color={color} sx={{ mb: 0.75 }} />
+      {props.children}
+    </Paper>
+  )
 }
 
 function CollectionImagePreview(props: { image: CollectionImageContent; controller: ClipboardHistoryController }) {

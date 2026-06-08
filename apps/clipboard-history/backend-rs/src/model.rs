@@ -73,6 +73,25 @@ pub enum CollectionItemContent {
         #[serde(skip_serializing_if = "Option::is_none")]
         source_name: Option<String>,
     },
+    #[serde(rename = "mixed", rename_all = "camelCase")]
+    Mixed {
+        text: String,
+        image: CollectionImagePart,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionImagePart {
+    #[serde(rename = "type")]
+    pub content_type: String,
+    pub reference: String,
+    pub path: String,
+    pub mime: String,
+    pub width: u32,
+    pub height: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

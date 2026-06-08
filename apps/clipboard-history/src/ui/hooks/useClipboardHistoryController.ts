@@ -29,6 +29,7 @@ import type {
   ClipboardHistorySettings,
   ClipboardHistorySnapshot,
   ClipboardImageDraft,
+  CollectionImageContentInput,
   CollectionImageContent,
   CollectionItemContentInput,
   CollectionNode,
@@ -36,6 +37,7 @@ import type {
   OrphanImageCleanupReport,
   OrphanImageReport,
 } from '../../shared/types'
+import { imageDraftFromFile, imageFileFromClipboardData, pickedImageToDraft, type PickedImage } from '../clipboardImageDraft'
 import {
   createClipboardHistoryUiState,
   type ClipboardHistoryUiState,
@@ -57,7 +59,6 @@ type DataDirStatus = {
 type BootStatus = 'booting' | 'ready' | 'error'
 type EditDialogDraft = ClipboardHistoryUiState['editDialog']
 type MovePickerDraft = ClipboardHistoryUiState['movePicker']
-type PickedImage = { dataUrl: string; mime: string; sourceName?: string }
 
 export type ClipboardHistoryController = {
   state: ClipboardHistoryUiState
@@ -96,12 +97,15 @@ export type ClipboardHistoryController = {
   navigateForward(): void
   createFolder(name: string): Promise<void>
   createItem(): Promise<void>
+  createItemFromPaste(data: DataTransfer): Promise<void>
   updateFolderName(folderId: string, name: string): Promise<void>
   updateItem(itemId: string, title: string, content: CollectionItemContentInput): Promise<void>
   deleteNode(nodeId: string): Promise<void>
   moveNode(movingId: string, toParentId: string, toIndex?: number): Promise<void>
   copyItem(itemId: string, toParentId: string): Promise<void>
   copyFolderItem(itemId: string): Promise<void>
+  copyFolderItemText(itemId: string): Promise<void>
+  copyFolderItemImage(itemId: string): Promise<void>
   copyHistoryItem(item: ClipboardHistoryItem): Promise<void>
   deleteHistoryItem(item: ClipboardHistoryItem): Promise<void>
   collectionImageUrl(image: CollectionImageContent): string
@@ -179,7 +183,7 @@ function createTextContent(text: string): CollectionItemContentInput {
   return { type: 'text', text }
 }
 
-function createImageContent(image: ClipboardImageDraft): CollectionItemContentInput {
+function createImageContent(image: ClipboardImageDraft): CollectionImageContentInput {
   return {
     type: 'image',
     dataUrl: image.dataUrl,
@@ -192,6 +196,15 @@ function createImageContent(image: ClipboardImageDraft): CollectionItemContentIn
   }
 }
 
+function createItemContent(text: string, image: ClipboardImageDraft | null): CollectionItemContentInput | null {
+  const trimmedText = text.trim()
+  if (trimmedText && image) {
+    return { type: 'mixed', text: trimmedText, image: createImageContent(image) }
+  }
+  if (image) return createImageContent(image)
+  return trimmedText ? createTextContent(trimmedText) : null
+}
+
 function imageDraftFromCollection(image: CollectionImageContent): ClipboardImageDraft {
   return {
     reference: image.reference,
@@ -201,26 +214,6 @@ function imageDraftFromCollection(image: CollectionImageContent): ClipboardImage
     height: image.height,
     sourceName: image.sourceName,
   }
-}
-
-async function pickedImageToDraft(picked: PickedImage): Promise<ClipboardImageDraft> {
-  const dimensions = await readImageDimensions(picked.dataUrl)
-  return {
-    dataUrl: picked.dataUrl,
-    mime: picked.mime || 'image/png',
-    width: dimensions.width,
-    height: dimensions.height,
-    sourceName: picked.sourceName || '图片',
-  }
-}
-
-function readImageDimensions(src: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
-    img.onerror = () => reject(new Error('图片尺寸读取失败'))
-    img.src = src
-  })
 }
 
 export function useClipboardHistoryController(): ClipboardHistoryController {
@@ -554,14 +547,25 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
 
   const createItem = React.useCallback(async () => {
     const { draftTitle, draftContent, draftImage } = stateRef.current
-    const content = draftImage ? createImageContent(draftImage) : createTextContent(draftContent)
-    if (!draftImage && !draftContent.trim()) {
+    const content = createItemContent(draftContent, draftImage)
+    if (!content) {
       void host.toast('正文内容不能为空')
       return
     }
     await runCollectionMutation(gateway => gateway.collections.createItem(stateRef.current.currentFolderId, draftTitle, content))
     setState(prev => ({ ...prev, showItemEditor: false, draftTitle: '', draftContent: '', draftImage: null }))
-    void host.toast(draftImage ? '已添加图片条目' : '已添加条目')
+    void host.toast(content.type === 'mixed' ? '已添加图文条目' : content.type === 'image' ? '已添加图片条目' : '已添加条目')
+  }, [host, runCollectionMutation])
+
+  const createItemFromPaste = React.useCallback(async (data: DataTransfer) => {
+    const text = String(data.getData('text/plain') || '')
+    const imageFile = imageFileFromClipboardData(data)
+    if (!text.trim() && !imageFile) return
+    const image = imageFile ? await imageDraftFromFile(imageFile) : null
+    const content = createItemContent(text, image)
+    if (!content) return
+    await runCollectionMutation(gateway => gateway.collections.createItem(stateRef.current.currentFolderId, '', content))
+    void host.toast(content.type === 'mixed' ? '已收藏图文' : content.type === 'image' ? '已收藏图片' : '已收藏文本')
   }, [host, runCollectionMutation])
 
   const updateFolderName = React.useCallback(async (folderId: string, name: string) => {
@@ -598,6 +602,10 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     const it = getNode(itemId)
     if (!gateway || !it || it.type !== 'item') return
     try {
+      if (it.content.type === 'mixed') {
+        void host.toast('请选择文字区或图片区')
+        return
+      }
       const snapshot = it.content.type === 'image'
         ? await gateway.clipboard.writeImage({ path: it.content.reference || it.content.path })
         : await gateway.clipboard.writeText(it.content.text)
@@ -605,6 +613,34 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       void host.toast('复制成功')
     } catch (error) {
       void host.toast(formatError(error, '复制失败'))
+    }
+  }, [applySnapshot, getNode, host])
+
+  const copyFolderItemText = React.useCallback(async (itemId: string) => {
+    const gateway = gatewayRef.current
+    const it = getNode(itemId)
+    if (!gateway || !it || it.type !== 'item') return
+    const text = it.content.type === 'mixed' ? it.content.text : it.content.type === 'text' ? it.content.text : ''
+    if (!text.trim()) return
+    try {
+      applySnapshot(await gateway.clipboard.writeText(text))
+      void host.toast('已复制文字')
+    } catch (error) {
+      void host.toast(formatError(error, '复制文字失败'))
+    }
+  }, [applySnapshot, getNode, host])
+
+  const copyFolderItemImage = React.useCallback(async (itemId: string) => {
+    const gateway = gatewayRef.current
+    const it = getNode(itemId)
+    if (!gateway || !it || it.type !== 'item') return
+    const image = it.content.type === 'mixed' ? it.content.image : it.content.type === 'image' ? it.content : null
+    if (!image) return
+    try {
+      applySnapshot(await gateway.clipboard.writeImage({ path: image.reference || image.path }))
+      void host.toast('已复制图片')
+    } catch (error) {
+      void host.toast(formatError(error, '复制图片失败'))
     }
   }, [applySnapshot, getNode, host])
 
@@ -730,7 +766,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     if (!gateway) return
     try {
       const image = await gateway.images.readClipboardImage()
-      setState(prev => ({ ...prev, draftImage: image, draftContent: '' }))
+      setState(prev => ({ ...prev, draftImage: image }))
       void host.toast('已读取剪贴板图片')
     } catch (error) {
       void host.toast(formatError(error, '读取剪贴板图片失败'))
@@ -744,7 +780,6 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       setState(prev => ({
         ...prev,
         draftImage: image,
-        draftContent: '',
       }))
     } catch (error) {
       void host.toast(formatError(error, '选择图片失败'))
@@ -786,8 +821,8 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
         nodeId,
         folderName: n.type === 'folder' ? String(n.name || '') : '',
         itemTitle: n.type === 'item' ? String(n.title || '') : '',
-        itemContent: n.type === 'item' && n.content.type === 'text' ? n.content.text : '',
-        itemImage: n.type === 'item' && n.content.type === 'image' ? imageDraftFromCollection(n.content) : null,
+        itemContent: n.type === 'item' && n.content.type === 'mixed' ? n.content.text : n.type === 'item' && n.content.type === 'text' ? n.content.text : '',
+        itemImage: n.type === 'item' && n.content.type === 'mixed' ? imageDraftFromCollection(n.content.image) : n.type === 'item' && n.content.type === 'image' ? imageDraftFromCollection(n.content) : null,
       },
     })
   }, [getNode, patchState])
@@ -801,7 +836,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     if (!gateway) return
     try {
       const image = await gateway.images.readClipboardImage()
-      setState(prev => ({ ...prev, editDialog: { ...prev.editDialog, itemImage: image, itemContent: '' } }))
+      setState(prev => ({ ...prev, editDialog: { ...prev.editDialog, itemImage: image } }))
       void host.toast('已读取剪贴板图片')
     } catch (error) {
       void host.toast(formatError(error, '读取剪贴板图片失败'))
@@ -813,7 +848,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       const picked = await invoke<PickedImage | null>('pick_image_file')
       if (!picked?.dataUrl) return
       const image = await pickedImageToDraft(picked)
-      setState(prev => ({ ...prev, editDialog: { ...prev.editDialog, itemImage: image, itemContent: '' } }))
+      setState(prev => ({ ...prev, editDialog: { ...prev.editDialog, itemImage: image } }))
     } catch (error) {
       void host.toast(formatError(error, '选择图片失败'))
     }
@@ -826,12 +861,16 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       closeDialogs()
       return
     }
-    if (n.type === 'item' && !dialog.itemImage && !dialog.itemContent.trim()) {
-      void host.toast('正文内容不能为空')
-      return
+    if (n.type === 'folder') {
+      await updateFolderName(dialog.nodeId, dialog.folderName)
+    } else {
+      const content = createItemContent(dialog.itemContent, dialog.itemImage)
+      if (!content) {
+        void host.toast('正文内容不能为空')
+        return
+      }
+      await updateItem(dialog.nodeId, dialog.itemTitle, content)
     }
-    if (n.type === 'folder') await updateFolderName(dialog.nodeId, dialog.folderName)
-    else await updateItem(dialog.nodeId, dialog.itemTitle, dialog.itemImage ? createImageContent(dialog.itemImage) : createTextContent(dialog.itemContent))
     void host.toast('已保存')
     closeDialogs()
   }, [closeDialogs, getNode, host, updateFolderName, updateItem])
@@ -907,12 +946,15 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     navigateForward,
     createFolder,
     createItem,
+    createItemFromPaste,
     updateFolderName,
     updateItem,
     deleteNode,
     moveNode,
     copyItem,
     copyFolderItem,
+    copyFolderItemText,
+    copyFolderItemImage,
     copyHistoryItem,
     deleteHistoryItem,
     collectionImageUrl,

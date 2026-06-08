@@ -407,37 +407,7 @@ pub fn create_folder(doc: &mut CollectionsDoc, parent_id: &str, name: &str) {
     insert_child(doc, parent_id, &id, None);
 }
 
-pub fn create_text_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, text: &str) {
-    if !is_folder(doc, parent_id) {
-        return;
-    }
-    let safe_text = text.trim();
-    if safe_text.is_empty() {
-        return;
-    }
-    create_item_with_content(
-        doc,
-        parent_id,
-        title,
-        CollectionItemContent::Text {
-            text: safe_text.to_string(),
-        },
-    );
-}
-
-pub fn create_image_item(
-    doc: &mut CollectionsDoc,
-    parent_id: &str,
-    title: &str,
-    content: CollectionItemContent,
-) {
-    if !matches!(content, CollectionItemContent::Image { .. }) {
-        return;
-    }
-    create_item_with_content(doc, parent_id, title, content);
-}
-
-fn create_item_with_content(
+pub fn create_item_with_content(
     doc: &mut CollectionsDoc,
     parent_id: &str,
     title: &str,
@@ -480,34 +450,7 @@ pub fn update_folder_name(doc: &mut CollectionsDoc, folder_id: &str, name: &str)
     }
 }
 
-pub fn update_text_item(doc: &mut CollectionsDoc, item_id: &str, title: &str, text: &str) {
-    let safe_text = text.trim();
-    if safe_text.is_empty() {
-        return;
-    }
-    update_item_content(
-        doc,
-        item_id,
-        title,
-        CollectionItemContent::Text {
-            text: safe_text.to_string(),
-        },
-    );
-}
-
-pub fn update_image_item(
-    doc: &mut CollectionsDoc,
-    item_id: &str,
-    title: &str,
-    content: CollectionItemContent,
-) {
-    if !matches!(content, CollectionItemContent::Image { .. }) {
-        return;
-    }
-    update_item_content(doc, item_id, title, content);
-}
-
-fn update_item_content(
+pub fn update_item_content(
     doc: &mut CollectionsDoc,
     item_id: &str,
     title: &str,

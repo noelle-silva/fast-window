@@ -523,16 +523,8 @@ impl ClipboardHistoryService {
         let parent_id = str_param(&params, "parentId");
         let title = str_param(&params, "title");
         let content = collection_content_param(&self.output_root, &params)?;
-        match content {
-            CollectionItemContent::Text { text } => {
-                create_text_item(&mut self.collections, parent_id, title, &text);
-                self.save_collections_and_emit()
-            }
-            image @ CollectionItemContent::Image { .. } => {
-                create_image_item(&mut self.collections, parent_id, title, image);
-                self.save_collections_and_emit()
-            }
-        }
+        create_item_with_content(&mut self.collections, parent_id, title, content);
+        self.save_collections_and_emit()
     }
 
     fn update_collection_item(&mut self, params: Value) -> Result<Value, String> {
@@ -540,14 +532,7 @@ impl ClipboardHistoryService {
         let item_id = str_param(&params, "itemId");
         let title = str_param(&params, "title");
         let content = collection_content_param(&self.output_root, &params)?;
-        match content {
-            CollectionItemContent::Text { text } => {
-                update_text_item(&mut self.collections, item_id, title, &text);
-            }
-            image @ CollectionItemContent::Image { .. } => {
-                update_image_item(&mut self.collections, item_id, title, image);
-            }
-        }
+        update_item_content(&mut self.collections, item_id, title, content);
         self.save_collections_and_emit_after(previous)
     }
 
@@ -650,6 +635,7 @@ fn collection_content_param(
             })
         }
         "image" => collection_image_content_param(output_root, content),
+        "mixed" => collection_mixed_content_param(output_root, content),
         _ => Err("收藏条目类型无效".to_string()),
     }
 }
@@ -658,6 +644,42 @@ fn collection_image_content_param(
     output_root: &Path,
     content: &Value,
 ) -> Result<CollectionItemContent, String> {
+    let image = collection_image_part_param(output_root, content)?;
+    Ok(CollectionItemContent::Image {
+        reference: image.reference,
+        path: image.path,
+        mime: image.mime,
+        width: image.width,
+        height: image.height,
+        source_name: image.source_name,
+    })
+}
+
+fn collection_mixed_content_param(
+    output_root: &Path,
+    content: &Value,
+) -> Result<CollectionItemContent, String> {
+    let text = content
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if text.is_empty() {
+        return Err("图文条目文字不能为空".to_string());
+    }
+    let image = content
+        .get("image")
+        .ok_or_else(|| "图文条目图片不能为空".to_string())?;
+    Ok(CollectionItemContent::Mixed {
+        text: text.to_string(),
+        image: collection_image_part_param(output_root, image)?,
+    })
+}
+
+fn collection_image_part_param(
+    output_root: &Path,
+    content: &Value,
+) -> Result<CollectionImagePart, String> {
     let data_url = content
         .get("dataUrl")
         .and_then(Value::as_str)
@@ -675,7 +697,8 @@ fn collection_image_content_param(
         let encoded = normalize_image_bytes_to_png(&bytes)?;
         let asset =
             write_managed_png_image(output_root, &encoded.png, encoded.width, encoded.height)?;
-        return Ok(CollectionItemContent::Image {
+        return Ok(CollectionImagePart {
+            content_type: "image".to_string(),
             reference: asset.reference,
             path: asset.path,
             mime: asset.mime,
@@ -720,7 +743,8 @@ fn collection_image_content_param(
         .filter(|value| value.starts_with("image/"))
         .unwrap_or("image/png")
         .to_string();
-    Ok(CollectionItemContent::Image {
+    Ok(CollectionImagePart {
+        content_type: "image".to_string(),
         reference: managed_reference,
         path: lookup.to_string(),
         mime,

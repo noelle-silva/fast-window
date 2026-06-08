@@ -64,25 +64,34 @@ export function normalizeItemContent(raw: unknown): CollectionItemContent | null
   }
   const obj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
   if (!obj) return null
-  if (obj.type === 'image') {
-    const reference = String(obj.reference || '').trim()
-    const path = String(obj.path || '').trim()
-    const width = Math.max(0, Math.floor(Number(obj.width) || 0))
-    const height = Math.max(0, Math.floor(Number(obj.height) || 0))
-    if ((!reference && !path) || width <= 0 || height <= 0) return null
-    const sourceName = String(obj.sourceName || '').trim()
-    return {
-      type: 'image',
-      reference,
-      path,
-      mime: String(obj.mime || '').trim().startsWith('image/') ? String(obj.mime).trim() : 'image/png',
-      width,
-      height,
-      ...(sourceName ? { sourceName } : null),
-    }
+  if (obj.type === 'image') return normalizeImageContent(obj)
+  if (obj.type === 'mixed') {
+    const text = String(obj.text || '').trim()
+    const image = normalizeImageContent(obj.image)
+    return text && image ? { type: 'mixed', text, image } : null
   }
   const text = String(obj.text || '').trim()
   return text ? { type: 'text', text } : null
+}
+
+function normalizeImageContent(raw: unknown): CollectionImageContent | null {
+  const obj = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
+  if (!obj) return null
+  const reference = String(obj.reference || '').trim()
+  const path = String(obj.path || '').trim()
+  const width = Math.max(0, Math.floor(Number(obj.width) || 0))
+  const height = Math.max(0, Math.floor(Number(obj.height) || 0))
+  if ((!reference && !path) || width <= 0 || height <= 0) return null
+  const sourceName = String(obj.sourceName || '').trim()
+  return {
+    type: 'image',
+    reference,
+    path,
+    mime: String(obj.mime || '').trim().startsWith('image/') ? String(obj.mime).trim() : 'image/png',
+    width,
+    height,
+    ...(sourceName ? { sourceName } : null),
+  }
 }
 
 export function isImageContent(content: CollectionItemContent | null | undefined): content is CollectionImageContent {
@@ -91,7 +100,9 @@ export function isImageContent(content: CollectionItemContent | null | undefined
 
 export function itemText(content: CollectionItemContent | null | undefined): string {
   if (!content) return ''
-  return content.type === 'text' ? content.text : content.sourceName || '图片收藏'
+  if (content.type === 'text') return content.text
+  if (content.type === 'mixed') return content.text
+  return content.sourceName || '图片收藏'
 }
 
 export function normalizeItemTitle(title: string | null | undefined): string {

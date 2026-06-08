@@ -62,15 +62,30 @@ export type CollectionImageContent = {
   sourceName?: string
 }
 
-export type CollectionItemContent = CollectionTextContent | CollectionImageContent
+export type CollectionMixedContent = {
+  type: 'mixed'
+  text: string
+  image: CollectionImageContent
+}
+
+export type CollectionItemContent = CollectionTextContent | CollectionImageContent | CollectionMixedContent
+
+export type CollectionImageContentInput = Partial<CollectionImageContent> & {
+  type: 'image'
+  dataUrl?: string
+  sourceName?: string
+}
+
+export type CollectionMixedContentInput = {
+  type: 'mixed'
+  text: string
+  image: CollectionImageContentInput
+}
 
 export type CollectionItemContentInput =
   | CollectionTextContent
-  | (Partial<CollectionImageContent> & {
-      type: 'image'
-      dataUrl?: string
-      sourceName?: string
-    })
+  | CollectionImageContentInput
+  | CollectionMixedContentInput
 
 export type CollectionItemNode = {
   id: string

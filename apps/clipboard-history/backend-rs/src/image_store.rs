@@ -306,22 +306,35 @@ fn collection_image_references(collections: &CollectionsDoc) -> Vec<String> {
         let CollectionNode::Item { content, .. } = node else {
             continue;
         };
-        let CollectionItemContent::Image {
-            reference, path, ..
-        } = content
-        else {
-            continue;
-        };
-        let trimmed_path = path.trim();
-        if !trimmed_path.is_empty() {
-            refs.push(trimmed_path.to_string());
-        }
-        let trimmed_reference = reference.trim();
-        if !trimmed_reference.is_empty() && !refs.iter().any(|item| item == trimmed_reference) {
-            refs.push(trimmed_reference.to_string());
-        }
+        collect_collection_content_image_references(content, &mut refs);
     }
     refs
+}
+
+fn collect_collection_content_image_references(
+    content: &CollectionItemContent,
+    refs: &mut Vec<String>,
+) {
+    match content {
+        CollectionItemContent::Image {
+            reference, path, ..
+        } => push_collection_image_reference(reference, path, refs),
+        CollectionItemContent::Mixed { image, .. } => {
+            push_collection_image_reference(&image.reference, &image.path, refs)
+        }
+        CollectionItemContent::Text { .. } => {}
+    }
+}
+
+fn push_collection_image_reference(reference: &str, path: &str, refs: &mut Vec<String>) {
+    let trimmed_path = path.trim();
+    if !trimmed_path.is_empty() {
+        refs.push(trimmed_path.to_string());
+    }
+    let trimmed_reference = reference.trim();
+    if !trimmed_reference.is_empty() && !refs.iter().any(|item| item == trimmed_reference) {
+        refs.push(trimmed_reference.to_string());
+    }
 }
 
 fn managed_image_dirs(output_root: &Path) -> Vec<PathBuf> {
