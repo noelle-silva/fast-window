@@ -3,7 +3,6 @@ import type { TaskBoard, TaskDraft, TaskItem } from './types'
 
 const STORAGE_KEY = 'fast-window.task-manager.boards.v1'
 
-const ACCENTS = ['#7c3aed', '#0ea5e9', '#16a34a', '#f97316', '#db2777', '#475569']
 const REMOVED_SEED_BOARD_IDS = new Set(['today', 'ideas'])
 
 function createId(prefix: string) {
@@ -27,13 +26,12 @@ function createTask(draft: TaskDraft): TaskItem {
   }
 }
 
-function createBoard(draft: TaskDraft, index: number): TaskBoard {
+function createBoard(draft: TaskDraft): TaskBoard {
   const normalized = normalizeDraft(draft)
   return {
     id: createId('board'),
     title: normalized.title,
     description: normalized.description,
-    accent: ACCENTS[index % ACCENTS.length],
     tasks: [],
     createdAt: new Date().toISOString(),
   }
@@ -60,7 +58,7 @@ export function useTaskBoards() {
   const addBoard = React.useCallback((draft: TaskDraft) => {
     const normalized = normalizeDraft(draft)
     if (!normalized.title) return null
-    const board = createBoard(normalized, boards.length)
+    const board = createBoard(normalized)
     setBoards(current => [...current, board])
     return board
   }, [boards.length])
@@ -75,5 +73,21 @@ export function useTaskBoards() {
     return task
   }, [])
 
-  return { boards, addBoard, addTask }
+  const updateTask = React.useCallback((boardId: string, taskId: string, draft: TaskDraft) => {
+    const normalized = normalizeDraft(draft)
+    if (!normalized.title) return false
+    setBoards(current => current.map(board => (
+      board.id === boardId
+        ? {
+            ...board,
+            tasks: board.tasks.map(task => (
+              task.id === taskId ? { ...task, ...normalized } : task
+            )),
+          }
+        : board
+    )))
+    return true
+  }, [])
+
+  return { boards, addBoard, addTask, updateTask }
 }

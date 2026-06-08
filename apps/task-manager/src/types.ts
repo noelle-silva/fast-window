@@ -9,7 +9,6 @@ export type TaskBoard = {
   id: string
   title: string
   description: string
-  accent: string
   tasks: TaskItem[]
   createdAt: string
 }

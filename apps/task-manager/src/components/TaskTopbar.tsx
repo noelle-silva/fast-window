@@ -1,4 +1,10 @@
 import * as React from 'react'
+import AddIcon from '@mui/icons-material/Add'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import CropSquareIcon from '@mui/icons-material/CropSquare'
+import RemoveIcon from '@mui/icons-material/Remove'
+import { Box, IconButton, Typography } from '@mui/material'
 
 type WindowActions = {
   minimize: () => Promise<void> | void
@@ -26,20 +32,22 @@ export function TaskTopbar({ standalone, onCreateBoard, onStartDragging, windowA
   }, [onStartDragging])
 
   return (
-    <header className="tm-topbar" onPointerDown={onPointerDown}>
-      <div className="tm-brand">
-        <span className="tm-brand-mark" aria-hidden="true">✓</span>
-        <span>Task Manager</span>
-      </div>
-      <div className="tm-topbar-spacer" />
-      <button type="button" className="tm-topbar-add" onClick={onCreateBoard} aria-label="新建任务分组">+</button>
+    <Box component="header" className="tm-topbar" onPointerDown={onPointerDown}>
+      <Box className="tm-brand">
+        <Box className="tm-brand-mark" aria-hidden="true"><CheckIcon sx={{ fontSize: 15 }} /></Box>
+        <Typography component="span" sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }}>Task Manager</Typography>
+      </Box>
+      <Box className="tm-topbar-spacer" />
+      <IconButton size="small" onClick={onCreateBoard} aria-label="新建任务分组">
+        <AddIcon fontSize="small" />
+      </IconButton>
       {standalone ? (
-        <div className="tm-window-controls" data-window-controls="true" aria-label="窗口控制">
-          <button type="button" aria-label="最小化" onClick={() => run(windowActions.minimize)}>-</button>
-          <button type="button" aria-label="最大化或还原" onClick={() => run(windowActions.toggleMaximize)}>□</button>
-          <button type="button" className="tm-close-button" aria-label="关闭到托盘" onClick={() => run(windowActions.closeToTray)}>×</button>
-        </div>
+        <Box className="tm-window-controls" data-window-controls="true" aria-label="窗口控制">
+          <IconButton size="small" aria-label="最小化" onClick={() => run(windowActions.minimize)}><RemoveIcon fontSize="small" /></IconButton>
+          <IconButton size="small" aria-label="最大化或还原" onClick={() => run(windowActions.toggleMaximize)}><CropSquareIcon fontSize="small" /></IconButton>
+          <IconButton size="small" className="tm-close-button" aria-label="关闭到托盘" onClick={() => run(windowActions.closeToTray)}><CloseIcon fontSize="small" /></IconButton>
+        </Box>
       ) : null}
-    </header>
+    </Box>
   )
 }

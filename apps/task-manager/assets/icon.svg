@@ -1,18 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="v5 Reference App Go">
-  <defs>
-    <linearGradient id="bg" x1="18" y1="14" x2="110" y2="116" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#22d3ee"/>
-      <stop offset="0.55" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#312e81"/>
-    </linearGradient>
-    <linearGradient id="chip" x1="36" y1="34" x2="92" y2="94" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f8fafc"/>
-      <stop offset="1" stop-color="#dbeafe"/>
-    </linearGradient>
-  </defs>
-  <rect x="10" y="10" width="108" height="108" rx="28" fill="url(#bg)"/>
-  <rect x="32" y="32" width="64" height="64" rx="14" fill="url(#chip)" opacity="0.96"/>
-  <path d="M48 58h32M48 72h22" stroke="#312e81" stroke-width="8" stroke-linecap="round"/>
-  <path d="M34 20v14M54 18v14M74 18v14M94 20v14M34 94v14M54 96v14M74 96v14M94 94v14M20 34h14M18 54h14M18 74h14M20 94h14M94 34h14M96 54h14M96 74h14M94 94h14" stroke="#bfdbfe" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
-  <circle cx="88" cy="40" r="7" fill="#22c55e"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Task Manager">
+  <rect x="10" y="10" width="108" height="108" rx="28" fill="#ffffff" stroke="#111827" stroke-width="6"/>
+  <rect x="30" y="28" width="68" height="72" rx="14" fill="#ffffff" stroke="#d1d5db" stroke-width="4"/>
+  <path d="M46 44l6 6 12-14" fill="none" stroke="#1976d2" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M72 46h14" fill="none" stroke="#111827" stroke-width="6" stroke-linecap="round"/>
+  <path d="M46 64l6 6 12-14" fill="none" stroke="#1976d2" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M72 66h14" fill="none" stroke="#111827" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="52" cy="86" r="8" fill="#ffffff" stroke="#1976d2" stroke-width="5"/>
+  <path d="M72 86h14" fill="none" stroke="#111827" stroke-width="6" stroke-linecap="round"/>
 </svg>

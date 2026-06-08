@@ -1,4 +1,6 @@
 import * as React from 'react'
+import CloseIcon from '@mui/icons-material/Close'
+import { Box, Dialog, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material'
 
 type DialogShellProps = {
   title: string
@@ -10,22 +12,20 @@ type DialogShellProps = {
 
 export function DialogShell({ title, subtitle, action, children, onClose }: DialogShellProps) {
   return (
-    <div className="tm-dialog-backdrop" role="presentation" onMouseDown={event => {
-      if (event.target === event.currentTarget) onClose()
-    }}>
-      <section className="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tm-dialog-title">
-        <header className="tm-dialog-header">
-          <div>
-            <h2 id="tm-dialog-title">{title}</h2>
-            {subtitle ? <p>{subtitle}</p> : null}
-          </div>
-          <div className="tm-dialog-actions">
-            {action}
-            <button type="button" className="tm-icon-button" aria-label="关闭" onClick={onClose}>×</button>
-          </div>
-        </header>
+    <Dialog open onClose={onClose} fullWidth maxWidth="md" aria-labelledby="tm-dialog-title" PaperProps={{ className: 'tm-dialog' }}>
+      <DialogTitle id="tm-dialog-title" className="tm-dialog-header" component="div">
+        <Box sx={{ minWidth: 0 }}>
+          <Typography component="h2" sx={{ fontSize: 18, fontWeight: 900 }}>{title}</Typography>
+          {subtitle ? <Typography color="text.secondary" sx={{ mt: 0.75, fontSize: 12, lineHeight: 1.5 }}>{subtitle}</Typography> : null}
+        </Box>
+        <Box className="tm-dialog-actions">
+          {action}
+          <IconButton size="small" aria-label="关闭" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
+        </Box>
+      </DialogTitle>
+      <DialogContent className="tm-dialog-content" dividers>
         {children}
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

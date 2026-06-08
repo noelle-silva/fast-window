@@ -281,9 +281,14 @@ export async function saveFavorites(api: Api, doc: HyperCortexFavoritesDocV1): P
   await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(normalized, null, 2), overwrite: true })
 }
 
-export function getRefsByFolderId(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
-  const refs = (doc.refsByFolderId as any)?.[folderId]
+export function normalizeFavoriteRefsForFolder(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
+  const normalized = normalizeFavoritesDoc(doc).doc
+  const refs = (normalized.refsByFolderId as any)?.[String(folderId || '').trim()]
   return Array.isArray(refs) ? refs : []
+}
+
+export function getRefsByFolderId(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
+  return normalizeFavoriteRefsForFolder(doc, folderId)
 }
 
 export function getFolderById(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteFolder | undefined {

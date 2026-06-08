@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
+import { CssBaseline, ThemeProvider } from '@mui/material'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -8,7 +9,8 @@ import { TaskBoardCard } from './components/TaskBoardCard'
 import { TaskBoardDialog } from './components/TaskBoardDialog'
 import { TaskTopbar } from './components/TaskTopbar'
 import { useTaskBoards } from './taskStorage'
-import type { FwLaunchInfo, TaskBoard, TaskDraft } from './types'
+import { taskTheme } from './theme'
+import type { FwLaunchInfo, TaskBoard, TaskDraft, TaskItem } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
 import './styles.css'
 
@@ -18,10 +20,16 @@ function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [activeBoardId, setActiveBoardId] = React.useState<string | null>(null)
   const [createMode, setCreateMode] = React.useState<'board' | 'task' | null>(null)
-  const { boards, addBoard, addTask } = useTaskBoards()
+  const [editingTask, setEditingTask] = React.useState<{ boardId: string; task: TaskItem } | null>(null)
+  const { boards, addBoard, addTask, updateTask } = useTaskBoards()
   const readyRef = React.useRef(false)
+  const activeBoardIdRef = React.useRef<string | null>(null)
+  const boardsRef = React.useRef<TaskBoard[]>([])
 
   const activeBoard = boards.find(board => board.id === activeBoardId) || null
+  const editingDraft = React.useMemo<TaskDraft | null>(() => (
+    editingTask ? { title: editingTask.task.title, description: editingTask.task.description } : null
+  ), [editingTask])
 
   const markAppReady = React.useCallback(() => {
     if (readyRef.current) return
@@ -29,13 +37,21 @@ function App() {
     void invoke('app_ready').catch(() => {})
   }, [])
 
+  React.useEffect(() => {
+    activeBoardIdRef.current = activeBoardId
+  }, [activeBoardId])
+
+  React.useEffect(() => {
+    boardsRef.current = boards
+  }, [boards])
+
   const handleCommand = React.useCallback((command: string | null) => {
     if (command === 'new-board') setCreateMode('board')
     if (command === 'new-task') {
-      if (!activeBoardId && boards[0]) setActiveBoardId(boards[0].id)
+      if (!activeBoardIdRef.current && boardsRef.current[0]) setActiveBoardId(boardsRef.current[0].id)
       setCreateMode('task')
     }
-  }, [activeBoardId, boards])
+  }, [])
 
   React.useEffect(() => {
     markAppReady()
@@ -73,7 +89,7 @@ function App() {
       cancelled = true
       unlisten?.()
     }
-  }, [])
+  }, [handleCommand])
 
   const createBoard = React.useCallback((draft: TaskDraft) => {
     const board = addBoard(draft)
@@ -91,8 +107,20 @@ function App() {
     setCreateMode(null)
   }, [activeBoard, addTask, boards])
 
+  const openTaskEditor = React.useCallback((task: TaskItem) => {
+    if (!activeBoard) return
+    setEditingTask({ boardId: activeBoard.id, task })
+  }, [activeBoard])
+
+  const saveTaskEdit = React.useCallback((draft: TaskDraft) => {
+    if (!editingTask) return
+    if (updateTask(editingTask.boardId, editingTask.task.id, draft)) setEditingTask(null)
+  }, [editingTask, updateTask])
+
   return (
-    <main className="tm-app">
+    <ThemeProvider theme={taskTheme}>
+      <CssBaseline />
+      <main className="tm-app">
       <TaskTopbar
         standalone={launchInfo.standalone}
         onCreateBoard={() => setCreateMode('board')}
@@ -114,6 +142,7 @@ function App() {
         <TaskBoardDialog
           board={activeBoard}
           onCreateTask={() => setCreateMode('task')}
+          onEditTask={openTaskEditor}
           onPasteTask={draft => addTask(activeBoard.id, draft)}
           onClose={() => setActiveBoardId(null)}
         />
@@ -126,7 +155,19 @@ function App() {
       {createMode === 'task' ? (
         <CreateDialog title="新建任务" submitLabel="保存任务" onSubmit={createTask} onClose={() => setCreateMode(null)} />
       ) : null}
-    </main>
+
+      {editingTask && editingDraft ? (
+        <CreateDialog
+          title="编辑任务"
+          submitLabel="保存修改"
+          subtitle="修改标题与描述，按 Ctrl+S 也可以保存。"
+          initialDraft={editingDraft}
+          onSubmit={saveTaskEdit}
+          onClose={() => setEditingTask(null)}
+        />
+      ) : null}
+      </main>
+    </ThemeProvider>
   )
 }
 
