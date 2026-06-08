@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "id": "ai-knowledge-center",
+  "name": "AI 知识中心",
+  "description": "连接本地 AI 知识中心服务器的桌面客户端",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/ai-knowledge-center.exe", "to": "ai-knowledge-center.exe" },
+        { "from": "src-tauri/target/release/ai-knowledge-center-backend.exe", "to": "ai-knowledge-center-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/ai-knowledge-center.exe", "to": "ai-knowledge-center.exe" },
+        { "from": "src-tauri/target/debug/ai-knowledge-center-backend.exe", "to": "ai-knowledge-center-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "ai-knowledge-center.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-knowledge-center", "title": "打开 AI 知识中心" },
+    { "id": "show-knowledge-health", "title": "查看知识中心连接状态" },
+    { "id": "edit-knowledge-settings", "title": "配置知识中心服务器" }
+  ]
+}
