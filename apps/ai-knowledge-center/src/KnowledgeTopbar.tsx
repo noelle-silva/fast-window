@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { AppPage, KnowledgePage } from './knowledgePages'
 
 type WindowControlActions = {
   minimize: () => Promise<void> | void
@@ -7,10 +8,16 @@ type WindowControlActions = {
 }
 
 type KnowledgeTopbarProps = {
-  page: 'workspace' | 'settings'
+  page: AppPage
+  pages: Array<{ value: KnowledgePage; label: string }>
   standalone: boolean
+  connected: boolean
+  hasServerKey: boolean
+  busy: boolean
   onBack: () => void
+  onOpenPage: (page: KnowledgePage) => void
   onOpenSettings: () => void
+  onRefresh: () => Promise<void> | void
   onStartDragging: () => Promise<void> | void
   windowActions: WindowControlActions
 }
@@ -52,7 +59,7 @@ function WindowControls({ actions }: { actions: WindowControlActions }) {
 }
 
 export function KnowledgeTopbar(props: KnowledgeTopbarProps) {
-  const { page, standalone, onBack, onOpenSettings, onStartDragging, windowActions } = props
+  const { page, pages, standalone, connected, hasServerKey, busy, onBack, onOpenPage, onOpenSettings, onRefresh, onStartDragging, windowActions } = props
 
   const onPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
@@ -64,19 +71,35 @@ export function KnowledgeTopbar(props: KnowledgeTopbarProps) {
   return (
     <header className="kc-topbar" onPointerDown={onPointerDown}>
       {page === 'settings' ? (
-        <button type="button" className="kc-icon-button" onClick={onBack} aria-label="返回资料工作台">
+        <button type="button" className="kc-icon-button" onClick={onBack} aria-label="返回知识中心页面">
           <IconBack />
         </button>
       ) : null}
 
       <div className="kc-topbar-title" aria-live="polite">{page === 'settings' ? '连接设置' : 'AI 知识中心'}</div>
+      <nav className="kc-topbar-nav" aria-label="知识中心页面">
+        {pages.map(item => (
+          <button
+            key={item.value}
+            type="button"
+            className={page === item.value ? 'is-active' : ''}
+            onClick={() => onOpenPage(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
       <div className="kc-topbar-spacer" />
 
-      {page === 'workspace' ? (
-        <button type="button" className="kc-icon-button" onClick={onOpenSettings} aria-label="连接设置">
-          <IconSettings />
-        </button>
+      <span className={`kc-topbar-status ${connected ? 'kc-status-good' : 'kc-status-warn'}`}>{connected ? '服务器可用' : hasServerKey ? '等待连接' : '未配置钥匙'}</span>
+
+      {page !== 'settings' ? (
+        <button type="button" className="kc-topbar-action" onClick={() => run(onRefresh)} disabled={busy || !hasServerKey}>刷新</button>
       ) : null}
+
+      <button type="button" className="kc-icon-button" onClick={onOpenSettings} aria-label="连接设置">
+        <IconSettings />
+      </button>
 
       {standalone ? <WindowControls actions={windowActions} /> : null}
     </header>
