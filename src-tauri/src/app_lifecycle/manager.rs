@@ -165,6 +165,20 @@ fn launch_command(args: &[String]) -> Option<String> {
     None
 }
 
+fn launch_display_mode(args: &[String]) -> String {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--fw-mode" && i + 1 < args.len() {
+            let mode = args[i + 1].trim();
+            if matches!(mode, "default" | "window" | "top") {
+                return mode.to_string();
+            }
+        }
+        i += 1;
+    }
+    "default".to_string()
+}
+
 pub(crate) fn build_registered_app_launch_args(
     app: &RegisteredAppLaunchConfig,
     action: &str,
@@ -213,13 +227,58 @@ pub(crate) fn build_registered_app_launch_args(
     args
 }
 
-fn action_for_running_instance(action: &str) -> &str {
+fn action_for_running_instance(action: &str) -> &'static str {
     match action {
         "hide" => "hide",
         "close" => "close",
         "toggle" => "toggle",
         _ => "show",
     }
+}
+
+fn running_instance_action(
+    action: &str,
+    display_mode: &str,
+    is_foreground: Option<bool>,
+) -> &'static str {
+    let action = action_for_running_instance(action);
+    if action == "toggle" && display_mode == "window" {
+        match is_foreground {
+            Some(true) => return "hide",
+            Some(false) => return "show",
+            None => return "toggle",
+        }
+    }
+    action
+}
+
+#[cfg(target_os = "windows")]
+fn process_has_foreground_window(pid: u32) -> Option<bool> {
+    if pid == 0 {
+        return None;
+    }
+
+    unsafe {
+        let hwnd = windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+
+        let mut foreground_pid = 0u32;
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+            hwnd,
+            Some(&mut foreground_pid),
+        );
+        if foreground_pid == 0 {
+            return None;
+        }
+        Some(foreground_pid == pid)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn process_has_foreground_window(_pid: u32) -> Option<bool> {
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -547,7 +606,14 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
         .filter(|entry| entry.exit_code.lock().ok().and_then(|c| *c).is_none());
 
     if let Some(entry) = running_entry {
-        let action = action_for_running_instance(&launch_action(&args)).to_string();
+        let requested_action = launch_action(&args);
+        let display_mode = launch_display_mode(&args);
+        let action = running_instance_action(
+            &requested_action,
+            &display_mode,
+            process_has_foreground_window(entry.pid),
+        )
+        .to_string();
         let command = launch_command(&args);
         if should_allow_foreground(&action) {
             allow_foreground_for_process(entry.pid);
@@ -842,4 +908,72 @@ fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppSta
         started_at: Some(entry.started_at_ms),
         exit_code: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{launch_display_mode, running_instance_action};
+
+    fn args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| (*part).to_string()).collect()
+    }
+
+    #[test]
+    fn parses_registered_app_window_mode() {
+        let parts = args(&["app", "--fw-mode", "window"]);
+
+        assert_eq!(launch_display_mode(&parts), "window");
+    }
+
+    #[test]
+    fn defaults_unknown_registered_app_mode_to_default() {
+        let parts = args(&["app", "--fw-mode", "weird"]);
+
+        assert_eq!(launch_display_mode(&parts), "default");
+    }
+
+    #[test]
+    fn window_mode_toggle_hides_when_app_is_foreground() {
+        assert_eq!(
+            running_instance_action("toggle", "window", Some(true)),
+            "hide"
+        );
+    }
+
+    #[test]
+    fn window_mode_toggle_shows_when_app_is_not_foreground() {
+        assert_eq!(
+            running_instance_action("toggle", "window", Some(false)),
+            "show"
+        );
+    }
+
+    #[test]
+    fn window_mode_toggle_keeps_existing_action_when_foreground_is_unknown() {
+        assert_eq!(running_instance_action("toggle", "window", None), "toggle");
+    }
+
+    #[test]
+    fn default_mode_toggle_keeps_existing_toggle_action() {
+        assert_eq!(
+            running_instance_action("toggle", "default", Some(false)),
+            "toggle"
+        );
+        assert_eq!(
+            running_instance_action("toggle", "default", Some(true)),
+            "toggle"
+        );
+    }
+
+    #[test]
+    fn explicit_show_and_hide_keep_their_action() {
+        assert_eq!(
+            running_instance_action("show", "window", Some(true)),
+            "show"
+        );
+        assert_eq!(
+            running_instance_action("hide", "window", Some(false)),
+            "hide"
+        );
+    }
 }
