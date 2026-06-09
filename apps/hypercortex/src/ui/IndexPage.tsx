@@ -423,7 +423,7 @@ export function IndexPage(props: Props): React.ReactNode {
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
-              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+              <StaleRefCard itemRef={ref} compact={compact} />
             </IndexCardShell>
           )
         }
@@ -456,7 +456,7 @@ export function IndexPage(props: Props): React.ReactNode {
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
-              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+              <StaleRefCard itemRef={ref} compact={compact} />
             </IndexCardShell>
           )
         }
@@ -487,7 +487,7 @@ export function IndexPage(props: Props): React.ReactNode {
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
-              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+              <StaleRefCard itemRef={ref} compact={compact} />
             </IndexCardShell>
           )
         }
@@ -514,7 +514,7 @@ export function IndexPage(props: Props): React.ReactNode {
           onRemove={() => removeOneRef(ref.id)}
           onStartResize={onStartResize}
         >
-          <StaleRefCard ref={ref} compact={getPreviewLayout(ref).h <= 1} disabled={editMode} onClickRemove={removeOneRef} />
+          <StaleRefCard itemRef={ref} compact={getPreviewLayout(ref).h <= 1} />
         </IndexCardShell>
       )
     },
