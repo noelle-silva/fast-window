@@ -3,6 +3,7 @@ export type TaskItem = {
   title: string
   description: string
   createdAt: string
+  updatedAt: string
 }
 
 export type TaskBoard = {
@@ -11,6 +12,7 @@ export type TaskBoard = {
   description: string
   tasks: TaskItem[]
   createdAt: string
+  updatedAt: string
 }
 
 export type TaskDraft = {
@@ -22,6 +24,19 @@ export type FwLaunchInfo = {
   launched: boolean
   standalone: boolean
   mode: string
+}
+
+export type DataDirStatus = {
+  dataDir: string
+  defaultDataDir: string
+  configuredDataDir?: string | null
+  writable: boolean
+  error?: string | null
+}
+
+export type DirectClient = {
+  request<T>(method: string, params?: unknown): Promise<T>
+  close(): void
 }
 
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {

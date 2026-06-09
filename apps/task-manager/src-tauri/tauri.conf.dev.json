@@ -28,6 +28,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/task-manager-backend"
+    ],
     "resources": {
       "../assets/": "assets"
     },

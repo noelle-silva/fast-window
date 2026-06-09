@@ -1,15 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod control_server;
+mod app_layout;
+mod backend_lifecycle;
+mod backend_sidecar;
+mod data_dir;
 mod fw_window;
 mod native_dialog;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
 
+use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use control_server::{
     available_commands, random_token, start_control_server, ControlServerConfig, TASK_MANAGER_APP_ID,
 };
+use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
     parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
@@ -17,6 +23,64 @@ use fw_window::{
 use shutdown::ShutdownState;
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
+
+#[tauri::command]
+async fn backend_endpoint(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<BackendEndpoint, String> {
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app, state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    state.endpoint().await
+}
+
+#[tauri::command]
+fn data_dir_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    data_dir::data_dir_status(&app, state.runtime_error())
+}
+
+#[tauri::command]
+async fn pick_data_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<Option<DataDirStatus>, String> {
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择 Task Manager 数据目录").pick_folder()
+    })?
+    else {
+        return Ok(None);
+    };
+    data_dir::save_data_dir(&app, &path)?;
+    state.stop().await;
+    state.clear_runtime_state();
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    Ok(Some(data_dir::data_dir_status(&app, None)?))
+}
+
+#[tauri::command]
+async fn restart_backend(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    state.stop().await;
+    state.clear_runtime_state();
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    data_dir::data_dir_status(&app, None)
+}
 
 #[tauri::command]
 fn hide_to_tray(
@@ -50,15 +114,31 @@ fn main() {
     #[cfg(not(debug_assertions))]
     let context = tauri::generate_context!("tauri.conf.json");
 
+    let backend_state = Arc::new(BackendState::default());
+    let backend_state_setup = backend_state.clone();
     let window_state = Arc::new(FwWindowState::default());
     let window_state_setup = window_state.clone();
-    let shutdown_state = ShutdownState::new(window_state.clone(), desktop_identifier.clone());
+    let shutdown_state = ShutdownState::new(
+        backend_state.clone(),
+        window_state.clone(),
+        desktop_identifier.clone(),
+    );
     let shutdown_state_setup = shutdown_state.clone();
     let shutdown_state_for_run = shutdown_state.clone();
 
     tauri::Builder::default()
+        .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![hide_to_tray, app_ready, fw_initial_command, fw_launch_info])
+        .invoke_handler(tauri::generate_handler![
+            backend_endpoint,
+            data_dir_status,
+            pick_data_dir,
+            restart_backend,
+            hide_to_tray,
+            app_ready,
+            fw_initial_command,
+            fw_launch_info
+        ])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
@@ -109,6 +189,15 @@ fn main() {
                 &desktop_identifier,
             )?;
             report_available_commands(serde_json::json!(available_commands()));
+
+            let handle = app.handle().clone();
+            let state = backend_state_setup.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = start_backend(handle, state).await {
+                    backend_state_setup.set_runtime_error(error.clone());
+                    eprintln!("[task-manager] {error}");
+                }
+            });
             Ok(())
         })
         .build(context)

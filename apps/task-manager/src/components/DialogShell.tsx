@@ -6,13 +6,14 @@ type DialogShellProps = {
   title: string
   subtitle?: string
   action?: React.ReactNode
+  closeDisabled?: boolean
   children: React.ReactNode
   onClose: () => void
 }
 
-export function DialogShell({ title, subtitle, action, children, onClose }: DialogShellProps) {
+export function DialogShell({ title, subtitle, action, closeDisabled = false, children, onClose }: DialogShellProps) {
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md" aria-labelledby="tm-dialog-title" PaperProps={{ className: 'tm-dialog' }}>
+    <Dialog open onClose={closeDisabled ? undefined : onClose} fullWidth maxWidth="md" aria-labelledby="tm-dialog-title" PaperProps={{ className: 'tm-dialog' }}>
       <DialogTitle id="tm-dialog-title" className="tm-dialog-header" component="div">
         <Box sx={{ minWidth: 0 }}>
           <Typography component="h2" sx={{ fontSize: 18, fontWeight: 900 }}>{title}</Typography>
@@ -20,7 +21,7 @@ export function DialogShell({ title, subtitle, action, children, onClose }: Dial
         </Box>
         <Box className="tm-dialog-actions">
           {action}
-          <IconButton size="small" aria-label="关闭" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
+          <IconButton size="small" disabled={closeDisabled} aria-label="关闭" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
         </Box>
       </DialogTitle>
       <DialogContent className="tm-dialog-content" dividers>

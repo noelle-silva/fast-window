@@ -10,6 +10,7 @@
       "stageDir": "dist-app/v5-windows",
       "files": [
         { "from": "src-tauri/target/release/task-manager.exe", "to": "task-manager.exe" },
+        { "from": "src-tauri/target/release/task-manager-backend.exe", "to": "task-manager-backend.exe" },
         { "from": "src-tauri/target/resources/assets", "to": "assets" }
       ]
     },
@@ -18,6 +19,7 @@
       "stageDir": "dist-app/v5-windows-dev",
       "files": [
         { "from": "src-tauri/target/debug/task-manager.exe", "to": "task-manager.exe" },
+        { "from": "src-tauri/target/debug/task-manager-backend.exe", "to": "task-manager-backend.exe" },
         { "from": "src-tauri/target/resources/assets", "to": "assets" }
       ]
     }

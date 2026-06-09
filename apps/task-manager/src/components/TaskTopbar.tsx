@@ -14,6 +14,7 @@ type WindowActions = {
 
 type TaskTopbarProps = {
   standalone: boolean
+  disabled?: boolean
   onCreateBoard: () => void
   onStartDragging: () => Promise<void> | void
   windowActions: WindowActions
@@ -23,7 +24,7 @@ function run(action: () => Promise<void> | void) {
   Promise.resolve(action()).catch(() => {})
 }
 
-export function TaskTopbar({ standalone, onCreateBoard, onStartDragging, windowActions }: TaskTopbarProps) {
+export function TaskTopbar({ standalone, disabled = false, onCreateBoard, onStartDragging, windowActions }: TaskTopbarProps) {
   const onPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
     const target = event.target as HTMLElement | null
@@ -38,7 +39,7 @@ export function TaskTopbar({ standalone, onCreateBoard, onStartDragging, windowA
         <Typography component="span" sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }}>Task Manager</Typography>
       </Box>
       <Box className="tm-topbar-spacer" />
-      <IconButton size="small" onClick={onCreateBoard} aria-label="新建任务分组">
+      <IconButton size="small" disabled={disabled} onClick={onCreateBoard} aria-label="新建任务分组">
         <AddIcon fontSize="small" />
       </IconButton>
       {standalone ? (
