@@ -13,6 +13,7 @@ pub enum WakeEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WakeAction {
     ShowMain,
+    FocusMain,
     HideMain,
     ShowBrowser,
     HideBrowser,
@@ -26,6 +27,7 @@ pub struct Snapshot {
     pub browser_visible: bool,
     pub browser_focused: bool,
     pub main_visible: bool,
+    pub main_focused: bool,
 }
 
 pub fn decide(snapshot: Snapshot, event: WakeEvent) -> (UiMode, WakeAction) {
@@ -48,8 +50,11 @@ fn decide_wake_key(snapshot: Snapshot) -> (UiMode, WakeAction) {
         return (UiMode::BrowserVisible, WakeAction::ShowBrowser);
     }
 
-    if snapshot.main_visible {
+    if snapshot.main_visible && snapshot.main_focused {
         return (UiMode::Hidden, WakeAction::HideMain);
+    }
+    if snapshot.main_visible {
+        return (UiMode::MainVisible, WakeAction::FocusMain);
     }
     (UiMode::MainVisible, WakeAction::ShowMain)
 }
@@ -66,6 +71,7 @@ mod tests {
             browser_visible: false,
             browser_focused: false,
             main_visible: false,
+            main_focused: false,
         }
     }
 
@@ -129,13 +135,25 @@ mod tests {
     }
 
     #[test]
-    fn main_visible_hides_main() {
+    fn main_visible_and_focused_hides_main() {
         let mut snap = s();
         snap.main_visible = true;
+        snap.main_focused = true;
 
         let (mode, action) = decide(snap, WakeEvent::WakeKey);
         assert_eq!(mode, UiMode::Hidden);
         assert_eq!(action, WakeAction::HideMain);
+    }
+
+    #[test]
+    fn main_visible_but_not_focused_focuses_main() {
+        let mut snap = s();
+        snap.main_visible = true;
+        snap.main_focused = false;
+
+        let (mode, action) = decide(snap, WakeEvent::WakeKey);
+        assert_eq!(mode, UiMode::MainVisible);
+        assert_eq!(action, WakeAction::FocusMain);
     }
 
     #[test]

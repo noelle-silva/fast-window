@@ -1708,6 +1708,12 @@ fn show_main_window(app: &tauri::AppHandle) {
     browser_ui_set_mode(app, wake_logic::UiMode::MainVisible);
 }
 
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_focus();
+    }
+}
+
 fn hide_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let state = app.state::<WindowState>();
@@ -1726,9 +1732,14 @@ fn handle_wake_shortcut(app: &tauri::AppHandle) {
     let browser_exists = browser_stack_exists(app);
     let browser_visible = browser_exists && browser_stack_is_visible(app);
     let browser_focused = browser_exists && browser_stack_is_focused(app);
-    let main_visible = app
-        .get_webview_window("main")
+    let main_window = app.get_webview_window("main");
+    let main_visible = main_window
+        .as_ref()
         .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    let main_focused = main_window
+        .as_ref()
+        .and_then(|w| w.is_focused().ok())
         .unwrap_or(false);
 
     let (next_mode, action) = wake_logic::decide(
@@ -1739,6 +1750,7 @@ fn handle_wake_shortcut(app: &tauri::AppHandle) {
             browser_visible,
             browser_focused,
             main_visible,
+            main_focused,
         },
         wake_logic::WakeEvent::WakeKey,
     );
@@ -1755,6 +1767,9 @@ fn handle_wake_shortcut(app: &tauri::AppHandle) {
         wake_logic::WakeAction::ShowMain => {
             browser_stack_hide(app);
             show_main_window(app);
+        }
+        wake_logic::WakeAction::FocusMain => {
+            focus_main_window(app);
         }
         wake_logic::WakeAction::HideMain => {
             hide_main_window(app);

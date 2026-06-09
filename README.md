@@ -60,6 +60,16 @@ pnpm tauri dev
 - Tauri 配置在 `src-tauri/tauri.conf.json`。
 - 当前 `tauri.conf.json` 的 `beforeDevCommand/beforeBuildCommand` 配置为 `npm run dev/build`（确保你的环境里有 `npm`，或自行改成 `pnpm run ...`）。
 
+## 主窗口快捷键行为
+
+唤醒窗口快捷键遵循“先找回，再收起”的窗口模式交互：
+
+- 主窗口未出现时，按一次快捷键会显示并聚焦主窗口。
+- 主窗口已经出现但被其他窗口挡住、或当前没有获得焦点时，按一次快捷键只会把主窗口聚焦到前面。
+- 主窗口已经出现且处于焦点状态时，再按一次快捷键才会隐藏主窗口。
+
+这样可以避免主窗口明明在桌面上、却因为被其他窗口遮住而被快捷键误隐藏。
+
 构建 Windows 安装包（MSI）：
 
 ```bash
