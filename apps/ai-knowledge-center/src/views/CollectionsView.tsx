@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { CollectionCards } from '../components/CollectionCards'
+import { CollectionPathBar } from '../components/CollectionPathBar'
 import { DocumentList } from '../components/DocumentList'
-import { collectionChildren, rootCollections } from '../knowledgePages'
+import { collectionChildren, collectionPath, rootCollections } from '../knowledgePages'
 import type { CollectionSummary, DocumentSummary } from '../types'
 
 type CollectionsViewProps = {
@@ -26,6 +27,7 @@ export function CollectionsView(props: CollectionsViewProps) {
   } = props
   const selectedCollection = collections.find(collection => collection.id === selectedCollectionID) || null
   const visibleCollections = selectedCollection ? collectionChildren(selectedCollection, collections) : rootCollections(collections)
+  const selectedCollectionPath = selectedCollection ? collectionPath(selectedCollection, collections) : []
   const collectionDocuments = selectedCollection
     ? selectedCollection.document_ids
       .map(id => documents.find(document => document.id === id))
@@ -34,9 +36,9 @@ export function CollectionsView(props: CollectionsViewProps) {
 
   return (
     <div className="kc-workspace" aria-label="收藏夹">
+      <CollectionPathBar path={selectedCollectionPath} onOpenRoot={onCloseCollection} onOpenCollection={onOpenCollection} />
       {selectedCollection ? (
         <div className="kc-collection-detail">
-          <button type="button" className="kc-back-link" onClick={onCloseCollection}>返回收藏夹</button>
           {visibleCollections.length ? (
             <section className="kc-card" aria-label="子收藏夹">
               <div className="kc-card-title-row">

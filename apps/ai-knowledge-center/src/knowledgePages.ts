@@ -65,3 +65,23 @@ export function collectionChildren(collection: CollectionSummary, collections: C
     .map(id => byID.get(id))
     .filter((item): item is CollectionSummary => Boolean(item))
 }
+
+export function collectionPath(collection: CollectionSummary, collections: CollectionSummary[]) {
+  const byID = new Map(collections.map(item => [item.id, item]))
+  const parentByID = new Map<string, CollectionSummary>()
+  for (const candidate of collections) {
+    for (const childID of candidate.child_collection_ids) {
+      if (!parentByID.has(childID)) parentByID.set(childID, candidate)
+    }
+  }
+
+  const path: CollectionSummary[] = []
+  const visited = new Set<string>()
+  let current: CollectionSummary | undefined = collection
+  while (current && byID.has(current.id) && !visited.has(current.id)) {
+    path.unshift(current)
+    visited.add(current.id)
+    current = parentByID.get(current.id)
+  }
+  return path
+}

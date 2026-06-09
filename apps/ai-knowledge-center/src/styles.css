@@ -131,7 +131,6 @@ body {
 .kc-window-controls button,
 .kc-actions button,
 .kc-filters button,
-.kc-back-link,
 .kc-topbar-action,
 .kc-document-card,
 .kc-collection-card {
@@ -167,7 +166,6 @@ body {
 .kc-window-controls button:focus-visible,
 .kc-actions button:focus-visible,
 .kc-filters button:focus-visible,
-.kc-back-link:focus-visible,
 .kc-topbar-action:focus-visible,
 .kc-document-card:focus-visible,
 .kc-collection-card:focus-visible {
@@ -285,8 +283,7 @@ body {
 }
 
 .kc-actions button,
-.kc-filters button,
-.kc-back-link {
+.kc-filters button {
   min-height: 38px;
   border: 1px solid var(--kc-primary);
   border-radius: 10px;
@@ -296,8 +293,7 @@ body {
   font-weight: 800;
 }
 
-.kc-actions button:nth-child(2),
-.kc-back-link {
+.kc-actions button:nth-child(2) {
   color: var(--kc-text);
   background: #ffffff;
   border-color: var(--kc-line-strong);
@@ -309,8 +305,7 @@ body {
   border-color: var(--kc-primary-strong);
 }
 
-.kc-actions button:nth-child(2):hover:not(:disabled),
-.kc-back-link:hover {
+.kc-actions button:nth-child(2):hover:not(:disabled) {
   color: var(--kc-primary-strong);
   background: var(--kc-primary-soft);
   border-color: #b7cbe8;
@@ -579,6 +574,48 @@ body {
   gap: 14px;
 }
 
+.kc-collection-path {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--kc-line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  color: var(--kc-muted);
+  background: #ffffff;
+}
+
+.kc-collection-path button,
+.kc-collection-path strong {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--kc-text);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.kc-collection-path button {
+  cursor: pointer;
+}
+
+.kc-collection-path button:hover,
+.kc-collection-path button:focus-visible {
+  background: var(--kc-surface-active);
+  outline: none;
+}
+
+.kc-collection-path strong {
+  color: var(--kc-primary);
+  background: var(--kc-primary-soft);
+}
+
 .kc-collection-card {
   min-height: 146px;
   align-content: start;
@@ -591,10 +628,6 @@ body {
 .kc-collection-detail {
   display: grid;
   gap: 14px;
-}
-
-.kc-back-link {
-  width: fit-content;
 }
 
 .kc-error-card {
