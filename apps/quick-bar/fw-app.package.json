@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "id": "quick-bar",
+  "name": "Quick Bar",
+  "description": "划词助手 - 选中文字后弹出快捷操作浮动工具栏",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/quick-bar-windows",
+      "files": [
+        { "from": "src-tauri/target/release/quick-bar.exe", "to": "quick-bar.exe" },
+        { "from": "src-tauri/target/release/quick-bar-backend.exe", "to": "quick-bar-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/quick-bar-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/quick-bar.exe", "to": "quick-bar.exe" },
+        { "from": "src-tauri/target/debug/quick-bar-backend.exe", "to": "quick-bar-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "quick-bar.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-settings", "title": "打开 Quick Bar 设置" },
+    { "id": "show-health", "title": "查看健康状态" }
+  ]
+}
