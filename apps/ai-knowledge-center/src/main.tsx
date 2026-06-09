@@ -419,6 +419,8 @@ function App() {
             onClearConnection={clearConnection}
             onPickDataDir={pickDataDir}
             onRestartBackend={() => connect({ restartBackend: true })}
+            onOpenArchive={() => openKnowledgePage('archive')}
+            onOpenTrash={() => openKnowledgePage('trash')}
           />
         ) : page === 'collections' ? (
           <CollectionsView

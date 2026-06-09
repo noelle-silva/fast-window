@@ -377,8 +377,7 @@ body {
 }
 
 .kc-card-title-row,
-.kc-section-title-row,
-.kc-detail-heading {
+.kc-section-title-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -618,18 +617,6 @@ body {
   border: 1px dashed var(--kc-line-strong);
   border-radius: 14px;
   background: var(--kc-surface-muted);
-}
-
-.kc-empty-detail {
-  height: 100%;
-  min-height: 360px;
-  display: grid;
-  place-content: center;
-  text-align: center;
-}
-
-.kc-empty-detail h2 {
-  margin-bottom: 8px;
 }
 
 @media (max-width: 1120px) {

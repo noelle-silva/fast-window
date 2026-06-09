@@ -16,6 +16,8 @@ type SettingsViewProps = {
   onClearConnection: () => Promise<void> | void
   onPickDataDir: () => Promise<void> | void
   onRestartBackend: () => Promise<void> | void
+  onOpenArchive: () => void
+  onOpenTrash: () => void
 }
 
 export function SettingsView(props: SettingsViewProps) {
@@ -32,6 +34,8 @@ export function SettingsView(props: SettingsViewProps) {
     onClearConnection,
     onPickDataDir,
     onRestartBackend,
+    onOpenArchive,
+    onOpenTrash,
   } = props
 
   return (
@@ -70,6 +74,15 @@ export function SettingsView(props: SettingsViewProps) {
           <div className="kc-actions">
             <button type="button" onClick={onPickDataDir} disabled={busy}>选择客户端数据目录</button>
             <button type="button" onClick={onRestartBackend} disabled={busy}>重启本地后台</button>
+          </div>
+        </article>
+
+        <article className="kc-card">
+          <h2>资料维护入口</h2>
+          <p className="kc-muted">归档和回收站不混入全部笔记，需要时从这里单独进入。</p>
+          <div className="kc-actions">
+            <button type="button" onClick={onOpenArchive}>查看归档</button>
+            <button type="button" onClick={onOpenTrash}>查看回收站</button>
           </div>
         </article>
       </div>

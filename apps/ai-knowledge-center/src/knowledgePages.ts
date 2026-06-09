@@ -5,13 +5,11 @@ export type AppPage = KnowledgePage | 'settings'
 
 export const KNOWLEDGE_PAGES: Array<{ value: KnowledgePage; label: string }> = [
   { value: 'collections', label: '收藏夹' },
-  { value: 'trash', label: '回收站' },
-  { value: 'archive', label: '归档' },
   { value: 'all', label: '全部笔记' },
 ]
 
 export const DOCUMENT_PAGE_TEXT: Record<Exclude<KnowledgePage, 'collections'>, { title: string; eyebrow: string; empty: string }> = {
-  all: { title: '全部笔记', eyebrow: 'All Notes', empty: '暂无匹配笔记' },
+  all: { title: '全部笔记', eyebrow: 'Active Notes', empty: '暂无正常笔记' },
   archive: { title: '归档', eyebrow: 'Archive', empty: '暂无归档笔记' },
   trash: { title: '回收站', eyebrow: 'Trash', empty: '回收站暂无笔记' },
 }
@@ -28,9 +26,16 @@ export function isKnowledgePage(page: AppPage): page is KnowledgePage {
 }
 
 export function documentStatusForPage(page: KnowledgePage): DocumentStatus {
-  if (page === 'archive') return 'archived'
-  if (page === 'trash') return 'trashed'
-  return 'all'
+  switch (page) {
+    case 'all':
+      return 'active'
+    case 'archive':
+      return 'archived'
+    case 'trash':
+      return 'trashed'
+    case 'collections':
+      return 'all'
+  }
 }
 
 export function statusLabel(status: string) {
