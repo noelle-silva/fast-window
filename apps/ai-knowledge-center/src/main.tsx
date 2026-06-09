@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
+import { DocumentModal } from './components/DocumentModal'
 import { KnowledgeTopbar } from './KnowledgeTopbar'
 import { KNOWLEDGE_PAGES, documentStatusForPage, isKnowledgePage, type AppPage, type KnowledgePage } from './knowledgePages'
 import type {
@@ -34,10 +35,6 @@ function viewKeyFor(page: AppPage, collectionID: string | null) {
   return page === 'collections' && collectionID ? `collections:${collectionID}` : page
 }
 
-function documentViewKeyFor(page: KnowledgePage, collectionID: string | null) {
-  return page === 'collections' && collectionID ? `collections:${collectionID}` : page
-}
-
 function App() {
   const [page, setPage] = React.useState<AppPage>('all')
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -60,9 +57,7 @@ function App() {
   const [error, setError] = React.useState<string | null>(null)
 
   const readyRef = React.useRef(false)
-  const selectedDocumentIDRef = React.useRef<string | null>(null)
   const selectedCollectionIDRef = React.useRef<string | null>(null)
-  const selectedDocumentByViewRef = React.useRef<Record<string, string | null>>({})
   const lastKnowledgePageRef = React.useRef<KnowledgePage>('all')
   const knowledgeLoadSeqRef = React.useRef(0)
   const documentLoadSeqRef = React.useRef(0)
@@ -72,10 +67,6 @@ function App() {
 
   const scrollKey = viewKeyFor(page, selectedCollectionID)
   const connected = health?.status === 'ok'
-
-  React.useEffect(() => {
-    selectedDocumentIDRef.current = selectedDocumentID
-  }, [selectedDocumentID])
 
   React.useEffect(() => {
     selectedCollectionIDRef.current = selectedCollectionID
@@ -117,24 +108,30 @@ function App() {
     setSelectedDocumentID(null)
   }, [])
 
-  const loadDocument = React.useCallback(async (activeClient: DirectClient, id: string | null, viewKey: string, knowledgeSeq?: number) => {
+  const closeDocumentModal = React.useCallback(() => {
+    documentLoadSeqRef.current += 1
+    setSelectedDocument(null)
+    setSelectedDocumentID(null)
+  }, [])
+
+  const loadDocument = React.useCallback(async (activeClient: DirectClient, id: string | null, viewKey: string) => {
     const documentSeq = ++documentLoadSeqRef.current
     if (!id) {
-      if (knowledgeSeq && knowledgeLoadSeqRef.current !== knowledgeSeq) return
-      if (!knowledgeSeq && currentViewKeyRef.current !== viewKey) return
+      if (currentViewKeyRef.current !== viewKey) return
       setSelectedDocument(null)
       setSelectedDocumentID(null)
-      selectedDocumentByViewRef.current[viewKey] = null
       return
     }
 
+    if (currentViewKeyRef.current !== viewKey) return
+    setSelectedDocument(null)
+    setSelectedDocumentID(id)
+
     const record = await activeClient.request<DocumentRecord>('knowledge.documents.get', { id })
     if (documentSeq !== documentLoadSeqRef.current) return
-    if (knowledgeSeq && knowledgeLoadSeqRef.current !== knowledgeSeq) return
-    if (!knowledgeSeq && currentViewKeyRef.current !== viewKey) return
+    if (currentViewKeyRef.current !== viewKey) return
     setSelectedDocument(record)
     setSelectedDocumentID(id)
-    selectedDocumentByViewRef.current[viewKey] = id
   }, [])
 
   const loadKnowledge = React.useCallback(async (activeClient: DirectClient, knowledgeSeq: number, targetPage?: KnowledgePage, targetCollectionID = selectedCollectionID) => {
@@ -160,27 +157,16 @@ function App() {
     setCollections(nextCollections)
 
     if (dataPage === 'collections' && !effectiveCollectionID) {
-      await loadDocument(activeClient, null, 'collections', knowledgeSeq)
       return
     }
 
     if (effectiveCollectionID && !nextCollections.some(collection => collection.id === effectiveCollectionID)) {
+      currentViewKeyRef.current = 'collections'
+      closeDocumentModal()
       setSelectedCollectionID(null)
-      await loadDocument(activeClient, null, 'collections', knowledgeSeq)
       return
     }
-
-    const viewKey = documentViewKeyFor(dataPage, effectiveCollectionID)
-    const selectedCollection = effectiveCollectionID ? nextCollections.find(collection => collection.id === effectiveCollectionID) : null
-    const candidateDocuments = selectedCollection
-      ? selectedCollection.document_ids
-        .map(id => nextDocuments.find(document => document.id === id))
-        .filter((document): document is DocumentSummary => Boolean(document))
-      : nextDocuments
-    const preferredID = selectedDocumentByViewRef.current[viewKey] || selectedDocumentIDRef.current
-    const nextID = candidateDocuments.some(item => item.id === preferredID) ? preferredID : candidateDocuments[0]?.id || null
-    await loadDocument(activeClient, nextID, viewKey, knowledgeSeq)
-  }, [loadDocument, page, query, selectedCollectionID, tag])
+  }, [closeDocumentModal, page, query, selectedCollectionID, tag])
 
   const refreshKnowledge = React.useCallback(async (targetPage?: KnowledgePage, targetCollectionID = selectedCollectionID, hasServerKey = Boolean(connection?.hasServerKey)) => {
     if (!client) return
@@ -238,15 +224,17 @@ function App() {
   const openKnowledgePage = React.useCallback((nextPage: KnowledgePage) => {
     lastKnowledgePageRef.current = nextPage
     currentViewKeyRef.current = viewKeyFor(nextPage, nextPage === 'collections' ? selectedCollectionID : null)
+    closeDocumentModal()
     setPage(nextPage)
     void refreshKnowledge(nextPage)
-  }, [refreshKnowledge, selectedCollectionID])
+  }, [closeDocumentModal, refreshKnowledge, selectedCollectionID])
 
   const openSettings = React.useCallback(() => {
     if (isKnowledgePage(page)) lastKnowledgePageRef.current = page
     currentViewKeyRef.current = 'settings'
+    closeDocumentModal()
     setPage('settings')
-  }, [page])
+  }, [closeDocumentModal, page])
 
   const closeSettings = React.useCallback(() => {
     const nextPage = lastKnowledgePageRef.current
@@ -351,7 +339,6 @@ function App() {
       setServerKeyInput('')
       clearKnowledgeState()
       setSelectedCollectionID(null)
-      selectedDocumentByViewRef.current = {}
     } catch (e) {
       setError(errorMessage(e, '清空连接配置失败'))
     } finally {
@@ -378,27 +365,23 @@ function App() {
   const openCollection = React.useCallback((id: string) => {
     const viewKey = `collections:${id}`
     currentViewKeyRef.current = viewKey
+    closeDocumentModal()
     setSelectedCollectionID(id)
-    const collection = collections.find(item => item.id === id)
-    const rememberedID = selectedDocumentByViewRef.current[viewKey]
-    const firstDocumentID = collection?.document_ids.find(documentID => documentID === rememberedID && documents.some(document => document.id === documentID))
-      || collection?.document_ids.find(documentID => documents.some(document => document.id === documentID))
-      || null
-    if (client) void loadDocument(client, firstDocumentID, viewKey).catch(e => setError(errorMessage(e, '读取资料详情失败')))
-  }, [client, collections, documents, loadDocument])
+  }, [closeDocumentModal])
 
   const closeCollection = React.useCallback(() => {
     currentViewKeyRef.current = 'collections'
+    closeDocumentModal()
     setSelectedCollectionID(null)
-    setSelectedDocument(null)
-    setSelectedDocumentID(null)
-    selectedDocumentByViewRef.current.collections = null
-  }, [])
+  }, [closeDocumentModal])
 
   const selectDocument = React.useCallback((id: string) => {
     if (!client) return
-    void loadDocument(client, id, scrollKey).catch(e => setError(errorMessage(e, '读取资料详情失败')))
-  }, [client, loadDocument, scrollKey])
+    void loadDocument(client, id, scrollKey).catch(e => {
+      closeDocumentModal()
+      setError(errorMessage(e, '读取资料详情失败'))
+    })
+  }, [client, closeDocumentModal, loadDocument, scrollKey])
 
   return (
     <main className="kc-app">
@@ -443,7 +426,6 @@ function App() {
             documents={documents}
             selectedCollectionID={selectedCollectionID}
             selectedDocumentID={selectedDocumentID}
-            selectedDocument={selectedDocument}
             onOpenCollection={openCollection}
             onCloseCollection={closeCollection}
             onSelectDocument={selectDocument}
@@ -454,7 +436,6 @@ function App() {
             connection={connection}
             documents={documents}
             selectedDocumentID={selectedDocumentID}
-            selectedDocument={selectedDocument}
             query={query}
             tag={tag}
             busy={busy}
@@ -465,6 +446,8 @@ function App() {
           />
         )}
       </section>
+
+      <DocumentModal open={Boolean(selectedDocumentID)} document={selectedDocument} onClose={closeDocumentModal} />
 
       {error ? <div className="kc-error-card" role="alert">{error}</div> : null}
     </main>

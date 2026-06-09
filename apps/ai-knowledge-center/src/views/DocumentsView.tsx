@@ -1,16 +1,14 @@
 import * as React from 'react'
-import { DocumentDetail } from '../components/DocumentDetail'
 import { DocumentFilters } from '../components/DocumentFilters'
 import { DocumentList } from '../components/DocumentList'
 import { DOCUMENT_PAGE_TEXT, type KnowledgePage } from '../knowledgePages'
-import type { ConnectionSettings, DocumentRecord, DocumentSummary } from '../types'
+import type { ConnectionSettings, DocumentSummary } from '../types'
 
 type DocumentsViewProps = {
   page: Exclude<KnowledgePage, 'collections'>
   connection: ConnectionSettings | null
   documents: DocumentSummary[]
   selectedDocumentID: string | null
-  selectedDocument: DocumentRecord | null
   query: string
   tag: string
   busy: boolean
@@ -26,7 +24,6 @@ export function DocumentsView(props: DocumentsViewProps) {
     connection,
     documents,
     selectedDocumentID,
-    selectedDocument,
     query,
     tag,
     busy,
@@ -49,16 +46,13 @@ export function DocumentsView(props: DocumentsViewProps) {
         onApplyFilters={onApplyFilters}
       />
 
-      <div className="kc-document-layout">
-        <DocumentList
-          title="笔记"
-          documents={documents}
-          selectedDocumentID={selectedDocumentID}
-          emptyText={text.empty}
-          onSelectDocument={onSelectDocument}
-        />
-        <DocumentDetail selectedDocument={selectedDocument} />
-      </div>
+      <DocumentList
+        title="笔记"
+        documents={documents}
+        selectedDocumentID={selectedDocumentID}
+        emptyText={text.empty}
+        onSelectDocument={onSelectDocument}
+      />
     </div>
   )
 }

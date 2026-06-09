@@ -1,16 +1,14 @@
 import * as React from 'react'
 import { CollectionCards } from '../components/CollectionCards'
-import { DocumentDetail } from '../components/DocumentDetail'
 import { DocumentList } from '../components/DocumentList'
 import { collectionChildren, rootCollections } from '../knowledgePages'
-import type { CollectionSummary, DocumentRecord, DocumentSummary } from '../types'
+import type { CollectionSummary, DocumentSummary } from '../types'
 
 type CollectionsViewProps = {
   collections: CollectionSummary[]
   documents: DocumentSummary[]
   selectedCollectionID: string | null
   selectedDocumentID: string | null
-  selectedDocument: DocumentRecord | null
   onOpenCollection: (id: string) => void
   onCloseCollection: () => void
   onSelectDocument: (id: string) => void
@@ -22,7 +20,6 @@ export function CollectionsView(props: CollectionsViewProps) {
     documents,
     selectedCollectionID,
     selectedDocumentID,
-    selectedDocument,
     onOpenCollection,
     onCloseCollection,
     onSelectDocument,
@@ -49,16 +46,13 @@ export function CollectionsView(props: CollectionsViewProps) {
               <CollectionCards collections={visibleCollections} onOpenCollection={onOpenCollection} />
             </section>
           ) : null}
-          <div className="kc-document-layout">
-            <DocumentList
-              title="收藏夹内笔记"
-              documents={collectionDocuments}
-              selectedDocumentID={selectedDocumentID}
-              emptyText="这个收藏夹暂无笔记"
-              onSelectDocument={onSelectDocument}
-            />
-            <DocumentDetail selectedDocument={selectedDocument} />
-          </div>
+          <DocumentList
+            title="收藏夹内笔记"
+            documents={collectionDocuments}
+            selectedDocumentID={selectedDocumentID}
+            emptyText="这个收藏夹暂无笔记"
+            onSelectDocument={onSelectDocument}
+          />
         </div>
       ) : (
         <CollectionCards collections={visibleCollections} onOpenCollection={onOpenCollection} emptyText="暂无收藏夹" />
