@@ -12,6 +12,11 @@ type Settings struct {
 	ImageMaxCount    int             `json:"imageMaxCount"`
 	ImageMaxMB       float64         `json:"imageMaxMb"`
 	History          HistorySettings `json:"history"`
+	Timeouts         TimeoutSettings `json:"timeouts"`
+}
+
+type TimeoutSettings struct {
+	ModelRequestTimeoutSeconds int `json:"modelRequestTimeoutSeconds"`
 }
 
 type HistorySettings struct {

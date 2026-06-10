@@ -1,4 +1,4 @@
-import type { AppData, DraftImage, HistoryEntry, HistoryImage, HistorySettings, Provider, Space, SpaceHistorySettings, Template } from '../types'
+import type { AppData, DraftImage, HistoryEntry, HistoryImage, HistorySettings, Provider, Space, SpaceHistorySettings, Template, TimeoutSettings } from '../types'
 
 export const DEFAULT_LAUNCH_INFO = { launched: false, standalone: true, mode: 'standalone' } as const
 export const DEFAULT_PROVIDER_BASE_URL = 'https://api.openai.com/v1'
@@ -6,9 +6,14 @@ export const DEFAULT_SPACE_NAME = '默认空间'
 export const DEFAULT_TEMPLATE_NAME = '默认'
 export const DEFAULT_SYSTEM_PROMPT = ''
 export const DEFAULT_HISTORY_LIMIT = 50
+export const DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS = 600
+export const APP_REQUEST_TIMEOUT_GRACE_SECONDS = 15
+export const MIN_REQUEST_TIMEOUT_SECONDS = 1
+export const MAX_REQUEST_TIMEOUT_SECONDS = 3600
 
 export const DEFAULT_HISTORY_SETTINGS: HistorySettings = { enabled: true, limit: DEFAULT_HISTORY_LIMIT }
 export const DEFAULT_SPACE_HISTORY_SETTINGS: SpaceHistorySettings = { override: false, enabled: true, limit: DEFAULT_HISTORY_LIMIT }
+export const DEFAULT_TIMEOUT_SETTINGS: TimeoutSettings = { modelRequestTimeoutSeconds: DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS }
 
 export function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
@@ -112,6 +117,25 @@ export async function fileToDraftImage(file: File): Promise<DraftImage> {
 
 export function normalizeHistoryLimit(value: number): number {
   return Math.max(1, Math.round(Number.isFinite(value) ? value : DEFAULT_HISTORY_LIMIT))
+}
+
+export function normalizeRequestTimeoutSeconds(value: number, fallback = DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS): number {
+  const next = Math.round(Number.isFinite(value) ? value : fallback)
+  return Math.min(MAX_REQUEST_TIMEOUT_SECONDS, Math.max(MIN_REQUEST_TIMEOUT_SECONDS, next))
+}
+
+export function normalizeTimeoutSettings(value?: Partial<TimeoutSettings> | null): TimeoutSettings {
+  return {
+    modelRequestTimeoutSeconds: normalizeRequestTimeoutSeconds(value?.modelRequestTimeoutSeconds ?? DEFAULT_TIMEOUT_SETTINGS.modelRequestTimeoutSeconds),
+  }
+}
+
+export function appRequestTimeoutSeconds(value?: Partial<TimeoutSettings> | null): number {
+  return normalizeTimeoutSettings(value).modelRequestTimeoutSeconds + APP_REQUEST_TIMEOUT_GRACE_SECONDS
+}
+
+export function appRequestTimeoutMs(value?: Partial<TimeoutSettings> | null): number {
+  return appRequestTimeoutSeconds(value) * 1000
 }
 
 export function effectiveHistorySettings(space: Space | null, global: HistorySettings | undefined): HistorySettings {

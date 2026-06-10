@@ -81,7 +81,7 @@ export function Topbar(props: TopbarProps) {
           ) : null}
           <TopbarAction label="新建空间" icon={AddRoundedIcon} onClick={controller.openCreateSpaceDialog} disabled={!hasData || state.busy || state.asking || state.spacesSortMode} />
           <TopbarAction label="供应商设置" icon={SettingsOutlinedIcon} onClick={controller.openSettings} disabled={!hasData || state.asking || state.spacesSortMode} />
-          <TopbarAction label="应用设置" icon={SettingsOutlinedIcon} onClick={() => controller.setDialog('app-settings')} disabled={state.asking || state.spacesSortMode} />
+          <TopbarAction label="应用设置" icon={SettingsOutlinedIcon} onClick={controller.openAppSettings} disabled={state.asking || state.spacesSortMode} />
         </Box>
         <Chip size="small" label={state.launchInfo.standalone ? 'standalone' : `FW ${state.launchInfo.mode}`} sx={{ display: { xs: 'none', md: 'inline-flex' } }} />
         {state.launchInfo.standalone ? <StandaloneWindowControls actions={controller.windowActions} /> : null}

@@ -1,6 +1,8 @@
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
-import { Alert, Box, Button, Dialog, Divider, Stack, Typography } from '@mui/material'
+import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
+import { Alert, Box, Button, Dialog, Divider, Stack, TextField, Typography } from '@mui/material'
+import { APP_REQUEST_TIMEOUT_GRACE_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MIN_REQUEST_TIMEOUT_SECONDS, appRequestTimeoutSeconds, normalizeTimeoutSettings } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
 type AppSettingsDialogProps = {
@@ -9,8 +11,9 @@ type AppSettingsDialogProps = {
 
 export function AppSettingsDialog(props: AppSettingsDialogProps) {
   const { controller } = props
-  const { dataDirStatus, busy, dialog } = controller.state
+  const { dataDirStatus, busy, asking, dialog, editing } = controller.state
   const open = dialog === 'app-settings'
+  const timeouts = normalizeTimeoutSettings(editing?.settings.timeouts)
 
   return (
     <Dialog open={open} onClose={controller.closeDialog} fullWidth maxWidth="sm">
@@ -18,7 +21,7 @@ export function AppSettingsDialog(props: AppSettingsDialogProps) {
         <Stack spacing={1.5}>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 900 }}>应用设置</Typography>
-            <Typography variant="body2" color="text.secondary">管理本地数据目录和后台连接状态。</Typography>
+            <Typography variant="body2" color="text.secondary">管理本地数据目录、后台连接状态和全局请求等待时间。</Typography>
           </Box>
 
           <Alert severity={dataDirStatus?.writable ? 'success' : 'info'} sx={{ py: 0.75 }}>
@@ -38,6 +41,31 @@ export function AppSettingsDialog(props: AppSettingsDialogProps) {
 
           <Divider />
 
+          {editing ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.25 }}>
+              <TextField
+                label="模型服务等待秒数"
+                type="number"
+                inputProps={{ min: MIN_REQUEST_TIMEOUT_SECONDS, max: MAX_REQUEST_TIMEOUT_SECONDS, step: 1 }}
+                value={timeouts.modelRequestTimeoutSeconds}
+                onChange={event => controller.mutateEditing(draft => {
+                  draft.settings.timeouts = normalizeTimeoutSettings({ modelRequestTimeoutSeconds: Number(event.target.value) })
+                })}
+                helperText="模型返回慢时可以调大，默认 600 秒。"
+              />
+              <TextField
+                label="界面最长等待"
+                value={`${appRequestTimeoutSeconds(timeouts)} 秒`}
+                disabled
+                helperText={`自动比模型服务多等 ${APP_REQUEST_TIMEOUT_GRACE_SECONDS} 秒，避免界面提前放弃。`}
+              />
+            </Box>
+          ) : (
+            <Alert severity="info" sx={{ py: 0.75 }}>数据尚未加载，等待时间设置稍后可用。</Alert>
+          )}
+
+          <Divider />
+
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
             <Button startIcon={<FolderOpenRoundedIcon fontSize="small" />} onClick={() => void controller.pickDataDir()} disabled={busy}>
               选择数据目录
@@ -48,7 +76,8 @@ export function AppSettingsDialog(props: AppSettingsDialogProps) {
           </Stack>
 
           <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button variant="contained" onClick={controller.closeDialog}>关闭</Button>
+            <Button onClick={controller.closeDialog}>关闭</Button>
+            <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={() => void controller.saveEditing()} disabled={!editing || busy || asking}>保存</Button>
           </Stack>
         </Stack>
       </Box>

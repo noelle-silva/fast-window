@@ -17,7 +17,7 @@ type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-var httpClient httpDoer = &http.Client{Timeout: 60 * time.Second}
+var httpClient httpDoer = &http.Client{}
 
 func (s *service) refreshModels(ctx context.Context, providerID string) (AppData, error) {
 	data, err := s.readData()
@@ -32,13 +32,22 @@ func (s *service) refreshModels(ctx context.Context, providerID string) (AppData
 	if err := requireProvider(p, false); err != nil {
 		return data, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, trimSlash(p.BaseURL)+"/models", nil)
+	timeout := modelRequestTimeout(data.Settings.Timeouts)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, trimSlash(p.BaseURL)+"/models", nil)
 	if err != nil {
 		return data, err
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(p.APIKey))
 	res, err := httpClient.Do(req)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return data, context.Canceled
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return data, fmt.Errorf("模型服务请求超时（%d 秒）", int(timeout/time.Second))
+		}
 		return data, err
 	}
 	defer res.Body.Close()
@@ -120,7 +129,7 @@ func (s *service) ask(ctx context.Context, req AskRequest) (HistoryEntry, error)
 	}
 	messages := buildMessages(tpl.SystemPrompt, input, req.Images)
 	payload := map[string]any{"model": model, "messages": messages, "temperature": 0.2, "stream": false}
-	out, callErr := callChatCompletion(ctx, p, payload)
+	out, callErr := callChatCompletion(ctx, p, payload, data.Settings.Timeouts)
 	if errors.Is(callErr, context.Canceled) {
 		return HistoryEntry{}, callErr
 	}
@@ -160,9 +169,12 @@ func buildMessages(systemPrompt, input string, images []DraftImage) []map[string
 	return append(messages, map[string]any{"role": "user", "content": parts})
 }
 
-func callChatCompletion(ctx context.Context, p Provider, payload map[string]any) (string, error) {
+func callChatCompletion(ctx context.Context, p Provider, payload map[string]any, timeoutSettings TimeoutSettings) (string, error) {
 	b, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, trimSlash(p.BaseURL)+"/chat/completions", bytes.NewReader(b))
+	timeout := modelRequestTimeout(timeoutSettings)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, trimSlash(p.BaseURL)+"/chat/completions", bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}
@@ -170,6 +182,12 @@ func callChatCompletion(ctx context.Context, p Provider, payload map[string]any)
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(p.APIKey))
 	res, err := httpClient.Do(req)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return "", context.Canceled
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("AI 请求超时（%d 秒）", int(timeout/time.Second))
+		}
 		return "", err
 	}
 	defer res.Body.Close()

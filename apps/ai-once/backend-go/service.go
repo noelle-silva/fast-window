@@ -21,10 +21,13 @@ const (
 	historyImageDir     = "history-images"
 	metaFile            = "_meta.json"
 	migrationsFile      = "_migrations.json"
-	dataVersion         = 3
+	dataVersion         = 4
 	defaultMaxCount     = 6
 	defaultMaxMB        = 8
 	defaultHistoryLimit = 50
+	defaultRequestWait  = 600
+	minRequestWait      = 1
+	maxRequestWait      = 3600
 )
 
 type service struct {
@@ -86,7 +89,7 @@ func (s *service) ensureMeta() error {
 }
 
 func (s *service) writeMigration(source string) error {
-	return writeJSON(s.path(migrationsFile), map[string]any{"schemaVersion": 1, "items": []map[string]any{{"id": "to-data-v3", "source": source, "createdAt": time.Now().Format(time.RFC3339)}}})
+	return writeJSON(s.path(migrationsFile), map[string]any{"schemaVersion": 1, "items": []map[string]any{{"id": "to-data-v4", "source": source, "createdAt": time.Now().Format(time.RFC3339)}}})
 }
 
 func (s *service) migrateOrDefault() (AppData, string, error) {
@@ -118,7 +121,7 @@ type legacySettings struct {
 func defaultData() AppData {
 	now := time.Now().UnixMilli()
 	pid, sid, tid := newID("prov"), newID("space"), newID("tpl")
-	return AppData{Version: dataVersion, Settings: Settings{ActiveProviderID: pid, ImageMaxCount: defaultMaxCount, ImageMaxMB: defaultMaxMB, History: defaultHistorySettings(), Providers: []Provider{{ID: pid, Name: "默认供应商", BaseURL: "https://api.openai.com/v1", APIKey: "", ModelsCache: ModelsCache{Items: []string{}, FetchedAt: 0}}}}, Spaces: []Space{{ID: sid, Name: "默认空间", CreatedAt: now, UpdatedAt: now, DefaultModelByProvider: map[string]string{}, ActiveTemplateID: tid, Templates: []Template{{ID: tid, Name: "默认", SystemPrompt: "你是一个严谨、直接、可执行的助手。"}}, History: defaultSpaceHistorySettings()}}}
+	return AppData{Version: dataVersion, Settings: Settings{ActiveProviderID: pid, ImageMaxCount: defaultMaxCount, ImageMaxMB: defaultMaxMB, History: defaultHistorySettings(), Timeouts: defaultTimeoutSettings(), Providers: []Provider{{ID: pid, Name: "默认供应商", BaseURL: "https://api.openai.com/v1", APIKey: "", ModelsCache: ModelsCache{Items: []string{}, FetchedAt: 0}}}}, Spaces: []Space{{ID: sid, Name: "默认空间", CreatedAt: now, UpdatedAt: now, DefaultModelByProvider: map[string]string{}, ActiveTemplateID: tid, Templates: []Template{{ID: tid, Name: "默认", SystemPrompt: "你是一个严谨、直接、可执行的助手。"}}, History: defaultSpaceHistorySettings()}}}
 }
 
 func normalizeData(data AppData) AppData {
@@ -136,6 +139,7 @@ func normalizeData(data AppData) AppData {
 		data.Settings.History = defaultHistorySettings()
 	}
 	data.Settings.History = normalizeHistorySettings(data.Settings.History)
+	data.Settings.Timeouts = normalizeTimeoutSettings(data.Settings.Timeouts)
 	if len(data.Settings.Providers) == 0 {
 		data.Settings.Providers = defaultData().Settings.Providers
 	}
@@ -191,6 +195,32 @@ func normalizeData(data AppData) AppData {
 		}
 	}
 	return data
+}
+
+func defaultTimeoutSettings() TimeoutSettings {
+	return TimeoutSettings{ModelRequestTimeoutSeconds: defaultRequestWait}
+}
+
+func normalizeTimeoutSettings(settings TimeoutSettings) TimeoutSettings {
+	settings.ModelRequestTimeoutSeconds = normalizeRequestWait(settings.ModelRequestTimeoutSeconds, defaultRequestWait)
+	return settings
+}
+
+func normalizeRequestWait(value, fallback int) int {
+	if value <= 0 {
+		value = fallback
+	}
+	if value < minRequestWait {
+		return minRequestWait
+	}
+	if value > maxRequestWait {
+		return maxRequestWait
+	}
+	return value
+}
+
+func modelRequestTimeout(settings TimeoutSettings) time.Duration {
+	return time.Duration(normalizeTimeoutSettings(settings).ModelRequestTimeoutSeconds) * time.Second
 }
 
 func (s *service) readData() (AppData, error) {

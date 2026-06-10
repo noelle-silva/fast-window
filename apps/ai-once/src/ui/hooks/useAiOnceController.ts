@@ -7,6 +7,7 @@ import type { AppData, DataDirStatus, DirectClient, DraftImage, FwLaunchInfo, Hi
 import {
   DEFAULT_LAUNCH_INFO,
   activeProvider as getActiveProvider,
+  appRequestTimeoutMs,
   activeTemplate as getActiveTemplate,
   createDefaultSpace,
   defaultModel as getDefaultModel,
@@ -43,6 +44,7 @@ export type AiOnceController = {
   setError(message: string): void
   connect(options?: { restartBackend?: boolean }): Promise<void>
   pickDataDir(): Promise<void>
+  openAppSettings(): void
   openSettings(): void
   openTemplates(): void
   closeDialog(): void
@@ -150,7 +152,7 @@ export function useAiOnceController(): AiOnceController {
     setState(prev => {
       const firstSpace = data.spaces[0]
       const hasCurrentSpace = !!prev.spaceId && data.spaces.some(space => space.id === prev.spaceId)
-      const shouldCreateEditingDraft = (prev.dialog === 'settings' || prev.dialog === 'templates') && !prev.editing
+      const shouldCreateEditingDraft = (prev.dialog === 'settings' || prev.dialog === 'templates' || prev.dialog === 'app-settings') && !prev.editing
       return {
         ...prev,
         data,
@@ -313,6 +315,11 @@ export function useAiOnceController(): AiOnceController {
     spaceRename: { open: false, id: '', name: '' },
   }), [patchState])
 
+  const openAppSettings = React.useCallback(() => {
+    const data = stateRef.current.data
+    patchState({ editing: data ? cloneData(data) : null, dialog: 'app-settings' })
+  }, [patchState])
+
   const openSettings = React.useCallback(() => {
     const data = stateRef.current.data
     if (!data) {
@@ -363,7 +370,7 @@ export function useAiOnceController(): AiOnceController {
     }
     patchState({ busy: true, error: '' })
     try {
-      const data = await client.request<AppData>('aiOnce.models.refresh', { providerId: active.id })
+      const data = await client.request<AppData>('aiOnce.models.refresh', { providerId: active.id }, { timeoutMs: appRequestTimeoutMs(stateRef.current.data?.settings.timeouts) })
       applyData(data)
     } catch (error) {
       patchState({ error: errorMessage(error, '刷新模型失败') })
@@ -376,7 +383,7 @@ export function useAiOnceController(): AiOnceController {
     patchState({ busy: true, error: '' })
     try {
       const picked = await invoke<DataDirStatus | null>('pick_data_dir')
-      if (picked) patchState({ dataDirStatus: picked })
+      if (picked) patchState({ dataDirStatus: picked, editing: null })
       if (picked) await connect()
     } catch (error) {
       patchState({ phase: 'failed', error: errorMessage(error, '切换数据目录失败') })
@@ -441,7 +448,7 @@ export function useAiOnceController(): AiOnceController {
       : (stateRef.current.modelDraft || modelCoordinate(active?.name || '', getDefaultModel(space, active?.id || ''))).trim()
     const parsedModel = parseModelCoordinate(modelValue)
     const selectedProvider = data?.settings.providers.find(item => item.name === parsedModel.providerName) || null
-    if (!client || !space || !selectedProvider) {
+    if (!client || !data || !space || !selectedProvider) {
       patchState({ error: '后台、空间或供应商尚未就绪' })
       return
     }
@@ -464,7 +471,7 @@ export function useAiOnceController(): AiOnceController {
         model: parsedModel.modelId,
         input: stateRef.current.prompt,
         images: stateRef.current.images.map(({ id: _id, previewUrl: _previewUrl, ...rest }) => rest),
-      }, { signal: askAbort.signal })
+      }, { signal: askAbort.signal, timeoutMs: appRequestTimeoutMs(data.settings.timeouts) })
       const history = await loadFromClient(client)
       patchState({ answer: entry.output, historyCursorId: history.some(item => item.id === entry.id) ? entry.id : '' })
     } catch (error) {
@@ -728,6 +735,7 @@ export function useAiOnceController(): AiOnceController {
     setError,
     connect,
     pickDataDir,
+    openAppSettings,
     openSettings,
     openTemplates,
     closeDialog,

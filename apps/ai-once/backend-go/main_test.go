@@ -30,11 +30,14 @@ func TestServiceCreatesAiOnceDataFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data.Version != 3 || len(data.Settings.Providers) != 1 || len(data.Spaces) != 1 {
+	if data.Version != dataVersion || len(data.Settings.Providers) != 1 || len(data.Spaces) != 1 {
 		t.Fatalf("unexpected data: %#v", data)
 	}
 	if !data.Settings.History.Enabled || data.Settings.History.Limit != defaultHistoryLimit {
 		t.Fatalf("bad global history settings: %#v", data.Settings.History)
+	}
+	if data.Settings.Timeouts.ModelRequestTimeoutSeconds != defaultRequestWait {
+		t.Fatalf("bad timeout settings: %#v", data.Settings.Timeouts)
 	}
 }
 
@@ -372,5 +375,49 @@ func TestAskRequiresProviderConfiguration(t *testing.T) {
 	_, err = svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "hello", Model: "m"})
 	if err == nil {
 		t.Fatal("expected missing provider configuration error")
+	}
+}
+
+func TestAskUsesConfiguredRequestTimeout(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FW_APP_DATA_DIR", dir)
+	released := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+		case <-released:
+		}
+	}))
+	defer server.Close()
+	defer close(released)
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := svc.readData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data.Settings.Providers[0].BaseURL = server.URL + "/v1"
+	data.Settings.Providers[0].APIKey = "key"
+	data.Settings.Timeouts = TimeoutSettings{ModelRequestTimeoutSeconds: 1}
+	data.Spaces[0].DefaultModelByProvider[data.Settings.Providers[0].ID] = "m"
+	if _, err := svc.saveData(data); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err = svc.ask(context.Background(), AskRequest{SpaceID: data.Spaces[0].ID, Input: "slow"})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if time.Since(started) > 3*time.Second {
+		t.Fatalf("configured timeout was not applied quickly enough: %v", time.Since(started))
 	}
 }

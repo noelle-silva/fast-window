@@ -1,25 +1,44 @@
 # AI Once
 
-AI Once is a Fast Window v5 registered app migrated from `plugins/ai-once`.
+AI Once 是 Fast Window v5 的独立注册应用，用来快速发起一次性 AI 问答。
 
-It runs as an independent Tauri app with a Go sidecar backend. The app owns its window, runtime control server, single-instance guard, data directory pointer, business data, tray behavior, and shutdown lifecycle.
+它以独立桌面应用运行，包含本地后台、窗口控制、单实例保护、数据目录选择、托盘行为和关闭生命周期。
 
-## Commands
+## 功能
 
-- `open-settings`: open the provider/settings view.
-- `ask-once`: open the one-shot prompt view.
-- `new-prompt`: clear the current prompt and start a new one-shot request.
+- 一次性问答：输入问题、选择模型后获取回答。
+- 多供应商：维护 OpenAI 兼容服务地址、密钥和模型缓存。
+- 多空间：不同空间可以保留自己的默认模型、模板和历史策略。
+- 图片输入：支持限制图片数量和单张图片大小。
+- 历史记录：支持全局历史策略和空间级覆盖策略。
+- 等待时间：支持调整模型服务等待秒数，适配慢模型或本地模型服务。
 
-## Data
+## 命令
 
-The Rust shell stores only the data directory pointer in the Tauri app config directory. The Go backend stores business data in the selected data directory:
+- `open-settings`：打开供应商、图片与历史设置。
+- `ask-once`：打开一次性问答视图。
+- `new-prompt`：清空当前输入并开始新的问题。
 
-- `_meta.json`
-- `_migrations.json`
-- `settings.json`
-- `history.json`
+## 等待时间设置
 
-## Build
+在应用设置窗口里可以调整“模型服务等待秒数”。默认值为 600 秒。
+
+界面会自动比模型服务多等待 15 秒，避免模型服务刚要返回时界面提前放弃。
+
+这个设置会影响问答请求和模型列表刷新。对于回答较慢的模型、本地模型服务或网络较慢的环境，可以适当调大。
+
+## 数据
+
+桌面外壳只保存数据目录指针。业务数据由本地后台写入选定的数据目录。
+
+- `data.json`：供应商、空间、模板、图片限制、历史策略和等待时间设置。
+- `history.json`：历史记录索引。
+- `history-images/`：历史图片文件。
+- `_meta.json`：数据目录元信息。
+- `_migrations.json`：迁移记录。
+- `settings.json`：旧版数据迁移来源，仅用于兼容旧数据。
+
+## 构建
 
 ```txt
 pnpm --dir apps/ai-once build:backend

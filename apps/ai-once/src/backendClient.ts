@@ -1,13 +1,18 @@
 import { invoke } from '@tauri-apps/api/core'
+import { appRequestTimeoutMs } from './shared/aiOnceDomain'
 import type { BackendEndpoint, DirectClient, DirectRequestOptions } from './types'
 
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; cleanup?: () => void }
 
 const OPEN_TIMEOUT_MS = 15_000
-const REQUEST_TIMEOUT_MS = 75_000
+const DEFAULT_REQUEST_TIMEOUT_MS = appRequestTimeoutMs()
 const RECONNECT_DELAY_MS = 300
 const RESUME_GAP_MS = 45_000
 const RESUME_CHECK_INTERVAL_MS = 10_000
+
+function normalizeRequestTimeoutMs(value?: number): number {
+  return Number.isFinite(value) && value! > 0 ? Math.round(value!) : DEFAULT_REQUEST_TIMEOUT_MS
+}
 
 function endpointUrlWithToken(endpoint: BackendEndpoint): string {
   if (endpoint.mode !== 'direct') throw new Error('后台 endpoint mode 必须是 direct')
@@ -99,7 +104,7 @@ class AiOnceDirectClient implements DirectClient {
         try { cancelBackend() } catch {}
         rejectRequest(abortError())
       }
-      const timer = setTimeout(() => { try { cancelBackend() } catch {}; rejectRequest(new Error('后台请求超时')) }, REQUEST_TIMEOUT_MS)
+      const timer = setTimeout(() => { try { cancelBackend() } catch {}; rejectRequest(new Error('后台请求超时')) }, normalizeRequestTimeoutMs(options?.timeoutMs))
       const cleanup = options?.signal ? () => options.signal?.removeEventListener('abort', onAbort) : undefined
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, cleanup })
       options?.signal?.addEventListener('abort', onAbort, { once: true })
