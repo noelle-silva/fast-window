@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { DocumentRecord } from '../types'
 import { displayTime, joinTags, statusLabel } from '../knowledgePages'
+import { RenderedDocumentContent } from './RenderedDocumentContent'
 
 type DocumentModalProps = {
   open: boolean
@@ -52,7 +53,7 @@ export function DocumentModal(props: DocumentModalProps) {
               <dt>引用</dt><dd>{document.metadata.references.length ? document.metadata.references.join(' / ') : '无'}</dd>
               <dt>路径</dt><dd>{document.metadata.relative_path}</dd>
             </dl>
-            <pre className="kc-content">{document.content}</pre>
+            <RenderedDocumentContent content={document.content} />
           </>
         ) : (
           <div className="kc-modal-loading">正在读取笔记内容...</div>

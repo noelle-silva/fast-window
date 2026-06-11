@@ -21,6 +21,7 @@ import { DEFAULT_LAUNCH_INFO } from './types'
 import { CollectionsView } from './views/CollectionsView'
 import { DocumentsView } from './views/DocumentsView'
 import { SettingsView } from './views/SettingsView'
+import './render/styles.css'
 import './styles.css'
 
 const appWindow = getCurrentWindow()

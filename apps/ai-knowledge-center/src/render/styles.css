@@ -1,0 +1,369 @@
+.fw-rendered-content {
+  font-size: 15px;
+  line-height: 1.78;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.fw-rendered-content > :first-child {
+  margin-top: 0;
+}
+
+.fw-rendered-content > :last-child {
+  margin-bottom: 0;
+}
+
+.fw-rendered-content h1,
+.fw-rendered-content h2,
+.fw-rendered-content h3,
+.fw-rendered-content h4,
+.fw-rendered-content h5,
+.fw-rendered-content h6 {
+  margin: 1.15em 0 0.45em;
+  color: #172033;
+  line-height: 1.24;
+  letter-spacing: -0.02em;
+}
+
+.fw-rendered-content h1 {
+  font-size: 1.68em;
+}
+
+.fw-rendered-content h2 {
+  font-size: 1.34em;
+}
+
+.fw-rendered-content h3 {
+  font-size: 1.14em;
+}
+
+.fw-rendered-content p,
+.fw-rendered-content ul,
+.fw-rendered-content ol,
+.fw-rendered-content blockquote,
+.fw-rendered-content table,
+.fw-rendered-content pre {
+  margin: 0.82em 0;
+}
+
+.fw-rendered-content ul,
+.fw-rendered-content ol {
+  padding-left: 1.45em;
+}
+
+.fw-rendered-content li + li {
+  margin-top: 0.28em;
+}
+
+.fw-rendered-content a {
+  color: #245ea8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fw-rendered-content code {
+  border-radius: 0.38em;
+  padding: 0.12em 0.35em;
+  color: #172033;
+  background: rgba(36, 94, 168, 0.1);
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.fw-rendered-content pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  color: #e5e7eb;
+  background: #0b1220;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fw-rendered-content pre code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  white-space: pre;
+}
+
+.fw-rendered-content pre.fw-code-block {
+  position: relative;
+  padding-top: 38px;
+}
+
+.fw-code-copy,
+.mermaid-block-action,
+.mermaid-error-copy,
+.fw-math-copy {
+  appearance: none;
+  cursor: pointer;
+}
+
+.fw-rendered-content pre.fw-code-block .fw-code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fw-rendered-content pre.fw-code-block .fw-code-copy:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fw-rendered-content pre.fw-code-block .fw-code-copy[data-state="ok"],
+.mermaid-block-action[data-state="ok"] {
+  color: #34d399;
+}
+
+.fw-rendered-content pre.fw-code-block .fw-code-copy[data-state="fail"],
+.mermaid-block-action[data-state="fail"] {
+  color: #f87171;
+}
+
+.fw-rendered-content blockquote {
+  padding: 8px 12px;
+  border-left: 4px solid rgba(36, 94, 168, 0.35);
+  border-radius: 12px;
+  color: rgba(23, 32, 51, 0.82);
+  background: rgba(36, 94, 168, 0.06);
+}
+
+.fw-rendered-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.fw-rendered-content table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.fw-rendered-content th,
+.fw-rendered-content td {
+  border: 1px solid rgba(23, 32, 51, 0.14);
+  padding: 8px;
+  vertical-align: top;
+}
+
+.math-block {
+  margin: 10px 0;
+  overflow-x: auto;
+}
+
+.fw-rendered-content .katex,
+.fw-rendered-content .katex-display {
+  max-width: 100%;
+}
+
+.fw-rendered-content span.katex {
+  display: inline-block;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.fw-rendered-content .katex-display > .katex {
+  display: block;
+  overflow-x: visible;
+}
+
+.fw-math-host {
+  position: relative;
+}
+
+.math-inline.fw-math-host {
+  display: inline-block;
+}
+
+.math-block.fw-math-host {
+  display: block;
+}
+
+.fw-math-copy {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(23, 32, 51, 0.55);
+  background: transparent;
+  font-size: 12px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.fw-math-copy:hover {
+  border-color: rgba(23, 32, 51, 0.12);
+  color: rgba(23, 32, 51, 0.72);
+  background: rgba(23, 32, 51, 0.06);
+}
+
+.math-inline.fw-math-host > .fw-math-copy {
+  left: 100%;
+  top: 50%;
+  transform: translate(0, -50%);
+}
+
+.math-block.fw-math-host > .fw-math-copy {
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.fw-math-host:hover > .fw-math-copy,
+.fw-math-host:focus-within > .fw-math-copy {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.mermaid-block {
+  margin: 10px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.mermaid-block-ready {
+  position: relative;
+  border-radius: 12px;
+}
+
+.mermaid-block-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+.mermaid-block-ready:hover > .mermaid-block-toolbar,
+.mermaid-block-ready:focus-within > .mermaid-block-toolbar {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.mermaid-block-action,
+.mermaid-error-copy {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(23, 32, 51, 0.12);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(23, 32, 51, 0.72);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 20px rgba(23, 32, 51, 0.1);
+}
+
+.mermaid-block-action:hover,
+.mermaid-error-copy:hover {
+  color: rgba(23, 32, 51, 0.88);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.mermaid-error {
+  margin: 10px 0;
+  overflow-x: auto;
+}
+
+.mermaid-error-box {
+  position: relative;
+  min-height: 50px;
+  padding: 10px 48px 10px 12px;
+  border: 1px solid rgba(23, 32, 51, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.mermaid-error-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+}
+
+.mermaid-error-title {
+  color: rgba(23, 32, 51, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mermaid-error-msg {
+  margin-top: 6px;
+  color: rgba(23, 32, 51, 0.82);
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mermaid-error-src {
+  display: none;
+}
+
+.fw-code-copy:disabled,
+.mermaid-block-action:disabled,
+.mermaid-error-copy:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.fw-code-copy:focus-visible,
+.mermaid-block-action:focus-visible,
+.mermaid-error-copy:focus-visible,
+.fw-math-copy:focus-visible {
+  outline: 2px solid rgba(36, 94, 168, 0.35);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .fw-rendered-content {
+    font-size: 14px;
+  }
+
+  .fw-rendered-content pre {
+    padding: 10px;
+  }
+
+  .fw-rendered-content pre.fw-code-block {
+    padding-top: 36px;
+  }
+}

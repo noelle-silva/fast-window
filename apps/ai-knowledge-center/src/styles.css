@@ -484,11 +484,8 @@ body {
   margin: 16px 0 0;
   padding: 16px;
   overflow: auto;
-  white-space: pre-wrap;
   color: #263447;
   background: var(--kc-surface-muted);
-  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
-  line-height: 1.65;
 }
 
 .kc-modal-overlay {
