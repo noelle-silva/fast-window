@@ -2,9 +2,11 @@ import { Avatar, Box, Chip, Switch, Typography } from '@mui/material'
 import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import type { RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from '../apps/types'
 import { isDataImageUrl } from '../utils'
+import { commandCapabilityConfigFieldsState } from '../apps/appCapabilities'
 import HostPageHeader from './HostPageHeader'
 import { hostPageRootSx, hostPageScrollSx, hostSurfaceSx } from './hostUiStyles'
 import { useHostAppearance } from './hostAppearance'
+import CapabilityConfigPanel from './capabilityRegistry/CapabilityConfigPanel'
 
 type CapabilityRegistryPageProps = {
   apps: RegisteredApp[]
@@ -17,9 +19,20 @@ type CapabilityEntry = {
   registered: boolean
 }
 
+function mergeCommandMetadata(selected: RegisteredAppCommand, available: RegisteredAppCommand | undefined): RegisteredAppCommand {
+  if (!available) return selected
+  return {
+    ...available,
+    ...selected,
+    description: selected.description ?? available.description,
+    configFields: selected.configFields ?? available.configFields,
+  }
+}
+
 function mergedCapabilities(app: RegisteredApp): CapabilityEntry[] {
   const selected = Array.isArray(app.commands) ? app.commands : []
   const available = Array.isArray(app.availableCommands) ? app.availableCommands : []
+  const availableById = new Map(available.map(command => [command.id, command]))
   const seen = new Set<string>()
   const entries: CapabilityEntry[] = []
 
@@ -27,7 +40,7 @@ function mergedCapabilities(app: RegisteredApp): CapabilityEntry[] {
     const id = String(command.id || '').trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
-    entries.push({ command, registered: true })
+    entries.push({ command: mergeCommandMetadata(command, availableById.get(id)), registered: true })
   }
 
   for (const command of available) {
@@ -138,12 +151,22 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
                   {capabilities.map(({ command, registered }) => {
                     const commandIcon = iconSource(command.icon)
                     const description = commandDescription(command)
+                    const { fields: configFields, error: configFieldsError } = commandCapabilityConfigFieldsState(command)
                     const toggleCapability = () => {
                       const currentCommands = Array.isArray(app.commands) ? app.commands : []
+                      if (!registered && (configFields.length > 0 || configFieldsError)) return
                       const nextCommands = registered
                         ? currentCommands.filter(item => item.id !== command.id)
                         : currentCommands.concat({ ...command })
                       void onUpdate(app.id, { commands: nextCommands })
+                    }
+                    const saveCapabilityConfig = async (config: Record<string, unknown>) => {
+                      const currentCommands = Array.isArray(app.commands) ? app.commands : []
+                      const nextCommand = { ...command, config }
+                      const nextCommands = registered
+                        ? currentCommands.map(item => item.id === command.id ? { ...item, ...nextCommand } : item)
+                        : currentCommands.concat(nextCommand)
+                      await onUpdate(app.id, { commands: nextCommands })
                     }
 
                     return (
@@ -153,31 +176,47 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
                           itemSx,
                           {
                             display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
+                            flexDirection: 'column',
+                            alignItems: 'stretch',
                           },
                         ]}
                       >
-                        <Avatar
-                          variant="rounded"
-                          src={commandIcon}
-                          sx={{ width: 30, height: 30, fontSize: 13, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                          }}
                         >
-                          {commandIcon ? null : iconText(command.icon, command.title)}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                              {command.title}
-                            </Typography>
-                            <Chip
-                              label={registered ? '已选取' : '可选取'}
-                              size="small"
-                              color={registered ? 'primary' : 'default'}
-                              variant={registered ? 'filled' : 'outlined'}
-                              sx={{ height: 18, fontSize: 10, borderRadius: 1 }}
-                            />
-                          </Box>
+                          <Avatar
+                            variant="rounded"
+                            src={commandIcon}
+                            sx={{ width: 30, height: 30, fontSize: 13, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
+                          >
+                            {commandIcon ? null : iconText(command.icon, command.title)}
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
+                                {command.title}
+                              </Typography>
+                              <Chip
+                                label={registered ? '已选取' : '可选取'}
+                                size="small"
+                                color={registered ? 'primary' : 'default'}
+                                variant={registered ? 'filled' : 'outlined'}
+                                sx={{ height: 18, fontSize: 10, borderRadius: 1 }}
+                              />
+                            {configFieldsError ? (
+                              <Chip
+                                label="配置声明不合法"
+                                size="small"
+                                color="error"
+                                variant="outlined"
+                                sx={{ height: 18, fontSize: 10, borderRadius: 1 }}
+                              />
+                            ) : null}
+                            </Box>
                           {description ? (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.45 }}>
                               {description}
@@ -190,12 +229,20 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
                           >
                             {command.id}
                           </Typography>
+                          </Box>
+                          <Switch
+                            size="small"
+                            checked={registered}
+                            disabled={!registered && (configFields.length > 0 || Boolean(configFieldsError))}
+                            onChange={toggleCapability}
+                            inputProps={{ 'aria-label': `${registered ? '取消选取' : '选取'} ${command.title}` }}
+                          />
                         </Box>
-                        <Switch
-                          size="small"
-                          checked={registered}
-                          onChange={toggleCapability}
-                          inputProps={{ 'aria-label': `${registered ? '取消选取' : '选取'} ${command.title}` }}
+                        <CapabilityConfigPanel
+                          app={app}
+                          command={command}
+                          registered={registered}
+                          onSave={saveCapabilityConfig}
                         />
                       </Box>
                     )

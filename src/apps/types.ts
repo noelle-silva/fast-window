@@ -9,6 +9,20 @@ export interface RegisteredAppCommand {
   title: string
   icon?: string
   hotkey?: string
+  description?: string
+  configFields?: AppCapabilityConfigField[]
+  config?: Record<string, unknown>
+}
+
+export interface AppCapabilityConfigField {
+  id: string
+  label: string
+  optionSource: string
+}
+
+export interface AppCapabilityOption {
+  value: string
+  label: string
 }
 
 export interface InstalledAppInfo {

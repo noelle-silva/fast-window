@@ -15,6 +15,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
 mod app_autostart;
+mod app_capabilities;
 mod app_dev_actions;
 mod app_installer;
 mod app_layout;
@@ -2556,6 +2557,8 @@ fn main() {
         process_commands::process_kill,
         process_commands::process_wait,
         app_lifecycle::manager::app_launch,
+        app_capabilities::app_capability_invoke,
+        app_capabilities::app_capability_query_options,
         app_lifecycle::manager::app_restart,
         app_lifecycle::manager::app_open_folder,
         app_lifecycle::manager::app_force_stop,

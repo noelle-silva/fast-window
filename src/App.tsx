@@ -37,6 +37,7 @@ import {
 import { releaseV5App, stageV5AppDev, type AppReleaseBump } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
+import { activateAppCapability } from './apps/appCapabilityActivation'
 import {
   appStopConfirmLabel,
   appStopDialogDescription,
@@ -398,6 +399,18 @@ function App() {
 
   // === Handlers ===
 
+  const activateRegisteredAppCommand = useCallback(async (app: RegisteredApp, command: RegisteredAppCommand) => {
+    try {
+      const message = await activateAppCapability({ app, command, query })
+      showToast(message)
+    } catch (error: any) {
+      console.warn('[app] capability activation failed:', error)
+      showToast(String(error?.message || error || '能力调用失败'))
+    } finally {
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+    }
+  }, [query, refreshRegisteredAppStatuses, showToast])
+
   const activateListItem = useCallback((plugin: Plugin) => {
     const selection = parseRegisteredAppListItemId(plugin.id)
     if (selection.type === 'appCommand') {
@@ -407,7 +420,14 @@ function App() {
           showToast(`开发命令运行中，暂不打开：${app.name}`)
           return
         }
-        launchApp(app, 'show', selection.commandId).finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
+        const command = app.commands.find(command => command.id === selection.commandId)
+        if (!command) {
+          showToast(`命令不存在：${selection.commandId}`)
+          return
+        }
+        void activateRegisteredAppCommand(app, command).catch(error => {
+          showToast(String(error?.message || error || '打开应用失败'))
+        })
       }
       return
     }
@@ -424,7 +444,7 @@ function App() {
     }
     setActiveHostPage(null)
     setActivePlugin(plugin)
-  }, [appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
+  }, [activateRegisteredAppCommand, appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
 
   const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
     return registeredAppFromListItem(registeredApps, plugin.id)

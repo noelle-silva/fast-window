@@ -33,6 +33,35 @@ pub(crate) struct AppReportedCommand {
     pub(crate) icon: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) hotkey: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) config_fields: Vec<AppCapabilityConfigField>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCapabilityConfigField {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) option_source: String,
+}
+
+#[derive(Clone, Debug)]
+struct AppCapabilityConfigFieldInput {
+    id: Option<String>,
+    label: Option<String>,
+    option_source: Option<String>,
+}
+
+impl From<AppCapabilityConfigField> for AppCapabilityConfigFieldInput {
+    fn from(field: AppCapabilityConfigField) -> Self {
+        Self {
+            id: Some(field.id),
+            label: Some(field.label),
+            option_source: Some(field.option_source),
+        }
+    }
 }
 
 impl AppWindowBounds {
@@ -327,6 +356,8 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
         if title.len() > 80 {
             return Err(format!("{app_id} 的{label}名称过长: {title}"));
         }
+        validate_command_description(command.get("description"), app_id, label, command_id)?;
+        validate_command_config_fields(command.get("configFields"), app_id, label, command_id)?;
         validate_command_icon(command.get("icon"), app_id, label, command_id)?;
         if let Some(raw_hotkey) = command_hotkey_from_value(command) {
             Shortcut::from_str(raw_hotkey)
@@ -334,6 +365,109 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
         }
     }
     Ok(())
+}
+
+fn validate_command_description(
+    value: Option<&Value>,
+    app_id: &str,
+    label: &str,
+    command_id: &str,
+) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let Some(description) = value.as_str().map(str::trim) else {
+        return Err(format!("{app_id} 的{label}说明必须是字符串: {command_id}"));
+    };
+    if description.len() > 240 {
+        return Err(format!("{app_id} 的{label}说明过长: {command_id}"));
+    }
+    Ok(())
+}
+
+fn validate_command_config_fields(
+    value: Option<&Value>,
+    app_id: &str,
+    label: &str,
+    command_id: &str,
+) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let Some(fields) = value.as_array() else {
+        return Err(format!("{app_id} 的{label}配置项必须是数组: {command_id}"));
+    };
+    let fields = fields
+        .iter()
+        .map(config_field_input_from_value)
+        .collect::<Vec<_>>();
+    let message_subject = format!("{app_id} 的{label}");
+    normalize_config_field_inputs(&message_subject, command_id, fields)?;
+    Ok(())
+}
+
+fn config_field_input_from_value(value: &Value) -> AppCapabilityConfigFieldInput {
+    AppCapabilityConfigFieldInput {
+        id: value.get("id").and_then(Value::as_str).map(str::to_string),
+        label: value
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        option_source: value
+            .get("optionSource")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+fn normalize_config_field_inputs(
+    message_subject: &str,
+    command_id: &str,
+    fields: Vec<AppCapabilityConfigFieldInput>,
+) -> Result<Vec<Value>, String> {
+    let mut seen: HashMap<String, ()> = HashMap::new();
+    let mut normalized = Vec::with_capacity(fields.len());
+    for field in fields {
+        let id = field
+            .id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| format!("{message_subject}配置项 ID 不能为空: {command_id}"))?
+            .to_string();
+        if !crate::is_safe_id(&id) {
+            return Err(format!("{message_subject}配置项 ID 不合法: {command_id}/{id}"));
+        }
+        if seen.insert(id.clone(), ()).is_some() {
+            return Err(format!("{message_subject}配置项 ID 重复: {command_id}/{id}"));
+        }
+        let field_label = field
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .ok_or_else(|| format!("{message_subject}配置项名称不能为空: {command_id}/{id}"))?
+            .to_string();
+        if field_label.len() > 80 {
+            return Err(format!("{message_subject}配置项名称过长: {command_id}/{id}"));
+        }
+        let option_source = field
+            .option_source
+            .as_deref()
+            .map(str::trim)
+            .filter(|source| !source.is_empty())
+            .ok_or_else(|| format!("{message_subject}配置项选项来源不能为空: {command_id}/{id}"))?
+            .to_string();
+        if !crate::is_safe_id(&option_source) {
+            return Err(format!("{message_subject}配置项选项来源不合法: {command_id}/{id}"));
+        }
+        normalized.push(serde_json::json!({
+            "id": id,
+            "label": field_label,
+            "optionSource": option_source,
+        }));
+    }
+    Ok(normalized)
 }
 
 fn validate_command_icon(
@@ -376,63 +510,94 @@ fn is_valid_command_icon(icon: &str) -> bool {
     is_short_icon_text(icon)
 }
 
-fn command_to_value(command: AppReportedCommand) -> Value {
-    let mut value = serde_json::json!({ "id": command.id, "title": command.title });
-    if let Some(icon) = command
-        .icon
-        .map(|icon| icon.trim().to_string())
-        .filter(|icon| !icon.is_empty() && is_valid_command_icon(icon))
-    {
-        value["icon"] = Value::String(icon);
+fn command_to_value(command: AppReportedCommand, app_id: &str) -> Result<Value, String> {
+    let AppReportedCommand {
+        id,
+        title,
+        icon,
+        hotkey,
+        description,
+        config_fields,
+    } = command;
+    let command_id = id.as_str();
+    let mut value = serde_json::json!({ "id": id, "title": title });
+    if let Some(icon) = icon.map(|icon| icon.trim().to_string()) {
+        if !icon.is_empty() {
+            if !is_valid_command_icon(&icon) {
+                return Err(format!("{app_id} 上报的能力图标不合法: {command_id}"));
+            }
+            value["icon"] = Value::String(icon);
+        }
     }
-    if let Some(hotkey) = command
-        .hotkey
-        .map(|hotkey| hotkey.trim().to_string())
-        .filter(|hotkey| !hotkey.is_empty())
-    {
-        value["hotkey"] = Value::String(hotkey);
+    if let Some(hotkey) = hotkey.map(|hotkey| hotkey.trim().to_string()) {
+        if !hotkey.is_empty() {
+            let shortcut = Shortcut::from_str(&hotkey)
+                .map_err(|e| format!("{app_id} 上报的能力快捷键格式不合法: {command_id}: {e}"))?;
+            value["hotkey"] = Value::String(shortcut.to_string());
+        }
     }
-    value
+    if let Some(description) = description.map(|description| description.trim().to_string()) {
+        if !description.is_empty() {
+            if description.len() > 240 {
+                return Err(format!("{app_id} 上报的能力说明过长: {command_id}"));
+            }
+            value["description"] = Value::String(description);
+        }
+    }
+    let config_fields = normalize_config_fields(app_id, command_id, config_fields)?;
+    if !config_fields.is_empty() {
+        value["configFields"] = Value::Array(config_fields);
+    }
+    Ok(value)
 }
 
-fn normalize_reported_commands(commands: Vec<AppReportedCommand>) -> Vec<Value> {
+fn normalize_config_fields(
+    app_id: &str,
+    command_id: &str,
+    fields: Vec<AppCapabilityConfigField>,
+) -> Result<Vec<Value>, String> {
+    let message_subject = format!("{app_id} 上报的能力");
+    normalize_config_field_inputs(
+        &message_subject,
+        command_id,
+        fields.into_iter().map(Into::into).collect(),
+    )
+}
+
+fn normalize_reported_commands(
+    app_id: &str,
+    commands: Vec<AppReportedCommand>,
+) -> Result<Vec<Value>, String> {
     let mut seen: HashMap<String, ()> = HashMap::new();
-    commands
-        .into_iter()
-        .filter_map(|command| {
-            let id = command.id.trim().to_string();
-            let title = command.title.trim().to_string();
-            let hotkey = command
-                .hotkey
-                .as_deref()
-                .map(str::trim)
-                .filter(|hotkey| !hotkey.is_empty());
-            if !crate::is_safe_id(&id) || title.is_empty() || title.len() > 80 {
-                return None;
-            }
-            let hotkey = match hotkey {
-                Some(raw) => Shortcut::from_str(raw)
-                    .ok()
-                    .map(|shortcut| shortcut.to_string()),
-                None => None,
-            };
-            let icon = command
-                .icon
-                .as_deref()
-                .map(str::trim)
-                .filter(|icon| !icon.is_empty() && is_valid_command_icon(icon))
-                .map(str::to_string);
-            if seen.insert(id.clone(), ()).is_some() {
-                return None;
-            }
-            Some(command_to_value(AppReportedCommand {
+    let mut normalized = Vec::with_capacity(commands.len());
+    for command in commands {
+        let id = command.id.trim().to_string();
+        if !crate::is_safe_id(&id) {
+            return Err(format!("{app_id} 上报的能力 ID 不合法: {id}"));
+        }
+        if seen.insert(id.clone(), ()).is_some() {
+            return Err(format!("{app_id} 上报的能力 ID 重复: {id}"));
+        }
+        let title = command.title.trim().to_string();
+        if title.is_empty() {
+            return Err(format!("{app_id} 上报的能力名称不能为空: {id}"));
+        }
+        if title.len() > 80 {
+            return Err(format!("{app_id} 上报的能力名称过长: {id}"));
+        }
+        normalized.push(command_to_value(
+            AppReportedCommand {
                 id,
                 title,
-                icon,
-                hotkey,
-            }))
-        })
-        .collect()
+                icon: command.icon,
+                hotkey: command.hotkey,
+                description: command.description,
+                config_fields: command.config_fields,
+            },
+            app_id,
+        )?);
+    }
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -604,7 +769,7 @@ pub(crate) fn persist_app_available_commands(
         return Err("appId 不合法".to_string());
     }
 
-    let commands = normalize_reported_commands(commands);
+    let commands = normalize_reported_commands(app_id, commands)?;
     if commands.is_empty() {
         return Ok(false);
     }

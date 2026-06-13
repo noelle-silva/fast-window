@@ -1,8 +1,6 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10,6 +8,7 @@ use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex as AsyncMutex;
 
+use super::control_channel::{send_control_json, AppControlEndpoint};
 use super::{ManagedAppChild, ManagedAppCommand, ManagedAppStdout};
 
 const STOP_GRACE_TIMEOUT: Duration = Duration::from_millis(2_500);
@@ -56,12 +55,6 @@ struct AppProcessEntry {
     child: AsyncMutex<Option<ManagedAppChild>>,
     exit_code: Mutex<Option<i32>>,
     control: Mutex<Option<AppControlEndpoint>>,
-}
-
-#[derive(Clone)]
-struct AppControlEndpoint {
-    url: String,
-    token: String,
 }
 
 enum AppRuntimeMessage {
@@ -299,6 +292,18 @@ fn should_allow_foreground(action: &str) -> bool {
     matches!(action, "show" | "toggle")
 }
 
+fn entry_exit_code(entry: &AppProcessEntry) -> Result<Option<i32>, String> {
+    entry
+        .exit_code
+        .lock()
+        .map(|code| *code)
+        .map_err(|_| "应用退出状态锁定失败".to_string())
+}
+
+fn entry_is_running(entry: &AppProcessEntry) -> Result<bool, String> {
+    entry_exit_code(entry).map(|code| code.is_none())
+}
+
 async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppControlEndpoint, String> {
     for _ in 0..60 {
         if let Some(endpoint) = entry
@@ -310,7 +315,7 @@ async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppContro
             return Ok(endpoint);
         }
 
-        if entry.exit_code.lock().ok().and_then(|c| *c).is_some() {
+        if entry_exit_code(entry)?.is_some() {
             return Err("应用已退出".to_string());
         }
 
@@ -320,47 +325,16 @@ async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppContro
     Err("应用控制通道尚未就绪".to_string())
 }
 
-fn read_http_response(stream: &mut TcpStream) -> Result<String, String> {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut buffer = Vec::new();
-    stream
-        .read_to_end(&mut buffer)
-        .map_err(|e| format!("读取应用控制响应失败: {e}"))?;
-    Ok(String::from_utf8_lossy(&buffer).to_string())
-}
-
 fn send_control_action(
     endpoint: AppControlEndpoint,
     action: String,
     command: Option<String>,
-) -> Result<String, String> {
-    let url = endpoint.url.trim().trim_end_matches('/');
-    let Some(addr) = url.strip_prefix("http://") else {
-        return Err("应用控制地址不支持".to_string());
-    };
+) -> Result<serde_json::Value, String> {
     let mut body_value = serde_json::json!({ "action": action });
     if let Some(command) = command {
         body_value["command"] = serde_json::Value::String(command);
     }
-    let body = body_value.to_string();
-    let request = format!(
-        "POST /control HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-FW-Control-Token: {}\r\nConnection: close\r\n\r\n{}",
-        body.as_bytes().len(),
-        endpoint.token,
-        body,
-    );
-
-    let mut stream = TcpStream::connect(addr).map_err(|e| format!("连接应用控制通道失败: {e}"))?;
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("发送应用控制指令失败: {e}"))?;
-    let response = read_http_response(&mut stream)?;
-    if response.starts_with("HTTP/1.1 200") {
-        Ok(response)
-    } else {
-        Err(format!("应用控制指令失败: {response}"))
-    }
+    send_control_json(endpoint, body_value)
 }
 
 #[derive(Deserialize)]
@@ -371,14 +345,11 @@ struct AppControlResponse {
 }
 
 fn available_commands_from_response(
-    response: &str,
-) -> Vec<crate::app_registry::AppReportedCommand> {
-    let Some((_, body)) = response.split_once("\r\n\r\n") else {
-        return Vec::new();
-    };
-    serde_json::from_str::<AppControlResponse>(body)
+    response: serde_json::Value,
+) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
+    serde_json::from_value::<AppControlResponse>(response)
         .map(|value| value.available_commands)
-        .unwrap_or_default()
+        .map_err(|e| format!("应用控制响应解析失败: {e}"))
 }
 
 async fn send_control_action_async(
@@ -388,25 +359,49 @@ async fn send_control_action_async(
 ) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    let response =
-        tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
-            .await
-            .map_err(|e| format!("应用控制任务失败: {e}"))??;
-    Ok(available_commands_from_response(&response))
+    let response = tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
+        .await
+        .map_err(|e| format!("应用控制任务失败: {e}"))??;
+    available_commands_from_response(response)
 }
 
-async fn wait_for_process_exit(entry: &Arc<AppProcessEntry>, timeout: Duration) -> bool {
+fn persist_available_commands_for_activation(
+    app_handle: &AppHandle,
+    app_id: &str,
+    commands: Vec<crate::app_registry::AppReportedCommand>,
+) -> Result<(), String> {
+    if commands.is_empty() {
+        return Ok(());
+    }
+    crate::app_registry::persist_app_available_commands(app_handle, app_id, commands)
+        .map(|_| ())
+        .map_err(|error| format!("保存应用能力清单失败: {error}"))
+}
+
+fn refresh_available_commands_from_background_report(
+    app_handle: &AppHandle,
+    app_id: &str,
+    commands: Vec<crate::app_registry::AppReportedCommand>,
+) {
+    if let Err(error) = persist_available_commands_for_activation(app_handle, app_id, commands) {
+        eprintln!(
+            "[app-launcher] background available commands refresh failed without blocking main flow for {app_id}: {error}"
+        );
+    }
+}
+
+async fn wait_for_process_exit(entry: &Arc<AppProcessEntry>, timeout: Duration) -> Result<bool, String> {
     let start = tokio::time::Instant::now();
     while start.elapsed() < timeout {
-        if entry.exit_code.lock().ok().and_then(|c| *c).is_some() {
-            return true;
+        if entry_exit_code(entry)?.is_some() {
+            return Ok(true);
         }
         if entry.child.lock().await.is_none() {
-            return true;
+            return Ok(true);
         }
         tokio::time::sleep(STOP_GRACE_POLL).await;
     }
-    false
+    Ok(false)
 }
 
 async fn kill_process_entry(entry: &Arc<AppProcessEntry>) -> Result<bool, String> {
@@ -528,6 +523,47 @@ impl AppStatusResult {
     }
 }
 
+fn running_entry(
+    state: &Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<Option<Arc<AppProcessEntry>>, String> {
+    let entry = state
+        .processes
+        .lock()
+        .map_err(|_| "进程状态锁定失败".to_string())?
+        .get(app_id)
+        .cloned();
+    match entry {
+        Some(entry) if entry_is_running(&entry)? => Ok(Some(entry)),
+        _ => Ok(None),
+    }
+}
+
+pub(crate) async fn ensure_app_control_endpoint(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app: &RegisteredAppLaunchConfig,
+) -> Result<AppControlEndpoint, String> {
+    let id = normalize_app_id(&app.id)?;
+    if let Some(entry) = running_entry(&state, &id)? {
+        return wait_control_endpoint(&entry).await;
+    }
+
+    let args = build_registered_app_launch_args(app, "hide", None);
+    app_launch_inner_with_cold_start_policy(
+        app_handle,
+        state.clone(),
+        id.clone(),
+        app.path.clone(),
+        args,
+        AppColdStartPolicy::Allow,
+    )
+    .await?;
+
+    let entry = running_entry(&state, &id)?.ok_or_else(|| "应用唤醒后未进入运行状态".to_string())?;
+    wait_control_endpoint(&entry).await
+}
+
 #[tauri::command]
 pub(crate) async fn app_launch(
     app_handle: AppHandle,
@@ -598,12 +634,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
 ) -> Result<AppLaunchOutcome, String> {
     let id = normalize_app_id(app_id)?;
 
-    let running_entry = state
-        .processes
-        .lock()
-        .ok()
-        .and_then(|g| g.get(&id).cloned())
-        .filter(|entry| entry.exit_code.lock().ok().and_then(|c| *c).is_none());
+    let running_entry = running_entry(&state, &id)?;
 
     if let Some(entry) = running_entry {
         let requested_action = launch_action(&args);
@@ -619,13 +650,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
             allow_foreground_for_process(entry.pid);
         }
         let available_commands = send_control_action_async(entry, action, command).await?;
-        if !available_commands.is_empty() {
-            crate::app_registry::persist_app_available_commands(
-                &app_handle,
-                &id,
-                available_commands,
-            )?;
-        }
+        persist_available_commands_for_activation(&app_handle, &id, available_commands)?;
         return Ok(AppLaunchOutcome::Activated);
     }
 
@@ -679,13 +704,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
                         }
                     }
                     AppRuntimeMessage::AvailableCommands(commands) => {
-                        if let Err(error) = crate::app_registry::persist_app_available_commands(
-                            &app_stdout,
-                            &id_stdout,
-                            commands,
-                        ) {
-                            eprintln!("[app-launcher] failed to persist available commands for {id_stdout}: {error}");
-                        }
+                        refresh_available_commands_from_background_report(&app_stdout, &id_stdout, commands);
                     }
                     AppRuntimeMessage::Ignore => {}
                 }
@@ -770,7 +789,7 @@ async fn app_stop_with_mode(
     let result = match mode {
         AppStopMode::Graceful => {
             let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
-            if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await {
+            if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await? {
                 AppStopResult::graceful()
             } else if kill_process_entry(&entry).await? {
                 AppStopResult::killed()
@@ -809,16 +828,20 @@ pub(crate) async fn stop_all_running_apps(
         .lock()
         .map(|g| {
             g.iter()
-                .filter_map(|(id, entry)| {
-                    entry
-                        .exit_code
-                        .lock()
-                        .ok()
-                        .and_then(|code| code.is_none().then(|| id.clone()))
+                .filter_map(|(id, entry)| match entry_is_running(entry) {
+                    Ok(true) => Some(id.clone()),
+                    Ok(false) => None,
+                    Err(error) => {
+                        eprintln!("[app-launcher] failed to read exit status for {id}: {error}");
+                        None
+                    }
                 })
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|_| {
+            eprintln!("[app-launcher] failed to lock process state before stopping apps");
+            Vec::new()
+        });
 
     let mut results = Vec::with_capacity(app_ids.len());
     for app_id in app_ids {
@@ -897,7 +920,7 @@ fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppSta
         return Ok(AppStatusResult::stopped());
     };
 
-    let exit_code = entry.exit_code.lock().ok().and_then(|c| *c);
+    let exit_code = entry_exit_code(&entry)?;
     if exit_code.is_some() {
         return Ok(AppStatusResult::stopped());
     }
