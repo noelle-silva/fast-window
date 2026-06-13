@@ -15,6 +15,7 @@ import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
 import SettingsView from './components/SettingsView'
 import AppStoreView from './components/AppStoreView'
 import AppBackgroundPage from './components/AppBackgroundPage'
+import CapabilityRegistryPage from './components/CapabilityRegistryPage'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import { hostButtonSx, hostTextFieldSx } from './components/hostUiStyles'
@@ -62,7 +63,7 @@ import { movePluginById } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 import { HostAppearanceProvider, useHostAppearanceValue } from './components/hostAppearance'
 
-type HostPageId = 'settings' | 'store' | 'appBackground'
+type HostPageId = 'settings' | 'store' | 'appBackground' | 'capabilityRegistry'
 
 type AppTerminalMenuCommand = {
   id: string
@@ -935,6 +936,16 @@ function App() {
       return <AppBackgroundPage onBack={closeActiveView} apps={registeredApps} />
     }
 
+    if (page === 'capabilityRegistry') {
+      return (
+        <CapabilityRegistryPage
+          onBack={closeActiveView}
+          apps={registeredApps}
+          onUpdate={updateRegisteredApp}
+        />
+      )
+    }
+
     return null
   }
 
@@ -1028,6 +1039,7 @@ function App() {
             onSettings={reorderMode ? undefined : () => openHostPage('settings')}
             onStore={reorderMode ? undefined : () => openHostPage('store')}
             onAppBackground={reorderMode ? undefined : () => openHostPage('appBackground')}
+            onCapabilityRegistry={reorderMode ? undefined : () => openHostPage('capabilityRegistry')}
             hostUpdateVersion={hostUpdatePrompt?.version}
             onDismissHostUpdate={hostUpdatePrompt ? () => setHostUpdatePromptDismissed(true) : undefined}
           />

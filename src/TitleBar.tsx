@@ -9,6 +9,7 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded'
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
+import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -28,6 +29,7 @@ export interface TitleBarProps {
   wallpaperSwitchDisabled?: boolean
   onStore?: () => void
   onAppBackground?: () => void
+  onCapabilityRegistry?: () => void
   onImportPlugin?: () => void
   onSettings?: () => void
   onReloadPlugins?: () => void
@@ -54,6 +56,7 @@ export default function TitleBar(props: TitleBarProps) {
     wallpaperSwitchDisabled,
     onStore,
     onAppBackground,
+    onCapabilityRegistry,
     onImportPlugin,
     onSettings,
     onReloadPlugins,
@@ -146,6 +149,11 @@ export default function TitleBar(props: TitleBarProps) {
               {onAppBackground ? (
                 <IconButton aria-label="后台管理" size="small" onClick={onAppBackground}>
                   <StorageRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+              {onCapabilityRegistry ? (
+                <IconButton aria-label="能力登记簿" size="small" onClick={onCapabilityRegistry}>
+                  <HubRoundedIcon fontSize="small" />
                 </IconButton>
               ) : null}
               {onToggleBrowseLayout ? (
