@@ -36,8 +36,9 @@ import {
 } from './apps/appDevCommandState'
 import { releaseV5App, stageV5AppDev, type AppReleaseBump } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
+import { getAppStatuses, launchApp, openAppFolder, restartApp, type AppLaunchOptions } from './apps/appLauncher'
 import { activateAppCapability } from './apps/appCapabilityActivation'
+import { getAppCapabilityEnvVars } from './apps/appCapabilities'
 import {
   appStopConfirmLabel,
   appStopDialogDescription,
@@ -104,6 +105,13 @@ const APP_RELEASE_BUMP_COMMANDS: Array<{ bump: AppReleaseBump; label: string }> 
   { bump: 'minor', label: 'Release Minor' },
   { bump: 'major', label: 'Release Major' },
 ]
+
+const QUICK_BAR_APP_ID = 'quick-bar'
+
+async function launchOptionsForApp(app: RegisteredApp): Promise<AppLaunchOptions | undefined> {
+  if (app.id !== QUICK_BAR_APP_ID) return undefined
+  return { extraEnvs: await getAppCapabilityEnvVars() }
+}
 
 function App() {
   if (WebviewWindow.getCurrent().label === 'browser_bar') {
@@ -401,7 +409,8 @@ function App() {
 
   const activateRegisteredAppCommand = useCallback(async (app: RegisteredApp, command: RegisteredAppCommand) => {
     try {
-      const message = await activateAppCapability({ app, command, query })
+      const launchOptions = await launchOptionsForApp(app)
+      const message = await activateAppCapability({ app, command, query, launchOptions })
       showToast(message)
     } catch (error: any) {
       console.warn('[app] capability activation failed:', error)
@@ -438,7 +447,11 @@ function App() {
           showToast(`开发命令运行中，暂不打开：${app.name}`)
           return
         }
-        launchApp(app, 'show').finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
+        void (async () => {
+          const launchOptions = await launchOptionsForApp(app)
+          await launchApp(app, 'show', undefined, launchOptions)
+        })()
+          .finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
       }
       return
     }
@@ -605,7 +618,8 @@ function App() {
 
   const restartRegisteredAppFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
-      await restartApp(app, 'show')
+      const launchOptions = await launchOptionsForApp(app)
+      await restartApp(app, 'show', launchOptions)
       showToast(`已重启：${app.name}`)
       window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
     } catch (error: any) {

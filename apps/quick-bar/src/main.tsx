@@ -4,10 +4,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
+import { fetchRegistryButtons } from './registryClient'
 import { QuickBarTopbar } from './QuickBarTopbar'
 import { SettingsPage, type SettingsTab } from './SettingsPage'
-import { QUICK_BAR_ACTIONS } from './toolbarActions'
-import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus, ToolbarPayload } from './types'
+import { CapabilityBrowser } from './CapabilityBrowser'
+import { ToolbarApp } from './ToolbarApp'
+import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
 import './styles.css'
 
@@ -19,7 +21,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function App() {
-  const [page, setPage] = React.useState<'home' | 'settings'>('home')
+  const [page, setPage] = React.useState<'home' | 'settings' | 'capabilities'>('home')
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('overview')
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [initialCommand, setInitialCommand] = React.useState<string | null>(null)
@@ -31,6 +33,12 @@ function App() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const clientRef = React.useRef<DirectClient | null>(null)
+
+  const getClient = React.useCallback((): DirectClient => {
+    const c = clientRef.current
+    if (!c) throw new Error('后台未连接')
+    return c
+  }, [])
 
   const closeClient = React.useCallback(() => {
     clientRef.current?.close()
@@ -196,11 +204,29 @@ function App() {
           onShortcutChange={saveShortcut}
           onPickDataDir={pickDataDir}
           onRestartBackend={() => connect({ restartBackend: true })}
+          client={phase === 'ready' ? getClient() : null}
         />
-      ) : <QuickBarHome phase={phase} runtimeCommand={runtimeCommand} shortcutStatus={shortcutStatus} onOpenSettings={() => {
-        setSettingsTab('overview')
-        setPage('settings')
-      }} />}
+      ) : page === 'capabilities' ? (
+        phase === 'ready' ? (
+          <CapabilityBrowser client={getClient()} />
+        ) : (
+          <section className="quickbar-capability-loading" aria-label="后台连接中">
+            后台连接中，请稍候...
+          </section>
+        )
+      ) : (
+        <QuickBarHome
+          phase={phase}
+          runtimeCommand={runtimeCommand}
+          shortcutStatus={shortcutStatus}
+          onOpenSettings={() => {
+            setSettingsTab('overview')
+            setPage('settings')
+          }}
+          onOpenCapabilities={() => setPage('capabilities')}
+          getClient={getClient}
+        />
+      )}
     </main>
   )
 }
@@ -210,22 +236,41 @@ function QuickBarHome(props: {
   runtimeCommand: string | null
   shortcutStatus: ShortcutStatus | null
   onOpenSettings: () => void
+  onOpenCapabilities: () => void
+  getClient: () => DirectClient
 }) {
+  const [buttonCount, setButtonCount] = React.useState<number | null>(null)
+  const [buttonCountError, setButtonCountError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setButtonCount(null)
+    setButtonCountError(null)
+    if (props.phase !== 'ready') return
+    let cancelled = false
+    void fetchRegistryButtons(props.getClient())
+      .then(buttons => { if (!cancelled) setButtonCount(buttons.length) })
+      .catch(e => {
+        if (!cancelled) setButtonCountError(errorMessage(e, '读取已注册按钮失败'))
+      })
+    return () => { cancelled = true }
+  }, [props.phase, props.getClient])
+
   return (
     <section className="quickbar-home" aria-label="Quick Bar 管理主页">
       <div className="quickbar-hero">
-        <p className="quickbar-eyebrow">划词助手 · MVP</p>
+        <p className="quickbar-eyebrow">划词助手 · Phase 4</p>
         <h1>Quick Bar</h1>
         <p>选中文字后，按下 Quick Bar 自己保存的快捷键，在选区附近唤起一条轻量浮动工具栏。</p>
         <div className="quickbar-hero-actions">
-          <button type="button" onClick={props.onOpenSettings}>查看配置与状态</button>
+          <button type="button" onClick={props.onOpenSettings}>配置与状态</button>
+          <button type="button" onClick={props.onOpenCapabilities}>能力浏览</button>
         </div>
       </div>
 
       <div className="quickbar-home-grid">
         <article className="quickbar-panel quickbar-panel-dark">
-          <h2>第一阶段目标</h2>
-          <p className="quickbar-muted">先验证划词后的小浮动条形态，按钮本阶段只做占位展示。</p>
+          <h2>当前目标</h2>
+          <p className="quickbar-muted">从宿主能力平台选取能力，注册为悬浮栏按钮，划词后点击按钮即可调用。</p>
         </article>
         <article className="quickbar-panel">
           <h2>运行状态</h2>
@@ -236,61 +281,13 @@ function QuickBarHome(props: {
           <p className="quickbar-muted">唤醒快捷键：{props.shortcutStatus?.shortcut || '读取中'}</p>
         </article>
         <article className="quickbar-panel quickbar-action-preview">
-          <h2>浮动条按钮</h2>
-          <div className="quickbar-action-pills" aria-label="当前占位按钮">
-            {QUICK_BAR_ACTIONS.map(action => <span key={action.id}>{action.label}</span>)}
-          </div>
+          <h2>已注册按钮</h2>
+          <p className="quickbar-muted">
+            {buttonCountError || (buttonCount === null ? '读取中...' : buttonCount === 0 ? '暂无已注册的能力按钮，请前往能力浏览选取。' : `已注册 ${buttonCount} 个按钮`)}
+          </p>
         </article>
       </div>
     </section>
-  )
-}
-
-function ToolbarApp() {
-  const [payload, setPayload] = React.useState<ToolbarPayload | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-    let unlisten: (() => void) | null = null
-    void invoke<ToolbarPayload | null>('quick_bar_toolbar_payload')
-      .then(next => {
-        if (!cancelled) setPayload(next)
-      })
-      .catch(() => {})
-    void listen<ToolbarPayload>('quick-bar-selection', event => {
-      setPayload(event.payload)
-    })
-      .then(nextUnlisten => {
-        if (cancelled) nextUnlisten()
-        else unlisten = nextUnlisten
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-      unlisten?.()
-    }
-  }, [])
-
-  React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') void invoke('hide_quick_bar_toolbar').catch(() => {})
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
-  const text = payload?.selectedText?.trim() || '已选中文字'
-  return (
-    <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条">
-      <div className="quickbar-selection-chip" title={text}>{text}</div>
-      <div className="quickbar-toolbar-actions" aria-label="快捷操作占位按钮">
-        {QUICK_BAR_ACTIONS.map(action => (
-          <button key={action.id} type="button" title={action.description} aria-label={`${action.label}（占位）`}>
-            {action.label}
-          </button>
-        ))}
-      </div>
-    </main>
   )
 }
 

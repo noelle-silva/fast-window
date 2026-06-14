@@ -23,6 +23,7 @@ mod app_lifecycle;
 mod app_registry;
 mod app_shortcuts;
 mod browser_stack;
+mod capability_server;
 mod clipboard;
 mod clipboard_snapshot;
 mod clipboard_watch;
@@ -2557,6 +2558,7 @@ fn main() {
         process_commands::process_kill,
         process_commands::process_wait,
         app_lifecycle::manager::app_launch,
+        app_capabilities::app_capability_env_vars,
         app_capabilities::app_capability_invoke,
         app_capabilities::app_capability_query_options,
         app_lifecycle::manager::app_restart,

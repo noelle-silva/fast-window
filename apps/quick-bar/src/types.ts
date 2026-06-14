@@ -29,6 +29,16 @@ export type DirectClient = {
   close(): void
 }
 
+export type RegistryButton = {
+  id: string
+  app: Record<string, unknown>
+  appId: string
+  capabilityId: string
+  title: string
+  config: Record<string, unknown>
+  createdAt: string
+}
+
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {
   launched: false,
   standalone: true,

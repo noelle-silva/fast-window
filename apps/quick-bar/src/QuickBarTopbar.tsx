@@ -7,7 +7,7 @@ type WindowControlActions = {
 }
 
 type QuickBarTopbarProps = {
-  page: 'home' | 'settings'
+  page: 'home' | 'settings' | 'capabilities'
   standalone: boolean
   onBack: () => void
   onOpenSettings: () => void
@@ -51,6 +51,12 @@ function WindowControls({ actions }: { actions: WindowControlActions }) {
   )
 }
 
+function pageTitle(page: QuickBarTopbarProps['page']): string {
+  if (page === 'settings') return '设置'
+  if (page === 'capabilities') return '能力浏览'
+  return 'Quick Bar'
+}
+
 export function QuickBarTopbar(props: QuickBarTopbarProps) {
   const { page, standalone, onBack, onOpenSettings, onStartDragging, windowActions } = props
 
@@ -63,13 +69,13 @@ export function QuickBarTopbar(props: QuickBarTopbarProps) {
 
   return (
     <header className="quickbar-topbar" onPointerDown={onPointerDown}>
-      {page === 'settings' ? (
+      {page !== 'home' ? (
         <button type="button" className="quickbar-icon-button" onClick={onBack} aria-label="返回主页">
           <IconBack />
         </button>
       ) : null}
 
-      <div className="quickbar-topbar-title" aria-live="polite">{page === 'settings' ? '设置' : 'Quick Bar'}</div>
+      <div className="quickbar-topbar-title" aria-live="polite">{pageTitle(page)}</div>
       <div className="quickbar-topbar-spacer" />
 
       {page === 'home' ? (

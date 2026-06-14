@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::app_lifecycle::{
-    manager::{ensure_app_control_endpoint, AppLifecycleManager},
+    manager::{ensure_app_control_endpoint, AppLaunchOptions, AppLifecycleManager},
     send_control_json, RegisteredAppLaunchConfig,
 };
 
@@ -17,6 +17,8 @@ pub(crate) struct AppCapabilityInvokeRequest {
     input: serde_json::Value,
     #[serde(default)]
     config: serde_json::Value,
+    #[serde(default)]
+    launch_options: AppLaunchOptions,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +39,11 @@ pub(crate) struct AppCapabilityResponse {
     response: serde_json::Value,
 }
 
+#[tauri::command]
+pub(crate) fn app_capability_env_vars() -> Vec<(String, String)> {
+    crate::capability_server::capability_server_env_vars()
+}
+
 fn validate_runtime_identifier(value: &str, label: &str) -> Result<String, String> {
     let id = value.trim().to_string();
     if id.is_empty() {
@@ -52,9 +59,10 @@ async fn send_app_capability_request(
     app_handle: AppHandle,
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let endpoint = ensure_app_control_endpoint(app_handle, state, app).await?;
+    let endpoint = ensure_app_control_endpoint(app_handle, state, app, launch_options).await?;
     tokio::task::spawn_blocking(move || send_control_json(endpoint, body))
         .await
         .map_err(|e| format!("应用能力调度任务失败: {e}"))?
@@ -66,12 +74,21 @@ pub(crate) async fn app_capability_invoke(
     state: tauri::State<'_, Arc<AppLifecycleManager>>,
     request: AppCapabilityInvokeRequest,
 ) -> Result<AppCapabilityResponse, String> {
+    app_capability_invoke_inner(app_handle, state.inner().clone(), request).await
+}
+
+pub(crate) async fn app_capability_invoke_inner(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    request: AppCapabilityInvokeRequest,
+) -> Result<AppCapabilityResponse, String> {
     let app_id = validate_runtime_identifier(&request.app.id, "appId")?;
     let capability_id = validate_runtime_identifier(&request.capability_id, "capabilityId")?;
     let response = send_app_capability_request(
         app_handle,
-        state.inner().clone(),
+        state,
         &request.app,
+        request.launch_options,
         serde_json::json!({
             "action": "invokeCapability",
             "capabilityId": capability_id,
@@ -94,13 +111,22 @@ pub(crate) async fn app_capability_query_options(
     state: tauri::State<'_, Arc<AppLifecycleManager>>,
     request: AppCapabilityOptionsRequest,
 ) -> Result<AppCapabilityResponse, String> {
+    app_capability_query_options_inner(app_handle, state.inner().clone(), request).await
+}
+
+pub(crate) async fn app_capability_query_options_inner(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    request: AppCapabilityOptionsRequest,
+) -> Result<AppCapabilityResponse, String> {
     let app_id = validate_runtime_identifier(&request.app.id, "appId")?;
     let capability_id = validate_runtime_identifier(&request.capability_id, "capabilityId")?;
     let option_source = validate_runtime_identifier(&request.option_source, "optionSource")?;
     let response = send_app_capability_request(
         app_handle,
-        state.inner().clone(),
+        state,
         &request.app,
+        AppLaunchOptions::default(),
         serde_json::json!({
             "action": "queryCapabilityOptions",
             "capabilityId": capability_id,

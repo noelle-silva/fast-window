@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { SettingsTabs, type SettingsTabItem } from './components/SettingsTabs'
-import { QUICK_BAR_ACTIONS } from './toolbarActions'
-import type { DataDirStatus, FwLaunchInfo, ShortcutStatus } from './types'
+import { fetchRegistryButtons } from './registryClient'
+import type { DataDirStatus, DirectClient, FwLaunchInfo, RegistryButton, ShortcutStatus } from './types'
 
 export type SettingsTab = 'overview' | 'shortcut' | 'toolbar' | 'data' | 'backend'
 
@@ -28,6 +28,7 @@ type SettingsPageProps = {
   onShortcutChange: (shortcut: string) => Promise<void> | void
   onPickDataDir: () => Promise<void> | void
   onRestartBackend: () => Promise<void> | void
+  client: DirectClient | null
 }
 
 function FieldValue({ label, value }: { label: string; value: React.ReactNode }) {
@@ -61,6 +62,7 @@ export function SettingsPage(props: SettingsPageProps) {
     onShortcutChange,
     onPickDataDir,
     onRestartBackend,
+    client,
   } = props
 
   const renderPanel = (tab: SettingsTab, content: React.ReactNode) => (
@@ -109,18 +111,19 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {renderPanel('toolbar', (
         <div className="quickbar-settings-stack">
-          <article className="quickbar-panel">
-            <h2>浮动条按钮</h2>
-            <p className="quickbar-muted">这些按钮当前只用于验证浮动条形态，后续再接入真实动作。</p>
-            <div className="quickbar-action-list">
-              {QUICK_BAR_ACTIONS.map(action => (
-                <div key={action.id} className="quickbar-action-row">
-                  <span>{action.label}</span>
-                  <p>{action.description}</p>
-                </div>
-              ))}
-            </div>
-          </article>
+          <RegistryButtonsPane client={client} />
+          {client ? (
+            <article className="quickbar-panel">
+              <h2>已注册按钮</h2>
+              <p className="quickbar-muted">以下为当前已注册到 Quick Bar 悬浮栏的能力按钮。从能力浏览页面选取并注册新按钮。</p>
+              <RegistryButtonList client={client} />
+            </article>
+          ) : (
+            <article className="quickbar-panel">
+              <h2>已注册按钮</h2>
+              <p className="quickbar-muted">后台未连接，无法读取已注册按钮。</p>
+            </article>
+          )}
         </div>
       ))}
 
@@ -281,4 +284,41 @@ function shortcutKeyName(event: KeyboardEvent): string | null {
     Backquote: '`',
   }
   return map[event.code] || null
+}
+
+function RegistryButtonsPane({ client }: { client: DirectClient | null }) {
+  if (!client) return null
+  return (
+    <article className="quickbar-panel quickbar-intro-panel">
+      <h2>浮动条按钮</h2>
+      <p>划词悬浮栏中的按钮，来自你从能力浏览页面选取并注册的能力。每个按钮对应一项能力，点击后调用该能力得到结果。</p>
+    </article>
+  )
+}
+
+function RegistryButtonList({ client }: { client: DirectClient }) {
+  const [buttons, setButtons] = React.useState<RegistryButton[] | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void fetchRegistryButtons(client)
+      .then(list => { if (!cancelled) setButtons(list) })
+      .catch(e => { if (!cancelled) setError(String((e as { message?: string })?.message || e)) })
+    return () => { cancelled = true }
+  }, [client])
+
+  if (error) return <p className="quickbar-error-text">读取按钮列表失败: {error}</p>
+  if (!buttons) return <p className="quickbar-muted">读取中...</p>
+  if (!buttons.length) return <p className="quickbar-muted">暂无已注册按钮。前往能力浏览页面选取能力并注册。</p>
+  return (
+    <div className="quickbar-action-list">
+      {buttons.map(button => (
+        <div key={button.id} className="quickbar-action-row">
+          <span>{button.title}</span>
+          <p>来源: {button.appId} / {button.capabilityId}</p>
+        </div>
+      ))}
+    </div>
+  )
 }

@@ -1,6 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { AppActivationAction, AppStatus, AppStopResult, RegisteredApp } from './types'
 
+export type AppLaunchOptions = {
+  extraEnvs?: Array<[string, string]>
+}
+
 function buildLaunchArgs(app: RegisteredApp, action?: AppActivationAction, command?: string): string[] {
   const args: string[] = ['--fw-launched']
 
@@ -20,14 +24,23 @@ function buildLaunchArgs(app: RegisteredApp, action?: AppActivationAction, comma
   return args
 }
 
-export async function launchApp(app: RegisteredApp, action?: AppActivationAction, command?: string): Promise<void> {
+export async function launchApp(
+  app: RegisteredApp,
+  action?: AppActivationAction,
+  command?: string,
+  options?: AppLaunchOptions,
+): Promise<void> {
   const args = buildLaunchArgs(app, action, command)
-  await invoke('app_launch', { appId: app.id, exePath: app.path, args })
+  await invoke('app_launch', { appId: app.id, exePath: app.path, args, options })
 }
 
-export async function restartApp(app: RegisteredApp, action: AppActivationAction = 'show'): Promise<AppStopResult> {
+export async function restartApp(
+  app: RegisteredApp,
+  action: AppActivationAction = 'show',
+  options?: AppLaunchOptions,
+): Promise<AppStopResult> {
   const args = buildLaunchArgs(app, action)
-  return invoke<AppStopResult>('app_restart', { appId: app.id, exePath: app.path, args })
+  return invoke<AppStopResult>('app_restart', { appId: app.id, exePath: app.path, args, options })
 }
 
 export async function openAppFolder(app: RegisteredApp): Promise<void> {

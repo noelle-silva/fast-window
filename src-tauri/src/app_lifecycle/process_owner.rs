@@ -13,6 +13,7 @@ pub(crate) struct ManagedAppCommand {
     executable: PathBuf,
     args: Vec<String>,
     stdout: ManagedAppStdout,
+    envs: Vec<(String, String)>,
 }
 
 impl ManagedAppCommand {
@@ -21,6 +22,7 @@ impl ManagedAppCommand {
             executable: executable.into(),
             args: Vec::new(),
             stdout: ManagedAppStdout::Null,
+            envs: Vec::new(),
         }
     }
 
@@ -31,6 +33,11 @@ impl ManagedAppCommand {
 
     pub(crate) fn stdout(mut self, stdout: ManagedAppStdout) -> Self {
         self.stdout = stdout;
+        self
+    }
+
+    pub(crate) fn envs(mut self, envs: Vec<(String, String)>) -> Self {
+        self.envs = envs;
         self
     }
 
@@ -178,6 +185,12 @@ mod platform {
             .map(|dir| wide_null(dir.as_os_str()))
             .unwrap_or_else(|| wide_null(OsStr::new(".")));
 
+        let env_block = build_environment_block(&command.envs);
+        let env_ptr: *const std::ffi::c_void = match &env_block {
+            Some(block) => block.as_ptr().cast(),
+            None => std::ptr::null(),
+        };
+
         unsafe {
             CreateProcessW(
                 PCWSTR(app_name.as_ptr()),
@@ -186,7 +199,7 @@ mod platform {
                 None,
                 true,
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
-                None,
+                Some(env_ptr),
                 PCWSTR(current_dir.as_ptr()),
                 (&startup_info.StartupInfo as *const _) as *const _,
                 &mut process_info,
@@ -457,6 +470,27 @@ mod platform {
         value.encode_wide().chain(Some(0)).collect()
     }
 
+    fn build_environment_block(extra_envs: &[(String, String)]) -> Option<Vec<u16>> {
+        if extra_envs.is_empty() {
+            return None;
+        }
+        let mut vars = std::collections::HashMap::new();
+        for (k, v) in std::env::vars() {
+            vars.insert(k, v);
+        }
+        for (k, v) in extra_envs {
+            vars.insert(k.clone(), v.clone());
+        }
+        let mut block: Vec<u16> = Vec::new();
+        for (k, v) in &vars {
+            let entry = format!("{k}={v}");
+            block.extend(OsStr::new(&entry).encode_wide());
+            block.push(0);
+        }
+        block.push(0);
+        Some(block)
+    }
+
     const HANDLE_FLAGS_NONE: windows::Win32::Foundation::HANDLE_FLAGS =
         windows::Win32::Foundation::HANDLE_FLAGS(0);
 
@@ -503,6 +537,9 @@ mod platform {
         cmd.stdin(std::process::Stdio::null());
         cmd.stdout(stdout_to_stdio(command.stdout));
         cmd.stderr(std::process::Stdio::null());
+        for (k, v) in &command.envs {
+            cmd.env(k, v);
+        }
         #[cfg(unix)]
         cmd.process_group(0);
         let child = cmd.spawn().map_err(|e| format!("启动应用失败: {e}"))?;

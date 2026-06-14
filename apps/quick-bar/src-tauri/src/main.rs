@@ -5,6 +5,7 @@ mod backend_lifecycle;
 mod backend_sidecar;
 mod control_server;
 mod data_dir;
+mod host_capability;
 mod fw_window;
 mod native_dialog;
 mod selection_capture;
@@ -154,10 +155,12 @@ fn main() {
             quick_bar_app_ready,
             toolbar_window::quick_bar_toolbar_payload,
             toolbar_window::hide_quick_bar_toolbar,
+            toolbar_window::show_quick_bar_result_popup,
             shortcut::quick_bar_shortcut_status,
             shortcut::set_quick_bar_shortcut,
             fw_initial_command,
-            fw_launch_info
+            fw_launch_info,
+            host_capability::get_host_capability_config
         ])
         .setup(move |app| {
             let window = app

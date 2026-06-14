@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import type { AppLaunchOptions } from './appLauncher'
 import type { AppCapabilityConfigField, AppCapabilityOption, RegisteredApp, RegisteredAppCommand } from './types'
 
 type AppCapabilityHostResponse = {
@@ -12,6 +13,7 @@ type AppCapabilityRequest = {
   capabilityId: string
   input?: unknown
   config?: Record<string, unknown>
+  launchOptions?: AppLaunchOptions
 }
 
 type AppCapabilityOptionsRequest = {
@@ -23,6 +25,10 @@ type AppCapabilityOptionsRequest = {
 
 export async function invokeAppCapability(request: AppCapabilityRequest): Promise<AppCapabilityHostResponse> {
   return invoke<AppCapabilityHostResponse>('app_capability_invoke', { request })
+}
+
+export async function getAppCapabilityEnvVars(): Promise<Array<[string, string]>> {
+  return invoke<Array<[string, string]>>('app_capability_env_vars')
 }
 
 export async function queryAppCapabilityOptions(request: AppCapabilityOptionsRequest): Promise<AppCapabilityOption[]> {

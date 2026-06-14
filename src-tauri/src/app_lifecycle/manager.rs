@@ -49,6 +49,19 @@ pub(crate) struct RegisteredAppLaunchConfig {
     pub(crate) auto_start: bool,
 }
 
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppLaunchOptions {
+    #[serde(default)]
+    pub(crate) extra_envs: Vec<(String, String)>,
+}
+
+impl AppLaunchOptions {
+    fn env_vars(&self) -> Vec<(String, String)> {
+        self.extra_envs.clone()
+    }
+}
+
 struct AppProcessEntry {
     pid: u32,
     started_at_ms: u64,
@@ -359,9 +372,10 @@ async fn send_control_action_async(
 ) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    let response = tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
-        .await
-        .map_err(|e| format!("应用控制任务失败: {e}"))??;
+    let response =
+        tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
+            .await
+            .map_err(|e| format!("应用控制任务失败: {e}"))??;
     available_commands_from_response(response)
 }
 
@@ -390,7 +404,10 @@ fn refresh_available_commands_from_background_report(
     }
 }
 
-async fn wait_for_process_exit(entry: &Arc<AppProcessEntry>, timeout: Duration) -> Result<bool, String> {
+async fn wait_for_process_exit(
+    entry: &Arc<AppProcessEntry>,
+    timeout: Duration,
+) -> Result<bool, String> {
     let start = tokio::time::Instant::now();
     while start.elapsed() < timeout {
         if entry_exit_code(entry)?.is_some() {
@@ -543,6 +560,7 @@ pub(crate) async fn ensure_app_control_endpoint(
     app_handle: AppHandle,
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
 ) -> Result<AppControlEndpoint, String> {
     let id = normalize_app_id(&app.id)?;
     if let Some(entry) = running_entry(&state, &id)? {
@@ -550,17 +568,19 @@ pub(crate) async fn ensure_app_control_endpoint(
     }
 
     let args = build_registered_app_launch_args(app, "hide", None);
-    app_launch_inner_with_cold_start_policy(
+    app_launch_inner_with_cold_start_policy_and_options(
         app_handle,
         state.clone(),
         id.clone(),
         app.path.clone(),
         args,
         AppColdStartPolicy::Allow,
+        launch_options,
     )
     .await?;
 
-    let entry = running_entry(&state, &id)?.ok_or_else(|| "应用唤醒后未进入运行状态".to_string())?;
+    let entry =
+        running_entry(&state, &id)?.ok_or_else(|| "应用唤醒后未进入运行状态".to_string())?;
     wait_control_endpoint(&entry).await
 }
 
@@ -571,8 +591,17 @@ pub(crate) async fn app_launch(
     app_id: String,
     exe_path: String,
     args: Vec<String>,
+    options: Option<AppLaunchOptions>,
 ) -> Result<(), String> {
-    app_launch_inner(app_handle, state.inner().clone(), app_id, exe_path, args).await
+    app_launch_inner_with_options(
+        app_handle,
+        state.inner().clone(),
+        app_id,
+        exe_path,
+        args,
+        options.unwrap_or_default(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -582,17 +611,19 @@ pub(crate) async fn app_restart(
     app_id: String,
     exe_path: String,
     args: Vec<String>,
+    options: Option<AppLaunchOptions>,
 ) -> Result<AppStopResult, String> {
     let id = normalize_app_id(app_id)?;
     let path = app_executable_path(exe_path)?;
     let stop_result = app_stop_with_mode(state.inner(), id.clone(), AppStopMode::Graceful).await?;
 
-    app_launch_inner(
+    app_launch_inner_with_options(
         app_handle,
         state.inner().clone(),
         id,
         path.to_string_lossy().to_string(),
         args,
+        options.unwrap_or_default(),
     )
     .await?;
 
@@ -605,20 +636,22 @@ pub(crate) fn app_open_folder(exe_path: String) -> Result<(), String> {
     crate::workspace::open_absolute_existing_dir(&dir)
 }
 
-pub(crate) async fn app_launch_inner(
+pub(crate) async fn app_launch_inner_with_options(
     app_handle: AppHandle,
     state: Arc<AppLifecycleManager>,
     app_id: String,
     exe_path: String,
     args: Vec<String>,
+    launch_options: AppLaunchOptions,
 ) -> Result<(), String> {
-    app_launch_inner_with_cold_start_policy(
+    app_launch_inner_with_cold_start_policy_and_options(
         app_handle,
         state,
         app_id,
         exe_path,
         args,
         AppColdStartPolicy::Allow,
+        launch_options,
     )
     .await
     .map(|_| ())
@@ -631,6 +664,27 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
     exe_path: String,
     args: Vec<String>,
     cold_start_policy: AppColdStartPolicy,
+) -> Result<AppLaunchOutcome, String> {
+    app_launch_inner_with_cold_start_policy_and_options(
+        app_handle,
+        state,
+        app_id,
+        exe_path,
+        args,
+        cold_start_policy,
+        AppLaunchOptions::default(),
+    )
+    .await
+}
+
+pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app_id: String,
+    exe_path: String,
+    args: Vec<String>,
+    cold_start_policy: AppColdStartPolicy,
+    launch_options: AppLaunchOptions,
 ) -> Result<AppLaunchOutcome, String> {
     let id = normalize_app_id(app_id)?;
 
@@ -661,11 +715,11 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
     let path = app_executable_path(exe_path)?;
 
     let action = launch_action(&args);
-    let mut child = ManagedAppChild::spawn(
-        ManagedAppCommand::new(&path)
-            .args(args)
-            .stdout(ManagedAppStdout::Piped),
-    )?;
+    let command = ManagedAppCommand::new(&path)
+        .args(args)
+        .stdout(ManagedAppStdout::Piped)
+        .envs(launch_options.env_vars());
+    let mut child = ManagedAppChild::spawn(command)?;
     let pid = child.id();
     if should_allow_foreground(&action) {
         allow_foreground_for_process(pid);
@@ -704,7 +758,11 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
                         }
                     }
                     AppRuntimeMessage::AvailableCommands(commands) => {
-                        refresh_available_commands_from_background_report(&app_stdout, &id_stdout, commands);
+                        refresh_available_commands_from_background_report(
+                            &app_stdout,
+                            &id_stdout,
+                            commands,
+                        );
                     }
                     AppRuntimeMessage::Ignore => {}
                 }

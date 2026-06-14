@@ -157,6 +157,20 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	switch method {
 	case "quickBar.health":
 		return map[string]any{"ok": true, "dataDir": svc.dataDir, "time": time.Now().UTC().Format(time.RFC3339)}, nil
+	case "quickBar.registry.list":
+		return svc.listRegistryButtons()
+	case "quickBar.registry.add":
+		return svc.addRegistryButton(params)
+	case "quickBar.registry.remove":
+		return svc.removeRegistryButton(params)
+	case "quickBar.registry.update":
+		return svc.updateRegistryButton(params)
+	case "quickBar.capability.list":
+		return svc.listHostCapabilities()
+	case "quickBar.capability.invoke":
+		return svc.invokeHostCapability(params)
+	case "quickBar.capability.options":
+		return svc.queryHostCapabilityOptions(params)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}

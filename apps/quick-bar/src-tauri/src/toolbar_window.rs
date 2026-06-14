@@ -9,6 +9,7 @@ const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const TOOLBAR_EVENT: &str = "quick-bar-selection";
 const TOOLBAR_WIDTH: u32 = 420;
 const TOOLBAR_HEIGHT: u32 = 62;
+const TOOLBAR_RESULT_HEIGHT: u32 = 380;
 const TOOLBAR_MARGIN: i32 = 10;
 
 #[derive(Clone, Serialize)]
@@ -54,6 +55,27 @@ pub(crate) fn hide_quick_bar_toolbar(app: tauri::AppHandle) -> Result<(), String
     hide_toolbar(&app)
 }
 
+#[tauri::command]
+pub(crate) fn show_quick_bar_result_popup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<ToolbarState>>,
+) -> Result<(), String> {
+    let payload = state
+        .payload()
+        .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示结果浮窗".to_string())?;
+    let window = app
+        .get_webview_window(TOOLBAR_LABEL)
+        .ok_or_else(|| "Quick Bar 浮动条窗口尚未创建".to_string())?;
+    apply_toolbar_layout(
+        &app,
+        &window,
+        payload.anchor_x,
+        payload.anchor_y,
+        TOOLBAR_WIDTH,
+        TOOLBAR_RESULT_HEIGHT,
+    )
+}
+
 pub(crate) fn show_toolbar_from_current_selection(
     app: &tauri::AppHandle,
     state: &ToolbarState,
@@ -84,13 +106,14 @@ fn show_toolbar(
     state.set_payload(payload.clone())?;
 
     let window = ensure_toolbar_window(app)?;
-    let position = toolbar_position(app, payload.anchor_x, payload.anchor_y)?;
-    window
-        .set_size(PhysicalSize::new(TOOLBAR_WIDTH, TOOLBAR_HEIGHT))
-        .map_err(|e| format!("设置 Quick Bar 浮动条尺寸失败: {e}"))?;
-    window
-        .set_position(position)
-        .map_err(|e| format!("设置 Quick Bar 浮动条位置失败: {e}"))?;
+    apply_toolbar_layout(
+        app,
+        &window,
+        payload.anchor_x,
+        payload.anchor_y,
+        TOOLBAR_WIDTH,
+        TOOLBAR_HEIGHT,
+    )?;
     window
         .set_always_on_top(true)
         .map_err(|e| format!("设置 Quick Bar 浮动条置顶失败: {e}"))?;
@@ -139,10 +162,29 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
     Ok(window)
 }
 
+fn apply_toolbar_layout(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    anchor_x: i32,
+    anchor_y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let position = toolbar_position(app, anchor_x, anchor_y, width, height)?;
+    window
+        .set_size(PhysicalSize::new(width, height))
+        .map_err(|e| format!("设置 Quick Bar 浮动条尺寸失败: {e}"))?;
+    window
+        .set_position(position)
+        .map_err(|e| format!("设置 Quick Bar 浮动条位置失败: {e}"))
+}
+
 fn toolbar_position(
     app: &tauri::AppHandle,
     anchor_x: i32,
     anchor_y: i32,
+    width: u32,
+    height: u32,
 ) -> Result<PhysicalPosition<i32>, String> {
     let mut x = anchor_x + TOOLBAR_MARGIN;
     let mut y = anchor_y + TOOLBAR_MARGIN;
@@ -161,8 +203,8 @@ fn toolbar_position(
         .or_else(|| monitors.first())
         .ok_or_else(|| "没有可用屏幕，无法显示 Quick Bar 浮动条".to_string())?;
     let area = monitor.work_area();
-    let max_x = area.position.x + area.size.width as i32 - TOOLBAR_WIDTH as i32;
-    let max_y = area.position.y + area.size.height as i32 - TOOLBAR_HEIGHT as i32;
+    let max_x = area.position.x + area.size.width as i32 - width as i32;
+    let max_y = area.position.y + area.size.height as i32 - height as i32;
     x = x.clamp(area.position.x, max_x.max(area.position.x));
     y = y.clamp(area.position.y, max_y.max(area.position.y));
     Ok(PhysicalPosition::new(x, y))

@@ -141,6 +141,10 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(RegisteredAppShortcutState::default());
             app.manage(BrowserWindowState::default());
 
+            let lifecycle = app.state::<Arc<AppLifecycleManager>>().inner().clone();
+            crate::capability_server::start_capability_server(app.handle().clone(), lifecycle)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+
             // 宿主数据迁移必须早于任何宿主配置读取，避免启动阶段用旧位置/默认值初始化状态。
             let _ = migrations::migrate_host_files_into_app_dir(app.handle());
 

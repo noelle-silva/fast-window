@@ -4,9 +4,21 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 use crate::app_lifecycle::{
-    app_launch_inner, build_registered_app_launch_args, AppLifecycleManager,
-    RegisteredAppLaunchConfig,
+    app_launch_inner_with_options, build_registered_app_launch_args, AppLaunchOptions,
+    AppLifecycleManager, RegisteredAppLaunchConfig,
 };
+
+const QUICK_BAR_APP_ID: &str = "quick-bar";
+
+fn launch_options_for_app(app_id: &str) -> AppLaunchOptions {
+    if app_id == QUICK_BAR_APP_ID {
+        AppLaunchOptions {
+            extra_envs: crate::capability_server::capability_server_env_vars(),
+        }
+    } else {
+        AppLaunchOptions::default()
+    }
+}
 
 fn auto_start_targets(app: &AppHandle) -> Result<Vec<RegisteredAppLaunchConfig>, String> {
     let records = crate::app_registry::load_registered_app_records(app)?;
@@ -28,12 +40,13 @@ async fn launch_auto_start_app(
     config: RegisteredAppLaunchConfig,
 ) -> Result<(), String> {
     let launcher = app.state::<Arc<AppLifecycleManager>>().inner().clone();
-    app_launch_inner(
+    app_launch_inner_with_options(
         app,
         launcher,
         config.id.clone(),
         config.path.clone(),
         build_registered_app_launch_args(&config, "hide", None),
+        launch_options_for_app(&config.id),
     )
     .await
 }

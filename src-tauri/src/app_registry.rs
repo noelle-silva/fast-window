@@ -436,10 +436,14 @@ fn normalize_config_field_inputs(
             .ok_or_else(|| format!("{message_subject}配置项 ID 不能为空: {command_id}"))?
             .to_string();
         if !crate::is_safe_id(&id) {
-            return Err(format!("{message_subject}配置项 ID 不合法: {command_id}/{id}"));
+            return Err(format!(
+                "{message_subject}配置项 ID 不合法: {command_id}/{id}"
+            ));
         }
         if seen.insert(id.clone(), ()).is_some() {
-            return Err(format!("{message_subject}配置项 ID 重复: {command_id}/{id}"));
+            return Err(format!(
+                "{message_subject}配置项 ID 重复: {command_id}/{id}"
+            ));
         }
         let field_label = field
             .label
@@ -449,7 +453,9 @@ fn normalize_config_field_inputs(
             .ok_or_else(|| format!("{message_subject}配置项名称不能为空: {command_id}/{id}"))?
             .to_string();
         if field_label.len() > 80 {
-            return Err(format!("{message_subject}配置项名称过长: {command_id}/{id}"));
+            return Err(format!(
+                "{message_subject}配置项名称过长: {command_id}/{id}"
+            ));
         }
         let option_source = field
             .option_source
@@ -459,7 +465,9 @@ fn normalize_config_field_inputs(
             .ok_or_else(|| format!("{message_subject}配置项选项来源不能为空: {command_id}/{id}"))?
             .to_string();
         if !crate::is_safe_id(&option_source) {
-            return Err(format!("{message_subject}配置项选项来源不合法: {command_id}/{id}"));
+            return Err(format!(
+                "{message_subject}配置项选项来源不合法: {command_id}/{id}"
+            ));
         }
         normalized.push(serde_json::json!({
             "id": id,
