@@ -5,10 +5,10 @@ use tauri::AppHandle;
 
 use super::CapabilityHttpResponse;
 use crate::app_capabilities::{
-    app_capability_invoke_inner, app_capability_query_options_inner, AppCapabilityInvokeRequest,
-    AppCapabilityOptionsRequest,
+    app_capability_invoke_inner, app_capability_query_options_inner, describe_app_commands,
+    AppCapabilityInvokeRequest, AppCapabilityOptionsRequest,
 };
-use crate::app_lifecycle::manager::AppLifecycleManager;
+use crate::app_lifecycle::manager::{AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig};
 
 pub(super) struct CapabilityService {
     app: AppHandle,
@@ -37,10 +37,13 @@ impl CapabilityService {
     }
 
     fn handle_capabilities(&self) -> CapabilityHttpResponse {
-        match capability_list(&self.app) {
-            Ok(capabilities) => CapabilityHttpResponse::json(
+        match tauri::async_runtime::block_on(capability_list(
+            self.app.clone(),
+            self.lifecycle.clone(),
+        )) {
+            Ok((capabilities, errors)) => CapabilityHttpResponse::json(
                 200,
-                serde_json::json!({ "capabilities": capabilities }),
+                serde_json::json!({ "capabilities": capabilities, "errors": errors }),
             ),
             Err(error) => CapabilityHttpResponse::error(500, error),
         }
@@ -89,9 +92,13 @@ impl CapabilityService {
     }
 }
 
-fn capability_list(app: &AppHandle) -> Result<Vec<Value>, String> {
-    let records = crate::app_registry::load_registered_app_records(app)?;
+async fn capability_list(
+    app: AppHandle,
+    lifecycle: Arc<AppLifecycleManager>,
+) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let records = crate::app_registry::load_registered_app_records(&app)?;
     let mut capabilities = Vec::new();
+    let mut errors = Vec::new();
     for record in records {
         let Some(app_id) = record.get("id").and_then(Value::as_str).map(str::trim) else {
             continue;
@@ -99,12 +106,38 @@ fn capability_list(app: &AppHandle) -> Result<Vec<Value>, String> {
         if app_id.is_empty() {
             continue;
         }
-        let Some(commands) = record.get("availableCommands").and_then(Value::as_array) else {
-            continue;
-        };
         let app_launch = app_launch_value(&record);
+        let app_config = match serde_json::from_value::<RegisteredAppLaunchConfig>(app_launch.clone()) {
+            Ok(app_config) => app_config,
+            Err(error) => {
+                errors.push(serde_json::json!({
+                    "appId": app_id,
+                    "message": format!("应用启动信息不完整: {error}"),
+                }));
+                continue;
+            }
+        };
         let app_name = app_display_name(&record);
+        let commands = match describe_app_commands(
+            app.clone(),
+            lifecycle.clone(),
+            &app_config,
+            AppLaunchOptions::default(),
+        )
+        .await
+        {
+            Ok(commands) => commands,
+            Err(error) => {
+                errors.push(serde_json::json!({
+                    "appId": app_id,
+                    "message": error,
+                }));
+                continue;
+            }
+        };
         for command in commands {
+            let command = serde_json::to_value(command)
+                .map_err(|e| format!("序列化应用能力清单失败: {e}"))?;
             let Some(command_id) = command.get("id").and_then(Value::as_str).map(str::trim) else {
                 continue;
             };
@@ -121,15 +154,15 @@ fn capability_list(app: &AppHandle) -> Result<Vec<Value>, String> {
                 "capabilityId".to_string(),
                 Value::String(command_id.to_string()),
             );
-            copy_command_field(&mut item, command, "title");
-            copy_command_field(&mut item, command, "icon");
-            copy_command_field(&mut item, command, "hotkey");
-            copy_command_field(&mut item, command, "description");
-            copy_command_field(&mut item, command, "configFields");
+            copy_command_field(&mut item, &command, "title");
+            copy_command_field(&mut item, &command, "icon");
+            copy_command_field(&mut item, &command, "hotkey");
+            copy_command_field(&mut item, &command, "description");
+            copy_command_field(&mut item, &command, "configFields");
             capabilities.push(Value::Object(item));
         }
     }
-    Ok(capabilities)
+    Ok((capabilities, errors))
 }
 
 fn app_launch_value(record: &Value) -> Value {

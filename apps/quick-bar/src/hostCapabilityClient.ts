@@ -39,12 +39,25 @@ export type CapabilityInvokeResponse = {
   response: unknown
 }
 
-export async function fetchCapabilities(client: DirectClient): Promise<HostCapabilityItem[]> {
-  const data = await client.request<{ capabilities: HostCapabilityItem[] }>('quickBar.capability.list')
+export type HostCapabilityError = {
+  appId: string
+  message: string
+}
+
+export type HostCapabilityListResponse = {
+  capabilities: HostCapabilityItem[]
+  errors: HostCapabilityError[]
+}
+
+export async function fetchCapabilities(client: DirectClient): Promise<HostCapabilityListResponse> {
+  const data = await client.request<HostCapabilityListResponse>('quickBar.capability.list')
   if (!Array.isArray(data.capabilities)) {
     throw new Error('宿主能力服务协议错误: capabilities 必须是数组')
   }
-  return data.capabilities
+  return {
+    capabilities: data.capabilities,
+    errors: Array.isArray(data.errors) ? data.errors : [],
+  }
 }
 
 export async function invokeCapability(client: DirectClient, request: CapabilityInvokeRequest): Promise<CapabilityInvokeResponse> {

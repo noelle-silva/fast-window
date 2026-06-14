@@ -73,7 +73,6 @@ struct AppProcessEntry {
 enum AppRuntimeMessage {
     ControlReady(AppControlEndpoint),
     WindowBounds(crate::app_registry::AppWindowBounds),
-    AvailableCommands(Vec<crate::app_registry::AppReportedCommand>),
     Ignore,
 }
 
@@ -350,58 +349,17 @@ fn send_control_action(
     send_control_json(endpoint, body_value)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AppControlResponse {
-    #[serde(default)]
-    available_commands: Vec<crate::app_registry::AppReportedCommand>,
-}
-
-fn available_commands_from_response(
-    response: serde_json::Value,
-) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
-    serde_json::from_value::<AppControlResponse>(response)
-        .map(|value| value.available_commands)
-        .map_err(|e| format!("应用控制响应解析失败: {e}"))
-}
-
 async fn send_control_action_async(
     entry: Arc<AppProcessEntry>,
     action: String,
     command: Option<String>,
-) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
+) -> Result<(), String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    let response =
-        tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
-            .await
-            .map_err(|e| format!("应用控制任务失败: {e}"))??;
-    available_commands_from_response(response)
-}
-
-fn persist_available_commands_for_activation(
-    app_handle: &AppHandle,
-    app_id: &str,
-    commands: Vec<crate::app_registry::AppReportedCommand>,
-) -> Result<(), String> {
-    if commands.is_empty() {
-        return Ok(());
-    }
-    crate::app_registry::persist_app_available_commands(app_handle, app_id, commands)
-        .map(|_| ())
-        .map_err(|error| format!("保存应用能力清单失败: {error}"))
-}
-
-fn refresh_available_commands_from_background_report(
-    app_handle: &AppHandle,
-    app_id: &str,
-    commands: Vec<crate::app_registry::AppReportedCommand>,
-) {
-    if let Err(error) = persist_available_commands_for_activation(app_handle, app_id, commands) {
-        eprintln!(
-            "[app-launcher] background available commands refresh failed without blocking main flow for {app_id}: {error}"
-        );
-    }
+    tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
+        .await
+        .map_err(|e| format!("应用控制任务失败: {e}"))??;
+    Ok(())
 }
 
 async fn wait_for_process_exit(
@@ -444,16 +402,7 @@ fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
             .and_then(crate::app_registry::AppWindowBounds::from_value)
             .map(AppRuntimeMessage::WindowBounds)
             .unwrap_or(AppRuntimeMessage::Ignore),
-        Some("fw-app-commands") => value
-            .get("commands")
-            .and_then(|commands| {
-                serde_json::from_value::<Vec<crate::app_registry::AppReportedCommand>>(
-                    commands.clone(),
-                )
-                .ok()
-            })
-            .map(AppRuntimeMessage::AvailableCommands)
-            .unwrap_or(AppRuntimeMessage::Ignore),
+        Some("fw-app-commands") => AppRuntimeMessage::Ignore,
         _ => AppRuntimeMessage::Ignore,
     }
 }
@@ -703,8 +652,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
         if should_allow_foreground(&action) {
             allow_foreground_for_process(entry.pid);
         }
-        let available_commands = send_control_action_async(entry, action, command).await?;
-        persist_available_commands_for_activation(&app_handle, &id, available_commands)?;
+        send_control_action_async(entry, action, command).await?;
         return Ok(AppLaunchOutcome::Activated);
     }
 
@@ -756,13 +704,6 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
                         ) {
                             eprintln!("[app-launcher] failed to persist window bounds for {id_stdout}: {error}");
                         }
-                    }
-                    AppRuntimeMessage::AvailableCommands(commands) => {
-                        refresh_available_commands_from_background_report(
-                            &app_stdout,
-                            &id_stdout,
-                            commands,
-                        );
                     }
                     AppRuntimeMessage::Ignore => {}
                 }

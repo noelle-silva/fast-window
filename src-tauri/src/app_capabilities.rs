@@ -31,12 +31,39 @@ pub(crate) struct AppCapabilityOptionsRequest {
     config: serde_json::Value,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCapabilityListRequest {
+    apps: Vec<RegisteredAppLaunchConfig>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppCapabilityResponse {
     app_id: String,
     capability_id: String,
     response: serde_json::Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCapabilityListResponse {
+    apps: Vec<AppCapabilityListApp>,
+    errors: Vec<AppCapabilityListError>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCapabilityListApp {
+    app_id: String,
+    commands: Vec<crate::app_registry::AppReportedCommand>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCapabilityListError {
+    app_id: String,
+    message: String,
 }
 
 #[tauri::command]
@@ -66,6 +93,70 @@ async fn send_app_capability_request(
     tokio::task::spawn_blocking(move || send_control_json(endpoint, body))
         .await
         .map_err(|e| format!("应用能力调度任务失败: {e}"))?
+}
+
+pub(crate) async fn describe_app_commands(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
+) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
+    let endpoint = ensure_app_control_endpoint(app_handle, state, app, launch_options).await?;
+    let response = tokio::task::spawn_blocking(move || {
+        send_control_json(endpoint, serde_json::json!({ "action": "describeCapabilities" }))
+    })
+    .await
+    .map_err(|e| format!("应用能力清单读取任务失败: {e}"))??;
+
+    let value = serde_json::from_value::<AppControlCapabilityDescription>(response)
+        .map_err(|e| format!("应用能力清单响应解析失败: {e}"))?;
+    Ok(value.available_commands)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppControlCapabilityDescription {
+    #[serde(default)]
+    available_commands: Vec<crate::app_registry::AppReportedCommand>,
+}
+
+#[tauri::command]
+pub(crate) async fn app_capability_list(
+    app_handle: AppHandle,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
+    request: AppCapabilityListRequest,
+) -> Result<AppCapabilityListResponse, String> {
+    let mut apps = Vec::new();
+    let mut errors = Vec::new();
+
+    for app in request.apps {
+        let app_id = match validate_runtime_identifier(&app.id, "appId") {
+            Ok(app_id) => app_id,
+            Err(error) => {
+                errors.push(AppCapabilityListError {
+                    app_id: app.id,
+                    message: error,
+                });
+                continue;
+            }
+        };
+        match describe_app_commands(
+            app_handle.clone(),
+            state.inner().clone(),
+            &app,
+            AppLaunchOptions::default(),
+        )
+        .await
+        {
+            Ok(commands) => apps.push(AppCapabilityListApp { app_id, commands }),
+            Err(error) => errors.push(AppCapabilityListError {
+                app_id,
+                message: error,
+            }),
+        }
+    }
+
+    Ok(AppCapabilityListResponse { apps, errors })
 }
 
 #[tauri::command]

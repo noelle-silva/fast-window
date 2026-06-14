@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "identifier": "default",
   "description": "Default capabilities for Quick Bar app",
-  "windows": ["main", "quick-bar-toolbar"],
+  "windows": ["main", "quick-bar-toolbar", "quick-bar-result"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

@@ -64,6 +64,13 @@ impl From<AppCapabilityConfigField> for AppCapabilityConfigFieldInput {
     }
 }
 
+fn without_app_reported_commands(mut value: Value) -> Value {
+    if let Some(record) = value.as_object_mut() {
+        record.remove("availableCommands");
+    }
+    value
+}
+
 impl AppWindowBounds {
     pub(crate) fn from_value(value: &Value) -> Option<Self> {
         let x = i32::try_from(value.get("x")?.as_i64()?).ok()?;
@@ -118,7 +125,10 @@ fn load_registry_array(app: &AppHandle) -> Result<Vec<Value>, String> {
 pub(crate) fn load_registered_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    load_registry_array(app)
+    Ok(load_registry_array(app)?
+        .into_iter()
+        .map(without_app_reported_commands)
+        .collect())
 }
 
 pub(crate) fn load_registered_app_record(
@@ -198,6 +208,10 @@ fn save_registry_and_refresh_shortcuts(
     app: &AppHandle,
     registry: Vec<Value>,
 ) -> Result<(), String> {
+    let registry: Vec<Value> = registry
+        .into_iter()
+        .map(without_app_reported_commands)
+        .collect();
     for item in &registry {
         validate_app_value(item)?;
     }
@@ -323,7 +337,6 @@ fn validate_app_commands(apps: &[Value]) -> Result<(), String> {
     for item in apps {
         let app_id = app_id_from_value(item).unwrap_or("");
         validate_command_array(app_id, item.get("commands"), "命令")?;
-        validate_command_array(app_id, item.get("availableCommands"), "可用命令")?;
     }
     Ok(())
 }
@@ -518,101 +531,14 @@ fn is_valid_command_icon(icon: &str) -> bool {
     is_short_icon_text(icon)
 }
 
-fn command_to_value(command: AppReportedCommand, app_id: &str) -> Result<Value, String> {
-    let AppReportedCommand {
-        id,
-        title,
-        icon,
-        hotkey,
-        description,
-        config_fields,
-    } = command;
-    let command_id = id.as_str();
-    let mut value = serde_json::json!({ "id": id, "title": title });
-    if let Some(icon) = icon.map(|icon| icon.trim().to_string()) {
-        if !icon.is_empty() {
-            if !is_valid_command_icon(&icon) {
-                return Err(format!("{app_id} 上报的能力图标不合法: {command_id}"));
-            }
-            value["icon"] = Value::String(icon);
-        }
-    }
-    if let Some(hotkey) = hotkey.map(|hotkey| hotkey.trim().to_string()) {
-        if !hotkey.is_empty() {
-            let shortcut = Shortcut::from_str(&hotkey)
-                .map_err(|e| format!("{app_id} 上报的能力快捷键格式不合法: {command_id}: {e}"))?;
-            value["hotkey"] = Value::String(shortcut.to_string());
-        }
-    }
-    if let Some(description) = description.map(|description| description.trim().to_string()) {
-        if !description.is_empty() {
-            if description.len() > 240 {
-                return Err(format!("{app_id} 上报的能力说明过长: {command_id}"));
-            }
-            value["description"] = Value::String(description);
-        }
-    }
-    let config_fields = normalize_config_fields(app_id, command_id, config_fields)?;
-    if !config_fields.is_empty() {
-        value["configFields"] = Value::Array(config_fields);
-    }
-    Ok(value)
-}
-
-fn normalize_config_fields(
-    app_id: &str,
-    command_id: &str,
-    fields: Vec<AppCapabilityConfigField>,
-) -> Result<Vec<Value>, String> {
-    let message_subject = format!("{app_id} 上报的能力");
-    normalize_config_field_inputs(
-        &message_subject,
-        command_id,
-        fields.into_iter().map(Into::into).collect(),
-    )
-}
-
-fn normalize_reported_commands(
-    app_id: &str,
-    commands: Vec<AppReportedCommand>,
-) -> Result<Vec<Value>, String> {
-    let mut seen: HashMap<String, ()> = HashMap::new();
-    let mut normalized = Vec::with_capacity(commands.len());
-    for command in commands {
-        let id = command.id.trim().to_string();
-        if !crate::is_safe_id(&id) {
-            return Err(format!("{app_id} 上报的能力 ID 不合法: {id}"));
-        }
-        if seen.insert(id.clone(), ()).is_some() {
-            return Err(format!("{app_id} 上报的能力 ID 重复: {id}"));
-        }
-        let title = command.title.trim().to_string();
-        if title.is_empty() {
-            return Err(format!("{app_id} 上报的能力名称不能为空: {id}"));
-        }
-        if title.len() > 80 {
-            return Err(format!("{app_id} 上报的能力名称过长: {id}"));
-        }
-        normalized.push(command_to_value(
-            AppReportedCommand {
-                id,
-                title,
-                icon: command.icon,
-                hotkey: command.hotkey,
-                description: command.description,
-                config_fields: command.config_fields,
-            },
-            app_id,
-        )?);
-    }
-    Ok(normalized)
-}
-
 #[tauri::command]
 pub(crate) fn app_registry_load(app: AppHandle) -> Result<Vec<Value>, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    load_registry_array(&app)
+    Ok(load_registry_array(&app)?
+        .into_iter()
+        .map(without_app_reported_commands)
+        .collect())
 }
 
 #[tauri::command]
@@ -765,54 +691,5 @@ pub(crate) fn persist_app_window_bounds(
         },
     );
 
-    Ok(true)
-}
-
-pub(crate) fn persist_app_available_commands(
-    app: &AppHandle,
-    app_id: &str,
-    commands: Vec<AppReportedCommand>,
-) -> Result<bool, String> {
-    if !crate::is_safe_id(app_id) {
-        return Err("appId 不合法".to_string());
-    }
-
-    let commands = normalize_reported_commands(app_id, commands)?;
-    if commands.is_empty() {
-        return Ok(false);
-    }
-
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-
-    let mut registry = load_registry_value(app)?;
-    let Value::Array(items) = &mut registry else {
-        return Ok(false);
-    };
-
-    let mut changed = false;
-    for item in items {
-        let Some(app_record) = item.as_object_mut() else {
-            continue;
-        };
-        if app_record.get("id").and_then(Value::as_str) != Some(app_id) {
-            continue;
-        }
-        let next = Value::Array(commands.clone());
-        if app_record.get("availableCommands") == Some(&next) {
-            return Ok(false);
-        }
-        app_record.insert("availableCommands".to_string(), next);
-        changed = true;
-        break;
-    }
-
-    if !changed {
-        return Ok(false);
-    }
-
-    let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
-    crate::write_json_value(&path, &registry)?;
-    emit_registry_changed(app);
     Ok(true)
 }

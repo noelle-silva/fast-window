@@ -14,7 +14,6 @@ function applyRegisteredAppPatch(app: RegisteredApp, patch: RegisteredAppUpdateP
     else delete next.hotkeyLaunchBehavior
   }
   if (patch.commands !== undefined) next.commands = patch.commands
-  if (patch.availableCommands !== undefined) next.availableCommands = patch.availableCommands
   if (patch.autoStart !== undefined) next.autoStart = patch.autoStart
   if (patch.windowWidth !== undefined) next.windowWidth = patch.windowWidth
   if (patch.windowHeight !== undefined) next.windowHeight = patch.windowHeight

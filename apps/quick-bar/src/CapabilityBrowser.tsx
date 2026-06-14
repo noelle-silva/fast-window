@@ -6,6 +6,7 @@ import {
   queryCapabilityOptions,
   type HostCapabilityItem,
   type HostCapabilityConfigField,
+  type HostCapabilityError,
 } from './hostCapabilityClient'
 
 type CapabilityBrowserProps = {
@@ -19,6 +20,7 @@ type FieldOptions = Record<string, Array<{ value: string; label: string }>>
 export function CapabilityBrowser(props: CapabilityBrowserProps) {
   const { client } = props
   const [capabilities, setCapabilities] = React.useState<HostCapabilityItem[] | null>(null)
+  const [capabilityErrors, setCapabilityErrors] = React.useState<HostCapabilityError[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
@@ -34,8 +36,11 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
       setLoading(true)
       setError(null)
       try {
-        const items = await fetchCapabilities(client)
-        if (!cancelled) setCapabilities(items)
+        const result = await fetchCapabilities(client)
+        if (!cancelled) {
+          setCapabilities(result.capabilities)
+          setCapabilityErrors(result.errors)
+        }
       } catch (e) {
         if (!cancelled) setError(String((e as { message?: string })?.message || e || '获取能力列表失败'))
       } finally {
@@ -131,14 +136,25 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
 
   if (loading) return <section className="quickbar-capability-loading" aria-label="能力列表加载中">加载能力清单...</section>
   if (error) return <section className="quickbar-error-card" role="alert">{error}</section>
-  if (!capabilities?.length) {
-    return <section className="quickbar-capability-empty" aria-label="无可用能力">暂无可用能力。请确认已有能力 App 注册在宿主平台中。</section>
+  const visibleCapabilities = capabilities ?? []
+  if (!visibleCapabilities.length && !capabilityErrors.length) {
+    return <section className="quickbar-capability-empty" aria-label="无可用能力">暂无可用能力。请确认已有能力 App 可以启动并回答能力清单。</section>
   }
 
   return (
     <section className="quickbar-capability-browser" aria-label="能力浏览">
       <h2>可用能力</h2>
-      <p className="quickbar-muted">以下能力来自宿主平台已注册的 App。选择能力并完成配置后，即可注册为悬浮栏按钮。</p>
+      <p className="quickbar-muted">以下能力来自宿主现场询问已注册 App 的当前回答。选择能力并完成配置后，即可注册为悬浮栏按钮。</p>
+
+      {capabilityErrors.length ? (
+        <div className="quickbar-capability-errors" role="alert" aria-label="部分能力读取失败">
+          {capabilityErrors.map(error => (
+            <div key={`${error.appId}:${error.message}`} className="quickbar-capability-message quickbar-capability-message-error">
+              {error.appId ? `${error.appId}: ` : ''}{error.message || '读取能力失败'}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {message ? (
         <div className={`quickbar-capability-message ${message.startsWith('已') ? 'quickbar-capability-message-ok' : 'quickbar-capability-message-error'}`} role="alert">
@@ -147,7 +163,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
       ) : null}
 
       <div className="quickbar-capability-list">
-        {capabilities.map(item => {
+        {visibleCapabilities.map(item => {
           const capId = `${item.appId}:${item.capabilityId}`
           const expanded = expandedId === capId
           return (

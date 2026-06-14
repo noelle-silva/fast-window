@@ -8,6 +8,11 @@ type AppCapabilityHostResponse = {
   response: unknown
 }
 
+type AppCapabilityListHostResponse = {
+  apps: Array<{ appId: string; commands: RegisteredAppCommand[] }>
+  errors: Array<{ appId: string; message: string }>
+}
+
 type AppCapabilityRequest = {
   app: RegisteredApp
   capabilityId: string
@@ -29,6 +34,10 @@ export async function invokeAppCapability(request: AppCapabilityRequest): Promis
 
 export async function getAppCapabilityEnvVars(): Promise<Array<[string, string]>> {
   return invoke<Array<[string, string]>>('app_capability_env_vars')
+}
+
+export async function listAppCapabilities(apps: RegisteredApp[]): Promise<AppCapabilityListHostResponse> {
+  return invoke<AppCapabilityListHostResponse>('app_capability_list', { request: { apps } })
 }
 
 export async function queryAppCapabilityOptions(request: AppCapabilityOptionsRequest): Promise<AppCapabilityOption[]> {

@@ -949,11 +949,6 @@ fn build_registered_app_record(
     if !record.contains_key("commands") {
         record.insert("commands".to_string(), Value::Array(Vec::new()));
     }
-    record.insert(
-        "availableCommands".to_string(),
-        serde_json::to_value(resolve_app_commands(manifest, manifest_dir)?)
-            .map_err(|e| format!("序列化应用命令失败: {e}"))?,
-    );
     if !record.contains_key("autoStart") {
         record.insert("autoStart".to_string(), Value::Bool(false));
     }

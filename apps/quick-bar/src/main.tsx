@@ -9,12 +9,13 @@ import { QuickBarTopbar } from './QuickBarTopbar'
 import { SettingsPage, type SettingsTab } from './SettingsPage'
 import { CapabilityBrowser } from './CapabilityBrowser'
 import { ToolbarApp } from './ToolbarApp'
+import { ResultPopupApp } from './ResultPopupApp'
 import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
 import './styles.css'
 
 const appWindow = getCurrentWindow()
-const isToolbarView = new URLSearchParams(window.location.search).get('view') === 'toolbar'
+const view = new URLSearchParams(window.location.search).get('view')
 
 function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
@@ -292,4 +293,6 @@ function QuickBarHome(props: {
 }
 
 const host = document.getElementById('app')
-if (host) createRoot(host).render(isToolbarView ? <ToolbarApp /> : <App />)
+if (host) {
+  createRoot(host).render(view === 'toolbar' ? <ToolbarApp /> : view === 'result' ? <ResultPopupApp /> : <App />)
+}

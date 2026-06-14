@@ -239,6 +239,21 @@ fn handle_control_connection(
         .unwrap_or("show");
     let command = value.get("command").and_then(|v| v.as_str());
 
+    if action == "describeCapabilities" {
+        write_control_response(
+            &mut stream,
+            200,
+            serde_json::json!({
+                "ok": true,
+                "appId": app_id,
+                "serverId": server_id,
+                "protocolVersion": 1,
+                "availableCommands": available_commands()
+            }),
+        );
+        return;
+    }
+
     match apply_control_action(app, window_state, action, command) {
         Ok(()) => write_control_response(
             &mut stream,

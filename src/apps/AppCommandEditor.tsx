@@ -9,7 +9,7 @@ import { hostButtonSx, hostSelectSx, hostTextFieldSx } from '../components/hostU
 
 interface AppCommandEditorProps {
   commands: RegisteredAppCommand[]
-  availableCommands?: RegisteredAppCommand[]
+  currentCommands?: RegisteredAppCommand[]
   appIcon: string
   appName: string
   disabled?: boolean
@@ -40,7 +40,7 @@ function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
 
 export default function AppCommandEditor({
   commands,
-  availableCommands = [],
+  currentCommands = [],
   appIcon,
   appName,
   disabled = false,
@@ -55,12 +55,12 @@ export default function AppCommandEditor({
   const [title, setTitle] = useState('')
   const [selectedCommandId, setSelectedCommandId] = useState('')
 
-  const selectableCommands = availableCommands.filter(command => !commands.some(item => item.id === command.id))
-  const commandSelectPlaceholder = availableCommands.length
+  const selectableCommands = currentCommands.filter(command => !commands.some(item => item.id === command.id))
+  const commandSelectPlaceholder = currentCommands.length
     ? selectableCommands.length
-      ? '选择 App 上报的命令'
-      : 'App 上报的命令已全部添加'
-    : '尚未收到 App 上报的命令'
+      ? '选择 App 当前返回的命令'
+      : 'App 当前返回的命令已全部添加'
+    : '尚未读取到 App 当前命令'
 
   const addCommand = () => {
     const nextTitle = title.trim()
@@ -121,7 +121,7 @@ export default function AppCommandEditor({
         </Button>
       </Box>
       <Typography variant="caption" color="text.secondary">
-        App 启动后会自动上报可选命令；未上报前仍可手动添加。
+        这里读取 App 当前回答的命令；如果暂时读不到，仍可手动添加。
       </Typography>
 
       {commands.length ? (

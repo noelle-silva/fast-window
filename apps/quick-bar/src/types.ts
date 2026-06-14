@@ -18,6 +18,15 @@ export type ToolbarPayload = {
   anchorY: number
 }
 
+export type ResultPopupStatus = 'loading' | 'done' | 'error'
+
+export type ResultPopupPayload = {
+  title: string
+  status: ResultPopupStatus
+  text?: string | null
+  errorText?: string | null
+}
+
 export type ShortcutStatus = {
   shortcut: string
   enabled: boolean

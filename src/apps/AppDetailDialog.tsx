@@ -168,10 +168,6 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
               <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>已注册命令</Typography>
               <CommandList commands={app.commands} />
             </Box>
-            <Box sx={{ mt: 1.25 }}>
-              <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>应用可用命令</Typography>
-              <CommandList commands={app.availableCommands} />
-            </Box>
           </Box>
         ) : null}
       </DialogContent>
