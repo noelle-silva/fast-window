@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_control_client;
 mod app_layout;
+mod backend_control_client;
 mod backend_lifecycle;
 mod backend_sidecar;
+mod control_http_client;
 mod control_server;
 mod data_dir;
 mod fw_window;

@@ -2,16 +2,16 @@ use std::env;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::app_control_client::post_app_control_request;
 use crate::control_server::{
-    post_control_request, random_token, start_control_server, ControlEndpoint, ControlServerConfig,
-    AI_ONCE_APP_ID,
+    random_token, start_control_server, ControlEndpoint, ControlServerConfig, AI_ONCE_APP_ID,
 };
 use crate::fw_window::{FwArgs, FwWindowState};
 
@@ -44,7 +44,7 @@ pub(crate) fn forward_to_existing_instance(args: &FwArgs, desktop_identifier: &s
         return false;
     }
 
-    let ok = post_control_request(
+    let ok = post_app_control_request(
         &state.addr,
         &state.token,
         forwarded_action(args),

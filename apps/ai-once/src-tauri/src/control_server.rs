@@ -3,8 +3,9 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use crate::backend_control_client::{handle_capability_action, is_capability_action};
 use crate::fw_window::{apply_control_action, FwWindowState};
 
 pub(crate) const AI_ONCE_APP_ID: &str = "ai-once";
@@ -14,6 +15,18 @@ pub(crate) const AI_ONCE_APP_ID: &str = "ai-once";
 pub(crate) struct AppCommandDescriptor {
     pub(crate) id: &'static str,
     pub(crate) title: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) config_fields: Option<&'static [AppCommandConfigField]>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCommandConfigField {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) option_source: &'static str,
 }
 
 #[derive(Clone, Serialize)]
@@ -31,15 +44,6 @@ pub(crate) struct ControlServerConfig {
     pub(crate) announce_to_stdout: bool,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ControlClientResponse {
-    ok: bool,
-    app_id: Option<String>,
-    server_id: Option<String>,
-    protocol_version: Option<u32>,
-}
-
 struct ControlRequest {
     method: String,
     path: String,
@@ -52,14 +56,31 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "open-settings",
             title: "打开 AI Once 设置",
+            description: None,
+            config_fields: None,
         },
         AppCommandDescriptor {
             id: "ask-once",
             title: "一次性 AI 提问",
+            description: Some("接受一段文字并返回 AI 回复。"),
+            config_fields: Some(&[
+                AppCommandConfigField {
+                    id: "spaceId",
+                    label: "工作空间",
+                    option_source: "list-spaces",
+                },
+                AppCommandConfigField {
+                    id: "templateId",
+                    label: "提示词模板",
+                    option_source: "list-templates",
+                },
+            ]),
         },
         AppCommandDescriptor {
             id: "new-prompt",
             title: "新建一次性 Prompt",
+            description: None,
+            config_fields: None,
         },
     ]
 }
@@ -129,10 +150,7 @@ pub(crate) fn start_control_server(
                         server_id,
                     ),
                     Err(error) => {
-                        eprintln!(
-                            "[ai-once] {} connection failed: {error}",
-                            server_name
-                        );
+                        eprintln!("[ai-once] {} connection failed: {error}", server_name);
                         break;
                     }
                 }
@@ -141,49 +159,6 @@ pub(crate) fn start_control_server(
         .map_err(|e| format!("启动{}线程失败: {e}", config.name))?;
 
     Ok(endpoint)
-}
-
-pub(crate) fn post_control_request(
-    addr: &str,
-    token: &str,
-    action: &str,
-    command: Option<&str>,
-    expected_app_id: &str,
-    expected_server_id: &str,
-) -> bool {
-    let mut body = serde_json::json!({ "action": action });
-    if let Some(command) = command.map(str::trim).filter(|value| !value.is_empty()) {
-        body["command"] = serde_json::Value::String(command.to_string());
-    }
-
-    let body = body.to_string();
-    let request = format!(
-        "POST /control HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-FW-Control-Token: {token}\r\nConnection: close\r\n\r\n{}",
-        body.as_bytes().len(),
-        body,
-    );
-
-    let Ok(mut stream) = TcpStream::connect(addr) else {
-        return false;
-    };
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    if stream.write_all(request.as_bytes()).is_err() {
-        return false;
-    }
-
-    let mut response = Vec::new();
-    if stream.read_to_end(&mut response).is_err() {
-        return false;
-    }
-    let response = String::from_utf8_lossy(&response);
-    if !response.starts_with("HTTP/1.1 200") {
-        return false;
-    }
-    let Some((_, body)) = response.split_once("\r\n\r\n") else {
-        return false;
-    };
-    control_response_matches(body, expected_app_id, expected_server_id)
 }
 
 fn handle_control_connection(
@@ -239,6 +214,18 @@ fn handle_control_connection(
         .unwrap_or("show");
     let command = value.get("command").and_then(|v| v.as_str());
 
+    if is_capability_action(action) {
+        match handle_capability_action(app, action, &value) {
+            Ok(response) => write_control_response(&mut stream, 200, response),
+            Err(error) => write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            ),
+        }
+        return;
+    }
+
     match apply_control_action(app, window_state, action, command) {
         Ok(()) => write_control_response(
             &mut stream,
@@ -257,16 +244,6 @@ fn handle_control_connection(
             serde_json::json!({ "ok": false, "error": error }),
         ),
     }
-}
-
-fn control_response_matches(body: &str, expected_app_id: &str, expected_server_id: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<ControlClientResponse>(body) else {
-        return false;
-    };
-    value.ok
-        && value.protocol_version == Some(1)
-        && value.app_id.as_deref() == Some(expected_app_id)
-        && value.server_id.as_deref() == Some(expected_server_id)
 }
 
 fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String> {
