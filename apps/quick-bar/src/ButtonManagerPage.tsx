@@ -7,7 +7,7 @@ type ButtonManagerPageProps = {
   onOpenCapabilities: () => void
 }
 
-type ButtonBusyAction = 'toggle' | 'delete'
+type ButtonBusyAction = 'rename' | 'toggle' | 'delete'
 
 type ButtonBusyState = {
   id: string
@@ -19,12 +19,15 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<ButtonBusyState>(null)
   const [confirmingDeleteId, setConfirmingDeleteId] = React.useState<string | null>(null)
+  const [titleDrafts, setTitleDrafts] = React.useState<Record<string, string>>({})
 
   const refresh = React.useCallback(async () => {
     setError(null)
     setConfirmingDeleteId(null)
     try {
-      setButtons(await fetchRegistryButtons(client))
+      const list = await fetchRegistryButtons(client)
+      setButtons(list)
+      setTitleDrafts(titleDraftsFromButtons(list))
     } catch (e) {
       setError(errorMessage(e, '读取按钮列表失败'))
     }
@@ -36,7 +39,10 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
     setConfirmingDeleteId(null)
     void fetchRegistryButtons(client)
       .then(list => {
-        if (!cancelled) setButtons(list)
+        if (!cancelled) {
+          setButtons(list)
+          setTitleDrafts(titleDraftsFromButtons(list))
+        }
       })
       .catch(e => {
         if (!cancelled) setError(errorMessage(e, '读取按钮列表失败'))
@@ -48,7 +54,31 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
 
   const replaceButton = React.useCallback((nextButton: RegistryButton) => {
     setButtons(current => current?.map(button => button.id === nextButton.id ? nextButton : button) ?? current)
+    setTitleDrafts(current => ({ ...current, [nextButton.id]: nextButton.title }))
   }, [])
+
+  const updateTitleDraft = React.useCallback((button: RegistryButton, value: string) => {
+    setTitleDrafts(current => ({ ...current, [button.id]: value }))
+  }, [])
+
+  const renameButton = React.useCallback(async (button: RegistryButton) => {
+    const nextTitle = (titleDrafts[button.id] ?? button.title).trim()
+    if (!nextTitle) {
+      setError('按钮名称不能为空')
+      return
+    }
+    if (nextTitle === button.title) return
+    setBusy({ id: button.id, action: 'rename' })
+    setError(null)
+    setConfirmingDeleteId(null)
+    try {
+      replaceButton(await updateRegistryButton(client, { id: button.id, title: nextTitle }))
+    } catch (e) {
+      setError(errorMessage(e, '修改按钮名称失败'))
+    } finally {
+      setBusy(null)
+    }
+  }, [client, replaceButton, titleDrafts])
 
   const toggleButton = React.useCallback(async (button: RegistryButton) => {
     const nextEnabled = button.enabled === false
@@ -71,6 +101,11 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
     try {
       await removeRegistryButton(client, button.id)
       setButtons(current => current?.filter(item => item.id !== button.id) ?? current)
+      setTitleDrafts(current => {
+        const next = { ...current }
+        delete next[button.id]
+        return next
+      })
       setConfirmingDeleteId(null)
     } catch (e) {
       setError(errorMessage(e, '删除按钮失败'))
@@ -83,17 +118,16 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
 
   return (
     <section className="quickbar-button-manager" aria-label="已注册按钮管理">
-      <header className="quickbar-button-manager-header">
+      <div className="quickbar-button-manager-toolbar">
         <div>
-          <p className="quickbar-eyebrow">Quick Bar Buttons</p>
-          <h2>已注册按钮管理</h2>
-          <p>这里只管理你已经注册到 Quick Bar 浮动条里的按钮。停用会让按钮暂时不出现在划词浮动条中，删除会移除这条按钮记录。</p>
+          <h2>已注册按钮</h2>
+          <p className="quickbar-muted">停用后按钮不会出现在划词浮动条中，删除会移除记录。</p>
         </div>
         <div className="quickbar-button-manager-actions">
           <button type="button" onClick={() => void refresh()}>刷新列表</button>
           <button type="button" onClick={onOpenCapabilities}>注册新按钮</button>
         </div>
-      </header>
+      </div>
 
       {stats ? (
         <div className="quickbar-button-manager-stats" aria-label="按钮统计">
@@ -123,6 +157,9 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
               button={button}
               busy={busy?.id === button.id ? busy.action : null}
               confirmingDelete={confirmingDeleteId === button.id}
+              titleDraft={titleDrafts[button.id] ?? button.title}
+              onTitleDraftChange={value => updateTitleDraft(button, value)}
+              onRename={() => void renameButton(button)}
               onToggle={() => void toggleButton(button)}
               onAskDelete={() => setConfirmingDeleteId(button.id)}
               onCancelDelete={() => setConfirmingDeleteId(null)}
@@ -148,13 +185,17 @@ function ButtonCard(props: {
   button: RegistryButton
   busy: ButtonBusyAction | null
   confirmingDelete: boolean
+  titleDraft: string
+  onTitleDraftChange: (value: string) => void
+  onRename: () => void
   onToggle: () => void
   onAskDelete: () => void
   onCancelDelete: () => void
   onConfirmDelete: () => void
 }) {
-  const { button, busy, confirmingDelete, onToggle, onAskDelete, onCancelDelete, onConfirmDelete } = props
+  const { button, busy, confirmingDelete, titleDraft, onTitleDraftChange, onRename, onToggle, onAskDelete, onCancelDelete, onConfirmDelete } = props
   const enabled = button.enabled !== false
+  const titleChanged = titleDraft.trim() !== button.title
 
   return (
     <article className={`quickbar-button-card${enabled ? '' : ' quickbar-button-card-disabled'}`}>
@@ -167,6 +208,16 @@ function ButtonCard(props: {
         <span className={`quickbar-button-status ${enabled ? 'quickbar-button-status-enabled' : 'quickbar-button-status-disabled'}`}>
           {enabled ? '正在显示' : '已停用'}
         </span>
+      </div>
+
+      <div className="quickbar-button-title-edit">
+        <label>
+          <span>按钮名称</span>
+          <input value={titleDraft} onChange={event => onTitleDraftChange(event.target.value)} />
+        </label>
+        <button type="button" onClick={onRename} disabled={busy !== null || !titleChanged}>
+          {busy === 'rename' ? '保存中...' : '保存名称'}
+        </button>
       </div>
 
       <div className="quickbar-button-card-actions">
@@ -196,6 +247,10 @@ function buttonStats(buttons: RegistryButton[]) {
     enabled,
     disabled: buttons.length - enabled,
   }
+}
+
+function titleDraftsFromButtons(buttons: RegistryButton[]): Record<string, string> {
+  return Object.fromEntries(buttons.map(button => [button.id, button.title]))
 }
 
 function appName(button: RegistryButton): string {

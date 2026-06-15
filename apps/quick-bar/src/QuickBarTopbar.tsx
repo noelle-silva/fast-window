@@ -6,35 +6,18 @@ type WindowControlActions = {
   closeToTray: () => Promise<void> | void
 }
 
-export type QuickBarPage = 'home' | 'settings' | 'capabilities' | 'buttons'
+export type QuickBarPage = 'settings' | 'capabilities' | 'buttons'
 
 type QuickBarTopbarProps = {
   page: QuickBarPage
   standalone: boolean
-  onBack: () => void
-  onOpenSettings: () => void
+  onNavigate: (page: QuickBarPage) => void
   onStartDragging: () => Promise<void> | void
   windowActions: WindowControlActions
 }
 
 function run(action: () => Promise<void> | void) {
   Promise.resolve(action()).catch(() => {})
-}
-
-function IconSettings() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
-      <path fill="currentColor" d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8 8 0 0 0-2.6-1.5L14 2h-4l-.4 3a8 8 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a9 9 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 2.6 1.5l.4 3h4l.4-3a8 8 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
-    </svg>
-  )
-}
-
-function IconBack() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
-      <path fill="currentColor" d="M15.7 5.3a1 1 0 0 1 0 1.4L10.4 12l5.3 5.3a1 1 0 1 1-1.4 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.4 0Z" />
-    </svg>
-  )
 }
 
 function WindowControls({ actions }: { actions: WindowControlActions }) {
@@ -53,15 +36,20 @@ function WindowControls({ actions }: { actions: WindowControlActions }) {
   )
 }
 
-function pageTitle(page: QuickBarTopbarProps['page']): string {
+const NAV_ITEMS: Array<{ page: QuickBarPage; label: string }> = [
+  { page: 'settings', label: '设置' },
+  { page: 'buttons', label: '已注册管理' },
+  { page: 'capabilities', label: '能力浏览' },
+]
+
+function pageTitle(page: QuickBarPage): string {
   if (page === 'settings') return '设置'
   if (page === 'capabilities') return '能力浏览'
-  if (page === 'buttons') return '按钮管理'
-  return 'Quick Bar'
+  return '按钮管理'
 }
 
 export function QuickBarTopbar(props: QuickBarTopbarProps) {
-  const { page, standalone, onBack, onOpenSettings, onStartDragging, windowActions } = props
+  const { page, standalone, onNavigate, onStartDragging, windowActions } = props
 
   const onPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
@@ -72,21 +60,20 @@ export function QuickBarTopbar(props: QuickBarTopbarProps) {
 
   return (
     <header className="quickbar-topbar" onPointerDown={onPointerDown}>
-      {page !== 'home' ? (
-        <button type="button" className="quickbar-icon-button" onClick={onBack} aria-label="返回主页">
-          <IconBack />
-        </button>
-      ) : null}
-
       <div className="quickbar-topbar-title" aria-live="polite">{pageTitle(page)}</div>
+      <nav className="quickbar-topbar-nav" aria-label="Quick Bar 页面入口">
+        {NAV_ITEMS.map(item => (
+          <button
+            key={item.page}
+            type="button"
+            className={item.page === page ? 'quickbar-topbar-nav-active' : ''}
+            onClick={() => onNavigate(item.page)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
       <div className="quickbar-topbar-spacer" />
-
-      {page === 'home' ? (
-        <button type="button" className="quickbar-icon-button" onClick={onOpenSettings} aria-label="设置">
-          <IconSettings />
-        </button>
-      ) : null}
-
       {standalone ? <WindowControls actions={windowActions} /> : null}
     </header>
   )

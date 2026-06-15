@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
-import { fetchRegistryButtons } from './registryClient'
 import { QuickBarTopbar, type QuickBarPage } from './QuickBarTopbar'
 import { SettingsPage, type SettingsTab } from './SettingsPage'
 import { CapabilityBrowser } from './CapabilityBrowser'
@@ -23,7 +22,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function App() {
-  const [page, setPage] = React.useState<QuickBarPage>('home')
+  const [page, setPage] = React.useState<QuickBarPage>('settings')
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('overview')
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [initialCommand, setInitialCommand] = React.useState<string | null>(null)
@@ -177,10 +176,9 @@ function App() {
       <QuickBarTopbar
         page={page}
         standalone={launchInfo.standalone}
-        onBack={() => setPage('home')}
-        onOpenSettings={() => {
-          setSettingsTab('overview')
-          setPage('settings')
+        onNavigate={nextPage => {
+          if (nextPage === 'settings') setSettingsTab('overview')
+          setPage(nextPage)
         }}
         onStartDragging={() => appWindow.startDragging()}
         windowActions={{
@@ -206,7 +204,6 @@ function App() {
           onShortcutChange={saveShortcut}
           onPickDataDir={pickDataDir}
           onRestartBackend={() => connect({ restartBackend: true })}
-          onOpenButtons={() => setPage('buttons')}
           client={phase === 'ready' ? getClient() : null}
         />
       ) : page === 'capabilities' ? (
@@ -225,99 +222,9 @@ function App() {
             后台连接中，请稍候...
           </section>
         )
-      ) : (
-        <QuickBarHome
-          phase={phase}
-          runtimeCommand={runtimeCommand}
-          shortcutStatus={shortcutStatus}
-          onOpenSettings={() => {
-            setSettingsTab('overview')
-            setPage('settings')
-          }}
-          onOpenCapabilities={() => setPage('capabilities')}
-          onOpenButtons={() => setPage('buttons')}
-          getClient={getClient}
-        />
-      )}
+      ) : null}
     </main>
   )
-}
-
-function QuickBarHome(props: {
-  phase: 'starting' | 'ready' | 'failed'
-  runtimeCommand: string | null
-  shortcutStatus: ShortcutStatus | null
-  onOpenSettings: () => void
-  onOpenCapabilities: () => void
-  onOpenButtons: () => void
-  getClient: () => DirectClient
-}) {
-  const [buttonStats, setButtonStats] = React.useState<{ total: number; enabled: number } | null>(null)
-  const [buttonCountError, setButtonCountError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    setButtonStats(null)
-    setButtonCountError(null)
-    if (props.phase !== 'ready') return
-    let cancelled = false
-    void fetchRegistryButtons(props.getClient())
-      .then(buttons => {
-        if (!cancelled) setButtonStats({
-          total: buttons.length,
-          enabled: buttons.filter(button => button.enabled !== false).length,
-        })
-      })
-      .catch(e => {
-        if (!cancelled) setButtonCountError(errorMessage(e, '读取已注册按钮失败'))
-      })
-    return () => { cancelled = true }
-  }, [props.phase, props.getClient])
-
-  return (
-    <section className="quickbar-home" aria-label="Quick Bar 管理主页">
-      <div className="quickbar-hero">
-        <p className="quickbar-eyebrow">划词助手 · Phase 4</p>
-        <h1>Quick Bar</h1>
-        <p>选中文字后，按下 Quick Bar 自己保存的快捷键，在选区附近唤起一条轻量浮动工具栏。</p>
-        <div className="quickbar-hero-actions">
-          <button type="button" onClick={props.onOpenSettings}>配置与状态</button>
-          <button type="button" onClick={props.onOpenCapabilities}>能力浏览</button>
-          <button type="button" onClick={props.onOpenButtons}>管理已注册按钮</button>
-        </div>
-      </div>
-
-      <div className="quickbar-home-grid">
-        <article className="quickbar-panel quickbar-panel-dark">
-          <h2>当前目标</h2>
-          <p className="quickbar-muted">从宿主能力平台选取能力，注册为悬浮栏按钮，划词后点击按钮即可调用。</p>
-        </article>
-        <article className="quickbar-panel">
-          <h2>运行状态</h2>
-          <div className={`quickbar-status-badge quickbar-status-${props.phase}`}>
-            {props.phase === 'ready' ? '后台可用' : props.phase === 'failed' ? '需要处理' : '启动中'}
-          </div>
-          <p className="quickbar-muted">最近命令：{props.runtimeCommand || '暂无'}</p>
-          <p className="quickbar-muted">唤醒快捷键：{props.shortcutStatus?.shortcut || '读取中'}</p>
-        </article>
-        <article className="quickbar-panel quickbar-action-preview">
-          <h2>已注册按钮</h2>
-          <p className="quickbar-muted">
-            {buttonCountError || buttonStatsText(buttonStats)}
-          </p>
-          <div className="quickbar-actions">
-            <button type="button" onClick={props.onOpenButtons}>管理已注册按钮</button>
-          </div>
-        </article>
-      </div>
-    </section>
-  )
-}
-
-function buttonStatsText(stats: { total: number; enabled: number } | null): string {
-  if (!stats) return '读取中...'
-  if (stats.total === 0) return '暂无已注册的能力按钮，请前往能力浏览选取。'
-  if (stats.enabled === stats.total) return `已注册 ${stats.total} 个按钮，全部正在显示。`
-  return `已注册 ${stats.total} 个按钮，其中 ${stats.enabled} 个正在显示。`
 }
 
 const host = document.getElementById('app')

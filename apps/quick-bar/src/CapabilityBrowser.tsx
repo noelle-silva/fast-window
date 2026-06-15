@@ -28,6 +28,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
   const [configSelections, setConfigSelections] = React.useState<ConfigSelection>({})
   const [fieldOptions, setFieldOptions] = React.useState<FieldOptions>({})
   const [optionLoading, setOptionLoading] = React.useState<Record<string, boolean>>({})
+  const [buttonTitles, setButtonTitles] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState(false)
   const [refreshingAppId, setRefreshingAppId] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
@@ -133,6 +134,10 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     })
   }, [])
 
+  const updateButtonTitle = React.useCallback((item: HostCapabilityItem, value: string) => {
+    setButtonTitles(prev => ({ ...prev, [capabilityKey(item)]: value }))
+  }, [])
+
   const handleRegister = React.useCallback(async (item: HostCapabilityItem) => {
     setBusy(true)
     setMessage(null)
@@ -142,20 +147,25 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         setMessage(`请先选择：${missingField.label}`)
         return
       }
+      const title = (buttonTitles[capabilityKey(item)] ?? item.title ?? item.capabilityId).trim()
+      if (!title) {
+        setMessage('请填写按钮名称')
+        return
+      }
       await addRegistryButton(client, {
         app: item.app,
         appId: item.appId,
         capabilityId: item.capabilityId,
-        title: item.title || item.capabilityId,
+        title,
         config: configToRecord(configSelections, item),
       })
-      setMessage(`已注册：${item.title || item.capabilityId}`)
+      setMessage(`已注册：${title}`)
     } catch (e) {
       setMessage(`注册失败: ${String((e as { message?: string })?.message || e)}`)
     } finally {
       setBusy(false)
     }
-  }, [client, configSelections])
+  }, [buttonTitles, client, configSelections])
 
   if (loading) return <section className="quickbar-capability-loading" aria-label="能力列表加载中">加载能力清单...</section>
   if (error) return <section className="quickbar-error-card" role="alert">{error}</section>
@@ -208,7 +218,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
 
       <div className="quickbar-capability-list">
         {visibleCapabilities.map(item => {
-          const capId = `${item.appId}:${item.capabilityId}`
+          const capId = capabilityKey(item)
           const expanded = expandedId === capId
           return (
             <article key={capId} className={`quickbar-capability-card ${expanded ? 'quickbar-capability-card-expanded' : ''}`}>
@@ -248,6 +258,15 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
                       })}
                     </div>
                   ) : null}
+
+                  <label className="quickbar-capability-field">
+                    <span className="quickbar-capability-field-label">按钮名称 *</span>
+                    <input
+                      type="text"
+                      value={buttonTitles[capId] ?? item.title ?? item.capabilityId}
+                      onChange={event => updateButtonTitle(item, event.target.value)}
+                    />
+                  </label>
 
                   <div className="quickbar-capability-card-actions">
                     <button
@@ -315,7 +334,11 @@ function configToRecord(selections: ConfigSelection, item: HostCapabilityItem): 
 }
 
 function configSelectionKey(item: HostCapabilityItem, field: HostCapabilityConfigField): string {
-  return `${item.appId}:${item.capabilityId}:${field.id}`
+  return `${capabilityKey(item)}:${field.id}`
+}
+
+function capabilityKey(item: HostCapabilityItem): string {
+  return `${item.appId}:${item.capabilityId}`
 }
 
 function canLoadFieldOptions(item: HostCapabilityItem, field: HostCapabilityConfigField, selections: ConfigSelection): boolean {

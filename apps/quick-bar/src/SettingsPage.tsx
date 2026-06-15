@@ -27,7 +27,6 @@ type SettingsPageProps = {
   onShortcutChange: (shortcut: string) => Promise<void> | void
   onPickDataDir: () => Promise<void> | void
   onRestartBackend: () => Promise<void> | void
-  onOpenButtons: () => void
   client: DirectClient | null
 }
 
@@ -62,7 +61,6 @@ export function SettingsPage(props: SettingsPageProps) {
     onShortcutChange,
     onPickDataDir,
     onRestartBackend,
-    onOpenButtons,
     client,
   } = props
 
@@ -112,7 +110,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {renderPanel('toolbar', (
         <div className="quickbar-settings-stack">
-          <RegistryButtonsPane client={client} onOpenButtons={onOpenButtons} />
+          <RegistryButtonsPane client={client} />
         </div>
       ))}
 
@@ -275,15 +273,12 @@ function shortcutKeyName(event: KeyboardEvent): string | null {
   return map[event.code] || null
 }
 
-function RegistryButtonsPane({ client, onOpenButtons }: { client: DirectClient | null; onOpenButtons: () => void }) {
+function RegistryButtonsPane({ client }: { client: DirectClient | null }) {
   return (
     <article className="quickbar-panel quickbar-intro-panel">
       <h2>浮动条按钮</h2>
-      <p>划词悬浮栏中的按钮，来自你从能力浏览页面选取并注册的能力。每个按钮对应一项能力，点击后调用该能力得到结果。按钮的启用、停用和删除请进入独立管理页。</p>
-      <div className="quickbar-actions quickbar-actions-on-dark">
-        <button type="button" onClick={onOpenButtons} disabled={!client}>管理已注册按钮</button>
-      </div>
-      {!client ? <p className="quickbar-intro-note">后台连接后即可进入按钮管理页。</p> : null}
+      <p>划词悬浮栏中的按钮来自能力浏览页面。按钮管理、能力浏览和设置都已经放在顶部栏里，设置页只保留说明和基础配置。</p>
+      {!client ? <p className="quickbar-intro-note">后台连接后可以使用顶部栏进入按钮管理页。</p> : null}
     </article>
   )
 }
