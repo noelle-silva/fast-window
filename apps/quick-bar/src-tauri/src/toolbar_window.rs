@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow};
 use tokio::sync::Notify;
 
-use crate::selection_capture::{capture_current_selection, SelectionCapture};
+use crate::selection_capture::SelectionCapture;
 
 const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const RESULT_LABEL: &str = "quick-bar-result";
@@ -72,15 +72,6 @@ impl ToolbarState {
             .lock()
             .ok()
             .and_then(|value| value.clone())
-    }
-
-    pub(crate) fn clear_payload(&self) -> Result<(), String> {
-        let mut latest = self
-            .latest_payload
-            .lock()
-            .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())?;
-        *latest = None;
-        Ok(())
     }
 
     fn set_result(&self, payload: ResultPayload) -> Result<(), String> {
@@ -234,12 +225,10 @@ pub(crate) fn show_toolbar_from_current_selection(
     app: &tauri::AppHandle,
     state: &ToolbarState,
 ) -> Result<(), String> {
-    let capture = capture_current_selection().or_else(|_| {
-        state
-            .payload()
-            .map(selection_from_payload)
-            .ok_or_else(|| "当前没有可用的文本选区".to_string())
-    })?;
+    let capture = state
+        .payload()
+        .map(selection_from_payload)
+        .ok_or_else(|| "当前没有可用的文本选区".to_string())?;
     show_toolbar_from_capture(app, state, capture)
 }
 
@@ -268,12 +257,6 @@ pub(crate) fn hide_toolbar(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| format!("隐藏 Quick Bar 浮动条失败: {e}"))?;
     }
     Ok(())
-}
-
-pub(crate) fn toolbar_visible(app: &tauri::AppHandle) -> bool {
-    app.get_webview_window(TOOLBAR_LABEL)
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false)
 }
 
 fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {

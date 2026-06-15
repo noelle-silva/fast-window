@@ -15,16 +15,6 @@ tokio = { version = "1", features = ["process", "io-util", "time", "macros", "sy
 rfd = "0.14"
 getrandom = "0.3"
 
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.61.3", features = [
-  "Win32_Foundation",
-  "Win32_System_Com",
-  "Win32_System_Ole",
-  "Win32_UI_Accessibility",
-  "Win32_UI_Input_KeyboardAndMouse",
-  "Win32_UI_WindowsAndMessaging",
-] }
-
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
