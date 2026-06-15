@@ -119,10 +119,8 @@ export function ToolbarApp() {
   if (buttonsError) {
     return (
       <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条（加载失败）">
-        <div className="quickbar-toolbar-actions" aria-label="按钮加载失败">
-          {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-          <span className="quickbar-toolbar-error">{buttonsError}</span>
-        </div>
+        {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
+        <span className="quickbar-toolbar-error">{buttonsError}</span>
       </main>
     )
   }
@@ -130,33 +128,29 @@ export function ToolbarApp() {
   if (!buttons) {
     return (
       <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条（加载中）">
-        <div className="quickbar-toolbar-actions" aria-label="按钮加载中">
-          {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-          <span className="quickbar-toolbar-loading">加载中...</span>
-        </div>
+        {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
+        <span className="quickbar-toolbar-loading">加载中...</span>
       </main>
     )
   }
 
   return (
     <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条">
-      <div className="quickbar-toolbar-actions" aria-label="已注册能力按钮">
-        {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-        {buttons.length === 0 ? (
-          <span className="quickbar-toolbar-empty">暂无已注册按钮。请在 Quick Bar 主页注册能力。</span>
-        ) : (
-          buttons.map(button => (
-            <button
-              key={button.id}
-              type="button"
-              title={`${button.title}（来源：${button.appId}）`}
-              onClick={() => handleButtonClick(button)}
-            >
-              {button.title}
-            </button>
-          ))
-        )}
-      </div>
+      {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
+      {buttons.length === 0 ? (
+        <span className="quickbar-toolbar-empty">暂无已注册按钮。请在能力浏览页注册能力。</span>
+      ) : (
+        buttons.map(button => (
+          <button
+            key={button.id}
+            type="button"
+            title={`${button.title}（来源：${button.appId}）`}
+            onClick={() => handleButtonClick(button)}
+          >
+            {button.title}
+          </button>
+        ))
+      )}
     </main>
   )
 }
