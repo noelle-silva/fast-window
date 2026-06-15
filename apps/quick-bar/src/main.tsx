@@ -10,12 +10,20 @@ import { CapabilityBrowser } from './CapabilityBrowser'
 import { ButtonManagerPage } from './ButtonManagerPage'
 import { ToolbarApp } from './ToolbarApp'
 import { ResultPopupApp } from './ResultPopupApp'
-import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus } from './types'
+import type {
+  DataDirStatus,
+  DirectClient,
+  FwLaunchInfo,
+  ShortcutStatus,
+  ToolbarDisplayMode,
+  ToolbarDisplayModeStatus,
+} from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
 import './styles.css'
 
 const appWindow = getCurrentWindow()
 const view = new URLSearchParams(window.location.search).get('view')
+document.body.dataset.quickbarView = view === 'toolbar' ? 'toolbar' : view === 'result' ? 'result' : 'main'
 
 function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
@@ -29,6 +37,7 @@ function App() {
   const [runtimeCommand, setRuntimeCommand] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [shortcutStatus, setShortcutStatus] = React.useState<ShortcutStatus | null>(null)
+  const [displayModeStatus, setDisplayModeStatus] = React.useState<ToolbarDisplayModeStatus | null>(null)
   const [health, setHealth] = React.useState<Record<string, unknown> | null>(null)
   const [phase, setPhase] = React.useState<'starting' | 'ready' | 'failed'>('starting')
   const [busy, setBusy] = React.useState(false)
@@ -59,12 +68,14 @@ function App() {
   }, [])
 
   const refreshStatus = React.useCallback(async () => {
-    const [next, nextShortcut] = await Promise.all([
+    const [next, nextShortcut, nextDisplayMode] = await Promise.all([
       invoke<DataDirStatus>('data_dir_status').catch(() => null),
       invoke<ShortcutStatus>('quick_bar_shortcut_status').catch(() => null),
+      invoke<ToolbarDisplayModeStatus>('quick_bar_display_mode_status').catch(() => null),
     ])
     setStatus(next)
     setShortcutStatus(nextShortcut)
+    setDisplayModeStatus(nextDisplayMode)
     return next
   }, [])
 
@@ -171,6 +182,22 @@ function App() {
     }
   }, [refreshStatus])
 
+  const saveDisplayMode = React.useCallback(async (mode: ToolbarDisplayMode) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await invoke<ToolbarDisplayModeStatus>('set_quick_bar_display_mode', { mode })
+      setDisplayModeStatus(next)
+    } catch (e) {
+      const message = errorMessage(e, '保存 Quick Bar 显示时机失败')
+      setError(message)
+      await refreshStatus()
+      throw new Error(message)
+    } finally {
+      setBusy(false)
+    }
+  }, [refreshStatus])
+
   return (
     <main className="quickbar-app">
       <QuickBarTopbar
@@ -195,6 +222,7 @@ function App() {
           runtimeCommand={runtimeCommand}
           status={status}
           shortcutStatus={shortcutStatus}
+          displayModeStatus={displayModeStatus}
           health={health}
           activeTab={settingsTab}
           phase={phase}
@@ -202,6 +230,7 @@ function App() {
           error={error}
           onTabChange={setSettingsTab}
           onShortcutChange={saveShortcut}
+          onDisplayModeChange={saveDisplayMode}
           onPickDataDir={pickDataDir}
           onRestartBackend={() => connect({ restartBackend: true })}
           client={phase === 'ready' ? getClient() : null}

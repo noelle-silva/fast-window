@@ -13,6 +13,23 @@ body {
   background: transparent;
 }
 
+body[data-quickbar-view="toolbar"],
+body[data-quickbar-view="result"] {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+}
+
+body[data-quickbar-view="toolbar"] {
+  background: #394253;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+}
+
 button,
 input {
   font: inherit;
@@ -159,6 +176,7 @@ input {
 .quickbar-icon-button:focus-visible,
 .quickbar-window-controls button:focus-visible,
 .quickbar-actions button:focus-visible,
+.quickbar-display-mode-option:focus-visible,
 .quickbar-button-manager-actions button:focus-visible,
 .quickbar-button-card-actions button:focus-visible,
 .quickbar-button-delete-confirm button:focus-visible,
@@ -361,6 +379,58 @@ input {
   color: #94a3b8;
 }
 
+.quickbar-display-mode-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.quickbar-display-mode-option {
+  appearance: none;
+  border: 1px solid rgba(83, 97, 121, 0.18);
+  border-radius: 18px;
+  padding: 13px 14px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  color: var(--quickbar-text);
+  background: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+}
+
+.quickbar-display-mode-option:hover:not(:disabled) {
+  border-color: rgba(83, 97, 121, 0.34);
+  background: #eef2f7;
+}
+
+.quickbar-display-mode-active,
+.quickbar-display-mode-active:hover:not(:disabled) {
+  border-color: rgba(83, 97, 121, 0.42);
+  background: #e5ebf3;
+}
+
+.quickbar-display-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.quickbar-display-mode-title {
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.quickbar-display-mode-description {
+  color: var(--quickbar-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.quickbar-display-mode-hint {
+  margin-top: 10px;
+}
+
 .quickbar-intro-note {
   margin-top: 10px !important;
   color: rgba(255, 255, 255, 0.72) !important;
@@ -503,29 +573,41 @@ input {
 .quickbar-toolbar-shell {
   width: 100vw;
   height: 100vh;
-  padding: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 0;
   color: #f8fafc;
   background: #394253;
-  border: 1px solid rgba(248, 250, 252, 0.18);
-  border-radius: 18px;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28);
+  box-shadow: none;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
 .quickbar-toolbar-shell button {
+  flex: 1 1 0;
   height: 100%;
-  min-width: 48px;
-  border-radius: 12px;
-  padding: 0 14px;
+  min-width: 0;
+  border-left: 1px solid rgba(248, 250, 252, 0.12);
+  border-radius: 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #f8fafc;
   font-size: 13px;
   font-weight: 900;
   background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickbar-toolbar-shell button:first-of-type {
+  border-left: 0;
 }
 
 .quickbar-toolbar-shell button:hover,
@@ -536,6 +618,13 @@ input {
 .quickbar-toolbar-error,
 .quickbar-toolbar-loading,
 .quickbar-toolbar-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  text-align: center;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.62);
 }

@@ -58,7 +58,7 @@ impl Default for ToolbarState {
 }
 
 impl ToolbarState {
-    fn set_payload(&self, payload: ToolbarPayload) -> Result<(), String> {
+    pub(crate) fn set_payload(&self, payload: ToolbarPayload) -> Result<(), String> {
         let mut latest = self
             .latest_payload
             .lock()
@@ -72,6 +72,15 @@ impl ToolbarState {
             .lock()
             .ok()
             .and_then(|value| value.clone())
+    }
+
+    pub(crate) fn clear_payload(&self) -> Result<(), String> {
+        let mut latest = self
+            .latest_payload
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())?;
+        *latest = None;
+        Ok(())
     }
 
     fn set_result(&self, payload: ResultPayload) -> Result<(), String> {
@@ -225,7 +234,27 @@ pub(crate) fn show_toolbar_from_current_selection(
     app: &tauri::AppHandle,
     state: &ToolbarState,
 ) -> Result<(), String> {
-    let capture = capture_current_selection()?;
+    let capture = capture_current_selection().or_else(|_| {
+        state
+            .payload()
+            .map(selection_from_payload)
+            .ok_or_else(|| "当前没有可用的文本选区".to_string())
+    })?;
+    show_toolbar_from_capture(app, state, capture)
+}
+
+pub(crate) fn remember_selection(
+    state: &ToolbarState,
+    capture: SelectionCapture,
+) -> Result<(), String> {
+    state.set_payload(payload_from_selection(capture))
+}
+
+pub(crate) fn show_toolbar_from_capture(
+    app: &tauri::AppHandle,
+    state: &ToolbarState,
+    capture: SelectionCapture,
+) -> Result<(), String> {
     if let Err(error) = hide_result_popup(app) {
         log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
     }
@@ -239,6 +268,12 @@ pub(crate) fn hide_toolbar(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| format!("隐藏 Quick Bar 浮动条失败: {e}"))?;
     }
     Ok(())
+}
+
+pub(crate) fn toolbar_visible(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window(TOOLBAR_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false)
 }
 
 fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {
@@ -255,11 +290,7 @@ fn show_toolbar(
     state: &ToolbarState,
     capture: SelectionCapture,
 ) -> Result<(), String> {
-    let payload = ToolbarPayload {
-        selected_text: capture.text,
-        anchor_x: capture.anchor_x,
-        anchor_y: capture.anchor_y,
-    };
+    let payload = payload_from_selection(capture);
     state.set_payload(payload.clone())?;
 
     let window = ensure_toolbar_window(app)?;
@@ -310,7 +341,7 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
     .always_on_top(true)
     .skip_taskbar(true)
     .transparent(true)
-    .shadow(true)
+    .shadow(false)
     .visible(false)
     .build()
     .map_err(|e| format!("创建 Quick Bar 浮动条窗口失败: {e}"))?;
@@ -322,6 +353,22 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
         }
     });
     Ok(window)
+}
+
+fn payload_from_selection(capture: SelectionCapture) -> ToolbarPayload {
+    ToolbarPayload {
+        selected_text: capture.text,
+        anchor_x: capture.anchor_x,
+        anchor_y: capture.anchor_y,
+    }
+}
+
+fn selection_from_payload(payload: ToolbarPayload) -> SelectionCapture {
+    SelectionCapture {
+        text: payload.selected_text,
+        anchor_x: payload.anchor_x,
+        anchor_y: payload.anchor_y,
+    }
 }
 
 fn ensure_result_window(

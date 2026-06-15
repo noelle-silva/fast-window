@@ -5,14 +5,16 @@ mod backend_lifecycle;
 mod backend_sidecar;
 mod control_server;
 mod data_dir;
-mod host_capability;
 mod fw_window;
+mod host_capability;
 mod native_dialog;
 mod selection_capture;
+mod selection_observer;
 mod shortcut;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
+mod toolbar_display;
 mod toolbar_window;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
@@ -27,6 +29,7 @@ use fw_window::{
 use shutdown::ShutdownState;
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
+use toolbar_display::ToolbarDisplayModeState;
 use toolbar_window::ToolbarState;
 
 #[tauri::command]
@@ -130,6 +133,8 @@ fn main() {
     let window_state_setup = window_state.clone();
     let toolbar_state = Arc::new(ToolbarState::default());
     let toolbar_state_setup = toolbar_state.clone();
+    let display_mode_state = Arc::new(ToolbarDisplayModeState::default());
+    let display_mode_state_setup = display_mode_state.clone();
     let shortcut_state = Arc::new(shortcut::QuickBarShortcutState::default());
     let shortcut_state_setup = shortcut_state.clone();
     let shutdown_state = ShutdownState::new(
@@ -144,6 +149,7 @@ fn main() {
         .manage(backend_state)
         .manage(window_state)
         .manage(toolbar_state)
+        .manage(display_mode_state)
         .manage(shortcut_state)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -160,6 +166,8 @@ fn main() {
             toolbar_window::hide_quick_bar_result_popup,
             toolbar_window::show_quick_bar_result_popup,
             toolbar_window::update_quick_bar_result_popup,
+            toolbar_display::quick_bar_display_mode_status,
+            toolbar_display::set_quick_bar_display_mode,
             shortcut::quick_bar_shortcut_status,
             shortcut::set_quick_bar_shortcut,
             fw_initial_command,
@@ -216,11 +224,17 @@ fn main() {
                 &desktop_identifier,
             )?;
             report_available_commands(serde_json::json!(available_commands()));
+            toolbar_display::install(app.handle(), &display_mode_state_setup)?;
             shortcut::install(
                 app.handle(),
                 &shortcut_state_setup,
                 toolbar_state_setup.clone(),
             )?;
+            selection_observer::install(
+                app.handle().clone(),
+                toolbar_state_setup.clone(),
+                display_mode_state_setup.clone(),
+            );
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();

@@ -33,6 +33,13 @@ export type ShortcutStatus = {
   error?: string | null
 }
 
+export type ToolbarDisplayMode = 'shortcut' | 'automatic'
+
+export type ToolbarDisplayModeStatus = {
+  mode: ToolbarDisplayMode
+  error?: string | null
+}
+
 export type DirectClient = {
   request<T>(method: string, params?: unknown): Promise<T>
   close(): void

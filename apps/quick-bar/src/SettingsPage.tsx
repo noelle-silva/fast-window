@@ -1,6 +1,13 @@
 import * as React from 'react'
 import { SettingsTabs, type SettingsTabItem } from './components/SettingsTabs'
-import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus } from './types'
+import type {
+  DataDirStatus,
+  DirectClient,
+  FwLaunchInfo,
+  ShortcutStatus,
+  ToolbarDisplayMode,
+  ToolbarDisplayModeStatus,
+} from './types'
 
 export type SettingsTab = 'overview' | 'shortcut' | 'toolbar' | 'data' | 'backend'
 
@@ -18,6 +25,7 @@ type SettingsPageProps = {
   runtimeCommand: string | null
   status: DataDirStatus | null
   shortcutStatus: ShortcutStatus | null
+  displayModeStatus: ToolbarDisplayModeStatus | null
   health: Record<string, unknown> | null
   activeTab: SettingsTab
   phase: 'starting' | 'ready' | 'failed'
@@ -25,6 +33,7 @@ type SettingsPageProps = {
   error: string | null
   onTabChange: (tab: SettingsTab) => void
   onShortcutChange: (shortcut: string) => Promise<void> | void
+  onDisplayModeChange: (mode: ToolbarDisplayMode) => Promise<void> | void
   onPickDataDir: () => Promise<void> | void
   onRestartBackend: () => Promise<void> | void
   client: DirectClient | null
@@ -52,6 +61,7 @@ export function SettingsPage(props: SettingsPageProps) {
     runtimeCommand,
     status,
     shortcutStatus,
+    displayModeStatus,
     health,
     activeTab,
     phase,
@@ -59,6 +69,7 @@ export function SettingsPage(props: SettingsPageProps) {
     error,
     onTabChange,
     onShortcutChange,
+    onDisplayModeChange,
     onPickDataDir,
     onRestartBackend,
     client,
@@ -84,7 +95,7 @@ export function SettingsPage(props: SettingsPageProps) {
         <div className="quickbar-settings-stack">
           <article className="quickbar-panel quickbar-intro-panel">
             <h2>当前目标</h2>
-            <p>Quick Bar 第一阶段专注一件事：选中文字后，用应用自己保存的快捷键在选区附近显示轻量浮动条。</p>
+            <p>Quick Bar 会在后台静默记住最近选区，再按用户选择的显示时机，在选区附近显示轻量浮动条。</p>
           </article>
           <article className="quickbar-panel">
             <h2>启动信息</h2>
@@ -110,6 +121,11 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {renderPanel('toolbar', (
         <div className="quickbar-settings-stack">
+          <DisplayModePane
+            status={displayModeStatus}
+            busy={busy}
+            onDisplayModeChange={onDisplayModeChange}
+          />
           <RegistryButtonsPane client={client} />
         </div>
       ))}
@@ -146,6 +162,57 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {error ? <div className="quickbar-error-card" role="alert">{error}</div> : null}
     </section>
+  )
+}
+
+function DisplayModePane(props: {
+  status: ToolbarDisplayModeStatus | null
+  busy: boolean
+  onDisplayModeChange: (mode: ToolbarDisplayMode) => Promise<void> | void
+}) {
+  const { status, busy, onDisplayModeChange } = props
+  const current = status?.mode ?? null
+  const options: Array<{ mode: ToolbarDisplayMode; title: string; description: string }> = [
+    {
+      mode: 'shortcut',
+      title: '按快捷键显示',
+      description: '后台静默记住最近选区，只有按下唤醒快捷键时才显示浮动条。',
+    },
+    {
+      mode: 'automatic',
+      title: '选区后自动显示',
+      description: '后台发现新的有效选区后，直接在选区附近显示浮动条。',
+    },
+  ]
+
+  return (
+    <article className="quickbar-panel quickbar-display-mode-panel">
+      <h2>显示时机</h2>
+      <p className="quickbar-muted">后台选区观察始终安静工作；这里仅决定浮动条什么时候出现。</p>
+      <div className="quickbar-display-mode-grid" role="radiogroup" aria-label="浮动条显示时机">
+        {options.map(option => {
+          const active = current === option.mode
+          return (
+            <button
+              key={option.mode}
+              type="button"
+              className={`quickbar-display-mode-option${active ? ' quickbar-display-mode-active' : ''}`}
+              role="radio"
+              aria-checked={active}
+              disabled={busy || !status}
+              onClick={() => {
+                if (!active) void Promise.resolve(onDisplayModeChange(option.mode)).catch(() => {})
+              }}
+            >
+              <span className="quickbar-display-mode-title">{option.title}</span>
+              <span className="quickbar-display-mode-description">{option.description}</span>
+            </button>
+          )
+        })}
+      </div>
+      {!status ? <p className="quickbar-muted quickbar-display-mode-hint">显示时机读取中...</p> : null}
+      {status?.error ? <p className="quickbar-error-text">{status.error}</p> : null}
+    </article>
   )
 }
 
