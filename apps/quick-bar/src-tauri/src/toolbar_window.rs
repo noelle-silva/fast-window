@@ -1,7 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow};
+use tokio::sync::Notify;
 
 use crate::selection_capture::{capture_current_selection, SelectionCapture};
 
@@ -14,6 +18,7 @@ const TOOLBAR_HEIGHT: u32 = 58;
 const RESULT_WIDTH: u32 = 420;
 const RESULT_HEIGHT: u32 = 380;
 const TOOLBAR_MARGIN: i32 = 10;
+const RESULT_READY_TIMEOUT_MS: u64 = 2000;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,10 +39,22 @@ pub(crate) struct ResultPayload {
     error_text: Option<String>,
 }
 
-#[derive(Default)]
 pub(crate) struct ToolbarState {
     latest_payload: Mutex<Option<ToolbarPayload>>,
     latest_result: Mutex<Option<ResultPayload>>,
+    result_ready: Mutex<bool>,
+    result_ready_notify: Notify,
+}
+
+impl Default for ToolbarState {
+    fn default() -> Self {
+        Self {
+            latest_payload: Mutex::new(None),
+            latest_result: Mutex::new(None),
+            result_ready: Mutex::new(false),
+            result_ready_notify: Notify::new(),
+        }
+    }
 }
 
 impl ToolbarState {
@@ -72,6 +89,40 @@ impl ToolbarState {
             .ok()
             .and_then(|value| value.clone())
     }
+
+    fn set_result_ready(&self, ready: bool) -> Result<(), String> {
+        let mut current = self
+            .result_ready
+            .lock()
+            .map_err(|_| "Quick Bar 结果浮窗准备状态锁定失败".to_string())?;
+        *current = ready;
+        if ready {
+            self.result_ready_notify.notify_waiters();
+        }
+        Ok(())
+    }
+
+    fn result_ready(&self) -> Result<bool, String> {
+        self.result_ready
+            .lock()
+            .map(|value| *value)
+            .map_err(|_| "Quick Bar 结果浮窗准备状态锁定失败".to_string())
+    }
+
+    async fn wait_result_ready(&self) -> Result<(), String> {
+        let wait = async {
+            loop {
+                let notified = self.result_ready_notify.notified();
+                if self.result_ready()? {
+                    return Ok(());
+                }
+                notified.await;
+            }
+        };
+        tokio::time::timeout(Duration::from_millis(RESULT_READY_TIMEOUT_MS), wait)
+            .await
+            .map_err(|_| "Quick Bar 结果浮窗未完成准备".to_string())?
+    }
 }
 
 #[tauri::command]
@@ -94,16 +145,24 @@ pub(crate) fn quick_bar_result_payload(
 }
 
 #[tauri::command]
+pub(crate) fn quick_bar_result_popup_ready(
+    state: tauri::State<'_, Arc<ToolbarState>>,
+) -> Result<(), String> {
+    state.set_result_ready(true)
+}
+
+#[tauri::command]
 pub(crate) fn hide_quick_bar_result_popup(app: tauri::AppHandle) -> Result<(), String> {
     hide_result_popup(&app)
 }
 
 #[tauri::command]
-pub(crate) fn show_quick_bar_result_popup(
+pub(crate) async fn show_quick_bar_result_popup(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<ToolbarState>>,
     title: String,
 ) -> Result<(), String> {
+    let state = state.inner().clone();
     let payload = state
         .payload()
         .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示结果浮窗".to_string())?;
@@ -114,7 +173,11 @@ pub(crate) fn show_quick_bar_result_popup(
         error_text: None,
     };
     state.set_result(result.clone())?;
-    let window = ensure_result_window(&app)?;
+    ensure_result_window(&app, &state)?;
+    state.wait_result_ready().await?;
+    let window = app
+        .get_webview_window(RESULT_LABEL)
+        .ok_or_else(|| "Quick Bar 结果浮窗不存在".to_string())?;
     apply_popup_layout(
         &app,
         &window,
@@ -124,19 +187,22 @@ pub(crate) fn show_quick_bar_result_popup(
         RESULT_HEIGHT,
         PopupPlacement::AvoidSelection,
     )?;
-    window
-        .set_always_on_top(true)
-        .map_err(|e| format!("设置 Quick Bar 结果浮窗置顶失败: {e}"))?;
+    if let Err(error) = window.set_always_on_top(true) {
+        log_window_warning("设置 Quick Bar 结果浮窗置顶失败", error);
+    }
     window
         .show()
         .map_err(|e| format!("显示 Quick Bar 结果浮窗失败: {e}"))?;
-    window
-        .set_focus()
-        .map_err(|e| format!("聚焦 Quick Bar 结果浮窗失败: {e}"))?;
-    hide_toolbar(&app)?;
-    window
-        .emit(RESULT_EVENT, result)
-        .map_err(|e| format!("刷新 Quick Bar 结果浮窗失败: {e}"))
+    if let Err(error) = window.emit(RESULT_EVENT, result) {
+        log_window_warning("刷新 Quick Bar 结果浮窗失败", error);
+    }
+    if let Err(error) = window.set_focus() {
+        log_window_warning("聚焦 Quick Bar 结果浮窗失败", error);
+    }
+    if let Err(error) = hide_toolbar(&app) {
+        log_window_warning("隐藏 Quick Bar 浮动条失败", error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -160,7 +226,9 @@ pub(crate) fn show_toolbar_from_current_selection(
     state: &ToolbarState,
 ) -> Result<(), String> {
     let capture = capture_current_selection()?;
-    hide_result_popup(app)?;
+    if let Err(error) = hide_result_popup(app) {
+        log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
+    }
     show_toolbar(app, state, capture)
 }
 
@@ -204,18 +272,22 @@ fn show_toolbar(
         TOOLBAR_HEIGHT,
         PopupPlacement::Below,
     )?;
-    window
-        .set_always_on_top(true)
-        .map_err(|e| format!("设置 Quick Bar 浮动条置顶失败: {e}"))?;
+    if let Err(error) = window.set_always_on_top(true) {
+        log_window_warning("设置 Quick Bar 浮动条置顶失败", error);
+    }
     window
         .show()
         .map_err(|e| format!("显示 Quick Bar 浮动条失败: {e}"))?;
-    window
-        .set_focus()
-        .map_err(|e| format!("聚焦 Quick Bar 浮动条失败: {e}"))?;
-    window
-        .emit(TOOLBAR_EVENT, payload)
-        .map_err(|e| format!("刷新 Quick Bar 浮动条内容失败: {e}"))
+    if let Err(error) = window.emit(TOOLBAR_EVENT, payload) {
+        log_window_warning("刷新 Quick Bar 浮动条内容失败", error);
+    }
+    if let Err(error) = window.set_focus() {
+        if let Err(hide_error) = hide_toolbar(app) {
+            log_window_warning("隐藏 Quick Bar 浮动条失败", hide_error);
+        }
+        return Err(format!("聚焦 Quick Bar 浮动条失败: {error}"));
+    }
+    Ok(())
 }
 
 fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
@@ -252,10 +324,14 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
     Ok(window)
 }
 
-fn ensure_result_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+fn ensure_result_window(
+    app: &tauri::AppHandle,
+    state: &ToolbarState,
+) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(RESULT_LABEL) {
         return Ok(window);
     }
+    state.set_result_ready(false)?;
 
     tauri::WebviewWindowBuilder::new(
         app,
@@ -346,4 +422,8 @@ fn validate_result_status(status: &str) -> Result<(), String> {
         return Ok(());
     }
     Err("Quick Bar 结果状态不合法".to_string())
+}
+
+fn log_window_warning(action: &str, error: impl std::fmt::Display) {
+    eprintln!("[quick-bar] {action}: {error}");
 }

@@ -22,8 +22,14 @@ export function ResultPopupApp() {
       setPayload(event.payload)
     })
       .then(nextUnlisten => {
-        if (cancelled) nextUnlisten()
-        else unlisten = nextUnlisten
+        if (cancelled) {
+          nextUnlisten()
+        } else {
+          unlisten = nextUnlisten
+          void invoke('quick_bar_result_popup_ready').catch(e => {
+            if (!cancelled) setError(errorMessage(e, '结果窗口准备失败'))
+          })
+        }
       })
       .catch(e => {
         if (!cancelled) setError(errorMessage(e, '订阅结果窗口内容失败'))

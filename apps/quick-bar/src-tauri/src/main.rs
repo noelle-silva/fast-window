@@ -155,6 +155,7 @@ fn main() {
             quick_bar_app_ready,
             toolbar_window::quick_bar_toolbar_payload,
             toolbar_window::quick_bar_result_payload,
+            toolbar_window::quick_bar_result_popup_ready,
             toolbar_window::hide_quick_bar_toolbar,
             toolbar_window::hide_quick_bar_result_popup,
             toolbar_window::show_quick_bar_result_popup,
