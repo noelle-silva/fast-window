@@ -6,8 +6,10 @@ type WindowControlActions = {
   closeToTray: () => Promise<void> | void
 }
 
+export type QuickBarPage = 'home' | 'settings' | 'capabilities' | 'buttons'
+
 type QuickBarTopbarProps = {
-  page: 'home' | 'settings' | 'capabilities'
+  page: QuickBarPage
   standalone: boolean
   onBack: () => void
   onOpenSettings: () => void
@@ -54,6 +56,7 @@ function WindowControls({ actions }: { actions: WindowControlActions }) {
 function pageTitle(page: QuickBarTopbarProps['page']): string {
   if (page === 'settings') return '设置'
   if (page === 'capabilities') return '能力浏览'
+  if (page === 'buttons') return '按钮管理'
   return 'Quick Bar'
 }
 

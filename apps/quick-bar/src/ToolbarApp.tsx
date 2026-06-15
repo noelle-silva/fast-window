@@ -23,7 +23,7 @@ export function ToolbarApp() {
     try {
       client = await createDirectClient()
       const list = await fetchRegistryButtons(client)
-      if (mountedRef.current) setButtons(list)
+      if (mountedRef.current) setButtons(list.filter(button => button.enabled !== false))
     } catch (e) {
       if (mountedRef.current) setButtonsError(errorMessage(e, '读取按钮列表失败'))
     } finally {

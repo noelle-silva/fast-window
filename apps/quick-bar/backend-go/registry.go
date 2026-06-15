@@ -25,6 +25,7 @@ type registryButton struct {
 	CapabilityID string         `json:"capabilityId"`
 	Title        string         `json:"title"`
 	Config       map[string]any `json:"config"`
+	Enabled      *bool          `json:"enabled"`
 	CreatedAt    string         `json:"createdAt"`
 }
 
@@ -41,9 +42,10 @@ type removeRegistryButtonParams struct {
 }
 
 type updateRegistryButtonParams struct {
-	ID     string          `json:"id"`
-	Title  *string         `json:"title"`
-	Config *map[string]any `json:"config"`
+	ID      string          `json:"id"`
+	Title   *string         `json:"title"`
+	Config  *map[string]any `json:"config"`
+	Enabled *bool           `json:"enabled"`
 }
 
 func (svc *service) listRegistryButtons() ([]registryButton, error) {
@@ -79,6 +81,7 @@ func (svc *service) addRegistryButton(params json.RawMessage) (registryButton, e
 		CapabilityID: input.CapabilityID,
 		Title:        input.Title,
 		Config:       nonNilConfig(input.Config),
+		Enabled:      boolPtr(true),
 		CreatedAt:    nowText(),
 	}
 	doc.Buttons = append(doc.Buttons, button)
@@ -122,8 +125,8 @@ func (svc *service) updateRegistryButton(params json.RawMessage) (registryButton
 	if id == "" {
 		return registryButton{}, errors.New("registry button id is required")
 	}
-	if input.Title == nil && input.Config == nil {
-		return registryButton{}, errors.New("registry update requires title or config")
+	if input.Title == nil && input.Config == nil && input.Enabled == nil {
+		return registryButton{}, errors.New("registry update requires title, config or enabled")
 	}
 
 	doc, err := svc.readRegistry()
@@ -143,6 +146,9 @@ func (svc *service) updateRegistryButton(params json.RawMessage) (registryButton
 	}
 	if input.Config != nil {
 		doc.Buttons[index].Config = nonNilConfig(*input.Config)
+	}
+	if input.Enabled != nil {
+		doc.Buttons[index].Enabled = boolPtr(*input.Enabled)
 	}
 	if err := svc.writeRegistry(doc); err != nil {
 		return registryButton{}, err
@@ -217,8 +223,15 @@ func normalizeRegistryDoc(doc registryDoc) registryDoc {
 	for index := range doc.Buttons {
 		doc.Buttons[index].App = nonNilMap(doc.Buttons[index].App)
 		doc.Buttons[index].Config = nonNilConfig(doc.Buttons[index].Config)
+		if doc.Buttons[index].Enabled == nil {
+			doc.Buttons[index].Enabled = boolPtr(true)
+		}
 	}
 	return doc
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func nonNilMap(value map[string]any) map[string]any {

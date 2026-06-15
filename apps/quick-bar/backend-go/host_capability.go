@@ -15,6 +15,11 @@ import (
 
 const hostCapabilityRequestTimeout = 30 * time.Second
 
+type hostCapabilityListParams struct {
+	AppID        string `json:"appId"`
+	LaunchPolicy string `json:"launchPolicy"`
+}
+
 type hostCapabilityClient struct {
 	baseURL string
 	token   string
@@ -99,12 +104,45 @@ func encodeHostCapabilityRequestBody(body any) (io.Reader, error) {
 	return strings.NewReader(string(bytes)), nil
 }
 
-func (svc *service) listHostCapabilities() (any, error) {
+func (svc *service) listHostCapabilities(params json.RawMessage) (any, error) {
+	request, err := decodeHostCapabilityListParams(params)
+	if err != nil {
+		return nil, err
+	}
 	client, err := newHostCapabilityClientFromEnv()
 	if err != nil {
 		return nil, err
 	}
-	return client.get("/capabilities")
+	path := hostCapabilityListPath(request)
+	return client.get(path)
+}
+
+func decodeHostCapabilityListParams(params json.RawMessage) (hostCapabilityListParams, error) {
+	if len(params) == 0 || string(params) == "null" {
+		return hostCapabilityListParams{}, nil
+	}
+	var request hostCapabilityListParams
+	if err := json.Unmarshal(params, &request); err != nil {
+		return hostCapabilityListParams{}, fmt.Errorf("decode host capability list params failed: %w", err)
+	}
+	request.AppID = strings.TrimSpace(request.AppID)
+	request.LaunchPolicy = strings.TrimSpace(request.LaunchPolicy)
+	if request.LaunchPolicy == "" {
+		request.LaunchPolicy = "runningOnly"
+	}
+	if request.LaunchPolicy != "runningOnly" && request.LaunchPolicy != "allowLaunch" {
+		return hostCapabilityListParams{}, fmt.Errorf("invalid launchPolicy: %s", request.LaunchPolicy)
+	}
+	return request, nil
+}
+
+func hostCapabilityListPath(request hostCapabilityListParams) string {
+	query := url.Values{}
+	query.Set("launchPolicy", request.LaunchPolicy)
+	if request.AppID != "" {
+		query.Set("appId", request.AppID)
+	}
+	return "/capabilities?" + query.Encode()
 }
 
 func (svc *service) invokeHostCapability(params json.RawMessage) (any, error) {

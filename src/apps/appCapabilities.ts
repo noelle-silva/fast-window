@@ -10,7 +10,13 @@ type AppCapabilityHostResponse = {
 
 type AppCapabilityListHostResponse = {
   apps: Array<{ appId: string; commands: RegisteredAppCommand[] }>
-  errors: Array<{ appId: string; message: string }>
+  errors: Array<{ appId: string; message: string; canLaunch?: boolean }>
+}
+
+export type AppCapabilityLaunchPolicy = 'runningOnly' | 'allowLaunch'
+
+type AppCapabilityListOptions = {
+  launchPolicy?: AppCapabilityLaunchPolicy
 }
 
 type AppCapabilityRequest = {
@@ -36,8 +42,10 @@ export async function getAppCapabilityEnvVars(): Promise<Array<[string, string]>
   return invoke<Array<[string, string]>>('app_capability_env_vars')
 }
 
-export async function listAppCapabilities(apps: RegisteredApp[]): Promise<AppCapabilityListHostResponse> {
-  return invoke<AppCapabilityListHostResponse>('app_capability_list', { request: { apps } })
+export async function listAppCapabilities(apps: RegisteredApp[], options: AppCapabilityListOptions = {}): Promise<AppCapabilityListHostResponse> {
+  return invoke<AppCapabilityListHostResponse>('app_capability_list', {
+    request: { apps, launchPolicy: options.launchPolicy ?? 'runningOnly' },
+  })
 }
 
 export async function queryAppCapabilityOptions(request: AppCapabilityOptionsRequest): Promise<AppCapabilityOption[]> {

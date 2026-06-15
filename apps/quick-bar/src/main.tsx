@@ -5,9 +5,10 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
 import { fetchRegistryButtons } from './registryClient'
-import { QuickBarTopbar } from './QuickBarTopbar'
+import { QuickBarTopbar, type QuickBarPage } from './QuickBarTopbar'
 import { SettingsPage, type SettingsTab } from './SettingsPage'
 import { CapabilityBrowser } from './CapabilityBrowser'
+import { ButtonManagerPage } from './ButtonManagerPage'
 import { ToolbarApp } from './ToolbarApp'
 import { ResultPopupApp } from './ResultPopupApp'
 import type { DataDirStatus, DirectClient, FwLaunchInfo, ShortcutStatus } from './types'
@@ -22,7 +23,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function App() {
-  const [page, setPage] = React.useState<'home' | 'settings' | 'capabilities'>('home')
+  const [page, setPage] = React.useState<QuickBarPage>('home')
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('overview')
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [initialCommand, setInitialCommand] = React.useState<string | null>(null)
@@ -205,11 +206,20 @@ function App() {
           onShortcutChange={saveShortcut}
           onPickDataDir={pickDataDir}
           onRestartBackend={() => connect({ restartBackend: true })}
+          onOpenButtons={() => setPage('buttons')}
           client={phase === 'ready' ? getClient() : null}
         />
       ) : page === 'capabilities' ? (
         phase === 'ready' ? (
           <CapabilityBrowser client={getClient()} />
+        ) : (
+          <section className="quickbar-capability-loading" aria-label="后台连接中">
+            后台连接中，请稍候...
+          </section>
+        )
+      ) : page === 'buttons' ? (
+        phase === 'ready' ? (
+          <ButtonManagerPage client={getClient()} onOpenCapabilities={() => setPage('capabilities')} />
         ) : (
           <section className="quickbar-capability-loading" aria-label="后台连接中">
             后台连接中，请稍候...
@@ -225,6 +235,7 @@ function App() {
             setPage('settings')
           }}
           onOpenCapabilities={() => setPage('capabilities')}
+          onOpenButtons={() => setPage('buttons')}
           getClient={getClient}
         />
       )}
@@ -238,18 +249,24 @@ function QuickBarHome(props: {
   shortcutStatus: ShortcutStatus | null
   onOpenSettings: () => void
   onOpenCapabilities: () => void
+  onOpenButtons: () => void
   getClient: () => DirectClient
 }) {
-  const [buttonCount, setButtonCount] = React.useState<number | null>(null)
+  const [buttonStats, setButtonStats] = React.useState<{ total: number; enabled: number } | null>(null)
   const [buttonCountError, setButtonCountError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    setButtonCount(null)
+    setButtonStats(null)
     setButtonCountError(null)
     if (props.phase !== 'ready') return
     let cancelled = false
     void fetchRegistryButtons(props.getClient())
-      .then(buttons => { if (!cancelled) setButtonCount(buttons.length) })
+      .then(buttons => {
+        if (!cancelled) setButtonStats({
+          total: buttons.length,
+          enabled: buttons.filter(button => button.enabled !== false).length,
+        })
+      })
       .catch(e => {
         if (!cancelled) setButtonCountError(errorMessage(e, '读取已注册按钮失败'))
       })
@@ -265,6 +282,7 @@ function QuickBarHome(props: {
         <div className="quickbar-hero-actions">
           <button type="button" onClick={props.onOpenSettings}>配置与状态</button>
           <button type="button" onClick={props.onOpenCapabilities}>能力浏览</button>
+          <button type="button" onClick={props.onOpenButtons}>管理已注册按钮</button>
         </div>
       </div>
 
@@ -284,12 +302,22 @@ function QuickBarHome(props: {
         <article className="quickbar-panel quickbar-action-preview">
           <h2>已注册按钮</h2>
           <p className="quickbar-muted">
-            {buttonCountError || (buttonCount === null ? '读取中...' : buttonCount === 0 ? '暂无已注册的能力按钮，请前往能力浏览选取。' : `已注册 ${buttonCount} 个按钮`)}
+            {buttonCountError || buttonStatsText(buttonStats)}
           </p>
+          <div className="quickbar-actions">
+            <button type="button" onClick={props.onOpenButtons}>管理已注册按钮</button>
+          </div>
         </article>
       </div>
     </section>
   )
+}
+
+function buttonStatsText(stats: { total: number; enabled: number } | null): string {
+  if (!stats) return '读取中...'
+  if (stats.total === 0) return '暂无已注册的能力按钮，请前往能力浏览选取。'
+  if (stats.enabled === stats.total) return `已注册 ${stats.total} 个按钮，全部正在显示。`
+  return `已注册 ${stats.total} 个按钮，其中 ${stats.enabled} 个正在显示。`
 }
 
 const host = document.getElementById('app')

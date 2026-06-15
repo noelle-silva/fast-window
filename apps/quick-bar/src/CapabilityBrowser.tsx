@@ -7,6 +7,7 @@ import {
   type HostCapabilityItem,
   type HostCapabilityConfigField,
   type HostCapabilityError,
+  type HostCapabilityListRequest,
 } from './hostCapabilityClient'
 
 type CapabilityBrowserProps = {
@@ -28,27 +29,49 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
   const [fieldOptions, setFieldOptions] = React.useState<FieldOptions>({})
   const [optionLoading, setOptionLoading] = React.useState<Record<string, boolean>>({})
   const [busy, setBusy] = React.useState(false)
+  const [refreshingAppId, setRefreshingAppId] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
+  const mountedRef = React.useRef(true)
 
-  React.useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const result = await fetchCapabilities(client)
-        if (!cancelled) {
+  React.useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
+
+  const loadCapabilities = React.useCallback(async (request: HostCapabilityListRequest = {}) => {
+    const targetAppId = request.appId?.trim() || ''
+    if (targetAppId) setRefreshingAppId(targetAppId)
+    else setLoading(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const result = await fetchCapabilities(client, request)
+      if (mountedRef.current) {
+        if (targetAppId) {
+          setCapabilities(prev => mergeCapabilitiesForApp(prev ?? [], targetAppId, result.capabilities))
+          setCapabilityErrors(prev => mergeErrorsForApp(prev, targetAppId, result.errors))
+          setMessage(result.capabilities.length ? `已读取：${result.capabilities[0].appName || targetAppId}` : '目标应用当前没有返回可注册能力')
+        } else {
           setCapabilities(result.capabilities)
           setCapabilityErrors(result.errors)
         }
-      } catch (e) {
-        if (!cancelled) setError(String((e as { message?: string })?.message || e || '获取能力列表失败'))
-      } finally {
-        if (!cancelled) setLoading(false)
       }
-    })()
-    return () => { cancelled = true }
+    } catch (e) {
+      if (mountedRef.current) {
+        const text = String((e as { message?: string })?.message || e || '获取能力列表失败')
+        if (targetAppId) setMessage(`读取失败: ${text}`)
+        else setError(text)
+      }
+    } finally {
+      if (mountedRef.current) {
+        if (targetAppId) setRefreshingAppId(null)
+        else setLoading(false)
+      }
+    }
   }, [client])
+
+  React.useEffect(() => {
+    void loadCapabilities({ launchPolicy: 'runningOnly' })
+  }, [loadCapabilities])
 
   const toggleExpand = React.useCallback((capabilityId: string) => {
     setExpandedId(prev => prev === capabilityId ? null : capabilityId)
@@ -138,19 +161,40 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
   if (error) return <section className="quickbar-error-card" role="alert">{error}</section>
   const visibleCapabilities = capabilities ?? []
   if (!visibleCapabilities.length && !capabilityErrors.length) {
-    return <section className="quickbar-capability-empty" aria-label="无可用能力">暂无可用能力。请确认已有能力 App 可以启动并回答能力清单。</section>
+    return <section className="quickbar-capability-empty" aria-label="无可用能力">暂无可用能力。默认只读取已运行 App；请先启动目标 App 后再刷新。</section>
   }
 
   return (
     <section className="quickbar-capability-browser" aria-label="能力浏览">
-      <h2>可用能力</h2>
-      <p className="quickbar-muted">以下能力来自宿主现场询问已注册 App 的当前回答。选择能力并完成配置后，即可注册为悬浮栏按钮。</p>
+      <div className="quickbar-capability-header">
+        <div>
+          <h2>可用能力</h2>
+          <p className="quickbar-muted">默认只读取已运行 App 的当前回答，不会自动启动其他 App。选择能力并完成配置后，即可注册为悬浮栏按钮。</p>
+        </div>
+        <button
+          type="button"
+          className="quickbar-capability-refresh"
+          disabled={loading || !!refreshingAppId}
+          onClick={() => void loadCapabilities({ launchPolicy: 'runningOnly' })}
+        >
+          刷新已运行 App
+        </button>
+      </div>
 
       {capabilityErrors.length ? (
         <div className="quickbar-capability-errors" role="alert" aria-label="部分能力读取失败">
           {capabilityErrors.map(error => (
             <div key={`${error.appId}:${error.message}`} className="quickbar-capability-message quickbar-capability-message-error">
-              {error.appId ? `${error.appId}: ` : ''}{error.message || '读取能力失败'}
+              <span>{error.appName || error.appId ? `${error.appName || error.appId}: ` : ''}{error.message || '读取能力失败'}</span>
+              {error.appId && error.canLaunch !== false ? (
+                <button
+                  type="button"
+                  disabled={refreshingAppId === error.appId}
+                  onClick={() => void loadCapabilities({ appId: error.appId, launchPolicy: 'allowLaunch' })}
+                >
+                  {refreshingAppId === error.appId ? '读取中...' : '启动并读取'}
+                </button>
+              ) : null}
             </div>
           ))}
         </div>
@@ -222,6 +266,14 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
       </div>
     </section>
   )
+}
+
+function mergeCapabilitiesForApp(current: HostCapabilityItem[], appId: string, next: HostCapabilityItem[]): HostCapabilityItem[] {
+  return current.filter(item => item.appId !== appId).concat(next)
+}
+
+function mergeErrorsForApp(current: HostCapabilityError[], appId: string, next: HostCapabilityError[]): HostCapabilityError[] {
+  return current.filter(item => item.appId !== appId).concat(next)
 }
 
 function CapabilityConfigField(props: {

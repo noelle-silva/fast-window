@@ -533,6 +533,17 @@ pub(crate) async fn ensure_app_control_endpoint(
     wait_control_endpoint(&entry).await
 }
 
+pub(crate) async fn running_app_control_endpoint(
+    state: Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<Option<AppControlEndpoint>, String> {
+    let id = normalize_app_id(app_id)?;
+    let Some(entry) = running_entry(&state, &id)? else {
+        return Ok(None);
+    };
+    wait_control_endpoint(&entry).await.map(Some)
+}
+
 #[tauri::command]
 pub(crate) async fn app_launch(
     app_handle: AppHandle,

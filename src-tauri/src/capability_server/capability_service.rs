@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use super::CapabilityHttpResponse;
 use crate::app_capabilities::{
     app_capability_invoke_inner, app_capability_query_options_inner, describe_app_commands,
-    AppCapabilityInvokeRequest, AppCapabilityOptionsRequest,
+    AppCapabilityInvokeRequest, AppCapabilityLaunchPolicy, AppCapabilityOptionsRequest,
 };
 use crate::app_lifecycle::manager::{AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig};
 
@@ -28,7 +28,7 @@ impl CapabilityService {
     ) -> CapabilityHttpResponse {
         let route = path.split('?').next().unwrap_or_default();
         match (method, route) {
-            ("GET", "/capabilities") => self.handle_capabilities(),
+            ("GET", "/capabilities") => self.handle_capabilities(path),
             ("POST", "/capability/invoke") => self.handle_capability_invoke(body),
             ("POST", "/capability/query-options") => self.handle_capability_query_options(body),
             ("GET" | "POST", _) => CapabilityHttpResponse::error(404, "能力HTTP入口不存在"),
@@ -36,10 +36,15 @@ impl CapabilityService {
         }
     }
 
-    fn handle_capabilities(&self) -> CapabilityHttpResponse {
+    fn handle_capabilities(&self, path: &str) -> CapabilityHttpResponse {
+        let query = match CapabilityListQuery::from_path(path) {
+            Ok(query) => query,
+            Err(error) => return CapabilityHttpResponse::error(400, error),
+        };
         match tauri::async_runtime::block_on(capability_list(
             self.app.clone(),
             self.lifecycle.clone(),
+            query,
         )) {
             Ok((capabilities, errors)) => CapabilityHttpResponse::json(
                 200,
@@ -95,6 +100,7 @@ impl CapabilityService {
 async fn capability_list(
     app: AppHandle,
     lifecycle: Arc<AppLifecycleManager>,
+    query: CapabilityListQuery,
 ) -> Result<(Vec<Value>, Vec<Value>), String> {
     let records = crate::app_registry::load_registered_app_records(&app)?;
     let mut capabilities = Vec::new();
@@ -106,23 +112,31 @@ async fn capability_list(
         if app_id.is_empty() {
             continue;
         }
+        if let Some(target_app_id) = query.app_id.as_deref() {
+            if target_app_id != app_id {
+                continue;
+            }
+        }
+        let app_name = app_display_name(&record);
         let app_launch = app_launch_value(&record);
         let app_config = match serde_json::from_value::<RegisteredAppLaunchConfig>(app_launch.clone()) {
             Ok(app_config) => app_config,
             Err(error) => {
                 errors.push(serde_json::json!({
                     "appId": app_id,
+                    "appName": app_name,
                     "message": format!("应用启动信息不完整: {error}"),
+                    "canLaunch": false,
                 }));
                 continue;
             }
         };
-        let app_name = app_display_name(&record);
         let commands = match describe_app_commands(
             app.clone(),
             lifecycle.clone(),
             &app_config,
             AppLaunchOptions::default(),
+            query.launch_policy,
         )
         .await
         {
@@ -130,7 +144,9 @@ async fn capability_list(
             Err(error) => {
                 errors.push(serde_json::json!({
                     "appId": app_id,
+                    "appName": app_name,
                     "message": error,
+                    "canLaunch": true,
                 }));
                 continue;
             }
@@ -163,6 +179,46 @@ async fn capability_list(
         }
     }
     Ok((capabilities, errors))
+}
+
+struct CapabilityListQuery {
+    app_id: Option<String>,
+    launch_policy: AppCapabilityLaunchPolicy,
+}
+
+impl CapabilityListQuery {
+    fn from_path(path: &str) -> Result<Self, String> {
+        let query = path.split_once('?').map(|(_, query)| query).unwrap_or_default();
+        let mut app_id = None;
+        let mut launch_policy = AppCapabilityLaunchPolicy::RunningOnly;
+
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            match key.as_ref() {
+                "appId" => {
+                    let value = value.trim().to_string();
+                    if !value.is_empty() {
+                        if !crate::is_safe_id(&value) {
+                            return Err("appId 不合法".to_string());
+                        }
+                        app_id = Some(value);
+                    }
+                }
+                "launchPolicy" => {
+                    launch_policy = match value.as_ref() {
+                        "" | "runningOnly" => AppCapabilityLaunchPolicy::RunningOnly,
+                        "allowLaunch" => AppCapabilityLaunchPolicy::AllowLaunch,
+                        _ => return Err("launchPolicy 不合法".to_string()),
+                    };
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Self {
+            app_id,
+            launch_policy,
+        })
+    }
 }
 
 fn app_launch_value(record: &Value) -> Value {

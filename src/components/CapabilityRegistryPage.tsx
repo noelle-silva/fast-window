@@ -23,7 +23,12 @@ type CapabilityEntry = {
 
 type CapabilitySnapshot = {
   commands: Record<string, RegisteredAppCommand[]>
-  errors: Record<string, string>
+  errors: Record<string, CapabilityReadError>
+}
+
+type CapabilityReadError = {
+  message: string
+  canLaunch: boolean
 }
 
 function mergeCommandMetadata(selected: RegisteredAppCommand, available: RegisteredAppCommand | undefined): RegisteredAppCommand {
@@ -87,6 +92,7 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
   const itemSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })
   const [snapshot, setSnapshot] = useState<CapabilitySnapshot>(EMPTY_SNAPSHOT)
   const [loadingCapabilities, setLoadingCapabilities] = useState(false)
+  const [activeReadAppId, setActiveReadAppId] = useState<string | null>(null)
   const [capabilityReadError, setCapabilityReadError] = useState('')
 
   const refreshCapabilities = useCallback(async () => {
@@ -100,10 +106,13 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
     try {
       const result = await listAppCapabilities(apps)
       const commands: Record<string, RegisteredAppCommand[]> = {}
-      const errors: Record<string, string> = {}
+      const errors: Record<string, CapabilityReadError> = {}
       for (const item of result.apps || []) commands[item.appId] = Array.isArray(item.commands) ? item.commands : []
       for (const item of result.errors || []) {
-        if (item.appId) errors[item.appId] = item.message || '无法读取应用当前能力'
+        if (item.appId) errors[item.appId] = {
+          message: item.message || '无法读取应用当前能力',
+          canLaunch: item.canLaunch !== false,
+        }
       }
       setSnapshot({ commands, errors })
     } catch (error) {
@@ -114,6 +123,33 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
     }
   }, [apps])
 
+  const launchAndRefreshAppCapabilities = useCallback(async (app: RegisteredApp) => {
+    setActiveReadAppId(app.id)
+    setCapabilityReadError('')
+    try {
+      const result = await listAppCapabilities([app], { launchPolicy: 'allowLaunch' })
+      const hit = result.apps.find(item => item.appId === app.id)
+      const error = result.errors.find(item => item.appId === app.id)
+      setSnapshot(prev => {
+        const commands = { ...prev.commands, [app.id]: Array.isArray(hit?.commands) ? hit.commands : [] }
+        const errors = { ...prev.errors }
+        if (error) {
+          errors[app.id] = {
+            message: error.message || '无法读取应用当前能力',
+            canLaunch: error.canLaunch !== false,
+          }
+        } else {
+          delete errors[app.id]
+        }
+        return { commands, errors }
+      })
+    } catch (error) {
+      setCapabilityReadError(String((error as { message?: string })?.message || error || '读取能力清单失败'))
+    } finally {
+      setActiveReadAppId(null)
+    }
+  }, [])
+
   useEffect(() => {
     void refreshCapabilities()
   }, [refreshCapabilities])
@@ -122,7 +158,8 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
     .map(app => ({
       app,
       capabilities: mergedCapabilities(app, snapshot.commands[app.id] ?? []),
-      error: snapshot.errors[app.id] || '',
+      error: snapshot.errors[app.id]?.message || '',
+      canLaunch: snapshot.errors[app.id]?.canLaunch ?? false,
     }))
     .filter(item => item.capabilities.length > 0 || item.error), [apps, snapshot])
   const capabilityCount = appsWithCapabilities.reduce((sum, item) => sum + item.capabilities.length, 0)
@@ -145,19 +182,19 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {loadingCapabilities
-                    ? '正在向 App 读取当前能力'
+                    ? '正在读取已运行 App 的当前能力'
                     : capabilityCount > 0
                     ? `已发现 ${capabilityCount} 个能力，已选取 ${selectedCount} 个`
-                    : '等待已注册 App 回答能力'}
+                    : '等待已运行 App 回答能力'}
                 </Typography>
               </Box>
               {loadingCapabilities ? <CircularProgress size={18} /> : null}
               <Button size="small" variant="text" disabled={loadingCapabilities || !apps.length} onClick={() => void refreshCapabilities()}>
-                重新读取
+              重新读取
               </Button>
             </Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.7 }}>
-              这里现场询问各个 App 当前能提供的能力。打开开关后，该能力会加入主页搜索列表；关闭开关后，会从主页移除。
+              这里默认只读取已运行 App 当前能提供的能力。打开开关后，该能力会加入主页搜索列表；关闭开关后，会从主页移除。
             </Typography>
             {capabilityReadError ? <Alert severity="error" sx={{ mt: 1.25, borderRadius: 2 }}>{capabilityReadError}</Alert> : null}
           </Box>
@@ -173,12 +210,12 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
           {apps.length > 0 && appsWithCapabilities.length === 0 ? (
             <Box sx={panelSx}>
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                已注册的 App 暂未返回能力。请确认目标 App 可以启动并能回答能力清单。
+                已注册的 App 暂未返回能力。请先启动目标 App，或在对应卡片里选择启动并读取。
               </Typography>
             </Box>
           ) : null}
 
-          {appsWithCapabilities.map(({ app, capabilities, error }) => {
+          {appsWithCapabilities.map(({ app, capabilities, error, canLaunch }) => {
             const appIcon = iconSource(app.icon)
             const selectedInApp = capabilities.filter(capability => capability.registered).length
 
@@ -205,7 +242,23 @@ export default function CapabilityRegistryPage({ apps, onBack, onUpdate }: Capab
                   </Box>
                 </Box>
 
-                {error ? <Alert severity="warning" sx={{ mb: capabilities.length ? 1.25 : 0, borderRadius: 2 }}>{error}</Alert> : null}
+                {error ? (
+                  <Alert
+                    severity="warning"
+                    sx={{ mb: capabilities.length ? 1.25 : 0, borderRadius: 2 }}
+                    action={canLaunch ? (
+                      <Button
+                        size="small"
+                        disabled={activeReadAppId === app.id}
+                        onClick={() => void launchAndRefreshAppCapabilities(app)}
+                      >
+                        {activeReadAppId === app.id ? '读取中…' : '启动并读取'}
+                      </Button>
+                    ) : undefined}
+                  >
+                    {error}
+                  </Alert>
+                ) : null}
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                   {capabilities.map(({ command, registered, live }) => {

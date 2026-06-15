@@ -41,7 +41,16 @@ export type CapabilityInvokeResponse = {
 
 export type HostCapabilityError = {
   appId: string
+  appName?: string
   message: string
+  canLaunch?: boolean
+}
+
+export type HostCapabilityLaunchPolicy = 'runningOnly' | 'allowLaunch'
+
+export type HostCapabilityListRequest = {
+  appId?: string
+  launchPolicy?: HostCapabilityLaunchPolicy
 }
 
 export type HostCapabilityListResponse = {
@@ -49,8 +58,8 @@ export type HostCapabilityListResponse = {
   errors: HostCapabilityError[]
 }
 
-export async function fetchCapabilities(client: DirectClient): Promise<HostCapabilityListResponse> {
-  const data = await client.request<HostCapabilityListResponse>('quickBar.capability.list')
+export async function fetchCapabilities(client: DirectClient, request: HostCapabilityListRequest = {}): Promise<HostCapabilityListResponse> {
+  const data = await client.request<HostCapabilityListResponse>('quickBar.capability.list', request)
   if (!Array.isArray(data.capabilities)) {
     throw new Error('宿主能力服务协议错误: capabilities 必须是数组')
   }

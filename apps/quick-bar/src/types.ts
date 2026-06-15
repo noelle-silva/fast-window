@@ -45,6 +45,7 @@ export type RegistryButton = {
   capabilityId: string
   title: string
   config: Record<string, unknown>
+  enabled?: boolean
   createdAt: string
 }
 

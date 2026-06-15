@@ -84,6 +84,9 @@ input {
 .quickbar-window-controls button,
 .quickbar-actions button,
 .quickbar-hero-actions button,
+.quickbar-button-manager-actions button,
+.quickbar-button-card-actions button,
+.quickbar-button-delete-confirm button,
 .quickbar-toolbar-actions button {
   appearance: none;
   border: 0;
@@ -116,6 +119,9 @@ input {
 .quickbar-window-controls button:focus-visible,
 .quickbar-actions button:focus-visible,
 .quickbar-hero-actions button:focus-visible,
+.quickbar-button-manager-actions button:focus-visible,
+.quickbar-button-card-actions button:focus-visible,
+.quickbar-button-delete-confirm button:focus-visible,
 .quickbar-toolbar-actions button:focus-visible,
 .quickbar-settings-tab:focus-visible {
   box-shadow: 0 0 0 3px rgba(91, 95, 247, 0.24);
@@ -136,7 +142,8 @@ input {
 }
 
 .quickbar-home,
-.quickbar-settings-page {
+.quickbar-settings-page,
+.quickbar-button-manager {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -376,6 +383,27 @@ input {
 .quickbar-actions button:disabled {
   cursor: not-allowed;
   color: #94a3b8;
+}
+
+.quickbar-actions-on-dark button {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.quickbar-actions-on-dark button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.44);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.quickbar-actions-on-dark button:disabled {
+  color: rgba(255, 255, 255, 0.54);
+}
+
+.quickbar-intro-note {
+  margin-top: 10px !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+  font-size: 12px;
 }
 
 .quickbar-error-text {
@@ -668,6 +696,234 @@ input {
   font-size: 13px;
 }
 
+.quickbar-button-manager {
+  padding: 18px;
+}
+
+.quickbar-button-manager-header {
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 28px;
+  padding: 22px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 90% 20%, rgba(255, 255, 255, 0.22), transparent 30%),
+    linear-gradient(135deg, #151a4c, #5b5ff7 56%, #f18f65);
+  box-shadow: 0 22px 58px rgba(30, 41, 59, 0.18);
+}
+
+.quickbar-button-manager-header h2 {
+  margin: 0;
+  font-size: clamp(26px, 5vw, 46px);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.quickbar-button-manager-header p:not(.quickbar-eyebrow) {
+  max-width: 620px;
+  margin: 14px 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.7;
+}
+
+.quickbar-button-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quickbar-button-manager-header .quickbar-button-manager-actions {
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+.quickbar-button-manager-actions button,
+.quickbar-button-card-actions button,
+.quickbar-button-delete-confirm button {
+  border: 1px solid rgba(91, 95, 247, 0.22);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--quickbar-accent-strong);
+  font-weight: 900;
+  background: #ffffff;
+}
+
+.quickbar-button-manager-header .quickbar-button-manager-actions button {
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #252786;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.quickbar-button-manager-actions button:hover:not(:disabled),
+.quickbar-button-card-actions button:hover:not(:disabled),
+.quickbar-button-delete-confirm button:hover:not(:disabled) {
+  border-color: rgba(91, 95, 247, 0.42);
+  background: rgba(91, 95, 247, 0.08);
+}
+
+.quickbar-button-manager-actions button:disabled,
+.quickbar-button-card-actions button:disabled,
+.quickbar-button-delete-confirm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.quickbar-button-manager-stats {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quickbar-button-stat-card {
+  border: 1px solid var(--quickbar-border);
+  border-radius: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 30px rgba(30, 41, 59, 0.07);
+}
+
+.quickbar-button-stat-card span {
+  display: block;
+  color: var(--quickbar-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.quickbar-button-stat-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #1e1b4b;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.quickbar-button-stat-ready strong {
+  color: var(--quickbar-success);
+}
+
+.quickbar-button-stat-muted strong {
+  color: var(--quickbar-muted);
+}
+
+.quickbar-button-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.quickbar-button-card,
+.quickbar-empty-panel {
+  border: 1px solid var(--quickbar-border);
+  border-radius: 22px;
+  background: var(--quickbar-surface);
+  box-shadow: 0 14px 38px rgba(30, 41, 59, 0.08);
+}
+
+.quickbar-button-card {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.quickbar-button-card-disabled {
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.quickbar-button-card-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quickbar-button-card-title {
+  display: block;
+  color: #1e1b4b;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.quickbar-button-card-meta {
+  margin: 6px 0 0;
+  color: var(--quickbar-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.quickbar-button-status {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.quickbar-button-status-enabled {
+  color: var(--quickbar-success);
+  background: var(--quickbar-success-soft);
+}
+
+.quickbar-button-status-disabled {
+  color: var(--quickbar-muted);
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.quickbar-button-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quickbar-button-card-actions .quickbar-button-danger,
+.quickbar-button-delete-confirm .quickbar-button-danger {
+  border-color: rgba(211, 47, 47, 0.24);
+  color: var(--quickbar-danger);
+  background: #ffffff;
+}
+
+.quickbar-button-card-actions .quickbar-button-danger:hover:not(:disabled),
+.quickbar-button-delete-confirm .quickbar-button-danger:hover:not(:disabled) {
+  border-color: rgba(211, 47, 47, 0.42);
+  background: var(--quickbar-danger-soft);
+}
+
+.quickbar-button-delete-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quickbar-button-delete-confirm span {
+  color: var(--quickbar-danger);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.quickbar-empty-panel {
+  margin-top: 14px;
+  padding: 18px;
+}
+
+.quickbar-empty-panel h3 {
+  margin: 0 0 8px;
+  color: #1e1b4b;
+  font-size: 16px;
+}
+
+.quickbar-empty-panel p {
+  margin: 0;
+  color: var(--quickbar-muted);
+  line-height: 1.65;
+}
+
 .quickbar-capability-loading,
 .quickbar-capability-empty {
   flex: 1;
@@ -692,12 +948,63 @@ input {
   font-weight: 950;
 }
 
+.quickbar-capability-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.quickbar-capability-refresh,
+.quickbar-capability-message button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.quickbar-capability-refresh {
+  flex-shrink: 0;
+  color: #ffffff;
+  background: var(--quickbar-accent);
+}
+
+.quickbar-capability-refresh:hover:not(:disabled),
+.quickbar-capability-message button:hover:not(:disabled) {
+  background: var(--quickbar-accent-strong);
+}
+
+.quickbar-capability-refresh:disabled,
+.quickbar-capability-message button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
 .quickbar-capability-message {
   margin-top: 10px;
   border-radius: 16px;
   padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 13px;
   font-weight: 800;
+}
+
+.quickbar-capability-message span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.quickbar-capability-message button {
+  flex-shrink: 0;
+  color: #ffffff;
+  background: var(--quickbar-accent);
 }
 
 .quickbar-capability-errors {
@@ -857,6 +1164,23 @@ input {
 
   .quickbar-settings-page {
     padding: 12px;
+  }
+
+  .quickbar-button-manager {
+    padding: 12px;
+  }
+
+  .quickbar-button-manager-header,
+  .quickbar-button-card-main {
+    flex-direction: column;
+  }
+
+  .quickbar-button-manager-header .quickbar-button-manager-actions {
+    justify-content: flex-start;
+  }
+
+  .quickbar-button-manager-stats {
+    grid-template-columns: 1fr;
   }
 
   .quickbar-panel dl {

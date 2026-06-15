@@ -166,7 +166,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "quickBar.registry.update":
 		return svc.updateRegistryButton(params)
 	case "quickBar.capability.list":
-		return svc.listHostCapabilities()
+		return svc.listHostCapabilities(params)
 	case "quickBar.capability.invoke":
 		return svc.invokeHostCapability(params)
 	case "quickBar.capability.options":

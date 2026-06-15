@@ -4,8 +4,11 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::app_lifecycle::{
-    manager::{ensure_app_control_endpoint, AppLaunchOptions, AppLifecycleManager},
-    send_control_json, RegisteredAppLaunchConfig,
+    manager::{
+        ensure_app_control_endpoint, running_app_control_endpoint, AppLaunchOptions,
+        AppLifecycleManager,
+    },
+    send_control_json, AppControlEndpoint, RegisteredAppLaunchConfig,
 };
 
 #[derive(Deserialize)]
@@ -29,12 +32,29 @@ pub(crate) struct AppCapabilityOptionsRequest {
     option_source: String,
     #[serde(default)]
     config: serde_json::Value,
+    #[serde(default)]
+    launch_policy: AppCapabilityLaunchPolicy,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppCapabilityListRequest {
     apps: Vec<RegisteredAppLaunchConfig>,
+    #[serde(default)]
+    launch_policy: AppCapabilityLaunchPolicy,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AppCapabilityLaunchPolicy {
+    RunningOnly,
+    AllowLaunch,
+}
+
+impl Default for AppCapabilityLaunchPolicy {
+    fn default() -> Self {
+        Self::RunningOnly
+    }
 }
 
 #[derive(Serialize)]
@@ -64,6 +84,7 @@ pub(crate) struct AppCapabilityListApp {
 pub(crate) struct AppCapabilityListError {
     app_id: String,
     message: String,
+    can_launch: bool,
 }
 
 #[tauri::command]
@@ -87,12 +108,30 @@ async fn send_app_capability_request(
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
     launch_options: AppLaunchOptions,
+    launch_policy: AppCapabilityLaunchPolicy,
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let endpoint = ensure_app_control_endpoint(app_handle, state, app, launch_options).await?;
+    let endpoint = resolve_app_capability_endpoint(app_handle, state, app, launch_options, launch_policy).await?;
     tokio::task::spawn_blocking(move || send_control_json(endpoint, body))
         .await
         .map_err(|e| format!("应用能力调度任务失败: {e}"))?
+}
+
+async fn resolve_app_capability_endpoint(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
+    launch_policy: AppCapabilityLaunchPolicy,
+) -> Result<AppControlEndpoint, String> {
+    match launch_policy {
+        AppCapabilityLaunchPolicy::AllowLaunch => {
+            ensure_app_control_endpoint(app_handle, state, app, launch_options).await
+        }
+        AppCapabilityLaunchPolicy::RunningOnly => running_app_control_endpoint(state, &app.id)
+            .await?
+            .ok_or_else(|| "应用未运行，未自动启动".to_string()),
+    }
 }
 
 pub(crate) async fn describe_app_commands(
@@ -100,8 +139,9 @@ pub(crate) async fn describe_app_commands(
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
     launch_options: AppLaunchOptions,
+    launch_policy: AppCapabilityLaunchPolicy,
 ) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
-    let endpoint = ensure_app_control_endpoint(app_handle, state, app, launch_options).await?;
+    let endpoint = resolve_app_capability_endpoint(app_handle, state, app, launch_options, launch_policy).await?;
     let response = tokio::task::spawn_blocking(move || {
         send_control_json(endpoint, serde_json::json!({ "action": "describeCapabilities" }))
     })
@@ -136,6 +176,7 @@ pub(crate) async fn app_capability_list(
                 errors.push(AppCapabilityListError {
                     app_id: app.id,
                     message: error,
+                    can_launch: false,
                 });
                 continue;
             }
@@ -145,6 +186,7 @@ pub(crate) async fn app_capability_list(
             state.inner().clone(),
             &app,
             AppLaunchOptions::default(),
+            request.launch_policy,
         )
         .await
         {
@@ -152,6 +194,7 @@ pub(crate) async fn app_capability_list(
             Err(error) => errors.push(AppCapabilityListError {
                 app_id,
                 message: error,
+                can_launch: true,
             }),
         }
     }
@@ -180,6 +223,7 @@ pub(crate) async fn app_capability_invoke_inner(
         state,
         &request.app,
         request.launch_options,
+        AppCapabilityLaunchPolicy::AllowLaunch,
         serde_json::json!({
             "action": "invokeCapability",
             "capabilityId": capability_id,
@@ -218,6 +262,7 @@ pub(crate) async fn app_capability_query_options_inner(
         state,
         &request.app,
         AppLaunchOptions::default(),
+        request.launch_policy,
         serde_json::json!({
             "action": "queryCapabilityOptions",
             "capabilityId": capability_id,
