@@ -36,17 +36,35 @@ function WindowControls({ actions }: { actions: WindowControlActions }) {
   )
 }
 
-const NAV_ITEMS: Array<{ page: QuickBarPage; label: string }> = [
-  { page: 'settings', label: '设置' },
-  { page: 'buttons', label: '已注册管理' },
-  { page: 'capabilities', label: '能力浏览' },
-]
-
-function pageTitle(page: QuickBarPage): string {
-  if (page === 'settings') return '设置'
-  if (page === 'capabilities') return '能力浏览'
-  return '按钮管理'
+function IconSettings() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path fill="currentColor" d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8 8 0 0 0-2.6-1.5L14 2h-4l-.4 3a8 8 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a9 9 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 2.6 1.5l.4 3h4l.4-3a8 8 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
+    </svg>
+  )
 }
+
+function IconButtons() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path fill="currentColor" d="M5 4h6v6H5V4Zm8 0h6v6h-6V4ZM5 14h6v6H5v-6Zm8 0h6v6h-6v-6Z" />
+    </svg>
+  )
+}
+
+function IconCapabilities() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path fill="currentColor" d="M12 3a1 1 0 0 1 .92.6l1.9 4.38 4.76.45a1 1 0 0 1 .56 1.74l-3.58 3.15 1.04 4.66a1 1 0 0 1-1.48 1.08L12 16.64l-4.12 2.42a1 1 0 0 1-1.48-1.08l1.04-4.66-3.58-3.15a1 1 0 0 1 .56-1.74l4.76-.45 1.9-4.38A1 1 0 0 1 12 3Z" />
+    </svg>
+  )
+}
+
+const NAV_ITEMS: Array<{ page: QuickBarPage; label: string; icon: React.ReactNode }> = [
+  { page: 'settings', label: '设置', icon: <IconSettings /> },
+  { page: 'buttons', label: '已注册管理', icon: <IconButtons /> },
+  { page: 'capabilities', label: '能力浏览', icon: <IconCapabilities /> },
+]
 
 export function QuickBarTopbar(props: QuickBarTopbarProps) {
   const { page, standalone, onNavigate, onStartDragging, windowActions } = props
@@ -60,20 +78,22 @@ export function QuickBarTopbar(props: QuickBarTopbarProps) {
 
   return (
     <header className="quickbar-topbar" onPointerDown={onPointerDown}>
-      <div className="quickbar-topbar-title" aria-live="polite">{pageTitle(page)}</div>
+      <div className="quickbar-topbar-spacer" />
       <nav className="quickbar-topbar-nav" aria-label="Quick Bar 页面入口">
         {NAV_ITEMS.map(item => (
           <button
             key={item.page}
             type="button"
             className={item.page === page ? 'quickbar-topbar-nav-active' : ''}
+            title={item.label}
+            aria-label={item.label}
+            aria-current={item.page === page ? 'page' : undefined}
             onClick={() => onNavigate(item.page)}
           >
-            {item.label}
+            {item.icon}
           </button>
         ))}
       </nav>
-      <div className="quickbar-topbar-spacer" />
       {standalone ? <WindowControls actions={windowActions} /> : null}
     </header>
   )

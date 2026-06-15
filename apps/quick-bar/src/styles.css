@@ -21,6 +21,27 @@ input {
 .quickbar-app,
 .quickbar-app * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #9aa6b8 transparent;
+}
+
+.quickbar-app *::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.quickbar-app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quickbar-app *::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 999px;
+  background: #9aa6b8;
+}
+
+.quickbar-app *::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .quickbar-app {
@@ -64,15 +85,6 @@ input {
   -webkit-user-select: none;
 }
 
-.quickbar-topbar-title {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 900;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .quickbar-topbar-spacer {
   flex: 1;
   min-width: 12px;
@@ -88,7 +100,12 @@ input {
   appearance: none;
   border: 1px solid rgba(83, 97, 121, 0.18);
   border-radius: 999px;
-  padding: 6px 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: #475569;
   background: #eef2f7;
   cursor: pointer;
@@ -260,7 +277,6 @@ input {
   gap: 4px;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
 }
 
 .quickbar-settings-tab {
@@ -647,32 +663,10 @@ input {
   padding: 18px;
 }
 
-.quickbar-button-manager-toolbar {
-  border: 1px solid var(--quickbar-border);
-  border-radius: 18px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  background: #f8fafc;
-  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.06);
-}
-
-.quickbar-button-manager-toolbar h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-}
-
 .quickbar-button-manager-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.quickbar-button-manager-toolbar .quickbar-button-manager-actions {
-  flex-shrink: 0;
-  justify-content: flex-end;
 }
 
 .quickbar-button-manager-actions button,
@@ -700,49 +694,22 @@ input {
   opacity: 0.56;
 }
 
-.quickbar-button-manager-stats {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.quickbar-button-stat-card {
-  border: 1px solid var(--quickbar-border);
-  border-radius: 20px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 30px rgba(30, 41, 59, 0.07);
-}
-
-.quickbar-button-stat-card span {
-  display: block;
-  color: var(--quickbar-muted);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.quickbar-button-stat-card strong {
-  display: block;
-  margin-top: 8px;
-  color: #1e1b4b;
-  font-size: 34px;
-  line-height: 1;
-  letter-spacing: -0.05em;
-}
-
-.quickbar-button-stat-ready strong {
-  color: var(--quickbar-success);
-}
-
-.quickbar-button-stat-muted strong {
-  color: var(--quickbar-muted);
-}
-
 .quickbar-button-list {
-  margin-top: 14px;
   display: grid;
   gap: 12px;
+}
+
+.quickbar-inline-action {
+  width: fit-content;
+  margin-top: 14px;
+  border: 1px solid rgba(83, 97, 121, 0.24);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--quickbar-accent-strong);
+  background: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 850;
 }
 
 .quickbar-button-card,
@@ -979,72 +946,183 @@ input {
   background: var(--quickbar-danger-soft);
 }
 
-.quickbar-capability-list {
+.quickbar-app-card-grid {
   margin-top: 14px;
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
 }
 
-.quickbar-capability-card {
+.quickbar-app-card {
   border: 1px solid var(--quickbar-border);
   border-radius: 22px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
   background: var(--quickbar-surface);
   box-shadow: 0 10px 30px rgba(30, 41, 59, 0.06);
   overflow: hidden;
 }
 
-.quickbar-capability-card-header {
+.quickbar-app-card-main {
   width: 100%;
   border: 0;
   padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: transparent;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  border-radius: 16px;
+  background: #eef2f7;
   cursor: pointer;
   font: inherit;
   color: inherit;
 }
 
-.quickbar-capability-card-header:hover {
-  background: rgba(91, 95, 247, 0.04);
+.quickbar-app-card-main:hover:not(:disabled),
+.quickbar-app-card-main:focus-visible {
+  background: #e2e8f0;
+  outline: none;
 }
 
-.quickbar-capability-card-info {
-  min-width: 0;
-  text-align: left;
-}
-
-.quickbar-capability-card-title {
+.quickbar-app-card-title {
   display: block;
   font-size: 15px;
   font-weight: 900;
   color: #1e1b4b;
 }
 
-.quickbar-capability-card-source {
+.quickbar-app-card-meta {
   display: block;
-  margin-top: 3px;
   font-size: 12px;
   color: var(--quickbar-muted);
 }
 
-.quickbar-capability-card-chevron {
-  flex-shrink: 0;
+.quickbar-app-card-error {
+  margin: 0;
+  color: var(--quickbar-danger);
   font-size: 12px;
-  color: var(--quickbar-muted);
 }
 
-.quickbar-capability-card-body {
-  padding: 0 16px 16px;
+.quickbar-app-card-action {
+  width: fit-content;
+  border: 1px solid rgba(83, 97, 121, 0.22);
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--quickbar-accent-strong);
+  background: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
 }
 
-.quickbar-capability-card-body > p {
-  margin: 0 0 12px;
+.quickbar-capability-modal-backdrop {
+  position: fixed;
+  inset: var(--quickbar-topbar-height) 0 0;
+  z-index: 20;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.quickbar-capability-modal {
+  width: min(860px, 100%);
+  max-height: min(680px, calc(100vh - var(--quickbar-topbar-height) - 36px));
+  border: 1px solid var(--quickbar-border);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.quickbar-capability-modal-header {
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--quickbar-border);
+}
+
+.quickbar-capability-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.quickbar-capability-modal-header p {
+  margin: 4px 0 0;
   color: var(--quickbar-muted);
   font-size: 13px;
-  line-height: 1.6;
+}
+
+.quickbar-capability-modal-header button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  color: #475569;
+  background: #eef2f7;
+  cursor: pointer;
+  font: inherit;
+  font-size: 18px;
+}
+
+.quickbar-capability-modal-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 250px) minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  overflow: auto;
+}
+
+.quickbar-capability-modal-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.quickbar-capability-modal-list button {
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: var(--quickbar-text);
+  background: #eef2f7;
+  cursor: pointer;
+  font: inherit;
+}
+
+.quickbar-capability-modal-list button:hover,
+.quickbar-capability-modal-list .quickbar-capability-choice-active {
+  border-color: rgba(83, 97, 121, 0.28);
+  background: #dfe6ef;
+}
+
+.quickbar-capability-modal-list span {
+  font-weight: 900;
+}
+
+.quickbar-capability-modal-list small {
+  color: var(--quickbar-muted);
+}
+
+.quickbar-capability-modal-detail {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.quickbar-capability-modal-detail h4 {
+  margin: 0;
+  font-size: 17px;
 }
 
 .quickbar-capability-config-fields {
@@ -1115,14 +1193,9 @@ input {
     padding: 12px;
   }
 
-  .quickbar-button-manager-toolbar,
   .quickbar-button-card-main {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .quickbar-button-manager-toolbar .quickbar-button-manager-actions {
-    justify-content: flex-start;
   }
 
   .quickbar-button-title-edit {
@@ -1130,7 +1203,7 @@ input {
     flex-direction: column;
   }
 
-  .quickbar-button-manager-stats {
+  .quickbar-capability-modal-body {
     grid-template-columns: 1fr;
   }
 

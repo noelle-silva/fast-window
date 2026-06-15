@@ -18,13 +18,21 @@ type ConfigSelection = Record<string, string>
 
 type FieldOptions = Record<string, Array<{ value: string; label: string }>>
 
+type AppCapabilityGroup = {
+  appId: string
+  appName: string
+  capabilities: HostCapabilityItem[]
+  errors: HostCapabilityError[]
+}
+
 export function CapabilityBrowser(props: CapabilityBrowserProps) {
   const { client } = props
   const [capabilities, setCapabilities] = React.useState<HostCapabilityItem[] | null>(null)
   const [capabilityErrors, setCapabilityErrors] = React.useState<HostCapabilityError[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [expandedId, setExpandedId] = React.useState<string | null>(null)
+  const [selectedAppId, setSelectedAppId] = React.useState<string | null>(null)
+  const [selectedCapabilityKey, setSelectedCapabilityKey] = React.useState<string | null>(null)
   const [configSelections, setConfigSelections] = React.useState<ConfigSelection>({})
   const [fieldOptions, setFieldOptions] = React.useState<FieldOptions>({})
   const [optionLoading, setOptionLoading] = React.useState<Record<string, boolean>>({})
@@ -56,9 +64,9 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
           setCapabilityErrors(result.errors)
         }
       }
-    } catch (e) {
+    } catch (loadError) {
       if (mountedRef.current) {
-        const text = String((e as { message?: string })?.message || e || '获取能力列表失败')
+        const text = String((loadError as { message?: string })?.message || loadError || '获取能力列表失败')
         if (targetAppId) setMessage(`读取失败: ${text}`)
         else setError(text)
       }
@@ -74,8 +82,39 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     void loadCapabilities({ launchPolicy: 'runningOnly' })
   }, [loadCapabilities])
 
-  const toggleExpand = React.useCallback((capabilityId: string) => {
-    setExpandedId(prev => prev === capabilityId ? null : capabilityId)
+  const visibleCapabilities = capabilities ?? []
+  const appGroups = React.useMemo(
+    () => groupCapabilitiesByApp(visibleCapabilities, capabilityErrors),
+    [visibleCapabilities, capabilityErrors],
+  )
+  const selectedGroup = appGroups.find(group => group.appId === selectedAppId) ?? null
+  const selectedCapability = selectedGroup?.capabilities.find(item => capabilityKey(item) === selectedCapabilityKey)
+    ?? selectedGroup?.capabilities[0]
+    ?? null
+
+  React.useEffect(() => {
+    if (!selectedAppId) return
+    const group = appGroups.find(item => item.appId === selectedAppId)
+    if (!group) {
+      setSelectedAppId(null)
+      setSelectedCapabilityKey(null)
+      return
+    }
+    if (group.capabilities.length && !group.capabilities.some(item => capabilityKey(item) === selectedCapabilityKey)) {
+      setSelectedCapabilityKey(capabilityKey(group.capabilities[0]))
+    }
+  }, [appGroups, selectedAppId, selectedCapabilityKey])
+
+  const openGroup = React.useCallback((group: AppCapabilityGroup) => {
+    if (!group.capabilities.length) return
+    setSelectedAppId(group.appId)
+    setSelectedCapabilityKey(capabilityKey(group.capabilities[0]))
+    setMessage(null)
+  }, [])
+
+  const closeGroup = React.useCallback(() => {
+    setSelectedAppId(null)
+    setSelectedCapabilityKey(null)
   }, [])
 
   const loadFieldOptions = React.useCallback(async (item: HostCapabilityItem, field: HostCapabilityConfigField) => {
@@ -92,28 +131,24 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
       const options = extractOptions(result.response)
       if (options.length > 0) {
         setFieldOptions(prev => ({ ...prev, [optionKey]: options }))
-        if (!configSelections[optionKey] && options.length > 0) {
+        if (!configSelections[optionKey]) {
           setConfigSelections(prev => ({ ...prev, [optionKey]: options[0].value }))
         }
       }
-    } catch (e) {
-      setMessage(`获取选项失败: ${String((e as { message?: string })?.message || e)}`)
+    } catch (optionsError) {
+      setMessage(`获取选项失败: ${String((optionsError as { message?: string })?.message || optionsError)}`)
     } finally {
       setOptionLoading(prev => ({ ...prev, [optionKey]: false }))
     }
-  }, [client, fieldOptions, configSelections])
+  }, [client, configSelections, fieldOptions])
 
   React.useEffect(() => {
-    const active = capabilities?.find(c => {
-      const capId = `${c.appId}:${c.capabilityId}`
-      return capId === expandedId
-    })
-    if (!active?.configFields?.length) return
-    for (const field of active.configFields) {
-      if (!canLoadFieldOptions(active, field, configSelections)) continue
-      void loadFieldOptions(active, field)
+    if (!selectedCapability?.configFields?.length) return
+    for (const field of selectedCapability.configFields) {
+      if (!canLoadFieldOptions(selectedCapability, field, configSelections)) continue
+      void loadFieldOptions(selectedCapability, field)
     }
-  }, [expandedId, capabilities, loadFieldOptions, configSelections])
+  }, [selectedCapability, loadFieldOptions, configSelections])
 
   const updateConfigSelection = React.useCallback((item: HostCapabilityItem, field: HostCapabilityConfigField, value: string) => {
     const fields = item.configFields ?? []
@@ -160,8 +195,8 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         config: configToRecord(configSelections, item),
       })
       setMessage(`已注册：${title}`)
-    } catch (e) {
-      setMessage(`注册失败: ${String((e as { message?: string })?.message || e)}`)
+    } catch (registerError) {
+      setMessage(`注册失败: ${String((registerError as { message?: string })?.message || registerError)}`)
     } finally {
       setBusy(false)
     }
@@ -169,8 +204,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
 
   if (loading) return <section className="quickbar-capability-loading" aria-label="能力列表加载中">加载能力清单...</section>
   if (error) return <section className="quickbar-error-card" role="alert">{error}</section>
-  const visibleCapabilities = capabilities ?? []
-  if (!visibleCapabilities.length && !capabilityErrors.length) {
+  if (!appGroups.length) {
     return <section className="quickbar-capability-empty" aria-label="无可用能力">暂无可用能力。默认只读取已运行 App；请先启动目标 App 后再刷新。</section>
   }
 
@@ -178,8 +212,8 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     <section className="quickbar-capability-browser" aria-label="能力浏览">
       <div className="quickbar-capability-header">
         <div>
-          <h2>可用能力</h2>
-          <p className="quickbar-muted">默认只读取已运行 App 的当前回答，不会自动启动其他 App。选择能力并完成配置后，即可注册为悬浮栏按钮。</p>
+          <h2>应用能力</h2>
+          <p className="quickbar-muted">一个卡片对应一个 App。打开卡片后选择具体能力并注册为浮动条按钮。</p>
         </div>
         <button
           type="button"
@@ -191,100 +225,206 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         </button>
       </div>
 
-      {capabilityErrors.length ? (
-        <div className="quickbar-capability-errors" role="alert" aria-label="部分能力读取失败">
-          {capabilityErrors.map(error => (
-            <div key={`${error.appId}:${error.message}`} className="quickbar-capability-message quickbar-capability-message-error">
-              <span>{error.appName || error.appId ? `${error.appName || error.appId}: ` : ''}{error.message || '读取能力失败'}</span>
-              {error.appId && error.canLaunch !== false ? (
-                <button
-                  type="button"
-                  disabled={refreshingAppId === error.appId}
-                  onClick={() => void loadCapabilities({ appId: error.appId, launchPolicy: 'allowLaunch' })}
-                >
-                  {refreshingAppId === error.appId ? '读取中...' : '启动并读取'}
-                </button>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       {message ? (
         <div className={`quickbar-capability-message ${message.startsWith('已') ? 'quickbar-capability-message-ok' : 'quickbar-capability-message-error'}`} role="alert">
           {message}
         </div>
       ) : null}
 
-      <div className="quickbar-capability-list">
-        {visibleCapabilities.map(item => {
-          const capId = capabilityKey(item)
-          const expanded = expandedId === capId
-          return (
-            <article key={capId} className={`quickbar-capability-card ${expanded ? 'quickbar-capability-card-expanded' : ''}`}>
-              <button
-                type="button"
-                className="quickbar-capability-card-header"
-                onClick={() => toggleExpand(capId)}
-                aria-expanded={expanded}
-              >
-                <div className="quickbar-capability-card-info">
-                  <span className="quickbar-capability-card-title">{item.title || item.capabilityId}</span>
-                  <span className="quickbar-capability-card-source">{item.appName || item.appId}</span>
-                </div>
-                <span className="quickbar-capability-card-chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
-              </button>
-
-              {expanded ? (
-                <div className="quickbar-capability-card-body">
-                  {item.description ? <p>{item.description}</p> : null}
-
-                  {item.configFields?.length ? (
-                    <div className="quickbar-capability-config-fields">
-                      {item.configFields.map(field => {
-                        const fieldKey = configSelectionKey(item, field)
-                        return (
-                          <CapabilityConfigField
-                            key={fieldKey}
-                            item={item}
-                            field={field}
-                            value={configSelections[fieldKey] || ''}
-                            options={fieldOptions[fieldKey]}
-                            loading={optionLoading[fieldKey]}
-                            waitingForPrevious={!canLoadFieldOptions(item, field, configSelections)}
-                            onChange={value => updateConfigSelection(item, field, value)}
-                          />
-                        )
-                      })}
-                    </div>
-                  ) : null}
-
-                  <label className="quickbar-capability-field">
-                    <span className="quickbar-capability-field-label">按钮名称 *</span>
-                    <input
-                      type="text"
-                      value={buttonTitles[capId] ?? item.title ?? item.capabilityId}
-                      onChange={event => updateButtonTitle(item, event.target.value)}
-                    />
-                  </label>
-
-                  <div className="quickbar-capability-card-actions">
-                    <button
-                      type="button"
-                      onClick={() => handleRegister(item)}
-                      disabled={busy}
-                    >
-                      注册为悬浮栏按钮
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
+      <div className="quickbar-app-card-grid">
+        {appGroups.map(group => (
+          <AppCapabilityCard
+            key={group.appId}
+            group={group}
+            refreshing={refreshingAppId === group.appId}
+            onOpen={() => openGroup(group)}
+            onRefresh={() => void loadCapabilities({ appId: group.appId, launchPolicy: 'allowLaunch' })}
+          />
+        ))}
       </div>
+
+      {selectedGroup ? (
+        <CapabilityRegisterModal
+          group={selectedGroup}
+          selectedCapability={selectedCapability}
+          selectedCapabilityKey={selectedCapabilityKey}
+          configSelections={configSelections}
+          fieldOptions={fieldOptions}
+          optionLoading={optionLoading}
+          buttonTitles={buttonTitles}
+          busy={busy}
+          onClose={closeGroup}
+          onSelectCapability={setSelectedCapabilityKey}
+          onConfigChange={updateConfigSelection}
+          onTitleChange={updateButtonTitle}
+          onRegister={handleRegister}
+        />
+      ) : null}
     </section>
   )
+}
+
+function AppCapabilityCard(props: {
+  group: AppCapabilityGroup
+  refreshing: boolean
+  onOpen: () => void
+  onRefresh: () => void
+}) {
+  const { group, refreshing, onOpen, onRefresh } = props
+  const primaryError = group.errors[0]
+  return (
+    <article className="quickbar-app-card">
+      <button type="button" className="quickbar-app-card-main" onClick={onOpen} disabled={!group.capabilities.length}>
+        <span className="quickbar-app-card-title">{group.appName || group.appId}</span>
+        <span className="quickbar-app-card-meta">{group.capabilities.length ? `${group.capabilities.length} 项能力` : '暂无可注册能力'}</span>
+      </button>
+      {primaryError ? <p className="quickbar-app-card-error">{primaryError.message || '读取能力失败'}</p> : null}
+      {primaryError?.appId && primaryError.canLaunch !== false ? (
+        <button type="button" className="quickbar-app-card-action" disabled={refreshing} onClick={onRefresh}>
+          {refreshing ? '读取中...' : '启动并读取'}
+        </button>
+      ) : null}
+    </article>
+  )
+}
+
+function CapabilityRegisterModal(props: {
+  group: AppCapabilityGroup
+  selectedCapability: HostCapabilityItem | null
+  selectedCapabilityKey: string | null
+  configSelections: ConfigSelection
+  fieldOptions: FieldOptions
+  optionLoading: Record<string, boolean>
+  buttonTitles: Record<string, string>
+  busy: boolean
+  onClose: () => void
+  onSelectCapability: (key: string) => void
+  onConfigChange: (item: HostCapabilityItem, field: HostCapabilityConfigField, value: string) => void
+  onTitleChange: (item: HostCapabilityItem, value: string) => void
+  onRegister: (item: HostCapabilityItem) => void
+}) {
+  const {
+    group,
+    selectedCapability,
+    selectedCapabilityKey,
+    configSelections,
+    fieldOptions,
+    optionLoading,
+    buttonTitles,
+    busy,
+    onClose,
+    onSelectCapability,
+    onConfigChange,
+    onTitleChange,
+    onRegister,
+  } = props
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div className="quickbar-capability-modal-backdrop" role="presentation" onMouseDown={event => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <section className="quickbar-capability-modal" role="dialog" aria-modal="true" aria-label={`${group.appName || group.appId} 能力注册`}>
+        <header className="quickbar-capability-modal-header">
+          <div>
+            <h3>{group.appName || group.appId}</h3>
+            <p>{group.capabilities.length} 项可注册能力</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭能力选择">×</button>
+        </header>
+
+        <div className="quickbar-capability-modal-body">
+          <div className="quickbar-capability-modal-list" aria-label="能力列表">
+            {group.capabilities.map(item => {
+              const itemKey = capabilityKey(item)
+              return (
+                <button
+                  key={itemKey}
+                  type="button"
+                  className={itemKey === selectedCapabilityKey ? 'quickbar-capability-choice-active' : ''}
+                  onClick={() => onSelectCapability(itemKey)}
+                >
+                  <span>{item.title || item.capabilityId}</span>
+                  <small>{item.capabilityId}</small>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="quickbar-capability-modal-detail">
+            {selectedCapability ? (
+              <>
+                <h4>{selectedCapability.title || selectedCapability.capabilityId}</h4>
+                {selectedCapability.description ? <p className="quickbar-muted">{selectedCapability.description}</p> : null}
+
+                {selectedCapability.configFields?.length ? (
+                  <div className="quickbar-capability-config-fields">
+                    {selectedCapability.configFields.map(field => {
+                      const fieldKey = configSelectionKey(selectedCapability, field)
+                      return (
+                        <CapabilityConfigField
+                          key={fieldKey}
+                          field={field}
+                          value={configSelections[fieldKey] || ''}
+                          options={fieldOptions[fieldKey]}
+                          loading={optionLoading[fieldKey]}
+                          waitingForPrevious={!canLoadFieldOptions(selectedCapability, field, configSelections)}
+                          onChange={value => onConfigChange(selectedCapability, field, value)}
+                        />
+                      )
+                    })}
+                  </div>
+                ) : null}
+
+                <label className="quickbar-capability-field">
+                  <span className="quickbar-capability-field-label">按钮名称 *</span>
+                  <input
+                    type="text"
+                    value={buttonTitles[capabilityKey(selectedCapability)] ?? selectedCapability.title ?? selectedCapability.capabilityId}
+                    onChange={event => onTitleChange(selectedCapability, event.target.value)}
+                  />
+                </label>
+
+                <div className="quickbar-capability-card-actions">
+                  <button type="button" onClick={() => onRegister(selectedCapability)} disabled={busy}>
+                    注册为悬浮栏按钮
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="quickbar-muted">这个 App 当前没有可注册能力。</p>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function groupCapabilitiesByApp(capabilities: HostCapabilityItem[], errors: HostCapabilityError[]): AppCapabilityGroup[] {
+  const groups = new Map<string, AppCapabilityGroup>()
+  const ensureGroup = (appId: string, appName: string) => {
+    const key = appId || appName || 'unknown-app'
+    const current = groups.get(key)
+    if (current) return current
+    const next = { appId: key, appName: appName || appId || '未知应用', capabilities: [], errors: [] }
+    groups.set(key, next)
+    return next
+  }
+  for (const item of capabilities) {
+    ensureGroup(item.appId, item.appName || item.appId).capabilities.push(item)
+  }
+  for (const error of errors) {
+    ensureGroup(error.appId || '', error.appName || error.appId || '').errors.push(error)
+  }
+  return [...groups.values()].sort((left, right) => (left.appName || left.appId).localeCompare(right.appName || right.appId))
 }
 
 function mergeCapabilitiesForApp(current: HostCapabilityItem[], appId: string, next: HostCapabilityItem[]): HostCapabilityItem[] {
@@ -296,7 +436,6 @@ function mergeErrorsForApp(current: HostCapabilityError[], appId: string, next: 
 }
 
 function CapabilityConfigField(props: {
-  item: HostCapabilityItem
   field: HostCapabilityConfigField
   value: string
   options?: Array<{ value: string; label: string }>
@@ -311,10 +450,10 @@ function CapabilityConfigField(props: {
       {loading ? (
         <span className="quickbar-capability-field-loading">加载选项中...</span>
       ) : options?.length ? (
-        <select value={value} onChange={e => onChange(e.target.value)}>
+        <select value={value} onChange={event => onChange(event.target.value)}>
           <option value="">请选择</option>
-          {options.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          {options.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       ) : (
@@ -358,19 +497,19 @@ function firstMissingConfigField(selections: ConfigSelection, item: HostCapabili
 function extractOptions(response: unknown): Array<{ value: string; label: string }> {
   if (!response) return []
   if (Array.isArray(response)) {
-    return response.map(opt => {
-      if (typeof opt === 'string') return { value: opt, label: opt }
-      if (typeof opt === 'object' && opt !== null) {
-        const o = opt as Record<string, unknown>
-        return { value: String(o.value ?? o.id ?? ''), label: String(o.label ?? o.name ?? o.value ?? '') }
+    return response.map(option => {
+      if (typeof option === 'string') return { value: option, label: option }
+      if (typeof option === 'object' && option !== null) {
+        const optionRecord = option as Record<string, unknown>
+        return { value: String(optionRecord.value ?? optionRecord.id ?? ''), label: String(optionRecord.label ?? optionRecord.name ?? optionRecord.value ?? '') }
       }
-      return { value: String(opt), label: String(opt) }
+      return { value: String(option), label: String(option) }
     })
   }
   if (typeof response === 'object' && response !== null) {
-    const obj = response as Record<string, unknown>
-    if (obj.options && Array.isArray(obj.options)) {
-      return extractOptions(obj.options)
+    const responseRecord = response as Record<string, unknown>
+    if (responseRecord.options && Array.isArray(responseRecord.options)) {
+      return extractOptions(responseRecord.options)
     }
   }
   return []

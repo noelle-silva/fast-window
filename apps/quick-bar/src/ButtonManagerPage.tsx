@@ -114,29 +114,8 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
     }
   }, [client])
 
-  const stats = buttons ? buttonStats(buttons) : null
-
   return (
     <section className="quickbar-button-manager" aria-label="已注册按钮管理">
-      <div className="quickbar-button-manager-toolbar">
-        <div>
-          <h2>已注册按钮</h2>
-          <p className="quickbar-muted">停用后按钮不会出现在划词浮动条中，删除会移除记录。</p>
-        </div>
-        <div className="quickbar-button-manager-actions">
-          <button type="button" onClick={() => void refresh()}>刷新列表</button>
-          <button type="button" onClick={onOpenCapabilities}>注册新按钮</button>
-        </div>
-      </div>
-
-      {stats ? (
-        <div className="quickbar-button-manager-stats" aria-label="按钮统计">
-          <ButtonStat label="全部按钮" value={stats.total} />
-          <ButtonStat label="正在显示" value={stats.enabled} tone="ready" />
-          <ButtonStat label="已停用" value={stats.disabled} tone="muted" />
-        </div>
-      ) : null}
-
       {error ? <div className="quickbar-error-card" role="alert">{error}</div> : null}
 
       {!buttons ? (
@@ -145,9 +124,7 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
         <article className="quickbar-panel quickbar-empty-panel">
           <h3>还没有已注册按钮</h3>
           <p>先到能力浏览页选择一个能力，把它注册成 Quick Bar 按钮。</p>
-          <div className="quickbar-button-manager-actions">
-            <button type="button" onClick={onOpenCapabilities}>去能力浏览注册</button>
-          </div>
+          <button type="button" className="quickbar-inline-action" onClick={onOpenCapabilities}>去能力浏览注册</button>
         </article>
       ) : (
         <div className="quickbar-button-list">
@@ -169,15 +146,6 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
         </div>
       )}
     </section>
-  )
-}
-
-function ButtonStat({ label, value, tone }: { label: string; value: number; tone?: 'ready' | 'muted' }) {
-  return (
-    <article className={`quickbar-button-stat-card${tone ? ` quickbar-button-stat-${tone}` : ''}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
   )
 }
 
@@ -238,15 +206,6 @@ function ButtonCard(props: {
       </div>
     </article>
   )
-}
-
-function buttonStats(buttons: RegistryButton[]) {
-  const enabled = buttons.filter(button => button.enabled !== false).length
-  return {
-    total: buttons.length,
-    enabled,
-    disabled: buttons.length - enabled,
-  }
 }
 
 function titleDraftsFromButtons(buttons: RegistryButton[]): Record<string, string> {
