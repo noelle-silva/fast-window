@@ -1,13 +1,17 @@
 import * as React from 'react'
+import { CircleOff, PencilLine, Plus, Power, Save, Trash2, X } from 'lucide-react'
 import { fetchRegistryButtons, removeRegistryButton, updateRegistryButton } from './registryClient'
 import type { DirectClient, RegistryButton } from './types'
+import { ButtonIconPicker } from './ButtonIconPicker'
+import { ButtonIconGlyph, randomButtonIconId, resolveButtonIconId } from './buttonIcons'
+import { QuickActionButton } from './QuickActionButton'
 
 type ButtonManagerPageProps = {
   client: DirectClient
   onOpenCapabilities: () => void
 }
 
-type ButtonBusyAction = 'rename' | 'toggle' | 'delete'
+type ButtonBusyAction = 'rename' | 'icon' | 'toggle' | 'delete'
 
 type ButtonBusyState = {
   id: string
@@ -20,6 +24,8 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
   const [busy, setBusy] = React.useState<ButtonBusyState>(null)
   const [confirmingDeleteId, setConfirmingDeleteId] = React.useState<string | null>(null)
   const [titleDrafts, setTitleDrafts] = React.useState<Record<string, string>>({})
+  const [iconDrafts, setIconDrafts] = React.useState<Record<string, string>>({})
+  const [editingIconButton, setEditingIconButton] = React.useState<RegistryButton | null>(null)
 
   const refresh = React.useCallback(async () => {
     setError(null)
@@ -28,6 +34,7 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
       const list = await fetchRegistryButtons(client)
       setButtons(list)
       setTitleDrafts(titleDraftsFromButtons(list))
+      setIconDrafts(iconDraftsFromButtons(list))
     } catch (e) {
       setError(errorMessage(e, '读取按钮列表失败'))
     }
@@ -42,6 +49,7 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
         if (!cancelled) {
           setButtons(list)
           setTitleDrafts(titleDraftsFromButtons(list))
+          setIconDrafts(iconDraftsFromButtons(list))
         }
       })
       .catch(e => {
@@ -55,10 +63,15 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
   const replaceButton = React.useCallback((nextButton: RegistryButton) => {
     setButtons(current => current?.map(button => button.id === nextButton.id ? nextButton : button) ?? current)
     setTitleDrafts(current => ({ ...current, [nextButton.id]: nextButton.title }))
+    setIconDrafts(current => ({ ...current, [nextButton.id]: nextButton.icon }))
   }, [])
 
   const updateTitleDraft = React.useCallback((button: RegistryButton, value: string) => {
     setTitleDrafts(current => ({ ...current, [button.id]: value }))
+  }, [])
+
+  const updateIconDraft = React.useCallback((button: RegistryButton, value: string) => {
+    setIconDrafts(current => ({ ...current, [button.id]: value }))
   }, [])
 
   const renameButton = React.useCallback(async (button: RegistryButton) => {
@@ -106,6 +119,11 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
         delete next[button.id]
         return next
       })
+      setIconDrafts(current => {
+        const next = { ...current }
+        delete next[button.id]
+        return next
+      })
       setConfirmingDeleteId(null)
     } catch (e) {
       setError(errorMessage(e, '删除按钮失败'))
@@ -114,9 +132,63 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
     }
   }, [client])
 
+  const editIconButton = React.useCallback((button: RegistryButton) => {
+    setEditingIconButton(button)
+    setConfirmingDeleteId(null)
+  }, [])
+
+  const saveIconButton = React.useCallback(async () => {
+    if (!editingIconButton) return
+    setBusy({ id: editingIconButton.id, action: 'icon' })
+    setError(null)
+    try {
+      replaceButton(await updateRegistryButton(client, {
+        id: editingIconButton.id,
+        icon: resolveButtonIconId(iconDrafts[editingIconButton.id] ?? editingIconButton.icon, editingIconButton.id),
+      }))
+      setEditingIconButton(null)
+    } catch (e) {
+      setError(errorMessage(e, '修改按钮图标失败'))
+    } finally {
+      setBusy(null)
+    }
+  }, [client, editingIconButton, iconDrafts, replaceButton])
+
   return (
     <section className="quickbar-button-manager" aria-label="已注册按钮管理">
       {error ? <div className="quickbar-error-card" role="alert">{error}</div> : null}
+
+      {editingIconButton ? (
+        <div className="quickbar-capability-modal-backdrop" role="presentation" onMouseDown={event => {
+          if (event.target === event.currentTarget) setEditingIconButton(null)
+        }}>
+          <section className="quickbar-capability-modal quickbar-button-icon-modal" role="dialog" aria-modal="true" aria-label="按钮图标编辑">
+            <header className="quickbar-capability-modal-header">
+              <div>
+                <h3>编辑按钮图标</h3>
+                <p>{editingIconButton.title}</p>
+              </div>
+              <button type="button" className="quickbar-modal-close-button" onClick={() => setEditingIconButton(null)} aria-label="关闭图标编辑">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="quickbar-capability-modal-body quickbar-button-icon-modal-body">
+              <ButtonIconPicker
+                title="选择图标"
+                description="按钮条里只显示图标，鼠标放上去才显示按钮名字。"
+                seed={editingIconButton.id}
+                value={iconDrafts[editingIconButton.id] ?? editingIconButton.icon}
+                onPick={iconId => updateIconDraft(editingIconButton, iconId)}
+                onRandom={() => updateIconDraft(editingIconButton, randomButtonIconId(iconDrafts[editingIconButton.id] ?? editingIconButton.icon))}
+              />
+              <div className="quickbar-button-icon-modal-actions">
+                <QuickActionButton variant="ghost" icon={<X size={15} />} onClick={() => setEditingIconButton(null)} disabled={busy !== null}>取消</QuickActionButton>
+                <QuickActionButton variant="primary" icon={<Save size={15} />} onClick={() => void saveIconButton()} disabled={busy !== null}>保存图标</QuickActionButton>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {!buttons ? (
         <article className="quickbar-panel quickbar-empty-panel">读取中...</article>
@@ -124,7 +196,7 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
         <article className="quickbar-panel quickbar-empty-panel">
           <h3>还没有已注册按钮</h3>
           <p>先到能力浏览页选择一个能力，把它注册成 Quick Bar 按钮。</p>
-          <button type="button" className="quickbar-inline-action" onClick={onOpenCapabilities}>去能力浏览注册</button>
+          <QuickActionButton variant="primary" icon={<Plus size={15} />} onClick={onOpenCapabilities}>去能力浏览注册</QuickActionButton>
         </article>
       ) : (
         <div className="quickbar-button-list">
@@ -141,6 +213,7 @@ export function ButtonManagerPage({ client, onOpenCapabilities }: ButtonManagerP
               onAskDelete={() => setConfirmingDeleteId(button.id)}
               onCancelDelete={() => setConfirmingDeleteId(null)}
               onConfirmDelete={() => void deleteButton(button)}
+              onEditIcon={() => editIconButton(button)}
             />
           ))}
         </div>
@@ -160,16 +233,22 @@ function ButtonCard(props: {
   onAskDelete: () => void
   onCancelDelete: () => void
   onConfirmDelete: () => void
+  onEditIcon: () => void
 }) {
-  const { button, busy, confirmingDelete, titleDraft, onTitleDraftChange, onRename, onToggle, onAskDelete, onCancelDelete, onConfirmDelete } = props
+  const { button, busy, confirmingDelete, titleDraft, onTitleDraftChange, onRename, onToggle, onAskDelete, onCancelDelete, onConfirmDelete, onEditIcon } = props
   const enabled = button.enabled !== false
   const titleChanged = titleDraft.trim() !== button.title
 
   return (
     <article className={`quickbar-button-card${enabled ? '' : ' quickbar-button-card-disabled'}`}>
       <div className="quickbar-button-card-main">
-        <div>
-          <span className="quickbar-button-card-title">{button.title}</span>
+        <div className="quickbar-button-card-title-block">
+          <div className="quickbar-button-card-title-row">
+            <span className="quickbar-button-card-icon-surface">
+              <ButtonIconGlyph className="quickbar-button-card-icon" iconId={button.icon} seed={button.id} size={22} />
+            </span>
+            <span className="quickbar-button-card-title">{button.title}</span>
+          </div>
           <p className="quickbar-button-card-meta">来源：{appName(button)} / {button.capabilityId}</p>
           <p className="quickbar-button-card-meta">注册时间：{formatCreatedAt(button.createdAt)}</p>
         </div>
@@ -183,25 +262,26 @@ function ButtonCard(props: {
           <span>按钮名称</span>
           <input value={titleDraft} onChange={event => onTitleDraftChange(event.target.value)} />
         </label>
-        <button type="button" onClick={onRename} disabled={busy !== null || !titleChanged}>
+        <QuickActionButton variant="primary" compact icon={<Save size={15} />} onClick={onRename} disabled={busy !== null || !titleChanged}>
           {busy === 'rename' ? '保存中...' : '保存名称'}
-        </button>
+        </QuickActionButton>
       </div>
 
       <div className="quickbar-button-card-actions">
-        <button type="button" aria-pressed={enabled} onClick={onToggle} disabled={busy !== null}>
+        <QuickActionButton variant={enabled ? 'subtle' : 'primary'} compact icon={enabled ? <CircleOff size={15} /> : <Power size={15} />} aria-pressed={enabled} onClick={onToggle} disabled={busy !== null}>
           {busy === 'toggle' ? '处理中...' : enabled ? '停用' : '启用'}
-        </button>
+        </QuickActionButton>
+        <QuickActionButton variant="secondary" compact icon={<PencilLine size={15} />} onClick={onEditIcon} disabled={busy !== null}>{busy === 'icon' ? '保存图标中...' : '编辑图标'}</QuickActionButton>
         {confirmingDelete ? (
           <div className="quickbar-button-delete-confirm" role="group" aria-label="确认删除按钮">
             <span>确认删除？</span>
-            <button type="button" className="quickbar-button-danger" onClick={onConfirmDelete} disabled={busy !== null}>
+            <QuickActionButton variant="danger" compact icon={<Trash2 size={15} />} onClick={onConfirmDelete} disabled={busy !== null}>
               {busy === 'delete' ? '删除中...' : '确认'}
-            </button>
-            <button type="button" onClick={onCancelDelete} disabled={busy !== null}>取消</button>
+            </QuickActionButton>
+            <QuickActionButton variant="ghost" compact icon={<X size={15} />} onClick={onCancelDelete} disabled={busy !== null}>取消</QuickActionButton>
           </div>
         ) : (
-          <button type="button" className="quickbar-button-danger" onClick={onAskDelete} disabled={busy !== null}>删除</button>
+          <QuickActionButton variant="danger" compact icon={<Trash2 size={15} />} onClick={onAskDelete} disabled={busy !== null}>删除</QuickActionButton>
         )}
       </div>
     </article>
@@ -210,6 +290,10 @@ function ButtonCard(props: {
 
 function titleDraftsFromButtons(buttons: RegistryButton[]): Record<string, string> {
   return Object.fromEntries(buttons.map(button => [button.id, button.title]))
+}
+
+function iconDraftsFromButtons(buttons: RegistryButton[]): Record<string, string> {
+  return Object.fromEntries(buttons.map(button => [button.id, button.icon]))
 }
 
 function appName(button: RegistryButton): string {

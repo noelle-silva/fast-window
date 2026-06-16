@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { createDirectClient } from './directClient'
 import { fetchRegistryButtons } from './registryClient'
 import { invokeCapability } from './hostCapabilityClient'
+import { ButtonIconGlyph } from './buttonIcons'
 import type { RegistryButton, ToolbarPayload } from './types'
 
 export function ToolbarApp() {
@@ -144,10 +145,10 @@ export function ToolbarApp() {
           <button
             key={button.id}
             type="button"
-            title={`${button.title}（来源：${button.appId}）`}
+            title={button.title}
             onClick={() => handleButtonClick(button)}
           >
-            {button.title}
+            <ButtonIconGlyph className="quickbar-toolbar-icon" iconId={button.icon} seed={`${button.id}:${button.appId}:${button.capabilityId}:${button.title}`} size={21} />
           </button>
         ))
       )}

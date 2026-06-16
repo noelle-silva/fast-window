@@ -24,6 +24,7 @@ type registryButton struct {
 	AppID        string         `json:"appId"`
 	CapabilityID string         `json:"capabilityId"`
 	Title        string         `json:"title"`
+	Icon         string         `json:"icon"`
 	Config       map[string]any `json:"config"`
 	Enabled      *bool          `json:"enabled"`
 	CreatedAt    string         `json:"createdAt"`
@@ -34,6 +35,7 @@ type addRegistryButtonParams struct {
 	AppID        string         `json:"appId"`
 	CapabilityID string         `json:"capabilityId"`
 	Title        string         `json:"title"`
+	Icon         string         `json:"icon"`
 	Config       map[string]any `json:"config"`
 }
 
@@ -44,6 +46,7 @@ type removeRegistryButtonParams struct {
 type updateRegistryButtonParams struct {
 	ID      string          `json:"id"`
 	Title   *string         `json:"title"`
+	Icon    *string         `json:"icon"`
 	Config  *map[string]any `json:"config"`
 	Enabled *bool           `json:"enabled"`
 }
@@ -84,6 +87,7 @@ func (svc *service) addRegistryButton(params json.RawMessage) (registryButton, e
 		Enabled:      boolPtr(true),
 		CreatedAt:    nowText(),
 	}
+	button.Icon = resolveRegistryButtonIcon(input.Icon, registryButtonIconSeed(button))
 	doc.Buttons = append(doc.Buttons, button)
 	if err := svc.writeRegistry(doc); err != nil {
 		return registryButton{}, err
@@ -125,8 +129,8 @@ func (svc *service) updateRegistryButton(params json.RawMessage) (registryButton
 	if id == "" {
 		return registryButton{}, errors.New("registry button id is required")
 	}
-	if input.Title == nil && input.Config == nil && input.Enabled == nil {
-		return registryButton{}, errors.New("registry update requires title, config or enabled")
+	if input.Title == nil && input.Icon == nil && input.Config == nil && input.Enabled == nil {
+		return registryButton{}, errors.New("registry update requires title, icon, config or enabled")
 	}
 
 	doc, err := svc.readRegistry()
@@ -146,6 +150,9 @@ func (svc *service) updateRegistryButton(params json.RawMessage) (registryButton
 	}
 	if input.Config != nil {
 		doc.Buttons[index].Config = nonNilConfig(*input.Config)
+	}
+	if input.Icon != nil {
+		doc.Buttons[index].Icon = resolveRegistryButtonIcon(*input.Icon, registryButtonIconSeed(doc.Buttons[index]))
 	}
 	if input.Enabled != nil {
 		doc.Buttons[index].Enabled = boolPtr(*input.Enabled)
@@ -197,6 +204,7 @@ func (params *addRegistryButtonParams) normalize() {
 	params.AppID = strings.TrimSpace(params.AppID)
 	params.CapabilityID = strings.TrimSpace(params.CapabilityID)
 	params.Title = strings.TrimSpace(params.Title)
+	params.Icon = strings.TrimSpace(params.Icon)
 	params.Config = nonNilConfig(params.Config)
 }
 
@@ -223,11 +231,16 @@ func normalizeRegistryDoc(doc registryDoc) registryDoc {
 	for index := range doc.Buttons {
 		doc.Buttons[index].App = nonNilMap(doc.Buttons[index].App)
 		doc.Buttons[index].Config = nonNilConfig(doc.Buttons[index].Config)
+		doc.Buttons[index].Icon = resolveRegistryButtonIcon(doc.Buttons[index].Icon, registryButtonIconSeed(doc.Buttons[index]))
 		if doc.Buttons[index].Enabled == nil {
 			doc.Buttons[index].Enabled = boolPtr(true)
 		}
 	}
 	return doc
+}
+
+func registryButtonIconSeed(button registryButton) string {
+	return strings.Join([]string{button.ID, button.AppID, button.CapabilityID, button.Title}, ":")
 }
 
 func boolPtr(value bool) *bool {

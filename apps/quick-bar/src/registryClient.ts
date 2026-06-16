@@ -5,12 +5,14 @@ export type AddRegistryButtonInput = {
   appId: string
   capabilityId: string
   title: string
+  icon?: string
   config: Record<string, unknown>
 }
 
 export type UpdateRegistryButtonInput = {
   id: string
   title?: string
+  icon?: string
   config?: Record<string, unknown>
   enabled?: boolean
 }

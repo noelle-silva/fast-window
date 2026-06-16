@@ -1,6 +1,10 @@
 import * as React from 'react'
+import { Plus, Power, RefreshCw, X } from 'lucide-react'
 import type { DirectClient } from './types'
 import { addRegistryButton } from './registryClient'
+import { ButtonIconPicker } from './ButtonIconPicker'
+import { randomButtonIconId, resolveButtonIconId } from './buttonIcons'
+import { QuickActionButton } from './QuickActionButton'
 import {
   fetchCapabilities,
   queryCapabilityOptions,
@@ -37,6 +41,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
   const [fieldOptions, setFieldOptions] = React.useState<FieldOptions>({})
   const [optionLoading, setOptionLoading] = React.useState<Record<string, boolean>>({})
   const [buttonTitles, setButtonTitles] = React.useState<Record<string, string>>({})
+  const [buttonIconDrafts, setButtonIconDrafts] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState(false)
   const [refreshingAppId, setRefreshingAppId] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
@@ -173,6 +178,10 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     setButtonTitles(prev => ({ ...prev, [capabilityKey(item)]: value }))
   }, [])
 
+  const updateButtonIcon = React.useCallback((item: HostCapabilityItem, value: string) => {
+    setButtonIconDrafts(prev => ({ ...prev, [capabilityKey(item)]: value }))
+  }, [])
+
   const handleRegister = React.useCallback(async (item: HostCapabilityItem) => {
     setBusy(true)
     setMessage(null)
@@ -187,11 +196,13 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         setMessage('请填写按钮名称')
         return
       }
+      const icon = resolveButtonIconId(buttonIconDrafts[capabilityKey(item)] ?? item.icon, capabilityKey(item))
       await addRegistryButton(client, {
         app: item.app,
         appId: item.appId,
         capabilityId: item.capabilityId,
         title,
+        icon,
         config: configToRecord(configSelections, item),
       })
       setMessage(`已注册：${title}`)
@@ -200,7 +211,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     } finally {
       setBusy(false)
     }
-  }, [buttonTitles, client, configSelections])
+  }, [buttonIconDrafts, buttonTitles, client, configSelections])
 
   if (loading) return <section className="quickbar-capability-loading" aria-label="能力列表加载中">加载能力清单...</section>
   if (error) return <section className="quickbar-error-card" role="alert">{error}</section>
@@ -215,14 +226,15 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
           <h2>应用能力</h2>
           <p className="quickbar-muted">一个卡片对应一个 App。打开卡片后选择具体能力并注册为浮动条按钮。</p>
         </div>
-        <button
-          type="button"
-          className="quickbar-capability-refresh"
+        <QuickActionButton
+          variant="primary"
+          compact
+          icon={<RefreshCw size={15} />}
           disabled={loading || !!refreshingAppId}
           onClick={() => void loadCapabilities({ launchPolicy: 'runningOnly' })}
         >
           刷新已运行 App
-        </button>
+        </QuickActionButton>
       </div>
 
       {message ? (
@@ -252,11 +264,13 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
           fieldOptions={fieldOptions}
           optionLoading={optionLoading}
           buttonTitles={buttonTitles}
+          buttonIconDrafts={buttonIconDrafts}
           busy={busy}
           onClose={closeGroup}
           onSelectCapability={setSelectedCapabilityKey}
           onConfigChange={updateConfigSelection}
           onTitleChange={updateButtonTitle}
+          onIconChange={updateButtonIcon}
           onRegister={handleRegister}
         />
       ) : null}
@@ -280,9 +294,9 @@ function AppCapabilityCard(props: {
       </button>
       {primaryError ? <p className="quickbar-app-card-error">{primaryError.message || '读取能力失败'}</p> : null}
       {primaryError?.appId && primaryError.canLaunch !== false ? (
-        <button type="button" className="quickbar-app-card-action" disabled={refreshing} onClick={onRefresh}>
+        <QuickActionButton variant="subtle" compact icon={<Power size={15} />} disabled={refreshing} onClick={onRefresh}>
           {refreshing ? '读取中...' : '启动并读取'}
-        </button>
+        </QuickActionButton>
       ) : null}
     </article>
   )
@@ -296,11 +310,13 @@ function CapabilityRegisterModal(props: {
   fieldOptions: FieldOptions
   optionLoading: Record<string, boolean>
   buttonTitles: Record<string, string>
+  buttonIconDrafts: Record<string, string>
   busy: boolean
   onClose: () => void
   onSelectCapability: (key: string) => void
   onConfigChange: (item: HostCapabilityItem, field: HostCapabilityConfigField, value: string) => void
   onTitleChange: (item: HostCapabilityItem, value: string) => void
+  onIconChange: (item: HostCapabilityItem, value: string) => void
   onRegister: (item: HostCapabilityItem) => void
 }) {
   const {
@@ -311,11 +327,13 @@ function CapabilityRegisterModal(props: {
     fieldOptions,
     optionLoading,
     buttonTitles,
+    buttonIconDrafts,
     busy,
     onClose,
     onSelectCapability,
     onConfigChange,
     onTitleChange,
+    onIconChange,
     onRegister,
   } = props
 
@@ -337,7 +355,9 @@ function CapabilityRegisterModal(props: {
             <h3>{group.appName || group.appId}</h3>
             <p>{group.capabilities.length} 项可注册能力</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭能力选择">×</button>
+          <button type="button" className="quickbar-modal-close-button" onClick={onClose} aria-label="关闭能力选择">
+            <X size={18} />
+          </button>
         </header>
 
         <div className="quickbar-capability-modal-body">
@@ -383,6 +403,15 @@ function CapabilityRegisterModal(props: {
                   </div>
                 ) : null}
 
+                <ButtonIconPicker
+                  title="按钮图标"
+                  description="按钮条里只显示图标，鼠标放上去才会看到按钮名字。"
+                  seed={capabilityKey(selectedCapability)}
+                  value={buttonIconDrafts[capabilityKey(selectedCapability)] ?? selectedCapability.icon ?? null}
+                  onPick={iconId => onIconChange(selectedCapability, iconId)}
+                  onRandom={() => onIconChange(selectedCapability, randomButtonIconId(buttonIconDrafts[capabilityKey(selectedCapability)] ?? selectedCapability.icon))}
+                />
+
                 <label className="quickbar-capability-field">
                   <span className="quickbar-capability-field-label">按钮名称 *</span>
                   <input
@@ -393,9 +422,9 @@ function CapabilityRegisterModal(props: {
                 </label>
 
                 <div className="quickbar-capability-card-actions">
-                  <button type="button" onClick={() => onRegister(selectedCapability)} disabled={busy}>
+                  <QuickActionButton variant="primary" icon={<Plus size={16} />} onClick={() => onRegister(selectedCapability)} disabled={busy}>
                     注册为悬浮栏按钮
-                  </button>
+                  </QuickActionButton>
                 </div>
               </>
             ) : (
