@@ -1,4 +1,10 @@
 :root {
+  --quickbar-floating-surface: #ffffff;
+  --quickbar-floating-text: #111827;
+  --quickbar-floating-muted: #64748b;
+  --quickbar-floating-hover: #f1f5f9;
+  --quickbar-toolbar-shadow-space: 12px;
+  --quickbar-toolbar-radius: 14px;
   color: #111827;
   background: transparent;
   font-synthesis: none;
@@ -19,10 +25,16 @@ body[data-quickbar-view="result"] {
   height: 100vh;
   min-width: 0;
   min-height: 0;
+  background: transparent;
 }
 
 body[data-quickbar-view="toolbar"] {
-  background: #394253;
+  background: transparent;
+}
+
+body[data-quickbar-view="toolbar"] #app,
+body[data-quickbar-view="result"] #app {
+  background: transparent;
 }
 
 #app {
@@ -573,31 +585,46 @@ input {
 .quickbar-toolbar-shell {
   width: 100vw;
   height: 100vh;
-  padding: 0;
+  padding: var(--quickbar-toolbar-shadow-space);
+  position: relative;
   display: flex;
   align-items: stretch;
   justify-content: stretch;
   gap: 0;
-  color: #f8fafc;
-  background: #394253;
+  color: var(--quickbar-floating-text);
+  background: transparent;
   border: 0;
   border-radius: 0;
   overflow: hidden;
-  box-shadow: none;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.quickbar-toolbar-shell::before {
+  content: "";
+  position: absolute;
+  inset: var(--quickbar-toolbar-shadow-space);
+  border-radius: var(--quickbar-toolbar-radius);
+  background: var(--quickbar-floating-surface);
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+}
+
+.quickbar-toolbar-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 .quickbar-toolbar-shell button {
   flex: 1 1 0;
   height: 100%;
   min-width: 0;
-  border-left: 1px solid rgba(248, 250, 252, 0.12);
+  border-left: 0;
   border-radius: 0;
   padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f8fafc;
+  color: var(--quickbar-floating-text);
   font-size: 13px;
   font-weight: 900;
   background: transparent;
@@ -608,11 +635,18 @@ input {
 
 .quickbar-toolbar-shell button:first-of-type {
   border-left: 0;
+  border-top-left-radius: var(--quickbar-toolbar-radius);
+  border-bottom-left-radius: var(--quickbar-toolbar-radius);
+}
+
+.quickbar-toolbar-shell button:last-of-type {
+  border-top-right-radius: var(--quickbar-toolbar-radius);
+  border-bottom-right-radius: var(--quickbar-toolbar-radius);
 }
 
 .quickbar-toolbar-shell button:hover,
 .quickbar-toolbar-shell button:focus-visible {
-  background: #4b566b;
+  background: var(--quickbar-floating-hover);
 }
 
 .quickbar-toolbar-error,
@@ -626,7 +660,7 @@ input {
   padding: 0 14px;
   text-align: center;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--quickbar-floating-muted);
 }
 
 .quickbar-result-shell,
@@ -639,11 +673,13 @@ input {
   height: 100vh;
   padding: 8px;
   display: flex;
-  color: #ffffff;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  align-items: stretch;
+  justify-content: stretch;
+  color: var(--quickbar-floating-text);
+  background: var(--quickbar-floating-surface);
+  border: 0;
   border-radius: 20px;
-  box-shadow: 0 22px 54px rgba(2, 6, 23, 0.4);
+  overflow: hidden;
   backdrop-filter: blur(20px);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
@@ -651,12 +687,13 @@ input {
 .quickbar-result-popup {
   width: 100%;
   min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.72);
+  background: transparent;
+  border: 0;
 }
 
 .quickbar-result-header {
@@ -664,21 +701,21 @@ input {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 0;
 }
 
 .quickbar-result-title {
   display: block;
   font-size: 12px;
   font-weight: 800;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--quickbar-floating-text);
 }
 
 .quickbar-result-subtitle {
   display: block;
   margin-top: 2px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.48);
+  color: var(--quickbar-floating-muted);
 }
 
 .quickbar-result-close {
@@ -691,7 +728,7 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--quickbar-floating-muted);
   background: transparent;
   cursor: pointer;
   font-size: 16px;
@@ -699,8 +736,8 @@ input {
 }
 
 .quickbar-result-close:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
+  color: var(--quickbar-floating-text);
+  background: var(--quickbar-floating-hover);
 }
 
 .quickbar-result-body {
@@ -720,7 +757,15 @@ input {
 .quickbar-result-spinner p {
   margin: 0;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--quickbar-floating-muted);
+}
+
+.quickbar-result-spinner-track {
+  stroke: rgba(15, 23, 42, 0.12);
+}
+
+.quickbar-result-spinner-ring {
+  stroke: var(--quickbar-accent);
 }
 
 .quickbar-result-text {
@@ -728,7 +773,7 @@ input {
   max-height: 100%;
   overflow: auto;
   white-space: pre-wrap;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--quickbar-floating-text);
   font-size: 13px;
   line-height: 1.65;
   font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;

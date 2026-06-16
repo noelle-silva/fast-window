@@ -13,8 +13,12 @@ const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const RESULT_LABEL: &str = "quick-bar-result";
 const TOOLBAR_EVENT: &str = "quick-bar-selection";
 const RESULT_EVENT: &str = "quick-bar-result";
-const TOOLBAR_WIDTH: u32 = 300;
-const TOOLBAR_HEIGHT: u32 = 58;
+const TOOLBAR_CONTENT_WIDTH: u32 = 300;
+const TOOLBAR_CONTENT_HEIGHT: u32 = 58;
+const TOOLBAR_SHADOW_SPACE: u32 = 12;
+const TOOLBAR_WIDTH: u32 = TOOLBAR_CONTENT_WIDTH + TOOLBAR_SHADOW_SPACE * 2;
+const TOOLBAR_HEIGHT: u32 = TOOLBAR_CONTENT_HEIGHT + TOOLBAR_SHADOW_SPACE * 2;
+const TOOLBAR_SHADOW_SPACE_I32: i32 = TOOLBAR_SHADOW_SPACE as i32;
 const RESULT_WIDTH: u32 = 420;
 const RESULT_HEIGHT: u32 = 380;
 const TOOLBAR_MARGIN: i32 = 10;
@@ -280,8 +284,8 @@ fn show_toolbar(
     apply_popup_layout(
         app,
         &window,
-        payload.anchor_x,
-        payload.anchor_y,
+        payload.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
+        payload.anchor_y - TOOLBAR_SHADOW_SPACE_I32,
         TOOLBAR_WIDTH,
         TOOLBAR_HEIGHT,
         PopupPlacement::Below,

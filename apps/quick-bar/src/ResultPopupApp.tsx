@@ -69,8 +69,8 @@ export function ResultPopupApp() {
           ) : !payload || payload.status === 'loading' ? (
             <div className="quickbar-result-spinner" aria-label="能力调用中">
               <svg viewBox="0 0 24 24" width="28" height="28">
-                <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="3" />
-                <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.78)" strokeWidth="3" strokeDasharray="40 60" strokeLinecap="round">
+                <circle className="quickbar-result-spinner-track" cx="12" cy="12" r="10" fill="none" strokeWidth="3" />
+                <circle className="quickbar-result-spinner-ring" cx="12" cy="12" r="10" fill="none" strokeWidth="3" strokeDasharray="40 60" strokeLinecap="round">
                   <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
                 </circle>
               </svg>
