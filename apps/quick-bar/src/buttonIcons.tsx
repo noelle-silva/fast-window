@@ -92,7 +92,8 @@ const LEGACY_BUTTON_ICON_ALIASES = {
   link: 'link-2',
 } as const satisfies Record<string, IconName>
 
-export const BUTTON_ICON_NAMES = uniqueIconNames(CURATED_BUTTON_ICON_NAMES, iconNames).slice(0, 200)
+export const BUTTON_ICON_NAMES = uniqueIconNames(CURATED_BUTTON_ICON_NAMES, iconNames)
+export const BUTTON_ICON_TOTAL = BUTTON_ICON_NAMES.length
 
 export function resolveButtonIconId(iconId: string | null | undefined, seed: string): ButtonIconId {
   const candidate = String(iconId || '').trim()
