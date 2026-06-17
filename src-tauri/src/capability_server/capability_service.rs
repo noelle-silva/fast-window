@@ -5,7 +5,7 @@ use tauri::AppHandle;
 
 use super::CapabilityHttpResponse;
 use crate::app_capabilities::{
-    app_capability_invoke_inner, app_capability_query_options_inner, describe_app_commands,
+    app_capability_invoke_inner, app_capability_query_options_inner, describe_app_capabilities,
     AppCapabilityInvokeRequest, AppCapabilityLaunchPolicy, AppCapabilityOptionsRequest,
 };
 use crate::app_lifecycle::manager::{AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig};
@@ -103,7 +103,7 @@ async fn capability_list(
     query: CapabilityListQuery,
 ) -> Result<(Vec<Value>, Vec<Value>), String> {
     let records = crate::app_registry::load_registered_app_records(&app)?;
-    let mut capabilities = Vec::new();
+    let mut capability_items = Vec::new();
     let mut errors = Vec::new();
     for record in records {
         let Some(app_id) = record.get("id").and_then(Value::as_str).map(str::trim) else {
@@ -131,7 +131,7 @@ async fn capability_list(
                 continue;
             }
         };
-        let commands = match describe_app_commands(
+        let runtime_capabilities = match describe_app_capabilities(
             app.clone(),
             lifecycle.clone(),
             &app_config,
@@ -140,7 +140,7 @@ async fn capability_list(
         )
         .await
         {
-            Ok(commands) => commands,
+            Ok(capabilities) => capabilities,
             Err(error) => {
                 errors.push(serde_json::json!({
                     "appId": app_id,
@@ -151,10 +151,10 @@ async fn capability_list(
                 continue;
             }
         };
-        for command in commands {
-            let command = serde_json::to_value(command)
+        for capability in runtime_capabilities {
+            let capability = serde_json::to_value(capability)
                 .map_err(|e| format!("序列化应用能力清单失败: {e}"))?;
-            let Some(command_id) = command.get("id").and_then(Value::as_str).map(str::trim) else {
+            let Some(command_id) = capability.get("id").and_then(Value::as_str).map(str::trim) else {
                 continue;
             };
             if command_id.is_empty() {
@@ -170,15 +170,15 @@ async fn capability_list(
                 "capabilityId".to_string(),
                 Value::String(command_id.to_string()),
             );
-            copy_command_field(&mut item, &command, "title");
-            copy_command_field(&mut item, &command, "icon");
-            copy_command_field(&mut item, &command, "hotkey");
-            copy_command_field(&mut item, &command, "description");
-            copy_command_field(&mut item, &command, "configFields");
-            capabilities.push(Value::Object(item));
+            copy_command_field(&mut item, &capability, "title");
+            copy_command_field(&mut item, &capability, "icon");
+            copy_command_field(&mut item, &capability, "hotkey");
+            copy_command_field(&mut item, &capability, "description");
+            copy_command_field(&mut item, &capability, "configFields");
+            capability_items.push(Value::Object(item));
         }
     }
-    Ok((capabilities, errors))
+    Ok((capability_items, errors))
 }
 
 struct CapabilityListQuery {

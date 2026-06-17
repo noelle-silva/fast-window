@@ -76,7 +76,7 @@ pub(crate) struct AppCapabilityListResponse {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppCapabilityListApp {
     app_id: String,
-    commands: Vec<crate::app_registry::AppReportedCommand>,
+    capabilities: Vec<crate::app_registry::AppReportedCommand>,
 }
 
 #[derive(Serialize)]
@@ -134,7 +134,7 @@ async fn resolve_app_capability_endpoint(
     }
 }
 
-pub(crate) async fn describe_app_commands(
+pub(crate) async fn describe_app_capabilities(
     app_handle: AppHandle,
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
@@ -150,14 +150,18 @@ pub(crate) async fn describe_app_commands(
 
     let value = serde_json::from_value::<AppControlCapabilityDescription>(response)
         .map_err(|e| format!("应用能力清单响应解析失败: {e}"))?;
-    Ok(value.available_commands)
+    Ok(value
+        .capabilities
+        .into_iter()
+        .filter(|capability| capability.kind.as_deref() == Some("capability"))
+        .collect())
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppControlCapabilityDescription {
     #[serde(default)]
-    available_commands: Vec<crate::app_registry::AppReportedCommand>,
+    capabilities: Vec<crate::app_registry::AppReportedCommand>,
 }
 
 #[tauri::command]
@@ -181,7 +185,7 @@ pub(crate) async fn app_capability_list(
                 continue;
             }
         };
-        match describe_app_commands(
+        match describe_app_capabilities(
             app_handle.clone(),
             state.inner().clone(),
             &app,
@@ -190,7 +194,7 @@ pub(crate) async fn app_capability_list(
         )
         .await
         {
-            Ok(commands) => apps.push(AppCapabilityListApp { app_id, commands }),
+            Ok(capabilities) => apps.push(AppCapabilityListApp { app_id, capabilities }),
             Err(error) => errors.push(AppCapabilityListError {
                 app_id,
                 message: error,

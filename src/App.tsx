@@ -39,6 +39,7 @@ import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp, type AppLaunchOptions } from './apps/appLauncher'
 import { activateAppCapability } from './apps/appCapabilityActivation'
 import { getAppCapabilityEnvVars } from './apps/appCapabilities'
+import { useAppCapabilitySelections } from './apps/appCapabilitySelections'
 import {
   appStopConfirmLabel,
   appStopDialogDescription,
@@ -53,7 +54,7 @@ import {
   parseRegisteredAppListItemId,
   registeredAppFromListItem,
 } from './apps/listItems'
-import type { AppRegistrationEditRequest, AppStatus, RegisteredApp, RegisteredAppCommand } from './apps/types'
+import type { AppRegistrationEditRequest, AppStatus, RegisteredApp, RegisteredAppCapabilitySelection, RegisteredAppShortcut } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper } from './useWallpaper'
 import { useSearch } from './useSearch'
@@ -141,6 +142,14 @@ function App() {
   // Registered Apps (v5)
   const registeredAppsCtx = useRegisteredApps()
   const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, replace: replaceRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
+  const appCapabilitySelectionsCtx = useAppCapabilitySelections()
+  const {
+    selections: appCapabilitySelections,
+    load: loadAppCapabilitySelections,
+    upsert: upsertAppCapabilitySelection,
+    update: updateAppCapabilitySelection,
+    remove: removeAppCapabilitySelection,
+  } = appCapabilitySelectionsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
   const [appDevCommandRuns, setAppDevCommandRuns] = useState<AppDevCommandRuns>({})
   const [appVersion, setAppVersion] = useState('')
@@ -149,8 +158,8 @@ function App() {
   const { state: hostUpdateState, check: checkHostUpdate } = useHostUpdateCheck(appVersion)
 
   const registeredAppPlugins: Plugin[] = useMemo(() => {
-    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses, appDevCommandRuns)
-  }, [appDevCommandRuns, registeredApps, registeredAppStatuses])
+    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses, appDevCommandRuns, appCapabilitySelections)
+  }, [appCapabilitySelections, appDevCommandRuns, registeredApps, registeredAppStatuses])
 
   const homeItems: Plugin[] = useMemo(() => {
     return [...registeredAppPlugins, ...plugins]
@@ -214,6 +223,7 @@ function App() {
     })
     loadPlugins()
     loadRegisteredApps()
+    loadAppCapabilitySelections()
     loadBrowseLayout()
     wallpaperCtx.load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -407,10 +417,22 @@ function App() {
 
   // === Handlers ===
 
-  const activateRegisteredAppCommand = useCallback(async (app: RegisteredApp, command: RegisteredAppCommand) => {
+  const activateRegisteredAppShortcut = useCallback(async (app: RegisteredApp, shortcut: RegisteredAppShortcut) => {
     try {
       const launchOptions = await launchOptionsForApp(app)
-      const message = await activateAppCapability({ app, command, query, launchOptions })
+      await launchApp(app, 'show', shortcut.id, launchOptions)
+    } catch (error: any) {
+      console.warn('[app] shortcut activation failed:', error)
+      showToast(String(error?.message || error || '打开快捷入口失败'))
+    } finally {
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+    }
+  }, [refreshRegisteredAppStatuses, showToast])
+
+  const activateRegisteredAppCapability = useCallback(async (app: RegisteredApp, capability: RegisteredAppCapabilitySelection) => {
+    try {
+      const launchOptions = await launchOptionsForApp(app)
+      const message = await activateAppCapability({ app, capability, query, launchOptions })
       showToast(message)
     } catch (error: any) {
       console.warn('[app] capability activation failed:', error)
@@ -422,20 +444,38 @@ function App() {
 
   const activateListItem = useCallback((plugin: Plugin) => {
     const selection = parseRegisteredAppListItemId(plugin.id)
-    if (selection.type === 'appCommand') {
+    if (selection.type === 'appShortcut') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
         if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
           showToast(`开发命令运行中，暂不打开：${app.name}`)
           return
         }
-        const command = app.commands.find(command => command.id === selection.commandId)
-        if (!command) {
-          showToast(`命令不存在：${selection.commandId}`)
+        const shortcut = app.commands.find(command => command.id === selection.shortcutId)
+        if (!shortcut) {
+          showToast(`快捷入口不存在：${selection.shortcutId}`)
           return
         }
-        void activateRegisteredAppCommand(app, command).catch(error => {
+        void activateRegisteredAppShortcut(app, shortcut).catch(error => {
           showToast(String(error?.message || error || '打开应用失败'))
+        })
+      }
+      return
+    }
+    if (selection.type === 'appCapability') {
+      const app = registeredApps.find(app => app.id === selection.appId)
+      if (app) {
+        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
+          showToast(`开发命令运行中，暂不调用：${app.name}`)
+          return
+        }
+        const capability = appCapabilitySelections.find(item => item.appId === selection.appId && item.capabilityId === selection.capabilityId)
+        if (!capability) {
+          showToast(`能力不存在：${selection.capabilityId}`)
+          return
+        }
+        void activateRegisteredAppCapability(app, capability).catch(error => {
+          showToast(String(error?.message || error || '调用能力失败'))
         })
       }
       return
@@ -457,21 +497,21 @@ function App() {
     }
     setActiveHostPage(null)
     setActivePlugin(plugin)
-  }, [activateRegisteredAppCommand, appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
+  }, [activateRegisteredAppCapability, activateRegisteredAppShortcut, appCapabilitySelections, appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
 
   const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
     return registeredAppFromListItem(registeredApps, plugin.id)
   }, [registeredApps])
 
-  const updateRegisteredAppCommand = useCallback(async (
+  const updateRegisteredAppShortcut = useCallback(async (
     app: RegisteredApp,
-    commandId: string,
-    updateCommand: (command: RegisteredAppCommand) => RegisteredAppCommand,
+    shortcutId: string,
+    updateShortcut: (shortcut: RegisteredAppShortcut) => RegisteredAppShortcut,
   ) => {
-    const commandExists = app.commands.some(command => command.id === commandId)
-    if (!commandExists) return false
+    const shortcutExists = app.commands.some(shortcut => shortcut.id === shortcutId)
+    if (!shortcutExists) return false
     await updateRegisteredApp(app.id, {
-      commands: app.commands.map(command => command.id === commandId ? updateCommand(command) : command),
+      commands: app.commands.map(shortcut => shortcut.id === shortcutId ? updateShortcut(shortcut) : shortcut),
     })
     return true
   }, [updateRegisteredApp])
@@ -506,9 +546,14 @@ function App() {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
       const selection = parseRegisteredAppListItemId(plugin.id)
-      if (selection.type === 'appCommand') {
-        const updated = await updateRegisteredAppCommand(app, selection.commandId, command => ({ ...command, icon: dataUrl }))
-        showToast(updated ? '命令图标已更新' : '命令不存在，未更改图标')
+      if (selection.type === 'appShortcut') {
+        const updated = await updateRegisteredAppShortcut(app, selection.shortcutId, shortcut => ({ ...shortcut, icon: dataUrl }))
+        showToast(updated ? '快捷入口图标已更新' : '快捷入口不存在，未更改图标')
+        return
+      }
+      if (selection.type === 'appCapability') {
+        await updateAppCapabilitySelection(app.id, selection.capabilityId, { icon: dataUrl })
+        showToast('能力图标已更新')
         return
       }
       await updateRegisteredApp(app.id, { icon: dataUrl })
@@ -518,7 +563,7 @@ function App() {
       const msg = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
       showToast(msg ? `更改图标失败：${msg}` : '更改图标失败')
     }
-  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateRegisteredApp, updateRegisteredAppCommand])
+  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateAppCapabilitySelection, updateRegisteredApp, updateRegisteredAppShortcut])
 
   const resetMenuItemIcon = useCallback(async () => {
     const plugin = pluginMenu?.plugin
@@ -531,12 +576,17 @@ function App() {
 
     try {
       const selection = parseRegisteredAppListItemId(plugin.id)
-      if (selection.type === 'appCommand') {
-        const updated = await updateRegisteredAppCommand(app, selection.commandId, command => {
-          const { icon: _icon, ...nextCommand } = command
-          return nextCommand
+      if (selection.type === 'appShortcut') {
+        const updated = await updateRegisteredAppShortcut(app, selection.shortcutId, shortcut => {
+          const { icon: _icon, ...nextShortcut } = shortcut
+          return nextShortcut
         })
-        showToast(updated ? '命令图标已恢复为跟随应用' : '命令不存在，未恢复图标')
+        showToast(updated ? '快捷入口图标已恢复为跟随应用' : '快捷入口不存在，未恢复图标')
+        return
+      }
+      if (selection.type === 'appCapability') {
+        await updateAppCapabilitySelection(app.id, selection.capabilityId, { icon: undefined })
+        showToast('能力图标已恢复为跟随应用')
         return
       }
       const icon = await invoke<string>('app_icon_data_url', { exePath: app.path }).catch(() => '')
@@ -546,21 +596,30 @@ function App() {
       console.error('Failed to reset registered app icon:', error)
       showToast('恢复默认图标失败（详情见控制台）')
     }
-  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp, updateRegisteredAppCommand])
+  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateAppCapabilitySelection, updateRegisteredApp, updateRegisteredAppShortcut])
 
-  const removeRegisteredAppCommandFromMenu = useCallback(async (app: RegisteredApp, commandId: string) => {
-    const command = app.commands.find(command => command.id === commandId)
-    if (!command) return
+  const removeRegisteredAppShortcutFromMenu = useCallback(async (app: RegisteredApp, shortcutId: string) => {
+    const shortcut = app.commands.find(command => command.id === shortcutId)
+    if (!shortcut) return
 
     try {
       await updateRegisteredApp(app.id, {
-        commands: app.commands.filter(command => command.id !== commandId),
+        commands: app.commands.filter(command => command.id !== shortcutId),
       })
-      showToast(`已从主页移除快捷命令：${command.title}`)
+      showToast(`已从主页移除快捷入口：${shortcut.title}`)
     } catch (error: any) {
-      showToast(String(error?.message || error || '移除快捷命令失败'))
+      showToast(String(error?.message || error || '移除快捷入口失败'))
     }
   }, [showToast, updateRegisteredApp])
+
+  const removeRegisteredAppCapabilityFromMenu = useCallback(async (app: RegisteredApp, capabilityId: string) => {
+    try {
+      await removeAppCapabilitySelection(app.id, capabilityId)
+      showToast('已从主页移除能力')
+    } catch (error: any) {
+      showToast(String(error?.message || error || '移除能力失败'))
+    }
+  }, [removeAppCapabilitySelection, showToast])
 
   const closePluginUninstallDialog = useCallback(() => {
     if (uninstallingPluginId) return
@@ -679,15 +738,20 @@ function App() {
     const detailAction: ContextMenuAction = app
       ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
       : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
-    const selectedCommand = app && selection.type === 'appCommand'
-      ? app.commands.find(command => command.id === selection.commandId)
+    const selectedShortcut = app && selection.type === 'appShortcut'
+      ? app.commands.find(shortcut => shortcut.id === selection.shortcutId)
       : null
+    const selectedCapability = selection.type === 'appCapability'
+      ? appCapabilitySelections.find(item => item.appId === selection.appId && item.capabilityId === selection.capabilityId) ?? null
+      : null
+    const selectedEntryIcon = selectedShortcut?.icon ?? selectedCapability?.icon
+    const selectedEntryUsesAppIcon = selection.type === 'appShortcut' || selection.type === 'appCapability'
     const iconAction = buildIconContextMenuAction({
       chooseImage: () => void changeMenuItemIcon('file'),
       pasteImage: () => void changeMenuItemIcon('clipboard'),
       resetDefault: () => void resetMenuItemIcon(),
-      resetDefaultLabel: selection.type === 'appCommand' ? '恢复为跟随 App 图标' : undefined,
-      resetDefaultDisabled: selection.type === 'appCommand' ? !selectedCommand?.icon : undefined,
+      resetDefaultLabel: selectedEntryUsesAppIcon ? '恢复为跟随 App 图标' : undefined,
+      resetDefaultDisabled: selectedEntryUsesAppIcon ? !selectedEntryIcon : undefined,
     })
     const commonActions: ContextMenuAction[] = [
       detailAction,
@@ -695,13 +759,22 @@ function App() {
     ]
 
     if (app) {
-      const commandActions: ContextMenuAction[] = selection.type === 'appCommand'
+      const entryActions: ContextMenuAction[] = selection.type === 'appShortcut'
         ? [
           {
-            id: 'remove-app-command-entry',
-            label: '从主页移除此快捷命令',
+            id: 'remove-app-shortcut-entry',
+            label: '从主页移除此快捷入口',
             color: 'error',
-            onSelect: () => void removeRegisteredAppCommandFromMenu(app, selection.commandId),
+            onSelect: () => void removeRegisteredAppShortcutFromMenu(app, selection.shortcutId),
+          },
+        ]
+        : selection.type === 'appCapability'
+        ? [
+          {
+            id: 'remove-app-capability-entry',
+            label: '从主页移除此能力',
+            color: 'error',
+            onSelect: () => void removeRegisteredAppCapabilityFromMenu(app, selection.capabilityId),
           },
         ]
         : []
@@ -738,7 +811,7 @@ function App() {
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
-        ...commandActions,
+        ...entryActions,
         ...commonActions,
       ]
     }
@@ -759,7 +832,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCommandFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
+  }, [appCapabilitySelections, appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCapabilityFromMenu, removeRegisteredAppShortcutFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -975,7 +1048,10 @@ function App() {
         <CapabilityRegistryPage
           onBack={closeActiveView}
           apps={registeredApps}
-          onUpdate={updateRegisteredApp}
+          selections={appCapabilitySelections}
+          onSelect={upsertAppCapabilitySelection}
+          onUpdateSelection={updateAppCapabilitySelection}
+          onRemove={removeAppCapabilitySelection}
         />
       )
     }

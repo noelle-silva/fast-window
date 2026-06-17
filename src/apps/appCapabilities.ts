@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { AppLaunchOptions } from './appLauncher'
-import type { AppCapabilityConfigField, AppCapabilityOption, RegisteredApp, RegisteredAppCommand } from './types'
+import type { AppCapabilityConfigField, AppCapabilityOption, AppCapabilityDescriptor, RegisteredApp } from './types'
 
 type AppCapabilityHostResponse = {
   appId: string
@@ -9,7 +9,7 @@ type AppCapabilityHostResponse = {
 }
 
 type AppCapabilityListHostResponse = {
-  apps: Array<{ appId: string; commands: RegisteredAppCommand[] }>
+  apps: Array<{ appId: string; capabilities: AppCapabilityDescriptor[] }>
   errors: Array<{ appId: string; message: string; canLaunch?: boolean }>
 }
 
@@ -53,7 +53,7 @@ export async function queryAppCapabilityOptions(request: AppCapabilityOptionsReq
   return capabilityOptionsFromResponse(result.response)
 }
 
-export function commandCapabilityConfig(command: RegisteredAppCommand): Record<string, unknown> {
+export function commandCapabilityConfig(command: AppCapabilityDescriptor): Record<string, unknown> {
   const config = (command as { config?: unknown }).config
   if (config === undefined) return {}
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -67,7 +67,7 @@ export type CommandCapabilityConfigState = {
   error: string
 }
 
-export function commandCapabilityConfigState(command: RegisteredAppCommand): CommandCapabilityConfigState {
+export function commandCapabilityConfigState(command: AppCapabilityDescriptor): CommandCapabilityConfigState {
   try {
     return { config: commandCapabilityConfig(command), error: '' }
   } catch (err) {
@@ -80,7 +80,7 @@ export type CommandCapabilityConfigFieldsState = {
   error: string
 }
 
-export function commandCapabilityConfigFields(command: RegisteredAppCommand): AppCapabilityConfigField[] {
+export function commandCapabilityConfigFields(command: AppCapabilityDescriptor): AppCapabilityConfigField[] {
   const configFields = (command as { configFields?: unknown }).configFields
   if (configFields === undefined) return []
   if (!Array.isArray(configFields)) {
@@ -89,7 +89,7 @@ export function commandCapabilityConfigFields(command: RegisteredAppCommand): Ap
   return configFields.map((field, index) => configFieldFromValue(command, field, index))
 }
 
-export function commandCapabilityConfigFieldsState(command: RegisteredAppCommand): CommandCapabilityConfigFieldsState {
+export function commandCapabilityConfigFieldsState(command: AppCapabilityDescriptor): CommandCapabilityConfigFieldsState {
   try {
     return { fields: commandCapabilityConfigFields(command), error: '' }
   } catch (err) {
@@ -122,7 +122,7 @@ function capabilityOptionsFromResponse(response: unknown): AppCapabilityOption[]
   return value.options.map(optionFromValue)
 }
 
-function configFieldFromValue(command: RegisteredAppCommand, value: unknown, index: number): AppCapabilityConfigField {
+function configFieldFromValue(command: AppCapabilityDescriptor, value: unknown, index: number): AppCapabilityConfigField {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`能力配置字段声明不合法：${command.id} 的第 ${index + 1} 个配置项必须是对象`)
   }
@@ -134,7 +134,7 @@ function configFieldFromValue(command: RegisteredAppCommand, value: unknown, ind
 }
 
 function requiredConfigFieldText(
-  command: RegisteredAppCommand,
+  command: AppCapabilityDescriptor,
   field: Record<string, unknown>,
   key: keyof AppCapabilityConfigField,
   label: string,

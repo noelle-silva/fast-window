@@ -30,6 +30,8 @@ pub(crate) struct AppReportedCommand {
     pub(crate) id: String,
     pub(crate) title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) icon: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) hotkey: Option<String>,
@@ -67,6 +69,7 @@ impl From<AppCapabilityConfigField> for AppCapabilityConfigFieldInput {
 fn without_app_reported_commands(mut value: Value) -> Value {
     if let Some(record) = value.as_object_mut() {
         record.remove("availableCommands");
+        record.remove("capabilities");
     }
     value
 }

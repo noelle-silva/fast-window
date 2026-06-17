@@ -1,18 +1,24 @@
 import type { ComponentType } from 'react'
 import type { Plugin, PluginIconBadge } from '../constants'
 import { appDevCommandIsRunning, type AppDevCommandRuns } from './appDevCommandState'
-import type { AppStatus, RegisteredApp } from './types'
+import type { AppStatus, RegisteredApp, RegisteredAppCapabilitySelection } from './types'
 
 const REGISTERED_APP_ITEM_PREFIX = 'app:'
-const REGISTERED_APP_COMMAND_ITEM_PREFIX = 'app-command:'
-const REGISTERED_APP_COMMAND_ICON_BADGE: PluginIconBadge = {
+const REGISTERED_APP_SHORTCUT_ITEM_PREFIX = 'app-shortcut:'
+const REGISTERED_APP_CAPABILITY_ITEM_PREFIX = 'app-capability:'
+const REGISTERED_APP_SHORTCUT_ICON_BADGE: PluginIconBadge = {
   kind: 'shortcut-command',
-  label: '快捷指令',
+  label: '快捷入口',
+}
+const REGISTERED_APP_CAPABILITY_ICON_BADGE: PluginIconBadge = {
+  kind: 'app-capability',
+  label: '能力',
 }
 
 export type RegisteredAppListSelection =
   | { type: 'app'; appId: string }
-  | { type: 'appCommand'; appId: string; commandId: string }
+  | { type: 'appShortcut'; appId: string; shortcutId: string }
+  | { type: 'appCapability'; appId: string; capabilityId: string }
   | { type: 'plugin' }
 
 const NullRegisteredAppView: ComponentType<{ onBack: () => void }> = () => null
@@ -21,19 +27,35 @@ export function registeredAppListItemId(appId: string) {
   return `${REGISTERED_APP_ITEM_PREFIX}${appId}`
 }
 
-export function registeredAppCommandListItemId(appId: string, commandId: string) {
-  return `${REGISTERED_APP_COMMAND_ITEM_PREFIX}${appId}:${commandId}`
+export function registeredAppShortcutListItemId(appId: string, shortcutId: string) {
+  return `${REGISTERED_APP_SHORTCUT_ITEM_PREFIX}${appId}:${shortcutId}`
+}
+
+export function registeredAppCapabilityListItemId(appId: string, capabilityId: string) {
+  return `${REGISTERED_APP_CAPABILITY_ITEM_PREFIX}${appId}:${capabilityId}`
 }
 
 export function parseRegisteredAppListItemId(itemId: string): RegisteredAppListSelection {
-  if (itemId.startsWith(REGISTERED_APP_COMMAND_ITEM_PREFIX)) {
-    const rest = itemId.slice(REGISTERED_APP_COMMAND_ITEM_PREFIX.length)
+  if (itemId.startsWith(REGISTERED_APP_SHORTCUT_ITEM_PREFIX)) {
+    const rest = itemId.slice(REGISTERED_APP_SHORTCUT_ITEM_PREFIX.length)
     const separator = rest.indexOf(':')
     if (separator > 0 && separator < rest.length - 1) {
       return {
-        type: 'appCommand',
+        type: 'appShortcut',
         appId: rest.slice(0, separator),
-        commandId: rest.slice(separator + 1),
+        shortcutId: rest.slice(separator + 1),
+      }
+    }
+  }
+
+  if (itemId.startsWith(REGISTERED_APP_CAPABILITY_ITEM_PREFIX)) {
+    const rest = itemId.slice(REGISTERED_APP_CAPABILITY_ITEM_PREFIX.length)
+    const separator = rest.indexOf(':')
+    if (separator > 0 && separator < rest.length - 1) {
+      return {
+        type: 'appCapability',
+        appId: rest.slice(0, separator),
+        capabilityId: rest.slice(separator + 1),
       }
     }
   }
@@ -55,6 +77,7 @@ export function buildRegisteredAppListItems(
   apps: RegisteredApp[],
   statuses: Record<string, AppStatus>,
   devCommandRuns: AppDevCommandRuns = {},
+  capabilitySelections: RegisteredAppCapabilitySelection[] = [],
 ): Plugin[] {
   return apps.flatMap(app => {
     const icon = app.icon || app.name[0] || 'A'
@@ -73,15 +96,15 @@ export function buildRegisteredAppListItems(
       },
     }
 
-    const commandItems: Plugin[] = (app.commands || []).map(command => ({
-      id: registeredAppCommandListItemId(app.id, command.id),
-      name: command.title,
-      description: `${app.name} · 命令`,
-      icon: command.icon || icon,
-      keyword: `${app.id} ${command.id} ${command.title}`,
+    const shortcutItems: Plugin[] = (app.commands || []).map(shortcut => ({
+      id: registeredAppShortcutListItemId(app.id, shortcut.id),
+      name: shortcut.title,
+      description: `${app.name} · 快捷入口`,
+      icon: shortcut.icon || icon,
+      keyword: `${app.id} ${shortcut.id} ${shortcut.title}`,
       disabled: false,
       component: NullRegisteredAppView,
-      iconBadge: REGISTERED_APP_COMMAND_ICON_BADGE,
+      iconBadge: REGISTERED_APP_SHORTCUT_ICON_BADGE,
       appStatus: {
         type: 'registered-app',
         running: statuses[app.id]?.running === true,
@@ -89,6 +112,24 @@ export function buildRegisteredAppListItems(
       },
     }))
 
-    return [appItem, ...commandItems]
+    const capabilityItems: Plugin[] = capabilitySelections
+      .filter(capability => capability.appId === app.id)
+      .map(capability => ({
+        id: registeredAppCapabilityListItemId(app.id, capability.capabilityId),
+        name: capability.title,
+        description: `${app.name} · 能力`,
+        icon: capability.icon || icon,
+        keyword: `${app.id} ${capability.capabilityId} ${capability.title}`,
+        disabled: false,
+        component: NullRegisteredAppView,
+        iconBadge: REGISTERED_APP_CAPABILITY_ICON_BADGE,
+        appStatus: {
+          type: 'registered-app',
+          running: statuses[app.id]?.running === true,
+          devCommandRunning: appDevCommandIsRunning(devCommandRuns, app.id),
+        },
+      }))
+
+    return [appItem, ...shortcutItems, ...capabilityItems]
   })
 }

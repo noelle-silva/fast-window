@@ -1,4 +1,4 @@
-import type { AppDisplayMode, RegisteredAppCommand } from '../apps/types'
+import type { AppDisplayMode, RegisteredAppShortcut } from '../apps/types'
 import { parseSemverStrict } from './semver'
 import type {
   LegacyPluginStoreEntry,
@@ -101,10 +101,10 @@ function isShortIconText(icon: string): boolean {
   return icon.length <= 8 && !/[\\/.:]/.test(icon)
 }
 
-function parseCommands(value: unknown, field: string): RegisteredAppCommand[] | undefined {
+function parseCommands(value: unknown, field: string): RegisteredAppShortcut[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`)
-  const out: RegisteredAppCommand[] = []
+  const out: RegisteredAppShortcut[] = []
   const seen = new Set<string>()
   for (const [index, item] of value.entries()) {
     if (!isPlainObject(item)) throw new Error(`${field}[${index}] must be an object`)

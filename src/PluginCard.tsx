@@ -241,6 +241,36 @@ function PluginIconBadgeView(props: { badge: NonNullable<Plugin['iconBadge']>; a
     )
   }
 
+  if (badge.kind === 'app-capability') {
+    const badgeSize = Math.max(14, Math.round(avatarSize * 0.34))
+    const iconSize = Math.max(9, Math.round(badgeSize * 0.66))
+
+    return (
+      <Box
+        title={badge.label}
+        aria-label={badge.label}
+        role="img"
+        sx={theme => ({
+          position: 'absolute',
+          right: -2,
+          bottom: -2,
+          width: badgeSize,
+          height: badgeSize,
+          borderRadius: '999px',
+          display: 'grid',
+          placeItems: 'center',
+          color: theme.palette.common.white,
+          bgcolor: theme.palette.secondary.main,
+          boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
+        })}
+      >
+        <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: iconSize }}>
+          <path d="M12 3.5 19.5 8v8L12 20.5 4.5 16V8L12 3.5Zm0 2.3L6.5 9v6l5.5 3.2 5.5-3.2V9L12 5.8Zm0 4.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" />
+        </SvgIcon>
+      </Box>
+    )
+  }
+
   const exhaustive: never = badge.kind
   return exhaustive
 }

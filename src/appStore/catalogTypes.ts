@@ -1,4 +1,4 @@
-import type { AppDisplayMode, RegisteredAppCommand } from '../apps/types'
+import type { AppDisplayMode, RegisteredAppShortcut } from '../apps/types'
 
 export type StoreImageIconRef =
   | { type: 'url'; url: string }
@@ -37,7 +37,7 @@ export interface StoreAppEntry {
     windows: StoreDownloadAsset
   }
   displayMode?: AppDisplayMode
-  commands?: RegisteredAppCommand[]
+  commands?: RegisteredAppShortcut[]
 }
 
 export interface LegacyPluginStoreEntry {

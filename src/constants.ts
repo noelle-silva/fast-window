@@ -34,7 +34,7 @@ export interface Plugin {
 }
 
 export type PluginIconBadge = {
-  kind: 'shortcut-command'
+  kind: 'shortcut-command' | 'app-capability'
   label: string
 }
 

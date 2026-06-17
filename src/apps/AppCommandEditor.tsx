@@ -1,20 +1,18 @@
-import { useState } from 'react'
-import { Avatar, Box, Button, IconButton, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { Avatar, Box, Button, IconButton, Stack, TextField, Typography } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
-import type { RegisteredAppCommand } from './types'
+import type { RegisteredAppShortcut } from './types'
 import { generateSafeId } from './ids'
 import { isDataImageUrl } from '../utils'
 import type { IconImageSource } from '../iconImageInput'
-import { hostButtonSx, hostSelectSx, hostTextFieldSx } from '../components/hostUiStyles'
+import { hostButtonSx, hostTextFieldSx } from '../components/hostUiStyles'
 
 interface AppCommandEditorProps {
-  commands: RegisteredAppCommand[]
-  currentCommands?: RegisteredAppCommand[]
+  commands: RegisteredAppShortcut[]
   appIcon: string
   appName: string
   disabled?: boolean
   changingCommandIconId?: string | null
-  onChange: (commands: RegisteredAppCommand[]) => void
+  onChange: (commands: RegisteredAppShortcut[]) => void
   onChangeIcon: (commandId: string, source: IconImageSource) => void
   onResetIcon: (commandId: string) => void
   recordingCommandId?: string | null
@@ -22,11 +20,11 @@ interface AppCommandEditorProps {
   onClearHotkey: (commandId: string) => void
 }
 
-function commandIconDisplay(command: RegisteredAppCommand, appIcon: string): string {
+function commandIconDisplay(command: RegisteredAppShortcut, appIcon: string): string {
   return command.icon || appIcon || command.title[0] || 'C'
 }
 
-function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
+function uniqueCommandId(title: string, commands: RegisteredAppShortcut[]) {
   const base = generateSafeId(title, 'command')
   const used = new Set(commands.map(command => command.id))
   if (!used.has(base)) return base
@@ -40,7 +38,6 @@ function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
 
 export default function AppCommandEditor({
   commands,
-  currentCommands = [],
   appIcon,
   appName,
   disabled = false,
@@ -52,23 +49,6 @@ export default function AppCommandEditor({
   onStartHotkeyRecording,
   onClearHotkey,
 }: AppCommandEditorProps) {
-  const [title, setTitle] = useState('')
-  const [selectedCommandId, setSelectedCommandId] = useState('')
-
-  const selectableCommands = currentCommands.filter(command => !commands.some(item => item.id === command.id))
-  const commandSelectPlaceholder = currentCommands.length
-    ? selectableCommands.length
-      ? '选择 App 当前返回的命令'
-      : 'App 当前返回的命令已全部添加'
-    : '尚未读取到 App 当前命令'
-
-  const addCommand = () => {
-    const nextTitle = title.trim()
-    if (!nextTitle) return
-    onChange(commands.concat({ id: uniqueCommandId(nextTitle, commands), title: nextTitle }))
-    setTitle('')
-  }
-
   const updateCommandTitle = (id: string, nextTitle: string) => {
     onChange(commands.map(command => command.id === id ? { ...command, title: nextTitle } : command))
   }
@@ -83,46 +63,16 @@ export default function AppCommandEditor({
     onChange(commands.filter(command => command.id !== id))
   }
 
-  const addSelectedCommand = () => {
-    const command = selectableCommands.find(item => item.id === selectedCommandId)
-    if (!command) return
-    onChange(commands.concat({ ...command }))
-    setSelectedCommandId('')
-  }
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <Box>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          应用命令
+          快捷入口
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          命令会出现在主搜索列表里。每条命令可以设置独立图标；未设置时跟随主页图标。
+          快捷入口会出现在主页搜索列表里，用于快速打开应用内部页面或动作。这里不展示应用能力。
         </Typography>
       </Box>
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Select
-          value={selectedCommandId}
-          onChange={event => setSelectedCommandId(event.target.value)}
-          displayEmpty
-          disabled={!selectableCommands.length}
-          size="small"
-          fullWidth
-          sx={hostSelectSx}
-        >
-          <MenuItem value="">{commandSelectPlaceholder}</MenuItem>
-          {selectableCommands.map(command => (
-            <MenuItem key={command.id} value={command.id}>{command.title}（{command.id}）</MenuItem>
-          ))}
-        </Select>
-        <Button variant="text" disabled={!selectedCommandId} onClick={addSelectedCommand} sx={{ ...hostButtonSx, flexShrink: 0 }}>
-          添加
-        </Button>
-      </Box>
-      <Typography variant="caption" color="text.secondary">
-        这里读取 App 当前回答的命令；如果暂时读不到，仍可手动添加。
-      </Typography>
 
       {commands.length ? (
         <Stack spacing={1}>
@@ -207,30 +157,9 @@ export default function AppCommandEditor({
         </Stack>
       ) : (
         <Typography variant="caption" color="text.secondary">
-          暂无命令。
+          这个应用包没有声明快捷入口。
         </Typography>
       )}
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <TextField
-          label="新命令名称"
-          value={title}
-          onChange={event => setTitle(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addCommand()
-            }
-          }}
-          size="small"
-          fullWidth
-          placeholder="例如：新增收藏"
-          sx={hostTextFieldSx}
-        />
-        <Button variant="text" onClick={addCommand} sx={{ ...hostButtonSx, flexShrink: 0 }}>
-          添加
-        </Button>
-      </Box>
     </Box>
   )
 }

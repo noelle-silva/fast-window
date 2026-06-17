@@ -1,20 +1,20 @@
 import { capabilityResultText, commandCapabilityConfig, invokeAppCapability } from './appCapabilities'
 import type { AppLaunchOptions } from './appLauncher'
-import type { RegisteredApp, RegisteredAppCommand } from './types'
+import type { RegisteredApp, RegisteredAppCapabilitySelection } from './types'
 
 type ActivateAppCapabilityRequest = {
   app: RegisteredApp
-  command: RegisteredAppCommand
+  capability: RegisteredAppCapabilitySelection
   query: string
   launchOptions?: AppLaunchOptions
 }
 
-export async function activateAppCapability({ app, command, query, launchOptions }: ActivateAppCapabilityRequest): Promise<string> {
+export async function activateAppCapability({ app, capability, query, launchOptions }: ActivateAppCapabilityRequest): Promise<string> {
   const result = await invokeAppCapability({
     app,
-    capabilityId: command.id,
+    capabilityId: capability.capabilityId,
     input: { text: query },
-    config: commandCapabilityConfig(command),
+    config: commandCapabilityConfig({ ...capability, id: capability.capabilityId }),
     launchOptions,
   })
   const text = capabilityResultText(result.response)

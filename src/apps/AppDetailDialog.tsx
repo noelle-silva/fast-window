@@ -3,7 +3,7 @@ import {
   DialogTitle, IconButton, Typography,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import type { AppStatus, RegisteredApp, RegisteredAppCommand } from './types'
+import type { AppStatus, RegisteredApp, RegisteredAppShortcut } from './types'
 import { isDataImageUrl } from '../utils'
 import { hostButtonSx, hostSoftChipSx } from '../components/hostUiStyles'
 
@@ -57,7 +57,7 @@ function windowBoundsText(app: RegisteredApp): string {
   return size || position || '(未记录)'
 }
 
-function CommandList({ commands }: { commands?: RegisteredAppCommand[] }) {
+function CommandList({ commands }: { commands?: RegisteredAppShortcut[] }) {
   if (!commands?.length) {
     return <Typography sx={valueSx} color="text.secondary">(空)</Typography>
   }

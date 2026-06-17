@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  Alert, Box, Typography, IconButton, Button, CircularProgress,
+  Box, Typography, IconButton, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControlLabel, Stack, Switch, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
+import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppShortcut, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
 import AppIconEditor from './AppIconEditor'
 import { getAppStatus } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { inspectInstalledApp } from './installedAppInfo'
-import { listAppCapabilities, type AppCapabilityLaunchPolicy } from './appCapabilities'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
@@ -73,10 +72,7 @@ export default function AppRegistrationPanel({
   const [recordingCommandHotkeyId, setRecordingCommandHotkeyId] = useState<string | null>(null)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [autoStart, setAutoStart] = useState(false)
-  const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
-  const [currentCommands, setCurrentCommands] = useState<RegisteredAppCommand[]>([])
-  const [currentCommandsLoading, setCurrentCommandsLoading] = useState(false)
-  const [currentCommandsError, setCurrentCommandsError] = useState('')
+  const [commands, setCommands] = useState<RegisteredAppShortcut[]>([])
   const [commandsEdited, setCommandsEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pickingPath, setPickingPath] = useState(false)
@@ -113,9 +109,6 @@ export default function AppRegistrationPanel({
     setDisplayMode('default')
     setAutoStart(false)
     setCommands([])
-    setCurrentCommands([])
-    setCurrentCommandsError('')
-    setCurrentCommandsLoading(false)
     setCommandsEdited(false)
     setPickingPath(false)
     closeEditMenu()
@@ -136,53 +129,10 @@ export default function AppRegistrationPanel({
     setDisplayMode(app.displayMode)
     setAutoStart(app.autoStart)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
-    setCurrentCommands([])
-    setCurrentCommandsError('')
-    setCurrentCommandsLoading(false)
-    setCommandsEdited(true)
+    setCommandsEdited(false)
     setPickingPath(false)
     closeEditMenu()
     setEditOpen(true)
-    void refreshCurrentCommands(app)
-  }
-
-  const refreshCurrentCommands = async (app: RegisteredApp, launchPolicy: AppCapabilityLaunchPolicy = 'runningOnly') => {
-    setCurrentCommandsLoading(true)
-    setCurrentCommandsError('')
-    try {
-      const result = await listAppCapabilities([app], { launchPolicy })
-      const hit = result.apps.find(item => item.appId === app.id)
-      const error = result.errors.find(item => item.appId === app.id)
-      setCurrentCommands(Array.isArray(hit?.commands) ? hit.commands : [])
-      setCurrentCommandsError(error?.message || '')
-    } catch (error: any) {
-      setCurrentCommands([])
-      setCurrentCommandsError(String(error?.message || error || '读取应用当前命令失败'))
-    } finally {
-      setCurrentCommandsLoading(false)
-    }
-  }
-
-  const refreshCurrentCommandsFromCurrentPath = async () => {
-    const p = path.trim()
-    if (!p) return
-    try {
-      const info = await inspectInstalledApp(p)
-      const nextIcon = icon || info.icon || await readAppIcon(info.path)
-      await refreshCurrentCommands({
-        id: info.id,
-        name: name.trim() || info.name,
-        icon: nextIcon,
-        path: info.path,
-        version: info.version,
-        displayMode,
-        commands: normalizedCommands(),
-        autoStart,
-      }, 'allowLaunch')
-    } catch (error: any) {
-      setCurrentCommands([])
-      setCurrentCommandsError(String(error?.message || error || '读取应用当前命令失败'))
-    }
   }
 
   useEffect(() => {
@@ -206,9 +156,7 @@ export default function AppRegistrationPanel({
       setPath(info.path)
       setIcon(nextIcon)
       setDisplayMode(info.displayMode)
-      setCommands([])
-      setCurrentCommands([])
-      setCurrentCommandsError('已选择应用；如需读取当前命令，请点击“启动并读取当前命令”。')
+      setCommands(info.commands)
       setCommandsEdited(true)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
@@ -347,7 +295,7 @@ export default function AppRegistrationPanel({
       const nextHotkey = hotkey.trim()
       const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
       const nextCommands = normalizedCommands()
-      const commandsToSave = commandsEdited ? nextCommands : []
+      const commandsToSave = commandsEdited ? nextCommands : (existingApp?.commands ?? info.commands)
       const nextApp: RegisteredApp = {
         id: info.id,
         name: nextName,
@@ -610,24 +558,8 @@ export default function AppRegistrationPanel({
               开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Button
-              variant="text"
-              disabled={saving || currentCommandsLoading || !path.trim()}
-              onClick={() => void refreshCurrentCommandsFromCurrentPath()}
-              sx={hostButtonSx}
-            >
-              启动并读取当前命令
-            </Button>
-            {currentCommandsLoading ? <CircularProgress size={18} /> : null}
-            <Typography variant="caption" color="text.secondary">
-              {currentCommands.length ? `已读取 ${currentCommands.length} 个当前命令` : '当前没有可添加的命令'}
-            </Typography>
-          </Box>
-          {currentCommandsError ? <Alert severity="warning" sx={{ borderRadius: 2 }}>{currentCommandsError}</Alert> : null}
           <AppCommandEditor
             commands={commands}
-            currentCommands={currentCommands}
             appIcon={icon}
             appName={name}
             disabled={saving}

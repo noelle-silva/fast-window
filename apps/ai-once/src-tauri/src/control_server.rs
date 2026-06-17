@@ -16,6 +16,8 @@ pub(crate) struct AppCommandDescriptor {
     pub(crate) id: &'static str,
     pub(crate) title: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) config_fields: Option<&'static [AppCommandConfigField]>,
@@ -56,12 +58,14 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "open-settings",
             title: "打开 AI Once 设置",
+            kind: Some("shortcut"),
             description: None,
             config_fields: None,
         },
         AppCommandDescriptor {
             id: "ask-once",
             title: "一次性 AI 提问",
+            kind: Some("capability"),
             description: Some("接受一段文字并返回 AI 回复。"),
             config_fields: Some(&[
                 AppCommandConfigField {
@@ -79,6 +83,7 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "new-prompt",
             title: "新建一次性 Prompt",
+            kind: Some("shortcut"),
             description: None,
             config_fields: None,
         },
@@ -223,7 +228,7 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "availableCommands": available_commands()
+                "capabilities": available_commands()
             }),
         );
         return;
@@ -250,7 +255,7 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "availableCommands": available_commands()
+                "capabilities": available_commands()
             }),
         ),
         Err(error) => write_control_response(

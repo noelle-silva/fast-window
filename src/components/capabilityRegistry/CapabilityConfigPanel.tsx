@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, FormControl, InputLabel, MenuItem, Select } from '@mui/material'
-import type { AppCapabilityConfigField, AppCapabilityOption, RegisteredApp, RegisteredAppCommand } from '../../apps/types'
+import type { AppCapabilityConfigField, AppCapabilityOption, AppCapabilityDescriptor, RegisteredApp } from '../../apps/types'
 import { commandCapabilityConfigFieldsState, commandCapabilityConfigState, queryAppCapabilityOptions } from '../../apps/appCapabilities'
 import { hostButtonSx, hostTextFieldSx } from '../hostUiStyles'
 
 type CapabilityConfigPanelProps = {
   app: RegisteredApp
-  command: RegisteredAppCommand
+  command: AppCapabilityDescriptor
   registered: boolean
   onSave: (config: Record<string, unknown>) => void | Promise<void>
 }

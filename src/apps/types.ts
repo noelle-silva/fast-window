@@ -4,7 +4,14 @@ export type AppActivationAction = 'toggle' | 'show' | 'hide' | 'close'
 
 export type AppHotkeyLaunchBehavior = 'launch' | 'runningOnly'
 
-export interface RegisteredAppCommand {
+export interface RegisteredAppShortcut {
+  id: string
+  title: string
+  icon?: string
+  hotkey?: string
+}
+
+export interface AppCapabilityDescriptor {
   id: string
   title: string
   icon?: string
@@ -32,7 +39,7 @@ export interface InstalledAppInfo {
   path: string
   icon: string
   displayMode: AppDisplayMode
-  commands: RegisteredAppCommand[]
+  commands: RegisteredAppShortcut[]
 }
 
 export interface RegisteredApp {
@@ -44,7 +51,7 @@ export interface RegisteredApp {
   hotkey?: string
   hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior
   displayMode: AppDisplayMode
-  commands: RegisteredAppCommand[]
+  commands: RegisteredAppShortcut[]
   autoStart: boolean
   windowWidth?: number
   windowHeight?: number
@@ -60,6 +67,16 @@ export interface AppRegistrationEditRequest {
 export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey' | 'hotkeyLaunchBehavior'>> & {
   hotkey?: string | null
   hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior | null
+}
+
+export interface RegisteredAppCapabilitySelection {
+  appId: string
+  capabilityId: string
+  title: string
+  icon?: string
+  description?: string
+  configFields?: AppCapabilityConfigField[]
+  config?: Record<string, unknown>
 }
 
 export type AppStatus = {
