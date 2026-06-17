@@ -801,7 +801,7 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
         let rel = safe_relative_path_no_curdir(icon)?;
         if !root.join(rel).is_file() {
             return Err(format!(
-                "命令图标文件不存在（fw-app.commands.icon）: {}",
+                "宿主快捷命令图标文件不存在（fw-app.commands.icon）: {}",
                 command.id
             ));
         }
@@ -989,7 +989,7 @@ fn resolve_app_commands(
                 Some(icon) if icon.starts_with("data:image/") || is_short_icon_text(icon) => {
                     Some(icon.to_string())
                 }
-                Some(icon) => Some(resolve_manifest_icon(icon, app_root, "命令图标")?),
+                Some(icon) => Some(resolve_manifest_icon(icon, app_root, "宿主快捷命令图标")?),
                 None => None,
             };
             Ok(AppPackageCommand {

@@ -2559,6 +2559,7 @@ fn main() {
         process_commands::process_wait,
         app_lifecycle::manager::app_launch,
         app_capabilities::app_capability_env_vars,
+        app_capabilities::app_host_shortcut_list,
         app_capabilities::app_capability_list,
         app_capabilities::app_capability_invoke,
         app_capabilities::app_capability_query_options,

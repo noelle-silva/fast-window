@@ -1,4 +1,4 @@
-import { capabilityResultText, commandCapabilityConfig, invokeAppCapability } from './appCapabilities'
+import { appCapabilityConfig, capabilityResultText, invokeAppCapability } from './appCapabilities'
 import type { AppLaunchOptions } from './appLauncher'
 import type { RegisteredApp, RegisteredAppCapabilitySelection } from './types'
 
@@ -14,7 +14,7 @@ export async function activateAppCapability({ app, capability, query, launchOpti
     app,
     capabilityId: capability.capabilityId,
     input: { text: query },
-    config: commandCapabilityConfig({ ...capability, id: capability.capabilityId }),
+    config: appCapabilityConfig({ ...capability, id: capability.capabilityId }),
     launchOptions,
   })
   const text = capabilityResultText(result.response)

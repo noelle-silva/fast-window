@@ -44,6 +44,14 @@ pub(crate) struct AppCapabilityListRequest {
     launch_policy: AppCapabilityLaunchPolicy,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppHostShortcutListRequest {
+    apps: Vec<RegisteredAppLaunchConfig>,
+    #[serde(default)]
+    launch_policy: AppCapabilityLaunchPolicy,
+}
+
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum AppCapabilityLaunchPolicy {
@@ -74,9 +82,23 @@ pub(crate) struct AppCapabilityListResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct AppHostShortcutListResponse {
+    apps: Vec<AppHostShortcutListApp>,
+    errors: Vec<AppCapabilityListError>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AppCapabilityListApp {
     app_id: String,
-    capabilities: Vec<crate::app_registry::AppReportedCommand>,
+    capabilities: Vec<crate::app_registry::AppRuntimeDeclaration>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppHostShortcutListApp {
+    app_id: String,
+    host_shortcuts: Vec<crate::app_registry::AppRuntimeDeclaration>,
 }
 
 #[derive(Serialize)]
@@ -134,34 +156,93 @@ async fn resolve_app_capability_endpoint(
     }
 }
 
+async fn describe_app_runtime_declarations(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
+    launch_policy: AppCapabilityLaunchPolicy,
+    action: &'static str,
+    response_field: RuntimeDeclarationField,
+) -> Result<Vec<crate::app_registry::AppRuntimeDeclaration>, String> {
+    let endpoint = resolve_app_capability_endpoint(app_handle, state, app, launch_options, launch_policy).await?;
+    let response = tokio::task::spawn_blocking(move || {
+        send_control_json(endpoint, serde_json::json!({ "action": action }))
+    })
+    .await
+    .map_err(|e| format!("应用运行时声明读取任务失败: {e}"))??;
+
+    runtime_declarations_from_response(response, response_field)
+}
+
 pub(crate) async fn describe_app_capabilities(
     app_handle: AppHandle,
     state: Arc<AppLifecycleManager>,
     app: &RegisteredAppLaunchConfig,
     launch_options: AppLaunchOptions,
     launch_policy: AppCapabilityLaunchPolicy,
-) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
-    let endpoint = resolve_app_capability_endpoint(app_handle, state, app, launch_options, launch_policy).await?;
-    let response = tokio::task::spawn_blocking(move || {
-        send_control_json(endpoint, serde_json::json!({ "action": "describeCapabilities" }))
-    })
-    .await
-    .map_err(|e| format!("应用能力清单读取任务失败: {e}"))??;
+) -> Result<Vec<crate::app_registry::AppRuntimeDeclaration>, String> {
+    Ok(describe_app_runtime_declarations(
+        app_handle,
+        state,
+        app,
+        launch_options,
+        launch_policy,
+        "describeCapabilities",
+        RuntimeDeclarationField::Capabilities,
+    )
+    .await?
+    .into_iter()
+    .filter(|capability| capability.kind.as_deref() == Some("capability"))
+    .collect())
+}
 
-    let value = serde_json::from_value::<AppControlCapabilityDescription>(response)
-        .map_err(|e| format!("应用能力清单响应解析失败: {e}"))?;
-    Ok(value
-        .capabilities
-        .into_iter()
-        .filter(|capability| capability.kind.as_deref() == Some("capability"))
-        .collect())
+pub(crate) async fn describe_app_host_shortcuts(
+    app_handle: AppHandle,
+    state: Arc<AppLifecycleManager>,
+    app: &RegisteredAppLaunchConfig,
+    launch_options: AppLaunchOptions,
+    launch_policy: AppCapabilityLaunchPolicy,
+) -> Result<Vec<crate::app_registry::AppRuntimeDeclaration>, String> {
+    Ok(describe_app_runtime_declarations(
+        app_handle,
+        state,
+        app,
+        launch_options,
+        launch_policy,
+        "describeHostShortcuts",
+        RuntimeDeclarationField::HostShortcuts,
+    )
+    .await?
+    .into_iter()
+    .collect())
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AppControlCapabilityDescription {
+struct AppControlRuntimeDeclarationDescription {
     #[serde(default)]
-    capabilities: Vec<crate::app_registry::AppReportedCommand>,
+    capabilities: Vec<crate::app_registry::AppRuntimeDeclaration>,
+    #[serde(default)]
+    host_shortcuts: Vec<crate::app_registry::AppRuntimeDeclaration>,
+}
+
+#[derive(Clone, Copy)]
+enum RuntimeDeclarationField {
+    Capabilities,
+    HostShortcuts,
+}
+
+fn runtime_declarations_from_response(
+    response: serde_json::Value,
+    field: RuntimeDeclarationField,
+) -> Result<Vec<crate::app_registry::AppRuntimeDeclaration>, String> {
+    let value = serde_json::from_value::<AppControlRuntimeDeclarationDescription>(response)
+        .map_err(|e| format!("应用运行时声明响应解析失败: {e}"))?;
+    match field {
+        RuntimeDeclarationField::Capabilities => Ok(value.capabilities),
+        RuntimeDeclarationField::HostShortcuts => Ok(value.host_shortcuts),
+    }
 }
 
 #[tauri::command]
@@ -204,6 +285,48 @@ pub(crate) async fn app_capability_list(
     }
 
     Ok(AppCapabilityListResponse { apps, errors })
+}
+
+#[tauri::command]
+pub(crate) async fn app_host_shortcut_list(
+    app_handle: AppHandle,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
+    request: AppHostShortcutListRequest,
+) -> Result<AppHostShortcutListResponse, String> {
+    let mut apps = Vec::new();
+    let mut errors = Vec::new();
+
+    for app in request.apps {
+        let app_id = match validate_runtime_identifier(&app.id, "appId") {
+            Ok(app_id) => app_id,
+            Err(error) => {
+                errors.push(AppCapabilityListError {
+                    app_id: app.id,
+                    message: error,
+                    can_launch: false,
+                });
+                continue;
+            }
+        };
+        match describe_app_host_shortcuts(
+            app_handle.clone(),
+            state.inner().clone(),
+            &app,
+            AppLaunchOptions::default(),
+            request.launch_policy,
+        )
+        .await
+        {
+            Ok(host_shortcuts) => apps.push(AppHostShortcutListApp { app_id, host_shortcuts }),
+            Err(error) => errors.push(AppCapabilityListError {
+                app_id,
+                message: error,
+                can_launch: true,
+            }),
+        }
+    }
+
+    Ok(AppHostShortcutListResponse { apps, errors })
 }
 
 #[tauri::command]

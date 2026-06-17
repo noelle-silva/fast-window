@@ -57,17 +57,17 @@ function windowBoundsText(app: RegisteredApp): string {
   return size || position || '(未记录)'
 }
 
-function CommandList({ commands }: { commands?: RegisteredAppShortcut[] }) {
-  if (!commands?.length) {
+function HostShortcutList({ shortcuts }: { shortcuts?: RegisteredAppShortcut[] }) {
+  if (!shortcuts?.length) {
     return <Typography sx={valueSx} color="text.secondary">(空)</Typography>
   }
 
   return (
     <Box component="ul" sx={{ m: 0, pl: 2 }}>
-      {commands.map(command => (
-        <li key={command.id}>
+      {shortcuts.map(shortcut => (
+        <li key={shortcut.id}>
           <Typography sx={valueSx}>
-            {command.title} <Typography component="span" sx={labelSx}>({command.id}{command.hotkey ? `，${command.hotkey}` : ''})</Typography>
+            {shortcut.title} <Typography component="span" sx={labelSx}>({shortcut.id}{shortcut.hotkey ? `，${shortcut.hotkey}` : ''})</Typography>
           </Typography>
         </li>
       ))}
@@ -165,8 +165,8 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
             ) : null}
 
             <Box sx={{ mt: 1.25 }}>
-              <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>已注册命令</Typography>
-              <CommandList commands={app.commands} />
+              <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>已注册宿主快捷命令</Typography>
+              <HostShortcutList shortcuts={app.commands} />
             </Box>
           </Box>
         ) : null}

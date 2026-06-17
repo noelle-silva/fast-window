@@ -26,7 +26,7 @@ pub(crate) struct AppWindowBounds {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AppReportedCommand {
+pub(crate) struct AppRuntimeDeclaration {
     pub(crate) id: String,
     pub(crate) title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,10 +66,11 @@ impl From<AppCapabilityConfigField> for AppCapabilityConfigFieldInput {
     }
 }
 
-fn without_app_reported_commands(mut value: Value) -> Value {
+fn without_app_runtime_declarations(mut value: Value) -> Value {
     if let Some(record) = value.as_object_mut() {
         record.remove("availableCommands");
         record.remove("capabilities");
+        record.remove("hostShortcuts");
     }
     value
 }
@@ -130,7 +131,7 @@ pub(crate) fn load_registered_app_records(app: &AppHandle) -> Result<Vec<Value>,
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     Ok(load_registry_array(app)?
         .into_iter()
-        .map(without_app_reported_commands)
+        .map(without_app_runtime_declarations)
         .collect())
 }
 
@@ -213,12 +214,12 @@ fn save_registry_and_refresh_shortcuts(
 ) -> Result<(), String> {
     let registry: Vec<Value> = registry
         .into_iter()
-        .map(without_app_reported_commands)
+        .map(without_app_runtime_declarations)
         .collect();
     for item in &registry {
         validate_app_value(item)?;
     }
-    validate_app_commands(&registry)?;
+    validate_app_host_shortcuts(&registry)?;
     validate_app_hotkeys(&registry)?;
     validate_app_hotkey_launch_behaviors(&registry)?;
     crate::app_shortcuts::validate_registered_app_shortcuts_available(app, &registry)?;
@@ -286,8 +287,8 @@ fn validate_app_hotkeys(apps: &[Value]) -> Result<(), String> {
             register_unique_shortcut(
                 &mut seen,
                 raw_hotkey,
-                format!("{app_id}/{command_id} 的命令快捷键"),
-                format!("{app_id}/{command_id} 的命令快捷键格式不合法"),
+                format!("{app_id}/{command_id} 的宿主快捷命令快捷键"),
+                format!("{app_id}/{command_id} 的宿主快捷命令快捷键格式不合法"),
             )?;
         }
     }
@@ -336,15 +337,19 @@ fn validate_app_hotkey_launch_behaviors(apps: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_app_commands(apps: &[Value]) -> Result<(), String> {
+fn validate_app_host_shortcuts(apps: &[Value]) -> Result<(), String> {
     for item in apps {
         let app_id = app_id_from_value(item).unwrap_or("");
-        validate_command_array(app_id, item.get("commands"), "命令")?;
+        validate_host_shortcut_array(app_id, item.get("commands"), "宿主快捷命令")?;
     }
     Ok(())
 }
 
-fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> Result<(), String> {
+fn validate_host_shortcut_array(
+    app_id: &str,
+    value: Option<&Value>,
+    label: &str,
+) -> Result<(), String> {
     let Some(commands) = value.and_then(Value::as_array) else {
         return Ok(());
     };
@@ -372,9 +377,9 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
         if title.len() > 80 {
             return Err(format!("{app_id} 的{label}名称过长: {title}"));
         }
-        validate_command_description(command.get("description"), app_id, label, command_id)?;
-        validate_command_config_fields(command.get("configFields"), app_id, label, command_id)?;
-        validate_command_icon(command.get("icon"), app_id, label, command_id)?;
+        validate_declaration_description(command.get("description"), app_id, label, command_id)?;
+        validate_declaration_config_fields(command.get("configFields"), app_id, label, command_id)?;
+        validate_host_shortcut_icon(command.get("icon"), app_id, label, command_id)?;
         if let Some(raw_hotkey) = command_hotkey_from_value(command) {
             Shortcut::from_str(raw_hotkey)
                 .map_err(|e| format!("{app_id} 的{label}快捷键格式不合法: {e}"))?;
@@ -383,7 +388,7 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
     Ok(())
 }
 
-fn validate_command_description(
+fn validate_declaration_description(
     value: Option<&Value>,
     app_id: &str,
     label: &str,
@@ -401,7 +406,7 @@ fn validate_command_description(
     Ok(())
 }
 
-fn validate_command_config_fields(
+fn validate_declaration_config_fields(
     value: Option<&Value>,
     app_id: &str,
     label: &str,
@@ -494,7 +499,7 @@ fn normalize_config_field_inputs(
     Ok(normalized)
 }
 
-fn validate_command_icon(
+fn validate_host_shortcut_icon(
     value: Option<&Value>,
     app_id: &str,
     label: &str,
@@ -513,7 +518,7 @@ fn validate_command_icon(
     if icon.starts_with("data:image/") && icon.len() > COMMAND_ICON_DATA_URL_MAX_LEN {
         return Err(format!("{app_id} 的{label}图标过大: {command_id}"));
     }
-    if is_valid_command_icon(icon) {
+    if is_valid_host_shortcut_icon(icon) {
         return Ok(());
     }
     Err(format!("{app_id} 的{label}图标不合法: {command_id}"))
@@ -527,7 +532,7 @@ fn is_short_icon_text(icon: &str) -> bool {
         && !icon.contains(':')
 }
 
-fn is_valid_command_icon(icon: &str) -> bool {
+fn is_valid_host_shortcut_icon(icon: &str) -> bool {
     if icon.starts_with("data:image/") {
         return icon.len() <= COMMAND_ICON_DATA_URL_MAX_LEN;
     }
@@ -540,7 +545,7 @@ pub(crate) fn app_registry_load(app: AppHandle) -> Result<Vec<Value>, String> {
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     Ok(load_registry_array(&app)?
         .into_iter()
-        .map(without_app_reported_commands)
+        .map(without_app_runtime_declarations)
         .collect())
 }
 

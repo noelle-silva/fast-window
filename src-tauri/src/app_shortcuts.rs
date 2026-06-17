@@ -102,7 +102,7 @@ fn shortcut_targets_from_records(
                 .and_then(serde_json::Value::as_str)
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
-                .ok_or_else(|| format!("{app_id} 的命令 ID 不能为空"))?
+                .ok_or_else(|| format!("{app_id} 的宿主快捷命令 ID 不能为空"))?
                 .to_string();
             let Some(hotkey) = command
                 .get("hotkey")
@@ -113,7 +113,7 @@ fn shortcut_targets_from_records(
                 continue;
             };
             let shortcut = Shortcut::from_str(hotkey)
-                .map_err(|e| format!("{app_id}/{command_id} 的命令快捷键格式不合法: {e}"))?;
+                .map_err(|e| format!("{app_id}/{command_id} 的宿主快捷命令快捷键格式不合法: {e}"))?;
             targets.push(RegisteredAppShortcutTarget {
                 app_id: app_id.clone(),
                 command_id: Some(command_id),

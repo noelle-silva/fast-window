@@ -3,7 +3,7 @@ import { Alert, Avatar, Box, Button, Chip, CircularProgress, Switch, Typography 
 import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import type { AppCapabilityDescriptor, RegisteredApp, RegisteredAppCapabilitySelection } from '../apps/types'
 import { isDataImageUrl } from '../utils'
-import { commandCapabilityConfigFieldsState, listAppCapabilities } from '../apps/appCapabilities'
+import { appCapabilityConfigFieldsState, listAppCapabilities } from '../apps/appCapabilities'
 import { capabilityDescriptorToSelection } from '../apps/appCapabilitySelections'
 import HostPageHeader from './HostPageHeader'
 import { hostPageRootSx, hostPageScrollSx, hostSurfaceSx } from './hostUiStyles'
@@ -20,13 +20,13 @@ type CapabilityRegistryPageProps = {
 }
 
 type CapabilityEntry = {
-  command: AppCapabilityDescriptor
+  capability: AppCapabilityDescriptor
   registered: boolean
   live: boolean
 }
 
 type CapabilitySnapshot = {
-  commands: Record<string, AppCapabilityDescriptor[]>
+  capabilities: Record<string, AppCapabilityDescriptor[]>
   errors: Record<string, CapabilityReadError>
 }
 
@@ -36,49 +36,49 @@ type CapabilityReadError = {
 }
 
 function mergeCommandMetadata(selected: RegisteredAppCapabilitySelection, available: AppCapabilityDescriptor | undefined): AppCapabilityDescriptor {
-  const selectedCommand = { ...selected, id: selected.capabilityId }
-  if (!available) return selectedCommand
+  const selectedCapability = { ...selected, id: selected.capabilityId }
+  if (!available) return selectedCapability
   return {
     ...available,
-    ...selectedCommand,
-    description: selectedCommand.description ?? available.description,
-    configFields: selectedCommand.configFields ?? available.configFields,
+    ...selectedCapability,
+    description: selectedCapability.description ?? available.description,
+    configFields: selectedCapability.configFields ?? available.configFields,
   }
 }
 
-function mergedCapabilities(app: RegisteredApp, selectedCapabilities: RegisteredAppCapabilitySelection[], liveCommands: AppCapabilityDescriptor[]): CapabilityEntry[] {
+function mergedCapabilities(app: RegisteredApp, selectedCapabilities: RegisteredAppCapabilitySelection[], liveCapabilities: AppCapabilityDescriptor[]): CapabilityEntry[] {
   const selected = selectedCapabilities.filter(capability => capability.appId === app.id)
-  const available = Array.isArray(liveCommands) ? liveCommands : []
-  const availableById = new Map(available.map(command => [command.id, command]))
+  const available = Array.isArray(liveCapabilities) ? liveCapabilities : []
+  const availableById = new Map(available.map(capability => [capability.id, capability]))
   const seen = new Set<string>()
   const entries: CapabilityEntry[] = []
 
-  for (const command of selected) {
-    const id = String(command.capabilityId || '').trim()
+  for (const capability of selected) {
+    const id = String(capability.capabilityId || '').trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
-    const liveCommand = availableById.get(id)
+    const liveCapability = availableById.get(id)
     entries.push({
-      command: mergeCommandMetadata(command, liveCommand),
+      capability: mergeCommandMetadata(capability, liveCapability),
       registered: true,
-      live: Boolean(liveCommand),
+      live: Boolean(liveCapability),
     })
   }
 
-  for (const command of available) {
-    const id = String(command.id || '').trim()
+  for (const capability of available) {
+    const id = String(capability.id || '').trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
-    entries.push({ command, registered: false, live: true })
+    entries.push({ capability, registered: false, live: true })
   }
 
   return entries
 }
 
-const EMPTY_SNAPSHOT: CapabilitySnapshot = { commands: {}, errors: {} }
+const EMPTY_SNAPSHOT: CapabilitySnapshot = { capabilities: {}, errors: {} }
 
-function commandDescription(command: AppCapabilityDescriptor): string {
-  const value = (command as { description?: unknown }).description
+function capabilityDescription(capability: AppCapabilityDescriptor): string {
+  const value = (capability as { description?: unknown }).description
   return typeof value === 'string' ? value.trim() : ''
 }
 
@@ -110,16 +110,16 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
     setCapabilityReadError('')
     try {
       const result = await listAppCapabilities(apps)
-      const commands: Record<string, AppCapabilityDescriptor[]> = {}
+      const capabilities: Record<string, AppCapabilityDescriptor[]> = {}
       const errors: Record<string, CapabilityReadError> = {}
-      for (const item of result.apps || []) commands[item.appId] = Array.isArray(item.capabilities) ? item.capabilities : []
+      for (const item of result.apps || []) capabilities[item.appId] = Array.isArray(item.capabilities) ? item.capabilities : []
       for (const item of result.errors || []) {
         if (item.appId) errors[item.appId] = {
           message: item.message || '无法读取应用当前能力',
           canLaunch: item.canLaunch !== false,
         }
       }
-      setSnapshot({ commands, errors })
+      setSnapshot({ capabilities, errors })
     } catch (error) {
       setSnapshot(EMPTY_SNAPSHOT)
       setCapabilityReadError(String((error as { message?: string })?.message || error || '读取能力清单失败'))
@@ -136,7 +136,7 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
       const hit = result.apps.find(item => item.appId === app.id)
       const error = result.errors.find(item => item.appId === app.id)
       setSnapshot(prev => {
-        const commands = { ...prev.commands, [app.id]: Array.isArray(hit?.capabilities) ? hit.capabilities : [] }
+        const capabilities = { ...prev.capabilities, [app.id]: Array.isArray(hit?.capabilities) ? hit.capabilities : [] }
         const errors = { ...prev.errors }
         if (error) {
           errors[app.id] = {
@@ -146,7 +146,7 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
         } else {
           delete errors[app.id]
         }
-        return { commands, errors }
+        return { capabilities, errors }
       })
     } catch (error) {
       setCapabilityReadError(String((error as { message?: string })?.message || error || '读取能力清单失败'))
@@ -162,7 +162,7 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
   const appsWithCapabilities = useMemo(() => apps
     .map(app => ({
       app,
-      capabilities: mergedCapabilities(app, selections, snapshot.commands[app.id] ?? []),
+      capabilities: mergedCapabilities(app, selections, snapshot.capabilities[app.id] ?? []),
       error: snapshot.errors[app.id]?.message || '',
       canLaunch: snapshot.errors[app.id]?.canLaunch ?? false,
     }))
@@ -266,29 +266,29 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
                 ) : null}
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                  {capabilities.map(({ command, registered, live }) => {
-                    const commandIcon = iconSource(command.icon)
-                    const description = commandDescription(command)
-                    const { fields: configFields, error: configFieldsError } = commandCapabilityConfigFieldsState(command)
+                  {capabilities.map(({ capability, registered, live }) => {
+                    const capabilityIcon = iconSource(capability.icon)
+                    const description = capabilityDescription(capability)
+                    const { fields: configFields, error: configFieldsError } = appCapabilityConfigFieldsState(capability)
                     const toggleCapability = () => {
                       if (!live && registered) {
-                        void onRemove(app.id, command.id)
+                        void onRemove(app.id, capability.id)
                         return
                       }
                       if (!live) return
                       if (!registered && (configFields.length > 0 || configFieldsError)) return
-                      if (registered) void onRemove(app.id, command.id)
-                      else void onSelect(capabilityDescriptorToSelection(app.id, command))
+                      if (registered) void onRemove(app.id, capability.id)
+                      else void onSelect(capabilityDescriptorToSelection(app.id, capability))
                     }
                     const saveCapabilityConfig = async (config: Record<string, unknown>) => {
-                      const nextSelection = { ...capabilityDescriptorToSelection(app.id, command), config }
-                      if (registered) await onUpdateSelection(app.id, command.id, nextSelection)
+                      const nextSelection = { ...capabilityDescriptorToSelection(app.id, capability), config }
+                      if (registered) await onUpdateSelection(app.id, capability.id, nextSelection)
                       else await onSelect(nextSelection)
                     }
 
                     return (
                       <Box
-                        key={command.id}
+                        key={capability.id}
                         sx={[
                           itemSx,
                           {
@@ -307,15 +307,15 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
                         >
                           <Avatar
                             variant="rounded"
-                            src={commandIcon}
+                            src={capabilityIcon}
                             sx={{ width: 30, height: 30, fontSize: 13, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
                           >
-                            {commandIcon ? null : iconText(command.icon, command.title)}
+                            {capabilityIcon ? null : iconText(capability.icon, capability.title)}
                           </Avatar>
                           <Box sx={{ flex: 1, minWidth: 0 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                               <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                                {command.title}
+                                {capability.title}
                               </Typography>
                               <Chip
                                 label={registered ? (live ? '已选取' : '已选取但当前不可读') : '可选取'}
@@ -344,7 +344,7 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
                             color="text.secondary"
                             sx={{ display: 'block', mt: 0.25, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11 }}
                           >
-                            {command.id}
+                            {capability.id}
                           </Typography>
                           </Box>
                           <Switch
@@ -352,13 +352,13 @@ export default function CapabilityRegistryPage({ apps, selections, onBack, onSel
                             checked={registered}
                             disabled={!registered && (!live || configFields.length > 0 || Boolean(configFieldsError))}
                             onChange={toggleCapability}
-                            inputProps={{ 'aria-label': `${registered ? '取消选取' : '选取'} ${command.title}` }}
+                            inputProps={{ 'aria-label': `${registered ? '取消选取' : '选取'} ${capability.title}` }}
                           />
                         </Box>
                         {live ? (
                           <CapabilityConfigPanel
                             app={app}
-                            command={command}
+                            capability={capability}
                             registered={registered}
                             onSave={saveCapabilityConfig}
                           />

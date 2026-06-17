@@ -10,9 +10,10 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppShortcut, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
-import AppCommandEditor from './AppCommandEditor'
+import AppHostShortcutEditor from './AppHostShortcutEditor'
 import AppIconEditor from './AppIconEditor'
 import { getAppStatus } from './appLauncher'
+import { listAppHostShortcuts } from './appHostShortcuts'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { inspectInstalledApp } from './installedAppInfo'
 import { hostToast } from '../host/hostPrimitives'
@@ -37,6 +38,11 @@ type RemoveConfirmStep = 'remove' | 'stop-running'
 type RemoveConfirmState = {
   app: RegisteredApp
   step: RemoveConfirmStep
+} | null
+
+type HostShortcutReadConfirmState = {
+  app: RegisteredApp
+  message: string
 } | null
 
 async function readAppIcon(path: string) {
@@ -65,16 +71,18 @@ export default function AppRegistrationPanel({
   const [path, setPath] = useState('')
   const [icon, setIcon] = useState('')
   const [iconChanging, setIconChanging] = useState(false)
-  const [changingCommandIconId, setChangingCommandIconId] = useState<string | null>(null)
+  const [changingHostShortcutIconId, setChangingHostShortcutIconId] = useState<string | null>(null)
   const [hotkey, setHotkey] = useState('')
   const [hotkeyLaunchBehavior, setHotkeyLaunchBehavior] = useState<AppHotkeyLaunchBehavior>('launch')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
-  const [recordingCommandHotkeyId, setRecordingCommandHotkeyId] = useState<string | null>(null)
+  const [recordingHostShortcutHotkeyId, setRecordingHostShortcutHotkeyId] = useState<string | null>(null)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [autoStart, setAutoStart] = useState(false)
-  const [commands, setCommands] = useState<RegisteredAppShortcut[]>([])
-  const [commandsEdited, setCommandsEdited] = useState(false)
+  const [hostShortcuts, setHostShortcuts] = useState<RegisteredAppShortcut[]>([])
+  const [hostShortcutsEdited, setHostShortcutsEdited] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [readingHostShortcuts, setReadingHostShortcuts] = useState(false)
+  const [hostShortcutReadConfirm, setHostShortcutReadConfirm] = useState<HostShortcutReadConfirmState>(null)
   const [pickingPath, setPickingPath] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
@@ -89,8 +97,9 @@ export default function AppRegistrationPanel({
 
   const closeEditDialog = () => {
     setHotkeyRecording(false)
-    setRecordingCommandHotkeyId(null)
-    setChangingCommandIconId(null)
+    setRecordingHostShortcutHotkeyId(null)
+    setChangingHostShortcutIconId(null)
+    setHostShortcutReadConfirm(null)
     closeEditMenu()
     setEditOpen(false)
   }
@@ -102,14 +111,14 @@ export default function AppRegistrationPanel({
     setPath('')
     setIcon('')
     setIconChanging(false)
-    setChangingCommandIconId(null)
+    setChangingHostShortcutIconId(null)
     setHotkey('')
     setHotkeyLaunchBehavior('launch')
-    setRecordingCommandHotkeyId(null)
+    setRecordingHostShortcutHotkeyId(null)
     setDisplayMode('default')
     setAutoStart(false)
-    setCommands([])
-    setCommandsEdited(false)
+    setHostShortcuts([])
+    setHostShortcutsEdited(false)
     setPickingPath(false)
     closeEditMenu()
     setEditOpen(true)
@@ -122,14 +131,14 @@ export default function AppRegistrationPanel({
     setPath(app.path)
     setIcon(app.icon || '')
     setIconChanging(false)
-    setChangingCommandIconId(null)
+    setChangingHostShortcutIconId(null)
     setHotkey(app.hotkey ?? '')
     setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
-    setRecordingCommandHotkeyId(null)
+    setRecordingHostShortcutHotkeyId(null)
     setDisplayMode(app.displayMode)
     setAutoStart(app.autoStart)
-    setCommands(Array.isArray(app.commands) ? app.commands : [])
-    setCommandsEdited(false)
+    setHostShortcuts(Array.isArray(app.commands) ? app.commands : [])
+    setHostShortcutsEdited(false)
     setPickingPath(false)
     closeEditMenu()
     setEditOpen(true)
@@ -156,8 +165,8 @@ export default function AppRegistrationPanel({
       setPath(info.path)
       setIcon(nextIcon)
       setDisplayMode(info.displayMode)
-      setCommands(info.commands)
-      setCommandsEdited(true)
+      setHostShortcuts(info.commands)
+      setHostShortcutsEdited(true)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
     } finally {
@@ -165,15 +174,81 @@ export default function AppRegistrationPanel({
     }
   }
 
-  const normalizedCommands = () => commands
-    .map(command => ({
-      ...command,
-      id: command.id.trim(),
-      title: command.title.trim(),
-      icon: command.icon?.trim() || undefined,
-      hotkey: command.hotkey?.trim() || undefined,
+  const normalizedHostShortcuts = () => hostShortcuts
+    .map(shortcut => ({
+      ...shortcut,
+      id: shortcut.id.trim(),
+      title: shortcut.title.trim(),
+      icon: shortcut.icon?.trim() || undefined,
+      hotkey: shortcut.hotkey?.trim() || undefined,
     }))
-    .filter(command => command.id && command.title)
+    .filter(shortcut => shortcut.id && shortcut.title)
+
+  const currentAppForHostShortcutRead = async (): Promise<RegisteredApp | null> => {
+    const p = path.trim()
+    if (!p) {
+      await hostToast('请先选择可执行文件')
+      return null
+    }
+
+    const info = await inspectInstalledApp(p)
+    const existingApp = editingId ? apps.find(app => app.id === editingId) : null
+    return {
+      id: info.id,
+      name: name.trim() || info.name,
+      icon: icon || info.icon || await readAppIcon(info.path) || '',
+      path: info.path,
+      version: info.version,
+      hotkey: hotkey.trim() || undefined,
+      hotkeyLaunchBehavior: hotkey.trim() ? hotkeyLaunchBehavior : undefined,
+      displayMode,
+      commands: normalizedHostShortcuts(),
+      autoStart,
+      windowWidth: existingApp?.windowWidth,
+      windowHeight: existingApp?.windowHeight,
+      windowX: existingApp?.windowX,
+      windowY: existingApp?.windowY,
+    }
+  }
+
+  const applyReadHostShortcuts = async (app: RegisteredApp, launchPolicy: 'runningOnly' | 'allowLaunch') => {
+    setReadingHostShortcuts(true)
+    try {
+      const result = await listAppHostShortcuts([app], { launchPolicy })
+      const hit = result.apps.find(item => item.appId === app.id)
+      if (hit) {
+        const hostShortcuts = Array.isArray(hit.hostShortcuts) ? hit.hostShortcuts : []
+        setHostShortcuts(hostShortcuts)
+        setHostShortcutsEdited(true)
+        await hostToast(hostShortcuts.length ? `已读取 ${hostShortcuts.length} 个宿主快捷命令` : '这个 App 当前没有返回宿主快捷命令')
+        return
+      }
+
+      const error = result.errors.find(item => item.appId === app.id)
+      if (error?.canLaunch && launchPolicy === 'runningOnly') {
+        setHostShortcutReadConfirm({ app, message: error.message || 'App 未运行，是否启动后读取宿主快捷命令？' })
+        return
+      }
+      await hostToast(error?.message || '读取宿主快捷命令失败')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '读取宿主快捷命令失败'))
+    } finally {
+      setReadingHostShortcuts(false)
+    }
+  }
+
+  const readHostShortcuts = async () => {
+    const app = await currentAppForHostShortcutRead()
+    if (!app) return
+    await applyReadHostShortcuts(app, 'runningOnly')
+  }
+
+  const confirmLaunchAndReadHostShortcuts = async () => {
+    const app = hostShortcutReadConfirm?.app
+    if (!app) return
+    setHostShortcutReadConfirm(null)
+    await applyReadHostShortcuts(app, 'allowLaunch')
+  }
 
   const changeIcon = async (source: IconImageSource) => {
     setIconChanging(true)
@@ -210,32 +285,32 @@ export default function AppRegistrationPanel({
     }
   }
 
-  const changeCommandIcon = async (commandId: string, source: IconImageSource) => {
-    if (!commands.some(command => command.id === commandId)) {
-      await hostToast('命令不存在，未更改图标')
+  const changeHostShortcutIcon = async (shortcutId: string, source: IconImageSource) => {
+    if (!hostShortcuts.some(shortcut => shortcut.id === shortcutId)) {
+      await hostToast('宿主快捷命令不存在，未更改图标')
       return
     }
 
-    setChangingCommandIconId(commandId)
+    setChangingHostShortcutIconId(shortcutId)
     try {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
-      setCommandsEdited(true)
-      setCommands(prev => prev.map(command => command.id === commandId ? { ...command, icon: dataUrl } : command))
-      await hostToast('命令图标已更新，保存后生效')
+      setHostShortcutsEdited(true)
+      setHostShortcuts(prev => prev.map(shortcut => shortcut.id === shortcutId ? { ...shortcut, icon: dataUrl } : shortcut))
+      await hostToast('宿主快捷命令图标已更新，保存后生效')
     } catch (error: any) {
-      await hostToast(String(error?.message || error || '更改命令图标失败'))
+      await hostToast(String(error?.message || error || '更改宿主快捷命令图标失败'))
     } finally {
-      setChangingCommandIconId(null)
+      setChangingHostShortcutIconId(null)
     }
   }
 
-  const resetCommandIconToAppIcon = (commandId: string) => {
-    setCommandsEdited(true)
-    setCommands(prev => prev.map(command => {
-      if (command.id !== commandId) return command
-      const { icon: _icon, ...nextCommand } = command
-      return nextCommand
+  const resetHostShortcutIconToAppIcon = (shortcutId: string) => {
+    setHostShortcutsEdited(true)
+    setHostShortcuts(prev => prev.map(shortcut => {
+      if (shortcut.id !== shortcutId) return shortcut
+      const { icon: _icon, ...nextShortcut } = shortcut
+      return nextShortcut
     }))
   }
 
@@ -269,7 +344,7 @@ export default function AppRegistrationPanel({
       await hostToast(`已取消注册：${app.name}`)
       if (editingId === app.id) {
         setHotkeyRecording(false)
-        setRecordingCommandHotkeyId(null)
+          setRecordingHostShortcutHotkeyId(null)
         setEditOpen(false)
         setEditingId(null)
       }
@@ -294,8 +369,8 @@ export default function AppRegistrationPanel({
       const nextIcon = await resolveIconForSave(info.path, info.icon)
       const nextHotkey = hotkey.trim()
       const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
-      const nextCommands = normalizedCommands()
-      const commandsToSave = commandsEdited ? nextCommands : (existingApp?.commands ?? info.commands)
+      const nextHostShortcuts = normalizedHostShortcuts()
+      const hostShortcutsToSave = hostShortcutsEdited ? nextHostShortcuts : (existingApp?.commands ?? info.commands)
       const nextApp: RegisteredApp = {
         id: info.id,
         name: nextName,
@@ -305,7 +380,7 @@ export default function AppRegistrationPanel({
         hotkey: nextHotkey || undefined,
         hotkeyLaunchBehavior: nextHotkeyLaunchBehavior,
         displayMode,
-        commands: commandsToSave,
+        commands: hostShortcutsToSave,
         autoStart,
         windowWidth: existingApp?.windowWidth,
         windowHeight: existingApp?.windowHeight,
@@ -324,7 +399,7 @@ export default function AppRegistrationPanel({
             hotkeyLaunchBehavior: nextHotkeyLaunchBehavior ?? null,
             displayMode,
             autoStart,
-            commands: commandsToSave,
+            commands: hostShortcutsToSave,
           })
         } else {
           await onReplace(editingId, nextApp)
@@ -333,7 +408,7 @@ export default function AppRegistrationPanel({
         await onAdd(nextApp)
       }
       setHotkeyRecording(false)
-      setRecordingCommandHotkeyId(null)
+      setRecordingHostShortcutHotkeyId(null)
       closeEditMenu()
       setEditOpen(false)
     } catch (error: any) {
@@ -344,7 +419,7 @@ export default function AppRegistrationPanel({
   }
 
   const startHotkeyRecording = () => {
-    setRecordingCommandHotkeyId(null)
+    setRecordingHostShortcutHotkeyId(null)
     setHotkeyRecording(true)
   }
 
@@ -357,54 +432,54 @@ export default function AppRegistrationPanel({
     setHotkeyRecording(false)
   }
 
-  const startCommandHotkeyRecording = (commandId: string) => {
+  const startHostShortcutHotkeyRecording = (shortcutId: string) => {
     setHotkeyRecording(false)
-    setRecordingCommandHotkeyId(commandId)
+    setRecordingHostShortcutHotkeyId(shortcutId)
   }
 
-  const saveCommandHotkey = (commandId: string, next: string) => {
-    setCommandsEdited(true)
-    setCommands(prev => prev.map(command => command.id === commandId ? { ...command, hotkey: next } : command))
-    setRecordingCommandHotkeyId(null)
+  const saveHostShortcutHotkey = (shortcutId: string, next: string) => {
+    setHostShortcutsEdited(true)
+    setHostShortcuts(prev => prev.map(shortcut => shortcut.id === shortcutId ? { ...shortcut, hotkey: next } : shortcut))
+    setRecordingHostShortcutHotkeyId(null)
   }
 
-  const clearCommandHotkey = (commandId: string) => {
-    setCommandsEdited(true)
-    setCommands(prev => prev.map(command => {
-      if (command.id !== commandId) return command
-      const { hotkey: _hotkey, ...nextCommand } = command
-      return nextCommand
+  const clearHostShortcutHotkey = (shortcutId: string) => {
+    setHostShortcutsEdited(true)
+    setHostShortcuts(prev => prev.map(shortcut => {
+      if (shortcut.id !== shortcutId) return shortcut
+      const { hotkey: _hotkey, ...nextShortcut } = shortcut
+      return nextShortcut
     }))
-    if (recordingCommandHotkeyId === commandId) setRecordingCommandHotkeyId(null)
+    if (recordingHostShortcutHotkeyId === shortcutId) setRecordingHostShortcutHotkeyId(null)
   }
 
   useEffect(() => {
-    if (!hotkeyRecording && !recordingCommandHotkeyId) return
+    if (!hotkeyRecording && !recordingHostShortcutHotkeyId) return
 
     pauseShortcutRecordingGuards()
 
     return () => {
       resumeShortcutRecordingGuards()
     }
-  }, [hotkeyRecording, recordingCommandHotkeyId])
+  }, [hotkeyRecording, recordingHostShortcutHotkeyId])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!hotkeyRecording && !recordingCommandHotkeyId) return
+    if (!hotkeyRecording && !recordingHostShortcutHotkeyId) return
     e.preventDefault()
     e.stopPropagation()
     ;(e as any).stopImmediatePropagation?.()
 
     if (e.key === 'Escape') {
       setHotkeyRecording(false)
-      setRecordingCommandHotkeyId(null)
+      setRecordingHostShortcutHotkeyId(null)
       return
     }
 
     if (e.repeat) return
     const shot = buildShortcutFromEvent(e.nativeEvent)
     if (!shot) return
-    if (recordingCommandHotkeyId) {
-      saveCommandHotkey(recordingCommandHotkeyId, shot)
+    if (recordingHostShortcutHotkeyId) {
+      saveHostShortcutHotkey(recordingHostShortcutHotkeyId, shot)
       return
     }
     saveHotkey(shot)
@@ -558,20 +633,23 @@ export default function AppRegistrationPanel({
               开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
             </Typography>
           </Box>
-          <AppCommandEditor
-            commands={commands}
+          <AppHostShortcutEditor
+            shortcuts={hostShortcuts}
             appIcon={icon}
             appName={name}
             disabled={saving}
-            changingCommandIconId={changingCommandIconId}
-            recordingCommandId={recordingCommandHotkeyId}
-            onChangeIcon={(commandId, source) => void changeCommandIcon(commandId, source)}
-            onResetIcon={resetCommandIconToAppIcon}
-            onStartHotkeyRecording={startCommandHotkeyRecording}
-            onClearHotkey={clearCommandHotkey}
-            onChange={nextCommands => {
-              setCommandsEdited(true)
-              setCommands(nextCommands)
+            changingShortcutIconId={changingHostShortcutIconId}
+            readingHostShortcuts={readingHostShortcuts}
+            canReadHostShortcuts={!!path.trim()}
+            onReadHostShortcuts={() => void readHostShortcuts()}
+            recordingShortcutId={recordingHostShortcutHotkeyId}
+            onChangeIcon={(shortcutId, source) => void changeHostShortcutIcon(shortcutId, source)}
+            onResetIcon={resetHostShortcutIconToAppIcon}
+            onStartHotkeyRecording={startHostShortcutHotkeyRecording}
+            onClearHotkey={clearHostShortcutHotkey}
+            onChange={nextShortcuts => {
+              setHostShortcutsEdited(true)
+              setHostShortcuts(nextShortcuts)
             }}
           />
         </DialogContent>
@@ -603,6 +681,21 @@ export default function AppRegistrationPanel({
             sx={hostDangerButtonSx}
           >
             {removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!hostShortcutReadConfirm} onClose={() => !readingHostShortcuts && setHostShortcutReadConfirm(null)} fullWidth maxWidth="xs">
+        <DialogTitle>启动并读取宿主快捷命令</DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography variant="body2" color="text.secondary">
+            {hostShortcutReadConfirm?.message || 'App 未运行，是否启动后读取宿主快捷命令？'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={readingHostShortcuts} onClick={() => setHostShortcutReadConfirm(null)}>取消</Button>
+          <Button disabled={readingHostShortcuts} variant="contained" onClick={() => void confirmLaunchAndReadHostShortcuts()} sx={hostButtonSx}>
+            启动并读取
           </Button>
         </DialogActions>
       </Dialog>

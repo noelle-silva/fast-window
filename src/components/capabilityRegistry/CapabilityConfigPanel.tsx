@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, FormControl, InputLabel, MenuItem, Select } from '@mui/material'
 import type { AppCapabilityConfigField, AppCapabilityOption, AppCapabilityDescriptor, RegisteredApp } from '../../apps/types'
-import { commandCapabilityConfigFieldsState, commandCapabilityConfigState, queryAppCapabilityOptions } from '../../apps/appCapabilities'
+import { appCapabilityConfigFieldsState, appCapabilityConfigState, queryAppCapabilityOptions } from '../../apps/appCapabilities'
 import { hostButtonSx, hostTextFieldSx } from '../hostUiStyles'
 
 type CapabilityConfigPanelProps = {
   app: RegisteredApp
-  command: AppCapabilityDescriptor
+  capability: AppCapabilityDescriptor
   registered: boolean
   onSave: (config: Record<string, unknown>) => void | Promise<void>
 }
@@ -22,9 +22,9 @@ function configComplete(fields: AppCapabilityConfigField[], config: Record<strin
   return fields.every(field => String(config[field.id] ?? '').trim())
 }
 
-export default function CapabilityConfigPanel({ app, command, registered, onSave }: CapabilityConfigPanelProps) {
-  const configFieldsState = useMemo(() => commandCapabilityConfigFieldsState(command), [command])
-  const configState = useMemo(() => commandCapabilityConfigState(command), [command])
+export default function CapabilityConfigPanel({ app, capability, registered, onSave }: CapabilityConfigPanelProps) {
+  const configFieldsState = useMemo(() => appCapabilityConfigFieldsState(capability), [capability])
+  const configState = useMemo(() => appCapabilityConfigState(capability), [capability])
   const { fields, error: configFieldsError } = configFieldsState
   const { config: initialConfig, error: configError } = configState
   const [draft, setDraft] = useState<Record<string, unknown>>(() => initialConfig)
@@ -36,7 +36,7 @@ export default function CapabilityConfigPanel({ app, command, registered, onSave
 
   useEffect(() => {
     setDraft(initialConfig)
-  }, [app.id, command.id, initialConfig])
+  }, [app.id, capability.id, initialConfig])
 
   useEffect(() => {
     if (!fields.length || configError) return
@@ -46,7 +46,7 @@ export default function CapabilityConfigPanel({ app, command, registered, onSave
       try {
         const nextOptions = await queryAppCapabilityOptions({
           app,
-          capabilityId: command.id,
+          capabilityId: capability.id,
           optionSource: field.optionSource,
           config: draft,
         })
@@ -61,7 +61,7 @@ export default function CapabilityConfigPanel({ app, command, registered, onSave
     }
     for (const field of fields) void loadFieldOptions(field)
     return () => { cancelled = true }
-  }, [app.id, command.id, signature, JSON.stringify(draft), configError])
+  }, [app.id, capability.id, signature, JSON.stringify(draft), configError])
 
   if (configError) {
     return (

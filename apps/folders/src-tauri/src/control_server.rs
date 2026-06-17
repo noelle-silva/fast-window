@@ -245,7 +245,22 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "availableCommands": available_commands()
+                "capabilities": []
+            }),
+        );
+        return;
+    }
+
+    if action == "describeHostShortcuts" {
+        write_control_response(
+            &mut stream,
+            200,
+            serde_json::json!({
+                "ok": true,
+                "appId": app_id,
+                "serverId": server_id,
+                "protocolVersion": 1,
+                "hostShortcuts": available_commands()
             }),
         );
         return;
@@ -259,8 +274,7 @@ fn handle_control_connection(
                 "ok": true,
                 "appId": app_id,
                 "serverId": server_id,
-                "protocolVersion": 1,
-                "availableCommands": available_commands()
+                "protocolVersion": 1
             }),
         ),
         Err(error) => write_control_response(

@@ -58,7 +58,7 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "open-settings",
             title: "打开 AI Once 设置",
-            kind: Some("shortcut"),
+            kind: Some("hostShortcut"),
             description: None,
             config_fields: None,
         },
@@ -83,11 +83,25 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "new-prompt",
             title: "新建一次性 Prompt",
-            kind: Some("shortcut"),
+            kind: Some("hostShortcut"),
             description: None,
             config_fields: None,
         },
     ]
+}
+
+fn available_host_shortcuts() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some("hostShortcut"))
+        .collect()
+}
+
+fn available_capabilities() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some("capability"))
+        .collect()
 }
 
 pub(crate) fn random_token(prefix: &str) -> String {
@@ -228,7 +242,22 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "capabilities": available_commands()
+                "capabilities": available_capabilities()
+            }),
+        );
+        return;
+    }
+
+    if action == "describeHostShortcuts" {
+        write_control_response(
+            &mut stream,
+            200,
+            serde_json::json!({
+                "ok": true,
+                "appId": app_id,
+                "serverId": server_id,
+                "protocolVersion": 1,
+                "hostShortcuts": available_host_shortcuts()
             }),
         );
         return;
@@ -254,8 +283,7 @@ fn handle_control_connection(
                 "ok": true,
                 "appId": app_id,
                 "serverId": server_id,
-                "protocolVersion": 1,
-                "capabilities": available_commands()
+                "protocolVersion": 1
             }),
         ),
         Err(error) => write_control_response(

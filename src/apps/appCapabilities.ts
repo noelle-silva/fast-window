@@ -53,45 +53,45 @@ export async function queryAppCapabilityOptions(request: AppCapabilityOptionsReq
   return capabilityOptionsFromResponse(result.response)
 }
 
-export function commandCapabilityConfig(command: AppCapabilityDescriptor): Record<string, unknown> {
-  const config = (command as { config?: unknown }).config
+export function appCapabilityConfig(capability: AppCapabilityDescriptor): Record<string, unknown> {
+  const config = (capability as { config?: unknown }).config
   if (config === undefined) return {}
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    throw new Error(`能力配置不合法：${command.id} 的 config 必须是对象`)
+    throw new Error(`能力配置不合法：${capability.id} 的 config 必须是对象`)
   }
   return { ...(config as Record<string, unknown>) }
 }
 
-export type CommandCapabilityConfigState = {
+export type AppCapabilityConfigState = {
   config: Record<string, unknown>
   error: string
 }
 
-export function commandCapabilityConfigState(command: AppCapabilityDescriptor): CommandCapabilityConfigState {
+export function appCapabilityConfigState(capability: AppCapabilityDescriptor): AppCapabilityConfigState {
   try {
-    return { config: commandCapabilityConfig(command), error: '' }
+    return { config: appCapabilityConfig(capability), error: '' }
   } catch (err) {
     return { config: {}, error: String((err as Error)?.message || err || '能力配置不合法') }
   }
 }
 
-export type CommandCapabilityConfigFieldsState = {
+export type AppCapabilityConfigFieldsState = {
   fields: AppCapabilityConfigField[]
   error: string
 }
 
-export function commandCapabilityConfigFields(command: AppCapabilityDescriptor): AppCapabilityConfigField[] {
-  const configFields = (command as { configFields?: unknown }).configFields
+export function appCapabilityConfigFields(capability: AppCapabilityDescriptor): AppCapabilityConfigField[] {
+  const configFields = (capability as { configFields?: unknown }).configFields
   if (configFields === undefined) return []
   if (!Array.isArray(configFields)) {
-    throw new Error(`能力配置字段声明不合法：${command.id} 的 configFields 必须是数组`)
+    throw new Error(`能力配置字段声明不合法：${capability.id} 的 configFields 必须是数组`)
   }
-  return configFields.map((field, index) => configFieldFromValue(command, field, index))
+  return configFields.map((field, index) => configFieldFromValue(capability, field, index))
 }
 
-export function commandCapabilityConfigFieldsState(command: AppCapabilityDescriptor): CommandCapabilityConfigFieldsState {
+export function appCapabilityConfigFieldsState(capability: AppCapabilityDescriptor): AppCapabilityConfigFieldsState {
   try {
-    return { fields: commandCapabilityConfigFields(command), error: '' }
+    return { fields: appCapabilityConfigFields(capability), error: '' }
   } catch (err) {
     return { fields: [], error: String((err as Error)?.message || err || '能力配置字段声明不合法') }
   }
@@ -122,19 +122,19 @@ function capabilityOptionsFromResponse(response: unknown): AppCapabilityOption[]
   return value.options.map(optionFromValue)
 }
 
-function configFieldFromValue(command: AppCapabilityDescriptor, value: unknown, index: number): AppCapabilityConfigField {
+function configFieldFromValue(capability: AppCapabilityDescriptor, value: unknown, index: number): AppCapabilityConfigField {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`能力配置字段声明不合法：${command.id} 的第 ${index + 1} 个配置项必须是对象`)
+    throw new Error(`能力配置字段声明不合法：${capability.id} 的第 ${index + 1} 个配置项必须是对象`)
   }
   const field = value as Record<string, unknown>
-  const id = requiredConfigFieldText(command, field, 'id', 'ID', index)
-  const label = requiredConfigFieldText(command, field, 'label', '名称', index)
-  const optionSource = requiredConfigFieldText(command, field, 'optionSource', '选项来源', index)
+  const id = requiredConfigFieldText(capability, field, 'id', 'ID', index)
+  const label = requiredConfigFieldText(capability, field, 'label', '名称', index)
+  const optionSource = requiredConfigFieldText(capability, field, 'optionSource', '选项来源', index)
   return { id, label, optionSource }
 }
 
 function requiredConfigFieldText(
-  command: AppCapabilityDescriptor,
+  capability: AppCapabilityDescriptor,
   field: Record<string, unknown>,
   key: keyof AppCapabilityConfigField,
   label: string,
@@ -142,11 +142,11 @@ function requiredConfigFieldText(
 ): string {
   const value = field[key]
   if (typeof value !== 'string') {
-    throw new Error(`能力配置字段声明不合法：${command.id} 的第 ${index + 1} 个配置项缺少${label}`)
+    throw new Error(`能力配置字段声明不合法：${capability.id} 的第 ${index + 1} 个配置项缺少${label}`)
   }
   const text = value.trim()
   if (!text) {
-    throw new Error(`能力配置字段声明不合法：${command.id} 的第 ${index + 1} 个配置项${label}不能为空`)
+    throw new Error(`能力配置字段声明不合法：${capability.id} 的第 ${index + 1} 个配置项${label}不能为空`)
   }
   return text
 }
