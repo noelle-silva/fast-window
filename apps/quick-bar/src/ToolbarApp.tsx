@@ -1,11 +1,14 @@
 import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
 import { fetchRegistryButtons } from './registryClient'
 import { invokeCapability } from './hostCapabilityClient'
 import { ButtonIconGlyph } from './buttonIcons'
 import type { RegistryButton, ToolbarPayload } from './types'
+
+const appWindow = getCurrentWindow()
 
 export function ToolbarApp() {
   const [payload, setPayload] = React.useState<ToolbarPayload | null>(null)
@@ -13,6 +16,8 @@ export function ToolbarApp() {
   const [buttonsError, setButtonsError] = React.useState<string | null>(null)
   const [toolbarPayloadError, setToolbarPayloadError] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
+  const shellRef = React.useRef<HTMLElement | null>(null)
+  const toolbarLayoutSignatureRef = React.useRef<string | null>(null)
 
   React.useEffect(() => () => {
     mountedRef.current = false
@@ -20,6 +25,7 @@ export function ToolbarApp() {
 
   const refreshButtons = React.useCallback(async () => {
     setButtonsError(null)
+    setButtons(null)
     let client: Awaited<ReturnType<typeof createDirectClient>> | null = null
     try {
       client = await createDirectClient()
@@ -63,6 +69,39 @@ export function ToolbarApp() {
   React.useEffect(() => {
     void refreshButtons()
   }, [refreshButtons])
+
+  React.useLayoutEffect(() => {
+    if (!payload) return
+    if (!buttons && !buttonsError && !toolbarPayloadError) return
+    const shell = shellRef.current
+    if (!shell) return
+    const rect = shell.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    const layoutSignature = [
+      payload.layoutRequestId,
+      Math.ceil(rect.width),
+      Math.ceil(rect.height),
+      buttons?.length ?? 'message',
+      buttonsError ?? '',
+      toolbarPayloadError ?? '',
+    ].join(':')
+    if (toolbarLayoutSignatureRef.current === layoutSignature) return
+    toolbarLayoutSignatureRef.current = layoutSignature
+
+    let cancelled = false
+    void appWindow.scaleFactor()
+      .then(scaleFactor => invoke('quick_bar_toolbar_ready', {
+        layoutRequestId: payload.layoutRequestId,
+        width: Math.ceil(rect.width * scaleFactor),
+        height: Math.ceil(rect.height * scaleFactor),
+      }))
+      .catch(e => {
+        if (!cancelled) setToolbarPayloadError(errorMessage(e, '显示浮动条失败'))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [buttons, buttonsError, payload, toolbarPayloadError])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -117,41 +156,30 @@ export function ToolbarApp() {
     }
   }, [payload])
 
-  if (buttonsError) {
-    return (
-      <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条（加载失败）">
-        {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-        <span className="quickbar-toolbar-error">{buttonsError}</span>
-      </main>
-    )
-  }
-
-  if (!buttons) {
-    return (
-      <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条（加载中）">
-        {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-        <span className="quickbar-toolbar-loading">加载中...</span>
-      </main>
-    )
-  }
+  const toolbarContent = toolbarPayloadError ? (
+    <span className="quickbar-toolbar-error">{toolbarPayloadError}</span>
+  ) : buttonsError ? (
+    <span className="quickbar-toolbar-error">{buttonsError}</span>
+  ) : !buttons ? (
+    <span className="quickbar-toolbar-loading">加载中...</span>
+  ) : buttons.length === 0 ? (
+    <span className="quickbar-toolbar-empty">暂无已注册按钮。请在能力浏览页注册能力。</span>
+  ) : (
+    buttons.map(button => (
+      <button
+        key={button.id}
+        type="button"
+        title={button.title}
+        onClick={() => handleButtonClick(button)}
+      >
+        <ButtonIconGlyph className="quickbar-toolbar-icon" iconId={button.icon} seed={`${button.id}:${button.appId}:${button.capabilityId}:${button.title}`} size={22} />
+      </button>
+    ))
+  )
 
   return (
-    <main className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条">
-      {toolbarPayloadError ? <span className="quickbar-toolbar-error">{toolbarPayloadError}</span> : null}
-      {buttons.length === 0 ? (
-        <span className="quickbar-toolbar-empty">暂无已注册按钮。请在能力浏览页注册能力。</span>
-      ) : (
-        buttons.map(button => (
-          <button
-            key={button.id}
-            type="button"
-            title={button.title}
-            onClick={() => handleButtonClick(button)}
-          >
-            <ButtonIconGlyph className="quickbar-toolbar-icon" iconId={button.icon} seed={`${button.id}:${button.appId}:${button.capabilityId}:${button.title}`} size={21} />
-          </button>
-        ))
-      )}
+    <main ref={shellRef} className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条">
+      {toolbarContent}
     </main>
   )
 }

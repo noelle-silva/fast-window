@@ -160,6 +160,7 @@ fn main() {
             hide_to_tray,
             quick_bar_app_ready,
             toolbar_window::quick_bar_toolbar_payload,
+            toolbar_window::quick_bar_toolbar_ready,
             toolbar_window::quick_bar_result_payload,
             toolbar_window::quick_bar_result_popup_ready,
             toolbar_window::hide_quick_bar_toolbar,

@@ -16,6 +16,7 @@ export type ToolbarPayload = {
   selectedText: string
   anchorX: number
   anchorY: number
+  layoutRequestId: number
 }
 
 export type ResultPopupStatus = 'loading' | 'done' | 'error'

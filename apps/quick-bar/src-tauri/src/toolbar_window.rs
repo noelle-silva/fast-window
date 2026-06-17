@@ -13,11 +13,11 @@ const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const RESULT_LABEL: &str = "quick-bar-result";
 const TOOLBAR_EVENT: &str = "quick-bar-selection";
 const RESULT_EVENT: &str = "quick-bar-result";
-const TOOLBAR_CONTENT_WIDTH: u32 = 300;
-const TOOLBAR_CONTENT_HEIGHT: u32 = 58;
+const TOOLBAR_BOOTSTRAP_CONTENT_WIDTH: u32 = 300;
+const TOOLBAR_BOOTSTRAP_CONTENT_HEIGHT: u32 = 58;
 const TOOLBAR_SHADOW_SPACE: u32 = 12;
-const TOOLBAR_WIDTH: u32 = TOOLBAR_CONTENT_WIDTH + TOOLBAR_SHADOW_SPACE * 2;
-const TOOLBAR_HEIGHT: u32 = TOOLBAR_CONTENT_HEIGHT + TOOLBAR_SHADOW_SPACE * 2;
+const TOOLBAR_BOOTSTRAP_WIDTH: u32 = TOOLBAR_BOOTSTRAP_CONTENT_WIDTH + TOOLBAR_SHADOW_SPACE * 2;
+const TOOLBAR_BOOTSTRAP_HEIGHT: u32 = TOOLBAR_BOOTSTRAP_CONTENT_HEIGHT + TOOLBAR_SHADOW_SPACE * 2;
 const TOOLBAR_SHADOW_SPACE_I32: i32 = TOOLBAR_SHADOW_SPACE as i32;
 const RESULT_WIDTH: u32 = 420;
 const RESULT_HEIGHT: u32 = 380;
@@ -27,6 +27,14 @@ const RESULT_READY_TIMEOUT_MS: u64 = 2000;
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ToolbarPayload {
+    selected_text: String,
+    anchor_x: i32,
+    anchor_y: i32,
+    layout_request_id: u64,
+}
+
+#[derive(Clone)]
+struct ToolbarSelection {
     selected_text: String,
     anchor_x: i32,
     anchor_y: i32,
@@ -44,8 +52,9 @@ pub(crate) struct ResultPayload {
 }
 
 pub(crate) struct ToolbarState {
-    latest_payload: Mutex<Option<ToolbarPayload>>,
+    latest_selection: Mutex<Option<ToolbarSelection>>,
     latest_result: Mutex<Option<ResultPayload>>,
+    toolbar_layout_request_id: Mutex<u64>,
     result_ready: Mutex<bool>,
     result_ready_notify: Notify,
 }
@@ -53,8 +62,9 @@ pub(crate) struct ToolbarState {
 impl Default for ToolbarState {
     fn default() -> Self {
         Self {
-            latest_payload: Mutex::new(None),
+            latest_selection: Mutex::new(None),
             latest_result: Mutex::new(None),
+            toolbar_layout_request_id: Mutex::new(0),
             result_ready: Mutex::new(false),
             result_ready_notify: Notify::new(),
         }
@@ -62,20 +72,55 @@ impl Default for ToolbarState {
 }
 
 impl ToolbarState {
-    pub(crate) fn set_payload(&self, payload: ToolbarPayload) -> Result<(), String> {
+    fn set_selection(&self, selection: ToolbarSelection) -> Result<(), String> {
         let mut latest = self
-            .latest_payload
+            .latest_selection
             .lock()
             .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())?;
-        *latest = Some(payload);
+        *latest = Some(selection);
         Ok(())
     }
 
-    pub(crate) fn payload(&self) -> Option<ToolbarPayload> {
-        self.latest_payload
+    fn selection(&self) -> Result<Option<ToolbarSelection>, String> {
+        self.latest_selection
             .lock()
-            .ok()
-            .and_then(|value| value.clone())
+            .map(|value| value.clone())
+            .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())
+    }
+
+    fn toolbar_payload(&self) -> Result<Option<ToolbarPayload>, String> {
+        let Some(selection) = self.selection()? else {
+            return Ok(None);
+        };
+        Ok(Some(payload_from_selection(
+            selection,
+            self.toolbar_layout_request_id()?,
+        )))
+    }
+
+    fn begin_toolbar_layout(&self) -> Result<u64, String> {
+        let mut current = self
+            .toolbar_layout_request_id
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条布局状态锁定失败".to_string())?;
+        *current += 1;
+        Ok(*current)
+    }
+
+    fn cancel_toolbar_layout(&self) -> Result<(), String> {
+        let mut current = self
+            .toolbar_layout_request_id
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条布局状态锁定失败".to_string())?;
+        *current += 1;
+        Ok(())
+    }
+
+    fn toolbar_layout_request_id(&self) -> Result<u64, String> {
+        self.toolbar_layout_request_id
+            .lock()
+            .map(|value| *value)
+            .map_err(|_| "Quick Bar 浮动条布局状态锁定失败".to_string())
     }
 
     fn set_result(&self, payload: ResultPayload) -> Result<(), String> {
@@ -133,12 +178,60 @@ impl ToolbarState {
 pub(crate) fn quick_bar_toolbar_payload(
     state: tauri::State<'_, Arc<ToolbarState>>,
 ) -> Result<Option<ToolbarPayload>, String> {
-    Ok(state.payload())
+    state.toolbar_payload()
 }
 
 #[tauri::command]
-pub(crate) fn hide_quick_bar_toolbar(app: tauri::AppHandle) -> Result<(), String> {
-    hide_toolbar(&app)
+pub(crate) fn quick_bar_toolbar_ready(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<ToolbarState>>,
+    layout_request_id: u64,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    if width == 0 || height == 0 {
+        return Err("Quick Bar 浮动条尺寸无效".to_string());
+    }
+    if state.toolbar_layout_request_id()? != layout_request_id {
+        return Ok(());
+    }
+    let selection = state
+        .selection()?
+        .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示浮动条".to_string())?;
+    let window = app
+        .get_webview_window(TOOLBAR_LABEL)
+        .ok_or_else(|| "Quick Bar 浮动条窗口不存在".to_string())?;
+    apply_popup_layout(
+        &app,
+        &window,
+        selection.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
+        selection.anchor_y - TOOLBAR_SHADOW_SPACE_I32,
+        width,
+        height,
+        PopupPlacement::Below,
+    )?;
+    if let Err(error) = window.set_always_on_top(true) {
+        log_window_warning("设置 Quick Bar 浮动条置顶失败", error);
+    }
+    window
+        .show()
+        .map_err(|e| format!("显示 Quick Bar 浮动条失败: {e}"))?;
+    if let Err(error) = window.set_focus() {
+        if let Err(hide_error) = hide_toolbar(&app, &state) {
+            log_window_warning("隐藏 Quick Bar 浮动条失败", hide_error);
+        }
+        return Err(format!("聚焦 Quick Bar 浮动条失败: {error}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn hide_quick_bar_toolbar(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<ToolbarState>>,
+) -> Result<(), String> {
+    hide_toolbar(&app, state.inner())
 }
 
 #[tauri::command]
@@ -167,8 +260,8 @@ pub(crate) async fn show_quick_bar_result_popup(
     title: String,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    let payload = state
-        .payload()
+    let selection = state
+        .selection()?
         .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示结果浮窗".to_string())?;
     let result = ResultPayload {
         title: title.trim().to_string(),
@@ -185,8 +278,8 @@ pub(crate) async fn show_quick_bar_result_popup(
     apply_popup_layout(
         &app,
         &window,
-        payload.anchor_x,
-        payload.anchor_y,
+        selection.anchor_x,
+        selection.anchor_y,
         RESULT_WIDTH,
         RESULT_HEIGHT,
         PopupPlacement::AvoidSelection,
@@ -203,7 +296,7 @@ pub(crate) async fn show_quick_bar_result_popup(
     if let Err(error) = window.set_focus() {
         log_window_warning("聚焦 Quick Bar 结果浮窗失败", error);
     }
-    if let Err(error) = hide_toolbar(&app) {
+    if let Err(error) = hide_toolbar(&app, &state) {
         log_window_warning("隐藏 Quick Bar 浮动条失败", error);
     }
     Ok(())
@@ -227,34 +320,34 @@ pub(crate) fn update_quick_bar_result_popup(
 
 pub(crate) fn show_toolbar_from_current_selection(
     app: &tauri::AppHandle,
-    state: &ToolbarState,
+    state: &Arc<ToolbarState>,
 ) -> Result<(), String> {
-    let capture = state
-        .payload()
-        .map(selection_from_payload)
+    let selection = state
+        .selection()?
         .ok_or_else(|| "当前没有可用的文本选区".to_string())?;
-    show_toolbar_from_capture(app, state, capture)
+    show_toolbar(app, state, selection)
 }
 
 pub(crate) fn remember_selection(
-    state: &ToolbarState,
+    state: &Arc<ToolbarState>,
     capture: SelectionCapture,
 ) -> Result<(), String> {
-    state.set_payload(payload_from_selection(capture))
+    state.set_selection(selection_from_capture(capture))
 }
 
 pub(crate) fn show_toolbar_from_capture(
     app: &tauri::AppHandle,
-    state: &ToolbarState,
+    state: &Arc<ToolbarState>,
     capture: SelectionCapture,
 ) -> Result<(), String> {
     if let Err(error) = hide_result_popup(app) {
         log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
     }
-    show_toolbar(app, state, capture)
+    show_toolbar(app, state, selection_from_capture(capture))
 }
 
-pub(crate) fn hide_toolbar(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Result<(), String> {
+    state.cancel_toolbar_layout()?;
     if let Some(window) = app.get_webview_window(TOOLBAR_LABEL) {
         window
             .hide()
@@ -274,41 +367,23 @@ fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn show_toolbar(
     app: &tauri::AppHandle,
-    state: &ToolbarState,
-    capture: SelectionCapture,
+    state: &Arc<ToolbarState>,
+    selection: ToolbarSelection,
 ) -> Result<(), String> {
-    let payload = payload_from_selection(capture);
-    state.set_payload(payload.clone())?;
-
-    let window = ensure_toolbar_window(app)?;
-    apply_popup_layout(
-        app,
-        &window,
-        payload.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
-        payload.anchor_y - TOOLBAR_SHADOW_SPACE_I32,
-        TOOLBAR_WIDTH,
-        TOOLBAR_HEIGHT,
-        PopupPlacement::Below,
-    )?;
-    if let Err(error) = window.set_always_on_top(true) {
-        log_window_warning("设置 Quick Bar 浮动条置顶失败", error);
-    }
-    window
-        .show()
-        .map_err(|e| format!("显示 Quick Bar 浮动条失败: {e}"))?;
+    state.set_selection(selection.clone())?;
+    let layout_request_id = state.begin_toolbar_layout()?;
+    let payload = payload_from_selection(selection, layout_request_id);
+    let window = ensure_toolbar_window(app, Arc::clone(state))?;
     if let Err(error) = window.emit(TOOLBAR_EVENT, payload) {
         log_window_warning("刷新 Quick Bar 浮动条内容失败", error);
-    }
-    if let Err(error) = window.set_focus() {
-        if let Err(hide_error) = hide_toolbar(app) {
-            log_window_warning("隐藏 Quick Bar 浮动条失败", hide_error);
-        }
-        return Err(format!("聚焦 Quick Bar 浮动条失败: {error}"));
     }
     Ok(())
 }
 
-fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+fn ensure_toolbar_window(
+    app: &tauri::AppHandle,
+    state: Arc<ToolbarState>,
+) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(TOOLBAR_LABEL) {
         return Ok(window);
     }
@@ -319,7 +394,10 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
         WebviewUrl::App("index.html?view=toolbar".into()),
     )
     .title("Quick Bar")
-    .inner_size(TOOLBAR_WIDTH as f64, TOOLBAR_HEIGHT as f64)
+    .inner_size(
+        TOOLBAR_BOOTSTRAP_WIDTH as f64,
+        TOOLBAR_BOOTSTRAP_HEIGHT as f64,
+    )
     .decorations(false)
     .resizable(false)
     .maximizable(false)
@@ -336,25 +414,26 @@ fn ensure_toolbar_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String
     let app_for_focus = app.clone();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Focused(false)) {
-            let _ = hide_toolbar(&app_for_focus);
+            let _ = hide_toolbar(&app_for_focus, &state);
         }
     });
     Ok(window)
 }
 
-fn payload_from_selection(capture: SelectionCapture) -> ToolbarPayload {
-    ToolbarPayload {
+fn selection_from_capture(capture: SelectionCapture) -> ToolbarSelection {
+    ToolbarSelection {
         selected_text: capture.text,
         anchor_x: capture.anchor_x,
         anchor_y: capture.anchor_y,
     }
 }
 
-fn selection_from_payload(payload: ToolbarPayload) -> SelectionCapture {
-    SelectionCapture {
-        text: payload.selected_text,
-        anchor_x: payload.anchor_x,
-        anchor_y: payload.anchor_y,
+fn payload_from_selection(selection: ToolbarSelection, layout_request_id: u64) -> ToolbarPayload {
+    ToolbarPayload {
+        selected_text: selection.selected_text,
+        anchor_x: selection.anchor_x,
+        anchor_y: selection.anchor_y,
+        layout_request_id,
     }
 }
 

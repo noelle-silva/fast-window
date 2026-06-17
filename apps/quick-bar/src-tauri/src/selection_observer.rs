@@ -132,7 +132,7 @@ fn spawn_stdout_reader(
 
 fn handle_worker_message(
     app: &tauri::AppHandle,
-    toolbar_state: &ToolbarState,
+    toolbar_state: &Arc<ToolbarState>,
     display_mode_state: &ToolbarDisplayModeState,
     last_signature: &mut Option<SelectionSignature>,
     message: SelectionWorkerMessage,
