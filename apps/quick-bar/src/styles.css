@@ -5,9 +5,9 @@
   --quickbar-floating-hover: #f1f5f9;
   --quickbar-toolbar-shadow-space: 12px;
   --quickbar-toolbar-radius: 14px;
-  --quickbar-toolbar-button-width: 22px;
+  --quickbar-toolbar-button-width: 20px;
   --quickbar-toolbar-button-height: 34px;
-  --quickbar-toolbar-icon-size: 22px;
+  --quickbar-toolbar-icon-size: 20px;
   --quickbar-toolbar-min-surface-width: 160px;
   --quickbar-toolbar-min-window-width: calc(var(--quickbar-toolbar-min-surface-width) + 24px);
   color: #111827;

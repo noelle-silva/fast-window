@@ -172,7 +172,7 @@ export function ToolbarApp() {
         title={button.title}
         onClick={() => handleButtonClick(button)}
       >
-        <ButtonIconGlyph className="quickbar-toolbar-icon" iconId={button.icon} seed={`${button.id}:${button.appId}:${button.capabilityId}:${button.title}`} size={22} />
+        <ButtonIconGlyph className="quickbar-toolbar-icon" iconId={button.icon} seed={`${button.id}:${button.appId}:${button.capabilityId}:${button.title}`} size={20} />
       </button>
     ))
   )
