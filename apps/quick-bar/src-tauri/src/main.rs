@@ -135,6 +135,8 @@ fn main() {
     let toolbar_state_setup = toolbar_state.clone();
     let display_mode_state = Arc::new(ToolbarDisplayModeState::default());
     let display_mode_state_setup = display_mode_state.clone();
+    let selection_observer_state = Arc::new(selection_observer::SelectionObserverState::default());
+    let selection_observer_state_setup = selection_observer_state.clone();
     let shortcut_state = Arc::new(shortcut::QuickBarShortcutState::default());
     let shortcut_state_setup = shortcut_state.clone();
     let shutdown_state = ShutdownState::new(
@@ -150,6 +152,7 @@ fn main() {
         .manage(window_state)
         .manage(toolbar_state)
         .manage(display_mode_state)
+        .manage(selection_observer_state)
         .manage(shortcut_state)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -226,16 +229,18 @@ fn main() {
             )?;
             report_available_commands(serde_json::json!(available_commands()));
             toolbar_display::install(app.handle(), &display_mode_state_setup)?;
+            selection_observer::install(
+                app.handle().clone(),
+                selection_observer_state_setup.clone(),
+                toolbar_state_setup.clone(),
+                display_mode_state_setup.clone(),
+            );
             shortcut::install(
                 app.handle(),
                 &shortcut_state_setup,
                 toolbar_state_setup.clone(),
+                selection_observer_state_setup.clone(),
             )?;
-            selection_observer::install(
-                app.handle().clone(),
-                toolbar_state_setup.clone(),
-                display_mode_state_setup.clone(),
-            );
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();

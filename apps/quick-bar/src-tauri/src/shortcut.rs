@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use crate::toolbar_window::{self, ToolbarState};
+use crate::{
+    selection_observer::SelectionObserverState,
+    toolbar_window::{self, ToolbarState},
+};
 
 const CONFIG_FILE: &str = "quick-bar-shortcut.json";
 const DEFAULT_SHORTCUT: &str = "control+alt+Q";
@@ -73,12 +76,14 @@ pub(crate) fn set_quick_bar_shortcut(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<QuickBarShortcutState>>,
     toolbar_state: tauri::State<'_, Arc<ToolbarState>>,
+    selection_observer_state: tauri::State<'_, Arc<SelectionObserverState>>,
     shortcut: String,
 ) -> Result<ShortcutStatus, String> {
     set_shortcut(
         &app,
         state.inner(),
         toolbar_state.inner().clone(),
+        selection_observer_state.inner().clone(),
         &shortcut,
     )
 }
@@ -87,9 +92,16 @@ pub(crate) fn install(
     app: &tauri::AppHandle,
     state: &Arc<QuickBarShortcutState>,
     toolbar_state: Arc<ToolbarState>,
+    selection_observer_state: Arc<SelectionObserverState>,
 ) -> Result<(), String> {
     let shortcut = load_shortcut(app)?;
-    if let Err(error) = register_initial_shortcut(app, state, toolbar_state, &shortcut) {
+    if let Err(error) = register_initial_shortcut(
+        app,
+        state,
+        toolbar_state,
+        selection_observer_state,
+        &shortcut,
+    ) {
         state.set_status(ShortcutStatus {
             shortcut,
             enabled: false,
@@ -103,11 +115,15 @@ fn register_initial_shortcut(
     app: &tauri::AppHandle,
     state: &QuickBarShortcutState,
     toolbar_state: Arc<ToolbarState>,
+    selection_observer_state: Arc<SelectionObserverState>,
     shortcut: &str,
 ) -> Result<(), String> {
     let (next, normalized) = parse_shortcut(shortcut)?;
     app.global_shortcut()
-        .on_shortcut(next, shortcut_handler(toolbar_state))
+        .on_shortcut(
+            next,
+            shortcut_handler(toolbar_state, selection_observer_state),
+        )
         .map_err(|e| format!("注册 Quick Bar 快捷键失败: {e}"))?;
     if let Ok(mut current) = state.current.lock() {
         *current = Some(next);
@@ -123,6 +139,7 @@ fn set_shortcut(
     app: &tauri::AppHandle,
     state: &QuickBarShortcutState,
     toolbar_state: Arc<ToolbarState>,
+    selection_observer_state: Arc<SelectionObserverState>,
     shortcut: &str,
 ) -> Result<ShortcutStatus, String> {
     let (next, normalized) = parse_shortcut(shortcut)?;
@@ -144,7 +161,10 @@ fn set_shortcut(
     }
 
     app.global_shortcut()
-        .on_shortcut(next, shortcut_handler(toolbar_state))
+        .on_shortcut(
+            next,
+            shortcut_handler(toolbar_state, selection_observer_state),
+        )
         .map_err(|e| format!("注册 Quick Bar 快捷键失败: {e}"))?;
 
     if let Err(error) = save_shortcut(app, &normalized) {
@@ -170,6 +190,7 @@ fn set_shortcut(
 
 fn shortcut_handler(
     toolbar_state: Arc<ToolbarState>,
+    selection_observer_state: Arc<SelectionObserverState>,
 ) -> impl Fn(&tauri::AppHandle, &Shortcut, tauri_plugin_global_shortcut::ShortcutEvent)
        + Send
        + Sync
@@ -178,10 +199,31 @@ fn shortcut_handler(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        if let Err(error) = toolbar_window::show_toolbar_from_current_selection(app, &toolbar_state)
-        {
-            eprintln!("[quick-bar] {error}");
-        }
+        let app = app.clone();
+        let toolbar_state = toolbar_state.clone();
+        let selection_observer_state = selection_observer_state.clone();
+        tauri::async_runtime::spawn(async move {
+            match selection_observer_state.current_capture().await {
+                Ok(Some(capture)) => {
+                    if let Err(error) =
+                        toolbar_window::show_toolbar_from_capture(&app, &toolbar_state, capture)
+                    {
+                        eprintln!("[quick-bar] {error}");
+                    }
+                }
+                Ok(None) => {
+                    if let Err(error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
+                        eprintln!("[quick-bar] {error}");
+                    }
+                }
+                Err(error) => {
+                    if let Err(hide_error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
+                        eprintln!("[quick-bar] {hide_error}");
+                    }
+                    eprintln!("[quick-bar] {error}");
+                }
+            }
+        });
     }
 }
 

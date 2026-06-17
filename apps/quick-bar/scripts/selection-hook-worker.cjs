@@ -1,4 +1,5 @@
 const SelectionHook = require("selection-hook");
+const readline = require("node:readline");
 
 const WINDOWS_PREDEFINED_BLACKLIST = [
   "explorer.exe",
@@ -29,13 +30,16 @@ const WINDOWS_INCLUDE_CLIPBOARD_DELAY_READ = [
 ];
 
 let hook;
-
 function emit(payload) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
 function emitError(message) {
   emit({ type: "error", message });
+}
+
+function emitCurrentSelectionError(requestId, message) {
+  emit({ type: "current-selection-error", requestId, message });
 }
 
 function numberValue(value) {
@@ -132,8 +136,12 @@ function referencePoint(selectionData) {
   }
 }
 
+function selectedText(selectionData) {
+  return typeof selectionData.text === "string" ? selectionData.text.trim() : "";
+}
+
 function captureFromSelection(selectionData) {
-  const text = typeof selectionData.text === "string" ? selectionData.text.trim() : "";
+  const text = selectedText(selectionData);
   if (!text) return null;
   const anchor = referencePoint(selectionData);
   if (!anchor) {
@@ -155,6 +163,45 @@ function captureFromSelection(selectionData) {
     method: selectionData.method,
     posLevel: selectionData.posLevel,
   };
+}
+
+function queryCurrentSelection(requestId) {
+  try {
+    const selectionData = hook.getCurrentSelection();
+    const text = selectionData ? selectedText(selectionData) : "";
+    emit({
+      type: "current-selection",
+      requestId,
+      text: text || null,
+      programName: selectionData?.programName || "",
+    });
+  } catch (error) {
+    emitCurrentSelectionError(requestId, error && error.message ? error.message : String(error));
+  }
+}
+
+function handleCommand(command) {
+  if (!command || command.type !== "current-selection") {
+    return;
+  }
+  const requestId = Number.isSafeInteger(command.requestId) ? command.requestId : null;
+  if (requestId === null) {
+    emitError("current-selection requestId is invalid");
+    return;
+  }
+  queryCurrentSelection(requestId);
+}
+
+function startCommandReader() {
+  const reader = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  reader.on("line", (line) => {
+    if (!line.trim()) return;
+    try {
+      handleCommand(JSON.parse(line));
+    } catch (error) {
+      emitError(error && error.message ? error.message : String(error));
+    }
+  });
 }
 
 function configureHook() {
@@ -186,7 +233,9 @@ function main() {
 
   hook.on("text-selection", (selectionData) => {
     const capture = captureFromSelection(selectionData);
-    if (capture) emit(capture);
+    if (capture) {
+      emit(capture);
+    }
   });
   hook.on("status", (status) => emit({ type: "status", status }));
   hook.on("error", (error) => emitError(error && error.message ? error.message : String(error)));
@@ -198,6 +247,7 @@ function main() {
     return;
   }
 
+  startCommandReader();
   emit({ type: "ready" });
 }
 

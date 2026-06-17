@@ -34,7 +34,7 @@ pub(crate) struct ToolbarPayload {
 }
 
 #[derive(Clone)]
-struct ToolbarSelection {
+struct ToolbarContext {
     selected_text: String,
     anchor_x: i32,
     anchor_y: i32,
@@ -52,7 +52,7 @@ pub(crate) struct ResultPayload {
 }
 
 pub(crate) struct ToolbarState {
-    latest_selection: Mutex<Option<ToolbarSelection>>,
+    active_context: Mutex<Option<ToolbarContext>>,
     latest_result: Mutex<Option<ResultPayload>>,
     toolbar_layout_request_id: Mutex<u64>,
     result_ready: Mutex<bool>,
@@ -62,7 +62,7 @@ pub(crate) struct ToolbarState {
 impl Default for ToolbarState {
     fn default() -> Self {
         Self {
-            latest_selection: Mutex::new(None),
+            active_context: Mutex::new(None),
             latest_result: Mutex::new(None),
             toolbar_layout_request_id: Mutex::new(0),
             result_ready: Mutex::new(false),
@@ -72,28 +72,37 @@ impl Default for ToolbarState {
 }
 
 impl ToolbarState {
-    fn set_selection(&self, selection: ToolbarSelection) -> Result<(), String> {
-        let mut latest = self
-            .latest_selection
+    fn set_active_context(&self, context: ToolbarContext) -> Result<(), String> {
+        let mut active = self
+            .active_context
             .lock()
-            .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())?;
-        *latest = Some(selection);
+            .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())?;
+        *active = Some(context);
         Ok(())
     }
 
-    fn selection(&self) -> Result<Option<ToolbarSelection>, String> {
-        self.latest_selection
+    fn clear_active_context(&self) -> Result<(), String> {
+        let mut active = self
+            .active_context
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())?;
+        *active = None;
+        Ok(())
+    }
+
+    fn active_context(&self) -> Result<Option<ToolbarContext>, String> {
+        self.active_context
             .lock()
             .map(|value| value.clone())
-            .map_err(|_| "Quick Bar 浮动条状态锁定失败".to_string())
+            .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())
     }
 
     fn toolbar_payload(&self) -> Result<Option<ToolbarPayload>, String> {
-        let Some(selection) = self.selection()? else {
+        let Some(context) = self.active_context()? else {
             return Ok(None);
         };
-        Ok(Some(payload_from_selection(
-            selection,
+        Ok(Some(payload_from_context(
+            context,
             self.toolbar_layout_request_id()?,
         )))
     }
@@ -196,8 +205,8 @@ pub(crate) fn quick_bar_toolbar_ready(
     if state.toolbar_layout_request_id()? != layout_request_id {
         return Ok(());
     }
-    let selection = state
-        .selection()?
+    let context = state
+        .active_context()?
         .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示浮动条".to_string())?;
     let window = app
         .get_webview_window(TOOLBAR_LABEL)
@@ -205,8 +214,8 @@ pub(crate) fn quick_bar_toolbar_ready(
     apply_popup_layout(
         &app,
         &window,
-        selection.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
-        selection.anchor_y - TOOLBAR_SHADOW_SPACE_I32,
+        context.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
+        context.anchor_y - TOOLBAR_SHADOW_SPACE_I32,
         width,
         height,
         PopupPlacement::Below,
@@ -260,8 +269,8 @@ pub(crate) async fn show_quick_bar_result_popup(
     title: String,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    let selection = state
-        .selection()?
+    let context = state
+        .active_context()?
         .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示结果浮窗".to_string())?;
     let result = ResultPayload {
         title: title.trim().to_string(),
@@ -278,8 +287,8 @@ pub(crate) async fn show_quick_bar_result_popup(
     apply_popup_layout(
         &app,
         &window,
-        selection.anchor_x,
-        selection.anchor_y,
+        context.anchor_x,
+        context.anchor_y,
         RESULT_WIDTH,
         RESULT_HEIGHT,
         PopupPlacement::AvoidSelection,
@@ -318,23 +327,6 @@ pub(crate) fn update_quick_bar_result_popup(
         .map_err(|e| format!("刷新 Quick Bar 结果浮窗失败: {e}"))
 }
 
-pub(crate) fn show_toolbar_from_current_selection(
-    app: &tauri::AppHandle,
-    state: &Arc<ToolbarState>,
-) -> Result<(), String> {
-    let selection = state
-        .selection()?
-        .ok_or_else(|| "当前没有可用的文本选区".to_string())?;
-    show_toolbar(app, state, selection)
-}
-
-pub(crate) fn remember_selection(
-    state: &Arc<ToolbarState>,
-    capture: SelectionCapture,
-) -> Result<(), String> {
-    state.set_selection(selection_from_capture(capture))
-}
-
 pub(crate) fn show_toolbar_from_capture(
     app: &tauri::AppHandle,
     state: &Arc<ToolbarState>,
@@ -343,11 +335,12 @@ pub(crate) fn show_toolbar_from_capture(
     if let Err(error) = hide_result_popup(app) {
         log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
     }
-    show_toolbar(app, state, selection_from_capture(capture))
+    show_toolbar(app, state, context_from_capture(capture))
 }
 
 pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Result<(), String> {
     state.cancel_toolbar_layout()?;
+    state.clear_active_context()?;
     if let Some(window) = app.get_webview_window(TOOLBAR_LABEL) {
         window
             .hide()
@@ -368,11 +361,11 @@ fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {
 fn show_toolbar(
     app: &tauri::AppHandle,
     state: &Arc<ToolbarState>,
-    selection: ToolbarSelection,
+    context: ToolbarContext,
 ) -> Result<(), String> {
-    state.set_selection(selection.clone())?;
+    state.set_active_context(context.clone())?;
     let layout_request_id = state.begin_toolbar_layout()?;
-    let payload = payload_from_selection(selection, layout_request_id);
+    let payload = payload_from_context(context, layout_request_id);
     let window = ensure_toolbar_window(app, Arc::clone(state))?;
     if let Err(error) = window.emit(TOOLBAR_EVENT, payload) {
         log_window_warning("刷新 Quick Bar 浮动条内容失败", error);
@@ -420,19 +413,19 @@ fn ensure_toolbar_window(
     Ok(window)
 }
 
-fn selection_from_capture(capture: SelectionCapture) -> ToolbarSelection {
-    ToolbarSelection {
+fn context_from_capture(capture: SelectionCapture) -> ToolbarContext {
+    ToolbarContext {
         selected_text: capture.text,
         anchor_x: capture.anchor_x,
         anchor_y: capture.anchor_y,
     }
 }
 
-fn payload_from_selection(selection: ToolbarSelection, layout_request_id: u64) -> ToolbarPayload {
+fn payload_from_context(context: ToolbarContext, layout_request_id: u64) -> ToolbarPayload {
     ToolbarPayload {
-        selected_text: selection.selected_text,
-        anchor_x: selection.anchor_x,
-        anchor_y: selection.anchor_y,
+        selected_text: context.selected_text,
+        anchor_x: context.anchor_x,
+        anchor_y: context.anchor_y,
         layout_request_id,
     }
 }

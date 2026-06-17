@@ -114,17 +114,7 @@ export function ToolbarApp() {
   }, [])
 
   const handleButtonClick = React.useCallback(async (button: RegistryButton) => {
-    let currentPayload = payload
-    if (!currentPayload?.selectedText?.trim()) {
-      try {
-        currentPayload = await invoke<ToolbarPayload | null>('quick_bar_toolbar_payload')
-        if (currentPayload && mountedRef.current) setPayload(currentPayload)
-      } catch (e) {
-        setToolbarPayloadError(`读取划词上下文失败: ${errorMessage(e, '未知错误')}`)
-        return
-      }
-    }
-    const text = currentPayload?.selectedText?.trim()
+    const text = payload?.selectedText?.trim()
     if (!text) {
       setToolbarPayloadError('当前没有可用的划词内容，无法调用能力')
       return
