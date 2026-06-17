@@ -94,6 +94,7 @@ const LEGACY_BUTTON_ICON_ALIASES = {
 
 export const BUTTON_ICON_NAMES = uniqueIconNames(CURATED_BUTTON_ICON_NAMES, iconNames)
 export const BUTTON_ICON_TOTAL = BUTTON_ICON_NAMES.length
+const BUTTON_ICON_STROKE_WIDTH = 1.25
 
 export function resolveButtonIconId(iconId: string | null | undefined, seed: string): ButtonIconId {
   const candidate = String(iconId || '').trim()
@@ -109,9 +110,9 @@ export function randomButtonIconId(currentIconId?: string | null): ButtonIconId 
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-export function ButtonIconGlyph(props: { iconId: string | null | undefined; seed: string; className?: string; size?: number; strokeWidth?: number }) {
+export function ButtonIconGlyph(props: { iconId: string | null | undefined; seed: string; className?: string; size?: number }) {
   const iconId = resolveButtonIconId(props.iconId, props.seed)
-  return <DynamicIcon className={props.className} aria-hidden="true" name={iconId} size={props.size ?? 20} strokeWidth={props.strokeWidth ?? 2.15} />
+  return <DynamicIcon className={props.className} aria-hidden="true" name={iconId} size={props.size ?? 20} strokeWidth={BUTTON_ICON_STROKE_WIDTH} />
 }
 
 function isButtonIconId(value: string): value is ButtonIconId {
