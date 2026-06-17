@@ -46,13 +46,9 @@ impl SelectionSignature {
 #[derive(Clone)]
 struct SelectionEvidence {
     capture: SelectionCapture,
-    program_name: String,
 }
 
-struct CurrentSelectionText {
-    text: String,
-    program_name: String,
-}
+type CurrentSelectionText = String;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -82,8 +78,6 @@ enum SelectionWorkerMessage {
         #[serde(rename = "requestId")]
         request_id: u64,
         text: Option<String>,
-        #[serde(default, rename = "programName")]
-        program_name: String,
     },
     CurrentSelectionError {
         #[serde(rename = "requestId")]
@@ -129,37 +123,25 @@ impl Default for SelectionObserverState {
 impl SelectionObserverState {
     pub(crate) async fn current_capture(&self) -> Result<Option<SelectionCapture>, String> {
         let Some(current) = self.current_selection_text().await? else {
-            self.clear_latest_evidence()?;
             return Ok(None);
         };
         let evidence = self.latest_evidence()?;
         let Some(evidence) = evidence else {
             return Ok(None);
         };
-        if evidence.capture.text == current.text && evidence.program_name == current.program_name {
-            return Ok(Some(SelectionCapture {
-                text: current.text,
-                anchor_x: evidence.capture.anchor_x,
-                anchor_y: evidence.capture.anchor_y,
-            }));
-        }
-        self.clear_latest_evidence()?;
-        Ok(None)
+        Ok(Some(SelectionCapture {
+            text: current,
+            anchor_x: evidence.capture.anchor_x,
+            anchor_y: evidence.capture.anchor_y,
+        }))
     }
 
-    fn remember_observed_selection(
-        &self,
-        capture: SelectionCapture,
-        program_name: String,
-    ) -> Result<(), String> {
+    fn remember_observed_selection(&self, capture: SelectionCapture) -> Result<(), String> {
         let mut latest = self
             .latest_evidence
             .lock()
             .map_err(|_| "取词位置状态锁定失败".to_string())?;
-        *latest = Some(SelectionEvidence {
-            capture,
-            program_name,
-        });
+        *latest = Some(SelectionEvidence { capture });
         Ok(())
     }
 
@@ -168,15 +150,6 @@ impl SelectionObserverState {
             .lock()
             .map(|latest| latest.clone())
             .map_err(|_| "取词位置状态锁定失败".to_string())
-    }
-
-    fn clear_latest_evidence(&self) -> Result<(), String> {
-        let mut latest = self
-            .latest_evidence
-            .lock()
-            .map_err(|_| "取词位置状态锁定失败".to_string())?;
-        *latest = None;
-        Ok(())
     }
 
     async fn current_selection_text(&self) -> Result<Option<CurrentSelectionText>, String> {
@@ -415,9 +388,7 @@ fn handle_worker_message(
                 return;
             }
             *last_signature = Some(signature);
-            if let Err(error) =
-                observer_state.remember_observed_selection(capture.clone(), program_name.clone())
-            {
+            if let Err(error) = observer_state.remember_observed_selection(capture.clone()) {
                 eprintln!("[quick-bar] 记录选区位置失败: {error}");
                 return;
             }
@@ -430,12 +401,8 @@ fn handle_worker_message(
                 }
             }
         }
-        SelectionWorkerMessage::CurrentSelection {
-            request_id,
-            text,
-            program_name,
-        } => {
-            let current = text.map(|text| CurrentSelectionText { text, program_name });
+        SelectionWorkerMessage::CurrentSelection { request_id, text } => {
+            let current = text;
             if let Err(error) = observer_state.complete_current_selection(request_id, Ok(current)) {
                 eprintln!("[quick-bar] 统一取词路线响应失败: {error}");
             }
