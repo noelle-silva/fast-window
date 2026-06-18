@@ -4,8 +4,8 @@
   --quickbar-floating-muted: #64748b;
   --quickbar-floating-hover: #f1f5f9;
   --quickbar-toolbar-shadow-space: 12px;
-  --quickbar-toolbar-radius: 14px;
-  --quickbar-toolbar-button-width: 20px;
+  --quickbar-toolbar-radius: 10px;
+  --quickbar-toolbar-button-width: 28px;
   --quickbar-toolbar-button-height: 34px;
   --quickbar-toolbar-icon-size: 20px;
   --quickbar-toolbar-min-surface-width: 160px;
