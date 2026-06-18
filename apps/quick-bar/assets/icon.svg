@@ -1,18 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="v5 Reference App Go">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Quick Bar">
   <defs>
-    <linearGradient id="bg" x1="18" y1="14" x2="110" y2="116" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#22d3ee"/>
-      <stop offset="0.55" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#312e81"/>
+    <linearGradient id="bg" x1="20" y1="14" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4f0e6"/>
+      <stop offset="0.56" stop-color="#dce7dc"/>
+      <stop offset="1" stop-color="#a9bdad"/>
     </linearGradient>
-    <linearGradient id="chip" x1="36" y1="34" x2="92" y2="94" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f8fafc"/>
-      <stop offset="1" stop-color="#dbeafe"/>
+    <linearGradient id="card" x1="32" y1="34" x2="98" y2="98" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf7"/>
+      <stop offset="1" stop-color="#eef3ea"/>
     </linearGradient>
+    <filter id="shadow" x="12" y="14" width="104" height="104" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#4a5d4d" flood-opacity="0.18"/>
+    </filter>
   </defs>
-  <rect x="10" y="10" width="108" height="108" rx="28" fill="url(#bg)"/>
-  <rect x="32" y="32" width="64" height="64" rx="14" fill="url(#chip)" opacity="0.96"/>
-  <path d="M48 58h32M48 72h22" stroke="#312e81" stroke-width="8" stroke-linecap="round"/>
-  <path d="M34 20v14M54 18v14M74 18v14M94 20v14M34 94v14M54 96v14M74 96v14M94 94v14M20 34h14M18 54h14M18 74h14M20 94h14M94 34h14M96 54h14M96 74h14M94 94h14" stroke="#bfdbfe" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
-  <circle cx="88" cy="40" r="7" fill="#22c55e"/>
+  <rect x="10" y="10" width="108" height="108" rx="30" fill="url(#bg)"/>
+  <path d="M30 35h68c6.1 0 11 4.9 11 11v43c0 6.1-4.9 11-11 11H30c-6.1 0-11-4.9-11-11V46c0-6.1 4.9-11 11-11Z" fill="url(#card)" filter="url(#shadow)"/>
+  <path d="M34 54h39M34 68h60M34 82h31" stroke="#536b58" stroke-width="7" stroke-linecap="round"/>
+  <path d="M78 52h18v18H78z" fill="#d8e6d7"/>
+  <path d="M82 56h10M82 66h10" stroke="#6f8b72" stroke-width="4" stroke-linecap="round"/>
+  <path d="M83 91l10 10 18-22" fill="none" stroke="#6f826b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="98" cy="35" r="8" fill="#7f9a82"/>
 </svg>
