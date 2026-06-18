@@ -226,12 +226,6 @@ pub(crate) fn quick_bar_toolbar_ready(
     window
         .show()
         .map_err(|e| format!("显示 Quick Bar 浮动条失败: {e}"))?;
-    if let Err(error) = window.set_focus() {
-        if let Err(hide_error) = hide_toolbar(&app, &state) {
-            log_window_warning("隐藏 Quick Bar 浮动条失败", hide_error);
-        }
-        return Err(format!("聚焦 Quick Bar 浮动条失败: {error}"));
-    }
     Ok(())
 }
 
@@ -400,6 +394,7 @@ fn ensure_toolbar_window(
     .skip_taskbar(true)
     .transparent(true)
     .shadow(false)
+    .focused(false)
     .visible(false)
     .build()
     .map_err(|e| format!("创建 Quick Bar 浮动条窗口失败: {e}"))?;
