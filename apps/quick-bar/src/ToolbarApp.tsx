@@ -12,6 +12,7 @@ const appWindow = getCurrentWindow()
 
 export function ToolbarApp() {
   const [payload, setPayload] = React.useState<ToolbarPayload | null>(null)
+  const [toolbarVisible, setToolbarVisible] = React.useState(false)
   const [buttons, setButtons] = React.useState<RegistryButton[] | null>(null)
   const [buttonsError, setButtonsError] = React.useState<string | null>(null)
   const [toolbarPayloadError, setToolbarPayloadError] = React.useState<string | null>(null)
@@ -40,29 +41,42 @@ export function ToolbarApp() {
 
   React.useEffect(() => {
     let cancelled = false
-    let unlisten: (() => void) | null = null
+    let unlistenSelection: (() => void) | null = null
+    let unlistenVisibility: (() => void) | null = null
     void invoke<ToolbarPayload | null>('quick_bar_toolbar_payload')
       .then(next => {
-        if (!cancelled) setPayload(next)
+        if (!cancelled) {
+          setPayload(next)
+          setToolbarVisible(Boolean(next))
+        }
       })
       .catch(e => {
         if (!cancelled) setToolbarPayloadError(`读取划词上下文失败: ${errorMessage(e, '未知错误')}`)
       })
     void listen<ToolbarPayload>('quick-bar-selection', event => {
       setToolbarPayloadError(null)
+      setToolbarVisible(true)
       setPayload(event.payload)
       void refreshButtons()
     })
       .then(nextUnlisten => {
         if (cancelled) nextUnlisten()
-        else unlisten = nextUnlisten
+        else unlistenSelection = nextUnlisten
       })
       .catch(e => {
         if (!cancelled) setToolbarPayloadError(`订阅划词选区失败: ${errorMessage(e, '未知错误')}`)
       })
+    void listen<{ visible: boolean }>('quick-bar-toolbar-visibility', event => {
+      setToolbarVisible(event.payload.visible)
+    })
+      .then(nextUnlisten => {
+        if (cancelled) nextUnlisten()
+        else unlistenVisibility = nextUnlisten
+      })
     return () => {
       cancelled = true
-      unlisten?.()
+      unlistenSelection?.()
+      unlistenVisibility?.()
     }
   }, [refreshButtons])
 
@@ -168,7 +182,12 @@ export function ToolbarApp() {
   )
 
   return (
-    <main ref={shellRef} className="quickbar-toolbar-shell" aria-label="Quick Bar 浮动工具条">
+    <main
+      ref={shellRef}
+      className={`quickbar-toolbar-shell${toolbarVisible ? '' : ' quickbar-toolbar-shell--hidden'}`}
+      aria-hidden={!toolbarVisible}
+      aria-label="Quick Bar 浮动工具条"
+    >
       {toolbarContent}
     </main>
   )

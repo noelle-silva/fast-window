@@ -25,6 +25,8 @@ use crate::{
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const CURRENT_SELECTION_TIMEOUT_MS: u64 = 1500;
+const TOOLBAR_SELECTION_CHECK_TIMEOUT_MS: u64 = 100;
+const TOOLBAR_SELECTION_WATCH_INTERVAL_MS: u64 = 50;
 
 #[derive(Clone, PartialEq, Eq)]
 struct SelectionSignature {
@@ -122,7 +124,15 @@ impl Default for SelectionObserverState {
 
 impl SelectionObserverState {
     pub(crate) async fn current_capture(&self) -> Result<Option<SelectionCapture>, String> {
-        let Some(current) = self.current_selection_text().await? else {
+        self.current_capture_with_timeout(Duration::from_millis(CURRENT_SELECTION_TIMEOUT_MS))
+            .await
+    }
+
+    async fn current_capture_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<SelectionCapture>, String> {
+        let Some(current) = self.current_selection_text(timeout).await? else {
             return Ok(None);
         };
         let evidence = self.latest_evidence()?;
@@ -152,7 +162,10 @@ impl SelectionObserverState {
             .map_err(|_| "取词位置状态锁定失败".to_string())
     }
 
-    async fn current_selection_text(&self) -> Result<Option<CurrentSelectionText>, String> {
+    async fn current_selection_text(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<CurrentSelectionText>, String> {
         let sender = self
             .command_sender
             .lock()
@@ -167,16 +180,13 @@ impl SelectionObserverState {
                 responder,
             })
             .map_err(|_| "取词小帮手命令通道不可用".to_string())?;
-        tokio::time::timeout(
-            Duration::from_millis(CURRENT_SELECTION_TIMEOUT_MS),
-            receiver,
-        )
-        .await
-        .map_err(|_| {
-            let _ = self.remove_pending_request(request_id);
-            "取词小帮手响应超时".to_string()
-        })?
-        .map_err(|_| "取词小帮手响应通道已关闭".to_string())?
+        tokio::time::timeout(timeout, receiver)
+            .await
+            .map_err(|_| {
+                let _ = self.remove_pending_request(request_id);
+                "取词小帮手响应超时".to_string()
+            })?
+            .map_err(|_| "取词小帮手响应通道已关闭".to_string())?
     }
 
     fn set_command_sender(
@@ -211,6 +221,58 @@ impl SelectionObserverState {
         }
         Ok(())
     }
+}
+
+pub(crate) fn show_toolbar_for_capture(
+    app: &tauri::AppHandle,
+    observer_state: Arc<SelectionObserverState>,
+    toolbar_state: Arc<ToolbarState>,
+    capture: SelectionCapture,
+) -> Result<(), String> {
+    let toolbar_session_id =
+        toolbar_window::show_toolbar_from_capture(app, &toolbar_state, capture)?;
+    start_toolbar_selection_watch(
+        app.clone(),
+        observer_state,
+        toolbar_state,
+        toolbar_session_id,
+    );
+    Ok(())
+}
+
+fn start_toolbar_selection_watch(
+    app: tauri::AppHandle,
+    observer_state: Arc<SelectionObserverState>,
+    toolbar_state: Arc<ToolbarState>,
+    toolbar_session_id: u64,
+) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(TOOLBAR_SELECTION_WATCH_INTERVAL_MS)).await;
+            match toolbar_state.is_toolbar_session_active(toolbar_session_id) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(error) => {
+                    eprintln!("[quick-bar] 浮动条显示状态确认失败: {error}");
+                    break;
+                }
+            }
+            match observer_state
+                .current_capture_with_timeout(Duration::from_millis(
+                    TOOLBAR_SELECTION_CHECK_TIMEOUT_MS,
+                ))
+                .await
+            {
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => {
+                    if let Err(error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
+                        eprintln!("[quick-bar] {error}");
+                    }
+                    break;
+                }
+            }
+        }
+    });
 }
 
 pub(crate) fn install(
@@ -340,10 +402,10 @@ fn spawn_stdout_reader(
             };
             handle_worker_message(
                 &app,
-                &toolbar_state,
+                Arc::clone(&toolbar_state),
                 &display_mode_state,
                 &mut last_signature,
-                &observer_state,
+                Arc::clone(&observer_state),
                 message,
             );
         }
@@ -352,10 +414,10 @@ fn spawn_stdout_reader(
 
 fn handle_worker_message(
     app: &tauri::AppHandle,
-    toolbar_state: &Arc<ToolbarState>,
+    toolbar_state: Arc<ToolbarState>,
     display_mode_state: &ToolbarDisplayModeState,
     last_signature: &mut Option<SelectionSignature>,
-    observer_state: &SelectionObserverState,
+    observer_state: Arc<SelectionObserverState>,
     message: SelectionWorkerMessage,
 ) {
     match message {
@@ -394,9 +456,12 @@ fn handle_worker_message(
             }
             eprintln!("[quick-bar] 已接入选区: {program_name}");
             if display_mode_state.mode() == ToolbarDisplayMode::Automatic {
-                if let Err(error) =
-                    toolbar_window::show_toolbar_from_capture(app, toolbar_state, capture)
-                {
+                if let Err(error) = show_toolbar_for_capture(
+                    app,
+                    Arc::clone(&observer_state),
+                    Arc::clone(&toolbar_state),
+                    capture,
+                ) {
                     eprintln!("[quick-bar] 显示浮动条失败: {error}");
                 }
             }

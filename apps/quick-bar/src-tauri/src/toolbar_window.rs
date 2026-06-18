@@ -12,6 +12,7 @@ use crate::selection_capture::SelectionCapture;
 const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const RESULT_LABEL: &str = "quick-bar-result";
 const TOOLBAR_EVENT: &str = "quick-bar-selection";
+const TOOLBAR_VISIBILITY_EVENT: &str = "quick-bar-toolbar-visibility";
 const RESULT_EVENT: &str = "quick-bar-result";
 const TOOLBAR_BOOTSTRAP_CONTENT_WIDTH: u32 = 300;
 const TOOLBAR_BOOTSTRAP_CONTENT_HEIGHT: u32 = 58;
@@ -49,6 +50,12 @@ pub(crate) struct ResultPayload {
     text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     error_text: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolbarVisibilityPayload {
+    visible: bool,
 }
 
 pub(crate) struct ToolbarState {
@@ -130,6 +137,11 @@ impl ToolbarState {
             .lock()
             .map(|value| *value)
             .map_err(|_| "Quick Bar 浮动条布局状态锁定失败".to_string())
+    }
+
+    pub(crate) fn is_toolbar_session_active(&self, layout_request_id: u64) -> Result<bool, String> {
+        Ok(self.toolbar_layout_request_id()? == layout_request_id
+            && self.active_context()?.is_some())
     }
 
     fn set_result(&self, payload: ResultPayload) -> Result<(), String> {
@@ -223,9 +235,13 @@ pub(crate) fn quick_bar_toolbar_ready(
     if let Err(error) = window.set_always_on_top(true) {
         log_window_warning("设置 Quick Bar 浮动条置顶失败", error);
     }
+    if let Err(error) = window.set_ignore_cursor_events(false) {
+        log_window_warning("恢复 Quick Bar 浮动条鼠标事件失败", error);
+    }
     window
         .show()
         .map_err(|e| format!("显示 Quick Bar 浮动条失败: {e}"))?;
+    set_toolbar_visibility(&window, true);
     Ok(())
 }
 
@@ -325,7 +341,7 @@ pub(crate) fn show_toolbar_from_capture(
     app: &tauri::AppHandle,
     state: &Arc<ToolbarState>,
     capture: SelectionCapture,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     if let Err(error) = hide_result_popup(app) {
         log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
     }
@@ -336,11 +352,21 @@ pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Resu
     state.cancel_toolbar_layout()?;
     state.clear_active_context()?;
     if let Some(window) = app.get_webview_window(TOOLBAR_LABEL) {
-        window
-            .hide()
-            .map_err(|e| format!("隐藏 Quick Bar 浮动条失败: {e}"))?;
+        if let Err(error) = window.set_ignore_cursor_events(true) {
+            log_window_warning("设置 Quick Bar 浮动条鼠标穿透失败", error);
+        }
+        set_toolbar_visibility(&window, false);
     }
     Ok(())
+}
+
+fn set_toolbar_visibility(window: &WebviewWindow, visible: bool) {
+    if let Err(error) = window.emit(
+        TOOLBAR_VISIBILITY_EVENT,
+        ToolbarVisibilityPayload { visible },
+    ) {
+        log_window_warning("刷新 Quick Bar 浮动条可见状态失败", error);
+    }
 }
 
 fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {
@@ -356,7 +382,7 @@ fn show_toolbar(
     app: &tauri::AppHandle,
     state: &Arc<ToolbarState>,
     context: ToolbarContext,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     state.set_active_context(context.clone())?;
     let layout_request_id = state.begin_toolbar_layout()?;
     let payload = payload_from_context(context, layout_request_id);
@@ -364,7 +390,7 @@ fn show_toolbar(
     if let Err(error) = window.emit(TOOLBAR_EVENT, payload) {
         log_window_warning("刷新 Quick Bar 浮动条内容失败", error);
     }
-    Ok(())
+    Ok(layout_request_id)
 }
 
 fn ensure_toolbar_window(

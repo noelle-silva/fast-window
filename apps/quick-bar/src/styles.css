@@ -603,6 +603,11 @@ input {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
+.quickbar-toolbar-shell--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .quickbar-toolbar-shell::before {
   content: "";
   position: absolute;

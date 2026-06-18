@@ -7,7 +7,7 @@ use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::{
-    selection_observer::SelectionObserverState,
+    selection_observer::{self, SelectionObserverState},
     toolbar_window::{self, ToolbarState},
 };
 
@@ -205,9 +205,12 @@ fn shortcut_handler(
         tauri::async_runtime::spawn(async move {
             match selection_observer_state.current_capture().await {
                 Ok(Some(capture)) => {
-                    if let Err(error) =
-                        toolbar_window::show_toolbar_from_capture(&app, &toolbar_state, capture)
-                    {
+                    if let Err(error) = selection_observer::show_toolbar_for_capture(
+                        &app,
+                        selection_observer_state.clone(),
+                        toolbar_state.clone(),
+                        capture,
+                    ) {
                         eprintln!("[quick-bar] {error}");
                     }
                 }
