@@ -4,6 +4,9 @@ import type {
   DataDirStatus,
   DirectClient,
   FwLaunchInfo,
+  ResultWindowCloseMode,
+  ResultWindowDisplayMode,
+  ResultWindowPreferencesStatus,
   ShortcutStatus,
   ToolbarDisplayMode,
   ToolbarDisplayModeStatus,
@@ -26,6 +29,7 @@ type SettingsPageProps = {
   status: DataDirStatus | null
   shortcutStatus: ShortcutStatus | null
   displayModeStatus: ToolbarDisplayModeStatus | null
+  resultWindowPreferences: ResultWindowPreferencesStatus | null
   health: Record<string, unknown> | null
   activeTab: SettingsTab
   phase: 'starting' | 'ready' | 'failed'
@@ -34,6 +38,7 @@ type SettingsPageProps = {
   onTabChange: (tab: SettingsTab) => void
   onShortcutChange: (shortcut: string) => Promise<void> | void
   onDisplayModeChange: (mode: ToolbarDisplayMode) => Promise<void> | void
+  onResultWindowPreferencesChange: (displayMode: ResultWindowDisplayMode, closeMode: ResultWindowCloseMode) => Promise<void> | void
   onPickDataDir: () => Promise<void> | void
   onRestartBackend: () => Promise<void> | void
   client: DirectClient | null
@@ -62,6 +67,7 @@ export function SettingsPage(props: SettingsPageProps) {
     status,
     shortcutStatus,
     displayModeStatus,
+    resultWindowPreferences,
     health,
     activeTab,
     phase,
@@ -70,6 +76,7 @@ export function SettingsPage(props: SettingsPageProps) {
     onTabChange,
     onShortcutChange,
     onDisplayModeChange,
+    onResultWindowPreferencesChange,
     onPickDataDir,
     onRestartBackend,
     client,
@@ -126,6 +133,11 @@ export function SettingsPage(props: SettingsPageProps) {
             busy={busy}
             onDisplayModeChange={onDisplayModeChange}
           />
+          <ResultWindowPreferencesPane
+            status={resultWindowPreferences}
+            busy={busy}
+            onChange={onResultWindowPreferencesChange}
+          />
           <RegistryButtonsPane client={client} />
         </div>
       ))}
@@ -162,6 +174,97 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {error ? <div className="quickbar-error-card" role="alert">{error}</div> : null}
     </section>
+  )
+}
+
+function ResultWindowPreferencesPane(props: {
+  status: ResultWindowPreferencesStatus | null
+  busy: boolean
+  onChange: (displayMode: ResultWindowDisplayMode, closeMode: ResultWindowCloseMode) => Promise<void> | void
+}) {
+  const { status, busy, onChange } = props
+  const displayMode = status?.displayMode ?? 'near-selection'
+  const closeMode = status?.closeMode ?? 'manual'
+  const displayOptions: Array<{ mode: ResultWindowDisplayMode; title: string; description: string }> = [
+    {
+      mode: 'near-selection',
+      title: '跟随选区附近',
+      description: '每次打开结果窗时，优先显示在本次选区附近。',
+    },
+    {
+      mode: 'fixed',
+      title: '固定窗口位置',
+      description: '结果窗会记住用户拖到的位置，下次继续固定显示。',
+    },
+  ]
+  const closeOptions: Array<{ mode: ResultWindowCloseMode; title: string; description: string }> = [
+    {
+      mode: 'manual',
+      title: '手动关闭',
+      description: '结果窗保持显示，直到按 Esc 或点击关闭按钮。',
+    },
+    {
+      mode: 'hide-on-blur',
+      title: '点击别处消失',
+      description: '点击其他地方后，结果窗会直接隐藏。',
+    },
+  ]
+
+  return (
+    <article className="quickbar-panel quickbar-result-window-panel">
+      <h2>结果窗</h2>
+      <p className="quickbar-muted">结果窗可以拖拽、调整大小，并记住用户选择的展示方式。</p>
+      <div className="quickbar-result-window-section">
+        <h3>显示位置</h3>
+        <div className="quickbar-display-mode-grid" role="radiogroup" aria-label="结果窗显示位置">
+          {displayOptions.map(option => {
+            const active = displayMode === option.mode
+            return (
+              <button
+                key={option.mode}
+                type="button"
+                className={`quickbar-display-mode-option${active ? ' quickbar-display-mode-active' : ''}`}
+                role="radio"
+                aria-checked={active}
+                disabled={busy || !status}
+                onClick={() => {
+                  if (!active) void Promise.resolve(onChange(option.mode, closeMode)).catch(() => {})
+                }}
+              >
+                <span className="quickbar-display-mode-title">{option.title}</span>
+                <span className="quickbar-display-mode-description">{option.description}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="quickbar-result-window-section">
+        <h3>关闭方式</h3>
+        <div className="quickbar-display-mode-grid" role="radiogroup" aria-label="结果窗关闭方式">
+          {closeOptions.map(option => {
+            const active = closeMode === option.mode
+            return (
+              <button
+                key={option.mode}
+                type="button"
+                className={`quickbar-display-mode-option${active ? ' quickbar-display-mode-active' : ''}`}
+                role="radio"
+                aria-checked={active}
+                disabled={busy || !status}
+                onClick={() => {
+                  if (!active) void Promise.resolve(onChange(displayMode, option.mode)).catch(() => {})
+                }}
+              >
+                <span className="quickbar-display-mode-title">{option.title}</span>
+                <span className="quickbar-display-mode-description">{option.description}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {!status ? <p className="quickbar-muted quickbar-display-mode-hint">结果窗设置读取中...</p> : null}
+      {status?.error ? <p className="quickbar-error-text">{status.error}</p> : null}
+    </article>
   )
 }
 

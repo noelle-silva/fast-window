@@ -41,6 +41,24 @@ export type ToolbarDisplayModeStatus = {
   error?: string | null
 }
 
+export type ResultWindowDisplayMode = 'near-selection' | 'fixed'
+
+export type ResultWindowCloseMode = 'manual' | 'hide-on-blur'
+
+export type ResultWindowBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type ResultWindowPreferencesStatus = {
+  displayMode: ResultWindowDisplayMode
+  closeMode: ResultWindowCloseMode
+  bounds?: ResultWindowBounds | null
+  error?: string | null
+}
+
 export type DirectClient = {
   request<T>(method: string, params?: unknown): Promise<T>
   close(): void

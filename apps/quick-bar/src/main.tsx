@@ -14,6 +14,9 @@ import type {
   DataDirStatus,
   DirectClient,
   FwLaunchInfo,
+  ResultWindowCloseMode,
+  ResultWindowDisplayMode,
+  ResultWindowPreferencesStatus,
   ShortcutStatus,
   ToolbarDisplayMode,
   ToolbarDisplayModeStatus,
@@ -38,6 +41,7 @@ function App() {
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [shortcutStatus, setShortcutStatus] = React.useState<ShortcutStatus | null>(null)
   const [displayModeStatus, setDisplayModeStatus] = React.useState<ToolbarDisplayModeStatus | null>(null)
+  const [resultWindowPreferences, setResultWindowPreferences] = React.useState<ResultWindowPreferencesStatus | null>(null)
   const [health, setHealth] = React.useState<Record<string, unknown> | null>(null)
   const [phase, setPhase] = React.useState<'starting' | 'ready' | 'failed'>('starting')
   const [busy, setBusy] = React.useState(false)
@@ -68,14 +72,16 @@ function App() {
   }, [])
 
   const refreshStatus = React.useCallback(async () => {
-    const [next, nextShortcut, nextDisplayMode] = await Promise.all([
+    const [next, nextShortcut, nextDisplayMode, nextResultWindowPreferences] = await Promise.all([
       invoke<DataDirStatus>('data_dir_status').catch(() => null),
       invoke<ShortcutStatus>('quick_bar_shortcut_status').catch(() => null),
       invoke<ToolbarDisplayModeStatus>('quick_bar_display_mode_status').catch(() => null),
+      invoke<ResultWindowPreferencesStatus>('quick_bar_result_window_preferences').catch(() => null),
     ])
     setStatus(next)
     setShortcutStatus(nextShortcut)
     setDisplayModeStatus(nextDisplayMode)
+    setResultWindowPreferences(nextResultWindowPreferences)
     return next
   }, [])
 
@@ -198,6 +204,22 @@ function App() {
     }
   }, [refreshStatus])
 
+  const saveResultWindowPreferences = React.useCallback(async (displayMode: ResultWindowDisplayMode, closeMode: ResultWindowCloseMode) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await invoke<ResultWindowPreferencesStatus>('set_quick_bar_result_window_preferences', { displayMode, closeMode })
+      setResultWindowPreferences(next)
+    } catch (e) {
+      const message = errorMessage(e, '保存结果窗设置失败')
+      setError(message)
+      await refreshStatus()
+      throw new Error(message)
+    } finally {
+      setBusy(false)
+    }
+  }, [refreshStatus])
+
   return (
     <main className="quickbar-app">
       <QuickBarTopbar
@@ -223,6 +245,7 @@ function App() {
           status={status}
           shortcutStatus={shortcutStatus}
           displayModeStatus={displayModeStatus}
+          resultWindowPreferences={resultWindowPreferences}
           health={health}
           activeTab={settingsTab}
           phase={phase}
@@ -231,6 +254,7 @@ function App() {
           onTabChange={setSettingsTab}
           onShortcutChange={saveShortcut}
           onDisplayModeChange={saveDisplayMode}
+          onResultWindowPreferencesChange={saveResultWindowPreferences}
           onPickDataDir={pickDataDir}
           onRestartBackend={() => connect({ restartBackend: true })}
           client={phase === 'ready' ? getClient() : null}

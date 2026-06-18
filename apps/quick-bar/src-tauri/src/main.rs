@@ -8,6 +8,7 @@ mod data_dir;
 mod fw_window;
 mod host_capability;
 mod native_dialog;
+mod result_window_preferences;
 mod selection_capture;
 mod selection_observer;
 mod shortcut;
@@ -26,6 +27,7 @@ use fw_window::{
     apply_fw_args, complete_app_ready, fw_initial_command, fw_launch_info, install_window_policy,
     parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
 };
+use result_window_preferences::ResultWindowPreferencesState;
 use shutdown::ShutdownState;
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
@@ -135,6 +137,8 @@ fn main() {
     let toolbar_state_setup = toolbar_state.clone();
     let display_mode_state = Arc::new(ToolbarDisplayModeState::default());
     let display_mode_state_setup = display_mode_state.clone();
+    let result_window_preferences_state = Arc::new(ResultWindowPreferencesState::default());
+    let result_window_preferences_state_setup = result_window_preferences_state.clone();
     let selection_observer_state = Arc::new(selection_observer::SelectionObserverState::default());
     let selection_observer_state_setup = selection_observer_state.clone();
     let shortcut_state = Arc::new(shortcut::QuickBarShortcutState::default());
@@ -152,8 +156,10 @@ fn main() {
         .manage(window_state)
         .manage(toolbar_state)
         .manage(display_mode_state)
+        .manage(result_window_preferences_state)
         .manage(selection_observer_state)
         .manage(shortcut_state)
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             backend_endpoint,
@@ -166,12 +172,15 @@ fn main() {
             toolbar_window::quick_bar_toolbar_ready,
             toolbar_window::quick_bar_result_payload,
             toolbar_window::quick_bar_result_popup_ready,
+            toolbar_window::quick_bar_result_drag_started,
             toolbar_window::hide_quick_bar_toolbar,
             toolbar_window::hide_quick_bar_result_popup,
             toolbar_window::show_quick_bar_result_popup,
             toolbar_window::update_quick_bar_result_popup,
             toolbar_display::quick_bar_display_mode_status,
             toolbar_display::set_quick_bar_display_mode,
+            result_window_preferences::quick_bar_result_window_preferences,
+            result_window_preferences::set_quick_bar_result_window_preferences,
             shortcut::quick_bar_shortcut_status,
             shortcut::set_quick_bar_shortcut,
             fw_initial_command,
@@ -229,6 +238,10 @@ fn main() {
             )?;
             report_available_commands(serde_json::json!(available_commands()));
             toolbar_display::install(app.handle(), &display_mode_state_setup)?;
+            result_window_preferences::install(
+                app.handle(),
+                &result_window_preferences_state_setup,
+            )?;
             selection_observer::install(
                 app.handle().clone(),
                 selection_observer_state_setup.clone(),

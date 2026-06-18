@@ -1,15 +1,22 @@
 import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import type { ResultPopupPayload } from './types'
+
+const appWindow = getCurrentWindow()
 
 export function ResultPopupApp() {
   const [payload, setPayload] = React.useState<ResultPopupPayload | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle')
+  const [resultVisible, setResultVisible] = React.useState(true)
 
   React.useEffect(() => {
     let cancelled = false
     let unlisten: (() => void) | null = null
+    let unlistenVisibility: (() => void) | null = null
     void invoke<ResultPopupPayload | null>('quick_bar_result_payload')
       .then(next => {
         if (!cancelled) setPayload(next)
@@ -19,6 +26,8 @@ export function ResultPopupApp() {
       })
     void listen<ResultPopupPayload>('quick-bar-result', event => {
       setError(null)
+      setCopyState('idle')
+      setResultVisible(true)
       setPayload(event.payload)
     })
       .then(nextUnlisten => {
@@ -34,14 +43,43 @@ export function ResultPopupApp() {
       .catch(e => {
         if (!cancelled) setError(errorMessage(e, '订阅结果窗口内容失败'))
       })
+    void listen<{ visible: boolean }>('quick-bar-result-visibility', event => {
+      setResultVisible(event.payload.visible)
+    })
+      .then(nextUnlisten => {
+        if (cancelled) nextUnlisten()
+        else unlistenVisibility = nextUnlisten
+      })
     return () => {
       cancelled = true
       unlisten?.()
+      unlistenVisibility?.()
     }
   }, [])
 
   const handleClose = React.useCallback(() => {
     void invoke('hide_quick_bar_result_popup').catch(() => {})
+  }, [])
+
+  const resultText = payload?.status === 'done' ? (payload.text || '') : ''
+  const canCopy = Boolean(resultText.trim())
+
+  const handleCopy = React.useCallback(async () => {
+    if (!canCopy) return
+    try {
+      await writeText(resultText)
+      setCopyState('copied')
+      window.setTimeout(() => setCopyState('idle'), 1400)
+    } catch {
+      setCopyState('failed')
+    }
+  }, [canCopy, resultText])
+
+  const handleStartDragging = React.useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) return
+    void invoke('quick_bar_result_drag_started')
+      .then(() => appWindow.startDragging())
+      .catch(() => {})
   }, [])
 
   React.useEffect(() => {
@@ -54,14 +92,19 @@ export function ResultPopupApp() {
 
   const title = payload?.title || 'Quick Bar 结果'
   return (
-    <main className="quickbar-result-shell" aria-label="Quick Bar 结果浮窗">
+    <main className={`quickbar-result-shell${resultVisible ? '' : ' quickbar-result-shell--hidden'}`} aria-label="Quick Bar 结果浮窗" aria-hidden={!resultVisible}>
       <section className="quickbar-result-popup" aria-live="polite">
         <div className="quickbar-result-header">
-          <div>
+          <div className="quickbar-result-drag-region" onMouseDown={handleStartDragging}>
             <span className="quickbar-result-title">{title}</span>
             <span className="quickbar-result-subtitle">能力调用结果</span>
           </div>
-          <button type="button" className="quickbar-result-close" onClick={handleClose} aria-label="关闭结果浮窗">×</button>
+          <div className="quickbar-result-actions">
+            <button type="button" className="quickbar-result-action" onClick={handleCopy} disabled={!canCopy} aria-label="复制结果">
+              {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制'}
+            </button>
+            <button type="button" className="quickbar-result-close" onClick={handleClose} aria-label="关闭结果浮窗">×</button>
+          </div>
         </div>
         <div className="quickbar-result-body">
           {error ? (

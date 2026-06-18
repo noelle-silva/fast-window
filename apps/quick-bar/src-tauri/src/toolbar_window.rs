@@ -1,29 +1,38 @@
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow};
+use tauri::{
+    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WindowEvent,
+};
 use tokio::sync::Notify;
 
-use crate::selection_capture::SelectionCapture;
+use crate::{
+    result_window_preferences::{
+        self, ResultWindowCloseMode, ResultWindowDisplayMode, ResultWindowPreferencesState,
+        DEFAULT_RESULT_HEIGHT, DEFAULT_RESULT_WIDTH, MIN_RESULT_HEIGHT, MIN_RESULT_WIDTH,
+    },
+    selection_capture::SelectionCapture,
+};
 
 const TOOLBAR_LABEL: &str = "quick-bar-toolbar";
 const RESULT_LABEL: &str = "quick-bar-result";
 const TOOLBAR_EVENT: &str = "quick-bar-selection";
 const TOOLBAR_VISIBILITY_EVENT: &str = "quick-bar-toolbar-visibility";
 const RESULT_EVENT: &str = "quick-bar-result";
+const RESULT_VISIBILITY_EVENT: &str = "quick-bar-result-visibility";
 const TOOLBAR_BOOTSTRAP_CONTENT_WIDTH: u32 = 300;
 const TOOLBAR_BOOTSTRAP_CONTENT_HEIGHT: u32 = 58;
 const TOOLBAR_SHADOW_SPACE: u32 = 12;
 const TOOLBAR_BOOTSTRAP_WIDTH: u32 = TOOLBAR_BOOTSTRAP_CONTENT_WIDTH + TOOLBAR_SHADOW_SPACE * 2;
 const TOOLBAR_BOOTSTRAP_HEIGHT: u32 = TOOLBAR_BOOTSTRAP_CONTENT_HEIGHT + TOOLBAR_SHADOW_SPACE * 2;
 const TOOLBAR_SHADOW_SPACE_I32: i32 = TOOLBAR_SHADOW_SPACE as i32;
-const RESULT_WIDTH: u32 = 420;
-const RESULT_HEIGHT: u32 = 380;
 const TOOLBAR_MARGIN: i32 = 10;
 const RESULT_READY_TIMEOUT_MS: u64 = 2000;
+const RESULT_INTERNAL_DRAG_HIDE_GRACE_MS: u64 = 1200;
+const HIDDEN_WINDOW_POSITION: i32 = -100000;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,11 +67,18 @@ struct ToolbarVisibilityPayload {
     visible: bool,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResultVisibilityPayload {
+    visible: bool,
+}
+
 pub(crate) struct ToolbarState {
     active_context: Mutex<Option<ToolbarContext>>,
     latest_result: Mutex<Option<ResultPayload>>,
     toolbar_layout_request_id: Mutex<u64>,
     toolbar_bounds: Mutex<Option<ToolbarBounds>>,
+    result_internal_drag_until: Mutex<Option<Instant>>,
     result_ready: Mutex<bool>,
     result_ready_notify: Notify,
 }
@@ -88,6 +104,7 @@ impl Default for ToolbarState {
             latest_result: Mutex::new(None),
             toolbar_layout_request_id: Mutex::new(0),
             toolbar_bounds: Mutex::new(None),
+            result_internal_drag_until: Mutex::new(None),
             result_ready: Mutex::new(false),
             result_ready_notify: Notify::new(),
         }
@@ -215,6 +232,28 @@ impl ToolbarState {
         Ok(())
     }
 
+    fn mark_result_internal_drag(&self) -> Result<(), String> {
+        let mut current = self
+            .result_internal_drag_until
+            .lock()
+            .map_err(|_| "Quick Bar 结果窗内部拖动状态锁定失败".to_string())?;
+        *current = Some(Instant::now() + Duration::from_millis(RESULT_INTERNAL_DRAG_HIDE_GRACE_MS));
+        Ok(())
+    }
+
+    fn is_result_internal_drag_active(&self) -> Result<bool, String> {
+        let now = Instant::now();
+        let mut current = self
+            .result_internal_drag_until
+            .lock()
+            .map_err(|_| "Quick Bar 结果窗内部拖动状态锁定失败".to_string())?;
+        let active = current.map(|until| until > now).unwrap_or(false);
+        if !active {
+            *current = None;
+        }
+        Ok(active)
+    }
+
     fn result_ready(&self) -> Result<bool, String> {
         self.result_ready
             .lock()
@@ -317,12 +356,21 @@ pub(crate) fn hide_quick_bar_result_popup(app: tauri::AppHandle) -> Result<(), S
 }
 
 #[tauri::command]
+pub(crate) fn quick_bar_result_drag_started(
+    state: tauri::State<'_, Arc<ToolbarState>>,
+) -> Result<(), String> {
+    state.mark_result_internal_drag()
+}
+
+#[tauri::command]
 pub(crate) async fn show_quick_bar_result_popup(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<ToolbarState>>,
+    preferences_state: tauri::State<'_, Arc<ResultWindowPreferencesState>>,
     title: String,
 ) -> Result<(), String> {
     let state = state.inner().clone();
+    let preferences_state = preferences_state.inner().clone();
     let context = state
         .active_context()?
         .ok_or_else(|| "Quick Bar 缺少划词上下文，无法显示结果浮窗".to_string())?;
@@ -333,23 +381,42 @@ pub(crate) async fn show_quick_bar_result_popup(
         error_text: None,
     };
     state.set_result(result.clone())?;
-    ensure_result_window(&app, &state)?;
+    ensure_result_window(&app, Arc::clone(&state), Arc::clone(&preferences_state))?;
     state.wait_result_ready().await?;
+    let preferences = preferences_state.preferences()?;
+    let result_size = preferences
+        .bounds
+        .map(|bounds| bounds.size())
+        .unwrap_or_else(|| PhysicalSize::new(DEFAULT_RESULT_WIDTH, DEFAULT_RESULT_HEIGHT));
     let window = app
         .get_webview_window(RESULT_LABEL)
         .ok_or_else(|| "Quick Bar 结果浮窗不存在".to_string())?;
-    apply_popup_layout(
-        &app,
-        &window,
-        context.anchor_x,
-        context.anchor_y,
-        RESULT_WIDTH,
-        RESULT_HEIGHT,
-        PopupPlacement::AvoidSelection,
-    )?;
+    if preferences.display_mode == ResultWindowDisplayMode::Fixed {
+        apply_fixed_result_layout(
+            &app,
+            &window,
+            &preferences,
+            context.anchor_x,
+            context.anchor_y,
+        )?;
+    } else {
+        apply_popup_layout(
+            &app,
+            &window,
+            context.anchor_x,
+            context.anchor_y,
+            result_size.width,
+            result_size.height,
+            PopupPlacement::AvoidSelection,
+        )?;
+    }
     if let Err(error) = window.set_always_on_top(true) {
         log_window_warning("设置 Quick Bar 结果浮窗置顶失败", error);
     }
+    if let Err(error) = window.set_ignore_cursor_events(false) {
+        log_window_warning("恢复 Quick Bar 结果浮窗鼠标事件失败", error);
+    }
+    set_result_visibility(&window, true);
     window
         .show()
         .map_err(|e| format!("显示 Quick Bar 结果浮窗失败: {e}"))?;
@@ -443,9 +510,19 @@ fn set_toolbar_visibility(window: &WebviewWindow, visible: bool) {
 
 fn hide_result_popup(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(RESULT_LABEL) {
-        window
-            .hide()
-            .map_err(|e| format!("隐藏 Quick Bar 结果浮窗失败: {e}"))?;
+        set_result_visibility(&window, false);
+        if let Err(error) = window.set_ignore_cursor_events(true) {
+            log_window_warning("设置 Quick Bar 结果浮窗鼠标穿透失败", error);
+        }
+        if let Err(error) = window.set_position(PhysicalPosition::new(
+            HIDDEN_WINDOW_POSITION,
+            HIDDEN_WINDOW_POSITION,
+        )) {
+            log_window_warning("移出 Quick Bar 结果浮窗失败", error);
+        }
+        if let Err(error) = window.hide() {
+            log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
+        }
     }
     Ok(())
 }
@@ -538,22 +615,24 @@ fn is_modifier_key(vk_code: i32) -> bool {
 
 fn ensure_result_window(
     app: &tauri::AppHandle,
-    state: &ToolbarState,
+    state: Arc<ToolbarState>,
+    preferences_state: Arc<ResultWindowPreferencesState>,
 ) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(RESULT_LABEL) {
         return Ok(window);
     }
     state.set_result_ready(false)?;
 
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         RESULT_LABEL,
         WebviewUrl::App("index.html?view=result".into()),
     )
     .title("Quick Bar 结果")
-    .inner_size(RESULT_WIDTH as f64, RESULT_HEIGHT as f64)
+    .inner_size(DEFAULT_RESULT_WIDTH as f64, DEFAULT_RESULT_HEIGHT as f64)
+    .min_inner_size(MIN_RESULT_WIDTH as f64, MIN_RESULT_HEIGHT as f64)
     .decorations(false)
-    .resizable(false)
+    .resizable(true)
     .maximizable(false)
     .minimizable(false)
     .closable(false)
@@ -563,13 +642,92 @@ fn ensure_result_window(
     .shadow(true)
     .visible(false)
     .build()
-    .map_err(|e| format!("创建 Quick Bar 结果浮窗失败: {e}"))
+    .map_err(|e| format!("创建 Quick Bar 结果浮窗失败: {e}"))?;
+
+    let app_for_event = app.clone();
+    let state_for_event = Arc::clone(&state);
+    let window_for_event = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+            if let Err(error) = result_window_preferences::remember_bounds_from_window(
+                &app_for_event,
+                &preferences_state,
+                &window_for_event,
+            ) {
+                log_window_warning("记录 Quick Bar 结果窗尺寸位置失败", error);
+            }
+        }
+        WindowEvent::Focused(false) => {
+            if state_for_event
+                .is_result_internal_drag_active()
+                .unwrap_or(false)
+            {
+                return;
+            }
+            if preferences_state
+                .preferences()
+                .map(|preferences| preferences.close_mode == ResultWindowCloseMode::HideOnBlur)
+                .unwrap_or(false)
+            {
+                if let Err(error) = result_window_preferences::remember_bounds_from_window(
+                    &app_for_event,
+                    &preferences_state,
+                    &window_for_event,
+                ) {
+                    log_window_warning("记录 Quick Bar 结果窗尺寸位置失败", error);
+                }
+                if let Err(error) = hide_result_popup(&app_for_event) {
+                    log_window_warning("隐藏 Quick Bar 结果浮窗失败", error);
+                }
+            }
+        }
+        _ => {}
+    });
+
+    Ok(window)
+}
+
+fn set_result_visibility(window: &WebviewWindow, visible: bool) {
+    if let Err(error) = window.emit(RESULT_VISIBILITY_EVENT, ResultVisibilityPayload { visible }) {
+        log_window_warning("刷新 Quick Bar 结果窗可见状态失败", error);
+    }
+}
+
+fn apply_fixed_result_layout(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    preferences: &result_window_preferences::ResultWindowPreferences,
+    anchor_x: i32,
+    anchor_y: i32,
+) -> Result<(), String> {
+    let size = preferences
+        .bounds
+        .map(|bounds| bounds.size())
+        .unwrap_or_else(|| PhysicalSize::new(DEFAULT_RESULT_WIDTH, DEFAULT_RESULT_HEIGHT));
+    let position = preferences
+        .bounds
+        .map(|bounds| bounds.position())
+        .unwrap_or(popup_position(
+            app,
+            anchor_x,
+            anchor_y,
+            size.width,
+            size.height,
+            PopupPlacement::Center,
+        )?);
+    window
+        .set_size(size)
+        .map_err(|e| format!("设置 Quick Bar 结果窗尺寸失败: {e}"))?;
+    window
+        .set_position(position)
+        .map_err(|e| format!("设置 Quick Bar 结果窗位置失败: {e}"))
 }
 
 #[derive(Clone, Copy)]
 enum PopupPlacement {
     Below,
     AvoidSelection,
+    Center,
 }
 
 fn apply_popup_layout(
@@ -622,6 +780,8 @@ fn popup_position(
     let max_x = area.position.x + area.size.width as i32 - width as i32;
     let max_y = area.position.y + area.size.height as i32 - height as i32;
     let mut x = anchor_x + TOOLBAR_MARGIN;
+    let center_x = area.position.x + (area.size.width as i32 - width as i32) / 2;
+    let center_y = area.position.y + (area.size.height as i32 - height as i32) / 2;
     let below_y = anchor_y + TOOLBAR_MARGIN;
     let above_y = anchor_y - height as i32 - TOOLBAR_MARGIN;
     let below_fits = below_y <= max_y;
@@ -629,7 +789,11 @@ fn popup_position(
         PopupPlacement::Below => below_y,
         PopupPlacement::AvoidSelection if below_fits => below_y,
         PopupPlacement::AvoidSelection => above_y,
+        PopupPlacement::Center => center_y,
     };
+    if matches!(placement, PopupPlacement::Center) {
+        x = center_x;
+    }
     x = x.clamp(area.position.x, max_x.max(area.position.x));
     y = y.clamp(area.position.y, max_y.max(area.position.y));
     Ok(PhysicalPosition::new(x, y))
