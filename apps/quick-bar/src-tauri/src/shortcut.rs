@@ -207,7 +207,6 @@ fn shortcut_handler(
                 Ok(Some(capture)) => {
                     if let Err(error) = selection_observer::show_toolbar_for_capture(
                         &app,
-                        selection_observer_state.clone(),
                         toolbar_state.clone(),
                         capture,
                     ) {

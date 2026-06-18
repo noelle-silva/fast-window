@@ -42,6 +42,10 @@ function emitCurrentSelectionError(requestId, message) {
   emit({ type: "current-selection-error", requestId, message });
 }
 
+function emitToolbarAction(action, payload = {}) {
+  emit({ type: "toolbar-action", action, ...payload });
+}
+
 function numberValue(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -142,17 +146,24 @@ function selectedText(selectionData) {
 
 function captureFromSelection(selectionData) {
   const text = selectedText(selectionData);
-  if (!text) return null;
+  if (!text) {
+    return {
+      type: "selection-missed",
+      reason: "empty-selection",
+      programName: selectionData.programName || "",
+      method: selectionData.method,
+      posLevel: selectionData.posLevel,
+    };
+  }
   const anchor = referencePoint(selectionData);
   if (!anchor) {
-    emit({
+    return {
       type: "selection-missed",
       reason: "missing-position",
       programName: selectionData.programName || "",
       method: selectionData.method,
       posLevel: selectionData.posLevel,
-    });
-    return null;
+    };
   }
   return {
     type: "selection",
@@ -236,6 +247,16 @@ function main() {
     if (capture) {
       emit(capture);
     }
+  });
+  hook.on("mouse-down", (data) => {
+    emitToolbarAction("mouse-down", {
+      x: Math.round(numberValue(data?.x) ?? SelectionHook.INVALID_COORDINATE),
+      y: Math.round(numberValue(data?.y) ?? SelectionHook.INVALID_COORDINATE),
+    });
+  });
+  hook.on("mouse-wheel", () => emitToolbarAction("mouse-wheel"));
+  hook.on("key-down", (data) => {
+    emitToolbarAction("key-down", { vkCode: numberValue(data?.vkCode) ?? 0, sys: Boolean(data?.sys) });
   });
   hook.on("status", (status) => emit({ type: "status", status }));
   hook.on("error", (error) => emitError(error && error.message ? error.message : String(error)));

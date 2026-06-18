@@ -62,8 +62,23 @@ pub(crate) struct ToolbarState {
     active_context: Mutex<Option<ToolbarContext>>,
     latest_result: Mutex<Option<ResultPayload>>,
     toolbar_layout_request_id: Mutex<u64>,
+    toolbar_bounds: Mutex<Option<ToolbarBounds>>,
     result_ready: Mutex<bool>,
     result_ready_notify: Notify,
+}
+
+#[derive(Clone, Copy)]
+struct ToolbarBounds {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+pub(crate) enum ToolbarExternalAction {
+    MouseDown { x: i32, y: i32 },
+    MouseWheel,
+    KeyDown { vk_code: i32, sys: bool },
 }
 
 impl Default for ToolbarState {
@@ -72,6 +87,7 @@ impl Default for ToolbarState {
             active_context: Mutex::new(None),
             latest_result: Mutex::new(None),
             toolbar_layout_request_id: Mutex::new(0),
+            toolbar_bounds: Mutex::new(None),
             result_ready: Mutex::new(false),
             result_ready_notify: Notify::new(),
         }
@@ -102,6 +118,38 @@ impl ToolbarState {
             .lock()
             .map(|value| value.clone())
             .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())
+    }
+
+    fn has_active_context(&self) -> Result<bool, String> {
+        self.active_context
+            .lock()
+            .map(|value| value.is_some())
+            .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())
+    }
+
+    fn set_toolbar_bounds(&self, bounds: ToolbarBounds) -> Result<(), String> {
+        let mut current = self
+            .toolbar_bounds
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条位置状态锁定失败".to_string())?;
+        *current = Some(bounds);
+        Ok(())
+    }
+
+    fn clear_toolbar_bounds(&self) -> Result<(), String> {
+        let mut current = self
+            .toolbar_bounds
+            .lock()
+            .map_err(|_| "Quick Bar 浮动条位置状态锁定失败".to_string())?;
+        *current = None;
+        Ok(())
+    }
+
+    fn toolbar_bounds(&self) -> Result<Option<ToolbarBounds>, String> {
+        self.toolbar_bounds
+            .lock()
+            .map(|value| *value)
+            .map_err(|_| "Quick Bar 浮动条位置状态锁定失败".to_string())
     }
 
     fn toolbar_payload(&self) -> Result<Option<ToolbarPayload>, String> {
@@ -137,11 +185,6 @@ impl ToolbarState {
             .lock()
             .map(|value| *value)
             .map_err(|_| "Quick Bar 浮动条布局状态锁定失败".to_string())
-    }
-
-    pub(crate) fn is_toolbar_session_active(&self, layout_request_id: u64) -> Result<bool, String> {
-        Ok(self.toolbar_layout_request_id()? == layout_request_id
-            && self.active_context()?.is_some())
     }
 
     fn set_result(&self, payload: ResultPayload) -> Result<(), String> {
@@ -223,7 +266,7 @@ pub(crate) fn quick_bar_toolbar_ready(
     let window = app
         .get_webview_window(TOOLBAR_LABEL)
         .ok_or_else(|| "Quick Bar 浮动条窗口不存在".to_string())?;
-    apply_popup_layout(
+    let bounds = apply_popup_layout(
         &app,
         &window,
         context.anchor_x - TOOLBAR_SHADOW_SPACE_I32,
@@ -232,6 +275,7 @@ pub(crate) fn quick_bar_toolbar_ready(
         height,
         PopupPlacement::Below,
     )?;
+    state.set_toolbar_bounds(bounds)?;
     if let Err(error) = window.set_always_on_top(true) {
         log_window_warning("设置 Quick Bar 浮动条置顶失败", error);
     }
@@ -351,6 +395,7 @@ pub(crate) fn show_toolbar_from_capture(
 pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Result<(), String> {
     state.cancel_toolbar_layout()?;
     state.clear_active_context()?;
+    state.clear_toolbar_bounds()?;
     if let Some(window) = app.get_webview_window(TOOLBAR_LABEL) {
         if let Err(error) = window.set_ignore_cursor_events(true) {
             log_window_warning("设置 Quick Bar 浮动条鼠标穿透失败", error);
@@ -358,6 +403,33 @@ pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Resu
         set_toolbar_visibility(&window, false);
     }
     Ok(())
+}
+
+pub(crate) fn hide_toolbar_for_external_action(
+    app: &tauri::AppHandle,
+    state: &ToolbarState,
+    action: ToolbarExternalAction,
+) -> Result<(), String> {
+    if !state.has_active_context()? {
+        return Ok(());
+    }
+
+    match action {
+        ToolbarExternalAction::MouseDown { x, y } => {
+            if state
+                .toolbar_bounds()?
+                .is_some_and(|bounds| bounds.contains(x, y))
+            {
+                return Ok(());
+            }
+        }
+        ToolbarExternalAction::KeyDown { vk_code, sys } if sys || is_modifier_key(vk_code) => {
+            return Ok(())
+        }
+        ToolbarExternalAction::MouseWheel | ToolbarExternalAction::KeyDown { .. } => {}
+    }
+
+    hide_toolbar(app, state)
 }
 
 fn set_toolbar_visibility(window: &WebviewWindow, visible: bool) {
@@ -451,6 +523,19 @@ fn payload_from_context(context: ToolbarContext, layout_request_id: u64) -> Tool
     }
 }
 
+impl ToolbarBounds {
+    fn contains(self, x: i32, y: i32) -> bool {
+        x >= self.x
+            && x <= self.x + self.width as i32
+            && y >= self.y
+            && y <= self.y + self.height as i32
+    }
+}
+
+fn is_modifier_key(vk_code: i32) -> bool {
+    matches!(vk_code, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C)
+}
+
 fn ensure_result_window(
     app: &tauri::AppHandle,
     state: &ToolbarState,
@@ -495,14 +580,20 @@ fn apply_popup_layout(
     width: u32,
     height: u32,
     placement: PopupPlacement,
-) -> Result<(), String> {
+) -> Result<ToolbarBounds, String> {
     let position = popup_position(app, anchor_x, anchor_y, width, height, placement)?;
     window
         .set_size(PhysicalSize::new(width, height))
         .map_err(|e| format!("设置 Quick Bar 浮动条尺寸失败: {e}"))?;
     window
         .set_position(position)
-        .map_err(|e| format!("设置 Quick Bar 浮动条位置失败: {e}"))
+        .map_err(|e| format!("设置 Quick Bar 浮动条位置失败: {e}"))?;
+    Ok(ToolbarBounds {
+        x: position.x,
+        y: position.y,
+        width,
+        height,
+    })
 }
 
 fn popup_position(

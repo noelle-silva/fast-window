@@ -25,8 +25,6 @@ use crate::{
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const CURRENT_SELECTION_TIMEOUT_MS: u64 = 1500;
-const TOOLBAR_SELECTION_CHECK_TIMEOUT_MS: u64 = 100;
-const TOOLBAR_SELECTION_WATCH_INTERVAL_MS: u64 = 50;
 
 #[derive(Clone, PartialEq, Eq)]
 struct SelectionSignature {
@@ -66,6 +64,15 @@ enum SelectionWorkerMessage {
         reason: String,
         #[serde(default, rename = "programName")]
         program_name: String,
+    },
+    ToolbarAction {
+        action: String,
+        x: Option<i32>,
+        y: Option<i32>,
+        #[serde(default, rename = "vkCode")]
+        vk_code: Option<i32>,
+        #[serde(default)]
+        sys: bool,
     },
     Selection {
         text: String,
@@ -225,54 +232,10 @@ impl SelectionObserverState {
 
 pub(crate) fn show_toolbar_for_capture(
     app: &tauri::AppHandle,
-    observer_state: Arc<SelectionObserverState>,
     toolbar_state: Arc<ToolbarState>,
     capture: SelectionCapture,
 ) -> Result<(), String> {
-    let toolbar_session_id =
-        toolbar_window::show_toolbar_from_capture(app, &toolbar_state, capture)?;
-    start_toolbar_selection_watch(
-        app.clone(),
-        observer_state,
-        toolbar_state,
-        toolbar_session_id,
-    );
-    Ok(())
-}
-
-fn start_toolbar_selection_watch(
-    app: tauri::AppHandle,
-    observer_state: Arc<SelectionObserverState>,
-    toolbar_state: Arc<ToolbarState>,
-    toolbar_session_id: u64,
-) {
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_millis(TOOLBAR_SELECTION_WATCH_INTERVAL_MS)).await;
-            match toolbar_state.is_toolbar_session_active(toolbar_session_id) {
-                Ok(true) => {}
-                Ok(false) => break,
-                Err(error) => {
-                    eprintln!("[quick-bar] 浮动条显示状态确认失败: {error}");
-                    break;
-                }
-            }
-            match observer_state
-                .current_capture_with_timeout(Duration::from_millis(
-                    TOOLBAR_SELECTION_CHECK_TIMEOUT_MS,
-                ))
-                .await
-            {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => {
-                    if let Err(error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
-                        eprintln!("[quick-bar] {error}");
-                    }
-                    break;
-                }
-            }
-        }
-    });
+    toolbar_window::show_toolbar_from_capture(app, &toolbar_state, capture).map(|_| ())
 }
 
 pub(crate) fn install(
@@ -432,7 +395,36 @@ fn handle_worker_message(
             reason,
             program_name,
         } => {
-            eprintln!("[quick-bar] 统一取词路线未接入选区: {program_name} {reason}")
+            eprintln!("[quick-bar] 统一取词路线未接入选区: {program_name} {reason}");
+            if reason == "empty-selection" {
+                *last_signature = None;
+            }
+        }
+        SelectionWorkerMessage::ToolbarAction {
+            action,
+            x,
+            y,
+            vk_code,
+            sys,
+        } => {
+            let action = match action.as_str() {
+                "mouse-down" => toolbar_action_from_mouse_down(x, y),
+                "mouse-wheel" => Some(toolbar_window::ToolbarExternalAction::MouseWheel),
+                "key-down" => Some(toolbar_window::ToolbarExternalAction::KeyDown {
+                    vk_code: vk_code.unwrap_or_default(),
+                    sys,
+                }),
+                _ => None,
+            };
+            let Some(action) = action else {
+                return;
+            };
+            *last_signature = None;
+            if let Err(error) =
+                toolbar_window::hide_toolbar_for_external_action(app, &toolbar_state, action)
+            {
+                eprintln!("[quick-bar] {error}");
+            }
         }
         SelectionWorkerMessage::Selection {
             text,
@@ -456,12 +448,9 @@ fn handle_worker_message(
             }
             eprintln!("[quick-bar] 已接入选区: {program_name}");
             if display_mode_state.mode() == ToolbarDisplayMode::Automatic {
-                if let Err(error) = show_toolbar_for_capture(
-                    app,
-                    Arc::clone(&observer_state),
-                    Arc::clone(&toolbar_state),
-                    capture,
-                ) {
+                if let Err(error) =
+                    show_toolbar_for_capture(app, Arc::clone(&toolbar_state), capture)
+                {
                     eprintln!("[quick-bar] 显示浮动条失败: {error}");
                 }
             }
@@ -482,6 +471,13 @@ fn handle_worker_message(
             }
         }
     }
+}
+
+fn toolbar_action_from_mouse_down(
+    x: Option<i32>,
+    y: Option<i32>,
+) -> Option<toolbar_window::ToolbarExternalAction> {
+    Some(toolbar_window::ToolbarExternalAction::MouseDown { x: x?, y: y? })
 }
 
 fn resolve_app_dir() -> Result<PathBuf, String> {
