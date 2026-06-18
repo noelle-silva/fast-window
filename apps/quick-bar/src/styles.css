@@ -3,6 +3,7 @@
   --quickbar-floating-text: #111827;
   --quickbar-floating-muted: #64748b;
   --quickbar-floating-hover: #f1f5f9;
+  --quickbar-toolbar-icon-hover: #4f7f64;
   --quickbar-toolbar-shadow-space: 12px;
   --quickbar-toolbar-radius: 8px;
   --quickbar-toolbar-button-width: 28px;
@@ -642,6 +643,7 @@ input {
   overflow: hidden;
   line-height: 0;
   white-space: nowrap;
+  transition: color 120ms ease, background 120ms ease;
 }
 
 .quickbar-toolbar-shell button:first-of-type {
@@ -657,6 +659,7 @@ input {
 
 .quickbar-toolbar-shell button:hover,
 .quickbar-toolbar-shell button:focus-visible {
+  color: var(--quickbar-toolbar-icon-hover);
   background: var(--quickbar-floating-hover);
 }
 
@@ -664,6 +667,7 @@ input {
   width: var(--quickbar-toolbar-icon-size);
   height: var(--quickbar-toolbar-icon-size);
   flex-shrink: 0;
+  transition: color 120ms ease;
 }
 
 .quickbar-toolbar-error,
