@@ -133,7 +133,7 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         optionSource: field.optionSource,
         config: configToRecord(configSelections, item),
       })
-      const options = extractOptions(result.response)
+      const options = result.options
       if (options.length > 0) {
         setFieldOptions(prev => ({ ...prev, [optionKey]: options }))
         if (!configSelections[optionKey]) {
@@ -521,25 +521,4 @@ function firstMissingConfigField(selections: ConfigSelection, item: HostCapabili
     if (!selections[configSelectionKey(item, field)]) return field
   }
   return null
-}
-
-function extractOptions(response: unknown): Array<{ value: string; label: string }> {
-  if (!response) return []
-  if (Array.isArray(response)) {
-    return response.map(option => {
-      if (typeof option === 'string') return { value: option, label: option }
-      if (typeof option === 'object' && option !== null) {
-        const optionRecord = option as Record<string, unknown>
-        return { value: String(optionRecord.value ?? optionRecord.id ?? ''), label: String(optionRecord.label ?? optionRecord.name ?? optionRecord.value ?? '') }
-      }
-      return { value: String(option), label: String(option) }
-    })
-  }
-  if (typeof response === 'object' && response !== null) {
-    const responseRecord = response as Record<string, unknown>
-    if (responseRecord.options && Array.isArray(responseRecord.options)) {
-      return extractOptions(responseRecord.options)
-    }
-  }
-  return []
 }

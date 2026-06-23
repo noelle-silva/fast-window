@@ -1,16 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app_layout;
-mod backend_lifecycle;
-mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
-mod host_capability;
 mod native_dialog;
+mod quick_bar_backend;
 mod result_window_preferences;
 mod selection_capture;
-mod selection_observer;
 mod shortcut;
 mod shutdown;
 mod single_instance;
@@ -18,7 +15,6 @@ mod standalone_tray;
 mod toolbar_display;
 mod toolbar_window;
 
-use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use control_server::{
     available_commands, random_token, start_control_server, ControlServerConfig, QUICK_BAR_APP_ID,
 };
@@ -27,6 +23,7 @@ use fw_window::{
     apply_fw_args, complete_app_ready, fw_initial_command, fw_launch_info, install_window_policy,
     parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
 };
+use quick_bar_backend::QuickBarBackendState;
 use result_window_preferences::ResultWindowPreferencesState;
 use shutdown::ShutdownState;
 use std::sync::Arc;
@@ -35,28 +32,12 @@ use toolbar_display::ToolbarDisplayModeState;
 use toolbar_window::ToolbarState;
 
 #[tauri::command]
-async fn backend_endpoint(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<BackendState>>,
-) -> Result<BackendEndpoint, String> {
-    let state_inner = state.inner().clone();
-    if let Err(error) = start_backend(app, state_inner).await {
-        state.set_runtime_error(error.clone());
-        return Err(error);
-    }
-    state.endpoint().await
-}
-
-#[tauri::command]
 fn data_dir_status(app: tauri::AppHandle) -> Result<DataDirStatus, String> {
     data_dir::data_dir_status(&app)
 }
 
 #[tauri::command]
-async fn pick_data_dir(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<BackendState>>,
-) -> Result<Option<DataDirStatus>, String> {
+fn pick_data_dir(app: tauri::AppHandle) -> Result<Option<DataDirStatus>, String> {
     let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
         dialog.set_title("选择 Quick Bar 数据目录").pick_folder()
     })?
@@ -64,29 +45,24 @@ async fn pick_data_dir(
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
-    state.stop().await;
-    state.clear_runtime_state();
-    let state_inner = state.inner().clone();
-    if let Err(error) = start_backend(app.clone(), state_inner).await {
-        state.set_runtime_error(error.clone());
-        return Err(error);
-    }
+    quick_bar_backend::ensure_ready(&app)?;
     Ok(Some(data_dir::data_dir_status(&app)?))
 }
 
 #[tauri::command]
-async fn restart_backend(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<BackendState>>,
-) -> Result<DataDirStatus, String> {
-    state.stop().await;
-    state.clear_runtime_state();
-    let state_inner = state.inner().clone();
-    if let Err(error) = start_backend(app.clone(), state_inner).await {
-        state.set_runtime_error(error.clone());
-        return Err(error);
-    }
+fn restart_backend(app: tauri::AppHandle) -> Result<DataDirStatus, String> {
+    quick_bar_backend::ensure_ready(&app)?;
     data_dir::data_dir_status(&app)
+}
+
+#[tauri::command]
+async fn quick_bar_backend_request(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<QuickBarBackendState>>,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    state.dispatch(&app, method.trim(), params).await
 }
 
 #[tauri::command]
@@ -129,8 +105,7 @@ fn main() {
     #[cfg(not(debug_assertions))]
     let context = tauri::generate_context!("tauri.conf.json");
 
-    let backend_state = Arc::new(BackendState::default());
-    let backend_state_setup = backend_state.clone();
+    let backend_state = Arc::new(QuickBarBackendState::default());
     let window_state = Arc::new(FwWindowState::default());
     let window_state_setup = window_state.clone();
     let toolbar_state = Arc::new(ToolbarState::default());
@@ -139,15 +114,11 @@ fn main() {
     let display_mode_state_setup = display_mode_state.clone();
     let result_window_preferences_state = Arc::new(ResultWindowPreferencesState::default());
     let result_window_preferences_state_setup = result_window_preferences_state.clone();
-    let selection_observer_state = Arc::new(selection_observer::SelectionObserverState::default());
+    let selection_observer_state = Arc::new(quick_bar_backend::selection_observer::SelectionObserverState::default());
     let selection_observer_state_setup = selection_observer_state.clone();
     let shortcut_state = Arc::new(shortcut::QuickBarShortcutState::default());
     let shortcut_state_setup = shortcut_state.clone();
-    let shutdown_state = ShutdownState::new(
-        backend_state.clone(),
-        window_state.clone(),
-        desktop_identifier.clone(),
-    );
+    let shutdown_state = ShutdownState::new(window_state.clone(), desktop_identifier.clone());
     let shutdown_state_setup = shutdown_state.clone();
     let shutdown_state_for_run = shutdown_state.clone();
 
@@ -162,10 +133,10 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            backend_endpoint,
             data_dir_status,
             pick_data_dir,
             restart_backend,
+            quick_bar_backend_request,
             hide_to_tray,
             quick_bar_app_ready,
             toolbar_window::quick_bar_toolbar_payload,
@@ -185,7 +156,6 @@ fn main() {
             shortcut::set_quick_bar_shortcut,
             fw_initial_command,
             fw_launch_info,
-            host_capability::get_host_capability_config
         ])
         .setup(move |app| {
             let window = app
@@ -242,7 +212,7 @@ fn main() {
                 app.handle(),
                 &result_window_preferences_state_setup,
             )?;
-            selection_observer::install(
+            quick_bar_backend::selection_observer::install(
                 app.handle().clone(),
                 selection_observer_state_setup.clone(),
                 toolbar_state_setup.clone(),
@@ -255,14 +225,7 @@ fn main() {
                 selection_observer_state_setup.clone(),
             )?;
 
-            let handle = app.handle().clone();
-            let state = backend_state_setup.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = start_backend(handle, state).await {
-                    backend_state_setup.set_runtime_error(error.clone());
-                    eprintln!("[quick-bar] {error}");
-                }
-            });
+            quick_bar_backend::ensure_ready(app.handle())?;
             Ok(())
         })
         .build(context)

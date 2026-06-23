@@ -156,7 +156,7 @@ func executeAskOnceRequest(ctx context.Context, svc *service, req AskRequest) (a
 	if entry.Error != "" {
 		return nil, errors.New(entry.Error)
 	}
-	return map[string]any{"output": entry.Output}, nil
+	return map[string]any{"text": entry.Output}, nil
 }
 
 func readReadyData(svc *service) (AppData, error) {

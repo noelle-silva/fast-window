@@ -76,6 +76,11 @@ export type RegistryButton = {
   createdAt: string
 }
 
+export type ToolbarButtonClickResult = {
+  title: string
+  text: string
+}
+
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {
   launched: false,
   standalone: true,

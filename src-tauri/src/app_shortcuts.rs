@@ -112,8 +112,9 @@ fn shortcut_targets_from_records(
             else {
                 continue;
             };
-            let shortcut = Shortcut::from_str(hotkey)
-                .map_err(|e| format!("{app_id}/{command_id} 的宿主快捷命令快捷键格式不合法: {e}"))?;
+            let shortcut = Shortcut::from_str(hotkey).map_err(|e| {
+                format!("{app_id}/{command_id} 的宿主快捷命令快捷键格式不合法: {e}")
+            })?;
             targets.push(RegisteredAppShortcutTarget {
                 app_id: app_id.clone(),
                 command_id: Some(command_id),

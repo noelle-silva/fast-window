@@ -2,10 +2,18 @@ import { invoke } from '@tauri-apps/api/core'
 import type { AppLaunchOptions } from './appLauncher'
 import type { AppCapabilityConfigField, AppCapabilityOption, AppCapabilityDescriptor, RegisteredApp } from './types'
 
-type AppCapabilityHostResponse = {
+export type AppCapabilityInvokeHostResponse = {
   appId: string
   capabilityId: string
   response: unknown
+  text: string
+}
+
+type AppCapabilityOptionsHostResponse = {
+  appId: string
+  capabilityId: string
+  response: unknown
+  options: AppCapabilityOption[]
 }
 
 type AppCapabilityListHostResponse = {
@@ -34,8 +42,8 @@ type AppCapabilityOptionsRequest = {
   config?: Record<string, unknown>
 }
 
-export async function invokeAppCapability(request: AppCapabilityRequest): Promise<AppCapabilityHostResponse> {
-  return invoke<AppCapabilityHostResponse>('app_capability_invoke', { request })
+export async function invokeAppCapability(request: AppCapabilityRequest): Promise<AppCapabilityInvokeHostResponse> {
+  return invoke<AppCapabilityInvokeHostResponse>('app_capability_invoke', { request })
 }
 
 export async function getAppCapabilityEnvVars(): Promise<Array<[string, string]>> {
@@ -49,8 +57,8 @@ export async function listAppCapabilities(apps: RegisteredApp[], options: AppCap
 }
 
 export async function queryAppCapabilityOptions(request: AppCapabilityOptionsRequest): Promise<AppCapabilityOption[]> {
-  const result = await invoke<AppCapabilityHostResponse>('app_capability_query_options', { request })
-  return capabilityOptionsFromResponse(result.response)
+  const result = await invoke<AppCapabilityOptionsHostResponse>('app_capability_query_options', { request })
+  return capabilityOptionsFromHostResponse(result.options)
 }
 
 export function appCapabilityConfig(capability: AppCapabilityDescriptor): Record<string, unknown> {
@@ -97,29 +105,17 @@ export function appCapabilityConfigFieldsState(capability: AppCapabilityDescript
   }
 }
 
-export function capabilityResultText(response: unknown): string {
-  if (typeof response === 'string') {
-    const text = response.trim()
-    if (text) return text
-    throw new Error('能力返回结果缺少文本内容')
-  }
-  if (!response || typeof response !== 'object') throw new Error('能力返回结果缺少文本内容')
-  const value = response as Record<string, unknown>
-  const text = value.result
-  if (typeof text === 'string' && text.trim()) return text.trim()
+export function capabilityResultText(response: AppCapabilityInvokeHostResponse): string {
+  const text = response.text.trim()
+  if (text) return text
   throw new Error('能力返回结果缺少文本内容')
 }
 
-function capabilityOptionsFromResponse(response: unknown): AppCapabilityOption[] {
-  if (Array.isArray(response)) return response.map(optionFromValue)
-  if (!response || typeof response !== 'object') {
-    throw new Error('能力配置选项响应格式不合法：响应必须是数组或包含 options 数组的对象')
+function capabilityOptionsFromHostResponse(options: AppCapabilityOption[]): AppCapabilityOption[] {
+  if (!Array.isArray(options)) {
+    throw new Error('能力配置选项响应格式不合法：宿主整理后的 options 必须是数组')
   }
-  const value = response as Record<string, unknown>
-  if (!Array.isArray(value.options)) {
-    throw new Error('能力配置选项响应格式不合法：缺少 options 数组')
-  }
-  return value.options.map(optionFromValue)
+  return options.map(optionFromValue)
 }
 
 function configFieldFromValue(capability: AppCapabilityDescriptor, value: unknown, index: number): AppCapabilityConfigField {

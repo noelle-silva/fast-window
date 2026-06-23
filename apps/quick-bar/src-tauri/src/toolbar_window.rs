@@ -14,6 +14,7 @@ use crate::{
         self, ResultWindowCloseMode, ResultWindowDisplayMode, ResultWindowPreferencesState,
         DEFAULT_RESULT_HEIGHT, DEFAULT_RESULT_WIDTH, MIN_RESULT_HEIGHT, MIN_RESULT_WIDTH,
     },
+    quick_bar_backend::{ToolbarExternalAction, ToolbarRuntimeCommand, ToolbarRuntimeFacts},
     selection_capture::SelectionCapture,
 };
 
@@ -91,12 +92,6 @@ struct ToolbarBounds {
     height: u32,
 }
 
-pub(crate) enum ToolbarExternalAction {
-    MouseDown { x: i32, y: i32 },
-    MouseWheel,
-    KeyDown { vk_code: i32, sys: bool },
-}
-
 impl Default for ToolbarState {
     fn default() -> Self {
         Self {
@@ -142,6 +137,22 @@ impl ToolbarState {
             .lock()
             .map(|value| value.is_some())
             .map_err(|_| "Quick Bar 浮动条上下文锁定失败".to_string())
+    }
+
+    pub(crate) fn runtime_facts_for_action(
+        &self,
+        action: &ToolbarExternalAction,
+    ) -> Result<ToolbarRuntimeFacts, String> {
+        let pointer_inside_toolbar = match action {
+            ToolbarExternalAction::MouseDown { x, y } => self
+                .toolbar_bounds()?
+                .is_some_and(|bounds| bounds.contains(*x, *y)),
+            ToolbarExternalAction::MouseWheel | ToolbarExternalAction::KeyDown { .. } => false,
+        };
+        Ok(ToolbarRuntimeFacts {
+            has_active_context: self.has_active_context()?,
+            pointer_inside_toolbar,
+        })
     }
 
     fn set_toolbar_bounds(&self, bounds: ToolbarBounds) -> Result<(), String> {
@@ -459,6 +470,18 @@ pub(crate) fn show_toolbar_from_capture(
     show_toolbar(app, state, context_from_capture(capture))
 }
 
+pub(crate) fn apply_toolbar_command(
+    app: &tauri::AppHandle,
+    state: &Arc<ToolbarState>,
+    command: ToolbarRuntimeCommand,
+) -> Result<(), String> {
+    match command {
+        ToolbarRuntimeCommand::None => Ok(()),
+        ToolbarRuntimeCommand::Show(capture) => show_toolbar_from_capture(app, state, capture).map(|_| ()),
+        ToolbarRuntimeCommand::Hide => hide_toolbar(app, state),
+    }
+}
+
 pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Result<(), String> {
     state.cancel_toolbar_layout()?;
     state.clear_active_context()?;
@@ -470,33 +493,6 @@ pub(crate) fn hide_toolbar(app: &tauri::AppHandle, state: &ToolbarState) -> Resu
         set_toolbar_visibility(&window, false);
     }
     Ok(())
-}
-
-pub(crate) fn hide_toolbar_for_external_action(
-    app: &tauri::AppHandle,
-    state: &ToolbarState,
-    action: ToolbarExternalAction,
-) -> Result<(), String> {
-    if !state.has_active_context()? {
-        return Ok(());
-    }
-
-    match action {
-        ToolbarExternalAction::MouseDown { x, y } => {
-            if state
-                .toolbar_bounds()?
-                .is_some_and(|bounds| bounds.contains(x, y))
-            {
-                return Ok(());
-            }
-        }
-        ToolbarExternalAction::KeyDown { vk_code, sys } if sys || is_modifier_key(vk_code) => {
-            return Ok(())
-        }
-        ToolbarExternalAction::MouseWheel | ToolbarExternalAction::KeyDown { .. } => {}
-    }
-
-    hide_toolbar(app, state)
 }
 
 fn set_toolbar_visibility(window: &WebviewWindow, visible: bool) {
@@ -607,10 +603,6 @@ impl ToolbarBounds {
             && y >= self.y
             && y <= self.y + self.height as i32
     }
-}
-
-fn is_modifier_key(vk_code: i32) -> bool {
-    matches!(vk_code, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C)
 }
 
 fn ensure_result_window(

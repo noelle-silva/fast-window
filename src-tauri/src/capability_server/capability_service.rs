@@ -8,7 +8,9 @@ use crate::app_capabilities::{
     app_capability_invoke_inner, app_capability_query_options_inner, describe_app_capabilities,
     AppCapabilityInvokeRequest, AppCapabilityLaunchPolicy, AppCapabilityOptionsRequest,
 };
-use crate::app_lifecycle::manager::{AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig};
+use crate::app_lifecycle::manager::{
+    AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig,
+};
 
 pub(super) struct CapabilityService {
     app: AppHandle,
@@ -119,18 +121,19 @@ async fn capability_list(
         }
         let app_name = app_display_name(&record);
         let app_launch = app_launch_value(&record);
-        let app_config = match serde_json::from_value::<RegisteredAppLaunchConfig>(app_launch.clone()) {
-            Ok(app_config) => app_config,
-            Err(error) => {
-                errors.push(serde_json::json!({
-                    "appId": app_id,
-                    "appName": app_name,
-                    "message": format!("应用启动信息不完整: {error}"),
-                    "canLaunch": false,
-                }));
-                continue;
-            }
-        };
+        let app_config =
+            match serde_json::from_value::<RegisteredAppLaunchConfig>(app_launch.clone()) {
+                Ok(app_config) => app_config,
+                Err(error) => {
+                    errors.push(serde_json::json!({
+                        "appId": app_id,
+                        "appName": app_name,
+                        "message": format!("应用启动信息不完整: {error}"),
+                        "canLaunch": false,
+                    }));
+                    continue;
+                }
+            };
         let runtime_capabilities = match describe_app_capabilities(
             app.clone(),
             lifecycle.clone(),
@@ -154,7 +157,8 @@ async fn capability_list(
         for capability in runtime_capabilities {
             let capability = serde_json::to_value(capability)
                 .map_err(|e| format!("序列化应用能力清单失败: {e}"))?;
-            let Some(command_id) = capability.get("id").and_then(Value::as_str).map(str::trim) else {
+            let Some(command_id) = capability.get("id").and_then(Value::as_str).map(str::trim)
+            else {
                 continue;
             };
             if command_id.is_empty() {
@@ -188,7 +192,10 @@ struct CapabilityListQuery {
 
 impl CapabilityListQuery {
     fn from_path(path: &str) -> Result<Self, String> {
-        let query = path.split_once('?').map(|(_, query)| query).unwrap_or_default();
+        let query = path
+            .split_once('?')
+            .map(|(_, query)| query)
+            .unwrap_or_default();
         let mut app_id = None;
         let mut launch_policy = AppCapabilityLaunchPolicy::RunningOnly;
 

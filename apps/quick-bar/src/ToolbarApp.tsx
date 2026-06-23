@@ -4,9 +4,8 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createDirectClient } from './directClient'
 import { fetchRegistryButtons } from './registryClient'
-import { invokeCapability } from './hostCapabilityClient'
 import { ButtonIconGlyph } from './buttonIcons'
-import type { RegistryButton, ToolbarPayload } from './types'
+import type { RegistryButton, ToolbarButtonClickResult, ToolbarPayload } from './types'
 
 const appWindow = getCurrentWindow()
 
@@ -138,15 +137,15 @@ export function ToolbarApp() {
       await invoke('show_quick_bar_result_popup', { title: button.title })
       try {
         client = await createDirectClient()
-        const response = await invokeCapability(client, {
-          app: button.app,
-          capabilityId: button.capabilityId,
-          input: text,
-          config: button.config,
+        const response = await client.request<ToolbarButtonClickResult>('quickBar.toolbar.buttonClick', {
+          buttonId: button.id,
+          selectedText: text,
         })
-        const resultText = extractTextFromResponse(response.response)
+        if (typeof response.title !== 'string' || typeof response.text !== 'string') {
+          throw new Error('能力调用结果格式不正确')
+        }
         await invoke('update_quick_bar_result_popup', {
-          payload: { title: button.title, status: 'done', text: resultText },
+          payload: { title: response.title, status: 'done', text: response.text },
         })
       } catch (e) {
         await invoke('update_quick_bar_result_popup', {
@@ -197,17 +196,3 @@ function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
 }
 
-function extractTextFromResponse(response: unknown): string {
-  if (response === null || response === undefined) return ''
-  if (typeof response === 'string') return response
-  if (typeof response === 'object') {
-    const obj = response as Record<string, unknown>
-    if (typeof obj.text === 'string') return obj.text
-    if (typeof obj.content === 'string') return obj.content
-    if (typeof obj.result === 'string') return obj.result
-    if (typeof obj.output === 'string') return obj.output
-    if (typeof obj.message === 'string') return obj.message
-    return JSON.stringify(response, null, 2)
-  }
-  return String(response)
-}

@@ -9,6 +9,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
@@ -16,15 +17,19 @@ use tokio::{
 };
 
 use crate::{
+    quick_bar_backend::{self, ToolbarExternalAction},
     selection_capture::SelectionCapture,
-    toolbar_display::{ToolbarDisplayMode, ToolbarDisplayModeState},
-    toolbar_window::{self, ToolbarState},
+    toolbar_display::ToolbarDisplayModeState,
+    toolbar_window::ToolbarState,
 };
 
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const CURRENT_SELECTION_TIMEOUT_MS: u64 = 1500;
+const SELECTION_RUNTIME_DIR: &str = "selection-runtime";
+const SELECTION_WORKER_FILE: &str = "selection-hook-worker.cjs";
+const SELECTION_RUNTIME_NODE: &str = "node/node.exe";
 
 #[derive(Clone, PartialEq, Eq)]
 struct SelectionSignature {
@@ -153,7 +158,7 @@ impl SelectionObserverState {
         }))
     }
 
-    fn remember_observed_selection(&self, capture: SelectionCapture) -> Result<(), String> {
+    pub(crate) fn remember_observed_selection(&self, capture: SelectionCapture) -> Result<(), String> {
         let mut latest = self
             .latest_evidence
             .lock()
@@ -230,21 +235,13 @@ impl SelectionObserverState {
     }
 }
 
-pub(crate) fn show_toolbar_for_capture(
-    app: &tauri::AppHandle,
-    toolbar_state: Arc<ToolbarState>,
-    capture: SelectionCapture,
-) -> Result<(), String> {
-    toolbar_window::show_toolbar_from_capture(app, &toolbar_state, capture).map(|_| ())
-}
-
 pub(crate) fn install(
     app: tauri::AppHandle,
     observer_state: Arc<SelectionObserverState>,
     toolbar_state: Arc<ToolbarState>,
     display_mode_state: Arc<ToolbarDisplayModeState>,
 ) {
-    match spawn_worker() {
+    match spawn_worker(&app) {
         Ok((mut child, stdout, stdin)) => {
             if let Err(error) = spawn_stdin_writer(observer_state.clone(), stdin) {
                 eprintln!("[quick-bar] 统一取词路线命令通道启动失败: {error}");
@@ -267,18 +264,20 @@ pub(crate) fn install(
     }
 }
 
-fn spawn_worker() -> Result<(Child, ChildStdout, ChildStdin), String> {
-    let app_dir = resolve_app_dir()?;
-    let worker = app_dir.join("scripts").join("selection-hook-worker.cjs");
+fn spawn_worker(app: &tauri::AppHandle) -> Result<(Child, ChildStdout, ChildStdin), String> {
+    let runtime_dir = resolve_selection_runtime_dir(app)?;
+    let worker = runtime_dir.join(SELECTION_WORKER_FILE);
+    let node = runtime_dir.join(SELECTION_RUNTIME_NODE);
     if !worker.is_file() {
         return Err(format!("取词小帮手不存在: {}", worker.display()));
     }
+    if !node.is_file() {
+        return Err(format!("取词运行程序不存在: {}", node.display()));
+    }
 
-    let node =
-        std::env::var("QUICK_BAR_SELECTION_HOOK_NODE").unwrap_or_else(|_| "node".to_string());
     let mut cmd = Command::new(node);
     cmd.arg(worker);
-    cmd.current_dir(app_dir);
+    cmd.current_dir(runtime_dir);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
@@ -409,8 +408,8 @@ fn handle_worker_message(
         } => {
             let action = match action.as_str() {
                 "mouse-down" => toolbar_action_from_mouse_down(x, y),
-                "mouse-wheel" => Some(toolbar_window::ToolbarExternalAction::MouseWheel),
-                "key-down" => Some(toolbar_window::ToolbarExternalAction::KeyDown {
+                "mouse-wheel" => Some(ToolbarExternalAction::MouseWheel),
+                "key-down" => Some(ToolbarExternalAction::KeyDown {
                     vk_code: vk_code.unwrap_or_default(),
                     sys,
                 }),
@@ -420,10 +419,14 @@ fn handle_worker_message(
                 return;
             };
             *last_signature = None;
-            if let Err(error) =
-                toolbar_window::hide_toolbar_for_external_action(app, &toolbar_state, action)
-            {
-                eprintln!("[quick-bar] {error}");
+            match toolbar_state.runtime_facts_for_action(&action) {
+                Ok(facts) => {
+                    let command = quick_bar_backend::handle_toolbar_external_action(facts, action);
+                    if let Err(error) = crate::toolbar_window::apply_toolbar_command(app, &toolbar_state, command) {
+                        eprintln!("[quick-bar] {error}");
+                    }
+                }
+                Err(error) => eprintln!("[quick-bar] {error}"),
             }
         }
         SelectionWorkerMessage::Selection {
@@ -442,17 +445,19 @@ fn handle_worker_message(
                 return;
             }
             *last_signature = Some(signature);
-            if let Err(error) = observer_state.remember_observed_selection(capture.clone()) {
-                eprintln!("[quick-bar] 记录选区位置失败: {error}");
-                return;
-            }
             eprintln!("[quick-bar] 已接入选区: {program_name}");
-            if display_mode_state.mode() == ToolbarDisplayMode::Automatic {
-                if let Err(error) =
-                    show_toolbar_for_capture(app, Arc::clone(&toolbar_state), capture)
-                {
-                    eprintln!("[quick-bar] 显示浮动条失败: {error}");
+            let command = quick_bar_backend::handle_observed_selection(
+                display_mode_state,
+                Arc::clone(&observer_state),
+                capture,
+            );
+            match command {
+                Ok(command) => {
+                    if let Err(error) = crate::toolbar_window::apply_toolbar_command(app, &toolbar_state, command) {
+                        eprintln!("[quick-bar] {error}");
+                    }
                 }
+                Err(error) => eprintln!("[quick-bar] 处理选区事实失败: {error}"),
             }
         }
         SelectionWorkerMessage::CurrentSelection { request_id, text } => {
@@ -473,38 +478,35 @@ fn handle_worker_message(
     }
 }
 
-fn toolbar_action_from_mouse_down(
-    x: Option<i32>,
-    y: Option<i32>,
-) -> Option<toolbar_window::ToolbarExternalAction> {
-    Some(toolbar_window::ToolbarExternalAction::MouseDown { x: x?, y: y? })
+fn toolbar_action_from_mouse_down(x: Option<i32>, y: Option<i32>) -> Option<ToolbarExternalAction> {
+    Some(ToolbarExternalAction::MouseDown { x: x?, y: y? })
 }
 
-fn resolve_app_dir() -> Result<PathBuf, String> {
+fn resolve_selection_runtime_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
-
-    if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
-        if let Some(app_dir) = PathBuf::from(dir).parent() {
-            candidates.push(app_dir.to_path_buf());
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join(SELECTION_RUNTIME_DIR));
+    }
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            candidates.push(exe_dir.join(SELECTION_RUNTIME_DIR));
         }
     }
-    if let Ok(current) = std::env::current_dir() {
-        candidates.push(current.join("apps").join("quick-bar"));
-        candidates.push(current);
-    }
 
-    for candidate in candidates {
-        if candidate.join("package.json").is_file()
-            && candidate
-                .join("scripts")
-                .join("selection-hook-worker.cjs")
-                .is_file()
+    for candidate in &candidates {
+        if candidate.join(SELECTION_WORKER_FILE).is_file()
+            && candidate.join(SELECTION_RUNTIME_NODE).is_file()
         {
-            return Ok(candidate);
+            return Ok(candidate.to_path_buf());
         }
     }
 
-    Err("没有找到 Quick Bar 取词目录".to_string())
+    let searched = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!("没有找到 Quick Bar 取词运行资源: {searched}"))
 }
 
 fn hide_worker_console(cmd: &mut Command) {

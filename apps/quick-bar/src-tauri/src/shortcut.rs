@@ -7,8 +7,8 @@ use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::{
-    selection_observer::{self, SelectionObserverState},
-    toolbar_window::{self, ToolbarState},
+    quick_bar_backend::{self, selection_observer::SelectionObserverState},
+    toolbar_window::ToolbarState,
 };
 
 const CONFIG_FILE: &str = "quick-bar-shortcut.json";
@@ -203,23 +203,15 @@ fn shortcut_handler(
         let toolbar_state = toolbar_state.clone();
         let selection_observer_state = selection_observer_state.clone();
         tauri::async_runtime::spawn(async move {
-            match selection_observer_state.current_capture().await {
-                Ok(Some(capture)) => {
-                    if let Err(error) = selection_observer::show_toolbar_for_capture(
-                        &app,
-                        toolbar_state.clone(),
-                        capture,
-                    ) {
-                        eprintln!("[quick-bar] {error}");
-                    }
-                }
-                Ok(None) => {
-                    if let Err(error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
+            let command = quick_bar_backend::handle_shortcut_pressed(selection_observer_state).await;
+            match command {
+                Ok(command) => {
+                    if let Err(error) = crate::toolbar_window::apply_toolbar_command(&app, &toolbar_state, command) {
                         eprintln!("[quick-bar] {error}");
                     }
                 }
                 Err(error) => {
-                    if let Err(hide_error) = toolbar_window::hide_toolbar(&app, &toolbar_state) {
+                    if let Err(hide_error) = crate::toolbar_window::hide_toolbar(&app, &toolbar_state) {
                         eprintln!("[quick-bar] {hide_error}");
                     }
                     eprintln!("[quick-bar] {error}");

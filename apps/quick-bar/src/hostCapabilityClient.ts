@@ -37,6 +37,19 @@ export type CapabilityInvokeResponse = {
   appId: string
   capabilityId: string
   response: unknown
+  text: string
+}
+
+export type CapabilityOption = {
+  value: string
+  label: string
+}
+
+export type CapabilityOptionsResponse = {
+  appId: string
+  capabilityId: string
+  response: unknown
+  options: CapabilityOption[]
 }
 
 export type HostCapabilityError = {
@@ -73,6 +86,33 @@ export async function invokeCapability(client: DirectClient, request: Capability
   return client.request<CapabilityInvokeResponse>('quickBar.capability.invoke', request)
 }
 
-export async function queryCapabilityOptions(client: DirectClient, request: CapabilityQueryOptionsRequest): Promise<CapabilityInvokeResponse> {
-  return client.request<CapabilityInvokeResponse>('quickBar.capability.options', request)
+export async function queryCapabilityOptions(client: DirectClient, request: CapabilityQueryOptionsRequest): Promise<CapabilityOptionsResponse> {
+  const data = await client.request<CapabilityOptionsResponse>('quickBar.capability.options', request)
+  return {
+    ...data,
+    options: capabilityOptionsFromHostResponse(data.options),
+  }
+}
+
+function capabilityOptionsFromHostResponse(options: CapabilityOption[]): CapabilityOption[] {
+  if (!Array.isArray(options)) {
+    throw new Error('宿主能力服务协议错误: options 必须是数组')
+  }
+  return options.map(optionFromHostValue)
+}
+
+function optionFromHostValue(value: unknown): CapabilityOption {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('宿主能力服务协议错误: option 必须是对象')
+  }
+  const option = value as Record<string, unknown>
+  if (typeof option.value !== 'string' || typeof option.label !== 'string') {
+    throw new Error('宿主能力服务协议错误: option 必须包含 value 和 label')
+  }
+  const optionValue = option.value.trim()
+  const label = option.label.trim()
+  if (!optionValue || !label) {
+    throw new Error('宿主能力服务协议错误: option 的 value 和 label 不能为空')
+  }
+  return { value: optionValue, label }
 }

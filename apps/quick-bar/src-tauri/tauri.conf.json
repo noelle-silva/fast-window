@@ -4,7 +4,7 @@
   "version": "0.1.1",
   "identifier": "com.fastwindow.quickbar",
   "build": {
-    "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
+    "beforeDevCommand": "pnpm build:resources && pnpm dev",
     "devUrl": "http://127.0.0.1:1435",
     "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../dist"
@@ -28,11 +28,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/quick-bar-backend"
-    ],
     "resources": {
-      "../assets/": "assets"
+      "../assets/": "assets",
+      "target/resources/selection-runtime/": "selection-runtime"
     },
     "icon": [
       "icons/32x32.png",

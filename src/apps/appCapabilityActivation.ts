@@ -17,6 +17,6 @@ export async function activateAppCapability({ app, capability, query, launchOpti
     config: appCapabilityConfig({ ...capability, id: capability.capabilityId }),
     launchOptions,
   })
-  const text = capabilityResultText(result.response)
+  const text = capabilityResultText(result)
   return `能力返回：${text}`
 }
