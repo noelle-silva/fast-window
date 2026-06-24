@@ -32,6 +32,7 @@
   "commands": [
     { "id": "open-settings", "title": "打开收藏集设置" },
     { "id": "add-folder", "title": "添加收藏文件夹" },
-    { "id": "open-folders", "title": "打开收藏集" }
+    { "id": "open-folders", "title": "打开收藏集" },
+    { "id": "add-collection", "title": "添加收藏" }
   ]
 }

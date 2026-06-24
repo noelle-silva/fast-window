@@ -504,7 +504,10 @@ func run() error {
 	}
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	controlServer := &backendControlServer{svc: svc, token: token}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/control", controlServer.handleControl)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("token") != token {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -518,7 +521,8 @@ func run() error {
 			return
 		}
 		go handleConnection(conn, svc)
-	})}
+	})
+	server := &http.Server{Handler: mux}
 
 	addr := listener.Addr().(*net.TCPAddr)
 	writeReady(addr.Port)

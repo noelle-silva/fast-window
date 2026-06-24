@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::backend_control_client::{handle_capability_action, is_capability_action};
 use crate::fw_window::{apply_control_action, FwWindowState};
 
 pub(crate) const FOLDERS_APP_ID: &str = "folders";
@@ -14,6 +15,20 @@ pub(crate) const FOLDERS_APP_ID: &str = "folders";
 pub(crate) struct AppCommandDescriptor {
     pub(crate) id: &'static str,
     pub(crate) title: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) config_fields: Option<&'static [AppCommandConfigField]>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCommandConfigField {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) option_source: &'static str,
 }
 
 #[derive(Clone, Serialize)]
@@ -52,16 +67,57 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "open-settings",
             title: "打开收藏集设置",
+            kind: Some("hostShortcut"),
+            description: None,
+            config_fields: None,
         },
         AppCommandDescriptor {
             id: "add-folder",
             title: "添加收藏文件夹",
+            kind: Some("hostShortcut"),
+            description: None,
+            config_fields: None,
         },
         AppCommandDescriptor {
             id: "open-folders",
             title: "打开收藏集",
+            kind: Some("hostShortcut"),
+            description: None,
+            config_fields: None,
+        },
+        AppCommandDescriptor {
+            id: "add-collection",
+            title: "添加收藏",
+            kind: Some("capability"),
+            description: Some("在收藏集指定片区和分组下创建收藏。"),
+            config_fields: Some(&[
+                AppCommandConfigField {
+                    id: "categoryId",
+                    label: "片区",
+                    option_source: "list-categories",
+                },
+                AppCommandConfigField {
+                    id: "groupId",
+                    label: "分组",
+                    option_source: "list-groups",
+                },
+            ]),
         },
     ]
+}
+
+fn available_host_shortcuts() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some("hostShortcut"))
+        .collect()
+}
+
+fn available_capabilities() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some("capability"))
+        .collect()
 }
 
 pub(crate) fn random_token(prefix: &str) -> String {
@@ -245,7 +301,7 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "capabilities": []
+                "capabilities": available_capabilities()
             }),
         );
         return;
@@ -260,9 +316,21 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "hostShortcuts": available_commands()
+                "hostShortcuts": available_host_shortcuts()
             }),
         );
+        return;
+    }
+
+    if is_capability_action(action) {
+        match handle_capability_action(app, action, &value) {
+            Ok(response) => write_control_response(&mut stream, 200, response),
+            Err(error) => write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            ),
+        }
         return;
     }
 
