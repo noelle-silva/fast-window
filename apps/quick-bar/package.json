@@ -1,7 +1,7 @@
 {
   "name": "@fast-window/app-quick-bar",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "build:resources": "node scripts/build-resources.mjs",
