@@ -22,6 +22,8 @@ type ConfigSelection = Record<string, string>
 
 type FieldOptions = Record<string, Array<{ value: string; label: string }>>
 
+type RegisterMode = 'direct' | 'lazySelect'
+
 type AppCapabilityGroup = {
   appId: string
   appName: string
@@ -182,11 +184,11 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
     setButtonIconDrafts(prev => ({ ...prev, [capabilityKey(item)]: value }))
   }, [])
 
-  const handleRegister = React.useCallback(async (item: HostCapabilityItem) => {
+  const handleRegister = React.useCallback(async (item: HostCapabilityItem, mode: RegisterMode) => {
     setBusy(true)
     setMessage(null)
     try {
-      const missingField = firstMissingConfigField(configSelections, item)
+      const missingField = mode === 'direct' ? firstMissingConfigField(configSelections, item) : null
       if (missingField) {
         setMessage(`请先选择：${missingField.label}`)
         return
@@ -203,7 +205,9 @@ export function CapabilityBrowser(props: CapabilityBrowserProps) {
         capabilityId: item.capabilityId,
         title,
         icon,
-        config: configToRecord(configSelections, item),
+        mode,
+        config: mode === 'lazySelect' ? {} : configToRecord(configSelections, item),
+        configFields: item.configFields ?? [],
       })
       setMessage(`已注册：${title}`)
     } catch (registerError) {
@@ -317,7 +321,7 @@ function CapabilityRegisterModal(props: {
   onConfigChange: (item: HostCapabilityItem, field: HostCapabilityConfigField, value: string) => void
   onTitleChange: (item: HostCapabilityItem, value: string) => void
   onIconChange: (item: HostCapabilityItem, value: string) => void
-  onRegister: (item: HostCapabilityItem) => void
+  onRegister: (item: HostCapabilityItem, mode: RegisterMode) => void
 }) {
   const {
     group,
@@ -422,9 +426,14 @@ function CapabilityRegisterModal(props: {
                 </label>
 
                 <div className="quickbar-capability-card-actions">
-                  <QuickActionButton variant="primary" icon={<Plus size={16} />} onClick={() => onRegister(selectedCapability)} disabled={busy}>
+                  <QuickActionButton variant="primary" icon={<Plus size={16} />} onClick={() => onRegister(selectedCapability, 'direct')} disabled={busy}>
                     注册为悬浮栏按钮
                   </QuickActionButton>
+                  {hasConfigFields(selectedCapability) ? (
+                    <QuickActionButton variant="secondary" icon={<Plus size={16} />} onClick={() => onRegister(selectedCapability, 'lazySelect')} disabled={busy}>
+                      注册为临时选择
+                    </QuickActionButton>
+                  ) : null}
                 </div>
               </>
             ) : (
@@ -503,6 +512,10 @@ function configToRecord(selections: ConfigSelection, item: HostCapabilityItem): 
 
 function configSelectionKey(item: HostCapabilityItem, field: HostCapabilityConfigField): string {
   return `${capabilityKey(item)}:${field.id}`
+}
+
+function hasConfigFields(item: HostCapabilityItem | null): boolean {
+  return Boolean(item?.configFields?.length)
 }
 
 function capabilityKey(item: HostCapabilityItem): string {

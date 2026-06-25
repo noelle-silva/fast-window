@@ -862,6 +862,94 @@ input {
   font-size: 13px;
 }
 
+.quickbar-result-selection-form {
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.quickbar-result-selection-intro {
+  margin: 0;
+  color: var(--quickbar-floating-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.quickbar-result-selection-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.quickbar-result-config-field {
+  display: grid;
+  gap: 5px;
+}
+
+.quickbar-result-config-field-label {
+  color: var(--quickbar-floating-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.quickbar-result-config-field select {
+  width: 100%;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: var(--quickbar-floating-text);
+  background: rgba(255, 255, 255, 0.84);
+  font: inherit;
+  font-size: 13px;
+}
+
+.quickbar-result-config-field-note {
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: var(--quickbar-floating-muted);
+  background: rgba(255, 255, 255, 0.36);
+  font-size: 12px;
+}
+
+.quickbar-result-selection-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quickbar-result-selection-primary,
+.quickbar-result-selection-secondary {
+  appearance: none;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.quickbar-result-selection-primary {
+  color: #ffffff;
+  background: linear-gradient(135deg, #475569, #111827);
+}
+
+.quickbar-result-selection-secondary {
+  color: var(--quickbar-floating-muted);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.quickbar-result-selection-primary:hover,
+.quickbar-result-selection-primary:focus-visible,
+.quickbar-result-selection-secondary:hover,
+.quickbar-result-selection-secondary:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .quickbar-result-window-section {
   margin-top: 16px;
 }
@@ -1034,6 +1122,31 @@ input {
   color: var(--quickbar-muted);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.quickbar-button-card-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quickbar-button-mode-badge {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.quickbar-button-mode-badge-direct {
+  color: #475569;
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.quickbar-button-mode-badge-lazy {
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.12);
 }
 
 .quickbar-button-status {
@@ -1589,6 +1702,7 @@ input {
 
 .quickbar-capability-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

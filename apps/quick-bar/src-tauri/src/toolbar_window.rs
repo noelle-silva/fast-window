@@ -60,6 +60,16 @@ pub(crate) struct ResultPayload {
     text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     error_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capability_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    config_fields: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -390,6 +400,11 @@ pub(crate) async fn show_quick_bar_result_popup(
         status: "loading".to_string(),
         text: None,
         error_text: None,
+        selected_text: None,
+        app: None,
+        app_id: None,
+        capability_id: None,
+        config_fields: None,
     };
     state.set_result(result.clone())?;
     ensure_result_window(&app, Arc::clone(&state), Arc::clone(&preferences_state))?;
@@ -792,7 +807,7 @@ fn popup_position(
 }
 
 fn validate_result_status(status: &str) -> Result<(), String> {
-    if matches!(status, "loading" | "done" | "error") {
+    if matches!(status, "loading" | "done" | "error" | "selecting") {
         return Ok(());
     }
     Err("Quick Bar 结果状态不合法".to_string())

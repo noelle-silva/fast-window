@@ -73,9 +73,22 @@ struct ToolbarButtonClickParams {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ToolbarButtonClickResult {
+struct ToolbarButtonDirectResult {
+    kind: &'static str,
     title: String,
     text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolbarButtonLazySelectResult {
+    kind: &'static str,
+    title: String,
+    button_id: String,
+    app: Value,
+    app_id: String,
+    capability_id: String,
+    config_fields: Value,
 }
 
 pub(crate) enum ToolbarRuntimeCommand {
@@ -148,8 +161,24 @@ impl QuickBarBackendState {
             return Err("当前没有可用的划词内容".to_string());
         }
         let button = self.with_registry_lock(|| registry::find_enabled(app, button_id))?;
+        if button.mode == registry::RegistryButtonMode::LazySelect {
+            let config_fields = button.config_fields.clone();
+            if !config_fields.as_array().is_some_and(|fields| !fields.is_empty()) {
+                return Err("临时选择按钮缺少配置项".to_string());
+            }
+            return to_value(ToolbarButtonLazySelectResult {
+                kind: "lazySelect",
+                title: button.title,
+                button_id: button.id,
+                app: button.app,
+                app_id: button.app_id,
+                capability_id: button.capability_id,
+                config_fields,
+            });
+        }
         let response = host_capability::invoke_for_button(&button, selected_text).await?;
-        to_value(ToolbarButtonClickResult {
+        to_value(ToolbarButtonDirectResult {
+            kind: "directResult",
             title: button.title,
             text: extract_response_text(response)?,
         })

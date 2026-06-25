@@ -141,11 +141,31 @@ export function ToolbarApp() {
           buttonId: button.id,
           selectedText: text,
         })
-        if (typeof response.title !== 'string' || typeof response.text !== 'string') {
+        if (response.kind === 'directResult') {
+          if (typeof response.title !== 'string' || typeof response.text !== 'string') {
+            throw new Error('能力调用结果格式不正确')
+          }
+          await invoke('update_quick_bar_result_popup', {
+            payload: { title: response.title, status: 'done', text: response.text },
+          })
+          return
+        }
+        if (response.kind !== 'lazySelect') {
           throw new Error('能力调用结果格式不正确')
         }
+        if (!response.app || typeof response.app !== 'object' || typeof response.appId !== 'string' || typeof response.capabilityId !== 'string' || !Array.isArray(response.configFields)) {
+          throw new Error('临时选择结果格式不正确')
+        }
         await invoke('update_quick_bar_result_popup', {
-          payload: { title: response.title, status: 'done', text: response.text },
+          payload: {
+            title: response.title,
+            status: 'selecting',
+            selectedText: text,
+            app: response.app,
+            appId: response.appId,
+            capabilityId: response.capabilityId,
+            configFields: response.configFields,
+          },
         })
       } catch (e) {
         await invoke('update_quick_bar_result_popup', {

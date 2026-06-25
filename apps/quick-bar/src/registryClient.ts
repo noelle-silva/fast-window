@@ -1,4 +1,5 @@
-import type { DirectClient, RegistryButton } from './types'
+import type { HostCapabilityConfigField } from './hostCapabilityClient'
+import type { DirectClient, RegistryButton, RegistryButtonMode } from './types'
 
 export type AddRegistryButtonInput = {
   app: Record<string, unknown>
@@ -7,6 +8,8 @@ export type AddRegistryButtonInput = {
   title: string
   icon?: string
   config: Record<string, unknown>
+  mode?: RegistryButtonMode
+  configFields?: HostCapabilityConfigField[]
 }
 
 export type UpdateRegistryButtonInput = {

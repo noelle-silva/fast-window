@@ -7,6 +7,13 @@ use crate::{data_dir, quick_bar_backend};
 
 const REGISTRY_FILE: &str = "registry.json";
 
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RegistryButtonMode {
+    Direct,
+    LazySelect,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegistryButton {
@@ -16,7 +23,11 @@ pub(crate) struct RegistryButton {
     pub(crate) capability_id: String,
     pub(crate) title: String,
     pub(crate) icon: String,
+    #[serde(default = "default_button_mode")]
+    pub(crate) mode: RegistryButtonMode,
     pub(crate) config: Value,
+    #[serde(default)]
+    pub(crate) config_fields: Value,
     pub(crate) enabled: Option<bool>,
     pub(crate) created_at: String,
 }
@@ -38,6 +49,10 @@ struct AddRegistryButtonParams {
     icon: String,
     #[serde(default)]
     config: Value,
+    #[serde(default = "default_button_mode")]
+    mode: RegistryButtonMode,
+    #[serde(default)]
+    config_fields: Value,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +95,11 @@ pub(crate) fn add(app: &tauri::AppHandle, params: Value) -> Result<RegistryButto
     let mut doc = read_doc(app)?;
     let id = new_button_id()?;
     let icon = resolve_icon(&input.icon, &format!("{id}:{app_id}:{capability_id}:{title}"));
+    let mode = input.mode;
+    let config = match &mode {
+        RegistryButtonMode::Direct => non_null_object(input.config),
+        RegistryButtonMode::LazySelect => serde_json::json!({}),
+    };
     let button = RegistryButton {
         id,
         app: input.app,
@@ -87,7 +107,9 @@ pub(crate) fn add(app: &tauri::AppHandle, params: Value) -> Result<RegistryButto
         capability_id,
         title,
         icon,
-        config: non_null_object(input.config),
+        mode,
+        config,
+        config_fields: input.config_fields,
         enabled: Some(true),
         created_at: quick_bar_backend::now_text()?,
     };
@@ -199,6 +221,10 @@ fn normalize_doc(mut doc: RegistryDoc) -> RegistryDoc {
         button.icon = resolve_icon(&button.icon, &icon_seed(button));
     }
     doc
+}
+
+fn default_button_mode() -> RegistryButtonMode {
+    RegistryButtonMode::Direct
 }
 
 fn icon_seed(button: &RegistryButton) -> String {

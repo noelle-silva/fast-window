@@ -1,3 +1,5 @@
+import type { HostCapabilityConfigField } from './hostCapabilityClient'
+
 export type FwLaunchInfo = {
   launched: boolean
   standalone: boolean
@@ -19,13 +21,18 @@ export type ToolbarPayload = {
   layoutRequestId: number
 }
 
-export type ResultPopupStatus = 'loading' | 'done' | 'error'
+export type ResultPopupStatus = 'loading' | 'done' | 'error' | 'selecting'
 
 export type ResultPopupPayload = {
   title: string
   status: ResultPopupStatus
   text?: string | null
   errorText?: string | null
+  selectedText?: string | null
+  app?: Record<string, unknown> | null
+  appId?: string | null
+  capabilityId?: string | null
+  configFields?: HostCapabilityConfigField[] | null
 }
 
 export type ShortcutStatus = {
@@ -64,6 +71,8 @@ export type DirectClient = {
   close(): void
 }
 
+export type RegistryButtonMode = 'direct' | 'lazySelect'
+
 export type RegistryButton = {
   id: string
   app: Record<string, unknown>
@@ -71,15 +80,30 @@ export type RegistryButton = {
   capabilityId: string
   title: string
   icon: string
+  mode: RegistryButtonMode
   config: Record<string, unknown>
+  configFields: HostCapabilityConfigField[]
   enabled?: boolean
   createdAt: string
 }
 
-export type ToolbarButtonClickResult = {
+export type ToolbarButtonDirectResult = {
+  kind: 'directResult'
   title: string
   text: string
 }
+
+export type ToolbarButtonLazySelectResult = {
+  kind: 'lazySelect'
+  title: string
+  buttonId: string
+  app: Record<string, unknown>
+  appId: string
+  capabilityId: string
+  configFields: HostCapabilityConfigField[]
+}
+
+export type ToolbarButtonClickResult = ToolbarButtonDirectResult | ToolbarButtonLazySelectResult
 
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {
   launched: false,

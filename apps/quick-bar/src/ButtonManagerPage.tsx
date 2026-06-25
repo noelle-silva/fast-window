@@ -249,7 +249,10 @@ function ButtonCard(props: {
             </span>
             <span className="quickbar-button-card-title">{button.title}</span>
           </div>
-          <p className="quickbar-button-card-meta">来源：{appName(button)} / {button.capabilityId}</p>
+          <p className="quickbar-button-card-meta quickbar-button-card-source">
+            <span>来源：{appName(button)} / {button.capabilityId}</span>
+            <span className={buttonModeClassName(button)}>{buttonModeLabel(button)}</span>
+          </p>
           <p className="quickbar-button-card-meta">注册时间：{formatCreatedAt(button.createdAt)}</p>
         </div>
         <span className={`quickbar-button-status ${enabled ? 'quickbar-button-status-enabled' : 'quickbar-button-status-disabled'}`}>
@@ -299,6 +302,16 @@ function iconDraftsFromButtons(buttons: RegistryButton[]): Record<string, string
 function appName(button: RegistryButton): string {
   const name = button.app.name
   return typeof name === 'string' && name.trim() ? name : button.appId
+}
+
+function buttonModeLabel(button: RegistryButton): string {
+  return button.mode === 'lazySelect' ? '临时选择' : '直接'
+}
+
+function buttonModeClassName(button: RegistryButton): string {
+  return button.mode === 'lazySelect'
+    ? 'quickbar-button-mode-badge quickbar-button-mode-badge-lazy'
+    : 'quickbar-button-mode-badge quickbar-button-mode-badge-direct'
 }
 
 function formatCreatedAt(value: string): string {
