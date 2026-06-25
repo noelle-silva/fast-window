@@ -5,15 +5,33 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::fw_window::{apply_control_action, FwWindowState};
+use crate::fw_window::{apply_control_action, publish_search, FwWindowState};
 
 pub(crate) const EVERYTHING_APP_ID: &str = "everything";
+const PUBLISH_SEARCH_CAPABILITY_ID: &str = "publish-search";
+const PUBLISH_SEARCH_COMMAND: &str = "publish";
+const DECLARATION_KIND_CAPABILITY: &str = "capability";
+const DECLARATION_KIND_HOST_SHORTCUT: &str = "hostShortcut";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppCommandDescriptor {
     pub(crate) id: &'static str,
     pub(crate) title: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) config_fields: Option<&'static [AppCommandConfigField]>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppCommandConfigField {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) option_source: &'static str,
 }
 
 #[derive(Clone, Serialize)]
@@ -40,6 +58,18 @@ struct ControlClientResponse {
     protocol_version: Option<u32>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ControlPayload {
+    action: Option<String>,
+    command: Option<String>,
+    capability_id: Option<String>,
+    input: Option<serde_json::Value>,
+    #[serde(rename = "config")]
+    _config: Option<serde_json::Value>,
+    search_query: Option<serde_json::Value>,
+}
+
 struct ControlRequest {
     method: String,
     path: String,
@@ -52,16 +82,46 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         AppCommandDescriptor {
             id: "open-search",
             title: "打开 Everything 搜索",
+            kind: Some(DECLARATION_KIND_HOST_SHORTCUT),
+            description: None,
+            config_fields: None,
         },
         AppCommandDescriptor {
             id: "focus-query",
             title: "聚焦搜索框",
+            kind: Some(DECLARATION_KIND_HOST_SHORTCUT),
+            description: None,
+            config_fields: None,
         },
         AppCommandDescriptor {
             id: "show-setup",
             title: "打开 Everything 设置",
+            kind: Some(DECLARATION_KIND_HOST_SHORTCUT),
+            description: None,
+            config_fields: None,
+        },
+        AppCommandDescriptor {
+            id: PUBLISH_SEARCH_CAPABILITY_ID,
+            title: "Everything 搜索",
+            kind: Some(DECLARATION_KIND_CAPABILITY),
+            description: Some("在 Everything 中搜索文件"),
+            config_fields: Some(&[]),
         },
     ]
+}
+
+fn available_host_shortcuts() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some(DECLARATION_KIND_HOST_SHORTCUT))
+        .collect()
+}
+
+fn available_capabilities() -> Vec<AppCommandDescriptor> {
+    available_commands()
+        .into_iter()
+        .filter(|command| command.kind == Some(DECLARATION_KIND_CAPABILITY))
+        .collect()
 }
 
 pub(crate) fn random_token(prefix: &str) -> String {
@@ -228,13 +288,24 @@ fn handle_control_connection(
         return;
     }
 
-    let value = serde_json::from_slice::<serde_json::Value>(&request.body)
-        .unwrap_or_else(|_| serde_json::json!({}));
-    let action = value
-        .get("action")
-        .and_then(|v| v.as_str())
+    let payload = match parse_control_payload(&request.body) {
+        Ok(payload) => payload,
+        Err(error) => {
+            write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            );
+            return;
+        }
+    };
+    let action = payload
+        .action
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .unwrap_or("show");
-    let command = value.get("command").and_then(|v| v.as_str());
+    let command = payload.command.as_deref();
 
     if action == "describeCapabilities" {
         write_control_response(
@@ -245,7 +316,7 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "capabilities": []
+                "capabilities": available_capabilities()
             }),
         );
         return;
@@ -260,13 +331,37 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "hostShortcuts": available_commands()
+                "hostShortcuts": available_host_shortcuts()
             }),
         );
         return;
     }
 
-    match apply_control_action(app, window_state, action, command) {
+    if action == "invokeCapability" {
+        match handle_invoke_capability(app, window_state, &payload) {
+            Ok(response) => write_control_response(&mut stream, 200, response),
+            Err(error) => write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            ),
+        }
+        return;
+    }
+
+    if action == PUBLISH_SEARCH_COMMAND {
+        match handle_publish_action(app, window_state, &payload) {
+            Ok(response) => write_control_response(&mut stream, 200, response),
+            Err(error) => write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            ),
+        }
+        return;
+    }
+
+    match apply_control_action(app, window_state, action, command, None) {
         Ok(()) => write_control_response(
             &mut stream,
             200,
@@ -282,6 +377,84 @@ fn handle_control_connection(
             400,
             serde_json::json!({ "ok": false, "error": error }),
         ),
+    }
+}
+
+fn handle_invoke_capability(
+    app: &tauri::AppHandle,
+    window_state: &FwWindowState,
+    payload: &ControlPayload,
+) -> Result<serde_json::Value, String> {
+    validate_publish_capability_id(payload.capability_id.as_deref())?;
+
+    let query = extract_capability_search_query(payload.input.as_ref())?;
+    publish_search(app, window_state, &query)?;
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "capabilityId": PUBLISH_SEARCH_CAPABILITY_ID,
+        "text": capability_accepted_text(&query),
+    }))
+}
+
+fn handle_publish_action(
+    app: &tauri::AppHandle,
+    window_state: &FwWindowState,
+    payload: &ControlPayload,
+) -> Result<serde_json::Value, String> {
+    let query = extract_search_query(payload)?.unwrap_or_default();
+    publish_search(app, window_state, &query)?;
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "text": capability_accepted_text(&query),
+    }))
+}
+
+fn parse_control_payload(body: &[u8]) -> Result<ControlPayload, String> {
+    serde_json::from_slice::<ControlPayload>(body).map_err(|_| "控制请求格式错误".to_string())
+}
+
+fn extract_search_query(payload: &ControlPayload) -> Result<Option<String>, String> {
+    match &payload.search_query {
+        None => Ok(None),
+        Some(value) => value
+            .as_str()
+            .map(|query| Some(query.to_string()))
+            .ok_or_else(|| "searchQuery 必须是字符串".to_string()),
+    }
+}
+
+fn extract_capability_search_query(input: Option<&serde_json::Value>) -> Result<String, String> {
+    match input {
+        None | Some(serde_json::Value::Null) => Ok(String::new()),
+        Some(serde_json::Value::String(text)) => Ok(text.clone()),
+        Some(serde_json::Value::Object(value)) => match value.get("text") {
+            Some(serde_json::Value::String(text)) => Ok(text.clone()),
+            _ => Err("输入格式错误".to_string()),
+        },
+        Some(_) => Err("输入格式错误".to_string()),
+    }
+}
+
+fn validate_publish_capability_id(capability_id: Option<&str>) -> Result<&str, String> {
+    let capability_id = capability_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "capabilityId 不能为空".to_string())?;
+    if capability_id != PUBLISH_SEARCH_CAPABILITY_ID {
+        return Err(format!("未知能力编号: {capability_id}"));
+    }
+    Ok(capability_id)
+}
+
+fn capability_accepted_text(query: &str) -> String {
+    if query.trim().is_empty() {
+        "已打开 Everything 搜索".to_string()
+    } else {
+        format!("已在 Everything 中搜索 {query}")
     }
 }
 
@@ -389,4 +562,116 @@ fn write_stdout_json_line(value: serde_json::Value) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{}", value);
     let _ = out.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lists_publish_search_as_capability_only() {
+        let capabilities = available_capabilities();
+
+        assert_eq!(capabilities.len(), 1);
+        assert_eq!(capabilities[0].id, PUBLISH_SEARCH_CAPABILITY_ID);
+        assert_eq!(capabilities[0].title, "Everything 搜索");
+        assert_eq!(capabilities[0].kind, Some(DECLARATION_KIND_CAPABILITY));
+        assert_eq!(
+            capabilities[0].description,
+            Some("在 Everything 中搜索文件")
+        );
+        assert!(capabilities[0]
+            .config_fields
+            .as_ref()
+            .is_some_and(|fields| fields.is_empty()));
+    }
+
+    #[test]
+    fn lists_existing_commands_as_host_shortcuts_only() {
+        let host_shortcuts = available_host_shortcuts();
+
+        assert_eq!(host_shortcuts.len(), 3);
+        assert!(host_shortcuts
+            .iter()
+            .all(|command| command.kind == Some(DECLARATION_KIND_HOST_SHORTCUT)));
+        assert!(!host_shortcuts
+            .iter()
+            .any(|command| command.id == PUBLISH_SEARCH_CAPABILITY_ID));
+    }
+
+    #[test]
+    fn extracts_capability_query_from_text_input() {
+        assert_eq!(
+            extract_capability_search_query(Some(&serde_json::json!("abc"))).unwrap(),
+            "abc"
+        );
+    }
+
+    #[test]
+    fn extracts_capability_query_from_object_text_input() {
+        assert_eq!(
+            extract_capability_search_query(Some(&serde_json::json!({ "text": "abc" }))).unwrap(),
+            "abc"
+        );
+    }
+
+    #[test]
+    fn extracts_empty_capability_query_from_missing_input() {
+        assert_eq!(extract_capability_search_query(None).unwrap(), "");
+        assert_eq!(
+            extract_capability_search_query(Some(&serde_json::Value::Null)).unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_capability_id() {
+        let err = validate_publish_capability_id(Some("unknown"))
+            .err()
+            .expect("unknown capability should fail");
+        assert!(err.contains("未知能力编号"));
+    }
+
+    #[test]
+    fn builds_accepted_text_for_empty_and_non_empty_query() {
+        assert_eq!(capability_accepted_text(""), "已打开 Everything 搜索");
+        assert_eq!(
+            capability_accepted_text("abc"),
+            "已在 Everything 中搜索 abc"
+        );
+    }
+
+    #[test]
+    fn parses_publish_payload_with_search_query() {
+        let payload = parse_control_payload(br#"{"action":"publish","searchQuery":"abc"}"#)
+            .expect("publish payload should parse");
+
+        assert_eq!(payload.action.as_deref(), Some("publish"));
+        assert_eq!(
+            extract_search_query(&payload).unwrap().as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn accepts_publish_payload_without_search_query() {
+        let payload = parse_control_payload(br#"{"action":"publish"}"#)
+            .expect("publish payload without query should parse");
+
+        assert_eq!(payload.action.as_deref(), Some("publish"));
+        assert!(extract_search_query(&payload).unwrap().is_none());
+    }
+
+    #[test]
+    fn rejects_publish_payload_with_non_string_search_query() {
+        let payload = parse_control_payload(br#"{"action":"publish","searchQuery":123}"#)
+            .expect("payload should parse before query validation");
+
+        assert!(extract_search_query(&payload).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_control_payload() {
+        assert!(parse_control_payload(b"not-json").is_err());
+    }
 }

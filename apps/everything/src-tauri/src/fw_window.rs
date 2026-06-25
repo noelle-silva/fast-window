@@ -17,6 +17,8 @@ const RUNTIME_COMMAND_EVENT: &str = "fw-app-command";
 #[serde(rename_all = "camelCase")]
 struct RuntimeCommandPayload {
     command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search_query: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -213,6 +215,7 @@ pub(crate) fn apply_control_action(
     state: &FwWindowState,
     action: &str,
     command: Option<&str>,
+    search_query: Option<&str>,
 ) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -221,7 +224,7 @@ pub(crate) fn apply_control_action(
     match action {
         "show" => {
             show_and_focus(&window, state);
-            emit_runtime_command(&window, command)?;
+            emit_runtime_command(&window, command, None)?;
             Ok(())
         }
         "hide" => {
@@ -233,7 +236,7 @@ pub(crate) fn apply_control_action(
                 hide_without_animation(&window, state);
             } else {
                 show_and_focus(&window, state);
-                emit_runtime_command(&window, command)?;
+                emit_runtime_command(&window, command, None)?;
             }
             Ok(())
         }
@@ -241,8 +244,21 @@ pub(crate) fn apply_control_action(
             request_shutdown(&window, state);
             Ok(())
         }
+        "publish" => publish_search(app, state, search_query.unwrap_or("")),
         _ => Err(format!("未知窗口指令: {action}")),
     }
+}
+
+pub(crate) fn publish_search(
+    app: &tauri::AppHandle,
+    state: &FwWindowState,
+    search_query: &str,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    show_and_focus(&window, state);
+    emit_runtime_command(&window, Some("publish"), Some(search_query))
 }
 
 pub(crate) fn report_available_commands(commands: serde_json::Value) {
@@ -342,18 +358,31 @@ pub(crate) fn report_current_window_bounds(window: &WebviewWindow, state: &FwWin
     report_remembered_window_bounds(state);
 }
 
-fn emit_runtime_command(window: &WebviewWindow, command: Option<&str>) -> Result<(), String> {
-    let Some(command) = command.map(str::trim).filter(|value| !value.is_empty()) else {
+fn emit_runtime_command(
+    window: &WebviewWindow,
+    command: Option<&str>,
+    search_query: Option<&str>,
+) -> Result<(), String> {
+    let Some(payload) = build_runtime_payload(command, search_query) else {
         return Ok(());
     };
     window
-        .emit(
-            RUNTIME_COMMAND_EVENT,
-            RuntimeCommandPayload {
-                command: command.to_string(),
-            },
-        )
+        .emit(RUNTIME_COMMAND_EVENT, payload)
         .map_err(|e| format!("投递运行中命令失败: {e}"))
+}
+
+fn build_runtime_payload(
+    command: Option<&str>,
+    search_query: Option<&str>,
+) -> Option<RuntimeCommandPayload> {
+    let command = command.map(str::trim).unwrap_or_default();
+    if command.is_empty() && search_query.is_none() {
+        return None;
+    }
+    Some(RuntimeCommandPayload {
+        command: command.to_string(),
+        search_query: search_query.map(str::to_string),
+    })
 }
 
 fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<FwWindowState>) {
@@ -464,4 +493,41 @@ fn write_stdout_json_line(value: serde_json::Value) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{}", value);
     let _ = out.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skips_runtime_payload_without_command_or_query() {
+        assert!(build_runtime_payload(None, None).is_none());
+    }
+
+    #[test]
+    fn builds_runtime_payload_for_existing_command() {
+        let payload = build_runtime_payload(Some(" open-search "), None)
+            .expect("command payload should be built");
+
+        assert_eq!(payload.command, "open-search");
+        assert!(payload.search_query.is_none());
+    }
+
+    #[test]
+    fn builds_publish_runtime_payload_with_search_query() {
+        let payload = build_runtime_payload(Some("publish"), Some("abc"))
+            .expect("publish payload should be built");
+
+        assert_eq!(payload.command, "publish");
+        assert_eq!(payload.search_query.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn builds_publish_runtime_payload_with_empty_query() {
+        let payload = build_runtime_payload(Some("publish"), Some(""))
+            .expect("publish payload should be built with empty query");
+
+        assert_eq!(payload.command, "publish");
+        assert_eq!(payload.search_query.as_deref(), Some(""));
+    }
 }

@@ -33,6 +33,16 @@ const SEARCH_LIMIT_MIN = 20
 const SEARCH_LIMIT_MAX = 500
 const SEARCH_LIMIT_STEP = 20
 
+type FwRuntimeCommandPayload = {
+  command?: string
+  searchQuery?: string
+}
+
+type RunSearchOptions = {
+  queryOverride?: string
+  scopePathOverride?: string
+}
+
 function normalizeSearchLimit(value: number) {
   if (!Number.isFinite(value)) return DEFAULT_SEARCH_LIMIT
   const snapped = SEARCH_LIMIT_MIN + Math.round((value - SEARCH_LIMIT_MIN) / SEARCH_LIMIT_STEP) * SEARCH_LIMIT_STEP
@@ -169,33 +179,9 @@ export function App() {
     }
   }, [])
 
-  React.useEffect(() => {
-    let unlisten: (() => void) | null = null
-    let cancelled = false
-    void listen<{ command?: string }>('fw-app-command', event => {
-      const command = String(event.payload?.command || '').trim()
-      if (!command) return
-      setRuntimeCommand(command)
-      if (command === 'show-setup') setView('settings')
-      if (command === 'open-search' || command === 'focus-query') {
-        setView('search')
-        window.setTimeout(() => queryRef.current?.focus(), 0)
-      }
-    })
-      .then(nextUnlisten => {
-        if (cancelled) nextUnlisten()
-        else unlisten = nextUnlisten
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-      unlisten?.()
-    }
-  }, [])
-
   React.useEffect(() => () => client?.close(), [client])
 
-  const runSearch = React.useCallback(async (nextScopePath = searchScopePath) => {
+  const runSearch = React.useCallback(async (options: RunSearchOptions = {}) => {
     if (!client) return
     if (operation) {
       setError(`${operation.title}，完成后再搜索。`)
@@ -206,11 +192,14 @@ export function App() {
       setError('请先在设置页启用 Everything 全局索引。')
       return
     }
-    const trimmed = query.trim()
+    const nextQuery = options.queryOverride ?? query
+    const nextScopePath = options.scopePathOverride ?? searchScopePath
+    const trimmed = nextQuery.trim()
     if (!trimmed) {
       searchRunIdRef.current += 1
       setResults([])
       setLastSearchedQuery('')
+      setSearching(false)
       return
     }
     const runId = searchRunIdRef.current + 1
@@ -230,6 +219,52 @@ export function App() {
       if (searchRunIdRef.current === runId) setSearching(false)
     }
   }, [client, operation, query, searchLimit, searchScopePath, setup])
+
+  const handleRuntimeCommand = React.useCallback((payload: FwRuntimeCommandPayload = {}) => {
+    const command = String(payload.command || '').trim()
+    if (!command) return
+    setRuntimeCommand(command)
+    if (command === 'show-setup') {
+      setView('settings')
+      return
+    }
+    if (command === 'open-search' || command === 'focus-query') {
+      setView('search')
+      window.setTimeout(() => queryRef.current?.focus(), 0)
+      return
+    }
+    if (command === 'publish') {
+      const nextQuery = typeof payload.searchQuery === 'string' ? payload.searchQuery : ''
+      setView('search')
+      setQuery(nextQuery)
+      window.setTimeout(() => queryRef.current?.focus(), 0)
+      if (nextQuery.trim()) {
+        void runSearch({ queryOverride: nextQuery })
+        return
+      }
+      searchRunIdRef.current += 1
+      setResults([])
+      setSearching(false)
+      setLastSearchedQuery('')
+    }
+  }, [runSearch])
+
+  React.useEffect(() => {
+    let unlisten: (() => void) | null = null
+    let cancelled = false
+    void listen<FwRuntimeCommandPayload>('fw-app-command', event => {
+      handleRuntimeCommand(event.payload)
+    })
+      .then(nextUnlisten => {
+        if (cancelled) nextUnlisten()
+        else unlisten = nextUnlisten
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [handleRuntimeCommand])
 
   const runTopbarSearch = React.useCallback(() => {
     setView('search')
@@ -254,13 +289,13 @@ export function App() {
     if (!picked) return
     setView('search')
     setSearchScopePath(picked)
-    if (query.trim()) void runSearch(picked)
+    if (query.trim()) void runSearch({ scopePathOverride: picked })
     else window.setTimeout(() => queryRef.current?.focus(), 0)
   }, [query, runSearch])
 
   const clearSearchScope = React.useCallback(() => {
     setSearchScopePath('')
-    if (query.trim()) void runSearch('')
+    if (query.trim()) void runSearch({ scopePathOverride: '' })
     else window.setTimeout(() => queryRef.current?.focus(), 0)
   }, [query, runSearch])
 
