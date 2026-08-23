@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "id": "webview",
+  "name": "webview",
+  "description": "Fast Window v5 独立 App：书签管理 + 内嵌浏览栈（网页窗口 + 视频倍速）",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/webview.exe", "to": "webview.exe" },
+        { "from": "src-tauri/target/release/webview-backend.exe", "to": "webview-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/webview.exe", "to": "webview.exe" },
+        { "from": "src-tauri/target/debug/webview-backend.exe", "to": "webview-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "webview.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-webview", "title": "打开 webview 书签主页" },
+    { "id": "open-settings", "title": "编辑 webview 倍速设置" },
+    { "id": "show-health", "title": "查看 webview 健康状态" }
+  ]
+}
