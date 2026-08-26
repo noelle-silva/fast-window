@@ -270,6 +270,7 @@ function NavIconButton(props: {
 
 const SHORTCUT_HINT_ITEMS: { id: HyperCortexShortcutId; title: string }[] = [
   { id: 'goBackPage', title: '返回上一个页面' },
+  { id: 'goFavoritesPage', title: '切换到收藏夹页面' },
   { id: 'closeActiveTab', title: '关闭当前标签页' },
   { id: 'selectPrevTab', title: '切换到上一个标签页（向上）' },
   { id: 'selectNextTab', title: '切换到下一个标签页（向下）' },
@@ -286,6 +287,8 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
   switch (id) {
     case 'goBackPage':
       return next.goBackPage
+    case 'goFavoritesPage':
+      return next.goFavoritesPage
     case 'closeActiveTab':
       return next.closeActiveTab
     case 'selectPrevTab':
@@ -1932,6 +1935,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
+      if (shouldTriggerShortcut(e, bindings.goFavoritesPage)) {
+        e.preventDefault()
+        e.stopPropagation()
+        navigatePage('index')
+        return
+      }
+
       if (shouldTriggerShortcut(e, bindings.newNote)) {
         e.preventDefault()
         e.stopPropagation()
@@ -2035,7 +2045,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', clearTabSwitchHold, true)
     }
-  }, [goBackPage, handleCreateDraftNote, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, navigatePage, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
