@@ -1,12 +1,11 @@
 import * as React from 'react'
 import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography } from '@mui/material'
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
-import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
+import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -240,8 +239,9 @@ function NavIconButton(props: {
   onClick: () => void
   children: React.ReactNode
   tooltipPlacement?: 'bottom' | 'bottom-start' | 'bottom-end' | 'left' | 'right' | 'top'
+  label?: string
 }) {
-  const { title, ariaLabel, active, onClick, children, tooltipPlacement = 'bottom' } = props
+  const { title, ariaLabel, active, onClick, children, tooltipPlacement = 'bottom', label } = props
   return (
     <Tooltip title={title} placement={tooltipPlacement}>
       <IconButton
@@ -249,6 +249,8 @@ function NavIconButton(props: {
         aria-label={ariaLabel}
         onClick={onClick}
         sx={{
+          gap: 0.5,
+          px: label ? 1.5 : undefined,
           borderRadius: 2,
           color: active ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
           bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
@@ -256,6 +258,11 @@ function NavIconButton(props: {
         }}
       >
         {children}
+        {label ? (
+          <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+            {label}
+          </Typography>
+        ) : null}
       </IconButton>
     </Tooltip>
   )
@@ -923,14 +930,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     if (sidebarShortcutHoldRef.current) return
     setTabsHoverOpen(false)
   }, [isHoverTabsMode])
-
-  const backToHost = React.useCallback(() => {
-    try {
-      return void gateway.host.back()
-    } catch (e: any) {
-      gateway.host.toast(String(e?.message || e))
-    }
-  }, [gateway])
 
   const goBackPage = React.useCallback(async () => {
     const stack = navHistoryRef.current
@@ -2440,54 +2439,39 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               }}
               onPointerDown={onTopbarPointerDown}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-                <IconButton
-                  onClick={backToHost}
-                  size="small"
-                  aria-label="返回主界面"
-                  sx={{ ml: 0.25 }}
-                >
-                <ArrowBackRoundedIcon fontSize="small" />
-              </IconButton>
-
-              <Typography variant="subtitle2" sx={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
-                HyperCortex
-              </Typography>
-
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, ml: 0.25 }}>
-                <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => navigatePage('home')}>
-                  <HomeRoundedIcon fontSize="small" />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, ml: 26.5 }}>
+                <NavIconButton title="收藏夹" ariaLabel="收藏夹" label="收藏夹" active={page === 'index'} onClick={() => navigatePage('index')}>
+                  <StarRoundedIcon fontSize="small" />
                 </NavIconButton>
-                <NavIconButton title="索引" ariaLabel="索引" active={page === 'index'} onClick={() => navigatePage('index')}>
-                  <AccountTreeRoundedIcon fontSize="small" />
-                </NavIconButton>
-                <NavIconButton title="附件" ariaLabel="附件" active={page === 'attachments'} onClick={() => navigatePage('attachments')}>
-                  <AttachFileRoundedIcon fontSize="small" />
-                </NavIconButton>
-                <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => navigatePage('all-notes')}>
-                  <NotesRoundedIcon fontSize="small" />
-                </NavIconButton>
-
-                <Tooltip title="搜索" placement="bottom">
-                  <IconButton
-                    ref={quickSearchAnchorRef}
-                    onClick={() => setQuickSearchOpen(v => !v)}
-                    size="small"
-                    aria-label="搜索"
-                    sx={{
-                      borderRadius: 2,
-                      color: quickSearchOpen ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-                      bgcolor: quickSearchOpen ? 'var(--hc-primary-soft)' : 'transparent',
-                      '&:hover': { bgcolor: quickSearchOpen ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-                    }}
-                  >
-                    <SearchRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
               </Box>
-            </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.25 }}>
+              <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => navigatePage('home')}>
+                <HomeRoundedIcon fontSize="small" />
+              </NavIconButton>
+              <NavIconButton title="附件" ariaLabel="附件" active={page === 'attachments'} onClick={() => navigatePage('attachments')}>
+                <AttachFileRoundedIcon fontSize="small" />
+              </NavIconButton>
+              <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => navigatePage('all-notes')}>
+                <NotesRoundedIcon fontSize="small" />
+              </NavIconButton>
+
+              <Tooltip title="搜索" placement="bottom">
+                <IconButton
+                  ref={quickSearchAnchorRef}
+                  onClick={() => setQuickSearchOpen(v => !v)}
+                  size="small"
+                  aria-label="搜索"
+                  sx={{
+                    borderRadius: 2,
+                    color: quickSearchOpen ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+                    bgcolor: quickSearchOpen ? 'var(--hc-primary-soft)' : 'transparent',
+                    '&:hover': { bgcolor: quickSearchOpen ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+                  }}
+                >
+                  <SearchRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               {shortcutHintsEnabled ? (
                 <Tooltip title={shortcutHintsOpen ? '关闭快捷键提示' : '快捷键提示'} placement="bottom">
                   <IconButton
