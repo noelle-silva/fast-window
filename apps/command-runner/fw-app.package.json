@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "id": "command-runner",
+  "name": "Command Runner",
+  "description": "以仓库为单位管理和一键运行命令行命令",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/command-runner.exe", "to": "command-runner.exe" },
+        { "from": "src-tauri/target/release/command-runner-backend.exe", "to": "command-runner-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/command-runner.exe", "to": "command-runner.exe" },
+        { "from": "src-tauri/target/debug/command-runner-backend.exe", "to": "command-runner-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "command-runner.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-command-runner", "title": "打开 Command Runner" },
+    { "id": "new-repo", "title": "注册新仓库" },
+    { "id": "open-settings", "title": "打开 Command Runner 设置" }
+  ]
+}
