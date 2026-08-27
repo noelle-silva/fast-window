@@ -2478,17 +2478,17 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               onPointerDown={onTopbarPointerDown}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-                <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0} onClick={() => void goBackPage()}>
-                  <ArrowBackRoundedIcon fontSize="small" />
-                </NavIconButton>
-                <NavIconButton title="前进" ariaLabel="前进" disabled={navStackSizes.forward <= 0} onClick={() => void goForwardPage()}>
-                  <ArrowForwardRoundedIcon fontSize="small" />
-                </NavIconButton>
-                <Box sx={{ display: 'flex', alignItems: 'center', ml: 18 }}>
-                  <NavIconButton title="收藏夹" ariaLabel="收藏夹" label="收藏夹" active={page === 'index'} onClick={() => navigatePage('index')}>
-                    <StarRoundedIcon fontSize="small" />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 6 }}>
+                  <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0} onClick={() => void goBackPage()}>
+                    <ArrowBackRoundedIcon fontSize="small" />
+                  </NavIconButton>
+                  <NavIconButton title="前进" ariaLabel="前进" disabled={navStackSizes.forward <= 0} onClick={() => void goForwardPage()}>
+                    <ArrowForwardRoundedIcon fontSize="small" />
                   </NavIconButton>
                 </Box>
+                <NavIconButton title="收藏夹" ariaLabel="收藏夹" label="收藏夹" active={page === 'index'} onClick={() => navigatePage('index')}>
+                  <StarRoundedIcon fontSize="small" />
+                </NavIconButton>
               </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.25 }}>
