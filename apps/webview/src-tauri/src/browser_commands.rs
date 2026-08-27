@@ -1,10 +1,10 @@
 use tauri::{Emitter, Manager};
 
 use crate::browser_stack::{
-    self, apply_bottom_rounded_corners, browser_stack_apply_fullscreen, browser_stack_close,
-    browser_stack_hide, browser_stack_is_pinned, browser_stack_restore_or_center,
-    browser_stack_set_always_on_top, browser_stack_set_suppress_hide, browser_stack_show,
-    load_browser_window_bounds_from_config, restore_browser_stack_bounds_or_center,
+    self, apply_bottom_rounded_corners, apply_top_rounded_corners, browser_stack_apply_fullscreen,
+    browser_stack_close, browser_stack_hide, browser_stack_is_pinned,
+    browser_stack_restore_or_center, browser_stack_set_always_on_top, browser_stack_set_suppress_hide,
+    browser_stack_show, load_browser_window_bounds_from_config, restore_browser_stack_bounds_or_center,
     save_browser_stack_bounds_if_valid, BrowserWindowState, BROWSER_BAR_HEIGHT,
     BROWSER_BAR_WINDOW_LABEL, BROWSER_STACK_TOTAL_HEIGHT, BROWSER_WINDOW_LABEL,
     WEBVIEW_SETTINGS_UPDATED_EVENT,
@@ -158,6 +158,7 @@ pub(crate) async fn open_browser_window_impl(
         browser_stack_restore_or_center(&app);
     }
 
+    apply_top_rounded_corners(&bar, 16.0);
     apply_bottom_rounded_corners(&content, 16.0);
 
     browser_stack_show(&app);

@@ -102,6 +102,8 @@ pub(crate) fn attach_browser_stack_window_events(
             if !is_bar {
                 sync_bar_size(&app);
                 apply_bottom_rounded_corners(&window_for_event, 16.0);
+            } else {
+                apply_top_rounded_corners(&window_for_event, 16.0);
             }
             save_browser_stack_bounds_if_valid(&app);
             schedule_persist_browser_window_bounds(&app);
@@ -319,6 +321,9 @@ pub(crate) fn browser_stack_show(app: &tauri::AppHandle) {
     browser_stack_restore_or_center(app);
     if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
         apply_bottom_rounded_corners(&w, 16.0);
+    }
+    if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        apply_top_rounded_corners(&w, 16.0);
     }
 
     if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
@@ -714,10 +719,14 @@ fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
     value.max(min).min(max)
 }
 
-// ── Windows 底部圆角特技 ─────────────────────────────────────────────────────
+// ── Windows 圆角特技（统一内核：保留一侧平边，另一侧两角圆） ────────────────────
 
 #[cfg(windows)]
-pub(crate) fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
+fn apply_rounded_corners_impl(
+    window: &tauri::WebviewWindow,
+    radius_dip: f64,
+    rounded_bottom: bool,
+) {
     use windows::Win32::Graphics::Gdi::{
         CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, GDI_REGION_TYPE,
         RGN_OR,
@@ -752,21 +761,26 @@ pub(crate) fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius
         if round.0 == std::ptr::null_mut() {
             return;
         }
-        let top = CreateRectRgn(0, 0, w + 1, r + 1);
-        if top.0 == std::ptr::null_mut() {
+        // 与圆角相对的平边矩形：圆角边为 bottom 时平边贴顶，反之贴底。
+        let flat = if rounded_bottom {
+            CreateRectRgn(0, 0, w + 1, r + 1)
+        } else {
+            CreateRectRgn(0, h - r, w + 1, h + 1)
+        };
+        if flat.0 == std::ptr::null_mut() {
             let _ = DeleteObject(round.into());
             return;
         }
         let combined = CreateRectRgn(0, 0, 0, 0);
         if combined.0 == std::ptr::null_mut() {
             let _ = DeleteObject(round.into());
-            let _ = DeleteObject(top.into());
+            let _ = DeleteObject(flat.into());
             return;
         }
 
-        let ok = CombineRgn(Some(combined), Some(round), Some(top), RGN_OR);
+        let ok = CombineRgn(Some(combined), Some(round), Some(flat), RGN_OR);
         let _ = DeleteObject(round.into());
-        let _ = DeleteObject(top.into());
+        let _ = DeleteObject(flat.into());
         if ok == GDI_REGION_TYPE(0) {
             let _ = DeleteObject(combined.into());
             return;
@@ -778,5 +792,18 @@ pub(crate) fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius
     }
 }
 
+#[cfg(windows)]
+pub(crate) fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
+    apply_rounded_corners_impl(window, radius_dip, true);
+}
+
+#[cfg(windows)]
+pub(crate) fn apply_top_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
+    apply_rounded_corners_impl(window, radius_dip, false);
+}
+
 #[cfg(not(windows))]
 pub(crate) fn apply_bottom_rounded_corners(_window: &tauri::WebviewWindow, _radius_dip: f64) {}
+
+#[cfg(not(windows))]
+pub(crate) fn apply_top_rounded_corners(_window: &tauri::WebviewWindow, _radius_dip: f64) {}
