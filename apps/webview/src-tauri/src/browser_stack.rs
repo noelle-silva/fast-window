@@ -132,9 +132,9 @@ pub(crate) fn attach_browser_stack_window_events(
                     return;
                 }
                 browser_stack_hide(&app);
-                // 与宿主不同的是：app 内主窗口是用户可见界面，失焦隐藏后恢复主窗口（不抢焦点），
-                // 避免 standalone 用户面对“全隐藏”的局面。
-                show_main_window(&app, false);
+                // 恢复主窗口时必须取得焦点：失焦自动隐藏依赖“失焦”信号唤醒，
+                // 而无焦点窗口收不到失焦信号，主窗口将永久无法自动收起。
+                show_main_window(&app, true);
             });
         }
         _ => {}
