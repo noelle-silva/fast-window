@@ -27,9 +27,10 @@ export function PageOverlayHost(props: { onClose: () => void; children: React.Re
           flexDirection: 'column',
           width: 'min(1120px, 94vw)',
           height: '90vh',
+          p: 3,
           borderRadius: 4,
           bgcolor: 'var(--hc-surface)',
-          overflow: 'hidden',
+          overflow: 'auto',
           boxShadow: '0 24px 64px rgba(15,23,42,.28)',
         }}
       >
