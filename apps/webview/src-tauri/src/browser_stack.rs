@@ -71,16 +71,12 @@ fn hide_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn show_main_window(app: &tauri::AppHandle, focus: bool) {
+fn show_main_window(app: &tauri::AppHandle) {
     let Some(main) = app.get_webview_window("main") else {
         return;
     };
     let state = app.state::<Arc<crate::fw_window::FwWindowState>>();
-    if focus {
-        crate::fw_window::show_and_focus(&main, &state);
-    } else {
-        crate::fw_window::show_window(&main, &state);
-    }
+    crate::fw_window::show_and_focus(&main, &state);
 }
 
 // ── 窗口事件钩子（从宿主 app.rs 同语义移植，按窗口挂载） ────────────────────────
@@ -131,10 +127,9 @@ pub(crate) fn attach_browser_stack_window_events(
                 if browser_stack_should_suppress_hide(&app) {
                     return;
                 }
+                // 失焦收起后直接退场，不再回退主窗口（焦点留在此前点击处），
+                // 由快捷键/托盘/顶部栏按钮按需唤起下一层。
                 browser_stack_hide(&app);
-                // 恢复主窗口时必须取得焦点：失焦自动隐藏依赖“失焦”信号唤醒，
-                // 而无焦点窗口收不到失焦信号，主窗口将永久无法自动收起。
-                show_main_window(&app, true);
             });
         }
         _ => {}
@@ -214,6 +209,19 @@ pub(crate) fn browser_stack_exists(app: &tauri::AppHandle) -> bool {
         && app.get_webview_window(BROWSER_WINDOW_LABEL).is_some()
 }
 
+/// 唤醒偏好：浏览栈存在且处于“活跃”会话时，应唤浏览栈而非主窗口。
+pub(crate) fn browser_stack_preferred(app: &tauri::AppHandle) -> bool {
+    if !browser_stack_exists(app) {
+        return false;
+    }
+    app.state::<BrowserWindowState>()
+        .active
+        .lock()
+        .ok()
+        .map(|g| *g)
+        .unwrap_or(false)
+}
+
 pub(crate) fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
     let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
     let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
@@ -223,6 +231,18 @@ pub(crate) fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
         || content
             .as_ref()
             .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false)
+}
+
+pub(crate) fn browser_stack_is_visible(app: &tauri::AppHandle) -> bool {
+    let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
+    let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
+    bar.as_ref()
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+        && content
+            .as_ref()
+            .and_then(|w| w.is_visible().ok())
             .unwrap_or(false)
 }
 
@@ -365,7 +385,7 @@ pub(crate) fn browser_stack_hide(app: &tauri::AppHandle) {
 pub(crate) fn browser_stack_hide_to_main(app: &tauri::AppHandle) {
     // “隐藏”只做 UI 切换：保留浏览栈窗口与 session 状态，方便再次唤起继续用。
     browser_stack_hide(app);
-    show_main_window(app, true);
+    show_main_window(app);
 }
 
 pub(crate) fn browser_stack_end_session(app: &tauri::AppHandle) {
@@ -393,7 +413,7 @@ pub(crate) fn browser_stack_close(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
         let _ = w.close();
     }
-    show_main_window(app, true);
+    show_main_window(app);
 }
 
 pub(crate) fn browser_stack_apply_fullscreen(

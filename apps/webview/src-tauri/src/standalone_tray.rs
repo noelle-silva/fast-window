@@ -3,10 +3,9 @@ use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
 };
 
-use crate::fw_window::{show_and_focus, FwArgs, FwWindowState};
+use crate::fw_window::{show_wake_surface, FwArgs, FwWindowState};
 
 pub(crate) fn install_standalone_tray(
     app: &tauri::App,
@@ -34,9 +33,7 @@ pub(crate) fn install_standalone_tray(
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    show_and_focus(&window, &state_for_menu);
-                }
+                show_wake_surface(app, &state_for_menu);
             }
             "quit" => {
                 on_quit(app.clone());
@@ -50,9 +47,8 @@ pub(crate) fn install_standalone_tray(
                 ..
             } = event
             {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    show_and_focus(&window, &state_for_click);
-                }
+                let app = tray.app_handle();
+                show_wake_surface(&app, &state_for_click);
             }
         })
         .build(app)?;

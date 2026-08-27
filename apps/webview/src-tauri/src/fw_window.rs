@@ -220,21 +220,29 @@ pub(crate) fn apply_control_action(
 
     match action {
         "show" => {
-            show_and_focus(&window, state);
+            show_wake_surface(app, state);
             emit_runtime_command(&window, command)?;
             Ok(())
         }
         "hide" => {
-            hide_without_animation(&window, state);
+            hide_all_surfaces(app, state);
             Ok(())
         }
         "toggle" => {
-            if window.is_visible().unwrap_or(false) {
+            if crate::browser_stack::browser_stack_preferred(&app) {
+                // 浏览会话活跃期间，快捷键只循环操纵浏览栈表面（显示↔隐藏），
+                // 不再横跳回主窗口；会话结束（关闭）后才由主窗口接手快捷键。
+                if crate::browser_stack::browser_stack_is_visible(&app) {
+                    crate::browser_stack::browser_stack_hide(&app);
+                } else {
+                    crate::browser_stack::browser_stack_show(&app);
+                }
+            } else if window.is_visible().unwrap_or(false) {
                 hide_without_animation(&window, state);
             } else {
                 show_and_focus(&window, state);
-                emit_runtime_command(&window, command)?;
             }
+            emit_runtime_command(&window, command)?;
             Ok(())
         }
         "close" => {
@@ -242,6 +250,24 @@ pub(crate) fn apply_control_action(
             Ok(())
         }
         _ => Err(format!("未知窗口指令: {action}")),
+    }
+}
+
+/// 唤醒当前应展示的“表面”：浏览栈活跃时唤浏览栈，否则唤主窗口。
+pub(crate) fn show_wake_surface(app: &tauri::AppHandle, state: &FwWindowState) {
+    if crate::browser_stack::browser_stack_preferred(app) {
+        crate::browser_stack::browser_stack_show(app);
+    } else if let Some(window) = app.get_webview_window("main") {
+        show_and_focus(&window, state);
+    }
+}
+
+fn hide_all_surfaces(app: &tauri::AppHandle, state: &FwWindowState) {
+    if crate::browser_stack::browser_stack_is_visible(app) {
+        crate::browser_stack::browser_stack_hide(app);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        hide_without_animation(&window, state);
     }
 }
 
@@ -274,7 +300,7 @@ pub(crate) fn app_ready(
             Ok(())
         }
         _ => {
-            show_and_focus(&window, &state);
+            show_wake_surface(&app, &state);
             Ok(())
         }
     }

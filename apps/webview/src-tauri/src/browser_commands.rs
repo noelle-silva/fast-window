@@ -173,7 +173,7 @@ pub(crate) async fn close_browser_window(app: tauri::AppHandle) -> Result<(), St
 
 #[tauri::command]
 pub(crate) async fn hide_browser_stack(app: tauri::AppHandle) -> Result<(), String> {
-    browser_stack::browser_stack_hide_to_main(&app);
+    browser_stack::browser_stack_hide(&app);
     Ok(())
 }
 
