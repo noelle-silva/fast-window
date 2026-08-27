@@ -64,7 +64,7 @@ export default function BookmarksPage() {
   const [items, setItems] = useState<Bookmark[]>([])
   const [query, setQuery] = useState('')
   const [reorderMode, setReorderMode] = useState(false)
-  const [modal, setModal] = useState<'add' | 'edit' | null>(null)
+  const [dialog, setDialog] = useState<'add' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [sniffingFormIcon, setSniffingFormIcon] = useState(false)
   const [iconCacheById, setIconCacheById] = useState<Record<string, string>>({})
@@ -249,7 +249,7 @@ export default function BookmarksPage() {
     }
     persist([bookmark, ...itemsRef.current])
     toast('已添加')
-    setModal(null)
+    setDialog(null)
     void openInWindow(url)
 
     if (!iconUrl && !iconPath) {
@@ -311,7 +311,7 @@ export default function BookmarksPage() {
       ),
     )
     toast('已保存')
-    setModal(null)
+    setDialog(null)
   }, [form, persist])
 
   const deleteItem = useCallback(
@@ -356,8 +356,17 @@ export default function BookmarksPage() {
     }
   }, [sniffingFormIcon, form.url])
 
+  const openTypedUrl = () => {
+    const u = normalizeUrl(query)
+    if (!u || !isHttpUrl(u)) {
+      toast('URL 只支持 http(s)://，可省略协议')
+      return
+    }
+    void openInWindow(u)
+  }
+
   const openModal = (kind: 'add' | 'edit', item?: Bookmark) => {
-    setModal(kind)
+    setDialog(kind)
     setForm(
       kind === 'add' || !item
         ? emptyForm()
@@ -497,8 +506,16 @@ export default function BookmarksPage() {
               d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"
             />
           </svg>
-          <input value={query} placeholder="搜索网站标题或网址" onChange={e => setQuery(e.target.value)} />
+          <input value={query} placeholder="输入网址直接打开，或搜索网站标题/网址" onChange={e => setQuery(e.target.value)} onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              openTypedUrl()
+            }
+          }} />
         </label>
+        <button type="button" className="bm-tool-btn" onClick={openTypedUrl}>
+          打开
+        </button>
         <button
           type="button"
           className="bm-tool-btn"
@@ -592,12 +609,12 @@ export default function BookmarksPage() {
         </div>
       </div>
 
-      {modal ? (
-        <div className="bm-overlay" role="dialog" aria-modal="true" aria-label={modal === 'add' ? '新增网站' : '编辑网站'}>
+      {dialog === 'add' || dialog === 'edit' ? (
+        <div className="bm-overlay" role="dialog" aria-modal="true" aria-label={dialog === 'add' ? '新增网站' : '编辑网站'}>
           <div className="bm-modal">
             <div className="bm-modal-head">
-              <div className="bm-modal-title">{modal === 'add' ? '新增网站' : '编辑网站'}</div>
-              <button type="button" className="bm-tool-btn" onClick={() => setModal(null)}>
+              <div className="bm-modal-title">{dialog === 'add' ? '新增网站' : '编辑网站'}</div>
+              <button type="button" className="bm-tool-btn" onClick={() => setDialog(null)}>
                 关闭
               </button>
             </div>
@@ -630,13 +647,13 @@ export default function BookmarksPage() {
                 </button>
               </div>
               <div className="bm-row">
-                <div className="bm-hint">{modal === 'add' ? '点击添加后会用新窗口打开' : '保存只更新列表，不会自动打开'}</div>
+                <div className="bm-hint">{dialog === 'add' ? '点击添加后会用新窗口打开' : '保存只更新列表，不会自动打开'}</div>
                 <div className="bm-spacer" />
-                <button type="button" className="bm-tool-btn" onClick={() => setModal(null)}>
+                <button type="button" className="bm-tool-btn" onClick={() => setDialog(null)}>
                   取消
                 </button>
-                <button type="button" className="bm-tool-btn bm-tool-primary" onClick={() => (modal === 'add' ? void addItem() : void editItem())}>
-                  {modal === 'add' ? '添加' : '保存'}
+                <button type="button" className="bm-tool-btn bm-tool-primary" onClick={() => (dialog === 'add' ? void addItem() : void editItem())}>
+                  {dialog === 'add' ? '添加' : '保存'}
                 </button>
               </div>
             </div>
