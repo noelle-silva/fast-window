@@ -7,16 +7,26 @@ export type ModalCapablePageId = (typeof MODAL_CAPABLE_PAGE_IDS)[number]
 
 export type PageDisplayModesV1 = Partial<Record<ModalCapablePageId, PageDisplayMode>>
 
+// 除主页外，其余可接入页面默认以模态窗打开。
+export const DEFAULT_PAGE_DISPLAY_MODES: Readonly<Record<ModalCapablePageId, PageDisplayMode>> = {
+  home: 'page',
+  index: 'modal',
+  attachments: 'modal',
+  'all-notes': 'modal',
+  settings: 'modal',
+}
+
 function normalizePageDisplayMode(value: unknown): PageDisplayMode {
   return value === 'modal' ? 'modal' : 'page'
 }
 
+// 收敛为全量记录：每个可接入页面都有明确模式；缺省/非法值统一回退该页默认值。
 export function normalizePageDisplayModes(input: unknown): PageDisplayModesV1 {
-  if (!input || typeof input !== 'object') return {}
-  const source = input as Record<string, unknown>
+  const source = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const out: PageDisplayModesV1 = {}
   for (const id of MODAL_CAPABLE_PAGE_IDS) {
-    if (normalizePageDisplayMode(source[id]) === 'modal') out[id] = 'modal'
+    const raw = source[id]
+    out[id] = raw === undefined || raw === null ? DEFAULT_PAGE_DISPLAY_MODES[id] : normalizePageDisplayMode(raw)
   }
   return out
 }

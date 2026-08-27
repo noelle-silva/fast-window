@@ -348,8 +348,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const fwdNavHistoryRef = React.useRef<NavHistoryEntry[]>([])
 
   // ---- 页面呈现方式（哪些页面以模态窗打开）
-  const [pageDisplayModes, setPageDisplayModes] = React.useState<PageDisplayModesV1>({})
-  const pageDisplayModesRef = React.useRef<PageDisplayModesV1>({})
+  const [pageDisplayModes, setPageDisplayModes] = React.useState<PageDisplayModesV1>(() => normalizePageDisplayModes(undefined))
+  const pageDisplayModesRef = React.useRef<PageDisplayModesV1>(() => normalizePageDisplayModes(undefined))
   React.useEffect(() => {
     pageDisplayModesRef.current = pageDisplayModes
   }, [pageDisplayModes])
@@ -362,7 +362,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const resolvePageDisplayMode = React.useCallback((id: PageId): PageDisplayMode => {
     if (!isModalCapablePageId(id)) return 'page'
-    return pageDisplayModesRef.current[id] || 'page'
+    return pageDisplayModesRef.current[id] ?? 'page'
   }, [])
   const [navStackSizes, setNavStackSizes] = React.useState({ back: 0, forward: 0 })
 
@@ -844,9 +844,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const handlePageDisplayModeChange = React.useCallback(
     (targetId: ModalCapablePageId, mode: PageDisplayMode) => {
-      const nextModes: PageDisplayModesV1 = { ...pageDisplayModesRef.current }
-      if (mode === 'modal') nextModes[targetId] = 'modal'
-      else delete nextModes[targetId]
+      const nextModes: PageDisplayModesV1 = { ...pageDisplayModesRef.current, [targetId]: mode }
       pageDisplayModesRef.current = nextModes
       setPageDisplayModes(nextModes)
 
