@@ -338,6 +338,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     pageDisplayModesRef.current = pageDisplayModes
   }, [pageDisplayModes])
   const [openModalPage, setOpenModalPage] = React.useState<PageId | null>(null)
+  const openModalPageRef = React.useRef<PageId | null>(null)
+  React.useEffect(() => {
+    openModalPageRef.current = openModalPage
+  }, [openModalPage])
 
   const resolvePageDisplayMode = React.useCallback((id: PageId): PageDisplayMode => {
     if (!isModalCapablePageId(id)) return 'page'
@@ -1977,22 +1981,26 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const bindings = shortcutBindingsRef.current
       if (!bindings) return
 
+      // 注意力焦点：浮层开着时，快捷键应作用于浮层页面；被遮住的底层页面不再响应。
+      const overlayPage = openModalPageRef.current
+      const focusPage = overlayPage ?? pageRef.current
+
       // 长按行为只在对应 mainKey 抬起时停止。
-      if (shouldTriggerShortcut(e, bindings.selectPrevTab)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.selectPrevTab)) {
         e.preventDefault()
         e.stopPropagation()
         startTabSwitchHoldToRepeat(-1)
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.selectNextTab)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.selectNextTab)) {
         e.preventDefault()
         e.stopPropagation()
         startTabSwitchHoldToRepeat(1)
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.toggleSidebar)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleSidebar)) {
         e.preventDefault()
         e.stopPropagation()
         if (tabsMode === 'hover') {
@@ -2004,7 +2012,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.goBackPage)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.goBackPage)) {
         e.preventDefault()
         e.stopPropagation()
         void goBackPage()
@@ -2018,14 +2026,14 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.newNote)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.newNote)) {
         e.preventDefault()
         e.stopPropagation()
         handleCreateDraftNote()
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.toggleQuickSearch)) {
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleQuickSearch)) {
         e.preventDefault()
         e.stopPropagation()
         setShortcutHintsOpen(false)
@@ -2033,8 +2041,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.closeActiveTab)) {
-        if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') return
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.closeActiveTab)) {
+        if (focusPage !== 'note-detail' && focusPage !== 'asset-detail') return
         const key = String(activeTabKeyRef.current || '').trim()
         if (!key) return
         e.preventDefault()
@@ -2049,7 +2057,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.toggleMode) && pageRef.current === 'index') {
+      if (shouldTriggerShortcut(e, bindings.toggleMode) && focusPage === 'index') {
         e.preventDefault()
         e.stopPropagation()
         setIndexEditMode(prev => {
@@ -2060,7 +2068,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (pageRef.current !== 'note-detail') return
+      if (focusPage !== 'note-detail') return
       const nid = String(activeNoteIdRef.current || '').trim()
       if (!nid) return
       const handle = noteSessionHandlesRef.current[nid]
@@ -2640,10 +2648,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 6 }}>
-                  <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0} onClick={() => void goBackPage()}>
+                  <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0 || !!openModalPage} onClick={() => void goBackPage()}>
                     <ArrowBackRoundedIcon fontSize="small" />
                   </NavIconButton>
-                  <NavIconButton title="前进" ariaLabel="前进" disabled={navStackSizes.forward <= 0} onClick={() => void goForwardPage()}>
+                  <NavIconButton title="前进" ariaLabel="前进" disabled={navStackSizes.forward <= 0 || !!openModalPage} onClick={() => void goForwardPage()}>
                     <ArrowForwardRoundedIcon fontSize="small" />
                   </NavIconButton>
                 </Box>
