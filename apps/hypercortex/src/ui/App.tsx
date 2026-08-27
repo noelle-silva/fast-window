@@ -2921,6 +2921,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       onSaved={handleNoteSessionSaved}
                       trashEnabled={trashEnabled}
                       onRequestDeleteNote={handleDeleteNote}
+                      favoritesDoc={favoritesDoc}
+                      onFavoriteSaved={handleFavoritesDocChange}
                       onPlayingChange={playing => setTabPlaying(noteTabKey(tab.id), playing)}
                       htmlFaceDisplayMode={htmlFaceDisplayMode}
                       htmlFaceGlobalDefaultScale={htmlFaceFixedScaleDefault}
