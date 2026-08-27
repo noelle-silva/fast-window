@@ -239,6 +239,36 @@ func TestSettingsSaveValidation(t *testing.T) {
 	}
 }
 
+func TestBuildEmbeddedArgsPerShell(t *testing.T) {
+	script := `E:\tmp\run-1.cmd`
+	work := `E:\tmp\work`
+
+	cmdArgs := buildEmbeddedArgs(shellDef{id: "cmd"}, script, work)
+	if len(cmdArgs) != 4 || cmdArgs[0] != "/d" || cmdArgs[3] != script {
+		t.Fatalf("cmd args = %v", cmdArgs)
+	}
+
+	psArgs := buildEmbeddedArgs(shellDef{id: "powershell"}, script, work)
+	if len(psArgs) != 5 || psArgs[1] != "-ExecutionPolicy" || psArgs[4] != script {
+		t.Fatalf("powershell args = %v", psArgs)
+	}
+
+	bashArgs := buildEmbeddedArgs(shellDef{id: "git-bash"}, script, work)
+	if len(bashArgs) != 1 || bashArgs[0] != script {
+		t.Fatalf("git-bash args = %v", bashArgs)
+	}
+
+	wslArgs := buildEmbeddedArgs(shellDef{id: "wsl"}, script, work)
+	if len(wslArgs) != 4 || wslArgs[0] != "--cd" || wslArgs[1] != work || wslArgs[2] != "bash" || wslArgs[3] != script {
+		t.Fatalf("wsl args = %v", wslArgs)
+	}
+
+	customArgs := buildEmbeddedArgs(shellDef{id: "custom-x", argsTemplate: `-NoLogo {command}`}, script, work)
+	if len(customArgs) != 2 || customArgs[0] != "-NoLogo" || customArgs[1] != script {
+		t.Fatalf("custom args = %v", customArgs)
+	}
+}
+
 func TestReorderReposAndCommands(t *testing.T) {
 	svc := newTestService(t)
 

@@ -9,9 +9,10 @@ type RepoPageProps = {
   onBack: () => void
   onCreateCommand: () => void
   onEditRepo: () => void
+  onOpenExecutionSpace: () => void
 }
 
-export function RepoPage({ repo, onBack, onCreateCommand, onEditRepo }: RepoPageProps) {
+export function RepoPage({ repo, onBack, onCreateCommand, onEditRepo, onOpenExecutionSpace }: RepoPageProps) {
   return (
     <Box className="cr-repo-page-header">
       <Tooltip title="返回仓库列表">
@@ -23,6 +24,7 @@ export function RepoPage({ repo, onBack, onCreateCommand, onEditRepo }: RepoPage
         <Typography component="h1" sx={{ fontSize: 17, fontWeight: 900 }} noWrap>{repo.name}</Typography>
         <Typography color="text.secondary" sx={{ fontSize: 12 }} noWrap>{repo.path}</Typography>
       </Box>
+      <Button size="small" onClick={onOpenExecutionSpace}>内置执行空间</Button>
       <Button size="small" onClick={onEditRepo}>仓库设置</Button>
       <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={onCreateCommand}>新建命令</Button>
     </Box>

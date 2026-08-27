@@ -1,9 +1,9 @@
 import * as React from 'react'
-import { Box, Button, FormControlLabel, Switch, TextField } from '@mui/material'
+import { Box, Button, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material'
 import { DialogShell } from './DialogShell'
 import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
-import type { CommandDraft, CommandItem, Repo, ShellInfo } from '../types'
+import type { CommandDraft, CommandItem, CommandRunMode, Repo, ShellInfo } from '../types'
 
 type CommandDialogProps = {
   repo: Repo
@@ -26,7 +26,13 @@ const EMPTY_DRAFT: CommandDraft = {
   shellId: '',
   closeMode: '',
   countdownSeconds: 0,
+  runMode: 'console',
 }
+
+const RUN_MODE_OPTIONS: Array<{ value: CommandRunMode; label: string; hint: string }> = [
+  { value: 'console', label: '独立命令行窗口', hint: '弹出独立窗口运行，输出不在 App 内显示' },
+  { value: 'embedded', label: '内置执行空间', hint: '不弹窗口，输出实时显示在 App 的执行空间页面' },
+]
 
 export function CommandDialog({
   repo,
@@ -48,6 +54,7 @@ export function CommandDialog({
   const [countdownSeconds, setCountdownSeconds] = React.useState(
     initial?.countdownSeconds || defaultCountdownSeconds,
   )
+  const [runMode, setRunMode] = React.useState<CommandRunMode>(initial?.runMode || 'console')
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && script.trim().length > 0 && !disabled && !submitting
 
@@ -64,11 +71,12 @@ export function CommandDialog({
         shellId,
         closeMode,
         countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0,
+        runMode,
       })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, shellId, closeMode, countdownSeconds, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, shellId, closeMode, countdownSeconds, runMode, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -133,6 +141,23 @@ export function CommandDialog({
           label="命令终端"
           disabled={disabled || submitting}
         />
+        <TextField
+          select
+          label="运行模式"
+          value={runMode}
+          disabled={disabled || submitting}
+          onChange={event => setRunMode(event.target.value as CommandRunMode)}
+          fullWidth
+        >
+          {RUN_MODE_OPTIONS.map(option => (
+            <MenuItem key={option.value} value={option.value}>
+              <Box sx={{ minWidth: 0 }}>
+                <Box component="span" sx={{ fontSize: 13, fontWeight: 700 }}>{option.label}</Box>
+                <Box component="span" sx={{ display: 'block', color: 'text.secondary', fontSize: 11 }}>{option.hint}</Box>
+              </Box>
+            </MenuItem>
+          ))}
+        </TextField>
         <CloseModeSelect
           closeMode={closeMode}
           countdownSeconds={countdownSeconds}

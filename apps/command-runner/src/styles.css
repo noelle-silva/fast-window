@@ -79,6 +79,87 @@ body {
   background: #d32f2f;
 }
 
+.cr-repo-running-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.18);
+  z-index: 1;
+}
+
+.cr-space-list {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.cr-space-card {
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.cr-space-card-header {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px 12px 0 0;
+  background: #fafafa;
+}
+
+.cr-run-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.cr-run-dot-running {
+  background: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.18);
+}
+
+.cr-run-dot-ended {
+  background: #9ca3af;
+}
+
+.cr-space-output {
+  margin: 10px;
+  padding: 10px 14px;
+  max-height: 340px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #111827;
+  color: #e5e7eb;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cr-space-line {
+  min-height: 1em;
+}
+
+.cr-space-line-stderr {
+  color: #fca5a5;
+}
+
 .cr-repo-grid {
   flex: 1;
   min-height: 0;

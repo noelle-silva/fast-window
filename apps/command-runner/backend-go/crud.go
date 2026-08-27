@@ -218,6 +218,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		ShellID:          draft.ShellID,
 		CloseMode:        draft.CloseMode,
 		CountdownSeconds: draft.CountdownSeconds,
+		RunMode:          draft.RunMode,
 		CreatedAt:        nowText(),
 		UpdatedAt:        nowText(),
 	}
@@ -250,6 +251,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].ShellID = draft.ShellID
 		doc.Commands[index].CloseMode = draft.CloseMode
 		doc.Commands[index].CountdownSeconds = draft.CountdownSeconds
+		doc.Commands[index].RunMode = draft.RunMode
 		doc.Commands[index].UpdatedAt = nowText()
 		if err := svc.writeCommands(doc); err != nil {
 			return command{}, err

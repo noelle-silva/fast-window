@@ -69,6 +69,7 @@ type command struct {
 	ShellID          string `json:"shellId"`
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`
+	RunMode          string `json:"runMode"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
 }
@@ -88,6 +89,7 @@ type commandDraft struct {
 	ShellID          string `json:"shellId"`
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`
+	RunMode          string `json:"runMode"`
 }
 
 type metaDoc struct {
@@ -127,6 +129,15 @@ func validCloseMode(mode string) bool {
 	}
 }
 
+func validRunMode(mode string) bool {
+	switch mode {
+	case runModeConsole, runModeEmbedded:
+		return true
+	default:
+		return false
+	}
+}
+
 func (draft commandDraft) validate() error {
 	if strings.TrimSpace(draft.RepoID) == "" {
 		return fmt.Errorf("命令必须归属一个仓库")
@@ -142,6 +153,9 @@ func (draft commandDraft) validate() error {
 	}
 	if draft.CloseMode != "" && !validCloseMode(draft.CloseMode) {
 		return fmt.Errorf("未知关闭策略: %s", draft.CloseMode)
+	}
+	if draft.RunMode != "" && !validRunMode(draft.RunMode) {
+		return fmt.Errorf("未知运行模式: %s", draft.RunMode)
 	}
 	if draft.CountdownSeconds != 0 &&
 		(draft.CountdownSeconds < minCountdownSeconds || draft.CountdownSeconds > maxCountdownSeconds) {

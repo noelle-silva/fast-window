@@ -14,8 +14,11 @@ export type DataDirStatus = {
 
 export type DirectClient = {
   request<T>(method: string, params?: unknown): Promise<T>
+  onEvent(handler: RunEventHandler): () => void
   close(): void
 }
+
+export type RunEventHandler = (event: RunEvent) => void
 
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = {
   launched: false,
@@ -49,6 +52,8 @@ export type Repo = {
 
 export type CloseMode = 'keep-open' | 'countdown' | 'close-immediately'
 
+export type CommandRunMode = 'console' | 'embedded'
+
 export type CommandItem = {
   id: string
   repoId: string
@@ -59,6 +64,7 @@ export type CommandItem = {
   shellId: string
   closeMode: string
   countdownSeconds: number
+  runMode: CommandRunMode
   createdAt: string
   updatedAt: string
 }
@@ -72,6 +78,27 @@ export type CommandDraft = {
   shellId: string
   closeMode: string
   countdownSeconds: number
+  runMode: CommandRunMode
+}
+
+export type RunEvent = {
+  name: 'run.started' | 'run.output' | 'run.ended'
+  runId: string
+  commandId?: string
+  repoId?: string
+  commandName?: string
+  startedAt?: string
+  text?: string
+  stream?: 'stdout' | 'stderr'
+  exitCode?: number
+}
+
+export type RunInfo = {
+  runId: string
+  commandId: string
+  repoId: string
+  commandName: string
+  startedAt: string
 }
 
 export type AppSettings = {

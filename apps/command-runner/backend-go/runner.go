@@ -56,45 +56,28 @@ func (svc *service) resolveRunPlan(cmd command, repo repo) (runPlan, error) {
 	return plan, nil
 }
 
-func (svc *service) runCommand(id string) (map[string]any, error) {
-	commandsDoc, err := svc.loadCommands()
+// runCommandByMode 按命令配置的运行模式分流执行。
+func (svc *service) runCommandByMode(id string) (map[string]any, error) {
+	cmdItem, _, err := svc.locateCommand(id)
 	if err != nil {
 		return nil, err
 	}
-	var cmd command
-	found := false
-	for _, item := range commandsDoc.Commands {
-		if item.ID == id {
-			cmd = item
-			found = true
-			break
-		}
+	if cmdItem.RunMode == runModeEmbedded {
+		return svc.runEmbeddedCommand(id)
 	}
-	if !found {
-		return nil, fmt.Errorf("未找到命令: %s", id)
-	}
+	return svc.runConsoleCommand(id)
+}
 
-	reposDoc, err := svc.loadRepos()
+func (svc *service) runConsoleCommand(id string) (map[string]any, error) {
+	cmdItem, target, err := svc.locateCommand(id)
 	if err != nil {
 		return nil, err
-	}
-	var target repo
-	found = false
-	for _, item := range reposDoc.Repos {
-		if item.ID == cmd.RepoID {
-			target = item
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil, fmt.Errorf("命令所属仓库不存在: %s", cmd.RepoID)
 	}
 	if info, err := os.Stat(target.Path); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("仓库目录不存在: %s", target.Path)
 	}
 
-	plan, err := svc.resolveRunPlan(cmd, target)
+	plan, err := svc.resolveRunPlan(cmdItem, target)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +85,7 @@ func (svc *service) runCommand(id string) (map[string]any, error) {
 		return nil, fmt.Errorf("终端不可用: %s", plan.shell.name)
 	}
 
-	if err := svc.launchInNewConsole(cmd, target, plan); err != nil {
+	if err := svc.launchInNewConsole(cmdItem, target, plan); err != nil {
 		return nil, err
 	}
 	return map[string]any{"started": true}, nil

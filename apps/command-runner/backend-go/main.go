@@ -28,6 +28,8 @@ const (
 type service struct {
 	dataDir string
 	mu      sync.Mutex
+	bus     *eventBus
+	runs    *runRegistry
 }
 
 type requestFrame struct {
@@ -100,11 +102,16 @@ func newService() (*service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve data dir failed: %w", err)
 	}
-	return &service{dataDir: abs}, nil
+	return &service{dataDir: abs, bus: newEventBus(), runs: newRunRegistry()}, nil
 }
 
 func handleConnection(conn *websocket.Conn, svc *service) {
-	defer conn.Close()
+	safe := &safeConn{conn: conn}
+	svc.bus.register(safe)
+	defer func() {
+		svc.bus.unregister(safe)
+		conn.Close()
+	}()
 	for {
 		var frame requestFrame
 		if err := conn.ReadJSON(&frame); err != nil {
@@ -119,7 +126,7 @@ func handleConnection(conn *websocket.Conn, svc *service) {
 		if err != nil {
 			response.Error = map[string]any{"message": err.Error()}
 		}
-		_ = conn.WriteJSON(response)
+		_ = safe.writeJSON(response)
 	}
 }
 
@@ -270,7 +277,19 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid command payload: %w", err)
 		}
-		return svc.runCommand(payload.ID)
+		return svc.runCommandByMode(payload.ID)
+
+	case "commandRunner.runs.stop":
+		var payload struct {
+			RunID string `json:"runId"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid run payload: %w", err)
+		}
+		return nil, svc.stopRun(payload.RunID)
+
+	case "commandRunner.runs.list":
+		return map[string]any{"runs": svc.runs.snapshot()}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)

@@ -12,6 +12,7 @@ type RepoGridProps = {
   settings: AppSettings | null
   shells: ShellInfo[]
   disabled?: boolean
+  runningCountFor: (repoId: string) => number
   onOpen: (repo: Repo) => void
   onEdit: (repo: Repo) => void
   onReorder: (orderedIds: string[]) => Promise<void> | void
@@ -26,12 +27,14 @@ function SortableRepoCard({
   repo,
   commandCount,
   shellName,
+  runningCount,
   onOpen,
   onEdit,
 }: {
   repo: Repo
   commandCount: number
   shellName: string
+  runningCount: number
   onOpen: () => void
   onEdit: () => void
 }) {
@@ -54,6 +57,7 @@ function SortableRepoCard({
         repo={repo}
         commandCount={commandCount}
         shellName={shellName}
+        runningCount={runningCount}
         onOpen={onOpen}
         onEdit={onEdit}
       />
@@ -67,6 +71,7 @@ export function RepoGrid({
   settings,
   shells,
   disabled = false,
+  runningCountFor,
   onOpen,
   onEdit,
   onReorder,
@@ -93,6 +98,7 @@ export function RepoGrid({
               repo={repo}
               commandCount={commands.countFor(repo.id)}
               shellName={shells.find(shell => shell.id === (repo.shellId || settings?.defaultShellId || 'cmd'))?.name || '默认终端'}
+              runningCount={runningCountFor(repo.id)}
               onOpen={() => onOpen(repo)}
               onEdit={() => onEdit(repo)}
             />

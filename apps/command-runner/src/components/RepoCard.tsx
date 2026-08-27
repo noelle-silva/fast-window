@@ -1,19 +1,30 @@
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
-import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Typography } from '@mui/material'
+import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Tooltip, Typography } from '@mui/material'
 import type { Repo } from '../types'
 
 type RepoCardProps = {
   repo: Repo
   commandCount: number
   shellName: string
+  runningCount: number
   onOpen: () => void
   onEdit: () => void
 }
 
-export function RepoCard({ repo, commandCount, shellName, onOpen, onEdit }: RepoCardProps) {
+export function RepoCard({ repo, commandCount, shellName, runningCount, onOpen, onEdit }: RepoCardProps) {
+  const hasRunning = runningCount > 0
   return (
-    <Card className="cr-repo-card" variant="outlined">
+    <Card className="cr-repo-card" variant="outlined" sx={{ position: 'relative' }}>
+      {hasRunning ? (
+        <Tooltip title={`${runningCount} 个进程正在运行`}>
+          <Box
+            className="cr-repo-running-dot"
+            role="status"
+            aria-label={`${runningCount} 个进程正在运行`}
+          />
+        </Tooltip>
+      ) : null}
       <CardActionArea onClick={onOpen} sx={{ height: '100%', alignItems: 'stretch' }}>
         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
           <Box sx={{ display: 'flex', width: '100%', alignItems: 'center', gap: 1 }}>

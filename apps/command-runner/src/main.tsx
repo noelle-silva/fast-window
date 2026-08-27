@@ -10,6 +10,7 @@ import { CommandList } from './components/CommandList'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
 import { DeleteConfirmDialog } from './components/DeleteConfirmDialog'
+import { ExecutionSpacePage } from './components/ExecutionSpacePage'
 import { RepoCard } from './components/RepoCard'
 import { RepoDialog } from './components/RepoDialog'
 import { RepoGrid } from './components/RepoGrid'
@@ -17,6 +18,7 @@ import { RepoPage } from './components/RepoPage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { createDirectClient } from './directClient'
 import { useCommandRunnerData } from './commandRunnerData'
+import { useExecutionSpace } from './executionSpace'
 import { commandRunnerTheme } from './theme'
 import type {
   CommandDraft,
@@ -55,8 +57,10 @@ function App() {
   const [busy, setBusy] = React.useState(false)
   const [connectError, setConnectError] = React.useState<string | null>(null)
   const [activeRepoId, setActiveRepoId] = React.useState<string | null>(null)
+  const [spaceRepoId, setSpaceRepoId] = React.useState<string | null>(null)
   const [dialog, setDialog] = React.useState<DialogState>(NO_DIALOG)
   const [snack, setSnack] = React.useState<string | null>(null)
+  const [stoppingRunIds, setStoppingRunIds] = React.useState<Set<string>>(new Set())
   const readyRef = React.useRef(false)
   const clientRef = React.useRef<DirectClient | null>(null)
   const connectIdRef = React.useRef(0)
@@ -65,10 +69,28 @@ function App() {
   const backendReady = phase === 'ready' && Boolean(client)
   const controlsDisabled = !backendReady || busy
   const { settings, shells, repos, commands, loading, error, actions } = useCommandRunnerData(client)
+  const executionSpace = useExecutionSpace(client, commands, settings)
   const visibleError = connectError || error
 
   const activeRepo = repos.find(repo => repo.id === activeRepoId) || null
+  const spaceRepo = repos.find(repo => repo.id === spaceRepoId) || null
   const activeRepoCommands = activeRepo ? commands.filter(command => command.repoId === activeRepo.id) : []
+  const spaceEntries = spaceRepo ? executionSpace.entries.filter(entry => entry.repoId === spaceRepo.id) : []
+
+  const stopRun = React.useCallback(async (runId: string) => {
+    setStoppingRunIds(current => new Set(current).add(runId))
+    try {
+      await executionSpace.stopRun(runId)
+    } catch (e) {
+      setSnack(errorMessage(e, '停止命令失败'))
+    } finally {
+      setStoppingRunIds(current => {
+        const next = new Set(current)
+        next.delete(runId)
+        return next
+      })
+    }
+  }, [executionSpace.stopRun])
 
   const markAppReady = React.useCallback(() => {
     if (readyRef.current) return
@@ -328,13 +350,24 @@ function App() {
         ) : null}
 
         {phase === 'ready' && !(loading && !repos.length && !settings) ? (
-          activeRepo ? (
+          spaceRepo ? (
+            <ExecutionSpacePage
+              repoName={spaceRepo.name}
+              entries={spaceEntries}
+              stoppingRunIds={stoppingRunIds}
+              onBack={() => setSpaceRepoId(null)}
+              onStopRun={runId => void stopRun(runId)}
+              onRemoveEntry={executionSpace.removeEntry}
+              onToggleCollapse={executionSpace.toggleCollapse}
+            />
+          ) : activeRepo ? (
             <Box className="cr-repo-page">
               <RepoPage
                 repo={activeRepo}
                 onBack={() => setActiveRepoId(null)}
                 onCreateCommand={() => setDialog({ kind: 'command-create' })}
                 onEditRepo={() => setDialog({ kind: 'repo-edit', repo: activeRepo })}
+                onOpenExecutionSpace={() => setSpaceRepoId(activeRepo.id)}
               />
               {activeRepoCommands.length === 0 ? (
                 <Box className="cr-empty-state">
@@ -364,6 +397,7 @@ function App() {
               settings={settings}
               shells={shells}
               disabled={controlsDisabled}
+              runningCountFor={executionSpace.runningCountFor}
               onOpen={repo => setActiveRepoId(repo.id)}
               onEdit={repo => setDialog({ kind: 'repo-edit', repo })}
               onReorder={ids => actions.reorderRepos(ids)}

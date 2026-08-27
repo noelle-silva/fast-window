@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DirectClient } from './types'
+import type { DirectClient, RunEventHandler } from './types'
 
 type BackendEndpoint = {
   mode: 'direct'
@@ -74,10 +74,18 @@ class CommandRunnerDirectClient implements DirectClient {
   private seq = 0
   private closed = false
   private readonly pending = new Map<string, PendingRequest>()
+  private readonly eventHandlers = new Set<RunEventHandler>()
   private readonly cleanupResumeTriggers: () => void
 
   constructor() {
     this.cleanupResumeTriggers = installResumeTriggers(() => this.scheduleReconnect(true))
+  }
+
+  onEvent = (handler: RunEventHandler): (() => void) => {
+    this.eventHandlers.add(handler)
+    return () => {
+      this.eventHandlers.delete(handler)
+    }
   }
 
   open = async (): Promise<void> => {
@@ -153,7 +161,17 @@ class CommandRunnerDirectClient implements DirectClient {
   private handleMessage(event: MessageEvent) {
     let frame: any = null
     try { frame = JSON.parse(String(event.data)) } catch { return }
-    if (!frame || frame.type !== 'response') return
+    if (!frame) return
+    if (frame.type === 'event') {
+      const payload = frame.event
+      if (payload && typeof payload.name === 'string') {
+        for (const handler of this.eventHandlers) {
+          try { handler(payload) } catch { /* 事件处理异常不阻断连接 */ }
+        }
+      }
+      return
+    }
+    if (frame.type !== 'response') return
     const id = String(frame.id || '')
     const entry = this.pending.get(id)
     if (!entry) return
