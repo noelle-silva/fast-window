@@ -10,6 +10,44 @@ func (svc *service) listRepos() (reposDoc, error) {
 	return svc.loadRepos()
 }
 
+func (svc *service) reorderRepos(orderedIDs []string) error {
+	doc, err := svc.loadRepos()
+	if err != nil {
+		return err
+	}
+	reordered, err := reorderByID(doc.Repos, orderedIDs, func(item repo) string { return item.ID })
+	if err != nil {
+		return err
+	}
+	doc.Repos = reordered
+	return svc.writeRepos(doc)
+}
+
+// reorderByID 按传入的 ID 顺序重排条目；ID 集合必须与现有条目完全一致（不多、不少、不重复）。
+func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string) ([]T, error) {
+	if len(orderedIDs) != len(items) {
+		return nil, fmt.Errorf("排序 ID 数量（%d）与现有条目数量（%d）不一致", len(orderedIDs), len(items))
+	}
+	existing := make(map[string]T, len(items))
+	for _, item := range items {
+		existing[idOf(item)] = item
+	}
+	seen := make(map[string]bool, len(orderedIDs))
+	reordered := make([]T, 0, len(orderedIDs))
+	for _, id := range orderedIDs {
+		if seen[id] {
+			return nil, fmt.Errorf("排序 ID 重复: %s", id)
+		}
+		item, ok := existing[id]
+		if !ok {
+			return nil, fmt.Errorf("未知条目: %s", id)
+		}
+		seen[id] = true
+		reordered = append(reordered, item)
+	}
+	return reordered, nil
+}
+
 func (svc *service) createRepo(name, path string) (repo, error) {
 	name = strings.TrimSpace(name)
 	path = strings.TrimSpace(path)
@@ -132,6 +170,19 @@ func (svc *service) listCommands(repoID string) (map[string]any, error) {
 		commands = append(commands, item)
 	}
 	return map[string]any{"commands": commands}, nil
+}
+
+func (svc *service) reorderCommands(orderedIDs []string) error {
+	doc, err := svc.loadCommands()
+	if err != nil {
+		return err
+	}
+	reordered, err := reorderByID(doc.Commands, orderedIDs, func(item command) string { return item.ID })
+	if err != nil {
+		return err
+	}
+	doc.Commands = reordered
+	return svc.writeCommands(doc)
 }
 
 func (svc *service) createCommand(draft commandDraft) (command, error) {

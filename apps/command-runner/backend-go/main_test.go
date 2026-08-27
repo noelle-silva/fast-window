@@ -238,3 +238,73 @@ func TestSettingsSaveValidation(t *testing.T) {
 		t.Fatalf("unexpected settings: %+v", settings)
 	}
 }
+
+func TestReorderReposAndCommands(t *testing.T) {
+	svc := newTestService(t)
+
+	mkRepoDir := func(name string) string {
+		dir := filepath.Join(svc.dataDir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	repoA, err := svc.createRepo("A", mkRepoDir("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoB, err := svc.createRepo("B", mkRepoDir("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoC, err := svc.createRepo("C", mkRepoDir("c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmdA, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "a", Script: "echo a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdB, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "b", Script: "echo b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 正常重排
+	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID, repoB.ID}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.loadRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Repos[0].ID != repoC.ID || doc.Repos[2].ID != repoB.ID {
+		t.Fatalf("unexpected repo order: %+v", doc.Repos)
+	}
+
+	if err := svc.reorderCommands([]string{cmdB.ID, cmdA.ID}); err != nil {
+		t.Fatal(err)
+	}
+	commandsDoc, err := svc.loadCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandsDoc.Commands[0].ID != cmdB.ID {
+		t.Fatalf("unexpected command order: %+v", commandsDoc.Commands)
+	}
+
+	// ID 缺失拒绝
+	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID}); err == nil {
+		t.Fatal("expected error for missing id")
+	}
+	// 未知 ID 拒绝
+	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID, repoB.ID, "repo-nope"}); err == nil {
+		t.Fatal("expected error for unknown id")
+	}
+	// 重复 ID 拒绝
+	if err := svc.reorderCommands([]string{cmdA.ID, cmdA.ID}); err == nil {
+		t.Fatal("expected error for duplicate id")
+	}
+}

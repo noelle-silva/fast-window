@@ -210,6 +210,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		}
 		return nil, svc.deleteRepo(payload.ID)
 
+	case "commandRunner.repos.reorder":
+		var payload struct {
+			OrderedIDs []string `json:"orderedIds"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid repo payload: %w", err)
+		}
+		return nil, svc.reorderRepos(payload.OrderedIDs)
+
 	case "commandRunner.commands.list":
 		var payload struct {
 			RepoID string `json:"repoId"`
@@ -244,6 +253,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid command payload: %w", err)
 		}
 		return nil, svc.deleteCommand(payload.ID)
+
+	case "commandRunner.commands.reorder":
+		var payload struct {
+			OrderedIDs []string `json:"orderedIds"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid command payload: %w", err)
+		}
+		return nil, svc.reorderCommands(payload.OrderedIDs)
 
 	case "commandRunner.commands.run":
 		var payload struct {

@@ -23,9 +23,11 @@ type CommandRunnerActions = {
   createRepo: (name: string, path: string) => Promise<void>
   updateRepo: (id: string, name: string, path: string) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
+  reorderRepos: (orderedIds: string[]) => Promise<void>
   createCommand: (draft: CommandDraft) => Promise<void>
   updateCommand: (id: string, draft: CommandDraft) => Promise<void>
   deleteCommand: (id: string) => Promise<void>
+  reorderCommands: (orderedIds: string[]) => Promise<void>
   runCommand: (id: string) => Promise<void>
   saveSettings: (draft: SettingsDraft) => Promise<void>
   addCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void>
@@ -85,9 +87,11 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
         createRepo: unavailable,
         updateRepo: unavailable,
         deleteRepo: unavailable,
+        reorderRepos: unavailable,
         createCommand: unavailable,
         updateCommand: unavailable,
         deleteCommand: unavailable,
+        reorderCommands: unavailable,
         runCommand: unavailable,
         saveSettings: unavailable,
         addCustomShell: unavailable,
@@ -100,13 +104,27 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
       await refresh()
     }
 
+    // reorder 先做本地乐观更新，让拖拽立即落位，再持久化到后端。
+    const applyLocalOrder = <T extends { id: string }>(current: T[], orderedIds: string[]): T[] =>
+      orderedIds
+        .map(id => current.find(item => item.id === id))
+        .filter((item): item is T => Boolean(item))
+
     return {
       createRepo: (name, path) => mutate('commandRunner.repos.create', { name, path }),
       updateRepo: (id, name, path) => mutate('commandRunner.repos.update', { id, name, path }),
       deleteRepo: id => mutate('commandRunner.repos.delete', { id }),
+      reorderRepos: orderedIds => {
+        setRepos(current => applyLocalOrder(current, orderedIds))
+        return mutate('commandRunner.repos.reorder', { orderedIds })
+      },
       createCommand: draft => mutate('commandRunner.commands.create', draft),
       updateCommand: (id, draft) => mutate('commandRunner.commands.update', { id, draft }),
       deleteCommand: id => mutate('commandRunner.commands.delete', { id }),
+      reorderCommands: orderedIds => {
+        setCommands(current => applyLocalOrder(current, orderedIds))
+        return mutate('commandRunner.commands.reorder', { orderedIds })
+      },
       runCommand: id => mutate('commandRunner.commands.run', { id }),
       saveSettings: draft => mutate('commandRunner.settings.save', draft),
       addCustomShell: (name, exePath, argsTemplate) =>

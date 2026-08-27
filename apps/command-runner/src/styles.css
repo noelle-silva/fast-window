@@ -140,9 +140,28 @@ body {
 .cr-command-card-content {
   padding: 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+}
+
+.cr-drag-handle {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  color: rgba(0, 0, 0, 0.32);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cr-drag-handle:hover {
+  color: #1976d2;
+}
+
+.cr-drag-handle:active {
+  cursor: grabbing;
 }
 
 .cr-command-card-body {

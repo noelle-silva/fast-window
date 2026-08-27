@@ -6,12 +6,13 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AppTopbar } from './components/AppTopbar'
-import { CommandCard } from './components/CommandCard'
+import { CommandList } from './components/CommandList'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
 import { DeleteConfirmDialog } from './components/DeleteConfirmDialog'
 import { RepoCard } from './components/RepoCard'
 import { RepoDialog } from './components/RepoDialog'
+import { RepoGrid } from './components/RepoGrid'
 import { RepoPage } from './components/RepoPage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { createDirectClient } from './directClient'
@@ -287,6 +288,7 @@ function App() {
         <AppTopbar
           standalone={launchInfo.standalone}
           disabled={controlsDisabled}
+          onCreateRepo={openCreateRepo}
           onOpenSettings={openSettings}
           onStartDragging={() => appWindow.startDragging()}
           windowActions={{
@@ -334,53 +336,39 @@ function App() {
                 onCreateCommand={() => setDialog({ kind: 'command-create' })}
                 onEditRepo={() => setDialog({ kind: 'repo-edit', repo: activeRepo })}
               />
-              <Box className="cr-command-list">
-                {activeRepoCommands.length === 0 ? (
-                  <Box className="cr-empty-state">
-                    <Typography component="strong" sx={{ fontSize: 14, fontWeight: 900 }}>这个仓库还没有命令</Typography>
-                    <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={() => setDialog({ kind: 'command-create' })}>
-                      新建第一条命令
-                    </Button>
-                  </Box>
-                ) : activeRepoCommands.map(command => (
-                  <CommandCard
-                    key={command.id}
-                    command={command}
-                    repo={activeRepo}
-                    settings={settings}
-                    shells={shells}
-                    disabled={controlsDisabled}
-                    onRun={() => requestRunCommand(command)}
-                    onEdit={() => setDialog({ kind: 'command-edit', command })}
-                    onDelete={() => setDialog({ kind: 'command-delete', command })}
-                  />
-                ))}
-              </Box>
-            </Box>
-          ) : (
-            <Box className="cr-repo-grid" aria-label="仓库列表">
-              {repos.map(repo => (
-                <RepoCard
-                  key={repo.id}
-                  repo={repo}
-                  commandCount={commands.filter(command => command.repoId === repo.id).length}
-                  shellName={
-                    shells.find(shell => shell.id === (repo.shellId || settings?.defaultShellId || 'cmd'))?.name || '默认终端'
-                  }
-                  onOpen={() => setActiveRepoId(repo.id)}
-                  onEdit={() => setDialog({ kind: 'repo-edit', repo })}
-                />
-              ))}
-              {repos.length === 0 ? (
-                <Box className="cr-empty-state" sx={{ gridColumn: '1 / -1' }}>
-                  <Typography component="strong" sx={{ fontSize: 14, fontWeight: 900 }}>还没有注册仓库</Typography>
-                  <Typography color="text.secondary" sx={{ fontSize: 12 }}>注册本地仓库目录后，就可以按仓库管理命令并一键运行。</Typography>
-                  <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={openCreateRepo}>
-                    注册仓库
+              {activeRepoCommands.length === 0 ? (
+                <Box className="cr-empty-state">
+                  <Typography component="strong" sx={{ fontSize: 14, fontWeight: 900 }}>这个仓库还没有命令</Typography>
+                  <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={() => setDialog({ kind: 'command-create' })}>
+                    新建第一条命令
                   </Button>
                 </Box>
-              ) : null}
+              ) : (
+                <CommandList
+                  repo={activeRepo}
+                  commands={activeRepoCommands}
+                  settings={settings}
+                  shells={shells}
+                  disabled={controlsDisabled}
+                  onRun={requestRunCommand}
+                  onEdit={command => setDialog({ kind: 'command-edit', command })}
+                  onDelete={command => setDialog({ kind: 'command-delete', command })}
+                  onReorder={ids => actions.reorderCommands(ids)}
+                />
+              )}
             </Box>
+          ) : (
+            <RepoGrid
+              repos={repos}
+              commands={{ countFor: repoId => commands.filter(command => command.repoId === repoId).length }}
+              settings={settings}
+              shells={shells}
+              disabled={controlsDisabled}
+              onOpen={repo => setActiveRepoId(repo.id)}
+              onEdit={repo => setDialog({ kind: 'repo-edit', repo })}
+              onReorder={ids => actions.reorderRepos(ids)}
+              onCreateRepo={openCreateRepo}
+            />
           )
         ) : null}
 

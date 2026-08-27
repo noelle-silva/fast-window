@@ -1,22 +1,30 @@
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
+import DragIndicatorOutlinedIcon from '@mui/icons-material/DragIndicatorOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material'
+import type { DraggableAttributes } from '@dnd-kit/core'
 import { closeModeLabel, resolveCloseMode, resolveCountdownSeconds, resolveShellInfo, shellTierLabel } from '../shellResolve'
 import type { AppSettings, CommandItem, Repo, ShellInfo } from '../types'
+
+type DragHandle = {
+  attributes: DraggableAttributes
+  listeners: Record<string, Function> | undefined
+}
 
 type CommandCardProps = {
   command: CommandItem
   repo: Repo
   settings: AppSettings | null
   shells: ShellInfo[]
+  dragHandle?: DragHandle
   disabled?: boolean
   onRun: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-export function CommandCard({ command, repo, settings, shells, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
+export function CommandCard({ command, repo, settings, shells, dragHandle, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
   const shell = resolveShellInfo(command.shellId, repo.shellId, settings, shells)
   const closeMode = resolveCloseMode(command, settings)
   const countdownSeconds = resolveCountdownSeconds(command, settings)
@@ -24,6 +32,16 @@ export function CommandCard({ command, repo, settings, shells, disabled = false,
   return (
     <Box className="cr-command-card">
       <Box className="cr-command-card-content">
+        {dragHandle ? (
+          <Box
+            className="cr-drag-handle"
+            aria-label="拖拽排序"
+            {...dragHandle.attributes}
+            {...dragHandle.listeners}
+          >
+            <DragIndicatorOutlinedIcon fontSize="small" />
+          </Box>
+        ) : null}
         <Box className="cr-command-card-body">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
             <Typography component="h3" sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }} noWrap>{command.name}</Typography>
