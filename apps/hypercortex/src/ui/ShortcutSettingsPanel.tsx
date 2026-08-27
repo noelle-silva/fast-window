@@ -18,7 +18,11 @@ const KEY_BY_ID: Record<HyperCortexShortcutId, ShortcutKey> = {
   toggleQuickSearch: 'toggleQuickSearch',
   toggleSidebar: 'toggleSidebar',
   goBackPage: 'goBackPage',
+  goHomePage: 'goHomePage',
   goFavoritesPage: 'goFavoritesPage',
+  goAttachmentsPage: 'goAttachmentsPage',
+  goAllNotesPage: 'goAllNotesPage',
+  goSettingsPage: 'goSettingsPage',
   closeActiveTab: 'closeActiveTab',
   selectPrevTab: 'selectPrevTab',
   selectNextTab: 'selectNextTab',
@@ -125,7 +129,11 @@ export function ShortcutSettingsPanel(props: {
         {(
           [
             { id: 'goBackPage', title: '返回上一个页面' },
+            { id: 'goHomePage', title: '切换到主页' },
             { id: 'goFavoritesPage', title: '切换到收藏夹页面' },
+            { id: 'goAttachmentsPage', title: '切换到附件页面' },
+            { id: 'goAllNotesPage', title: '切换到全部笔记页面' },
+            { id: 'goSettingsPage', title: '切换到设置页面' },
             { id: 'closeActiveTab', title: '关闭当前标签页' },
             { id: 'selectPrevTab', title: '切换到上一个标签页（向上）' },
             { id: 'selectNextTab', title: '切换到下一个标签页（向下）' },

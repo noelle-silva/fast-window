@@ -5,7 +5,11 @@ export type HyperCortexShortcutId =
   | 'toggleQuickSearch'
   | 'toggleSidebar'
   | 'goBackPage'
+  | 'goHomePage'
   | 'goFavoritesPage'
+  | 'goAttachmentsPage'
+  | 'goAllNotesPage'
+  | 'goSettingsPage'
   | 'closeActiveTab'
   | 'selectPrevTab'
   | 'selectNextTab'
@@ -19,7 +23,11 @@ export type HyperCortexShortcutBindingsV1 = {
   toggleQuickSearch: string
   toggleSidebar: string
   goBackPage: string
+  goHomePage: string
   goFavoritesPage: string
+  goAttachmentsPage: string
+  goAllNotesPage: string
+  goSettingsPage: string
   closeActiveTab: string
   selectPrevTab: string
   selectNextTab: string
@@ -34,7 +42,11 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   toggleQuickSearch: '',
   toggleSidebar: '',
   goBackPage: '',
+  goHomePage: '',
   goFavoritesPage: '',
+  goAttachmentsPage: '',
+  goAllNotesPage: '',
+  goSettingsPage: '',
   closeActiveTab: '',
   selectPrevTab: '',
   selectNextTab: '',
@@ -57,7 +69,11 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     toggleQuickSearch: normChord(obj.toggleQuickSearch),
     toggleSidebar: normChord(obj.toggleSidebar),
     goBackPage: normChord(obj.goBackPage),
+    goHomePage: normChord(obj.goHomePage),
     goFavoritesPage: normChord(obj.goFavoritesPage),
+    goAttachmentsPage: normChord(obj.goAttachmentsPage),
+    goAllNotesPage: normChord(obj.goAllNotesPage),
+    goSettingsPage: normChord(obj.goSettingsPage),
     closeActiveTab: normChord(obj.closeActiveTab),
     selectPrevTab: normChord(obj.selectPrevTab),
     selectNextTab: normChord(obj.selectNextTab),

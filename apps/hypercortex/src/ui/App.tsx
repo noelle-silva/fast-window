@@ -275,7 +275,11 @@ function NavIconButton(props: {
 
 const SHORTCUT_HINT_ITEMS: { id: HyperCortexShortcutId; title: string }[] = [
   { id: 'goBackPage', title: '返回上一个页面' },
+  { id: 'goHomePage', title: '切换到主页' },
   { id: 'goFavoritesPage', title: '切换到收藏夹页面' },
+  { id: 'goAttachmentsPage', title: '切换到附件页面' },
+  { id: 'goAllNotesPage', title: '切换到全部笔记页面' },
+  { id: 'goSettingsPage', title: '切换到设置页面' },
   { id: 'closeActiveTab', title: '关闭当前标签页' },
   { id: 'selectPrevTab', title: '切换到上一个标签页（向上）' },
   { id: 'selectNextTab', title: '切换到下一个标签页（向下）' },
@@ -287,13 +291,30 @@ const SHORTCUT_HINT_ITEMS: { id: HyperCortexShortcutId; title: string }[] = [
   { id: 'toggleSidebar', title: '侧边栏展开/收起' },
 ]
 
+// 页面切换类快捷键的目标页映射：触发即走统一分流（独立页=切页，模态窗=弹层/替换/关层）。
+const PAGE_SHORTCUT_TARGETS: { id: HyperCortexShortcutId; target: PageId }[] = [
+  { id: 'goHomePage', target: 'home' },
+  { id: 'goFavoritesPage', target: 'index' },
+  { id: 'goAttachmentsPage', target: 'attachments' },
+  { id: 'goAllNotesPage', target: 'all-notes' },
+  { id: 'goSettingsPage', target: 'settings' },
+]
+
 function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexShortcutId): string {
   const next = bindings || DEFAULT_SHORTCUT_BINDINGS
   switch (id) {
     case 'goBackPage':
       return next.goBackPage
+    case 'goHomePage':
+      return next.goHomePage
     case 'goFavoritesPage':
       return next.goFavoritesPage
+    case 'goAttachmentsPage':
+      return next.goAttachmentsPage
+    case 'goAllNotesPage':
+      return next.goAllNotesPage
+    case 'goSettingsPage':
+      return next.goSettingsPage
     case 'closeActiveTab':
       return next.closeActiveTab
     case 'selectPrevTab':
@@ -869,6 +890,19 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       void persistMetadataPatch({ pageDisplayModes: nextModes }).catch(() => {})
     },
     [navigatePage, persistMetadataPatch, syncNavStackCounts],
+  )
+
+  // 快捷键打开页面的统一动作：模态窗=同名关层/异名替换，独立页=切页（先收浮层）。
+  const handleShortcutOpenPage = React.useCallback(
+    (targetId: PageId) => {
+      if (resolvePageDisplayMode(targetId) === 'modal') {
+        setOpenModalPage(prevOpen => (prevOpen === targetId ? null : targetId))
+        return
+      }
+      setOpenModalPage(null)
+      navigatePage(targetId)
+    },
+    [navigatePage, resolvePageDisplayMode],
   )
 
   const handleColorPresetChange = React.useCallback(
@@ -1786,9 +1820,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   )
 
   React.useEffect(() => {
-    if (page !== 'all-notes') return
+    if (page !== 'all-notes' && openModalPage !== 'all-notes') return
     void loadAllNotes()
-  }, [loadAllNotes, page])
+  }, [loadAllNotes, openModalPage, page])
 
   const handleCreateDraftNote = React.useCallback(() => {
     if (!tabsInitReady || !activeWorkspaceIdRef.current) {
@@ -2019,11 +2053,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.goFavoritesPage)) {
-        e.preventDefault()
-        e.stopPropagation()
-        navigatePage('index')
-        return
+      for (const item of PAGE_SHORTCUT_TARGETS) {
+        if (shouldTriggerShortcut(e, bindings[item.id])) {
+          e.preventDefault()
+          e.stopPropagation()
+          handleShortcutOpenPage(item.target)
+          return
+        }
       }
 
       if (!overlayPage && shouldTriggerShortcut(e, bindings.newNote)) {
@@ -2129,7 +2165,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', clearTabSwitchHold, true)
     }
-  }, [goBackPage, handleCreateDraftNote, navigatePage, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
