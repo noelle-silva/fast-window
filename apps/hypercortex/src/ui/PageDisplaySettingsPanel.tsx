@@ -2,11 +2,18 @@ import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import {
   MODAL_CAPABLE_PAGE_IDS,
-  MODAL_CAPABLE_PAGE_TITLES,
   type ModalCapablePageId,
   type PageDisplayMode,
   type PageDisplayModesV1,
-} from './pageDisplay'
+} from '../pageDisplay'
+
+const PAGE_DISPLAY_LABELS: Record<ModalCapablePageId, string> = {
+  home: '主页',
+  index: '收藏夹',
+  attachments: '附件',
+  'all-notes': '全部笔记',
+  settings: '设置',
+}
 
 // 页面呈现方式设置：每个可接入页面选择「独立页面」或「模态窗」。
 export function PageDisplaySettingsPanel(props: {
@@ -39,12 +46,12 @@ export function PageDisplaySettingsPanel(props: {
                 bgcolor: 'var(--hc-surface-soft)',
               }}
             >
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{MODAL_CAPABLE_PAGE_TITLES[pageId]}</Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{PAGE_DISPLAY_LABELS[pageId]}</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Button
                   size="small"
                   variant={mode === 'page' ? 'contained' : 'text'}
-                  aria-label={`将${MODAL_CAPABLE_PAGE_TITLES[pageId]}设为独立页面`}
+                  aria-label={`将${PAGE_DISPLAY_LABELS[pageId]}设为独立页面`}
                   onClick={() => onChange(pageId, 'page')}
                 >
                   独立页面
@@ -52,7 +59,7 @@ export function PageDisplaySettingsPanel(props: {
                 <Button
                   size="small"
                   variant={mode === 'modal' ? 'contained' : 'text'}
-                  aria-label={`将${MODAL_CAPABLE_PAGE_TITLES[pageId]}设为模态窗`}
+                  aria-label={`将${PAGE_DISPLAY_LABELS[pageId]}设为模态窗`}
                   onClick={() => onChange(pageId, 'modal')}
                 >
                   模态窗

@@ -1,5 +1,6 @@
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
 import type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
+import type { PageDisplayModesV1 } from './pageDisplay'
 export { ACCEPTED_FILE_EXTENSIONS, extFromMime, kindFromMime, mimeFromExt } from './assetFileTypes'
 export type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 
@@ -101,6 +102,9 @@ export type HyperCortexMetadataV1 = {
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceFixedScaleDefault?: number
   colorPresetId?: HyperCortexColorPresetIdV1
+  pageDisplayModes?: PageDisplayModesV1
+  indexEditMode?: boolean
+  currentFolderId?: string
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
 }

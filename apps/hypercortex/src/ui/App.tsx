@@ -14,7 +14,6 @@ import {
   kindFromMime,
   mimeFromExt,
   type HyperCortexHtmlFaceDisplayModeV1,
-  type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
   type HyperCortexSidebarSortModeV1,
   type HyperCortexColorPresetIdV1,
@@ -25,6 +24,7 @@ import {
 import { type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
+import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
 import { addRef, normalizeFavoritesDoc, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
@@ -35,10 +35,9 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { SettingsPage } from './SettingsPage'
-import { AllNotesPage } from './AllNotesPage'
+import { AllNotesPage, type AllNotesLayout } from './AllNotesPage'
 import { PageOverlayHost } from './PageOverlayHost'
-import { PageDisplaySettingsPanel } from './PageDisplaySettingsPanel'
-import { isModalCapablePageId, normalizePageDisplayModes, type ModalCapablePageId, type PageDisplayMode, type PageDisplayModesV1 } from './pageDisplay'
+import { isModalCapablePageId, normalizePageDisplayModes, visiblePageId, type ModalCapablePageId, type PageDisplayMode, type PageDisplayModesV1 } from '../pageDisplay'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
@@ -71,10 +70,10 @@ import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE, normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
+import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
-type AllNotesLayout = 'list' | 'grid' | 'icon'
 type TabsMode = 'manual' | 'hover'
 
 export type HyperCortexWindowControls = {
@@ -118,10 +117,6 @@ function normalizeTrashAutoDeleteDays(value: unknown): number {
   return n
 }
 
-function sortNotesByUpdatedAtDesc(list: NoteMeta[]): NoteMeta[] {
-  return (Array.isArray(list) ? list : []).slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
-}
-
 function assetKeyFromResource(resource: { assetId?: string; ext?: string }): string {
   const assetId = String(resource?.assetId || '').trim()
   const ext = String(resource?.ext || '').trim().toLowerCase().replace(/^\./, '')
@@ -162,8 +157,7 @@ function stripDraftTabKeyMap(value: any): Record<string, string> {
 }
 
 function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {
-  type NextMeta = HyperCortexMetadataV1 & { indexEditMode?: boolean; currentFolderId?: string }
-  const next: NextMeta = { ...meta, version: 1 }
+  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
 
   delete (next as any).openNoteIds
   delete (next as any).activeNoteId
@@ -189,8 +183,9 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
   next.htmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(next.htmlFaceDisplayMode)
   next.htmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(next.htmlFaceFixedScaleDefault)
-  next.indexEditMode = normalizeIndexEditMode((next as any).indexEditMode)
-  next.currentFolderId = String((next as any).currentFolderId || '').trim() || 'root'
+  next.indexEditMode = normalizeIndexEditMode(next.indexEditMode)
+  next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
+  next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -340,7 +335,7 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
 
 export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialCommand?: string | null; windowControls?: HyperCortexWindowControls }) {
   const { gateway, initialCommand, windowControls } = props
-  type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
+  type MetadataPatch = Partial<HyperCortexMetadataV1>
 
   // ---- 核心 UI 状态
   const [page, setPageState] = React.useState<PageId>('home')
@@ -359,6 +354,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     pageDisplayModesRef.current = pageDisplayModes
   }, [pageDisplayModes])
   const [openModalPage, setOpenModalPage] = React.useState<PageId | null>(null)
+  const visiblePage = visiblePageId(page, openModalPage)
   const openModalPageRef = React.useRef<PageId | null>(null)
   React.useEffect(() => {
     openModalPageRef.current = openModalPage
@@ -488,20 +484,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [gateway])
 
   React.useEffect(() => {
-    if (page !== 'settings') return
+    if (visiblePage !== 'settings') return
     void refreshDataDirStatus().catch(() => {})
-  }, [page, refreshDataDirStatus])
+  }, [refreshDataDirStatus, visiblePage])
 
   // ---- 全部笔记列表
-  const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
+  const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway)
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
   const [indexEditMode, setIndexEditMode] = React.useState(false)
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
-  const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
-  const [allNotesLoading, setAllNotesLoading] = React.useState(false)
-  const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
+  const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
 
   const [noteCardMenu, setNoteCardMenu] = React.useState<{ anchorEl: HTMLElement; note: NoteMeta } | null>(null)
   const openNoteCardMenu = React.useCallback((e: React.MouseEvent, note: NoteMeta) => {
@@ -651,10 +645,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const noteIndexMap = React.useMemo(() => {
     const map: Record<string, { title: string }> = {}
-    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
-    for (const n of list) map[n.id] = { title: n.title }
+    for (const n of allNotes) map[n.id] = { title: n.title }
     return map
-  }, [allNotes, noteIndex])
+  }, [allNotes])
 
   React.useEffect(() => {
     renderEngineRef.current.noteIndex = noteIndexMap
@@ -728,41 +721,23 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
   const allNotesById = React.useMemo(() => {
     const map: Record<string, NoteMeta> = {}
-    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
-    for (const n of list) map[n.id] = n
+    for (const n of allNotes) map[n.id] = n
     return map
-  }, [allNotes, noteIndex])
+  }, [allNotes])
 
-  const notesForQuickSearch = React.useMemo(() => {
-    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
-    return sortNotesByUpdatedAtDesc(list)
-  }, [allNotes, noteIndex])
+  const notesForQuickSearch = allNotes
 
   const homeRecentNotes = React.useMemo(() => notesForQuickSearch.slice(0, 6), [notesForQuickSearch])
   const homeStats = React.useMemo<HomePageStats>(() => ({
-    noteCount: noteIndex ? Object.keys(noteIndex.notes || {}).length : allNotes.length,
+    noteCount: allNotes.length,
     assetCount: assetPoolIndex ? Object.keys(assetPoolIndex.assets || {}).length : 0,
     openTabCount: openTabKeys.length,
     workspaceCount: workspaces.length || 1,
-  }), [allNotes.length, assetPoolIndex, noteIndex, openTabKeys.length, workspaces.length])
+  }), [allNotes.length, assetPoolIndex, openTabKeys.length, workspaces.length])
   const activeWorkspaceTitle = React.useMemo(() => {
     const wid = String(activeWorkspaceId || '').trim()
     return workspaces.find(w => w.id === wid)?.title || workspaces[0]?.title || ''
   }, [activeWorkspaceId, workspaces])
-
-  const noteIndexRef = React.useRef<HyperCortexIndexV1 | null>(null)
-  React.useEffect(() => {
-    noteIndexRef.current = noteIndex
-  }, [noteIndex])
-
-  const noteIndexLoadPromiseRef = React.useRef<Promise<HyperCortexIndexV1> | null>(null)
-  const ensureNoteIndexLoaded = React.useCallback(async () => {
-    if (noteIndexRef.current) return noteIndexRef.current
-    if (!noteIndexLoadPromiseRef.current) noteIndexLoadPromiseRef.current = gateway.notes.loadNoteIndex('library')
-    const idx = await noteIndexLoadPromiseRef.current
-    setNoteIndex(idx)
-    return idx
-  }, [gateway])
 
   const refIndexRef = React.useRef<NoteRefIndex>({})
   React.useEffect(() => {
@@ -779,9 +754,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [gateway])
 
   React.useEffect(() => {
-    void ensureNoteIndexLoaded().catch(() => {})
     void ensureRefIndexLoaded().catch(() => {})
-  }, [ensureNoteIndexLoaded, ensureRefIndexLoaded])
+  }, [ensureRefIndexLoaded])
 
   // ---- 全部笔记：卡片摘要（tags / faces）
   const [noteCardInfoById, setNoteCardInfoById] = React.useState<Record<string, NoteCardInfo>>({})
@@ -826,7 +800,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   )
 
   React.useEffect(() => {
-    if (page !== 'all-notes') return
+    if (visiblePage !== 'all-notes') return
     const ctl = startPrefetchNoteCardInfo({
       notes: allNotes,
       getInfoById: id => noteCardInfoByIdRef.current[id],
@@ -834,7 +808,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       maxWorkers: 6,
     })
     return () => ctl.cancel()
-  }, [allNotes, ensureNoteCardInfoLoaded, page])
+  }, [allNotes, ensureNoteCardInfoLoaded, visiblePage])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: MetadataPatch) => {
@@ -1406,27 +1380,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [updateSidebarItems],
   )
 
-  const loadAllNotes = React.useCallback(async () => {
-    setAllNotesLoading(true)
-    setAllNotesLoadError(null)
-    try {
-      const idx = await ensureNoteIndexLoaded()
-      const notes = sortNotesByUpdatedAtDesc(Object.values(idx.notes || {}))
-      setAllNotes(notes)
-    } catch (e: any) {
-      setAllNotesLoadError(String(e?.message || e || '加载全部笔记失败'))
-    } finally {
-      setAllNotesLoading(false)
-    }
-  }, [ensureNoteIndexLoaded])
-
   React.useEffect(() => {
     void (async () => {
       try {
         const normalizedMeta = (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
         metaRef.current = normalizedMeta
         setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
-        const nextPageDisplayModes = normalizePageDisplayModes((normalizedMeta as any).pageDisplayModes)
+        const nextPageDisplayModes = normalizePageDisplayModes(normalizedMeta.pageDisplayModes)
         pageDisplayModesRef.current = nextPageDisplayModes
         setPageDisplayModes(nextPageDisplayModes)
         const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedMeta as any).shortcutHintsEnabled)
@@ -1506,7 +1466,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
           normalizedMeta.htmlFaceDisplayMode !== normalizedHtmlFaceDisplayMode ||
           normalizedMeta.htmlFaceFixedScaleDefault !== normalizedHtmlFaceFixedScaleDefault ||
-          normalizedMeta.colorPresetId !== normalizedColorPresetId
+          normalizedMeta.colorPresetId !== normalizedColorPresetId ||
+          JSON.stringify(normalizedMeta.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes)
         if (shouldPersistNormalized) {
           void persistMetadataPatch({
             ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
@@ -1516,6 +1477,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             htmlFaceDisplayMode: normalizedHtmlFaceDisplayMode,
             htmlFaceFixedScaleDefault: normalizedHtmlFaceFixedScaleDefault,
             colorPresetId: normalizedColorPresetId,
+            pageDisplayModes: nextPageDisplayModes,
           }).catch(() => {})
         }
       } catch {
@@ -1664,7 +1626,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
       if (isDraftNoteId(nid) || !String(note?.dir || '').trim()) {
         closeTabKeysDirectRef.current([noteTabKey(nid)])
-        setAllNotes(prev => prev.filter(n => n.id !== nid))
         setNoteIndex(prev => {
           const current = prev || { version: 1, notes: {} }
           const nextNotes = { ...(current.notes || {}) }
@@ -1684,7 +1645,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         else await gateway.trash.permanentlyDeleteNoteDir('library', nid, note.dir)
 
         closeTabKeysDirectRef.current([noteTabKey(nid)])
-        setAllNotes(prev => prev.filter(n => n.id !== nid))
         setNoteIndex(prev => {
           const current = prev || { version: 1, notes: {} }
           const nextNotes = { ...(current.notes || {}) }
@@ -1804,7 +1764,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         nextNotes[meta.id] = meta
         return { ...current, notes: nextNotes }
       })
-      setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
       void gateway.host.toast('已恢复笔记')
     },
     [gateway],
@@ -1818,11 +1777,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     },
     [gateway],
   )
-
-  React.useEffect(() => {
-    if (page !== 'all-notes' && openModalPage !== 'all-notes') return
-    void loadAllNotes()
-  }, [loadAllNotes, openModalPage, page])
 
   const handleCreateDraftNote = React.useCallback(() => {
     if (!tabsInitReady || !activeWorkspaceIdRef.current) {
@@ -2017,7 +1971,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
       // 注意力焦点：浮层开着时，快捷键应作用于浮层页面；被遮住的底层页面不再响应。
       const overlayPage = openModalPageRef.current
-      const focusPage = overlayPage ?? pageRef.current
+      const focusPage = visiblePageId(pageRef.current, overlayPage)
 
       // 长按行为只在对应 mainKey 抬起时停止。
       if (!overlayPage && shouldTriggerShortcut(e, bindings.selectPrevTab)) {
@@ -2213,7 +2167,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           const current = prev || { version: 1, notes: {} }
           return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
         })
-        setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
         noteInitSnapshotsRef.current[meta.id] = {
           doc: result.doc,
           htmlFace: null,
@@ -2453,7 +2406,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       return { ...current, notes: nextNotes }
     })
 
-    setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(item => item.id !== originalId)]))
     void refreshNoteCardInfo(meta).catch(() => {})
 
     setRefIndex(prev => {
@@ -2579,8 +2531,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return (
           <AllNotesPage
             notes={allNotes}
-            loading={allNotesLoading}
-            errorText={allNotesLoadError}
+            loading={noteIndexLoading}
+            errorText={noteIndexLoadError}
             layout={allNotesLayout}
             noteCardInfoById={noteCardInfoById}
             onLayoutToggle={toggleAllNotesLayout}
@@ -2774,7 +2726,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           />
 
           {openModalPage ? (
-            <PageOverlayHost onClose={closeModalOverlay}>
+            <PageOverlayHost open={!!openModalPage} onClose={closeModalOverlay}>
               {renderModalBodyNode()}
             </PageOverlayHost>
           ) : null}
@@ -2897,7 +2849,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 sidebarItems={sidebarItems}
                 openTabKeys={openTabKeys}
                 activeTabKey={activeTabKey}
-                tabSelectionVisible={page === 'note-detail' || page === 'asset-detail'}
+                tabSelectionVisible={visiblePage === 'note-detail' || visiblePage === 'asset-detail'}
                 activeTabScrollSignal={activeTabScrollSignal}
                 openNoteTabs={openNoteTabs}
                 openAssetTabs={openAssetTabs}
@@ -2963,8 +2915,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               {page === 'all-notes' ? (
                 <AllNotesPage
                   notes={allNotes}
-                  loading={allNotesLoading}
-                  errorText={allNotesLoadError}
+                  loading={noteIndexLoading}
+                  errorText={noteIndexLoadError}
                   layout={allNotesLayout}
                   noteCardInfoById={noteCardInfoById}
                   onLayoutToggle={toggleAllNotesLayout}
@@ -3067,7 +3019,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                     const nid = String(item.id || '').trim()
                     if (!nid) return
                     closeTabKeysDirectRef.current([noteTabKey(nid)])
-                    setAllNotes(prev => prev.filter(n => n.id !== nid))
                     setNoteIndex(prev => {
                       const current = prev || { version: 1, notes: {} }
                       const nextNotes = { ...(current.notes || {}) }

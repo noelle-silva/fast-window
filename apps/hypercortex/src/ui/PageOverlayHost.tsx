@@ -1,41 +1,36 @@
 import * as React from 'react'
-import { Box } from '@mui/material'
+import { Dialog } from '@mui/material'
 
 // 页面级模态窗的通用容器：所有以浮层形态呈现的页面共用同一具身体。
-// 是否显示由外层条件控制；点遮罩空白处即关闭。
-export function PageOverlayHost(props: { onClose: () => void; children: React.ReactNode }) {
-  const { onClose, children } = props
+// 不提供内部标题栏；遮罩点击和 Esc 都交给 Dialog 的关闭语义处理。
+export function PageOverlayHost(props: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  const { open, onClose, children } = props
   return (
-    <Box
-      data-hc-overlay="1"
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-      sx={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1400,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: 'rgba(15,23,42,.32)',
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth={false}
+      aria-label="页面浮层"
+      slotProps={{
+        paper: {
+          sx: {
+            display: 'flex',
+            flexDirection: 'column',
+            width: 'min(1120px, 94vw)',
+            height: '90vh',
+            maxHeight: '90vh',
+            minHeight: 0,
+            p: 3,
+            borderRadius: 4,
+            bgcolor: 'var(--hc-surface)',
+            backgroundImage: 'none',
+            overflow: 'auto',
+            boxShadow: '0 24px 64px rgba(15,23,42,.28)',
+          },
+        },
       }}
     >
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: 'min(1120px, 94vw)',
-          height: '90vh',
-          p: 3,
-          borderRadius: 4,
-          bgcolor: 'var(--hc-surface)',
-          overflow: 'auto',
-          boxShadow: '0 24px 64px rgba(15,23,42,.28)',
-        }}
-      >
-        {children}
-      </Box>
-    </Box>
+      {children}
+    </Dialog>
   )
 }
