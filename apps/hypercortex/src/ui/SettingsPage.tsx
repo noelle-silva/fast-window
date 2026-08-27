@@ -9,6 +9,8 @@ import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
+import { PageDisplaySettingsPanel } from './PageDisplaySettingsPanel'
+import type { ModalCapablePageId, PageDisplayMode, PageDisplayModesV1 } from '../pageDisplay'
 import { settingsTabSx } from './settingsUiStyles'
 
 type SettingsCategoryId = 'data' | 'actions' | 'display'
@@ -42,6 +44,8 @@ export type SettingsPageProps = {
   onHtmlFaceFixedScaleDefaultChange: (scale: number) => void
   colorPresetId: HyperCortexColorPresetIdV1
   onColorPresetChange: (presetId: HyperCortexColorPresetIdV1) => void
+  pageDisplayModes: PageDisplayModesV1
+  onPageDisplayModeChange: (pageId: ModalCapablePageId, mode: PageDisplayMode) => void
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -138,6 +142,7 @@ export function SettingsPage(props: SettingsPageProps) {
       >
         {category === 'display' ? (
           <SettingsPanelStack>
+            <PageDisplaySettingsPanel modes={props.pageDisplayModes} onChange={props.onPageDisplayModeChange} />
             <SidebarSortSettingsPanel
               mode={props.sidebarSortMode}
               onChange={props.onSidebarSortModeChange}

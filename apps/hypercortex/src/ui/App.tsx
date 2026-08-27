@@ -8,9 +8,6 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
-import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
-import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
-import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
@@ -38,6 +35,10 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { SettingsPage } from './SettingsPage'
+import { AllNotesPage } from './AllNotesPage'
+import { PageOverlayHost } from './PageOverlayHost'
+import { PageDisplaySettingsPanel } from './PageDisplaySettingsPanel'
+import { isModalCapablePageId, normalizePageDisplayModes, type ModalCapablePageId, type PageDisplayMode, type PageDisplayModesV1 } from './pageDisplay'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
@@ -63,7 +64,6 @@ import {
   updateSidebarGroup,
 } from './sidebarModel'
 import { DEFAULT_SHORTCUT_BINDINGS, formatChordForDisplay, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1, type HyperCortexShortcutId } from '../shortcuts'
-import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import type { NoteCardInfo } from './noteCardInfo'
 import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { AssetEntry } from '../assetTypes'
@@ -330,6 +330,19 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'tab'; tabKey: string }
   const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
   const fwdNavHistoryRef = React.useRef<NavHistoryEntry[]>([])
+
+  // ---- 页面呈现方式（哪些页面以模态窗打开）
+  const [pageDisplayModes, setPageDisplayModes] = React.useState<PageDisplayModesV1>({})
+  const pageDisplayModesRef = React.useRef<PageDisplayModesV1>({})
+  React.useEffect(() => {
+    pageDisplayModesRef.current = pageDisplayModes
+  }, [pageDisplayModes])
+  const [openModalPage, setOpenModalPage] = React.useState<PageId | null>(null)
+
+  const resolvePageDisplayMode = React.useCallback((id: PageId): PageDisplayMode => {
+    if (!isModalCapablePageId(id)) return 'page'
+    return pageDisplayModesRef.current[id] || 'page'
+  }, [])
   const [navStackSizes, setNavStackSizes] = React.useState({ back: 0, forward: 0 })
 
   const syncNavStackCounts = React.useCallback(() => {
@@ -358,10 +371,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [quickSearchOpen, setQuickSearchOpen] = React.useState(false)
   const quickSearchAnchorRef = React.useRef<HTMLButtonElement | null>(null)
 
-  const navigatePage = React.useCallback((next: PageId, opts?: { recordHistory?: boolean }) => {
-    if (next !== pageRef.current && opts?.recordHistory !== false) recordNewNavLocation({ kind: 'page', page: pageRef.current })
-    setPageState(next)
-  }, [recordNewNavLocation])
+  const navigatePage = React.useCallback(
+    (next: PageId, opts?: { recordHistory?: boolean }) => {
+      // 模态窗页面的“到达”是浮层：不进页面家族，前进/后退与亮灯天然与它无关。
+      if (resolvePageDisplayMode(next) === 'modal') {
+        setOpenModalPage(next)
+        return
+      }
+      if (next !== pageRef.current && opts?.recordHistory !== false) recordNewNavLocation({ kind: 'page', page: pageRef.current })
+      setPageState(next)
+    },
+    [recordNewNavLocation, resolvePageDisplayMode],
+  )
 
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
@@ -820,6 +841,30 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       void persistMetadataPatch({ shortcutHintsEnabled: next }).catch(() => {})
     },
     [persistMetadataPatch],
+  )
+
+  const handlePageDisplayModeChange = React.useCallback(
+    (targetId: ModalCapablePageId, mode: PageDisplayMode) => {
+      const nextModes: PageDisplayModesV1 = { ...pageDisplayModesRef.current }
+      if (mode === 'modal') nextModes[targetId] = 'modal'
+      else delete nextModes[targetId]
+      pageDisplayModesRef.current = nextModes
+      setPageDisplayModes(nextModes)
+
+      if (mode === 'modal') {
+        // 该页从页面家族除名：清掉历史里的旧条目，前进/后退从此看不见它。
+        navHistoryRef.current = navHistoryRef.current.filter(entry => !(entry.kind === 'page' && entry.page === targetId))
+        fwdNavHistoryRef.current = fwdNavHistoryRef.current.filter(entry => !(entry.kind === 'page' && entry.page === targetId))
+        syncNavStackCounts()
+        if (pageRef.current === targetId) navigatePage('home')
+      } else {
+        setOpenModalPage(prevOpen => (prevOpen === targetId ? null : prevOpen))
+      }
+
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ pageDisplayModes: nextModes }).catch(() => {})
+    },
+    [navigatePage, persistMetadataPatch, syncNavStackCounts],
   )
 
   const handleColorPresetChange = React.useCallback(
@@ -1343,6 +1388,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedMeta = (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
         metaRef.current = normalizedMeta
         setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
+        const nextPageDisplayModes = normalizePageDisplayModes((normalizedMeta as any).pageDisplayModes)
+        pageDisplayModesRef.current = nextPageDisplayModes
+        setPageDisplayModes(nextPageDisplayModes)
         const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedMeta as any).shortcutHintsEnabled)
         setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
         setAllNotesLayout(normalizeAllNotesLayout(normalizedMeta.allNotesLayout))
@@ -2424,6 +2472,119 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     handleCloseTabs([nid])
   }, [closeTabPrompt?.noteId, handleCloseTabs])
 
+  const closeModalOverlay = React.useCallback(() => setOpenModalPage(null), [])
+
+  // 模态窗里复用与独立页面完全相同的身体；在浮层内打开详情类目标时先收起浮层。
+  const renderModalBodyNode = (): React.ReactNode => {
+    switch (openModalPage) {
+      case 'home':
+        return (
+          <HomePage
+            stats={homeStats}
+            recentNotes={homeRecentNotes}
+            activeWorkspaceTitle={activeWorkspaceTitle}
+            onCreateNote={handleCreateDraftNote}
+            onOpenIndex={() => navigatePage('index')}
+            onOpenAttachments={() => navigatePage('attachments')}
+            onOpenAllNotes={() => navigatePage('all-notes')}
+            onOpenSearch={() => setQuickSearchOpen(true)}
+            onOpenNote={note => void handleOpenNote(note)}
+          />
+        )
+      case 'index': {
+        if (!favoritesDoc) return null
+        return (
+          <IndexPage
+            gateway={gateway}
+            doc={favoritesDoc}
+            currentFolderId={currentFolderId}
+            editMode={indexEditMode}
+            noteIndex={noteIndex?.notes}
+            assetIndex={assetPoolIndex?.assets}
+            onNavigateFolder={handleNavigateFolder}
+            onOpenNote={note => {
+              setOpenModalPage(null)
+              void handleOpenNote(note)
+            }}
+            onOpenAsset={asset => {
+              setOpenModalPage(null)
+              void handleOpenAssetTab(asset)
+            }}
+            onDocChange={handleFavoritesDocChange}
+            onEditModeChange={handleIndexEditModeChange}
+            onCreateNoteInIndex={handleCreateNoteInIndex}
+            onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
+            onDeleteFolderEntity={handleDeleteFolderEntity}
+            onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
+            onDeleteAssetEntity={requestDeleteAssetEntity}
+          />
+        )
+      }
+      case 'attachments':
+        return (
+          <AssetPoolPanel
+            gateway={gateway}
+            scope="library"
+            onOpenAsset={asset => {
+              setOpenModalPage(null)
+              void handleOpenAssetTab(asset)
+            }}
+          />
+        )
+      case 'all-notes':
+        return (
+          <AllNotesPage
+            notes={allNotes}
+            loading={allNotesLoading}
+            errorText={allNotesLoadError}
+            layout={allNotesLayout}
+            noteCardInfoById={noteCardInfoById}
+            onLayoutToggle={toggleAllNotesLayout}
+            onOpenNote={note => {
+              setOpenModalPage(null)
+              void handleOpenNote(note)
+            }}
+            onCopyRef={note => {
+              void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+              void gateway.host.toast('已复制引用占位符')
+            }}
+            onMore={openNoteCardMenu}
+          />
+        )
+      case 'settings':
+        return (
+          <SettingsPage
+            dataDirStatus={dataDirStatus}
+            onRefreshDataDirStatus={refreshDataDirStatus}
+            onPickDataDir={handlePickDataDir}
+            onImportLegacyData={handleImportLegacyData}
+            shortcutHintsEnabled={shortcutHintsEnabled}
+            onShortcutHintsEnabledChange={handleShortcutHintsEnabledChange}
+            shortcutBindings={shortcutBindings}
+            onShortcutBindingsChange={handleShortcutBindingsChange}
+            onShortcutRecordingChange={handleShortcutRecordingChange}
+            sidebarSortMode={sidebarSortMode}
+            onSidebarSortModeChange={handleSidebarSortModeChange}
+            trashEnabled={trashEnabled}
+            trashAutoDeleteDays={trashAutoDeleteDays}
+            onTrashEnabledChange={handleTrashEnabledChange}
+            onTrashAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
+            onOpenTrash={handleOpenTrashPage}
+            htmlFaceDisplayMode={htmlFaceDisplayMode}
+            onHtmlFaceDisplayModeChange={handleHtmlFaceDisplayModeChange}
+            htmlFaceFixedScaleDefault={htmlFaceFixedScaleDefault}
+            onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
+            colorPresetId={colorPresetId}
+            onColorPresetChange={handleColorPresetChange}
+            pageDisplayModes={pageDisplayModes}
+            onPageDisplayModeChange={handlePageDisplayModeChange}
+          />
+        )
+      default:
+        return null
+    }
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -2567,6 +2728,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               handleOpenAssetTab(asset)
             }}
           />
+
+          {openModalPage ? (
+            <PageOverlayHost onClose={closeModalOverlay}>
+              {renderModalBodyNode()}
+            </PageOverlayHost>
+          ) : null}
 
           <Popper open={shortcutHintsOpen} anchorEl={shortcutHintsAnchorRef.current} placement="bottom-end" disablePortal={false} sx={{ zIndex: 2000 }}>
             <Box sx={{ pt: 0.75 }}>
@@ -2750,108 +2917,20 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               ) : null}
               {page === 'attachments' ? <AssetPoolPanel gateway={gateway} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
               {page === 'all-notes' ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                    <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>全部笔记</Typography>
-                    <Tooltip
-                      title={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
-                      placement="left"
-                    >
-                      <IconButton
-                        size="small"
-                        aria-label={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
-                        onClick={toggleAllNotesLayout}
-                        sx={{
-                          color: 'rgba(0,0,0,.58)',
-                          bgcolor: 'transparent',
-                          boxShadow: 'none',
-                          border: 0,
-                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                        }}
-                      >
-                        {allNotesLayout === 'list' ? (
-                          <ViewModuleRoundedIcon fontSize="small" />
-                        ) : allNotesLayout === 'grid' ? (
-                          <AppsRoundedIcon fontSize="small" />
-                        ) : (
-                          <ViewListRoundedIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-
-                  {allNotesLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
-                  {!allNotesLoading && allNotesLoadError ? <Typography color="error">{allNotesLoadError}</Typography> : null}
-                  {!allNotesLoading && !allNotesLoadError && allNotes.length === 0 ? (
-                    <Typography color="text.secondary">还没有笔记。</Typography>
-                  ) : null}
-
-                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'grid' ? (
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                        gap: 1,
-                      }}
-                    >
-                      {allNotes.map(note => (
-                        <AllNotesGridNoteCard
-                          key={note.id}
-                          note={note}
-                          info={noteCardInfoById[note.id]}
-                          onOpen={note => void handleOpenNote(note)}
-                          onCopyRef={note => {
-                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void gateway.host.toast('已复制引用占位符')
-                          }}
-                          onMore={openNoteCardMenu}
-                        />
-                      ))}
-                    </Box>
-                  ) : null}
-
-                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'icon' ? (
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(112px, 1fr))',
-                        gap: 1,
-                      }}
-                    >
-                      {allNotes.map(note => (
-                        <AllNotesIconNoteCard
-                          key={note.id}
-                          note={note}
-                          info={noteCardInfoById[note.id]}
-                          onOpen={note => void handleOpenNote(note)}
-                          onCopyRef={note => {
-                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void gateway.host.toast('已复制引用占位符')
-                          }}
-                          onMore={openNoteCardMenu}
-                        />
-                      ))}
-                    </Box>
-                  ) : null}
-
-                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'list' ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                      {allNotes.map(note => (
-                        <AllNotesListNoteRow
-                          key={note.id}
-                          note={note}
-                          info={noteCardInfoById[note.id]}
-                          onOpen={note => void handleOpenNote(note)}
-                          onCopyRef={note => {
-                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void gateway.host.toast('已复制引用占位符')
-                          }}
-                          onMore={openNoteCardMenu}
-                        />
-                      ))}
-                    </Box>
-                  ) : null}
-                </Box>
+                <AllNotesPage
+                  notes={allNotes}
+                  loading={allNotesLoading}
+                  errorText={allNotesLoadError}
+                  layout={allNotesLayout}
+                  noteCardInfoById={noteCardInfoById}
+                  onLayoutToggle={toggleAllNotesLayout}
+                  onOpenNote={note => void handleOpenNote(note)}
+                  onCopyRef={note => {
+                    void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                    void gateway.host.toast('已复制引用占位符')
+                  }}
+                  onMore={openNoteCardMenu}
+                />
               ) : null}
               <Box sx={{ display: page === 'note-detail' ? 'flex' : 'none', flex: 1, minHeight: 0, width: '100%', flexDirection: 'column' }}>
                 {!openNoteTabs.length ? (
@@ -2983,6 +3062,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
                   colorPresetId={colorPresetId}
                   onColorPresetChange={handleColorPresetChange}
+                  pageDisplayModes={pageDisplayModes}
+                  onPageDisplayModeChange={handlePageDisplayModeChange}
                 />
               ) : null}
             </Box>
