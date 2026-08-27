@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
-import { type HyperCortexToneId, toneFgVar, toneFocusVisibleSx } from '../uiTones'
+import { type HyperCortexToneId, toneFgVar } from '../uiTones'
 
 type Props = {
   tone?: HyperCortexToneId
@@ -16,8 +16,6 @@ type Props = {
 export function CardFrame(props: Props): React.ReactNode {
   const { tone = 'sage', danger = false, icon, title, subtitle, meta, onClick, children } = props
   const clickable = typeof onClick === 'function'
-  const surface = danger ? 'var(--hc-danger-soft)' : 'var(--hc-surface)'
-  const surfaceHover = danger ? 'var(--hc-accent-clay)' : 'var(--hc-surface-soft)'
   const accent = danger ? 'var(--hc-danger)' : toneFgVar(tone)
 
   return (
@@ -38,27 +36,29 @@ export function CardFrame(props: Props): React.ReactNode {
       sx={{
         height: '100%',
         minHeight: 0,
+        position: 'relative',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
         gap: 1.25,
         px: 1.6,
         py: 1.45,
-        borderRadius: 3.5,
-        bgcolor: surface,
-        boxShadow: '0 10px 24px var(--hc-shadow)',
         cursor: clickable ? 'pointer' : 'default',
-        transition: 'transform .18s ease, box-shadow .18s ease, background-color .18s ease',
-        '&:hover': clickable
-          ? {
-              transform: 'translateY(-1px)',
-              boxShadow: '0 16px 32px var(--hc-shadow-strong)',
-            }
-          : undefined,
         '&:focus-visible': clickable
-          ? danger
-            ? { outline: 'none', bgcolor: surfaceHover, boxShadow: '0 16px 32px var(--hc-shadow-strong)' }
-            : toneFocusVisibleSx(tone, '0 16px 32px var(--hc-shadow-strong)')
+          ? {
+              outline: 'none',
+              bgcolor: danger ? 'var(--hc-accent-clay)' : 'var(--hc-surface-soft)',
+              '&::after': {
+                content: '""',
+                position: 'absolute',
+                left: 0,
+                top: 8,
+                bottom: 8,
+                width: 4,
+                borderRadius: 999,
+                bgcolor: accent,
+              },
+            }
           : undefined,
       }}
     >

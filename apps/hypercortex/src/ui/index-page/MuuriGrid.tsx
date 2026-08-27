@@ -8,7 +8,6 @@ import { getRefFrame, getRefPixelRect } from './helpers'
 
 type Props = {
   refs: FavoriteItemRef[]
-  editMode: boolean
   gridRef: React.MutableRefObject<HTMLDivElement | null>
   getLayout: (ref: FavoriteItemRef) => GridLayout
   draggingRefId: string | null
@@ -138,7 +137,7 @@ function autoScrollDuringDrag(containerNode: HTMLDivElement, clientY: number): v
 }
 
 export function MuuriGrid(props: Props): React.ReactNode {
-  const { refs, editMode, gridRef, getLayout, draggingRefId, dropIndicatorLayout, onPreviewDragLayout, onCommitDrag, onCancelPreview, onDragStateChange, renderItem } = props
+  const { refs, gridRef, getLayout, draggingRefId, dropIndicatorLayout, onPreviewDragLayout, onCommitDrag, onCancelPreview, onDragStateChange, renderItem } = props
   const [containerNode, setContainerNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const gridInstanceRef = React.useRef<Muuri | null>(null)
@@ -240,7 +239,8 @@ export function MuuriGrid(props: Props): React.ReactNode {
       layoutOnResize: false,
       layoutDuration: 180,
       layoutEasing: 'ease',
-      dragEnabled: editMode,
+      dragEnabled: true,
+      dragHandle: '[data-hc-drag-handle="1"]',
       dragSort: false,
       dragAxis: 'xy',
       dragStartPredicate: shouldStartCardDrag,
@@ -328,7 +328,7 @@ export function MuuriGrid(props: Props): React.ReactNode {
       gridInstanceRef.current = null
       handleDragCancel()
     }
-  }, [containerNode, editMode, flushPreview, layout, schedulePreview])
+  }, [containerNode, flushPreview, layout, schedulePreview])
 
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current

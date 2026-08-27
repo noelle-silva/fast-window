@@ -103,7 +103,6 @@ export type HyperCortexMetadataV1 = {
   htmlFaceFixedScaleDefault?: number
   colorPresetId?: HyperCortexColorPresetIdV1
   pageDisplayModes?: PageDisplayModesV1
-  indexEditMode?: boolean
   currentFolderId?: string
   trashEnabled?: boolean
   trashAutoDeleteDays?: number

@@ -34,14 +34,12 @@ type Props = {
   gateway: HyperCortexGateway
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
-  editMode: boolean
   noteIndex?: Record<string, NoteMeta>
   assetIndex?: Record<string, any>
   onNavigateFolder: (folderId: string) => void
   onOpenNote: (note: NoteMeta) => void
   onOpenAsset: (asset: AssetEntry) => void
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
-  onEditModeChange: (editMode: boolean) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
   onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
   onDeleteFolderEntity?: (folderId: string) => void
@@ -98,14 +96,12 @@ export function IndexPage(props: Props): React.ReactNode {
     gateway,
     doc,
     currentFolderId,
-    editMode,
     noteIndex,
     assetIndex,
     onNavigateFolder,
     onOpenNote,
     onOpenAsset,
     onDocChange,
-    onEditModeChange,
     onCreateNoteInIndex,
     onUploadAssetsInIndex,
     onDeleteFolderEntity,
@@ -139,7 +135,6 @@ export function IndexPage(props: Props): React.ReactNode {
     refs,
     doc,
     currentFolderId,
-    editMode,
     onDocChange,
   })
 
@@ -409,7 +404,7 @@ export function IndexPage(props: Props): React.ReactNode {
       ref: FavoriteItemRef,
       options?: { dragging: boolean },
     ): React.ReactNode => {
-      const onStartResize = editMode ? (direction: ResizeHandleDirection, e: React.PointerEvent) => beginResize(ref, direction, e) : undefined
+      const onStartResize = (direction: ResizeHandleDirection, e: React.PointerEvent) => beginResize(ref, direction, e)
 
       if (ref.kind === 'folder') {
         const folder = getFolderById(doc, ref.targetId)
@@ -417,7 +412,6 @@ export function IndexPage(props: Props): React.ReactNode {
           const compact = getPreviewLayout(ref).h <= 1
           return (
             <IndexCardShell
-              editMode={editMode}
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
               onRemove={() => removeOneRef(ref.id)}
@@ -431,7 +425,6 @@ export function IndexPage(props: Props): React.ReactNode {
         const compact = getPreviewLayout(ref).h <= 1
         return (
           <IndexCardShell
-            editMode={editMode}
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
             onRemove={() => removeOneRef(ref.id)}
@@ -439,7 +432,7 @@ export function IndexPage(props: Props): React.ReactNode {
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
             onStartResize={onStartResize}
           >
-            <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} compact={compact} disabled={editMode} onClick={fid => onNavigateFolder(fid)} />
+            <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} compact={compact} onClick={fid => onNavigateFolder(fid)} />
           </IndexCardShell>
         )
       }
@@ -450,7 +443,6 @@ export function IndexPage(props: Props): React.ReactNode {
           const compact = getPreviewLayout(ref).h <= 1
           return (
             <IndexCardShell
-              editMode={editMode}
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
               onRemove={() => removeOneRef(ref.id)}
@@ -463,14 +455,13 @@ export function IndexPage(props: Props): React.ReactNode {
         const compact = getPreviewLayout(ref).h <= 1
         return (
           <IndexCardShell
-            editMode={editMode}
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
             onRemove={() => removeOneRef(ref.id)}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
             onStartResize={onStartResize}
           >
-            <NoteCard note={note} compact={compact} disabled={editMode} onClick={onOpenNote} />
+            <NoteCard note={note} compact={compact} onClick={onOpenNote} />
           </IndexCardShell>
         )
       }
@@ -481,7 +472,6 @@ export function IndexPage(props: Props): React.ReactNode {
           const compact = getPreviewLayout(ref).h <= 1
           return (
             <IndexCardShell
-              editMode={editMode}
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
               onRemove={() => removeOneRef(ref.id)}
@@ -494,21 +484,19 @@ export function IndexPage(props: Props): React.ReactNode {
         const compact = getPreviewLayout(ref).h <= 1
         return (
           <IndexCardShell
-            editMode={editMode}
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
             onRemove={() => removeOneRef(ref.id)}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
             onStartResize={onStartResize}
           >
-            <AssetCard asset={asset} compact={compact} disabled={editMode} onClick={onOpenAsset} />
+            <AssetCard asset={asset} compact={compact} onClick={onOpenAsset} />
           </IndexCardShell>
         )
       }
 
       return (
         <IndexCardShell
-          editMode={editMode}
           dragging={options?.dragging}
           resizing={isResizingRef(ref.id)}
           onRemove={() => removeOneRef(ref.id)}
@@ -523,7 +511,6 @@ export function IndexPage(props: Props): React.ReactNode {
       assetLookup.byKey,
       beginResize,
       doc,
-      editMode,
       getPreviewLayout,
       isResizingRef,
       noteIndex,
@@ -542,25 +529,22 @@ export function IndexPage(props: Props): React.ReactNode {
         canGoBack={canGoBack}
         currentTitle={currentTitle}
         refsCount={refs.length}
-        editMode={editMode}
         currentFolderId={currentFolderId}
         onGoBack={handleGoBack}
         onNavigateFolder={onNavigateFolder}
         onOpenAddExistingMenu={openAddExistingMenu}
         onOpenCreateNewMenu={openCreateNewMenu}
-        onToggleEditMode={() => onEditModeChange(!editMode)}
         onDeleteCurrentFolder={openDeleteCurrentFolderConfirm}
       />
 
       {refs.length === 0 ? (
         <Box sx={{ px: 1, py: 4, borderRadius: 4, bgcolor: 'rgba(0,0,0,.02)', textAlign: 'center' }}>
           <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>这个收藏夹还是空的</Typography>
-          {editMode ? <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography> : null}
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography>
         </Box>
       ) : (
         <MuuriGrid
           refs={refs}
-          editMode={editMode}
           gridRef={gridRef}
           getLayout={getPreviewLayout}
           draggingRefId={draggingRefId}

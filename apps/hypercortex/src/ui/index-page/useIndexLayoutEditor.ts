@@ -8,7 +8,6 @@ type Options = {
   refs: FavoriteItemRef[]
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
-  editMode: boolean
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
 }
 
@@ -41,7 +40,7 @@ function buildResizePatch(layout: GridLayout, direction: ResizeHandleDirection, 
 }
 
 export function useIndexLayoutEditor(opts: Options) {
-  const { refs, doc, currentFolderId, editMode, onDocChange } = opts
+  const { refs, doc, currentFolderId, onDocChange } = opts
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const [draggingRefId, setDraggingRefId] = React.useState<string | null>(null)
   const [resizeDraft, setResizeDraft] = React.useState<ResizeDraft | null>(null)
@@ -75,7 +74,7 @@ export function useIndexLayoutEditor(opts: Options) {
 
   const beginResize = React.useCallback(
     (ref: FavoriteItemRef, direction: ResizeHandleDirection, e: React.PointerEvent) => {
-      if (!editMode || e.button !== 0) return
+      if (e.button !== 0) return
       e.stopPropagation()
       const el = gridRef.current
       if (!el) return
@@ -124,29 +123,27 @@ export function useIndexLayoutEditor(opts: Options) {
       window.addEventListener('pointerup', onUp, true)
       window.addEventListener('pointercancel', onUp, true)
     },
-    [commitPreview, editMode, refs],
+    [commitPreview, refs],
   )
 
   const previewDragLayout = React.useCallback(
     (refId: string, patch: Partial<GridLayout>) => {
-      if (!editMode) return
       const nextPreview = buildResolvedLayoutMap(refs, refId, patch)
       dragPreviewRef.current = nextPreview
       setLayoutPreview(nextPreview)
       setDropIndicatorLayout(nextPreview.get(refId) || null)
     },
-    [editMode, refs],
+    [refs],
   )
 
   const commitDragPreview = React.useCallback(() => {
-    if (!editMode) return
     const nextPreview = dragPreviewRef.current
     dragPreviewRef.current = null
     setDropIndicatorLayout(null)
     if (!nextPreview) return
     const nextDoc = applyLayoutMapToDoc(doc, refs, nextPreview)
     if (nextDoc !== doc) onDocChange(nextDoc)
-  }, [doc, editMode, onDocChange, refs])
+  }, [doc, onDocChange, refs])
 
   const cancelDragPreview = React.useCallback(() => {
     dragPreviewRef.current = null

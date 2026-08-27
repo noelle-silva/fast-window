@@ -2,13 +2,13 @@ import * as React from 'react'
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { ResizeHandleDirection } from './types'
 import { floatingControlSx } from '../pluginUiStyles'
 
 type Props = {
-  editMode: boolean
   dragging?: boolean
   resizing?: boolean
   onRemove?: () => void
@@ -22,7 +22,7 @@ const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Rec
   { direction: 'n', cursor: 'ns-resize', sx: { left: 18, right: 18, top: 0, width: 'auto', height: 12 } },
   { direction: 'e', cursor: 'ew-resize', sx: { right: 0, top: 18, bottom: 18, width: 12, height: 'auto' } },
   { direction: 's', cursor: 'ns-resize', sx: { left: 18, right: 18, bottom: 0, width: 'auto', height: 12 } },
-  { direction: 'w', cursor: 'ew-resize', sx: { left: 0, top: 18, bottom: 18, width: 12, height: 'auto' } },
+  { direction: 'w', cursor: 'ew-resize', sx: { left: 40, top: 18, bottom: 18, width: 12, height: 'auto' } },
   { direction: 'nw', cursor: 'nwse-resize', sx: { left: 0, top: 0 } },
   { direction: 'ne', cursor: 'nesw-resize', sx: { right: 0, top: 0 } },
   { direction: 'sw', cursor: 'nesw-resize', sx: { left: 0, bottom: 0 } },
@@ -30,7 +30,7 @@ const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Rec
 ]
 
 export function IndexCardShell(props: Props): React.ReactNode {
-  const { editMode, dragging, resizing, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
+  const { dragging, resizing, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
   const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const menuOpen = Boolean(menuAnchorEl)
 
@@ -45,7 +45,15 @@ export function IndexCardShell(props: Props): React.ReactNode {
         flexDirection: 'column',
         position: 'relative',
         opacity: dragging ? 0.78 : 1,
-        transition: resizing ? 'none' : 'opacity .12s ease, box-shadow .12s ease',
+        borderRadius: 3.5,
+        bgcolor: 'var(--hc-surface)',
+        boxShadow: '0 10px 24px var(--hc-shadow)',
+        overflow: 'hidden',
+        transition: resizing ? 'none' : 'opacity .12s ease, box-shadow .18s ease, transform .18s ease',
+        '&:hover': {
+          transform: 'translateY(-1px)',
+          boxShadow: '0 16px 32px var(--hc-shadow-strong)',
+        },
       }}
     >
       <Box
@@ -54,53 +62,72 @@ export function IndexCardShell(props: Props): React.ReactNode {
           height: '100%',
           minHeight: 0,
           flex: 1,
-          cursor: editMode ? 'grab' : 'default',
-          '&:active': editMode ? { cursor: 'grabbing' } : undefined,
+          display: 'flex',
           '&:hover .hc-index-card-actions, &:focus-within .hc-index-card-actions': {
             opacity: 1,
             pointerEvents: 'auto',
           },
         }}
       >
-        <Box sx={{ height: '100%', minHeight: 0 }}>{children}</Box>
-        {editMode ? (
+        <Tooltip title="拖拽调整位置">
           <Box
-            className="hc-index-card-actions"
+            aria-label="拖拽调整位置"
+            data-hc-drag-handle="1"
             sx={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
+              position: 'relative',
+              zIndex: 2,
+              width: 40,
+              flexShrink: 0,
+              height: '100%',
+              minHeight: 0,
               display: 'flex',
               alignItems: 'center',
-              gap: 0.75,
-              opacity: menuOpen ? 1 : 0,
-              pointerEvents: menuOpen ? 'auto' : 'none',
-              transition: 'opacity .12s ease',
-              zIndex: 4,
+              justifyContent: 'center',
+              cursor: 'grab',
+              '&:active': { cursor: 'grabbing' },
+              color: 'var(--hc-text-subtle)',
             }}
           >
-            {onRemove || onDeleteEntity || onEditEntity ? (
-              <Tooltip title="更多操作">
-                <IconButton
-                  size="small"
-                  aria-label="更多操作"
-                  data-hc-no-drag="1"
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => {
-                    e.stopPropagation()
-                    setMenuAnchorEl(e.currentTarget)
-                  }}
-                  sx={{
-                    ...floatingControlSx,
-                  }}
-                >
-                  <MoreHorizRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            ) : null}
+            <DragIndicatorRoundedIcon fontSize="small" />
           </Box>
-        ) : null}
-        {editMode && onStartResize ? (
+        </Tooltip>
+        <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>{children}</Box>
+        <Box
+          className="hc-index-card-actions"
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            opacity: menuOpen ? 1 : 0,
+            pointerEvents: menuOpen ? 'auto' : 'none',
+            transition: 'opacity .12s ease',
+            zIndex: 4,
+          }}
+        >
+          {onRemove || onDeleteEntity || onEditEntity ? (
+            <Tooltip title="更多操作">
+              <IconButton
+                size="small"
+                aria-label="更多操作"
+                data-hc-no-drag="1"
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => {
+                  e.stopPropagation()
+                  setMenuAnchorEl(e.currentTarget)
+                }}
+                sx={{
+                  ...floatingControlSx,
+                }}
+              >
+                <MoreHorizRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+        </Box>
+        {onStartResize ? (
           <>
             {resizeHandles.map(handle => (
               <Box

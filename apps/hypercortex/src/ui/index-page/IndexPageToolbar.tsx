@@ -10,22 +10,16 @@ type BreadcrumbItem = {
   title: string
 }
 
-function modeLabel(editMode: boolean): string {
-  return editMode ? '布局编辑模式' : '阅读模式'
-}
-
 type Props = {
   breadcrumb: BreadcrumbItem[]
   canGoBack: boolean
   currentTitle: string
   refsCount: number
-  editMode: boolean
   currentFolderId: string
   onGoBack: () => void
   onNavigateFolder: (folderId: string) => void
   onOpenAddExistingMenu: (el: HTMLElement) => void
   onOpenCreateNewMenu: (el: HTMLElement) => void
-  onToggleEditMode: () => void
   onDeleteCurrentFolder: () => void
 }
 
@@ -35,17 +29,13 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
     canGoBack,
     currentTitle,
     refsCount,
-    editMode,
     currentFolderId,
     onGoBack,
     onNavigateFolder,
     onOpenAddExistingMenu,
     onOpenCreateNewMenu,
-    onToggleEditMode,
     onDeleteCurrentFolder,
   } = props
-
-  const modeText = modeLabel(editMode)
 
   return (
     <Box
@@ -118,50 +108,23 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
         <Box sx={{ minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexWrap: 'wrap' }}>
             <Typography sx={{ fontSize: 18, fontWeight: 900, color: 'var(--hc-text)', lineHeight: 1.2 }}>{currentTitle}</Typography>
-            <Box
-              aria-label={`当前模式：${modeText}`}
-              sx={{
-                px: 1,
-                py: 0.25,
-                borderRadius: 999,
-                bgcolor: editMode ? 'var(--hc-primary-soft)' : 'var(--hc-surface-soft)',
-                boxShadow: editMode ? '0 10px 22px var(--hc-shadow)' : 'none',
-              }}
-            >
-              <Typography sx={{ fontSize: 12, fontWeight: 800, color: editMode ? 'var(--hc-primary)' : 'var(--hc-text-muted)' }}>
-                {modeText}
-              </Typography>
-            </Box>
           </Box>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.50)', pt: 0.25 }}>{refsCount} 条</Typography>
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
-          {editMode && currentFolderId !== 'root' ? (
+          {currentFolderId !== 'root' ? (
             <Button variant="text" color="error" onClick={onDeleteCurrentFolder} sx={{ ...softDangerButtonSx, whiteSpace: 'nowrap' }}>
               删除当前收藏夹实体
             </Button>
           ) : null}
 
-          {editMode ? (
-            <Button variant="text" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddExistingMenu(e.currentTarget)} sx={{ ...softButtonSx, whiteSpace: 'nowrap' }}>
-              添加已有
-            </Button>
-          ) : null}
+          <Button variant="text" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddExistingMenu(e.currentTarget)} sx={{ ...softButtonSx, whiteSpace: 'nowrap' }}>
+            添加已有
+          </Button>
 
-          {editMode ? (
-            <Button variant="contained" startIcon={<CreateNewFolderRoundedIcon />} onClick={e => onOpenCreateNewMenu(e.currentTarget)} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
-              创建新的
-            </Button>
-          ) : null}
-
-          <Button
-            variant={editMode ? 'text' : 'contained'}
-            onClick={onToggleEditMode}
-            aria-label={editMode ? '完成布局编辑，返回阅读模式' : '进入布局编辑模式'}
-            sx={editMode ? { ...softButtonSx, whiteSpace: 'nowrap' } : { borderRadius: 999, whiteSpace: 'nowrap' }}
-          >
-            {editMode ? '完成布局编辑' : '进入布局编辑'}
+          <Button variant="contained" startIcon={<CreateNewFolderRoundedIcon />} onClick={e => onOpenCreateNewMenu(e.currentTarget)} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
+            创建新的
           </Button>
         </Box>
       </Box>

@@ -89,10 +89,6 @@ function normalizeBoolean(value: unknown): boolean {
   return value === true
 }
 
-function normalizeIndexEditMode(value: unknown): boolean {
-  return value === true
-}
-
 function normalizeTabsMode(value: unknown): TabsMode {
   return value === 'hover' ? 'hover' : 'manual'
 }
@@ -183,7 +179,6 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
   next.htmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(next.htmlFaceDisplayMode)
   next.htmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(next.htmlFaceFixedScaleDefault)
-  next.indexEditMode = normalizeIndexEditMode(next.indexEditMode)
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
   next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
 
@@ -492,7 +487,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway)
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
-  const [indexEditMode, setIndexEditMode] = React.useState(false)
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
@@ -1403,7 +1397,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         setHtmlFaceFixedScaleDefault(normalizedHtmlFaceFixedScaleDefault)
         const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
         setColorPresetId(normalizedColorPresetId)
-        setIndexEditMode(normalizeIndexEditMode((normalizedMeta as any).indexEditMode))
         setCurrentFolderId(String((normalizedMeta as any).currentFolderId || '').trim() || 'root')
         const activeKey = typeof normalizedMeta.activeTabKey === 'string' ? normalizedMeta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
@@ -1526,15 +1519,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setHtmlFaceDisplayMode(next)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
-    },
-    [persistMetadataPatch],
-  )
-
-  const handleIndexEditModeChange = React.useCallback(
-    (next: boolean) => {
-      setIndexEditMode(next)
-      if (!metaReadyRef.current) return
-      void persistMetadataPatch({ indexEditMode: next ?? false }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -2045,17 +2029,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
 
-      if (shouldTriggerShortcut(e, bindings.toggleMode) && focusPage === 'index') {
-        e.preventDefault()
-        e.stopPropagation()
-        setIndexEditMode(prev => {
-          const next = !prev
-          if (metaReadyRef.current) void persistMetadataPatch({ indexEditMode: next }).catch(() => {})
-          return next
-        })
-        return
-      }
-
       if (focusPage !== 'note-detail') return
       const nid = String(activeNoteIdRef.current || '').trim()
       if (!nid) return
@@ -2492,7 +2465,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             gateway={gateway}
             doc={favoritesDoc}
             currentFolderId={currentFolderId}
-            editMode={indexEditMode}
             noteIndex={noteIndex?.notes}
             assetIndex={assetPoolIndex?.assets}
             onNavigateFolder={handleNavigateFolder}
@@ -2505,7 +2477,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               void handleOpenAssetTab(asset)
             }}
             onDocChange={handleFavoritesDocChange}
-            onEditModeChange={handleIndexEditModeChange}
             onCreateNoteInIndex={handleCreateNoteInIndex}
             onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
             onDeleteFolderEntity={handleDeleteFolderEntity}
@@ -2981,14 +2952,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   gateway={gateway}
                   doc={favoritesDoc}
                   currentFolderId={currentFolderId}
-                  editMode={indexEditMode}
                   noteIndex={noteIndex?.notes}
                   assetIndex={assetPoolIndex?.assets}
                   onNavigateFolder={handleNavigateFolder}
                   onOpenNote={handleOpenNote}
                   onOpenAsset={handleOpenAssetTab}
                   onDocChange={handleFavoritesDocChange}
-                  onEditModeChange={handleIndexEditModeChange}
                   onCreateNoteInIndex={handleCreateNoteInIndex}
                   onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
                   onDeleteFolderEntity={handleDeleteFolderEntity}
