@@ -64,7 +64,7 @@ export function WebviewSettingsPage() {
         return
       }
       const shot = buildShortcutFromEvent(e)
-      if (!shot || !shot.includes('+')) return
+      if (!shot) return
       e.preventDefault()
       e.stopPropagation()
       if (recordingDefault) {
@@ -124,7 +124,7 @@ export function WebviewSettingsPage() {
   return (
     <div className="webview-settings">
       <h2 className="webview-settings-title">视频倍速设置</h2>
-      <p className="webview-settings-hint">生效于浏览窗口内网页视频；预设可绑定快捷键（如 control+KeyA），在网页内按快捷键切换/还原。</p>
+      <p className="webview-settings-hint">生效于浏览窗口内网页视频；预设可绑定快捷键（如 control+KeyA，也支持单个按键如 KeyB），在网页内按快捷键切换/还原。</p>
 
       {settings ? (
         <>

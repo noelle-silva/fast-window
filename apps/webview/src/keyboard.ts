@@ -1,6 +1,18 @@
+const MODIFIER_CODES = new Set([
+  'ControlLeft',
+  'ControlRight',
+  'ShiftLeft',
+  'ShiftRight',
+  'AltLeft',
+  'AltRight',
+  'MetaLeft',
+  'MetaRight',
+])
+
 export function buildShortcutFromEvent(e: KeyboardEvent): string | null {
   const code = typeof e.code === 'string' ? e.code : ''
   if (!code || code === 'Unidentified') return null
+  if (MODIFIER_CODES.has(code)) return null
 
   const parts: string[] = []
   if (e.ctrlKey) parts.push('control')
