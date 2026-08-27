@@ -1,5 +1,7 @@
 import * as React from 'react'
 import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography } from '@mui/material'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
@@ -236,18 +238,20 @@ function NavIconButton(props: {
   title: string
   ariaLabel: string
   active?: boolean
+  disabled?: boolean
   onClick: () => void
   children: React.ReactNode
   tooltipPlacement?: 'bottom' | 'bottom-start' | 'bottom-end' | 'left' | 'right' | 'top'
   label?: string
 }) {
-  const { title, ariaLabel, active, onClick, children, tooltipPlacement = 'bottom', label } = props
+  const { title, ariaLabel, active, disabled, onClick, children, tooltipPlacement = 'bottom', label } = props
   return (
     <Tooltip title={title} placement={tooltipPlacement}>
       <IconButton
         size="small"
         aria-label={ariaLabel}
         onClick={onClick}
+        disabled={disabled}
         sx={{
           gap: 0.5,
           px: label ? 1.5 : undefined,
@@ -255,6 +259,7 @@ function NavIconButton(props: {
           color: active ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
           bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
           '&:hover': { bgcolor: active ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+          '&.Mui-disabled': { color: 'var(--hc-text-subtle)', bgcolor: 'transparent' },
         }}
       >
         {children}
@@ -324,28 +329,39 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [page])
   type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'tab'; tabKey: string }
   const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
+  const fwdNavHistoryRef = React.useRef<NavHistoryEntry[]>([])
+  const [navStackSizes, setNavStackSizes] = React.useState({ back: 0, forward: 0 })
+
+  const syncNavStackCounts = React.useCallback(() => {
+    setNavStackSizes({ back: navHistoryRef.current.length, forward: fwdNavHistoryRef.current.length })
+  }, [])
+
+  // 所有新导航（切页/开标签）的唯一入口：截断“未来”，记录“来处”。
+  const recordNewNavLocation = React.useCallback(
+    (entry: NavHistoryEntry) => {
+      fwdNavHistoryRef.current = []
+      const stack = navHistoryRef.current
+      const last = stack.length ? stack[stack.length - 1] : null
+      const duplicate =
+        (!!last && entry.kind === 'page' && last.kind === 'page' && last.page === entry.page) ||
+        (!!last && entry.kind === 'tab' && last.kind === 'tab' && last.tabKey === entry.tabKey)
+      if (!duplicate) {
+        stack.push(entry)
+        if (stack.length > 128) stack.splice(0, stack.length - 128)
+      }
+      syncNavStackCounts()
+    },
+    [syncNavStackCounts],
+  )
 
   // ---- 顶部栏：快速搜索
   const [quickSearchOpen, setQuickSearchOpen] = React.useState(false)
   const quickSearchAnchorRef = React.useRef<HTMLButtonElement | null>(null)
 
-  const pushNavHistory = React.useCallback((entry: NavHistoryEntry) => {
-    const stack = navHistoryRef.current
-    const last = stack.length ? stack[stack.length - 1] : null
-    if (last?.kind === entry.kind) {
-      if (entry.kind === 'page' && last.kind === 'page' && last.page === entry.page) return
-      if (entry.kind === 'tab' && last.kind === 'tab' && last.tabKey === entry.tabKey) return
-    }
-    stack.push(entry)
-    if (stack.length > 128) stack.splice(0, stack.length - 128)
-  }, [])
-
   const navigatePage = React.useCallback((next: PageId, opts?: { recordHistory?: boolean }) => {
-    setPageState(prev => {
-      if (prev !== next && opts?.recordHistory !== false) pushNavHistory({ kind: 'page', page: prev })
-      return next
-    })
-  }, [pushNavHistory])
+    if (next !== pageRef.current && opts?.recordHistory !== false) recordNewNavLocation({ kind: 'page', page: pageRef.current })
+    setPageState(next)
+  }, [recordNewNavLocation])
 
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
@@ -934,75 +950,87 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     setTabsHoverOpen(false)
   }, [isHoverTabsMode])
 
-  const goBackPage = React.useCallback(async () => {
-    const stack = navHistoryRef.current
-    while (stack.length) {
-      const entry = stack.pop()
-      if (!entry) continue
+  // 把当前位置转换成一条可回溯的导航记录。
+  const captureCurrentNavEntry = React.useCallback((): NavHistoryEntry => {
+    const cur = String(activeTabKeyRef.current || '').trim()
+    if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && cur) return { kind: 'tab', tabKey: cur }
+    return { kind: 'page', page: pageRef.current }
+  }, [])
 
+  // 校验并应用一条导航记录；失败返回 false 且不产生任何状态副作用。
+  const tryApplyNavEntry = React.useCallback(
+    (entry: NavHistoryEntry): boolean => {
       if (entry.kind === 'tab') {
         const key = String(entry.tabKey || '').trim()
-        if (!key) continue
-        if (!openTabKeysRef.current.includes(key)) continue
+        if (!key || !openTabKeysRef.current.includes(key)) return false
         const currentKey = String(activeTabKeyRef.current || '').trim()
-        if (key === currentKey && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail')) continue
-
+        if (key === currentKey && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail')) return false
+        const kind = tabKind(key)
+        if (kind !== 'note' && kind !== 'asset') return false
         setActiveTabKey(key as any)
         commitActiveWorkspacePatch({ activeTabKey: key })
-
-        const kind = tabKind(key)
         if (kind === 'note') {
           const noteId = noteIdFromTabKey(key)
-          if (!noteId) continue
+          if (!noteId) return false
           setActiveNoteId(noteId)
           navigatePage('note-detail', { recordHistory: false })
-          return
-        }
-        if (kind === 'asset') {
+        } else {
           setActiveNoteId('')
           navigatePage('asset-detail', { recordHistory: false })
-          return
         }
-        continue
+        return true
       }
 
       const target = entry.page
-      if (!target || target === pageRef.current) continue
-      if (target === 'note-detail') {
+      if (!target || target === pageRef.current) return false
+      if (target === 'note-detail' || target === 'asset-detail') {
+        const wantedNote = target === 'note-detail'
         const keys = openTabKeysRef.current || []
-        const noteKeys = keys.filter(k => tabKind(k) === 'note')
-        if (!noteKeys.length) continue
+        const matched = keys.filter(k => tabKind(k) === (wantedNote ? 'note' : 'asset'))
+        if (!matched.length) return false
         const currentActive = String(activeTabKeyRef.current || '').trim()
-        const activeValid = !!currentActive && tabKind(currentActive) === 'note' && noteKeys.includes(currentActive)
-        const nextKey = activeValid ? currentActive : noteKeys[0]
-        const noteId = noteIdFromTabKey(nextKey)
-        if (!noteId) continue
+        const activeValid = !!currentActive && tabKind(currentActive) === (wantedNote ? 'note' : 'asset') && matched.includes(currentActive)
+        const nextKey = activeValid ? currentActive : matched[0]
+        const resolvedNoteId = wantedNote ? noteIdFromTabKey(nextKey) : ''
+        if (wantedNote && !resolvedNoteId) return false
         setActiveTabKey(nextKey as any)
-        setActiveNoteId(noteId)
+        setActiveNoteId(resolvedNoteId)
         commitActiveWorkspacePatch({ activeTabKey: nextKey })
-        navigatePage('note-detail', { recordHistory: false })
-        return
-      }
-
-      if (target === 'asset-detail') {
-        const keys = openTabKeysRef.current || []
-        const assetKeys = keys.filter(k => tabKind(k) === 'asset')
-        if (!assetKeys.length) continue
-        const currentActive = String(activeTabKeyRef.current || '').trim()
-        const activeValid = !!currentActive && tabKind(currentActive) === 'asset' && assetKeys.includes(currentActive)
-        const nextKey = activeValid ? currentActive : assetKeys[0]
-        setActiveTabKey(nextKey as any)
-        setActiveNoteId('')
-        commitActiveWorkspacePatch({ activeTabKey: nextKey })
-        navigatePage('asset-detail', { recordHistory: false })
-        return
+        navigatePage(target, { recordHistory: false })
+        return true
       }
 
       navigatePage(target, { recordHistory: false })
+      return true
+    },
+    [commitActiveWorkspacePatch, navigatePage],
+  )
+
+  const goBackPage = React.useCallback(async () => {
+    const capture = captureCurrentNavEntry()
+    while (navHistoryRef.current.length) {
+      const entry = navHistoryRef.current.pop()!
+      if (!tryApplyNavEntry(entry)) continue
+      fwdNavHistoryRef.current.push(capture)
+      if (fwdNavHistoryRef.current.length > 128) fwdNavHistoryRef.current.splice(0, fwdNavHistoryRef.current.length - 128)
+      syncNavStackCounts()
       return
     }
     await gateway.host.toast('没有上一页了')
-  }, [gateway, commitActiveWorkspacePatch, navigatePage])
+  }, [captureCurrentNavEntry, tryApplyNavEntry, syncNavStackCounts, gateway])
+
+  const goForwardPage = React.useCallback(async () => {
+    const capture = captureCurrentNavEntry()
+    while (fwdNavHistoryRef.current.length) {
+      const entry = fwdNavHistoryRef.current.pop()!
+      if (!tryApplyNavEntry(entry)) continue
+      navHistoryRef.current.push(capture)
+      if (navHistoryRef.current.length > 128) navHistoryRef.current.splice(0, navHistoryRef.current.length - 128)
+      syncNavStackCounts()
+      return
+    }
+    await gateway.host.toast('没有下一页了')
+  }, [captureCurrentNavEntry, tryApplyNavEntry, syncNavStackCounts, gateway])
 
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
@@ -2054,7 +2082,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const nextKey = noteTabKey(nid)
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
-        pushNavHistory({ kind: 'tab', tabKey: prevActiveKey })
+        recordNewNavLocation({ kind: 'tab', tabKey: prevActiveKey })
       }
       setOpenNoteTabs(prev => {
         return prev.some(t => t.id === nid) ? prev : [...prev, note]
@@ -2064,7 +2092,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(nextKey) ? prev : insertTabAsUngrouped(prev, nextKey, prev.length)), { activeTabKey: nextKey })
       navigatePage('note-detail')
     },
-    [navigatePage, pushNavHistory, updateSidebarItems],
+    [navigatePage, recordNewNavLocation, updateSidebarItems],
   )
 
   const handleCreateNoteInIndex = React.useCallback(
@@ -2124,7 +2152,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const tabKey = assetTabId(sanitized) as TabKey
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== tabKey) {
-        pushNavHistory({ kind: 'tab', tabKey: prevActiveKey })
+        recordNewNavLocation({ kind: 'tab', tabKey: prevActiveKey })
       }
       setOpenAssetTabs(prev => {
         const idx = prev.findIndex(a => assetTabId(a) === tabKey)
@@ -2140,7 +2168,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(tabKey) ? prev : insertTabAsUngrouped(prev, tabKey, prev.length)), { activeTabKey: tabKey })
       navigatePage('asset-detail')
     },
-    [navigatePage, pushNavHistory, updateSidebarItems],
+    [navigatePage, recordNewNavLocation, updateSidebarItems],
   )
 
   const handleAssetTabUpdated = React.useCallback((asset: AssetEntry) => {
@@ -2449,10 +2477,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               }}
               onPointerDown={onTopbarPointerDown}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, ml: 26.5 }}>
-                <NavIconButton title="收藏夹" ariaLabel="收藏夹" label="收藏夹" active={page === 'index'} onClick={() => navigatePage('index')}>
-                  <StarRoundedIcon fontSize="small" />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0} onClick={() => void goBackPage()}>
+                  <ArrowBackRoundedIcon fontSize="small" />
                 </NavIconButton>
+                <NavIconButton title="前进" ariaLabel="前进" disabled={navStackSizes.forward <= 0} onClick={() => void goForwardPage()}>
+                  <ArrowForwardRoundedIcon fontSize="small" />
+                </NavIconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', ml: 18 }}>
+                  <NavIconButton title="收藏夹" ariaLabel="收藏夹" label="收藏夹" active={page === 'index'} onClick={() => navigatePage('index')}>
+                    <StarRoundedIcon fontSize="small" />
+                  </NavIconButton>
+                </Box>
               </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.25 }}>
@@ -2650,6 +2686,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 sidebarItems={sidebarItems}
                 openTabKeys={openTabKeys}
                 activeTabKey={activeTabKey}
+                tabSelectionVisible={page === 'note-detail' || page === 'asset-detail'}
                 activeTabScrollSignal={activeTabScrollSignal}
                 openNoteTabs={openNoteTabs}
                 openAssetTabs={openAssetTabs}

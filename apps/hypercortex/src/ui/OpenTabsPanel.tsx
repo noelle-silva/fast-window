@@ -189,6 +189,7 @@ export type OpenTabsPanelProps = {
   sidebarItems: SidebarItem[]
   openTabKeys: string[]
   activeTabKey?: string
+  tabSelectionVisible?: boolean
   activeTabScrollSignal?: number
   openNoteTabs: NoteMeta[]
   openAssetTabs?: AssetEntry[]
@@ -274,6 +275,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     sidebarItems,
     openTabKeys,
     activeTabKey,
+    tabSelectionVisible = true,
     activeTabScrollSignal = 0,
     openNoteTabs,
     openAssetTabs,
@@ -386,7 +388,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const renderNoteMetaRow = React.useCallback(
     (tabKey: string, tab: NoteMeta, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = String(activeTabKey || '').trim() === tabKey
+      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
       const title = tab.title || '未命名'
       const dirty = !!isNoteDirty?.(tab.id)
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
@@ -503,12 +505,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabsMode],
+    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
   )
 
   const renderAssetMetaRow = React.useCallback(
     (tabKey: string, asset: AssetEntry, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = String(activeTabKey || '').trim() === tabKey
+      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
       const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
@@ -614,12 +616,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabsMode],
+    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
   )
 
   const renderMissingRow = React.useCallback(
     (tabKey: string, kind: 'note' | 'asset', opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = String(activeTabKey || '').trim() === tabKey
+      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
       const title = kind === 'note' ? '已丢失的笔记' : '已丢失的附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
@@ -717,7 +719,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, noteIdFromTabKey, onCloseAssetTab, onCloseTab, showTitle, sortableActiveId, tabsMode],
+    [activeTabKey, dnd, noteIdFromTabKey, onCloseAssetTab, onCloseTab, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
   )
 
   const renderTabKeyRow = React.useCallback(
