@@ -25,6 +25,7 @@ import { StaleRefCard } from './index-cards/StaleRefCard'
 import { IndexCardShell } from './index-page/IndexCardShell'
 import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
+import { IndexPageBlankContextMenu, type IndexPageBlankContextMenuHandle } from './index-page/IndexPageBlankContextMenu'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
 import type { AddKind, AddMode, DeleteEntityTarget, ResizeHandleDirection } from './index-page/types'
@@ -153,6 +154,8 @@ export function IndexPage(props: Props): React.ReactNode {
     onDocChange,
     toast: message => void gateway.host.toast(message),
   })
+
+  const blankContextMenuRef = React.useRef<IndexPageBlankContextMenuHandle | null>(null)
 
   React.useEffect(() => {
     const nextId = String(currentFolderId || '').trim() || 'root'
@@ -573,25 +576,37 @@ export function IndexPage(props: Props): React.ReactNode {
         onDeleteCurrentFolder={openDeleteCurrentFolderConfirm}
       />
 
-      {refs.length === 0 ? (
-        <Box sx={{ px: 1, py: 4, borderRadius: 4, bgcolor: 'rgba(0,0,0,.02)', textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>这个收藏夹还是空的</Typography>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography>
-        </Box>
-      ) : (
-        <MuuriGrid
-          refs={refs}
-          gridRef={gridRef}
-          getLayout={getPreviewLayout}
-          draggingRefId={draggingRefId}
-          dropIndicatorLayout={dropIndicatorLayout}
-          onPreviewDragLayout={previewDragLayout}
-          onCommitDrag={commitDragPreview}
-          onCancelPreview={cancelDragPreview}
-          onDragStateChange={handleDragStateChange}
-          renderItem={(ref, isDragging) => renderRef(ref, { dragging: isDragging })}
-        />
-      )}
+      <Box onContextMenu={e => blankContextMenuRef.current?.open(e)} sx={{ minHeight: 0 }}>
+        {refs.length === 0 ? (
+          <Box sx={{ px: 1, py: 4, borderRadius: 4, bgcolor: 'rgba(0,0,0,.02)', textAlign: 'center' }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>这个收藏夹还是空的</Typography>
+            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography>
+          </Box>
+        ) : (
+          <MuuriGrid
+            refs={refs}
+            gridRef={gridRef}
+            getLayout={getPreviewLayout}
+            draggingRefId={draggingRefId}
+            dropIndicatorLayout={dropIndicatorLayout}
+            onPreviewDragLayout={previewDragLayout}
+            onCommitDrag={commitDragPreview}
+            onCancelPreview={cancelDragPreview}
+            onDragStateChange={handleDragStateChange}
+            renderItem={(ref, isDragging) => renderRef(ref, { dragging: isDragging })}
+          />
+        )}
+      </Box>
+
+      <IndexPageBlankContextMenu
+        ref={blankContextMenuRef}
+        onAddExisting={kind => openAddDialog('existing', kind)}
+        onCreateNew={kind => {
+          if (kind === 'folder') openAddDialog('create', 'folder')
+          else if (kind === 'note') createNewNote()
+          else uploadNewAssets()
+        }}
+      />
 
       <Menu open={!!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('existing', 'folder')}>已有收藏夹</MenuItem>
