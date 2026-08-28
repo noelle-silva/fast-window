@@ -142,6 +142,7 @@ body {
   padding: 10px 14px;
   max-height: 340px;
   overflow: auto;
+  overscroll-behavior: contain;
   border-radius: 8px;
   background: #111827;
   color: #e5e7eb;

@@ -427,9 +427,7 @@ function App() {
             title="注册仓库"
             submitLabel="注册仓库"
             shells={shells}
-            defaultShellId={settings?.defaultShellId || 'cmd'}
-            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
-            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
+            settings={settings}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitRepoCreate}
@@ -443,9 +441,7 @@ function App() {
             submitLabel="保存修改"
             initial={dialog.repo}
             shells={shells}
-            defaultShellId={settings?.defaultShellId || 'cmd'}
-            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
-            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
+            settings={settings}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitRepoEdit}
@@ -467,8 +463,7 @@ function App() {
           <CommandDialog
             repo={activeRepo}
             shells={shells}
-            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
-            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
+            settings={settings}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitCommandCreate}
@@ -481,8 +476,7 @@ function App() {
             repo={activeRepo}
             initial={dialog.command}
             shells={shells}
-            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
-            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
+            settings={settings}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitCommandEdit}

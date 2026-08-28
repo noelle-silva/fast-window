@@ -7,16 +7,14 @@ import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
 import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
 import { RunModeSelect } from './RunModeSelect'
-import type { CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
+import type { AppSettings, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type RepoDialogProps = {
   title: string
   submitLabel: string
   initial?: Repo | null
   shells: ShellInfo[]
-  defaultShellId: string
-  defaultCloseMode: string
-  defaultCountdownSeconds: number
+  settings: AppSettings | null
   disabled?: boolean
   submitting?: boolean
   onSubmit: (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => Promise<void> | void
@@ -28,14 +26,15 @@ export function RepoDialog({
   submitLabel,
   initial,
   shells,
-  defaultShellId,
-  defaultCloseMode,
-  defaultCountdownSeconds,
+  settings,
   disabled = false,
   submitting = false,
   onSubmit,
   onClose,
 }: RepoDialogProps) {
+  const defaultShellId = settings?.defaultShellId || 'cmd'
+  const defaultCloseMode = settings?.defaultCloseMode || 'keep-open'
+  const defaultCountdownSeconds = settings?.defaultCountdownSeconds || 10
   const [name, setName] = React.useState(initial?.name ?? '')
   const [path, setPath] = React.useState(initial?.path ?? '')
   const [shellId, setShellId] = React.useState(initial?.shellId ?? defaultShellId)
@@ -114,14 +113,16 @@ export function RepoDialog({
           countdownSeconds={countdownSeconds}
           includeInherit
           inheritLabel="跟随全局默认关闭策略"
+          effectiveMode={defaultCloseMode}
+          effectiveCountdown={defaultCountdownSeconds}
           disabled={disabled || submitting}
           onChange={next => {
             setCloseMode(next.closeMode)
             setCountdownSeconds(next.countdownSeconds)
           }}
         />
-        <RunModeSelect value={runMode} onChange={setRunMode} includeInherit inheritLabel="跟随全局默认运行模式" label="默认运行模式" disabled={disabled || submitting} />
-        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随全局默认进程归属" label="外部窗口进程归属" disabled={disabled || submitting} />
+        <RunModeSelect value={runMode} onChange={setRunMode} includeInherit inheritLabel="跟随全局默认运行模式" effectiveValue={(settings?.defaultRunMode || 'console') as CommandRunMode | ''} label="默认运行模式" disabled={disabled || submitting} />
+        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随全局默认进程归属" effectiveValue={(settings?.defaultProcessOwnership || 'detached') as ProcessOwnership} label="外部窗口进程归属" disabled={disabled || submitting} />
         {error ? <Box component="p" sx={{ margin: 0, color: 'error.main', fontSize: 12 }}>{error}</Box> : null}
         <Box className="cr-form-actions">
           <Button type="button" disabled={submitting} onClick={onClose}>取消</Button>

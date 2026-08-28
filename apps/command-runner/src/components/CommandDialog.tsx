@@ -1,18 +1,17 @@
 import * as React from 'react'
-import { Box, Button, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material'
+import { Box, Button, FormControlLabel, Switch, TextField } from '@mui/material'
 import { DialogShell } from './DialogShell'
 import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
 import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
 import { RunModeSelect } from './RunModeSelect'
-import type { CommandDraft, CommandItem, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
+import type { AppSettings, CommandDraft, CommandItem, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type CommandDialogProps = {
   repo: Repo
   initial?: CommandItem | null
   shells: ShellInfo[]
-  defaultCloseMode: string
-  defaultCountdownSeconds: number
+  settings: AppSettings | null
   disabled?: boolean
   submitting?: boolean
   onSubmit: (draft: CommandDraft) => Promise<void> | void
@@ -36,8 +35,7 @@ export function CommandDialog({
   repo,
   initial,
   shells,
-  defaultCloseMode,
-  defaultCountdownSeconds,
+  settings,
   disabled = false,
   submitting = false,
   onSubmit,
@@ -50,12 +48,19 @@ export function CommandDialog({
   const [shellId, setShellId] = React.useState(initial?.shellId ?? '')
   const [closeMode, setCloseMode] = React.useState(initial?.closeMode ?? '')
   const [countdownSeconds, setCountdownSeconds] = React.useState(
-    initial?.countdownSeconds || defaultCountdownSeconds,
+    initial?.countdownSeconds || settings?.defaultCountdownSeconds || 10,
   )
   const [runMode, setRunMode] = React.useState<CommandRunMode | ''>(initial?.runMode ?? '')
   const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && script.trim().length > 0 && !disabled && !submitting
+
+  // 命令为"跟随上级"时，计算上游继承链的真实生效值用于 UI 展示。
+  const effectiveShellId = repo.shellId || settings?.defaultShellId || 'cmd'
+  const effectiveRunMode: CommandRunMode | '' = repo.runMode || settings?.defaultRunMode || 'console'
+  const effectiveProcessOwnership: ProcessOwnership = repo.processOwnership || settings?.defaultProcessOwnership || 'detached'
+  const effectiveCloseMode = repo.closeMode || settings?.defaultCloseMode || 'keep-open'
+  const effectiveCountdown = repo.countdownSeconds || settings?.defaultCountdownSeconds || 10
 
   const save = React.useCallback(async () => {
     if (!canSave) return
@@ -138,6 +143,7 @@ export function CommandDialog({
           onChange={setShellId}
           includeInherit
           inheritLabel="留空时继承仓库默认终端"
+          effectiveValue={effectiveShellId}
           label="命令终端"
           disabled={disabled || submitting}
         />
@@ -146,15 +152,18 @@ export function CommandDialog({
           onChange={setRunMode}
           includeInherit
           inheritLabel="跟随仓库默认运行模式"
+          effectiveValue={effectiveRunMode}
           label="运行模式"
           disabled={disabled || submitting}
         />
-        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随仓库默认进程归属" label="外部窗口进程归属" disabled={disabled || submitting} />
+        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随仓库默认进程归属" effectiveValue={effectiveProcessOwnership} label="外部窗口进程归属" disabled={disabled || submitting} />
         <CloseModeSelect
           closeMode={closeMode}
           countdownSeconds={countdownSeconds}
           includeInherit
           inheritLabel="跟随仓库默认关闭策略"
+          effectiveMode={effectiveCloseMode}
+          effectiveCountdown={effectiveCountdown}
           disabled={disabled || submitting}
           onChange={next => {
             setCloseMode(next.closeMode)
