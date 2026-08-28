@@ -27,11 +27,13 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
     setError(null)
     try {
       await onConfirm()
+      // 运行发起成功（命令可能仍在后台运行），关闭确认弹窗。
+      onClose()
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '运行命令失败'))
       setRunning(false)
     }
-  }, [onConfirm, running])
+  }, [onConfirm, onClose, running])
 
   return (
     <DialogShell

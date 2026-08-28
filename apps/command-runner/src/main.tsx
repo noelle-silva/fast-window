@@ -293,7 +293,8 @@ function App() {
       await actions.runCommand(command.id)
       setSnack(`「${command.name}」已在独立窗口启动`)
     } catch (e) {
-      setSnack(errorMessage(e, '运行命令失败'))
+      // 失败向上抛：确认弹窗内展示错误并恢复按钮；直跑路径由 Snackbar 呈现。
+      throw e
     }
   }, [actions.runCommand, controlsDisabled])
 
@@ -302,7 +303,7 @@ function App() {
       setDialog({ kind: 'confirm-run', command })
       return
     }
-    void runCommand(command)
+    void runCommand(command).catch(e => setSnack(errorMessage(e, '运行命令失败')))
   }, [runCommand])
 
   return (
