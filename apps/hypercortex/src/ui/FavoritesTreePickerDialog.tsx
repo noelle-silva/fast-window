@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
-import type { HyperCortexFavoritesDocV1 } from '../favorites'
+import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getFolderById, getFolderRefs, getRefsByFolderId } from '../favorites'
 
 type FolderTreeNode = {
@@ -71,13 +71,14 @@ export type { FavoritesSaveResult }
 type Props = {
   open: boolean
   doc: HyperCortexFavoritesDocV1
-  noteId: string
+  kind: FavoriteItemRef['kind']
+  targetId: string
   onClose: () => void
   onSave: (result: FavoritesSaveResult) => void
 }
 
 export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
-  const { open, doc, noteId, onClose, onSave } = props
+  const { open, doc, kind, targetId, onClose, onSave } = props
 
   const nodes = React.useMemo(() => buildFolderTree(doc), [doc])
   const allTreeKeys = React.useMemo(() => collectTreeKeys(nodes), [nodes])
@@ -86,10 +87,10 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
     const set = new Set<string>()
     for (const id of allFolderIds) {
       const refs = getRefsByFolderId(doc, id)
-      if (refs.some(ref => ref.kind === 'note' && ref.targetId === noteId)) set.add(id)
+      if (refs.some(ref => ref.kind === kind && ref.targetId === targetId)) set.add(id)
     }
     return set
-  }, [allFolderIds, doc, noteId])
+  }, [allFolderIds, doc, kind, targetId])
 
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())

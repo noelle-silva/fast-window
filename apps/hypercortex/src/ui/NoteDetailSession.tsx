@@ -26,8 +26,9 @@ import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
 import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
-import { addRef, getRefsByFolderId, removeRef, type HyperCortexFavoritesDocV1 } from '../favorites'
-import { FavoritesTreePickerDialog, type FavoritesSaveResult } from './FavoritesTreePickerDialog'
+import type { HyperCortexFavoritesDocV1 } from '../favorites'
+import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
+import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { HtmlFaceIframe } from './HtmlFaceIframe'
 import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
@@ -220,7 +221,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [moreMenuAnchorEl, setMoreMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const moreMenuOpen = !!moreMenuAnchorEl
   const [htmlScaleControlsVisible, setHtmlScaleControlsVisible] = React.useState(false)
-  const [favoritesPickerOpen, setFavoritesPickerOpen] = React.useState(false)
   const [deleteFaceMenuAnchorEl, setDeleteFaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const deleteFaceMenuOpen = !!deleteFaceMenuAnchorEl
   const closeMoreMenu = React.useCallback(() => {
@@ -333,45 +333,16 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setVersionHistoryOpen(true)
   }, [closeMoreMenu, gateway, isDraft, note.dir])
 
+  const favoritesTargets = useFavoriteTargets({
+    doc: favoritesDoc,
+    onDocChange: next => onFavoriteSaved?.(next),
+    toast: message => void gateway.host.toast(message),
+  })
+
   const openFavoritesPicker = React.useCallback(() => {
     closeMoreMenu()
-    setFavoritesPickerOpen(true)
-  }, [closeMoreMenu])
-
-  const handleSaveToFavorites = React.useCallback(
-    (result: FavoritesSaveResult) => {
-      const baseDoc = favoritesDoc
-      if (!baseDoc) return
-      const selectedSet = new Set(result.selectedFolderIds)
-      const alreadySet = new Set(result.alreadySavedFolderIds)
-      const toAdd = result.selectedFolderIds.filter(id => !alreadySet.has(id))
-      const toRemove = result.alreadySavedFolderIds.filter(id => !selectedSet.has(id))
-
-      let next = baseDoc
-      for (const folderId of toAdd) {
-        const added = addRef(next, folderId, 'note', note.id)
-        if (added) next = added.doc
-      }
-      for (const folderId of toRemove) {
-        const refs = getRefsByFolderId(next, folderId)
-        const existingRef = refs.find(ref => ref.kind === 'note' && ref.targetId === note.id)
-        if (!existingRef) continue
-        const afterRemove = removeRef(next, existingRef.id)
-        if (afterRemove !== next) next = afterRemove
-      }
-
-      setFavoritesPickerOpen(false)
-      if (next !== baseDoc) onFavoriteSaved?.(next)
-      if (toAdd.length > 0 && toRemove.length === 0) {
-        void gateway.host.toast('收藏成功')
-      } else if (toRemove.length > 0 && toAdd.length === 0) {
-        void gateway.host.toast('已取消收藏')
-      } else {
-        void gateway.host.toast('收藏状态已更新')
-      }
-    },
-    [favoritesDoc, gateway, note.id, onFavoriteSaved],
-  )
+    favoritesTargets.openPicker({ kind: 'note', id: note.id })
+  }, [closeMoreMenu, favoritesTargets, note.id])
 
   const handlePasteFiles = React.useCallback(async (files: File[], insertText: (text: string) => void) => {
     if (pastingAssets) {
@@ -1534,13 +1505,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         </DialogActions>
       </Dialog>
 
-      {favoritesDoc ? (
+      {favoritesDoc && favoritesTargets.target ? (
         <FavoritesTreePickerDialog
-          open={favoritesPickerOpen}
+          open={favoritesTargets.pickerOpen}
           doc={favoritesDoc}
-          noteId={note.id}
-          onClose={() => setFavoritesPickerOpen(false)}
-          onSave={handleSaveToFavorites}
+          kind={favoritesTargets.target.kind}
+          targetId={favoritesTargets.target.id}
+          onClose={favoritesTargets.closePicker}
+          onSave={favoritesTargets.saveResult}
         />
       ) : null}
 

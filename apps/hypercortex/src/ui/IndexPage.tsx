@@ -27,8 +27,16 @@ import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
-import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget, ResizeHandleDirection } from './index-page/types'
+import type { AddKind, AddMode, DeleteEntityTarget, ResizeHandleDirection } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
+import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
+import { useFavoriteTargets } from './useFavoriteTargets'
+import { EditEntityInfoDialog } from './EditEntityInfoDialog'
+
+type EditEntityTarget =
+  | { kind: 'folder'; folderId: string; title: string; description: string }
+  | { kind: 'note'; note: NoteMeta }
+  | { kind: 'asset'; asset: AssetEntry }
 
 type Props = {
   gateway: HyperCortexGateway
@@ -45,6 +53,8 @@ type Props = {
   onDeleteFolderEntity?: (folderId: string) => void
   onDeleteNoteEntity?: (note: NoteMeta) => void
   onDeleteAssetEntity?: (asset: AssetEntry) => void
+  onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
+  onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
 }
 
 function buildAssetLookup(assetIndex?: Record<string, any>): {
@@ -107,6 +117,8 @@ export function IndexPage(props: Props): React.ReactNode {
     onDeleteFolderEntity,
     onDeleteNoteEntity,
     onDeleteAssetEntity,
+    onUpdateNoteInfo,
+    onUpdateAssetInfo,
   } = props
 
   const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
@@ -122,9 +134,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const [assetSearch, setAssetSearch] = React.useState('')
   const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
   const [deleteEntityTarget, setDeleteEntityTarget] = React.useState<DeleteEntityTarget | null>(null)
-  const [editFolderTarget, setEditFolderTarget] = React.useState<EditFolderTarget | null>(null)
-  const [editFolderTitleDraft, setEditFolderTitleDraft] = React.useState('')
-  const [editFolderDescriptionDraft, setEditFolderDescriptionDraft] = React.useState('')
+  const [editEntityTarget, setEditEntityTarget] = React.useState<EditEntityTarget | null>(null)
 
   const refs = React.useMemo(() => getRefsByFolderId(doc, currentFolderId), [doc, currentFolderId])
   const currentTitle = React.useMemo(() => folderTitle(doc, currentFolderId), [doc, currentFolderId])
@@ -136,6 +146,12 @@ export function IndexPage(props: Props): React.ReactNode {
     doc,
     currentFolderId,
     onDocChange,
+  })
+
+  const favoritesTargets = useFavoriteTargets({
+    doc,
+    onDocChange,
+    toast: message => void gateway.host.toast(message),
   })
 
   React.useEffect(() => {
@@ -354,37 +370,50 @@ export function IndexPage(props: Props): React.ReactNode {
     onDeleteAssetEntity?.(target.asset)
   }, [currentFolderId, deleteEntityTarget, doc, gateway, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
 
-  const openEditFolderDialog = React.useCallback((folder: FavoriteFolder) => {
-    const target = {
-      folderId: folder.id,
-      title: folder.title || '未命名收藏夹',
-      description: folder.description || '',
-    }
-    setEditFolderTarget(target)
-    setEditFolderTitleDraft(target.title)
-    setEditFolderDescriptionDraft(target.description)
+  const openEditEntity = React.useCallback((target: EditEntityTarget) => {
+    setEditEntityTarget(target)
   }, [])
 
-  const closeEditFolderDialog = React.useCallback(() => {
-    setEditFolderTarget(null)
-    setEditFolderTitleDraft('')
-    setEditFolderDescriptionDraft('')
+  const closeEditEntity = React.useCallback(() => {
+    setEditEntityTarget(null)
   }, [])
 
-  const confirmEditFolder = React.useCallback(() => {
-    const targetId = String(editFolderTarget?.folderId || '').trim()
-    if (!targetId) return
-    const nextDoc = updateFolderInfo(doc, targetId, {
-      title: editFolderTitleDraft,
-      description: editFolderDescriptionDraft,
-    })
-    if (!nextDoc) {
-      void gateway.host.toast('收藏夹标题不能为空')
-      return
-    }
-    if (nextDoc !== doc) onDocChange(nextDoc)
-    closeEditFolderDialog()
-  }, [closeEditFolderDialog, doc, editFolderDescriptionDraft, editFolderTarget, editFolderTitleDraft, gateway, onDocChange])
+  const editEntityTitle = editEntityTarget
+    ? editEntityTarget.kind === 'folder'
+      ? editEntityTarget.title
+      : editEntityTarget.kind === 'note'
+        ? editEntityTarget.note.title || '未命名笔记'
+        : String(editEntityTarget.asset.displayName || editEntityTarget.asset.fileName || editEntityTarget.asset.assetId)
+    : ''
+
+  const editEntityDescription = editEntityTarget
+    ? editEntityTarget.kind === 'folder'
+      ? editEntityTarget.description
+      : editEntityTarget.kind === 'note'
+        ? editEntityTarget.note.description || ''
+        : editEntityTarget.asset.remark || ''
+    : ''
+
+  const confirmEditEntity = React.useCallback(
+    (next: { title: string; description: string }) => {
+      const target = editEntityTarget
+      if (!target) return
+      if (target.kind === 'folder') {
+        const nextDoc = updateFolderInfo(doc, target.folderId, next)
+        if (!nextDoc) {
+          void gateway.host.toast('收藏夹标题不能为空')
+          return
+        }
+        if (nextDoc !== doc) onDocChange(nextDoc)
+      } else if (target.kind === 'note') {
+        void onUpdateNoteInfo?.(target.note, next)
+      } else {
+        void onUpdateAssetInfo?.(target.asset, { displayName: next.title, remark: next.description })
+      }
+      setEditEntityTarget(null)
+    },
+    [doc, editEntityTarget, gateway, onDocChange, onUpdateAssetInfo, onUpdateNoteInfo],
+  )
 
   const breadcrumbItems = React.useMemo(
     () => breadcrumb.map(id => ({ id, title: folderTitle(doc, id) })),
@@ -427,8 +456,9 @@ export function IndexPage(props: Props): React.ReactNode {
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
+            onFavorite={() => favoritesTargets.openPicker({ kind: 'folder', id: folder.id })}
             onRemove={() => removeOneRef(ref.id)}
-            onEditEntity={() => openEditFolderDialog(folder)}
+            onEditEntity={() => openEditEntity({ kind: 'folder', folderId: folder.id, title: folder.title || '未命名收藏夹', description: folder.description || '' })}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
             onStartResize={onStartResize}
           >
@@ -457,7 +487,9 @@ export function IndexPage(props: Props): React.ReactNode {
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
+            onFavorite={() => favoritesTargets.openPicker({ kind: 'note', id: note.id })}
             onRemove={() => removeOneRef(ref.id)}
+            onEditEntity={() => openEditEntity({ kind: 'note', note })}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
             onStartResize={onStartResize}
           >
@@ -482,11 +514,14 @@ export function IndexPage(props: Props): React.ReactNode {
           )
         }
         const compact = getPreviewLayout(ref).h <= 1
+        const assetTargetId = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
         return (
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
+            onFavorite={() => favoritesTargets.openPicker({ kind: 'asset', id: assetTargetId })}
             onRemove={() => removeOneRef(ref.id)}
+            onEditEntity={() => openEditEntity({ kind: 'asset', asset })}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
             onStartResize={onStartResize}
           >
@@ -511,10 +546,11 @@ export function IndexPage(props: Props): React.ReactNode {
       assetLookup.byKey,
       beginResize,
       doc,
+      favoritesTargets,
       getPreviewLayout,
       isResizingRef,
       noteIndex,
-      openEditFolderDialog,
+      openEditEntity,
       onNavigateFolder,
       onOpenAsset,
       onOpenNote,
@@ -569,6 +605,27 @@ export function IndexPage(props: Props): React.ReactNode {
         <MenuItem onClick={uploadNewAssets}>上传附件</MenuItem>
       </Menu>
 
+      {favoritesTargets.target ? (
+        <FavoritesTreePickerDialog
+          open={favoritesTargets.pickerOpen}
+          doc={doc}
+          kind={favoritesTargets.target.kind}
+          targetId={favoritesTargets.target.id}
+          onClose={favoritesTargets.closePicker}
+          onSave={favoritesTargets.saveResult}
+        />
+      ) : null}
+
+      {editEntityTarget ? (
+        <EditEntityInfoDialog
+          open
+          title={editEntityTitle}
+          description={editEntityDescription}
+          onClose={closeEditEntity}
+          onConfirm={confirmEditEntity}
+        />
+      ) : null}
+
       <IndexPageDialogs
         doc={doc}
         currentFolderId={currentFolderId}
@@ -588,9 +645,6 @@ export function IndexPage(props: Props): React.ReactNode {
         assetLookupKeyCount={Object.keys(assetLookup.byKey).length}
         deleteFolderConfirmId={deleteFolderConfirmId}
         deleteEntityTarget={deleteEntityTarget}
-        editFolderTarget={editFolderTarget}
-        editFolderTitleDraft={editFolderTitleDraft}
-        editFolderDescriptionDraft={editFolderDescriptionDraft}
         onCloseAddDialog={closeAddDialog}
         onFolderTitleDraftChange={setFolderTitleDraft}
         onFolderDescriptionDraftChange={setFolderDescriptionDraft}
@@ -607,10 +661,6 @@ export function IndexPage(props: Props): React.ReactNode {
         onConfirmDeleteFolder={confirmDeleteCurrentFolder}
         onCloseDeleteEntity={() => setDeleteEntityTarget(null)}
         onConfirmDeleteEntity={confirmDeleteEntity}
-        onCloseEditFolder={closeEditFolderDialog}
-        onEditFolderTitleDraftChange={setEditFolderTitleDraft}
-        onEditFolderDescriptionDraftChange={setEditFolderDescriptionDraft}
-        onConfirmEditFolder={confirmEditFolder}
       />
     </Box>
   )

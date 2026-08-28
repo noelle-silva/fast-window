@@ -1540,6 +1540,66 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [gateway],
   )
 
+  const handleUpdateNoteInfo = React.useCallback(
+    async (note: NoteMeta, patch: { title: string; description: string }) => {
+      const dir = String(note.dir || '').trim()
+      if (isDraftNoteId(note.id) || !dir) {
+        void gateway.host.toast('草稿暂无所在目录（请先保存后再编辑信息）')
+        return
+      }
+      try {
+        const loaded = await gateway.notes.loadNotePackage('library', dir)
+        const result = await gateway.notes.saveNotePackage('library', {
+          id: note.id,
+          packageDir: dir,
+          title: patch.title,
+          description: patch.description,
+          body: loaded.body,
+          tags: loaded.tags,
+          resources: loaded.resources,
+          saveTextFace: true,
+        })
+        setNoteIndex(prev => {
+          const current = prev || { version: 1, notes: {} }
+          return { ...current, notes: { ...(current.notes || {}), [note.id]: result.meta } }
+        })
+        setOpenNoteTabs(prev => prev.map(tab => (tab.id === note.id ? { ...tab, title: result.meta.title, description: result.meta.description } : tab)))
+        void refreshNoteCardInfo(result.meta).catch(() => {})
+        void gateway.host.toast('笔记信息已更新')
+      } catch (err: any) {
+        void gateway.host.toast(`更新笔记信息失败：${String(err?.message || err || '未知错误')}`)
+      }
+    },
+    [gateway, refreshNoteCardInfo],
+  )
+
+  const handleUpdateAssetInfo = React.useCallback(
+    async (asset: AssetEntry, patch: { displayName: string; remark: string }) => {
+      try {
+        await gateway.assets.updateAssetMetadata('library', asset.assetId, asset.ext, {
+          displayName: patch.displayName,
+          remark: patch.remark,
+          tags: asset.tags || [],
+        })
+        setAssetPoolIndex(prev => {
+          if (!prev || typeof prev !== 'object') return prev
+          const key = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+          return {
+            ...(prev as any),
+            assets: {
+              ...((prev as any).assets || {}),
+              [key]: { ...((prev as any).assets?.[key] || {}), displayName: patch.displayName, remark: patch.remark },
+            },
+          }
+        })
+        void gateway.host.toast('附件信息已更新')
+      } catch (err: any) {
+        void gateway.host.toast(`更新附件信息失败：${String(err?.message || err || '未知错误')}`)
+      }
+    },
+    [gateway],
+  )
+
   const handleUploadAssetsIntoIndex = React.useCallback(
     async (folderId: string) => {
       const fid = String(folderId || '').trim() || 'root'
@@ -2482,6 +2542,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             onDeleteFolderEntity={handleDeleteFolderEntity}
             onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
             onDeleteAssetEntity={requestDeleteAssetEntity}
+            onUpdateNoteInfo={handleUpdateNoteInfo}
+            onUpdateAssetInfo={handleUpdateAssetInfo}
           />
         )
       }
@@ -2965,6 +3027,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onDeleteFolderEntity={handleDeleteFolderEntity}
                   onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
                   onDeleteAssetEntity={requestDeleteAssetEntity}
+                  onUpdateNoteInfo={handleUpdateNoteInfo}
+                  onUpdateAssetInfo={handleUpdateAssetInfo}
                 />
               ) : null}
               {page === 'trash' ? (
