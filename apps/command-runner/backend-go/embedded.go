@@ -94,23 +94,8 @@ func buildEmbeddedArgs(shell shellDef, scriptPath, workDir string) []string {
 }
 
 // runEmbeddedCommand 以内置模式执行命令：不弹窗口，捕获输出经事件总线实时推送。
-func (svc *service) runEmbeddedCommand(id string) (map[string]any, error) {
-	cmdItem, target, err := svc.locateCommand(id)
-	if err != nil {
-		return nil, err
-	}
-	if info, statErr := os.Stat(target.Path); statErr != nil || !info.IsDir() {
-		return nil, fmt.Errorf("仓库目录不存在: %s", target.Path)
-	}
-
-	plan, err := svc.resolveRunPlan(cmdItem, target)
-	if err != nil {
-		return nil, err
-	}
-	if !plan.shell.available {
-		return nil, fmt.Errorf("终端不可用: %s", plan.shell.name)
-	}
-
+// 内置空间固定挂载在 App 进程树下（startEmbeddedProcess 内挂 Job），不读进程归属配置。
+func (svc *service) runEmbeddedCommand(cmdItem command, target repo, plan runPlan) (map[string]any, error) {
 	run := &embeddedRun{
 		id:          newID("run"),
 		commandID:   cmdItem.ID,
@@ -145,7 +130,8 @@ func (svc *service) startEmbeddedProcess(cmdItem command, target repo, plan runP
 
 	cmd := exec.Command(plan.shell.exePath, buildEmbeddedArgs(plan.shell, scriptPath, target.Path)...)
 	cmd.Dir = target.Path
-	cmd.Env = os.Environ()
+	// 内置空间环境同样绝对纯净：使用操作系统原始环境块，不携带任何 App 私有污染。
+	cmd.Env = freshEnv()
 	hideEmbeddedProcess(cmd)
 
 	// 管道必须在 Start 之前建立；Start 之后再取会失败并导致输出捕获完全失效。

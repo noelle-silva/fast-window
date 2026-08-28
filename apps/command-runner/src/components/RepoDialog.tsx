@@ -3,8 +3,11 @@ import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
 import { Box, Button, TextField } from '@mui/material'
 import { invoke } from '@tauri-apps/api/core'
 import { DialogShell } from './DialogShell'
+import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
-import type { Repo, ShellInfo } from '../types'
+import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
+import { RunModeSelect } from './RunModeSelect'
+import type { CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type RepoDialogProps = {
   title: string
@@ -12,9 +15,11 @@ type RepoDialogProps = {
   initial?: Repo | null
   shells: ShellInfo[]
   defaultShellId: string
+  defaultCloseMode: string
+  defaultCountdownSeconds: number
   disabled?: boolean
   submitting?: boolean
-  onSubmit: (draft: { name: string; path: string; shellId: string }) => Promise<void> | void
+  onSubmit: (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => Promise<void> | void
   onClose: () => void
 }
 
@@ -24,6 +29,8 @@ export function RepoDialog({
   initial,
   shells,
   defaultShellId,
+  defaultCloseMode,
+  defaultCountdownSeconds,
   disabled = false,
   submitting = false,
   onSubmit,
@@ -32,6 +39,10 @@ export function RepoDialog({
   const [name, setName] = React.useState(initial?.name ?? '')
   const [path, setPath] = React.useState(initial?.path ?? '')
   const [shellId, setShellId] = React.useState(initial?.shellId ?? defaultShellId)
+  const [closeMode, setCloseMode] = React.useState(initial?.closeMode ?? '')
+  const [countdownSeconds, setCountdownSeconds] = React.useState(initial?.countdownSeconds ?? defaultCountdownSeconds)
+  const [runMode, setRunMode] = React.useState<CommandRunMode | ''>(initial?.runMode ?? '')
+  const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && path.trim().length > 0 && !disabled && !submitting
 
@@ -49,11 +60,11 @@ export function RepoDialog({
     if (!canSave) return
     setError(null)
     try {
-      await onSubmit({ name: name.trim(), path: path.trim(), shellId })
+      await onSubmit({ name: name.trim(), path: path.trim(), shellId, closeMode, countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0, runMode, processOwnership })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存仓库失败'))
     }
-  }, [canSave, name, path, shellId, onSubmit])
+  }, [canSave, name, path, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -98,6 +109,19 @@ export function RepoDialog({
           </Button>
         </Box>
         <ShellSelect value={shellId} shells={shells} onChange={setShellId} disabled={disabled || submitting} label="仓库默认终端" />
+        <CloseModeSelect
+          closeMode={closeMode}
+          countdownSeconds={countdownSeconds}
+          includeInherit
+          inheritLabel="跟随全局默认关闭策略"
+          disabled={disabled || submitting}
+          onChange={next => {
+            setCloseMode(next.closeMode)
+            setCountdownSeconds(next.countdownSeconds)
+          }}
+        />
+        <RunModeSelect value={runMode} onChange={setRunMode} includeInherit inheritLabel="跟随全局默认运行模式" label="默认运行模式" disabled={disabled || submitting} />
+        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随全局默认进程归属" label="外部窗口进程归属" disabled={disabled || submitting} />
         {error ? <Box component="p" sx={{ margin: 0, color: 'error.main', fontSize: 12 }}>{error}</Box> : null}
         <Box className="cr-form-actions">
           <Button type="button" disabled={submitting} onClick={onClose}>取消</Button>

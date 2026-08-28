@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-const shellExeVar = "CR_SHELL_EXE"
-const scriptFileVar = "CR_SCRIPT_FILE"
-const workDirVar = "CR_WORK_DIR"
-
 type shellInfo struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`

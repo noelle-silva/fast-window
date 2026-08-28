@@ -12,10 +12,12 @@ type CloseModeSelectProps = {
   closeMode: string
   countdownSeconds: number
   onChange: (next: { closeMode: string; countdownSeconds: number }) => void
+  includeInherit?: boolean
+  inheritLabel?: string
   disabled?: boolean
 }
 
-export function CloseModeSelect({ closeMode, countdownSeconds, onChange, disabled = false }: CloseModeSelectProps) {
+export function CloseModeSelect({ closeMode, countdownSeconds, onChange, includeInherit = false, inheritLabel = '跟随全局默认', disabled = false }: CloseModeSelectProps) {
   return (
     <FormControl disabled={disabled} fullWidth>
       <FormLabel sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary' }}>窗口关闭策略</FormLabel>
@@ -24,6 +26,21 @@ export function CloseModeSelect({ closeMode, countdownSeconds, onChange, disable
         onChange={event => onChange({ closeMode: event.target.value, countdownSeconds })}
         sx={{ mt: 1, gap: 1 }}
       >
+        {includeInherit ? (
+          <Box key="inherit" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <FormControlLabel
+              value=""
+              control={<Radio size="small" />}
+              label={
+                <Box sx={{ minWidth: 0 }}>
+                  <Box component="span" sx={{ fontSize: 13, fontWeight: 700 }}>{inheritLabel}</Box>
+                  <Box component="span" sx={{ display: 'block', color: 'text.secondary', fontSize: 11 }}>继承所用命令的上级默认</Box>
+                </Box>
+              }
+              sx={{ mr: 0, alignItems: 'flex-start' }}
+            />
+          </Box>
+        ) : null}
         {CLOSE_MODE_OPTIONS.map(option => (
           <Box key={option.value} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <FormControlLabel

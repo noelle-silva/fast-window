@@ -3,7 +3,9 @@ import type {
   AppSettings,
   CommandDraft,
   CommandItem,
+  CommandRunMode,
   DirectClient,
+  ProcessOwnership,
   Repo,
   ShellInfo,
 } from './types'
@@ -20,8 +22,8 @@ type CommandRunnerData = {
 }
 
 type CommandRunnerActions = {
-  createRepo: (name: string, path: string) => Promise<void>
-  updateRepo: (id: string, name: string, path: string) => Promise<void>
+  createRepo: (name: string, path: string, closeMode: string, countdownSeconds: number, runMode: CommandRunMode | '', processOwnership: ProcessOwnership) => Promise<void>
+  updateRepo: (id: string, name: string, path: string, closeMode: string, countdownSeconds: number, runMode: CommandRunMode | '', processOwnership: ProcessOwnership) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
   reorderRepos: (orderedIds: string[]) => Promise<void>
   createCommand: (draft: CommandDraft) => Promise<void>
@@ -38,6 +40,8 @@ export type SettingsDraft = {
   defaultShellId: string
   defaultCloseMode: string
   defaultCountdownSeconds: number
+  defaultRunMode: CommandRunMode
+  defaultProcessOwnership: ProcessOwnership
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -111,8 +115,8 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
         .filter((item): item is T => Boolean(item))
 
     return {
-      createRepo: (name, path) => mutate('commandRunner.repos.create', { name, path }),
-      updateRepo: (id, name, path) => mutate('commandRunner.repos.update', { id, name, path }),
+      createRepo: (name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.create', { name, path, closeMode, countdownSeconds, runMode, processOwnership }),
+      updateRepo: (id, name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.update', { id, name, path, closeMode, countdownSeconds, runMode, processOwnership }),
       deleteRepo: id => mutate('commandRunner.repos.delete', { id }),
       reorderRepos: orderedIds => {
         setRepos(current => applyLocalOrder(current, orderedIds))

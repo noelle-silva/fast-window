@@ -48,7 +48,7 @@ func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string) ([]
 	return reordered, nil
 }
 
-func (svc *service) createRepo(name, path string) (repo, error) {
+func (svc *service) createRepo(name, path, closeMode string, countdownSeconds int, runMode, processOwnership string) (repo, error) {
 	name = strings.TrimSpace(name)
 	path = strings.TrimSpace(path)
 	if name == "" {
@@ -56,6 +56,19 @@ func (svc *service) createRepo(name, path string) (repo, error) {
 	}
 	if path == "" {
 		return repo{}, fmt.Errorf("仓库路径不能为空")
+	}
+	if closeMode != "" && !validCloseMode(closeMode) {
+		return repo{}, fmt.Errorf("未知关闭策略: %s", closeMode)
+	}
+	if countdownSeconds != 0 &&
+		(countdownSeconds < minCountdownSeconds || countdownSeconds > maxCountdownSeconds) {
+		return repo{}, fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
+	}
+	if runMode != "" && !validRunMode(runMode) {
+		return repo{}, fmt.Errorf("未知运行模式: %s", runMode)
+	}
+	if !validProcessOwnership(processOwnership) {
+		return repo{}, fmt.Errorf("未知进程归属: %s", processOwnership)
 	}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return repo{}, fmt.Errorf("仓库目录不存在: %s", path)
@@ -71,11 +84,15 @@ func (svc *service) createRepo(name, path string) (repo, error) {
 		}
 	}
 	item := repo{
-		ID:        newID("repo"),
-		Name:      name,
-		Path:      path,
-		ShellID:   "",
-		CreatedAt: nowText(),
+		ID:               newID("repo"),
+		Name:             name,
+		Path:             path,
+		ShellID:          "",
+		CloseMode:        closeMode,
+		CountdownSeconds: countdownSeconds,
+		RunMode:          runMode,
+		ProcessOwnership: processOwnership,
+		CreatedAt:        nowText(),
 	}
 	doc.Repos = append(doc.Repos, item)
 	if err := svc.writeRepos(doc); err != nil {
@@ -84,7 +101,7 @@ func (svc *service) createRepo(name, path string) (repo, error) {
 	return item, nil
 }
 
-func (svc *service) updateRepo(id, name, path string) (repo, error) {
+func (svc *service) updateRepo(id, name, path, closeMode string, countdownSeconds int, runMode, processOwnership string) (repo, error) {
 	name = strings.TrimSpace(name)
 	path = strings.TrimSpace(path)
 	if name == "" {
@@ -92,6 +109,19 @@ func (svc *service) updateRepo(id, name, path string) (repo, error) {
 	}
 	if path == "" {
 		return repo{}, fmt.Errorf("仓库路径不能为空")
+	}
+	if closeMode != "" && !validCloseMode(closeMode) {
+		return repo{}, fmt.Errorf("未知关闭策略: %s", closeMode)
+	}
+	if countdownSeconds != 0 &&
+		(countdownSeconds < minCountdownSeconds || countdownSeconds > maxCountdownSeconds) {
+		return repo{}, fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
+	}
+	if runMode != "" && !validRunMode(runMode) {
+		return repo{}, fmt.Errorf("未知运行模式: %s", runMode)
+	}
+	if !validProcessOwnership(processOwnership) {
+		return repo{}, fmt.Errorf("未知进程归属: %s", processOwnership)
 	}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return repo{}, fmt.Errorf("仓库目录不存在: %s", path)
@@ -112,6 +142,10 @@ func (svc *service) updateRepo(id, name, path string) (repo, error) {
 		}
 		doc.Repos[index].Name = name
 		doc.Repos[index].Path = path
+		doc.Repos[index].CloseMode = closeMode
+		doc.Repos[index].CountdownSeconds = countdownSeconds
+		doc.Repos[index].RunMode = runMode
+		doc.Repos[index].ProcessOwnership = processOwnership
 		if err := svc.writeRepos(doc); err != nil {
 			return repo{}, err
 		}
@@ -219,6 +253,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		CloseMode:        draft.CloseMode,
 		CountdownSeconds: draft.CountdownSeconds,
 		RunMode:          draft.RunMode,
+		ProcessOwnership: draft.ProcessOwnership,
 		CreatedAt:        nowText(),
 		UpdatedAt:        nowText(),
 	}
@@ -252,6 +287,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].CloseMode = draft.CloseMode
 		doc.Commands[index].CountdownSeconds = draft.CountdownSeconds
 		doc.Commands[index].RunMode = draft.RunMode
+		doc.Commands[index].ProcessOwnership = draft.ProcessOwnership
 		doc.Commands[index].UpdatedAt = nowText()
 		if err := svc.writeCommands(doc); err != nil {
 			return command{}, err

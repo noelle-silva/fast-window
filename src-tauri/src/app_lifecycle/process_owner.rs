@@ -98,7 +98,7 @@ mod platform {
     };
     use windows::Win32::System::JobObjects::{
         CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
-        TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows::Win32::System::Pipes::CreatePipe;
@@ -226,7 +226,11 @@ mod platform {
             .map(OwnedHandle::new)
             .map_err(|e| format!("创建应用 Job 失败: {e}"))?;
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // KILL_ON_JOB_CLOSE：宿主关闭 Job 句柄时终结 Job 内全部进程（防孤儿）。
+        // BREAKAWAY_OK：开放子进程"破壁"脱离权，供应用内独立进程（如 Command Runner
+        // 外部窗口的 detached 模式）主动创建脱离 Job 的进程，使这类进程具备独立生命周期。
+        info.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
         unsafe {
             SetInformationJobObject(
                 job.raw(),

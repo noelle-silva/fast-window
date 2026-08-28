@@ -47,12 +47,18 @@ export type Repo = {
   name: string
   path: string
   shellId: string
+  closeMode: string
+  countdownSeconds: number
+  runMode: CommandRunMode | ''
+  processOwnership: ProcessOwnership
   createdAt: string
 }
 
 export type CloseMode = 'keep-open' | 'countdown' | 'close-immediately'
 
 export type CommandRunMode = 'console' | 'embedded'
+
+export type ProcessOwnership = '' | 'detached' | 'attached'
 
 export type CommandItem = {
   id: string
@@ -64,7 +70,8 @@ export type CommandItem = {
   shellId: string
   closeMode: string
   countdownSeconds: number
-  runMode: CommandRunMode
+  runMode: CommandRunMode | ''
+  processOwnership: ProcessOwnership
   createdAt: string
   updatedAt: string
 }
@@ -78,7 +85,8 @@ export type CommandDraft = {
   shellId: string
   closeMode: string
   countdownSeconds: number
-  runMode: CommandRunMode
+  runMode: CommandRunMode | ''
+  processOwnership: ProcessOwnership
 }
 
 export type RunEvent = {
@@ -107,6 +115,8 @@ export type AppSettings = {
   defaultShellId: string
   defaultCloseMode: string
   defaultCountdownSeconds: number
+  defaultRunMode: CommandRunMode
+  defaultProcessOwnership: ProcessOwnership
   customShells: CustomShell[]
   updatedAt: string
 }

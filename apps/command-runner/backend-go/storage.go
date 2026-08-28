@@ -19,7 +19,7 @@ func (svc *service) ensureReady() error {
 		return err
 	}
 	if _, err := os.Stat(svc.settingsPath()); errors.Is(err, os.ErrNotExist) {
-		if _, err := svc.saveGlobalSettings(defaultShellID, defaultCloseMode, defaultCountdownSeconds); err != nil {
+		if _, err := svc.saveGlobalSettings(defaultShellID, defaultCloseMode, defaultCountdownSeconds, defaultRunMode, defaultProcessOwnership); err != nil {
 			return err
 		}
 	}
@@ -94,6 +94,8 @@ func defaultSettings() appSettings {
 		DefaultShellID:          defaultShellID,
 		DefaultCloseMode:        defaultCloseMode,
 		DefaultCountdownSeconds: defaultCountdownSeconds,
+		DefaultRunMode:          defaultRunMode,
+		DefaultProcessOwnership: defaultProcessOwnership,
 		CustomShells:            []customShell{},
 	}
 }
@@ -108,7 +110,7 @@ func (svc *service) writeSettings(settings appSettings) error {
 	return writeJSON(svc.settingsPath(), settings)
 }
 
-func (svc *service) saveGlobalSettings(shellID, closeMode string, countdownSeconds int) (appSettings, error) {
+func (svc *service) saveGlobalSettings(shellID, closeMode string, countdownSeconds int, runMode, processOwnership string) (appSettings, error) {
 	settings, err := svc.readSettings()
 	if err != nil {
 		return appSettings{}, err
@@ -123,6 +125,12 @@ func (svc *service) saveGlobalSettings(shellID, closeMode string, countdownSecon
 		(countdownSeconds < minCountdownSeconds || countdownSeconds > maxCountdownSeconds) {
 		return appSettings{}, fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
 	}
+	if runMode != "" && !validRunMode(runMode) {
+		return appSettings{}, fmt.Errorf("未知运行模式: %s", runMode)
+	}
+	if processOwnership != "" && !validProcessOwnership(processOwnership) {
+		return appSettings{}, fmt.Errorf("未知进程归属: %s", processOwnership)
+	}
 	if shellID != "" {
 		settings.DefaultShellID = shellID
 	}
@@ -132,8 +140,20 @@ func (svc *service) saveGlobalSettings(shellID, closeMode string, countdownSecon
 	if countdownSeconds != 0 {
 		settings.DefaultCountdownSeconds = countdownSeconds
 	}
+	if runMode != "" {
+		settings.DefaultRunMode = runMode
+	}
+	if processOwnership != "" {
+		settings.DefaultProcessOwnership = processOwnership
+	}
 	if settings.DefaultCountdownSeconds < minCountdownSeconds {
 		settings.DefaultCountdownSeconds = defaultCountdownSeconds
+	}
+	if settings.DefaultRunMode == "" {
+		settings.DefaultRunMode = defaultRunMode
+	}
+	if settings.DefaultProcessOwnership == "" {
+		settings.DefaultProcessOwnership = defaultProcessOwnership
 	}
 	if err := svc.writeSettings(settings); err != nil {
 		return appSettings{}, err

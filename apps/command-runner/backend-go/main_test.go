@@ -44,7 +44,7 @@ func TestServiceCreatesDataFiles(t *testing.T) {
 func TestRepoAndCommandRoundTrip(t *testing.T) {
 	svc := newTestService(t)
 
-	repo, err := svc.createRepo("demo", svc.dataDir)
+	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestRepoAndCommandRoundTrip(t *testing.T) {
 func TestCreateRepoRejectsMissingDir(t *testing.T) {
 	svc := newTestService(t)
 	missing := filepath.Join(svc.dataDir, "not-exist")
-	if _, err := svc.createRepo("missing", missing); err == nil {
+	if _, err := svc.createRepo("missing", missing, "", 0, "", ""); err == nil {
 		t.Fatal("expected error for missing directory")
 	}
 }
@@ -156,7 +156,7 @@ func TestCustomShellAddRemove(t *testing.T) {
 
 func TestBuildWrapperScript(t *testing.T) {
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir)
+	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,9 +183,19 @@ func TestBuildWrapperScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrapper := buildWrapperScript(plan)
-	if !strings.Contains(wrapper, `cd /d "%CR_WORK_DIR%"`) {
-		t.Fatalf("wrapper missing work dir line: %q", wrapper)
+	// 模拟 launchInNewConsole 的启动前序：写入脚本文件后回填到 plan。
+	scriptPath, err := svc.writeScriptFile(command, plan.shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.scriptPath = scriptPath
+
+	wrapper := svc.buildWrapperScript(plan, repo.Path)
+	if !strings.Contains(wrapper, "call "+inlineCmdLiteral(scriptPath)) {
+		t.Fatalf("wrapper missing script call line: %q", wrapper)
+	}
+	if !strings.Contains(wrapper, `cd /d "`+strings.ReplaceAll(repo.Path, `\`, `\`)) {
+		t.Fatalf("wrapper missing work dir: %q", wrapper)
 	}
 	if !strings.Contains(wrapper, "timeout /t 10 >nul") {
 		t.Fatalf("wrapper missing countdown line: %q", wrapper)
@@ -196,41 +206,86 @@ func TestBuildWrapperScript(t *testing.T) {
 }
 
 func TestWrapperShellLinePerShell(t *testing.T) {
-	cmdLine := buildWrapperShellLine(shellDef{id: "cmd"})
-	if !strings.Contains(cmdLine, `call "%CR_SCRIPT_FILE%"`) {
+	script := `E:\tmp\run-1.cmd`
+	work := `E:\tmp\work`
+
+	cmdLine := buildWrapperShellLineWithWorkDir(shellDef{id: "cmd"}, script, work)
+	if !strings.Contains(cmdLine, `call "E:\tmp\run-1.cmd"`) {
 		t.Fatalf("cmd line = %q", cmdLine)
 	}
 
-	psLine := buildWrapperShellLine(shellDef{id: "powershell"})
-	if !strings.Contains(psLine, `-ExecutionPolicy Bypass -File "%CR_SCRIPT_FILE%"`) {
+	psLine := buildWrapperShellLineWithWorkDir(shellDef{id: "powershell", exePath: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`}, script, work)
+	if !strings.Contains(psLine, `-ExecutionPolicy Bypass -File "E:\tmp\run-1.cmd"`) {
 		t.Fatalf("powershell line = %q", psLine)
 	}
 
-	wslLine := buildWrapperShellLine(shellDef{id: "wsl"})
-	if !strings.Contains(wslLine, `wsl.exe --cd "%CR_WORK_DIR%" bash "%CR_SCRIPT_FILE%"`) {
+	wslLine := buildWrapperShellLineWithWorkDir(shellDef{id: "wsl"}, script, work)
+	if !strings.Contains(wslLine, `wsl.exe --cd "E:\tmp\work" bash "E:\tmp\run-1.cmd"`) {
 		t.Fatalf("wsl line = %q", wslLine)
 	}
 
-	customLine := buildWrapperShellLine(shellDef{id: "custom-x", argsTemplate: `-NoLogo {command}`})
-	if !strings.Contains(customLine, `"%CR_SHELL_EXE%"`) || !strings.Contains(customLine, `"%CR_SCRIPT_FILE%"`) {
+	customLine := buildWrapperShellLineWithWorkDir(shellDef{id: "custom-x", exePath: `E:\custom\x.exe`, argsTemplate: `-NoLogo {command}`}, script, work)
+	if !strings.Contains(customLine, `"E:\custom\x.exe" -NoLogo "E:\tmp\run-1.cmd"`) {
 		t.Fatalf("custom line = %q", customLine)
+	}
+
+	// % 转义: 路径含 % 时应双写
+	escaped := inlineCmdLiteral(`E:\tmp\100%file.cmd`)
+	if !strings.Contains(escaped, `100%%file.cmd`) {
+		t.Fatalf("escaped literal = %q", escaped)
+	}
+}
+
+func TestResolveProcessOwnership(t *testing.T) {
+	if got := resolveProcessOwnership("", "", ""); got != ownershipDetached {
+		t.Fatalf("empty chain = %q, want detached", got)
+	}
+	if got := resolveProcessOwnership("", "attached", ""); got != ownershipAttached {
+		t.Fatalf("repo override = %q, want attached", got)
+	}
+	if got := resolveProcessOwnership("detached", "attached", ""); got != ownershipDetached {
+		t.Fatalf("command override = %q, want detached", got)
+	}
+	if got := resolveProcessOwnership("", "", "attached"); got != ownershipAttached {
+		t.Fatalf("global = %q, want attached", got)
+	}
+	if got := resolveProcessOwnership("bogus", "", "attached"); got != ownershipAttached {
+		t.Fatalf("invalid command falls through = %q, want attached", got)
+	}
+}
+
+func TestResolveRunMode(t *testing.T) {
+	if got := resolveRunMode("", "", ""); got != runModeConsole {
+		t.Fatalf("empty chain = %q, want console", got)
+	}
+	if got := resolveRunMode("", runModeEmbedded, ""); got != runModeEmbedded {
+		t.Fatalf("repo override = %q, want embedded", got)
+	}
+	if got := resolveRunMode(runModeConsole, runModeEmbedded, ""); got != runModeConsole {
+		t.Fatalf("command override = %q, want console", got)
+	}
+	if got := resolveRunMode("", "", runModeEmbedded); got != runModeEmbedded {
+		t.Fatalf("global = %q, want embedded", got)
+	}
+	if got := resolveRunMode("bogus", runModeEmbedded, ""); got != runModeEmbedded {
+		t.Fatalf("invalid command falls through = %q, want embedded", got)
 	}
 }
 
 func TestSettingsSaveValidation(t *testing.T) {
 	svc := newTestService(t)
 
-	if _, err := svc.saveGlobalSettings("unknown-shell", "", 0); err == nil {
+	if _, err := svc.saveGlobalSettings("unknown-shell", "", 0, "", ""); err == nil {
 		t.Fatal("expected unknown shell error")
 	}
-	if _, err := svc.saveGlobalSettings("", "bogus-mode", 0); err == nil {
+	if _, err := svc.saveGlobalSettings("", "bogus-mode", 0, "", ""); err == nil {
 		t.Fatal("expected invalid close mode error")
 	}
-	if _, err := svc.saveGlobalSettings("", "", 99999); err == nil {
+	if _, err := svc.saveGlobalSettings("", "", 99999, "", ""); err == nil {
 		t.Fatal("expected countdown range error")
 	}
 
-	settings, err := svc.saveGlobalSettings("pwsh", closeModeCountdown, 30)
+	settings, err := svc.saveGlobalSettings("pwsh", closeModeCountdown, 30, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,15 +335,15 @@ func TestReorderReposAndCommands(t *testing.T) {
 		return dir
 	}
 
-	repoA, err := svc.createRepo("A", mkRepoDir("a"))
+	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoB, err := svc.createRepo("B", mkRepoDir("b"))
+	repoB, err := svc.createRepo("B", mkRepoDir("b"), "", 0, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoC, err := svc.createRepo("C", mkRepoDir("c"))
+	repoC, err := svc.createRepo("C", mkRepoDir("c"), "", 0, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

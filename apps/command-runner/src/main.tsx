@@ -17,15 +17,17 @@ import { RepoGrid } from './components/RepoGrid'
 import { RepoPage } from './components/RepoPage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { createDirectClient } from './directClient'
-import { useCommandRunnerData } from './commandRunnerData'
+import { useCommandRunnerData, type SettingsDraft } from './commandRunnerData'
 import { useExecutionSpace } from './executionSpace'
 import { commandRunnerTheme } from './theme'
 import type {
   CommandDraft,
   CommandItem,
+  CommandRunMode,
   DataDirStatus,
   DirectClient,
   FwLaunchInfo,
+  ProcessOwnership,
   Repo,
 } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
@@ -215,17 +217,17 @@ function App() {
     }
   }, [controlsDisabled])
 
-  const submitRepoCreate = React.useCallback(async (draft: { name: string; path: string; shellId: string }) => {
+  const submitRepoCreate = React.useCallback(async (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => {
     await wrap(async () => {
-      await actions.createRepo(draft.name, draft.path)
+      await actions.createRepo(draft.name, draft.path, draft.closeMode, draft.countdownSeconds, draft.runMode, draft.processOwnership)
     }, '仓库已注册')
   }, [actions.createRepo, wrap])
 
-  const submitRepoEdit = React.useCallback(async (draft: { name: string; path: string; shellId: string }) => {
+  const submitRepoEdit = React.useCallback(async (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => {
     const repo = dialog.kind === 'repo-edit' ? dialog.repo : null
     if (!repo) return
     await wrap(async () => {
-      await actions.updateRepo(repo.id, draft.name, draft.path)
+      await actions.updateRepo(repo.id, draft.name, draft.path, draft.closeMode, draft.countdownSeconds, draft.runMode, draft.processOwnership)
     }, '仓库已更新')
   }, [actions.updateRepo, dialog, wrap])
 
@@ -255,7 +257,7 @@ function App() {
     }, `命令「${command.name}」已删除`)
   }, [actions.deleteCommand, wrap])
 
-  const submitSettings = React.useCallback(async (draft: { defaultShellId: string; defaultCloseMode: string; defaultCountdownSeconds: number }) => {
+  const submitSettings = React.useCallback(async (draft: SettingsDraft) => {
     if (controlsDisabled) return
     setBusy(true)
     try {
@@ -425,6 +427,8 @@ function App() {
             submitLabel="注册仓库"
             shells={shells}
             defaultShellId={settings?.defaultShellId || 'cmd'}
+            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
+            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitRepoCreate}
@@ -439,6 +443,8 @@ function App() {
             initial={dialog.repo}
             shells={shells}
             defaultShellId={settings?.defaultShellId || 'cmd'}
+            defaultCloseMode={settings?.defaultCloseMode || 'keep-open'}
+            defaultCountdownSeconds={settings?.defaultCountdownSeconds || 10}
             disabled={controlsDisabled}
             submitting={busy}
             onSubmit={submitRepoEdit}

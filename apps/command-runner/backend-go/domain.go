@@ -21,11 +21,18 @@ const (
 )
 
 const (
+	ownershipDetached = "detached"
+	ownershipAttached = "attached"
+)
+
+const (
 	defaultShellID          = "cmd"
 	defaultCloseMode        = closeModeKeepOpen
 	defaultCountdownSeconds = 10
 	minCountdownSeconds     = 1
 	maxCountdownSeconds     = 3600
+	defaultProcessOwnership = ownershipDetached
+	defaultRunMode          = runModeConsole
 )
 
 type appSettings struct {
@@ -34,6 +41,8 @@ type appSettings struct {
 	DefaultShellID          string        `json:"defaultShellId"`
 	DefaultCloseMode        string        `json:"defaultCloseMode"`
 	DefaultCountdownSeconds int           `json:"defaultCountdownSeconds"`
+	DefaultRunMode          string        `json:"defaultRunMode"`
+	DefaultProcessOwnership string        `json:"defaultProcessOwnership"`
 	CustomShells            []customShell `json:"customShells"`
 	UpdatedAt               string        `json:"updatedAt"`
 }
@@ -46,11 +55,15 @@ type customShell struct {
 }
 
 type repo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Path      string `json:"path"`
-	ShellID   string `json:"shellId"`
-	CreatedAt string `json:"createdAt"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	ShellID          string `json:"shellId"`
+	CloseMode        string `json:"closeMode"`
+	CountdownSeconds int    `json:"countdownSeconds"`
+	RunMode          string `json:"runMode"`
+	ProcessOwnership string `json:"processOwnership"`
+	CreatedAt        string `json:"createdAt"`
 }
 
 type reposDoc struct {
@@ -70,6 +83,7 @@ type command struct {
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`
 	RunMode          string `json:"runMode"`
+	ProcessOwnership string `json:"processOwnership"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
 }
@@ -90,6 +104,7 @@ type commandDraft struct {
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`
 	RunMode          string `json:"runMode"`
+	ProcessOwnership string `json:"processOwnership"`
 }
 
 type metaDoc struct {
@@ -138,6 +153,16 @@ func validRunMode(mode string) bool {
 	}
 }
 
+// validProcessOwnership 校验进程归属档位：空串表示未指定（继承），仅接受两档有效值。
+func validProcessOwnership(mode string) bool {
+	switch mode {
+	case "", ownershipDetached, ownershipAttached:
+		return true
+	default:
+		return false
+	}
+}
+
 func (draft commandDraft) validate() error {
 	if strings.TrimSpace(draft.RepoID) == "" {
 		return fmt.Errorf("命令必须归属一个仓库")
@@ -156,6 +181,9 @@ func (draft commandDraft) validate() error {
 	}
 	if draft.RunMode != "" && !validRunMode(draft.RunMode) {
 		return fmt.Errorf("未知运行模式: %s", draft.RunMode)
+	}
+	if !validProcessOwnership(draft.ProcessOwnership) {
+		return fmt.Errorf("未知进程归属: %s", draft.ProcessOwnership)
 	}
 	if draft.CountdownSeconds != 0 &&
 		(draft.CountdownSeconds < minCountdownSeconds || draft.CountdownSeconds > maxCountdownSeconds) {

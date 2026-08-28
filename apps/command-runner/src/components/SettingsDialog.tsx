@@ -6,14 +6,16 @@ import { DialogShell } from './DialogShell'
 import { CustomShellDialog } from './CustomShellDialog'
 import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
-import type { AppSettings, ShellInfo } from '../types'
+import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
+import { RunModeSelect } from './RunModeSelect'
+import type { AppSettings, CommandRunMode, ProcessOwnership, ShellInfo } from '../types'
 
 type SettingsDialogProps = {
   settings: AppSettings
   shells: ShellInfo[]
   disabled?: boolean
   submitting?: boolean
-  onSaveSettings: (draft: { defaultShellId: string; defaultCloseMode: string; defaultCountdownSeconds: number }) => Promise<void> | void
+  onSaveSettings: (draft: { defaultShellId: string; defaultCloseMode: string; defaultCountdownSeconds: number; defaultRunMode: CommandRunMode; defaultProcessOwnership: ProcessOwnership }) => Promise<void> | void
   onAddCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void> | void
   onRemoveCustomShell: (id: string) => Promise<void> | void
   onClose: () => void
@@ -32,6 +34,8 @@ export function SettingsDialog({
   const [defaultShellId, setDefaultShellId] = React.useState(settings.defaultShellId)
   const [closeMode, setCloseMode] = React.useState(settings.defaultCloseMode)
   const [countdownSeconds, setCountdownSeconds] = React.useState(settings.defaultCountdownSeconds)
+  const [runMode, setRunMode] = React.useState<CommandRunMode>(settings.defaultRunMode || 'console')
+  const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(settings.defaultProcessOwnership || 'detached')
   const [addShellOpen, setAddShellOpen] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
@@ -40,12 +44,12 @@ export function SettingsDialog({
     setError(null)
     setNotice(null)
     try {
-      await onSaveSettings({ defaultShellId, defaultCloseMode: closeMode, defaultCountdownSeconds: countdownSeconds })
+      await onSaveSettings({ defaultShellId, defaultCloseMode: closeMode, defaultCountdownSeconds: countdownSeconds, defaultRunMode: runMode, defaultProcessOwnership: processOwnership })
       setNotice('全局设置已保存')
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存设置失败'))
     }
-  }, [defaultShellId, closeMode, countdownSeconds, onSaveSettings])
+  }, [defaultShellId, closeMode, countdownSeconds, runMode, processOwnership, onSaveSettings])
 
   const removeShell = React.useCallback(async (id: string) => {
     setError(null)
@@ -77,6 +81,8 @@ export function SettingsDialog({
             setCountdownSeconds(next.countdownSeconds)
           }}
         />
+        <RunModeSelect value={runMode} onChange={next => { if (next) setRunMode(next) }} label="全局默认运行模式" disabled={disabled || submitting} />
+        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} label="外部窗口默认进程归属" disabled={disabled || submitting} />
         <Box className="cr-form-actions" sx={{ justifyContent: 'flex-start' }}>
           <Button variant="contained" onClick={save} disabled={disabled || submitting}>保存全局设置</Button>
         </Box>

@@ -155,11 +155,13 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			DefaultShellID          string `json:"defaultShellId"`
 			DefaultCloseMode        string `json:"defaultCloseMode"`
 			DefaultCountdownSeconds int    `json:"defaultCountdownSeconds"`
+			DefaultRunMode          string `json:"defaultRunMode"`
+			DefaultProcessOwnership string `json:"defaultProcessOwnership"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil && len(params) > 0 {
 			return nil, fmt.Errorf("invalid settings payload: %w", err)
 		}
-		return svc.saveGlobalSettings(payload.DefaultShellID, payload.DefaultCloseMode, payload.DefaultCountdownSeconds)
+		return svc.saveGlobalSettings(payload.DefaultShellID, payload.DefaultCloseMode, payload.DefaultCountdownSeconds, payload.DefaultRunMode, payload.DefaultProcessOwnership)
 
 	case "commandRunner.terminals.list":
 		return svc.listTerminals()
@@ -189,24 +191,32 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "commandRunner.repos.create":
 		var payload struct {
-			Name string `json:"name"`
-			Path string `json:"path"`
+			Name             string `json:"name"`
+			Path             string `json:"path"`
+			CloseMode        string `json:"closeMode"`
+			CountdownSeconds int    `json:"countdownSeconds"`
+			RunMode          string `json:"runMode"`
+			ProcessOwnership string `json:"processOwnership"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid repo payload: %w", err)
 		}
-		return svc.createRepo(payload.Name, payload.Path)
+		return svc.createRepo(payload.Name, payload.Path, payload.CloseMode, payload.CountdownSeconds, payload.RunMode, payload.ProcessOwnership)
 
 	case "commandRunner.repos.update":
 		var payload struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-			Path string `json:"path"`
+			ID               string `json:"id"`
+			Name             string `json:"name"`
+			Path             string `json:"path"`
+			CloseMode        string `json:"closeMode"`
+			CountdownSeconds int    `json:"countdownSeconds"`
+			RunMode          string `json:"runMode"`
+			ProcessOwnership string `json:"processOwnership"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid repo payload: %w", err)
 		}
-		return svc.updateRepo(payload.ID, payload.Name, payload.Path)
+		return svc.updateRepo(payload.ID, payload.Name, payload.Path, payload.CloseMode, payload.CountdownSeconds, payload.RunMode, payload.ProcessOwnership)
 
 	case "commandRunner.repos.delete":
 		var payload struct {

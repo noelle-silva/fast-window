@@ -3,7 +3,9 @@ import { Box, Button, FormControlLabel, MenuItem, Switch, TextField } from '@mui
 import { DialogShell } from './DialogShell'
 import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
-import type { CommandDraft, CommandItem, CommandRunMode, Repo, ShellInfo } from '../types'
+import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
+import { RunModeSelect } from './RunModeSelect'
+import type { CommandDraft, CommandItem, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type CommandDialogProps = {
   repo: Repo
@@ -26,13 +28,9 @@ const EMPTY_DRAFT: CommandDraft = {
   shellId: '',
   closeMode: '',
   countdownSeconds: 0,
-  runMode: 'console',
+  runMode: '',
+  processOwnership: '',
 }
-
-const RUN_MODE_OPTIONS: Array<{ value: CommandRunMode; label: string; hint: string }> = [
-  { value: 'console', label: '独立命令行窗口', hint: '弹出独立窗口运行，输出不在 App 内显示' },
-  { value: 'embedded', label: '内置执行空间', hint: '不弹窗口，输出实时显示在 App 的执行空间页面' },
-]
 
 export function CommandDialog({
   repo,
@@ -50,11 +48,12 @@ export function CommandDialog({
   const [note, setNote] = React.useState(initial?.note ?? '')
   const [confirmBeforeRun, setConfirmBeforeRun] = React.useState(initial?.confirmBeforeRun ?? false)
   const [shellId, setShellId] = React.useState(initial?.shellId ?? '')
-  const [closeMode, setCloseMode] = React.useState(initial?.closeMode || defaultCloseMode)
+  const [closeMode, setCloseMode] = React.useState(initial?.closeMode ?? '')
   const [countdownSeconds, setCountdownSeconds] = React.useState(
     initial?.countdownSeconds || defaultCountdownSeconds,
   )
-  const [runMode, setRunMode] = React.useState<CommandRunMode>(initial?.runMode || 'console')
+  const [runMode, setRunMode] = React.useState<CommandRunMode | ''>(initial?.runMode ?? '')
+  const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && script.trim().length > 0 && !disabled && !submitting
 
@@ -72,11 +71,12 @@ export function CommandDialog({
         closeMode,
         countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0,
         runMode,
+        processOwnership,
       })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, shellId, closeMode, countdownSeconds, runMode, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -141,26 +141,20 @@ export function CommandDialog({
           label="命令终端"
           disabled={disabled || submitting}
         />
-        <TextField
-          select
-          label="运行模式"
+        <RunModeSelect
           value={runMode}
+          onChange={setRunMode}
+          includeInherit
+          inheritLabel="跟随仓库默认运行模式"
+          label="运行模式"
           disabled={disabled || submitting}
-          onChange={event => setRunMode(event.target.value as CommandRunMode)}
-          fullWidth
-        >
-          {RUN_MODE_OPTIONS.map(option => (
-            <MenuItem key={option.value} value={option.value}>
-              <Box sx={{ minWidth: 0 }}>
-                <Box component="span" sx={{ fontSize: 13, fontWeight: 700 }}>{option.label}</Box>
-                <Box component="span" sx={{ display: 'block', color: 'text.secondary', fontSize: 11 }}>{option.hint}</Box>
-              </Box>
-            </MenuItem>
-          ))}
-        </TextField>
+        />
+        <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随仓库默认进程归属" label="外部窗口进程归属" disabled={disabled || submitting} />
         <CloseModeSelect
           closeMode={closeMode}
           countdownSeconds={countdownSeconds}
+          includeInherit
+          inheritLabel="跟随仓库默认关闭策略"
           disabled={disabled || submitting}
           onChange={next => {
             setCloseMode(next.closeMode)
