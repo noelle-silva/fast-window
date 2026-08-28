@@ -18,7 +18,6 @@ export function StaleRefCard(props: Props): React.ReactNode {
       icon={<LinkOffRoundedIcon fontSize="small" />}
       title="已失效的引用"
       subtitle={`目标 ${itemRef.kind} 已不存在，建议尽快清理这张卡片。`}
-      meta="失效"
     >
       {compact ? null : (
         <Box sx={{ px: 1, py: 0.7, borderRadius: 2.5, bgcolor: 'var(--hc-danger-soft)' }}>

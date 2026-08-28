@@ -26,7 +26,6 @@ export function FolderCard(props: Props): React.ReactNode {
       icon={<FolderRoundedIcon fontSize="small" />}
       title={title || '未命名收藏夹'}
       subtitle={desc || undefined}
-      meta="收藏夹"
       onClick={disabled ? undefined : () => onClick(folderId)}
     >
       {compact ? null : (

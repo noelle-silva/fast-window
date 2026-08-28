@@ -8,13 +8,12 @@ type Props = {
   icon: React.ReactNode
   title: string
   subtitle?: string
-  meta?: string
   onClick?: () => void
   children?: React.ReactNode
 }
 
 export function CardFrame(props: Props): React.ReactNode {
-  const { tone = 'sage', danger = false, icon, title, subtitle, meta, onClick, children } = props
+  const { tone = 'sage', danger = false, icon, title, subtitle, onClick, children } = props
   const clickable = typeof onClick === 'function'
   const accent = danger ? 'var(--hc-danger)' : toneFgVar(tone)
 
@@ -62,32 +61,30 @@ export function CardFrame(props: Props): React.ReactNode {
           : undefined,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.2, minWidth: 0, flex: 1 }}>
-          <Box
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.2 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
             sx={{
-              width: 42,
-              height: 42,
-              borderRadius: 3,
-              bgcolor: 'var(--hc-surface)',
-              color: accent,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
+              fontSize: 14,
+              lineHeight: 1.4,
+              fontWeight: 800,
+              color: 'var(--hc-text)',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
+              wordBreak: 'break-word',
             }}
           >
-            {icon}
-          </Box>
-
-          <Box sx={{ minWidth: 0, flex: 1 }}>
+            {title}
+          </Typography>
+          {subtitle ? (
             <Typography
               sx={{
-                fontSize: 14,
-                lineHeight: 1.4,
-                fontWeight: 800,
-                color: 'var(--hc-text)',
+                pt: 0.45,
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: 'var(--hc-text-muted)',
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
@@ -95,41 +92,27 @@ export function CardFrame(props: Props): React.ReactNode {
                 wordBreak: 'break-word',
               }}
             >
-              {title}
+              {subtitle}
             </Typography>
-            {subtitle ? (
-              <Typography
-                sx={{
-                  pt: 0.45,
-                  fontSize: 12,
-                  lineHeight: 1.5,
-                  color: 'var(--hc-text-muted)',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {subtitle}
-              </Typography>
-            ) : null}
-          </Box>
+          ) : null}
         </Box>
 
-        {meta ? (
-          <Box
-            sx={{
-              flexShrink: 0,
-              px: 0.85,
-              py: 0.4,
-              borderRadius: 999,
-              bgcolor: 'var(--hc-surface)',
-            }}
-          >
-            <Typography sx={{ fontSize: 11, lineHeight: 1, fontWeight: 800, color: 'var(--hc-text-subtle)' }}>{meta}</Typography>
-          </Box>
-        ) : null}
+        <Box
+          sx={{
+            width: 42,
+            height: 42,
+            borderRadius: 3,
+            bgcolor: 'var(--hc-surface)',
+            color: accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}
+        >
+          {icon}
+        </Box>
       </Box>
 
       {children ? <Box sx={{ minHeight: 0, mt: 'auto' }}>{children}</Box> : null}

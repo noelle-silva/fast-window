@@ -23,7 +23,6 @@ export function NoteCard(props: Props): React.ReactNode {
       icon={<DescriptionRoundedIcon fontSize="small" />}
       title={note.title || '未命名笔记'}
       subtitle={subtitle}
-      meta="笔记"
       onClick={disabled ? undefined : () => onClick(note)}
     >
       {compact ? null : (

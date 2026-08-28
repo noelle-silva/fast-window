@@ -44,7 +44,6 @@ export function AssetCard(props: Props): React.ReactNode {
       icon={icon}
       title={name}
       subtitle={asset.remark || asset.relPath || asset.fileName || '没有路径信息'}
-      meta={asset.ext ? `.${asset.ext}` : asset.kind || '文件'}
       onClick={disabled ? undefined : () => onClick(asset)}
     >
       {compact ? null : (
