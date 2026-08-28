@@ -1,12 +1,10 @@
 import * as React from 'react'
-import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
+import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { ResizeHandleDirection } from './types'
-import { floatingControlSx } from '../pluginUiStyles'
 
 type Props = {
   dragging?: boolean
@@ -31,10 +29,20 @@ const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Rec
 
 export function IndexCardShell(props: Props): React.ReactNode {
   const { dragging, resizing, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
-  const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [menuAnchorEl, setMenuAnchorEl] = React.useState<{ top: number; left: number } | null>(null)
   const menuOpen = Boolean(menuAnchorEl)
 
   const closeMenu = React.useCallback(() => setMenuAnchorEl(null), [])
+
+  const openContextMenu = React.useCallback(
+    (e: React.MouseEvent) => {
+      if (!onRemove && !onDeleteEntity && !onEditEntity) return
+      e.preventDefault()
+      e.stopPropagation()
+      setMenuAnchorEl({ top: e.clientY, left: e.clientX })
+    },
+    [onDeleteEntity, onEditEntity, onRemove],
+  )
 
   return (
     <Box
@@ -57,16 +65,13 @@ export function IndexCardShell(props: Props): React.ReactNode {
       }}
     >
       <Box
+        onContextMenu={openContextMenu}
         sx={{
           position: 'relative',
           height: '100%',
           minHeight: 0,
           flex: 1,
           display: 'flex',
-          '&:hover .hc-index-card-actions, &:focus-within .hc-index-card-actions': {
-            opacity: 1,
-            pointerEvents: 'auto',
-          },
         }}
       >
         <Tooltip title="拖拽调整位置">
@@ -92,41 +97,6 @@ export function IndexCardShell(props: Props): React.ReactNode {
           </Box>
         </Tooltip>
         <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>{children}</Box>
-        <Box
-          className="hc-index-card-actions"
-          sx={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.75,
-            opacity: menuOpen ? 1 : 0,
-            pointerEvents: menuOpen ? 'auto' : 'none',
-            transition: 'opacity .12s ease',
-            zIndex: 4,
-          }}
-        >
-          {onRemove || onDeleteEntity || onEditEntity ? (
-            <Tooltip title="更多操作">
-              <IconButton
-                size="small"
-                aria-label="更多操作"
-                data-hc-no-drag="1"
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => {
-                  e.stopPropagation()
-                  setMenuAnchorEl(e.currentTarget)
-                }}
-                sx={{
-                  ...floatingControlSx,
-                }}
-              >
-                <MoreHorizRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-        </Box>
         {onStartResize ? (
           <>
             {resizeHandles.map(handle => (
@@ -151,7 +121,8 @@ export function IndexCardShell(props: Props): React.ReactNode {
         ) : null}
         <Menu
           open={menuOpen}
-          anchorEl={menuAnchorEl}
+          anchorReference="anchorPosition"
+          anchorPosition={menuAnchorEl ?? undefined}
           onClose={closeMenu}
           PaperProps={{ sx: { borderRadius: 3, minWidth: 190 } }}
           MenuListProps={{
