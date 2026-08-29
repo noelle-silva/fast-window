@@ -1,20 +1,16 @@
 import * as React from 'react'
-import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
-import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import { Box, Tooltip } from '@mui/material'
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import type { ResizeHandleDirection } from './types'
 
 type Props = {
   dragging?: boolean
   resizing?: boolean
-  onFavorite?: () => void
   onRemove?: () => void
   onDeleteEntity?: () => void
   onEditEntity?: () => void
   onStartResize?: (direction: ResizeHandleDirection, e: React.PointerEvent) => void
+  onContextMenu?: (e: React.MouseEvent) => void
   children: React.ReactNode
 }
 
@@ -30,21 +26,7 @@ const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Rec
 ]
 
 export function IndexCardShell(props: Props): React.ReactNode {
-  const { dragging, resizing, onFavorite, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
-  const [menuAnchorEl, setMenuAnchorEl] = React.useState<{ top: number; left: number } | null>(null)
-  const menuOpen = Boolean(menuAnchorEl)
-
-  const closeMenu = React.useCallback(() => setMenuAnchorEl(null), [])
-
-  const openContextMenu = React.useCallback(
-    (e: React.MouseEvent) => {
-      if (!onFavorite && !onRemove && !onDeleteEntity && !onEditEntity) return
-      e.preventDefault()
-      e.stopPropagation()
-      setMenuAnchorEl({ top: e.clientY, left: e.clientX })
-    },
-    [onDeleteEntity, onEditEntity, onFavorite, onRemove],
-  )
+  const { dragging, resizing, onStartResize, onContextMenu, children } = props
 
   return (
     <Box
@@ -67,7 +49,7 @@ export function IndexCardShell(props: Props): React.ReactNode {
       }}
     >
       <Box
-        onContextMenu={openContextMenu}
+        onContextMenu={onContextMenu}
         sx={{
           position: 'relative',
           height: '100%',
@@ -121,75 +103,6 @@ export function IndexCardShell(props: Props): React.ReactNode {
             ))}
           </>
         ) : null}
-        <Menu
-          open={menuOpen}
-          anchorReference="anchorPosition"
-          anchorPosition={menuAnchorEl ?? undefined}
-          onClose={closeMenu}
-          PaperProps={{ sx: { borderRadius: 3, minWidth: 190 } }}
-          MenuListProps={{
-            'aria-label': '卡片更多操作',
-            onPointerDown: e => e.stopPropagation(),
-          }}
-        >
-          {onFavorite ? (
-            <MenuItem
-              onClick={e => {
-                e.stopPropagation()
-                closeMenu()
-                onFavorite()
-              }}
-            >
-              <ListItemIcon>
-                <StarBorderRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="收藏到…" />
-            </MenuItem>
-          ) : null}
-          {onEditEntity ? (
-            <MenuItem
-              onClick={e => {
-                e.stopPropagation()
-                closeMenu()
-                onEditEntity()
-              }}
-            >
-              <ListItemIcon>
-                <EditRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="编辑信息" />
-            </MenuItem>
-          ) : null}
-          {onRemove ? (
-            <MenuItem
-              onClick={e => {
-                e.stopPropagation()
-                closeMenu()
-                onRemove()
-              }}
-            >
-              <ListItemIcon>
-                <DeleteOutlineRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="从当前页移除引用" />
-            </MenuItem>
-          ) : null}
-          {onDeleteEntity ? (
-            <MenuItem
-              onClick={e => {
-                e.stopPropagation()
-                closeMenu()
-                onDeleteEntity()
-              }}
-              sx={{ color: 'var(--hc-danger)' }}
-            >
-              <ListItemIcon sx={{ color: 'inherit' }}>
-                <DeleteForeverRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="删除实体" />
-            </MenuItem>
-          ) : null}
-        </Menu>
       </Box>
     </Box>
   )
