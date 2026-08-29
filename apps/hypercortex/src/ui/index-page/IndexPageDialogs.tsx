@@ -1,11 +1,8 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
-import type { AssetEntry } from '../../assetTypes'
-import type { NoteMeta } from '../../core'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
 import type { AddKind, AddMode, DeleteEntityTarget } from './types'
 import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
-import { softButtonSx } from '../pluginUiStyles'
 
 type Props = {
   doc: HyperCortexFavoritesDocV1
@@ -14,29 +11,15 @@ type Props = {
   addKind: AddKind | null
   folderTitleDraft: string
   folderDescriptionDraft: string
-  noteIdDraft: string
-  assetIdDraft: string
-  noteSearch: string
-  assetSearch: string
-  noteIndex?: Record<string, NoteMeta>
   folderSuggestions: FavoriteFolder[]
   folderDisabledReasonById: Record<string, string>
-  noteSuggestions: NoteMeta[]
-  assetSuggestions: AssetEntry[]
-  assetLookupKeyCount: number
   deleteFolderConfirmId: string
   deleteEntityTarget: DeleteEntityTarget | null
   onCloseAddDialog: () => void
   onFolderTitleDraftChange: (value: string) => void
   onFolderDescriptionDraftChange: (value: string) => void
-  onNoteIdDraftChange: (value: string) => void
-  onAssetIdDraftChange: (value: string) => void
-  onNoteSearchChange: (value: string) => void
-  onAssetSearchChange: (value: string) => void
   onConfirmAddFolder: () => void
   onAddExistingFolder: (folderId: string) => void
-  onConfirmAddNote: (id?: string) => void
-  onConfirmAddAsset: (id?: string) => void
   renderFolderSuggestionCard: (folder: FavoriteFolder) => React.ReactNode
   onCloseDeleteFolder: () => void
   onConfirmDeleteFolder: () => void
@@ -52,29 +35,15 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     addKind,
     folderTitleDraft,
     folderDescriptionDraft,
-    noteIdDraft,
-    assetIdDraft,
-    noteSearch,
-    assetSearch,
-    noteIndex,
     folderSuggestions,
     folderDisabledReasonById,
-    noteSuggestions,
-    assetSuggestions,
-    assetLookupKeyCount,
     deleteFolderConfirmId,
     deleteEntityTarget,
     onCloseAddDialog,
     onFolderTitleDraftChange,
     onFolderDescriptionDraftChange,
-    onNoteIdDraftChange,
-    onAssetIdDraftChange,
-    onNoteSearchChange,
-    onAssetSearchChange,
     onConfirmAddFolder,
     onAddExistingFolder,
-    onConfirmAddNote,
-    onConfirmAddAsset,
     renderFolderSuggestionCard,
     onCloseDeleteFolder,
     onConfirmDeleteFolder,
@@ -131,104 +100,6 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogContent>
         <DialogActions>
           <Button onClick={onCloseAddDialog}>关闭</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={addMode === 'existing' && addKind === 'note'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加已有笔记</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>你可以输入笔记 ID；如果已经传入笔记索引，也可以在下面搜索并点选。</Typography>
-          <TextField
-            fullWidth
-            autoFocus
-            label="笔记 ID"
-            value={noteIdDraft}
-            onChange={e => onNoteIdDraftChange(e.target.value)}
-            placeholder="例如：n_abc123..."
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                onConfirmAddNote()
-              }
-            }}
-          />
-
-          {noteIndex ? (
-            <Box sx={{ pt: 2 }}>
-              <TextField fullWidth label="搜索笔记" value={noteSearch} onChange={e => onNoteSearchChange(e.target.value)} placeholder="按标题或 ID" />
-              <Box sx={{ pt: 1.5 }}>
-                {noteSuggestions.map(n => (
-                  <Box key={n.id} sx={{ pb: 1 }}>
-                    <Button fullWidth variant="text" sx={{ ...softButtonSx, justifyContent: 'space-between', borderRadius: 4 }} onClick={() => onConfirmAddNote(n.id)}>
-                      <Box sx={{ minWidth: 0, textAlign: 'left' }}>
-                        <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {n.title || '未命名'}
-                        </Typography>
-                        <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.45)' }}>{n.id}</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.45)' }}>添加</Typography>
-                    </Button>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onCloseAddDialog}>取消</Button>
-          <Button variant="contained" onClick={() => onConfirmAddNote()}>添加</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={addMode === 'existing' && addKind === 'asset'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加已有附件</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-            你可以输入资源 key（例如：assetId 或 assetId.ext）；如果已经传入附件索引，也可以在下面搜索并点选。
-          </Typography>
-          <TextField
-            fullWidth
-            autoFocus
-            label="附件 key"
-            value={assetIdDraft}
-            onChange={e => onAssetIdDraftChange(e.target.value)}
-            placeholder="例如：a_abc123.png"
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                onConfirmAddAsset()
-              }
-            }}
-          />
-
-          {assetLookupKeyCount ? (
-            <Box sx={{ pt: 2 }}>
-              <TextField fullWidth label="搜索附件" value={assetSearch} onChange={e => onAssetSearchChange(e.target.value)} placeholder="按文件名或 key" />
-              <Box sx={{ pt: 1.25 }}>
-                {assetSuggestions.map(a => {
-                  const key = a.ext ? `${a.assetId}.${a.ext}` : a.assetId
-                  const title = String(a.displayName || a.fileName || key)
-                  return (
-                    <Box key={key} sx={{ pb: 1 }}>
-                      <Button fullWidth variant="text" sx={{ ...softButtonSx, justifyContent: 'space-between', borderRadius: 4 }} onClick={() => onConfirmAddAsset(key)}>
-                        <Box sx={{ minWidth: 0, textAlign: 'left' }}>
-                          <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {title}
-                          </Typography>
-                          <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.45)' }}>{key}</Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.45)' }}>添加</Typography>
-                      </Button>
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onCloseAddDialog}>取消</Button>
-          <Button variant="contained" onClick={() => onConfirmAddAsset()}>添加</Button>
         </DialogActions>
       </Dialog>
 

@@ -26,6 +26,7 @@ import { IndexCardShell } from './index-page/IndexCardShell'
 import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
 import { IndexPageBlankContextMenu, type IndexPageBlankContextMenuHandle } from './index-page/IndexPageBlankContextMenu'
+import { IndexPickerDialog } from './index-page/IndexPickerDialog'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
 import type { AddKind, AddMode, DeleteEntityTarget, ResizeHandleDirection } from './index-page/types'
@@ -129,10 +130,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const [addKind, setAddKind] = React.useState<AddKind | null>(null)
   const [folderTitleDraft, setFolderTitleDraft] = React.useState('')
   const [folderDescriptionDraft, setFolderDescriptionDraft] = React.useState('')
-  const [noteIdDraft, setNoteIdDraft] = React.useState('')
-  const [assetIdDraft, setAssetIdDraft] = React.useState('')
-  const [noteSearch, setNoteSearch] = React.useState('')
-  const [assetSearch, setAssetSearch] = React.useState('')
+  const [addPickerKind, setAddPickerKind] = React.useState<'note' | 'asset' | null>(null)
   const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
   const [deleteEntityTarget, setDeleteEntityTarget] = React.useState<DeleteEntityTarget | null>(null)
   const [editEntityTarget, setEditEntityTarget] = React.useState<EditEntityTarget | null>(null)
@@ -183,11 +181,12 @@ export function IndexPage(props: Props): React.ReactNode {
     setAddKind(kind)
     setFolderTitleDraft('')
     setFolderDescriptionDraft('')
-    setNoteIdDraft('')
-    setAssetIdDraft('')
-    setNoteSearch('')
-    setAssetSearch('')
   }
+
+  const openExistingPicker = React.useCallback((kind: 'note' | 'asset') => {
+    closeAddMenus()
+    setAddPickerKind(kind)
+  }, [])
 
   const closeAddDialog = () => {
     setAddMode(null)
@@ -242,8 +241,8 @@ export function IndexPage(props: Props): React.ReactNode {
   )
 
   const confirmAddNote = React.useCallback(
-    (id?: string) => {
-      const targetId = String(id ?? noteIdDraft ?? '').trim()
+    (id: string) => {
+      const targetId = String(id || '').trim()
       if (!targetId) return
       const added = addRef(doc, currentFolderId, 'note', targetId)
       if (!added) {
@@ -251,14 +250,13 @@ export function IndexPage(props: Props): React.ReactNode {
         return
       }
       onDocChange(added.doc)
-      closeAddDialog()
     },
-    [currentFolderId, doc, gateway, noteIdDraft, onDocChange],
+    [currentFolderId, doc, gateway, onDocChange],
   )
 
   const confirmAddAsset = React.useCallback(
-    (id?: string) => {
-      const targetId = String(id ?? assetIdDraft ?? '').trim()
+    (id: string) => {
+      const targetId = String(id || '').trim()
       if (!targetId) return
       const added = addRef(doc, currentFolderId, 'asset', targetId)
       if (!added) {
@@ -266,9 +264,8 @@ export function IndexPage(props: Props): React.ReactNode {
         return
       }
       onDocChange(added.doc)
-      closeAddDialog()
     },
-    [assetIdDraft, currentFolderId, doc, gateway, onDocChange],
+    [currentFolderId, doc, gateway, onDocChange],
   )
 
   const folderSuggestions = React.useMemo(() => {
@@ -287,38 +284,6 @@ export function IndexPage(props: Props): React.ReactNode {
     }
     return out
   }, [currentFolderId, doc, folderSuggestions])
-
-  const noteSuggestions = React.useMemo(() => {
-    if (!noteIndex) return []
-    const q = String(noteSearch || '').trim().toLowerCase()
-    const all = Object.values(noteIndex || {}).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
-    const filtered = q ? all.filter(n => String(n.title || '').toLowerCase().includes(q) || String(n.id || '').toLowerCase().includes(q)) : all
-    return filtered.slice(0, 20)
-  }, [noteIndex, noteSearch])
-
-  const assetSuggestions = React.useMemo(() => {
-    const values = Object.values(assetLookup.byKey || {})
-    const uniq: AssetEntry[] = []
-    const seen = new Set<string>()
-    for (const a of values) {
-      const key = a.ext ? `${a.assetId}.${a.ext}` : a.assetId
-      if (seen.has(key)) continue
-      seen.add(key)
-      uniq.push(a)
-    }
-    uniq.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
-    const q = String(assetSearch || '').trim().toLowerCase()
-    const filtered = q
-      ? uniq.filter(a => {
-          const key = `${a.assetId}.${a.ext}`.toLowerCase()
-          const name = String(a.displayName || a.sourceName || a.fileName || '').toLowerCase()
-          const remark = String(a.remark || '').toLowerCase()
-          const tags = (a.tags || []).join(' ').toLowerCase()
-          return key.includes(q) || name.includes(q) || remark.includes(q) || tags.includes(q)
-        })
-      : uniq
-    return filtered.slice(0, 20)
-  }, [assetLookup, assetSearch])
 
   const handleGoBack = React.useCallback(() => {
     if (!canGoBack) {
@@ -600,7 +565,7 @@ export function IndexPage(props: Props): React.ReactNode {
 
       <IndexPageBlankContextMenu
         ref={blankContextMenuRef}
-        onAddExisting={kind => openAddDialog('existing', kind)}
+        onAddExisting={kind => (kind === 'folder' ? openAddDialog('existing', 'folder') : openExistingPicker(kind))}
         onCreateNew={kind => {
           if (kind === 'folder') openAddDialog('create', 'folder')
           else if (kind === 'note') createNewNote()
@@ -610,8 +575,8 @@ export function IndexPage(props: Props): React.ReactNode {
 
       <Menu open={!!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('existing', 'folder')}>已有收藏夹</MenuItem>
-        <MenuItem onClick={() => openAddDialog('existing', 'note')}>已有笔记</MenuItem>
-        <MenuItem onClick={() => openAddDialog('existing', 'asset')}>已有附件</MenuItem>
+        <MenuItem onClick={() => openExistingPicker('note')}>已有笔记</MenuItem>
+        <MenuItem onClick={() => openExistingPicker('asset')}>已有附件</MenuItem>
       </Menu>
 
       <Menu open={!!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
@@ -641,6 +606,23 @@ export function IndexPage(props: Props): React.ReactNode {
         />
       ) : null}
 
+      {addPickerKind ? (
+        <IndexPickerDialog
+          open
+          kind={addPickerKind}
+          gateway={gateway}
+          folderId={currentFolderId}
+          doc={doc}
+          noteIndex={noteIndex}
+          onClose={() => setAddPickerKind(null)}
+          onPick={(kind, targetId) => {
+            setAddPickerKind(null)
+            if (kind === 'note') confirmAddNote(targetId)
+            else confirmAddAsset(targetId)
+          }}
+        />
+      ) : null}
+
       <IndexPageDialogs
         doc={doc}
         currentFolderId={currentFolderId}
@@ -648,29 +630,15 @@ export function IndexPage(props: Props): React.ReactNode {
         addKind={addKind}
         folderTitleDraft={folderTitleDraft}
         folderDescriptionDraft={folderDescriptionDraft}
-        noteIdDraft={noteIdDraft}
-        assetIdDraft={assetIdDraft}
-        noteSearch={noteSearch}
-        assetSearch={assetSearch}
-        noteIndex={noteIndex}
         folderSuggestions={folderSuggestions}
         folderDisabledReasonById={folderDisabledReasonById}
-        noteSuggestions={noteSuggestions}
-        assetSuggestions={assetSuggestions}
-        assetLookupKeyCount={Object.keys(assetLookup.byKey).length}
         deleteFolderConfirmId={deleteFolderConfirmId}
         deleteEntityTarget={deleteEntityTarget}
         onCloseAddDialog={closeAddDialog}
         onFolderTitleDraftChange={setFolderTitleDraft}
         onFolderDescriptionDraftChange={setFolderDescriptionDraft}
-        onNoteIdDraftChange={setNoteIdDraft}
-        onAssetIdDraftChange={setAssetIdDraft}
-        onNoteSearchChange={setNoteSearch}
-        onAssetSearchChange={setAssetSearch}
         onConfirmAddFolder={confirmAddFolder}
         onAddExistingFolder={addExistingFolder}
-        onConfirmAddNote={confirmAddNote}
-        onConfirmAddAsset={confirmAddAsset}
         renderFolderSuggestionCard={renderFolderSuggestionCard}
         onCloseDeleteFolder={() => setDeleteFolderConfirmId('')}
         onConfirmDeleteFolder={confirmDeleteCurrentFolder}

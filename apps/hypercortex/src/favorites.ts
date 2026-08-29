@@ -45,7 +45,7 @@ function stableRefId(folderId: string, kind: FavoriteItemRef['kind'], targetId: 
 }
 
 function defaultLayout(): GridLayout {
-  return { x: 0, y: 0, w: 2, h: 2 }
+  return { x: 0, y: 0, w: 3, h: 2 }
 }
 
 function nextAutoLayout(doc: HyperCortexFavoritesDocV1, folderId: string): GridLayout {

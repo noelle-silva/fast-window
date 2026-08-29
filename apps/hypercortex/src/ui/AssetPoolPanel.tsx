@@ -39,6 +39,11 @@ type Props = {
   gateway: HyperCortexGateway
   scope: VaultScope
   onOpenAsset?: (asset: AssetEntry) => void
+  filterText?: string
+  picker?: {
+    alreadyKeys: ReadonlySet<string>
+    onPick: (asset: AssetEntry) => void
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -70,6 +75,8 @@ function AssetCard({
   asset,
   selectionMode,
   selected,
+  picked,
+  onPick,
   onDelete,
   onToggleSelected,
   onRebuildThumbnail,
@@ -80,6 +87,8 @@ function AssetCard({
   asset: AssetEntry
   selectionMode: boolean
   selected: boolean
+  picked: boolean
+  onPick?: (asset: AssetEntry) => void
   onDelete: (asset: AssetEntry) => void
   onToggleSelected: (asset: AssetEntry) => void
   onRebuildThumbnail: (asset: AssetEntry) => void
@@ -90,7 +99,7 @@ function AssetCard({
   const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
   const tone = assetToneFromKind(asset.kind)
   const canOpenPreview = isAssetOpenableInTab(asset)
-  const interactive = selectionMode || canOpenPreview
+  const interactive = selectionMode || picked ? false : Boolean(onPick) || canOpenPreview
   const selectedInMode = selectionMode && selected
   const Icon = preview.icon
   const handleCopy = React.useCallback(() => {
@@ -103,13 +112,18 @@ function AssetCard({
 
   return (
     <Box
-      role={selectionMode ? 'checkbox' : canOpenPreview ? 'button' : undefined}
+      role={selectionMode ? 'checkbox' : onPick && !picked ? 'button' : canOpenPreview ? 'button' : undefined}
       tabIndex={interactive ? 0 : -1}
-      aria-label={selectionMode ? `${selected ? '取消选择' : '选择'}附件：${titleLabel}` : canOpenPreview ? `打开附件：${titleLabel}` : undefined}
+      aria-label={selectionMode ? `${selected ? '取消选择' : '选择'}附件：${titleLabel}` : onPick ? `添加附件：${titleLabel}` : canOpenPreview ? `打开附件：${titleLabel}` : undefined}
       aria-checked={selectionMode ? selected : undefined}
       onClick={() => {
         if (selectionMode) {
           onToggleSelected(asset)
+          return
+        }
+        if (picked) return
+        if (onPick) {
+          onPick(asset)
           return
         }
         if (!canOpenPreview) return
@@ -121,6 +135,10 @@ function AssetCard({
         e.preventDefault()
         if (selectionMode) {
           onToggleSelected(asset)
+          return
+        }
+        if (onPick) {
+          onPick(asset)
           return
         }
         onOpenAsset?.(asset)
@@ -135,13 +153,14 @@ function AssetCard({
         boxShadow: selectedInMode ? '0 0 0 2px var(--hc-primary), 0 8px 18px rgba(0,0,0,.08)' : '0 1px 2px rgba(0,0,0,.04)',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         outline: 'none',
+        opacity: picked ? 0.55 : 1,
         '&:hover': {
           bgcolor: 'var(--hc-surface-soft)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
         '&:focus-visible': interactive ? { boxShadow: selectedInMode ? '0 0 0 2px var(--hc-primary), 0 10px 24px var(--hc-shadow)' : '0 10px 24px var(--hc-shadow)' } : undefined,
-        '&:hover .hc-asset-card-actions': selectionMode ? undefined : { opacity: 1 },
+        '&:hover .hc-asset-card-actions': selectionMode || onPick ? undefined : { opacity: 1 },
         cursor: interactive ? 'pointer' : 'default',
       }}
     >
@@ -170,7 +189,25 @@ function AssetCard({
         />
       ) : null}
 
-      {!selectionMode ? (
+      {picked ? (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 2,
+            px: 0.8,
+            py: 0.3,
+            borderRadius: 999,
+            bgcolor: 'var(--hc-surface)',
+            boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+          }}
+        >
+          <Typography sx={{ fontSize: 11, lineHeight: 1, fontWeight: 800, color: 'var(--hc-text-subtle)' }}>已添加</Typography>
+        </Box>
+      ) : null}
+
+      {!selectionMode && !onPick ? (
         <Box
           className="hc-asset-card-actions"
           sx={{
@@ -687,7 +724,7 @@ function AssetGlobalToolbar({
   )
 }
 
-export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
+export function AssetPoolPanel({ gateway, scope, onOpenAsset, filterText = '', picker }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -726,8 +763,23 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   React.useEffect(() => { void loadAssets() }, [loadAssets])
 
   const visibleAssets = React.useMemo(() => {
-    return assets.filter(a => categoryFromKind(a.kind) === category)
-  }, [assets, category])
+    const q = filterText.trim().toLowerCase()
+    return assets.filter(a => {
+      if (categoryFromKind(a.kind) !== category) return false
+      if (!q) return true
+      return [
+        assetRefKey(a),
+        String(a.displayName || ''),
+        String(a.sourceName || ''),
+        String(a.fileName || ''),
+        String(a.remark || ''),
+        (a.tags || []).join(' '),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    })
+  }, [assets, category, filterText])
 
   const selectedAssets = React.useMemo(() => {
     return assets.filter(asset => selectedAssetKeys.has(assetRefKey(asset)))
@@ -1035,7 +1087,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const activeCategoryTone = assetToneFromKind(category)
   const allVisibleAssetsSelected = visibleAssets.length > 0 && selectedVisibleCount === visibleAssets.length
   const canUseSelectionMode = !loading && !error && assets.length > 0
-  const selectionActionSlot = canUseSelectionMode
+  const selectionActionSlot = !picker && canUseSelectionMode
     ? selectionMode
       ? (
           <AssetSelectionToolbar
@@ -1092,12 +1144,14 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* 标题栏 */}
-      <Box sx={{ display: 'flex', alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
-        <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>
-          附件
-        </Typography>
-        {globalToolbar}
-      </Box>
+      {!picker ? (
+        <Box sx={{ display: 'flex', alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+          <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>
+            附件
+          </Typography>
+          {globalToolbar}
+        </Box>
+      ) : null}
 
       {/* 分类切换栏 */}
       <AssetCategoryBar
@@ -1111,7 +1165,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
       />
 
       {/* 概览 */}
-      {!loading ? (
+      {!picker && !loading ? (
         <Typography sx={{ fontSize: 12, color: 'var(--hc-text-subtle)' }}>
           {assets.length > 0
             ? `当前分类 ${visibleAssets.length} 个，共 ${assets.length} 个，${humanSize(statsByCategory.totalSize)} · 可直接 Ctrl+V 粘贴图片或文件`
@@ -1145,6 +1199,8 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                 asset={asset}
                 selectionMode={selectionMode}
                 selected={selectedAssetKeys.has(assetRefKey(asset))}
+                picked={picker ? picker.alreadyKeys.has(assetRefKey(asset)) : false}
+                onPick={picker?.onPick}
                 onDelete={requestDelete}
                 onToggleSelected={handleToggleSelected}
                 onRebuildThumbnail={a => void handleRebuildThumbnail(a)}

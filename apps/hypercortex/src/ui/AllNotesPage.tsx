@@ -20,15 +20,74 @@ export function AllNotesPage(props: {
   onOpenNote: (note: NoteMeta) => void
   onCopyRef: (note: NoteMeta) => void
   onMore: (event: React.MouseEvent, note: NoteMeta) => void
+  filterText?: string
+  picker?: {
+    alreadyIds: ReadonlySet<string>
+    onPick: (note: NoteMeta) => void
+  }
 }) {
-  const { notes, loading, errorText, layout, noteCardInfoById, onLayoutToggle, onOpenNote, onCopyRef, onMore } = props
+  const { notes, loading, errorText, layout, noteCardInfoById, onLayoutToggle, onOpenNote, onCopyRef, onMore, filterText = '', picker } = props
   const hasError = !!errorText
-  const hasItems = !loading && !hasError && notes.length > 0
+  const filteredNotes = React.useMemo(() => {
+    const q = filterText.trim().toLowerCase()
+    if (!q) return notes
+    return notes.filter(note =>
+      [String(note.title || ''), String(note.id || ''), String(note.description || '')].join(' ').toLowerCase().includes(q),
+    )
+  }, [filterText, notes])
+  const hasItems = !loading && !hasError && filteredNotes.length > 0
+  const renderNote = (note: NoteMeta): React.ReactNode => {
+    const picked = picker ? picker.alreadyIds.has(note.id) : undefined
+    const openNote = picker ? () => picker.onPick(note) : () => onOpenNote(note)
+    const card =
+      layout === 'list' ? (
+        <AllNotesListNoteRow note={note} info={noteCardInfoById[note.id]} onOpen={openNote} onCopyRef={picker ? undefined : onCopyRef} onMore={picker ? undefined : onMore} />
+      ) : layout === 'icon' ? (
+        <AllNotesIconNoteCard note={note} info={noteCardInfoById[note.id]} onOpen={openNote} onCopyRef={picker ? undefined : onCopyRef} onMore={picker ? undefined : onMore} />
+      ) : (
+        <AllNotesGridNoteCard note={note} info={noteCardInfoById[note.id]} onOpen={openNote} onCopyRef={picker ? undefined : onCopyRef} onMore={picker ? undefined : onMore} />
+      )
+    return (
+      <Box
+        key={note.id}
+        sx={{
+          opacity: picked ? 0.55 : 1,
+          position: 'relative',
+        }}
+      >
+        {card}
+        {picked ? (
+          <Typography
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              px: 0.8,
+              py: 0.3,
+              borderRadius: 999,
+              bgcolor: 'var(--hc-surface)',
+              boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+              fontSize: 11,
+              lineHeight: 1,
+              fontWeight: 800,
+              color: 'var(--hc-text-subtle)',
+              pointerEvents: 'none',
+            }}
+          >
+            已添加
+          </Typography>
+        ) : null}
+      </Box>
+    )
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>全部笔记</Typography>
+        {!picker ? (
+          <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>全部笔记</Typography>
+        ) : null}
+        {picker ? <Box sx={{ flex: 1 }} /> : null}
         <Tooltip title={layout === 'list' ? '切换到网格' : layout === 'grid' ? '切换到紧凑' : '切换到列表'} placement="left">
           <IconButton
             size="small"
@@ -56,6 +115,7 @@ export function AllNotesPage(props: {
       {loading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
       {!loading && hasError ? <Typography color="error">{errorText}</Typography> : null}
       {!loading && !hasError && notes.length === 0 ? <Typography color="text.secondary">还没有笔记。</Typography> : null}
+      {!loading && !hasError && notes.length > 0 && filteredNotes.length === 0 ? <Typography color="text.secondary">没有匹配的结果。</Typography> : null}
 
       {hasItems && layout === 'grid' ? (
         <Box
@@ -65,9 +125,7 @@ export function AllNotesPage(props: {
             gap: 1,
           }}
         >
-          {notes.map(note => (
-            <AllNotesGridNoteCard key={note.id} note={note} info={noteCardInfoById[note.id]} onOpen={onOpenNote} onCopyRef={onCopyRef} onMore={onMore} />
-          ))}
+          {filteredNotes.map(renderNote)}
         </Box>
       ) : null}
 
@@ -79,17 +137,13 @@ export function AllNotesPage(props: {
             gap: 1,
           }}
         >
-          {notes.map(note => (
-            <AllNotesIconNoteCard key={note.id} note={note} info={noteCardInfoById[note.id]} onOpen={onOpenNote} onCopyRef={onCopyRef} onMore={onMore} />
-          ))}
+          {filteredNotes.map(renderNote)}
         </Box>
       ) : null}
 
       {hasItems && layout === 'list' ? (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {notes.map(note => (
-            <AllNotesListNoteRow key={note.id} note={note} info={noteCardInfoById[note.id]} onOpen={onOpenNote} onCopyRef={onCopyRef} onMore={onMore} />
-          ))}
+          {filteredNotes.map(renderNote)}
         </Box>
       ) : null}
     </Box>
