@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,14 +68,17 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 2 {
-		t.Fatalf("applied count = %d, want 2", len(ledger.Applied))
+	if len(ledger.Applied) != 3 {
+		t.Fatalf("applied count = %d, want 3", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
 	}
 	if ledger.Applied[1].ID != noteIDPackageDirMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[1].ID, noteIDPackageDirMigration)
+	}
+	if ledger.Applied[2].ID != noteFaceSystemUnificationMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[2].ID, noteFaceSystemUnificationMigration)
 	}
 }
 
@@ -92,9 +96,240 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 2 {
-		t.Fatalf("applied count = %d, want 2", len(ledger.Applied))
+	if len(ledger.Applied) != 3 {
+		t.Fatalf("applied count = %d, want 3", len(ledger.Applied))
 	}
+}
+
+func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+
+	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-05", "202609010001")
+	htmlOnlyDir := filepath.Join(svc.libraryDir, notesDir, "2026-05", "202609010002")
+	mustWriteFile(t, filepath.Join(noteDir, manifestFile), `{
+  "schemaVersion": 2,
+  "id": "202609010001",
+  "title": "Legacy Note",
+  "description": "旧笔记",
+  "tags": ["legacy"],
+  "createdAtMs": 100,
+  "updatedAtMs": 200,
+  "primaryFaceId": "text",
+  "faceOrder": ["html", "text"],
+  "faces": {
+    "text": {
+      "id": "text",
+      "kind": "markdown",
+      "title": "文本",
+      "file": "text.md",
+      "role": "primary",
+      "settings": {}
+    },
+    "html": {
+      "id": "html",
+      "kind": "html",
+      "title": "HTML",
+      "file": "html-view.html",
+      "role": "alternate",
+      "settings": {"fixedScale": 1.25}
+    },
+    "legacy": {
+      "id": "legacy",
+      "kind": "old-panel",
+      "title": "旧面板",
+      "file": "old-panel.data",
+      "settings": {"weird": true},
+      "capabilities": {"editable": false, "searchable": false, "previewable": false, "linkable": false, "creatable": false, "deletable": false},
+      "futureField": "keep-me"
+    }
+  },
+  "resources": [{"assetId": "asset-1", "mime": "text/plain"}]
+}`)
+	mustWriteFile(t, filepath.Join(noteDir, "text.md"), `[[note_id=other-a]]
+
+[[note_id=other-b|title=Other]]`)
+	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), `<div>[[note_id=other-a]]</div>`)
+	mustWriteFile(t, filepath.Join(noteDir, "old-panel.data"), `legacy payload`)
+
+	mustWriteFile(t, filepath.Join(htmlOnlyDir, manifestFile), `{
+  "schemaVersion": 2,
+  "id": "202609010002",
+  "title": "HTML Only",
+  "description": "",
+  "createdAtMs": 300,
+  "updatedAtMs": 400,
+  "primaryFaceId": "html",
+  "faceOrder": ["html"],
+  "faces": {
+    "html": {
+      "id": "html",
+      "kind": "html",
+      "title": "HTML",
+      "file": "html-view.html",
+      "role": "alternate",
+      "settings": {}
+    }
+  },
+  "resources": []
+}`)
+	mustWriteFile(t, filepath.Join(htmlOnlyDir, "html-view.html"), `<div>no refs here</div>`)
+
+	snapshotDir := filepath.Join(noteDir, versionsDirName, "v_20260101_000000_00000000")
+	mustWriteFile(t, filepath.Join(snapshotDir, versionSnapshotFile), `{
+  "schemaVersion": 1,
+  "versionId": "v_20260101_000000_00000000",
+  "noteId": "202609010001",
+  "packageDir": "Notes/2026-05/202609010001",
+  "commitName": "release-1",
+  "createdAtMs": 500,
+  "contentHash": "stale-hash",
+  "manifest": {
+    "schemaVersion": 2,
+    "id": "202609010001",
+    "title": "Legacy Note",
+    "description": "",
+    "createdAtMs": 100,
+    "updatedAtMs": 600,
+    "primaryFaceId": "text",
+    "faceOrder": ["text"],
+    "faces": {
+      "text": {"id": "text", "kind": "markdown", "title": "文本", "file": "text.md", "role": "primary", "settings": {}}
+    },
+    "resources": []
+  },
+  "faces": {
+    "text": {"manifest": {"id": "text", "kind": "markdown", "title": "文本", "file": "text.md", "role": "primary", "settings": {}}, "content": "snapshot body"}
+  }
+}`)
+	mustWriteFile(t, filepath.Join(noteDir, versionsDirName, "index.json"), `{"version":1,"noteId":"202609010001","versions":[{"versionId":"v_20260101_000000_00000000","commitName":"release-1","createdAtMs":500,"contentHash":"stale-hash","title":"Legacy Note","description":"","faceIds":["text"]}]}`)
+
+	if err := svc.migrateNoteFaceSystemUnification(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	manifest := readManifestJSON(t, filepath.Join(noteDir, manifestFile))
+	for _, retired := range []string{"role", "primaryFaceId"} {
+		if _, ok := manifest[retired]; ok {
+			t.Fatalf("manifest still contains %q: %v", retired, manifest[retired])
+		}
+	}
+	faces := manifest["faces"].(map[string]any)
+	legacy := faces["legacy"].(map[string]any)
+	if legacy["kind"] != "old-panel" || legacy["title"] != "旧面板" || legacy["file"] != "old-panel.data" {
+		t.Fatalf("unknown face lost or mutated: %+v", legacy)
+	}
+	if legacySettings := legacy["settings"].(map[string]any); legacySettings["weird"] != true {
+		t.Fatalf("unknown face settings lost: %+v", legacySettings)
+	}
+	if future := legacy["futureField"]; future != "keep-me" {
+		t.Fatalf("unknown face extension lost: %+v", future)
+	}
+	order := manifest["faceOrder"].([]any)
+	if len(order) != 3 || order[0] != "html" || order[1] != "text" || order[2] != "legacy" {
+		t.Fatalf("faceOrder = %v, want [html text legacy]", order)
+	}
+	textFace := faces["text"].(map[string]any)
+	if textFace["role"] != nil {
+		t.Fatalf("text face still has role: %v", textFace["role"])
+	}
+	if textCaps := textFace["capabilities"].(map[string]any); textCaps["searchable"] != true {
+		t.Fatalf("known face capabilities not applied: %+v", textCaps)
+	}
+	resources := manifest["resources"].([]any)
+	if len(resources) != 1 || resources[0].(map[string]any)["assetId"] != "asset-1" {
+		t.Fatalf("resources lost after migration: %+v", resources)
+	}
+
+	htmlOnlyManifest := readManifestJSON(t, filepath.Join(htmlOnlyDir, manifestFile))
+	htmlOnlyFaces := htmlOnlyManifest["faces"].(map[string]any)
+	if _, ok := htmlOnlyFaces["text"]; !ok {
+		t.Fatalf("empty text face not preserved/ensured: %+v", htmlOnlyFaces)
+	}
+	if _, ok := htmlOnlyManifest["primaryFaceId"]; ok {
+		t.Fatalf("htmlOnly manifest still has primaryFaceId")
+	}
+
+	noteRel := filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001"))
+	loaded, err := svc.loadNoteManifest("library", noteRel)
+	if err != nil {
+		t.Fatalf("load migrated manifest failed: %v", err)
+	}
+	if loaded.Title != "Legacy Note" || loaded.Description != "旧笔记" || len(loaded.Tags) != 1 || loaded.Tags[0] != "legacy" {
+		t.Fatalf("note meta lost after migration: %+v", loaded)
+	}
+	if len(loaded.Faces) != 3 || len(loaded.FaceOrder) != 3 {
+		t.Fatalf("faces lost after migration: %+v", loaded.Faces)
+	}
+	legacyDoc, err := svc.loadNoteFace("library", noteRel, "legacy")
+	if err != nil {
+		t.Fatalf("load unknown face failed: %v", err)
+	}
+	if !legacyDoc.Exists || legacyDoc.Content != "legacy payload" {
+		t.Fatalf("unknown face content lost: %+v", legacyDoc)
+	}
+	textBody, err := svc.loadNotePackage("library", noteRel)
+	if err != nil {
+		t.Fatalf("load migrated package failed: %v", err)
+	}
+	if !strings.Contains(textBody.Body, "[[note_id=other-a]]") {
+		t.Fatalf("text face body lost: %q", textBody.Body)
+	}
+
+	refs, err := svc.loadRefIndex("library")
+	if err != nil {
+		t.Fatalf("load refs failed: %v", err)
+	}
+	if got := refs["202609010001"]; len(got) != 2 || got[0] != "other-a" || got[1] != "other-b" {
+		t.Fatalf("refs = %+v, want [other-a other-b]", got)
+	}
+	if _, ok := refs["202609010002"]; ok {
+		t.Fatalf("html only note should not be in refs: %+v", refs)
+	}
+
+	snapshot, err := svc.loadNoteVersion("library", filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "v_20260101_000000_00000000")
+	if err != nil {
+		t.Fatalf("load migrated version snapshot failed: %v", err)
+	}
+	if snapshot.ContentHash == "stale-hash" || snapshot.ContentHash == "" {
+		t.Fatalf("snapshot content hash not refreshed: %q", snapshot.ContentHash)
+	}
+	if snapshot.Manifest.Title != "Legacy Note" {
+		t.Fatalf("snapshot manifest lost: %+v", snapshot.Manifest)
+	}
+	idx, err := svc.loadNoteVersionIndex("library", filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "202609010001")
+	if err != nil {
+		t.Fatalf("load migrated version index failed: %v", err)
+	}
+	if len(idx.Versions) != 1 || idx.Versions[0].ContentHash != snapshot.ContentHash {
+		t.Fatalf("version index contentHash not synced: %+v", idx.Versions)
+	}
+
+	before, err := os.ReadFile(filepath.Join(noteDir, manifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.migrateNoteFaceSystemUnification(); err != nil {
+		t.Fatalf("second migration failed: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(noteDir, manifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("idempotent normalization failed:\nbefore: %s\nafter: %s", before, after)
+	}
+}
+
+func readManifestJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := readJSONFile(path, &out); err != nil {
+		t.Fatalf("read manifest failed: %v", err)
+	}
+	return out
 }
 
 func TestMigrateNotePackageDirsToIDsRenamesPackagesAndReferences(t *testing.T) {

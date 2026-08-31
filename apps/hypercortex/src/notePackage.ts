@@ -27,6 +27,7 @@ import {
   MARKDOWN_FACE_KIND,
   createDefaultFaceManifest,
   getHtmlFaceFixedScale,
+  getNoteFaceAdapter,
   isHtmlFace,
   isMarkdownFace,
   requireNoteFaceAdapter,
@@ -131,7 +132,6 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
     schemaVersion: Number((parsed as any).schemaVersion),
     resources: Array.isArray((parsed as any).resources) ? ((parsed as any).resources as HyperCortexNoteResourceRef[]) : [],
     faces: (parsed as any).faces,
-    primaryFaceId: (parsed as any).primaryFaceId,
     faceOrder: Array.isArray((parsed as any).faceOrder) ? (parsed as any).faceOrder : [],
   })
 }
@@ -172,7 +172,6 @@ async function saveNoteFiles(
   const manifest = createNoteManifest({
     ...doc,
     faces,
-    primaryFaceId: existingManifest?.primaryFaceId || 'text',
     faceOrder: existingManifest?.faceOrder || Object.keys(faces),
   })
   await api.files.writeText({
@@ -272,13 +271,15 @@ export async function loadNoteFace(api: Api, scope: VaultScope, packageDir: stri
   const id = String(faceId || '').trim()
   const face = manifest.faces[id]
   if (!face) throw new Error(`笔记面不存在：${id}`)
-  const adapter = requireNoteFaceAdapter(face.kind)
+  const adapter = getNoteFaceAdapter(face.kind)
   let exists = false
   const raw = await api.files.readText({ scope, path: notePathInPackage(packageDir, face.file) }).then(value => {
     exists = true
     return value
-  }).catch(() => adapter.createEmptyContent({ noteId: manifest.id, title: manifest.title }))
-  const content = adapter.normalizeContent(raw)
+  }).catch(() => adapter
+    ? adapter.createEmptyContent({ noteId: manifest.id, title: manifest.title })
+    : '')
+  const content = adapter ? adapter.normalizeContent(raw) : String(raw || '')
   return noteFaceDocFromManifest(manifest, packageDir, face, content, exists)
 }
 
@@ -320,7 +321,6 @@ export async function saveNoteFace(
         id: faceId,
         title: existingFace.title,
         file: existingFace.file,
-        role: existingFace.role,
         settings: input.settings ?? existingFace.settings,
       })
     : createDefaultFaceManifest(adapter.kind, { id: faceId, settings: input.settings })
@@ -350,7 +350,6 @@ export async function saveNoteFace(
   const manifest = createNoteManifest({
     ...docData,
     faces,
-    primaryFaceId: existingManifest?.primaryFaceId || 'text',
     faceOrder: existingManifest?.faceOrder || Object.keys(faces),
   })
   await api.files.writeText({
@@ -378,7 +377,6 @@ export async function deleteNoteFace(api: Api, scope: VaultScope, packageDir: st
   const next = createNoteManifest({
     ...manifest,
     faces,
-    primaryFaceId: manifest.primaryFaceId === id ? 'text' : manifest.primaryFaceId,
     faceOrder: manifest.faceOrder.filter(item => item !== id),
     updatedAtMs: Date.now(),
   })
@@ -407,7 +405,6 @@ export async function saveNoteFaceSettings(
     id: face.id,
     title: face.title,
     file: face.file,
-    role: face.role,
     settings: adapter.normalizeSettings(settings),
   })
   const next = createNoteManifest({

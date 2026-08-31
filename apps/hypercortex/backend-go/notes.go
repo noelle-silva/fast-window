@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -18,25 +19,30 @@ func defaultHTMLFace(settings map[string]any) noteFaceManifest {
 	return face
 }
 
+func normalizeFaceManifest(input noteFaceManifest) noteFaceManifest {
+	if input.Kind == "" {
+		return input
+	}
+	base, err := defaultFaceForKind(input.Kind, input)
+	if err != nil {
+		return input
+	}
+	return base
+}
+
 func normalizeManifest(input noteManifest) noteManifest {
 	now := nowMs()
 	faces := map[string]noteFaceManifest{}
 	for id, face := range input.Faces {
+		face = normalizeFaceManifest(face)
 		face.ID = nonEmpty(face.ID, id)
 		if face.ID == "" || face.Kind == "" {
 			continue
 		}
-		base, err := defaultFaceForKind(face.Kind, face)
-		if err == nil {
-			faces[base.ID] = base
-		}
+		faces[face.ID] = face
 	}
 	if _, ok := faces["text"]; !ok {
 		faces["text"] = defaultTextFace()
-	}
-	primary := input.PrimaryFaceID
-	if _, ok := faces[primary]; !ok {
-		primary = "text"
 	}
 	order := []string{}
 	seen := map[string]bool{}
@@ -51,11 +57,15 @@ func normalizeManifest(input noteManifest) noteManifest {
 		seen[id] = true
 		order = append(order, id)
 	}
-	push(primary)
 	for _, id := range input.FaceOrder {
 		push(id)
 	}
+	keys := make([]string, 0, len(faces))
 	for id := range faces {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+	for _, id := range keys {
 		push(id)
 	}
 	created := input.CreatedAtMs
@@ -66,7 +76,7 @@ func normalizeManifest(input noteManifest) noteManifest {
 	if updated <= 0 {
 		updated = created
 	}
-	return noteManifest{SchemaVersion: 2, ID: strings.TrimSpace(input.ID), Title: nonEmpty(input.Title, "未命名"), Description: strings.TrimSpace(input.Description), Tags: uniqueStrings(input.Tags), CreatedAtMs: created, UpdatedAtMs: updated, PrimaryFaceID: primary, FaceOrder: order, Faces: faces, Resources: normalizeResourceRefs(input.Resources)}
+	return noteManifest{SchemaVersion: noteFaceSchemaVersion, ID: strings.TrimSpace(input.ID), Title: nonEmpty(input.Title, "未命名"), Description: strings.TrimSpace(input.Description), Tags: uniqueStrings(input.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: order, Faces: faces, Resources: normalizeResourceRefs(input.Resources)}
 }
 
 func (svc *service) loadNoteManifest(scope string, packageDir string) (noteManifest, error) {
@@ -132,7 +142,7 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	if resources == nil {
 		resources = existing.Resources
 	}
-	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, PrimaryFaceID: nonEmpty(existing.PrimaryFaceID, "text"), FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
+	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
 
 	if input["saveTextFace"] == true {
 		textFace := manifest.Faces["text"]

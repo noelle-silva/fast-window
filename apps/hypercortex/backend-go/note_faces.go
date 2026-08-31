@@ -8,12 +8,13 @@ import (
 	"strings"
 )
 
+const noteFaceSchemaVersion = 2
+
 type noteFaceAdapter struct {
 	Kind              string
 	Label             string
 	DefaultFaceID     string
 	DefaultFileName   string
-	DefaultRole       string
 	Capabilities      faceCapabilities
 	NormalizeContent  func(string) string
 	EmptyContent      func(noteManifest) string
@@ -26,7 +27,6 @@ var noteFaceAdapters = map[string]noteFaceAdapter{
 		Label:             "文本",
 		DefaultFaceID:     "text",
 		DefaultFileName:   "text.md",
-		DefaultRole:       "primary",
 		Capabilities:      faceCapabilities{Editable: true, Searchable: true, Previewable: true, Linkable: true, Creatable: true, Deletable: false},
 		NormalizeContent:  normalizeTextFaceContent,
 		EmptyContent:      func(noteManifest) string { return "" },
@@ -37,7 +37,6 @@ var noteFaceAdapters = map[string]noteFaceAdapter{
 		Label:             "HTML",
 		DefaultFaceID:     "html",
 		DefaultFileName:   "html-view.html",
-		DefaultRole:       "alternate",
 		Capabilities:      faceCapabilities{Editable: true, Searchable: false, Previewable: true, Linkable: false, Creatable: true, Deletable: true},
 		NormalizeContent:  normalizeTextFaceContent,
 		EmptyContent:      func(manifest noteManifest) string { return emptyHTMLDoc(manifest.ID, manifest.Title) },
@@ -67,9 +66,9 @@ func defaultFaceForKind(kind string, input noteFaceManifest) (noteFaceManifest, 
 		Kind:         adapter.Kind,
 		Title:        nonEmpty(input.Title, adapter.Label),
 		File:         nonEmpty(input.File, adapter.DefaultFileName),
-		Role:         normalizeFaceRole(nonEmpty(input.Role, adapter.DefaultRole), adapter.DefaultRole),
 		Settings:     adapter.NormalizeSettings(settings),
 		Capabilities: adapter.Capabilities,
+		Extra:        input.Extra,
 	}, nil
 }
 
@@ -108,7 +107,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	if settings == nil {
 		settings = existingFace.Settings
 	}
-	face, err := defaultFaceForKind(adapter.Kind, noteFaceManifest{ID: faceID, Title: existingFace.Title, File: existingFace.File, Role: existingFace.Role, Settings: settings})
+	face, err := defaultFaceForKind(adapter.Kind, noteFaceManifest{ID: faceID, Title: existingFace.Title, File: existingFace.File, Settings: settings, Extra: existingFace.Extra})
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +132,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 		faces = map[string]noteFaceManifest{"text": defaultTextFace()}
 	}
 	faces[face.ID] = face
-	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, PrimaryFaceID: nonEmpty(existing.PrimaryFaceID, "text"), FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
+	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
 	manifest.FaceOrder = appendIfMissing(manifest.FaceOrder, face.ID)
 	manifest = normalizeManifest(manifest)
 
@@ -170,9 +169,6 @@ func (svc *service) deleteNoteFace(scope string, packageDir string, faceID strin
 	_ = svc.deleteFile(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)))
 	delete(manifest.Faces, id)
 	manifest.FaceOrder = removeString(manifest.FaceOrder, id)
-	if manifest.PrimaryFaceID == id {
-		manifest.PrimaryFaceID = "text"
-	}
 	manifest.UpdatedAtMs = nowMs()
 	manifest = normalizeManifest(manifest)
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
@@ -230,15 +226,6 @@ func normalizeHTMLSettings(value map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{"fixedScale": scale}
-}
-
-func normalizeFaceRole(role string, fallback string) string {
-	switch strings.TrimSpace(role) {
-	case "primary", "alternate", "derived", "attachment":
-		return strings.TrimSpace(role)
-	default:
-		return fallback
-	}
 }
 
 func mapFromAny(value any) map[string]any {

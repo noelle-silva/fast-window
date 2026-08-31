@@ -5,8 +5,6 @@ export const HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION = 2
 export const MARKDOWN_FACE_KIND = 'markdown'
 export const HTML_FACE_KIND = 'html'
 
-export type HyperCortexNoteFaceRoleV2 = 'primary' | 'alternate' | 'derived' | 'attachment'
-
 export type HyperCortexNoteFaceSettingsV2 = Record<string, unknown>
 
 export type HyperCortexNoteFaceCapabilitiesV2 = {
@@ -23,7 +21,6 @@ export type HyperCortexNoteFaceManifestV2 = {
   kind: string
   title: string
   file: string
-  role: HyperCortexNoteFaceRoleV2
   settings: HyperCortexNoteFaceSettingsV2
   capabilities: HyperCortexNoteFaceCapabilitiesV2
 }
@@ -33,7 +30,6 @@ export type HyperCortexNoteFaceAdapter = {
   label: string
   defaultFaceId: string
   defaultFileName: string
-  defaultRole: HyperCortexNoteFaceRoleV2
   capabilities: HyperCortexNoteFaceCapabilitiesV2
   normalizeContent: (content: string) => string
   createEmptyContent: (input: { noteId: string; title: string }) => string
@@ -57,12 +53,27 @@ function normalizeFixedScale(value: unknown): number | undefined {
   return n
 }
 
+type HyperCortexNoteFaceCapabilitiesRaw = Partial<HyperCortexNoteFaceCapabilitiesV2>
+
+function normalizeFaceCapabilities(input: unknown): HyperCortexNoteFaceCapabilitiesV2 {
+  const raw = input && typeof input === 'object' && !Array.isArray(input)
+    ? (input as HyperCortexNoteFaceCapabilitiesRaw)
+    : {}
+  return {
+    editable: !!raw.editable,
+    searchable: !!raw.searchable,
+    previewable: !!raw.previewable,
+    linkable: !!raw.linkable,
+    creatable: !!raw.creatable,
+    deletable: !!raw.deletable,
+  }
+}
+
 const MARKDOWN_FACE_ADAPTER: HyperCortexNoteFaceAdapter = {
   kind: MARKDOWN_FACE_KIND,
   label: '文本',
   defaultFaceId: 'text',
   defaultFileName: 'text.md',
-  defaultRole: 'primary',
   capabilities: {
     editable: true,
     searchable: true,
@@ -81,7 +92,6 @@ const HTML_FACE_ADAPTER: HyperCortexNoteFaceAdapter = {
   label: 'HTML',
   defaultFaceId: 'html',
   defaultFileName: 'html-view.html',
-  defaultRole: 'alternate',
   capabilities: {
     editable: true,
     searchable: false,
@@ -126,7 +136,6 @@ export function createDefaultFaceManifest(kind: string, input?: {
   id?: string
   title?: string
   file?: string
-  role?: HyperCortexNoteFaceRoleV2
   settings?: HyperCortexNoteFaceSettingsV2 | null
 }): HyperCortexNoteFaceManifestV2 {
   const adapter = requireNoteFaceAdapter(kind)
@@ -136,28 +145,48 @@ export function createDefaultFaceManifest(kind: string, input?: {
     kind: adapter.kind,
     title: String(input?.title || '').trim() || adapter.label,
     file: String(input?.file || '').trim() || adapter.defaultFileName,
-    role: input?.role || adapter.defaultRole,
     settings,
     capabilities: { ...adapter.capabilities },
   }
+}
+
+export function isKnownFaceKind(kind: string): boolean {
+  return getNoteFaceAdapter(String(kind || '').trim()) !== null
+}
+
+const FACE_STANDARD_MANIFEST_KEYS = new Set(['id', 'kind', 'title', 'file', 'role', 'settings', 'capabilities'])
+
+function collectUnknownFaceFields(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (FACE_STANDARD_MANIFEST_KEYS.has(key)) continue
+    out[key] = value
+  }
+  return out
 }
 
 export function normalizeFaceManifest(input: unknown): HyperCortexNoteFaceManifestV2 | null {
   const raw = input as any
   if (!raw || typeof raw !== 'object') return null
   const kind = String(raw.kind || '').trim()
+  if (!kind) return null
   const adapter = getNoteFaceAdapter(kind)
-  if (!adapter) return null
-  const id = String(raw.id || '').trim() || adapter.defaultFaceId
-  const file = String(raw.file || '').trim() || adapter.defaultFileName
-  const role = raw.role === 'primary' || raw.role === 'alternate' || raw.role === 'derived' || raw.role === 'attachment'
-    ? raw.role
-    : adapter.defaultRole
+  if (!adapter) {
+    const face: HyperCortexNoteFaceManifestV2 & Record<string, unknown> = {
+      id: String(raw.id || '').trim() || kind,
+      kind,
+      title: String(raw.title || '').trim() || kind,
+      file: String(raw.file || '').trim(),
+      settings: normalizePlainSettings(raw.settings),
+      capabilities: normalizeFaceCapabilities(raw.capabilities),
+    }
+    Object.assign(face, collectUnknownFaceFields(raw))
+    return face
+  }
   return createDefaultFaceManifest(adapter.kind, {
-    id,
+    id: raw.id,
     title: raw.title,
-    file,
-    role,
+    file: raw.file,
     settings: raw.settings,
   })
 }

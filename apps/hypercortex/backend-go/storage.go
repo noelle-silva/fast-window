@@ -111,6 +111,58 @@ func (svc *service) saveRefIndex(scope string, idx map[string][]string) error {
 	return writeJSONFile(path, idx)
 }
 
+func (svc *service) rebuildRefsIndex(scope string) error {
+	root, err := svc.resolvePath(scope, notesDir)
+	if err != nil {
+		return err
+	}
+	idx := map[string][]string{}
+	months, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return svc.saveRefIndex(scope, idx)
+	}
+	if err != nil {
+		return err
+	}
+	for _, month := range months {
+		if !month.IsDir() {
+			continue
+		}
+		monthDir := filepath.Join(root, month.Name())
+		packages, err := os.ReadDir(monthDir)
+		if err != nil {
+			return err
+		}
+		for _, pkg := range packages {
+			if !pkg.IsDir() {
+				continue
+			}
+			rel := filepath.ToSlash(filepath.Join(notesDir, month.Name(), pkg.Name()))
+			manifest, err := svc.loadNoteManifest(scope, rel)
+			if err != nil || manifest.ID == "" {
+				continue
+			}
+			refs := []string{}
+			for _, face := range manifest.FaceOrder {
+				faceManifest := manifest.Faces[face]
+				if faceManifest.Kind != "markdown" {
+					continue
+				}
+				content, err := svc.readText(scope, filepath.ToSlash(filepath.Join(rel, faceManifest.File)))
+				if err != nil {
+					continue
+				}
+				refs = append(refs, extractNoteRefs(content)...)
+			}
+			refs = uniqueStrings(refs)
+			if len(refs) > 0 {
+				idx[manifest.ID] = refs
+			}
+		}
+	}
+	return svc.saveRefIndex(scope, idx)
+}
+
 func (svc *service) updateRefsForNote(scope string, noteID string, body string) error {
 	noteID = strings.TrimSpace(noteID)
 	if noteID == "" {

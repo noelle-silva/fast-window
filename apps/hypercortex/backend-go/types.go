@@ -75,13 +75,85 @@ type faceCapabilities struct {
 }
 
 type noteFaceManifest struct {
-	ID           string           `json:"id"`
-	Kind         string           `json:"kind"`
-	Title        string           `json:"title"`
-	File         string           `json:"file"`
-	Role         string           `json:"role"`
-	Settings     map[string]any   `json:"settings"`
-	Capabilities faceCapabilities `json:"capabilities"`
+	ID           string                     `json:"id"`
+	Kind         string                     `json:"kind"`
+	Title        string                     `json:"title"`
+	File         string                     `json:"file"`
+	Settings     map[string]any             `json:"settings"`
+	Capabilities faceCapabilities           `json:"capabilities"`
+	Extra        map[string]json.RawMessage `json:"-"`
+}
+
+var noteFaceKnownJSONKeys = map[string]bool{
+	"id":           true,
+	"kind":         true,
+	"title":        true,
+	"file":         true,
+	"settings":     true,
+	"capabilities": true,
+}
+
+var noteFaceRetiredJSONKeys = map[string]bool{
+	"role": true,
+}
+
+func (face noteFaceManifest) MarshalJSON() ([]byte, error) {
+	base := struct {
+		ID           string           `json:"id"`
+		Kind         string           `json:"kind"`
+		Title        string           `json:"title"`
+		File         string           `json:"file"`
+		Settings     map[string]any   `json:"settings"`
+		Capabilities faceCapabilities `json:"capabilities"`
+	}{ID: face.ID, Kind: face.Kind, Title: face.Title, File: face.File, Settings: face.Settings, Capabilities: face.Capabilities}
+	raw, err := json.Marshal(base)
+	if err != nil {
+		return nil, err
+	}
+	if len(face.Extra) == 0 {
+		return raw, nil
+	}
+	payload := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	for key, value := range face.Extra {
+		if noteFaceKnownJSONKeys[key] {
+			continue
+		}
+		if _, ok := payload[key]; ok {
+			continue
+		}
+		payload[key] = value
+	}
+	return json.Marshal(payload)
+}
+
+func (face *noteFaceManifest) UnmarshalJSON(raw []byte) error {
+	base := struct {
+		ID           string           `json:"id"`
+		Kind         string           `json:"kind"`
+		Title        string           `json:"title"`
+		File         string           `json:"file"`
+		Settings     map[string]any   `json:"settings"`
+		Capabilities faceCapabilities `json:"capabilities"`
+	}{}
+	if err := json.Unmarshal(raw, &base); err != nil {
+		return err
+	}
+	payload := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	extra := map[string]json.RawMessage{}
+	for key, value := range payload {
+		if noteFaceKnownJSONKeys[key] || noteFaceRetiredJSONKeys[key] {
+			continue
+		}
+		extra[key] = value
+	}
+	*face = noteFaceManifest{ID: base.ID, Kind: base.Kind, Title: base.Title, File: base.File, Settings: base.Settings, Capabilities: base.Capabilities, Extra: extra}
+	return nil
 }
 
 type noteManifest struct {
@@ -92,7 +164,6 @@ type noteManifest struct {
 	Tags          []string                    `json:"tags"`
 	CreatedAtMs   float64                     `json:"createdAtMs"`
 	UpdatedAtMs   float64                     `json:"updatedAtMs"`
-	PrimaryFaceID string                      `json:"primaryFaceId"`
 	FaceOrder     []string                    `json:"faceOrder"`
 	Faces         map[string]noteFaceManifest `json:"faces"`
 	Resources     []resourceRef               `json:"resources"`

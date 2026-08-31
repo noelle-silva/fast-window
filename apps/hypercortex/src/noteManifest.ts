@@ -19,7 +19,6 @@ export type HyperCortexNoteManifestV2 = {
   tags: string[]
   createdAtMs: number
   updatedAtMs: number
-  primaryFaceId: string
   faceOrder: string[]
   faces: Record<string, HyperCortexNoteFaceManifestV2>
   resources: HyperCortexNoteResourceRef[]
@@ -46,14 +45,13 @@ function normalizeResources(list?: HyperCortexNoteResourceRef[]): HyperCortexNot
   )
 }
 
-function normalizeFaceOrder(faceOrder: unknown, faces: Record<string, HyperCortexNoteFaceManifestV2>, primaryFaceId: string): string[] {
+function normalizeFaceOrder(faceOrder: unknown, faces: Record<string, HyperCortexNoteFaceManifestV2>): string[] {
   const out: string[] = []
   const push = (id: unknown) => {
     const faceId = String(id || '').trim()
     if (!faceId || !faces[faceId] || out.includes(faceId)) return
     out.push(faceId)
   }
-  push(primaryFaceId)
   if (Array.isArray(faceOrder)) faceOrder.forEach(push)
   Object.keys(faces).forEach(push)
   return out
@@ -83,15 +81,12 @@ export function createNoteManifest(input: {
   updatedAtMs?: number
   schemaVersion?: number
   resources?: HyperCortexNoteResourceRef[]
-  primaryFaceId?: string
   faceOrder?: string[]
   faces?: Record<string, HyperCortexNoteFaceManifestV2>
 }): HyperCortexNoteManifestV2 {
   const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
   const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
   const faces = normalizeFaces(input.faces)
-  const requestedPrimaryFaceId = String(input.primaryFaceId || '').trim()
-  const primaryFaceId = faces[requestedPrimaryFaceId] ? requestedPrimaryFaceId : faces.text ? 'text' : Object.keys(faces)[0]
   return {
     schemaVersion: HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION,
     id: String(input.id || '').trim(),
@@ -100,8 +95,7 @@ export function createNoteManifest(input: {
     tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
     createdAtMs,
     updatedAtMs,
-    primaryFaceId,
-    faceOrder: normalizeFaceOrder(input.faceOrder, faces, primaryFaceId),
+    faceOrder: normalizeFaceOrder(input.faceOrder, faces),
     faces,
     resources: normalizeResources(input.resources),
   }

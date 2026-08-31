@@ -24,7 +24,7 @@ import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/past
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
-import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, isKnownFaceKind, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
@@ -88,7 +88,9 @@ function isTextFaceId(faceId: string, faces: Record<string, HyperCortexNoteFaceM
 function faceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): string {
   const manifest = faces[String(faceId || '').trim()]
   if (!manifest) return String(faceId || '').trim() || '未知'
-  return String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
+  const title = String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
+  if (!isKnownFaceKind(manifest.kind)) return `${title}（暂不支持）`
+  return title
 }
 
 function normalizeFaceOrder(faceOrder: string[], faces: Record<string, HyperCortexNoteFaceManifestV2>): string[] {

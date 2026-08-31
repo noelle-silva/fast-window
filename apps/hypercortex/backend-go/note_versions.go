@@ -162,17 +162,16 @@ func collectNoteVersionFaces(svc *service, scope string, packageDir string, mani
 		if err != nil {
 			return nil, fmt.Errorf("读取笔记面 %s 失败: %w", id, err)
 		}
-		adapter, err := requireFaceAdapter(face.Kind)
-		if err != nil {
-			return nil, err
+		if adapter, err := requireFaceAdapter(face.Kind); err == nil {
+			content = adapter.NormalizeContent(content)
 		}
-		faces[id] = noteVersionFaceSnapshot{Manifest: face, Content: adapter.NormalizeContent(content)}
+		faces[id] = noteVersionFaceSnapshot{Manifest: normalizeFaceManifest(face), Content: content}
 	}
 	return faces, nil
 }
 
 func noteVersionContentHash(manifest noteManifest, faces map[string]noteVersionFaceSnapshot) (string, error) {
-	contentManifest := manifest
+	contentManifest := normalizeManifest(manifest)
 	contentManifest.CreatedAtMs = 0
 	contentManifest.UpdatedAtMs = 0
 	payload := struct {
@@ -311,11 +310,11 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 		if !ok {
 			return nil, fmt.Errorf("版本快照缺少笔记面 %s", faceID)
 		}
-		adapter, err := requireFaceAdapter(face.Kind)
-		if err != nil {
-			return nil, err
+		content := saved.Content
+		if adapter, err := requireFaceAdapter(face.Kind); err == nil {
+			content = adapter.NormalizeContent(content)
 		}
-		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)), adapter.NormalizeContent(saved.Content), true); err != nil {
+		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)), content, true); err != nil {
 			return nil, err
 		}
 	}
@@ -348,4 +347,98 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 		return nil, err
 	}
 	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest}, nil
+}
+
+func (svc *service) refreshNoteVersionSnapshots() error {
+	root, err := svc.resolvePath("library", notesDir)
+	if err != nil {
+		return err
+	}
+	months, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, month := range months {
+		if !month.IsDir() {
+			continue
+		}
+		monthDir := filepath.Join(root, month.Name())
+		packages, err := os.ReadDir(monthDir)
+		if err != nil {
+			return err
+		}
+		for _, pkg := range packages {
+			if !pkg.IsDir() {
+				continue
+			}
+			versionsDir := filepath.Join(monthDir, pkg.Name(), versionsDirName)
+			if err := svc.refreshSnapshotsUnder(versionsDir); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (svc *service) refreshSnapshotsUnder(versionsDir string) error {
+	entries, err := os.ReadDir(versionsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	indexPath := filepath.Join(versionsDir, versionsIndexFile)
+	var idx noteVersionIndex
+	indexLoaded := false
+	if err := readJSONFile(indexPath, &idx); err == nil {
+		indexLoaded = true
+	}
+	refreshedHashes := map[string]string{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		snapshotPath := filepath.Join(versionsDir, entry.Name(), versionSnapshotFile)
+		var snapshot noteVersionSnapshot
+		if err := readJSONFile(snapshotPath, &snapshot); err != nil {
+			continue
+		}
+		snapshot.Manifest = normalizeManifest(snapshot.Manifest)
+		faces := map[string]noteVersionFaceSnapshot{}
+		for id, saved := range snapshot.Faces {
+			saved.Manifest = normalizeFaceManifest(saved.Manifest)
+			faces[id] = saved
+		}
+		snapshot.Faces = faces
+		hash, err := noteVersionContentHash(snapshot.Manifest, snapshot.Faces)
+		if err != nil {
+			return err
+		}
+		snapshot.ContentHash = hash
+		if err := writeJSONFile(snapshotPath, snapshot); err != nil {
+			return err
+		}
+		refreshedHashes[entry.Name()] = hash
+	}
+	if indexLoaded && len(refreshedHashes) > 0 {
+		updated := false
+		for i := range idx.Versions {
+			hash, ok := refreshedHashes[idx.Versions[i].VersionID]
+			if !ok || idx.Versions[i].ContentHash == hash {
+				continue
+			}
+			idx.Versions[i].ContentHash = hash
+			updated = true
+		}
+		if updated {
+			if err := writeJSONFile(indexPath, idx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
