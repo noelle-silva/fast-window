@@ -21,7 +21,7 @@ import {
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { type NoteRefIndex } from '../noteRefs'
+import { type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
@@ -2403,7 +2403,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
-    refsForIndex?: string[]
+    refsForIndex?: NoteRefEntryMap
   }) => {
     const originalId = String(payload.originalId || '').trim()
     const meta = payload.meta
@@ -2443,12 +2443,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const next = { ...(prev || {}) }
       if (didMigrateId) delete next[originalId]
 
-      const refs = Array.isArray(payload.refsForIndex)
-        ? Array.from(new Set(payload.refsForIndex.map(v => String(v || '').trim()).filter(Boolean)))
-        : []
-
-      if (refs.length) next[meta.id] = refs
-      else delete next[meta.id]
+      const refs = payload.refsForIndex
+      if (refs && Object.keys(refs).length) {
+        next[meta.id] = refs
+      } else {
+        delete next[meta.id]
+      }
 
       return next
     })

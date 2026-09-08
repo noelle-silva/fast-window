@@ -11,7 +11,6 @@ export type HyperCortexNoteFaceCapabilitiesV2 = {
   editable: boolean
   searchable: boolean
   previewable: boolean
-  linkable: boolean
   creatable: boolean
   deletable: boolean
 }
@@ -63,7 +62,6 @@ function normalizeFaceCapabilities(input: unknown): HyperCortexNoteFaceCapabilit
     editable: !!raw.editable,
     searchable: !!raw.searchable,
     previewable: !!raw.previewable,
-    linkable: !!raw.linkable,
     creatable: !!raw.creatable,
     deletable: !!raw.deletable,
   }
@@ -78,7 +76,6 @@ const MARKDOWN_FACE_ADAPTER: HyperCortexNoteFaceAdapter = {
     editable: true,
     searchable: true,
     previewable: true,
-    linkable: true,
     creatable: true,
     deletable: false,
   },
@@ -96,7 +93,6 @@ const HTML_FACE_ADAPTER: HyperCortexNoteFaceAdapter = {
     editable: true,
     searchable: false,
     previewable: true,
-    linkable: false,
     creatable: true,
     deletable: true,
   },

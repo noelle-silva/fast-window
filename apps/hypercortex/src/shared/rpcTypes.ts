@@ -1,7 +1,6 @@
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
-import type { NoteRefIndex } from '../noteRefs'
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, NoteMeta, VaultScope } from '../core'
-import type { HyperCortexTrashItem } from '../trash'
+import type { HyperCortexTrashItem } from '../gateway/types'
 import type { HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteFaceSettingsV2 } from '../noteFaces'
 
@@ -47,10 +46,6 @@ export type AssetUploadTaskControlParams = { taskId: string }
 export type ReadAssetDataUrlParams = ScopeParams & { assetId: string; ext?: string }
 export type DeleteAssetParams = ScopeParams & { assetId: string; ext?: string }
 export type GetVideoThumbnailParams = ScopeParams & { path: string; width?: number | null; height?: number | null }
-
-export type SaveRefIndexParams = ScopeParams & { idx: NoteRefIndex }
-export type UpdateRefsForNoteParams = ScopeParams & { noteId: string; body: string }
-export type RemoveNoteFromRefIndexParams = ScopeParams & { noteId: string }
 
 export type SaveMetadataParams = { meta: HyperCortexMetadataV1 }
 export type SaveFavoritesParams = { doc: HyperCortexFavoritesDocV1 }

@@ -75,40 +75,86 @@ func (svc *service) rebuildNoteIndexInto(scope string, idx noteIndex) (noteIndex
 	return idx, nil
 }
 
-func (svc *service) loadRefIndex(scope string) (map[string][]string, error) {
+func (svc *service) loadRefIndex(scope string) (noteRefIndex, error) {
 	path, err := svc.resolvePath(scope, refsIndexFile)
 	if err != nil {
 		return nil, err
 	}
-	idx := map[string][]string{}
+	idx := noteRefIndex{}
 	if err := readJSONFile(path, &idx); err != nil {
-		return map[string][]string{}, nil
+		return noteRefIndex{}, nil
 	}
-	out := map[string][]string{}
-	for noteID, refs := range idx {
+	return normalizeRefIndex(idx), nil
+}
+
+func normalizeRefIndex(idx noteRefIndex) noteRefIndex {
+	out := noteRefIndex{}
+	for noteID, faces := range idx {
 		noteID = strings.TrimSpace(noteID)
 		if noteID == "" {
 			continue
 		}
-		seen := map[string]bool{}
-		for _, ref := range refs {
-			ref = strings.TrimSpace(ref)
-			if ref == "" || seen[ref] {
+		for faceID, refs := range faces {
+			faceID = strings.TrimSpace(faceID)
+			unique := uniqueNoteRefs(refs)
+			if len(unique) == 0 {
 				continue
 			}
-			seen[ref] = true
-			out[noteID] = append(out[noteID], ref)
+			if out[noteID] == nil {
+				out[noteID] = map[string][]noteRef{}
+			}
+			out[noteID][faceID] = unique
 		}
 	}
-	return out, nil
+	return out
 }
 
-func (svc *service) saveRefIndex(scope string, idx map[string][]string) error {
+func (svc *service) saveRefIndex(scope string, idx noteRefIndex) error {
 	path, err := svc.resolvePath(scope, refsIndexFile)
 	if err != nil {
 		return err
 	}
-	return writeJSONFile(path, idx)
+	return writeJSONFile(path, normalizeRefIndex(idx))
+}
+
+// collectRefsForNote 按面协议提取笔记全部面内容中的引用，返回 面→refs 映射
+func (svc *service) collectRefsForNote(scope string, manifest noteManifest, packageDir string) map[string][]noteRef {
+	out := map[string][]noteRef{}
+	for _, faceID := range manifest.FaceOrder {
+		faceManifest := manifest.Faces[faceID]
+		adapter, ok := noteFaceAdapters[faceManifest.Kind]
+		if !ok || adapter.ExtractRefs == nil {
+			continue
+		}
+		content, err := svc.readText(scope, filepath.ToSlash(filepath.Join(packageDir, faceManifest.File)))
+		if err != nil {
+			continue
+		}
+		refs := uniqueNoteRefs(adapter.ExtractRefs(content))
+		if len(refs) == 0 {
+			continue
+		}
+		out[faceID] = refs
+	}
+	return out
+}
+
+// updateRefsForNotePackage 整体重建单个笔记的引用索引条目，返回该笔记的面级引用
+func (svc *service) updateRefsForNotePackage(scope string, packageDir string, manifest noteManifest) (map[string][]noteRef, error) {
+	refs := svc.collectRefsForNote(scope, manifest, packageDir)
+	idx, err := svc.loadRefIndex(scope)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) > 0 {
+		idx[manifest.ID] = refs
+	} else {
+		delete(idx, manifest.ID)
+	}
+	if err := svc.saveRefIndex(scope, idx); err != nil {
+		return nil, err
+	}
+	return refs, nil
 }
 
 func (svc *service) rebuildRefsIndex(scope string) error {
@@ -116,7 +162,7 @@ func (svc *service) rebuildRefsIndex(scope string) error {
 	if err != nil {
 		return err
 	}
-	idx := map[string][]string{}
+	idx := noteRefIndex{}
 	months, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return svc.saveRefIndex(scope, idx)
@@ -142,41 +188,12 @@ func (svc *service) rebuildRefsIndex(scope string) error {
 			if err != nil || manifest.ID == "" {
 				continue
 			}
-			refs := []string{}
-			for _, face := range manifest.FaceOrder {
-				faceManifest := manifest.Faces[face]
-				if faceManifest.Kind != "markdown" {
-					continue
-				}
-				content, err := svc.readText(scope, filepath.ToSlash(filepath.Join(rel, faceManifest.File)))
-				if err != nil {
-					continue
-				}
-				refs = append(refs, extractNoteRefs(content)...)
+			refs := svc.collectRefsForNote(scope, manifest, rel)
+			if len(refs) == 0 {
+				continue
 			}
-			refs = uniqueStrings(refs)
-			if len(refs) > 0 {
-				idx[manifest.ID] = refs
-			}
+			idx[manifest.ID] = refs
 		}
-	}
-	return svc.saveRefIndex(scope, idx)
-}
-
-func (svc *service) updateRefsForNote(scope string, noteID string, body string) error {
-	noteID = strings.TrimSpace(noteID)
-	if noteID == "" {
-		return nil
-	}
-	idx, err := svc.loadRefIndex(scope)
-	if err != nil {
-		return err
-	}
-	refs := extractNoteRefs(body)
-	if len(refs) > 0 {
-		idx[noteID] = refs
-	} else {
-		delete(idx, noteID)
 	}
 	return svc.saveRefIndex(scope, idx)
 }
@@ -188,37 +205,6 @@ func (svc *service) removeNoteRef(scope string, noteID string) error {
 	}
 	delete(idx, strings.TrimSpace(noteID))
 	return svc.saveRefIndex(scope, idx)
-}
-
-func extractNoteRefs(body string) []string {
-	out := []string{}
-	seen := map[string]bool{}
-	text := strings.ReplaceAll(body, "\r\n", "\n")
-	for {
-		start := strings.Index(text, "[[")
-		if start < 0 {
-			break
-		}
-		text = text[start+2:]
-		end := strings.Index(text, "]]")
-		if end < 0 {
-			break
-		}
-		inner := text[:end]
-		text = text[end+2:]
-		for _, part := range strings.Split(inner, "|") {
-			part = strings.TrimSpace(part)
-			if !strings.HasPrefix(part, "note_id=") {
-				continue
-			}
-			id := strings.TrimSpace(strings.TrimPrefix(part, "note_id="))
-			if id != "" && !seen[id] {
-				seen[id] = true
-				out = append(out, id)
-			}
-		}
-	}
-	return out
 }
 
 func (svc *service) listTrash(scope string) ([]trashItem, error) {
@@ -356,7 +342,9 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
 		_ = writeJSONFile(path, idx)
 	}
-	_ = svc.removeNoteRef(scope, note.ID)
+	if err := svc.removeNoteRef(scope, note.ID); err != nil {
+		return nil, err
+	}
 	return map[string]string{"trashDir": toRel}, nil
 }
 
@@ -461,8 +449,7 @@ func (svc *service) permanentlyDeleteNoteDir(scope string, noteID string, dir st
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
 		_ = writeJSONFile(path, idx)
 	}
-	_ = svc.removeNoteRef(scope, noteID)
-	return nil
+	return svc.removeNoteRef(scope, noteID)
 }
 
 func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, error) {

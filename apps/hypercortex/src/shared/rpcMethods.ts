@@ -39,9 +39,6 @@ export const HyperCortexRpc = {
   },
   refs: {
     loadIndex: 'hypercortex.refs.loadIndex',
-    saveIndex: 'hypercortex.refs.saveIndex',
-    updateForNote: 'hypercortex.refs.updateForNote',
-    removeNote: 'hypercortex.refs.removeNote',
   },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',

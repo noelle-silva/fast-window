@@ -1,5 +1,6 @@
 export type NotePlaceholder = {
   noteId: string
+  face?: string
   title?: string
   remarks?: string
 }
@@ -18,6 +19,7 @@ export function parseNotePlaceholderBody(body: string): NotePlaceholder | null {
   if (!raw) return null
 
   let noteId = ''
+  let face: string | undefined
   let title: string | undefined
   let remarks: string | undefined
 
@@ -29,20 +31,24 @@ export function parseNotePlaceholderBody(body: string): NotePlaceholder | null {
     const key = seg.slice(0, eq).trim()
     const value = seg.slice(eq + 1)
     if (key === 'note_id') noteId = String(value || '').trim()
+    else if (key === 'face') face = String(value || '').trim()
     else if (key === 'title') title = String(value || '')
     else if (key === 'remarks') remarks = String(value || '')
   }
 
   if (!noteId) return null
   const out: NotePlaceholder = { noteId }
+  if (face) out.face = face
   if (typeof title === 'string') out.title = title
   if (typeof remarks === 'string') out.remarks = remarks
   return out
 }
 
-export function buildNotePlaceholderForCopy(noteId: string, noteTitleAtCopy: string): string {
+export function buildNotePlaceholderForCopy(noteId: string, noteTitleAtCopy: string, face?: string): string {
   const id = String(noteId || '').trim()
   const remarks = sanitizePlaceholderValue(noteTitleAtCopy)
-  return `[[note_id=${id}|title=|remarks=${remarks}]]`
+  const faceSegment = String(face || '').trim()
+  const facePart = faceSegment ? `|face=${faceSegment}` : ''
+  return `[[note_id=${id}${facePart}|title=|remarks=${remarks}]]`
 }
 

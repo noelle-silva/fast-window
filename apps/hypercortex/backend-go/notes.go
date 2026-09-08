@@ -157,9 +157,12 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	_ = svc.updateRefsForNote(scope, id, body)
+	refs, err := svc.updateRefsForNotePackage(scope, desiredDir, manifest)
+	if err != nil {
+		return nil, err
+	}
 	doc := noteDoc{ID: id, PackageDir: desiredDir, Title: title, Description: description, Body: body, Tags: manifest.Tags, CreatedAtMs: created, UpdatedAtMs: updated, SchemaVersion: 2, Resources: manifest.Resources, DisplayHTML: renderMarkdownLite(body)}
-	return map[string]any{"meta": meta, "doc": doc}, nil
+	return map[string]any{"meta": meta, "doc": doc, "refs": refs}, nil
 }
 
 func (svc *service) loadNotePackage(scope string, packageDir string) (noteDoc, error) {
@@ -248,7 +251,11 @@ func (svc *service) saveHTMLFace(scope string, raw json.RawMessage) (any, error)
 	if !ok {
 		return nil, errors.New("保存 HTML 面缺少 faceDoc")
 	}
-	return map[string]any{"meta": meta, "htmlFace": htmlFaceDocFromFaceDoc(faceDoc)}, nil
+	refs, ok := resultMap["refs"].(map[string][]noteRef)
+	if !ok {
+		return nil, errors.New("保存 HTML 面缺少 refs")
+	}
+	return map[string]any{"meta": meta, "htmlFace": htmlFaceDocFromFaceDoc(faceDoc), "refs": refs}, nil
 }
 
 func (svc *service) deleteHTMLFace(scope string, packageDir string) (htmlFaceDoc, error) {

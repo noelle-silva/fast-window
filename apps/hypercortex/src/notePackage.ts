@@ -12,7 +12,6 @@ import {
 } from './core'
 import { notePackageDirForId, notePathInPackage } from './notePackagePaths'
 import { renderNoteDisplayHtml } from './noteRender'
-import { updateRefsForNote } from './noteRefs'
 import {
   NOTE_MANIFEST_FILE,
   createNoteDocData,
@@ -237,7 +236,6 @@ export async function saveNotePackage(
   })
   const meta = noteMetaFromDoc(docData)
   await upsertNoteIndex(api, scope, meta)
-  await updateRefsForNote(api, scope, id, input.body ?? '').catch(() => {})
   return { meta, doc: noteDocWithDisplay(docData) }
 }
 

@@ -16,7 +16,7 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
-import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
+import { extractNoteRefs, getBacklinksFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { buildAssetMarkerBlock, formatAssetMarkerInsertion } from '../assetMarker'
 import { mergeNoteResources } from '../noteResources'
@@ -150,7 +150,7 @@ export type NoteDetailSessionProps = {
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
-    refsForIndex?: string[]
+    refsForIndex?: NoteRefEntryMap
   }) => void
   trashEnabled: boolean
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
@@ -663,6 +663,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       let nextDoc: HyperCortexNoteDoc | null = doc
       let nextHtmlFace: HyperCortexHtmlFaceDoc | null = htmlFace
       let toastMsg: string
+      let refsForIndex: NoteRefEntryMap | undefined
 
       if (isHtmlFaceId(face, faceManifests)) {
         const result = await gateway.notes.saveHtmlFace(scope, {
@@ -687,6 +688,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           setDoc(nextDoc)
         }
         toastMsg = 'HTML 面已保存'
+        refsForIndex = result.refs
       } else {
         const result = await gateway.notes.saveNotePackage(scope, {
           id: isDraft ? undefined : originalId,
@@ -705,6 +707,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         setEditBody(nextDoc.body)
         setEditResources(nextDoc.resources || [])
         toastMsg = '笔记已保存'
+        refsForIndex = result.refs
       }
 
       const nextBase: NoteContent = {
@@ -736,8 +739,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         infoSidebarVisible,
       } : undefined
 
-      const refsSourceBody = isTextFaceId(face, faceManifests) ? body : (doc?.body || '')
-      const refsForIndex = extractNoteRefs(refsSourceBody).filter(id => !!allNotesById[id])
       onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex })
 
       // 侧边栏未保存黄点：保存成功后应立即消失（不依赖上层重新渲染时机）。
@@ -788,10 +789,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditing(false)
     setTextEditorMode('live')
 
-    const refsForIndex = extractNoteRefs(result.doc.body || '').filter(id => !!allNotesById[id])
-    onSaved({ originalId: noteId, meta: result.meta, refsForIndex })
+    onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
     onDirtyChange?.({ noteId, dirty: false })
-  }, [allNotesById, gateway, note.dir, noteId, onDirtyChange, onSaved, scope])
+  }, [gateway, note.dir, noteId, onDirtyChange, onSaved, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {

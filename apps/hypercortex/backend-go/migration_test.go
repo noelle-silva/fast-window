@@ -68,8 +68,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 3 {
-		t.Fatalf("applied count = %d, want 3", len(ledger.Applied))
+	if len(ledger.Applied) != 4 {
+		t.Fatalf("applied count = %d, want 4", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -79,6 +79,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	}
 	if ledger.Applied[2].ID != noteFaceSystemUnificationMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[2].ID, noteFaceSystemUnificationMigration)
+	}
+	if ledger.Applied[3].ID != noteFaceRefsV2Migration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[3].ID, noteFaceRefsV2Migration)
 	}
 }
 
@@ -96,8 +99,8 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 3 {
-		t.Fatalf("applied count = %d, want 3", len(ledger.Applied))
+	if len(ledger.Applied) != 4 {
+		t.Fatalf("applied count = %d, want 4", len(ledger.Applied))
 	}
 }
 
@@ -282,11 +285,14 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 	if err != nil {
 		t.Fatalf("load refs failed: %v", err)
 	}
-	if got := refs["202609010001"]; len(got) != 2 || got[0] != "other-a" || got[1] != "other-b" {
-		t.Fatalf("refs = %+v, want [other-a other-b]", got)
+	if got := refs["202609010001"]["text"]; len(got) != 2 || got[0].NoteID != "other-a" || got[0].FaceID != "" || got[1].NoteID != "other-b" || got[1].FaceID != "" {
+		t.Fatalf("text face refs = %+v, want [other-a other-b]", got)
+	}
+	if got := refs["202609010001"]["html"]; len(got) != 1 || got[0].NoteID != "other-a" || got[0].FaceID != "" {
+		t.Fatalf("html face refs = %+v, want [other-a]", got)
 	}
 	if _, ok := refs["202609010002"]; ok {
-		t.Fatalf("html only note should not be in refs: %+v", refs)
+		t.Fatalf("html only note without refs should not be in refs: %+v", refs)
 	}
 
 	snapshot, err := svc.loadNoteVersion("library", filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "v_20260101_000000_00000000")

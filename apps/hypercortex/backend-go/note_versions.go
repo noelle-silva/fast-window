@@ -333,20 +333,15 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	textContent := ""
-	if textFace, ok := manifest.Faces["text"]; ok {
-		if saved, ok := snapshot.Faces[textFace.ID]; ok {
-			textContent = saved.Content
-		}
-	}
-	if err := svc.updateRefsForNote(scope, manifest.ID, textContent); err != nil {
+	refs, err := svc.updateRefsForNotePackage(scope, packageDir, manifest)
+	if err != nil {
 		return nil, err
 	}
 	doc, err := svc.loadNotePackage(scope, packageDir)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest}, nil
+	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest, "refs": refs}, nil
 }
 
 func (svc *service) refreshNoteVersionSnapshots() error {

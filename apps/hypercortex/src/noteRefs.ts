@@ -1,9 +1,15 @@
-import { REFS_INDEX_FILE, tryLoadIndex, type Api, type VaultScope } from './core'
 import { parseNotePlaceholderBody } from './notePlaceholder'
 
 const NOTE_PLACEHOLDER_PATTERN = /\[\[([^\]\n]+?)\]\]/g
 
-export type NoteRefIndex = Record<string, string[]>
+export type NoteRef = {
+  noteId: string
+  faceId?: string
+}
+
+export type NoteRefIndex = Record<string, Record<string, NoteRef[]>>
+
+export type NoteRefEntryMap = Record<string, NoteRef[]>
 
 function maskFencedCodeBlocks(body: string): string {
   const src = String(body || '')
@@ -63,65 +69,32 @@ function maskCode(body: string): string {
   return maskInlineCodeSpans(maskFencedCodeBlocks(body))
 }
 
-export function extractNoteRefs(body: string): string[] {
+function parseNoteRefsFromText(body: string): NoteRef[] {
   const text = maskCode(body)
-  const ids = new Set<string>()
+  const byKey = new Map<string, NoteRef>()
 
   for (const match of text.matchAll(NOTE_PLACEHOLDER_PATTERN)) {
     const inner = String(match?.[1] || '').trim()
     const parsed = parseNotePlaceholderBody(inner)
-    const id = String(parsed?.noteId || '').trim()
-    if (!id) continue
-    ids.add(id)
+    if (!parsed) continue
+    const noteId = String(parsed.noteId || '').trim()
+    if (!noteId) continue
+    const faceId = String(parsed.face || '').trim() || undefined
+    byKey.set(`${noteId}\u0000${faceId || ''}`, { noteId, faceId })
   }
 
-  return Array.from(ids)
+  return Array.from(byKey.values())
 }
 
-export async function loadRefIndex(api: Api, scope: VaultScope): Promise<NoteRefIndex> {
-  try {
-    const raw = await api.files.readText({ scope, path: REFS_INDEX_FILE })
-    const parsed = JSON.parse(raw || 'null')
-    if (!parsed || typeof parsed !== 'object') return {}
-
-    const entries = Object.entries(parsed as Record<string, unknown>).map(([noteId, value]) => {
-      const refs = Array.isArray(value) ? value.map(v => String(v || '').trim()).filter(Boolean) : []
-      return [String(noteId || '').trim(), Array.from(new Set(refs))] as const
-    })
-
-    return Object.fromEntries(entries.filter(([k]) => !!k))
-  } catch {
-    return {}
+export function extractNoteRefs(body: string): string[] {
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const ref of parseNoteRefsFromText(body)) {
+    if (seen.has(ref.noteId)) continue
+    seen.add(ref.noteId)
+    ids.push(ref.noteId)
   }
-}
-
-export async function saveRefIndex(api: Api, scope: VaultScope, index: NoteRefIndex): Promise<void> {
-  await api.files.writeText({ scope, path: REFS_INDEX_FILE, text: JSON.stringify(index, null, 2), overwrite: true })
-}
-
-export async function updateRefsForNote(api: Api, scope: VaultScope, noteId: string, body: string): Promise<void> {
-  const id = String(noteId || '').trim()
-  if (!id) return
-
-  const refs = extractNoteRefs(body)
-  const idx = await tryLoadIndex(api, scope).catch(() => null)
-  const existingIds = new Set(Object.keys(idx?.notes || {}))
-  const filtered = refs.filter(rid => existingIds.has(rid))
-  const index = await loadRefIndex(api, scope)
-
-  if (filtered.length > 0) index[id] = filtered
-  else delete index[id]
-
-  await saveRefIndex(api, scope, index)
-}
-
-export async function removeNoteFromRefIndex(api: Api, scope: VaultScope, noteId: string): Promise<void> {
-  const id = String(noteId || '').trim()
-  if (!id) return
-
-  const index = await loadRefIndex(api, scope)
-  delete index[id]
-  await saveRefIndex(api, scope, index)
+  return ids
 }
 
 export function getBacklinksFor(index: NoteRefIndex, noteId: string): string[] {
@@ -129,9 +102,12 @@ export function getBacklinksFor(index: NoteRefIndex, noteId: string): string[] {
   if (!id) return []
 
   const backlinks: string[] = []
-  for (const [from, refs] of Object.entries(index || {})) {
-    if (!Array.isArray(refs)) continue
-    if (refs.includes(id)) backlinks.push(from)
+  for (const [from, faces] of Object.entries(index || {})) {
+    if (!faces || typeof faces !== 'object') continue
+    const matched = Object.values(faces).some(refs =>
+      Array.isArray(refs) && refs.some(ref => ref && String(ref.noteId || '').trim() === id),
+    )
+    if (matched) backlinks.push(from)
   }
   return backlinks
 }

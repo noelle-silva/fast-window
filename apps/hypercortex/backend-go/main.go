@@ -261,12 +261,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "hypercortex.refs.loadIndex":
 		return svc.loadRefIndex(requireScope(params))
-	case "hypercortex.refs.saveIndex":
-		return nil, svc.writeRawJSON(requireScope(params), refsIndexFile, rawField(params, "idx"))
-	case "hypercortex.refs.updateForNote":
-		return nil, svc.updateRefsForNote(requireScope(params), stringField(params, "noteId"), stringField(params, "body"))
-	case "hypercortex.refs.removeNote":
-		return nil, svc.removeNoteRef(requireScope(params), stringField(params, "noteId"))
 
 	case "hypercortex.trash.list":
 		return svc.listTrash(requireScope(params))

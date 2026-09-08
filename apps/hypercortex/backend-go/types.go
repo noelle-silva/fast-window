@@ -65,11 +65,17 @@ type resourceRef struct {
 	Name    string `json:"name,omitempty"`
 }
 
+type noteRef struct {
+	NoteID string `json:"noteId"`
+	FaceID string `json:"faceId,omitempty"`
+}
+
+type noteRefIndex map[string]map[string][]noteRef
+
 type faceCapabilities struct {
 	Editable    bool `json:"editable"`
 	Searchable  bool `json:"searchable"`
 	Previewable bool `json:"previewable"`
-	Linkable    bool `json:"linkable"`
 	Creatable   bool `json:"creatable"`
 	Deletable   bool `json:"deletable"`
 }
