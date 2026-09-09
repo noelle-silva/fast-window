@@ -637,16 +637,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ clipboard: gateway.clipboard, host: gateway.host, assets: gateway.assets, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
 
-  const noteIndexMap = React.useMemo(() => {
-    const map: Record<string, { title: string }> = {}
-    for (const n of allNotes) map[n.id] = { title: n.title }
-    return map
-  }, [allNotes])
-
-  React.useEffect(() => {
-    renderEngineRef.current.noteIndex = noteIndexMap
-  }, [noteIndexMap])
-
   const consumeInitSnapshot = React.useCallback((noteId: string): NoteDetailSnapshotV1 | null => {
     const nid = String(noteId || '').trim()
     if (!nid) return null
@@ -738,10 +728,24 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     refIndexRef.current = refIndex
   }, [refIndex])
 
+  // ---- 面切换请求（点击引用跳转指定面：复用同一标签页）
+  const faceSwitchSeqRef = React.useRef(0)
+  const [faceSwitchLatestSeq, setFaceSwitchLatestSeq] = React.useState(0)
+  const [faceSwitchRequest, setFaceSwitchRequest] = React.useState<{ noteId: string; faceId: string; seq: number } | null>(null)
+
+  const handleFaceSwitchConsumed = React.useCallback((seq: number) => {
+    setFaceSwitchRequest(prev => (prev && prev.seq === seq ? null : prev))
+  }, [])
+
   const refIndexLoadPromiseRef = React.useRef<Promise<NoteRefIndex> | null>(null)
   const ensureRefIndexLoaded = React.useCallback(async () => {
     if (refIndexRef.current && Object.keys(refIndexRef.current).length) return refIndexRef.current
-    if (!refIndexLoadPromiseRef.current) refIndexLoadPromiseRef.current = gateway.refs.loadRefIndex('library')
+    if (!refIndexLoadPromiseRef.current) {
+      refIndexLoadPromiseRef.current = gateway.refs.loadRefIndex('library').catch(err => {
+        refIndexLoadPromiseRef.current = null
+        throw err
+      })
+    }
     const idx = await refIndexLoadPromiseRef.current
     setRefIndex(idx)
     return idx
@@ -766,6 +770,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       if (
         existed &&
         existed.faceLabels.join('\n') === nextInfo.faceLabels.join('\n') &&
+        existed.faceIds.join('\n') === nextInfo.faceIds.join('\n') &&
         existed.tags.join('\n') === nextInfo.tags.join('\n')
       ) return prev
       return { ...prev, [nid]: nextInfo }
@@ -803,6 +808,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     })
     return () => ctl.cancel()
   }, [allNotes, ensureNoteCardInfoLoaded, visiblePage])
+
+  const noteIndexMap = React.useMemo(() => {
+    const map: Record<string, { title: string; faceIds: string[] }> = {}
+    for (const n of allNotes) {
+      map[n.id] = { title: n.title, faceIds: noteCardInfoById[n.id]?.faceIds || [] }
+    }
+    return map
+  }, [allNotes, noteCardInfoById])
+
+  React.useEffect(() => {
+    renderEngineRef.current.noteIndex = noteIndexMap
+  }, [noteIndexMap])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: MetadataPatch) => {
@@ -2153,9 +2170,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
-    (note: NoteMeta) => {
+    (note: NoteMeta, faceId?: string) => {
       const nid = String(note?.id || '').trim()
       if (!nid) return
+      void ensureRefIndexLoaded().catch(() => {})
       const nextKey = noteTabKey(nid)
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
@@ -2168,8 +2186,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setActiveTabKey(nextKey)
       updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(nextKey) ? prev : insertTabAsUngrouped(prev, nextKey, prev.length)), { activeTabKey: nextKey })
       navigatePage('note-detail')
+      const targetFace = String(faceId || '').trim()
+      if (targetFace) {
+        faceSwitchSeqRef.current += 1
+        const seq = faceSwitchSeqRef.current
+        setFaceSwitchLatestSeq(seq)
+        setFaceSwitchRequest({ noteId: nid, faceId: targetFace, seq })
+      }
     },
-    [navigatePage, recordNewNavLocation, updateSidebarItems],
+    [ensureRefIndexLoaded, navigatePage, recordNewNavLocation, updateSidebarItems],
   )
 
   const handleCreateNoteInIndex = React.useCallback(
@@ -2977,8 +3002,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       noteIndexMap={noteIndexMap}
                       allNotesById={allNotesById}
                       refIndex={refIndex}
+                      faceSwitchRequest={faceSwitchRequest}
+                      faceSwitchLatestSeq={faceSwitchLatestSeq}
+                      onFaceSwitchConsumed={handleFaceSwitchConsumed}
                       consumeInitSnapshot={consumeInitSnapshot}
                       onOpenNote={handleOpenNote}
+                      onEnsureNoteCardInfoLoaded={ensureNoteCardInfoLoaded}
                       onDirtyChange={handleNoteDirtyChange}
                       onSaved={handleNoteSessionSaved}
                       trashEnabled={trashEnabled}

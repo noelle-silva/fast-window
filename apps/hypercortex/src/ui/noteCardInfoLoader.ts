@@ -12,12 +12,15 @@ export async function loadNoteCardInfo(notes: NotesService, scope: VaultScope, m
   const manifest = await notes.tryReadNoteManifest(scope, meta.dir)
   if (!manifest) return null
 
+  const faceOrder = Array.isArray(manifest.faceOrder) ? manifest.faceOrder.map(v => String(v || '').trim()).filter(Boolean) : Object.keys(manifest.faces || {})
+
   return {
     tags: Array.isArray(manifest.tags) ? manifest.tags.map(v => String(v || '').trim()).filter(Boolean) : [],
-    faceLabels: (manifest.faceOrder || Object.keys(manifest.faces || {}))
+    faceLabels: faceOrder
       .map(faceId => manifest.faces?.[faceId])
       .filter(Boolean)
       .map(face => String(face.title || '').trim() || labelForFaceKind(face.kind)),
+    faceIds: faceOrder.filter(faceId => !!manifest.faces?.[faceId]),
   }
 }
 

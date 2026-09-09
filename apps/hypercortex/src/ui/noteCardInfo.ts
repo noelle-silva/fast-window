@@ -4,6 +4,7 @@ import { isDraftNoteId } from '../drafts'
 export type NoteCardInfo = {
   tags: string[]
   faceLabels: string[]
+  faceIds: string[]
 }
 
 export function noteContainsLabel(info: NoteCardInfo | null | undefined): string {

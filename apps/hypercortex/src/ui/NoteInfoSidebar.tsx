@@ -1,4 +1,5 @@
 import { Box, TextField, Typography } from '@mui/material'
+import type { NoteBacklinkRef } from '../noteRefs'
 
 function formatDateTime(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—'
@@ -20,14 +21,18 @@ function formatDateTime(ms: number): string {
 function NoteIdChip(props: {
   noteId: string
   title?: string
+  stale?: boolean
+  badge?: string
   onOpen?: () => void
 }) {
-  const { noteId, title, onOpen } = props
+  const { noteId, title, stale, badge, onOpen } = props
   const clickable = typeof onOpen === 'function'
+  const displayTitle = title || (noteId ? noteId.slice(0, 12) + (noteId.length > 12 ? '…' : '') : '—')
   return (
     <Box
       component="span"
       onClick={clickable ? onOpen : undefined}
+      title={stale ? '此面已失效，点击仍可打开笔记' : undefined}
       sx={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -35,14 +40,33 @@ function NoteIdChip(props: {
         py: 0.5,
         borderRadius: 999,
         fontSize: 12,
-        color: clickable ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-        bgcolor: clickable ? 'var(--hc-primary-soft)' : 'var(--hc-surface-soft)',
+        color: stale ? 'rgba(0,0,0,.38)' : clickable ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+        bgcolor: stale ? 'var(--hc-surface-soft)' : clickable ? 'var(--hc-primary-soft)' : 'var(--hc-surface-soft)',
         cursor: clickable ? 'pointer' : 'default',
+        textDecoration: stale ? 'line-through' : 'none',
         transition: 'background 120ms',
-        '&:hover': clickable ? { bgcolor: 'var(--hc-primary-hover)' } : {},
+        '&:hover': clickable ? (stale ? { bgcolor: 'var(--hc-surface-muted)' } : { bgcolor: 'var(--hc-primary-hover)' }) : {},
       }}
     >
-      {title || (noteId ? noteId.slice(0, 12) + (noteId.length > 12 ? '…' : '') : '—')}
+      {stale ? `此面已失效：${displayTitle}` : displayTitle}
+      {badge ? (
+        <Box
+          component="span"
+          sx={{
+            ml: 0.5,
+            px: 0.5,
+            borderRadius: 999,
+            fontSize: 9,
+            lineHeight: 1.4,
+            fontWeight: 700,
+            color: 'rgba(0,0,0,.38)',
+            bgcolor: 'rgba(0,0,0,.06)',
+            userSelect: 'none',
+          }}
+        >
+          {badge}
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -50,6 +74,7 @@ function NoteIdChip(props: {
 function NoteRefSection(props: {
   title: string
   ids: string[]
+  isStaleId?: (id: string) => boolean
   resolveTitle: (id: string) => string | undefined
   canOpenId: (id: string) => boolean
   onOpenId: (id: string) => void
@@ -71,7 +96,48 @@ function NoteRefSection(props: {
                 key={id}
                 noteId={id}
                 title={title || (id ? id.slice(0, 12) + (id.length > 12 ? '…' : '') : '—')}
+                stale={!!props.isStaleId?.(id)}
                 onOpen={canOpen ? () => props.onOpenId(id) : undefined}
+              />
+            )
+          })}
+        </Box>
+      ) : (
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.35)' }}>暂无</Typography>
+      )}
+    </Box>
+  )
+}
+
+function NoteBacklinkList(props: {
+  title: string
+  refs: NoteBacklinkRef[]
+  isStaleRef?: (ref: NoteBacklinkRef) => boolean
+  resolveTitle: (id: string) => string | undefined
+  canOpenId: (id: string) => boolean
+  onOpenRef: (ref: NoteBacklinkRef) => void
+}) {
+  const refs = Array.from(new Map((props.refs || []).map(ref => [String(ref.noteId || '').trim(), ref])).values()).filter(ref => !!ref.noteId)
+  const visibleRefs = refs.filter(ref => props.canOpenId(ref.noteId))
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 0.75 }}>
+        {props.title}{visibleRefs.length ? `（${visibleRefs.length}）` : ''}
+      </Typography>
+      {visibleRefs.length ? (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {visibleRefs.map(ref => {
+            const id = ref.noteId
+            const title = props.resolveTitle(id)
+            const stale = !!props.isStaleRef?.(ref)
+            return (
+              <NoteIdChip
+                key={id}
+                noteId={id}
+                title={title || (id ? id.slice(0, 12) + (id.length > 12 ? '…' : '') : '—')}
+                stale={stale}
+                badge={stale ? undefined : ref.faceId || undefined}
+                onOpen={() => props.onOpenRef(ref)}
               />
             )
           })}
@@ -90,11 +156,14 @@ export function NoteInfoSidebar(props: {
   createdAtMs: number
   updatedAtMs: number
   outgoingIds: string[]
-  backlinkIds: string[]
+  allBacklinks: NoteBacklinkRef[]
+  faceBacklinkGroups: { faceId: string; label: string; refs: NoteBacklinkRef[] }[]
   onDescriptionChange: (value: string) => void
   resolveTitle: (id: string) => string | undefined
   canOpenId: (id: string) => boolean
   onOpenId: (id: string) => void
+  onOpenRef: (ref: NoteBacklinkRef) => void
+  isBacklinkStale?: (ref: NoteBacklinkRef) => boolean
 }) {
   const noteId = String(props.noteId || '').trim()
   return (
@@ -105,7 +174,24 @@ export function NoteInfoSidebar(props: {
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
         <NoteRefSection title="本笔记引用" ids={props.outgoingIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
-        <NoteRefSection title="引用本笔记" ids={props.backlinkIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+        <NoteBacklinkList
+          title="全部引用"
+          refs={props.allBacklinks}
+          isStaleRef={props.isBacklinkStale}
+          resolveTitle={props.resolveTitle}
+          canOpenId={props.canOpenId}
+          onOpenRef={props.onOpenRef}
+        />
+        {props.faceBacklinkGroups.map(group => (
+          <NoteBacklinkList
+            key={group.faceId}
+            title={group.label}
+            refs={group.refs}
+            resolveTitle={props.resolveTitle}
+            canOpenId={props.canOpenId}
+            onOpenRef={props.onOpenRef}
+          />
+        ))}
       </Box>
 
       <Box sx={{ mt: 2.25, display: 'flex', flexDirection: 'column', gap: 1 }}>

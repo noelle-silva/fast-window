@@ -16,7 +16,7 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
-import { extractNoteRefs, getBacklinksFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
+import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { buildAssetMarkerBlock, formatAssetMarkerInsertion } from '../assetMarker'
 import { mergeNoteResources } from '../noteResources'
@@ -140,11 +140,15 @@ export type NoteDetailSessionProps = {
   note: NoteMeta
   visible: boolean
   bodyScrollRef?: React.Ref<HTMLDivElement>
-  noteIndexMap: Record<string, { title: string }>
+  noteIndexMap: Record<string, { title: string; faceIds?: string[] }>
   allNotesById: Record<string, NoteMeta>
   refIndex: NoteRefIndex
+  faceSwitchRequest?: { noteId: string; faceId: string; seq: number } | null
+  faceSwitchLatestSeq?: number
+  onFaceSwitchConsumed?: (seq: number) => void
   consumeInitSnapshot: (noteId: string) => NoteDetailSnapshotV1 | null
-  onOpenNote: (note: NoteMeta) => void
+  onOpenNote: (note: NoteMeta, faceId?: string) => void
+  onEnsureNoteCardInfoLoaded?: (meta: NoteMeta) => void | Promise<void>
   onDirtyChange?: (payload: { noteId: string; dirty: boolean }) => void
   onSaved: (payload: {
     originalId: string
@@ -172,8 +176,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     noteIndexMap,
     allNotesById,
     refIndex,
+    faceSwitchRequest,
+    faceSwitchLatestSeq,
+    onFaceSwitchConsumed,
     consumeInitSnapshot,
     onOpenNote,
+    onEnsureNoteCardInfoLoaded,
     onSaved,
     trashEnabled,
     onRequestDeleteNote,
@@ -203,6 +211,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [textEditorMode, setTextEditorMode] = React.useState<TextEditorMode>(init?.textEditorMode ?? 'live')
   const [face, setFace] = React.useState<NoteFaceId>(init?.face ?? 'text')
   const [faces, setFaces] = React.useState<NoteFaceId[]>(init?.faces ?? ['text'])
+  const [facesReady, setFacesReady] = React.useState(() => !!init?.faces || isDraft)
   const [infoSidebarVisible, setInfoSidebarVisible] = React.useState(init?.infoSidebarVisible ?? false)
   const facesRef = React.useRef<NoteFaceId[]>(faces)
   React.useEffect(() => {
@@ -480,6 +489,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     })
     setFaceManifests({ text: createDefaultFaceManifest('markdown') })
     setFaces(['text'])
+    setFacesReady(true)
   }, [doc, editBody, editDescription, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
 
   const hasEverActivatedRef = React.useRef(false)
@@ -507,6 +517,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       const nextFaces: NoteFaceId[] = normalizeFaceOrder(manifest.faceOrder, manifest.faces)
       setFaces(nextFaces)
+      setFacesReady(true)
 
       const nextBase: NoteContent = {
         title: loadedDoc.title || note.title || '未命名',
@@ -571,7 +582,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       if (!targetId) return
       e.preventDefault()
       const meta = allNotesById[targetId]
-      if (meta) onOpenNote(meta)
+      if (!meta) return
+      const faceId = String(link.getAttribute('data-face-id') || '').trim()
+      onOpenNote(meta, faceId || undefined)
     }
     el.addEventListener('click', handler)
     return () => el.removeEventListener('click', handler)
@@ -583,10 +596,34 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     return extractNoteRefs(body)
   }, [doc?.body, editBody, face, faceManifests, infoSidebarVisible])
 
-  const backlinkIds = React.useMemo(() => {
+  React.useEffect(() => {
+    if (!onEnsureNoteCardInfoLoaded) return
+    if (!doc) return
+    const targets = extractNoteRefs(editBody || doc.body || '')
+    for (const id of targets) {
+      const meta = allNotesById[id]
+      if (!meta) continue
+      try {
+        void Promise.resolve(onEnsureNoteCardInfoLoaded(meta)).catch(() => {})
+      } catch (_) {}
+    }
+  }, [allNotesById, doc, editBody, onEnsureNoteCardInfoLoaded])
+
+  const allBacklinks = React.useMemo(() => {
     if (!noteId) return []
     return getBacklinksFor(refIndex, noteId)
   }, [noteId, refIndex])
+
+  const faceBacklinkGroups = React.useMemo(() => {
+    if (!noteId) return []
+    return faces
+      .map(faceId => ({
+        faceId,
+        label: `${faceLabel(faceId, faceManifests)}面引用`,
+        refs: getFaceBacklinksFor(refIndex, noteId, faceId),
+      }))
+      .filter(group => group.refs.length > 0)
+  }, [faces, faceManifests, noteId, refIndex])
 
   const toggleTextEditorMode = React.useCallback(() => {
     setTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
@@ -802,6 +839,32 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       return next
     })
   }, [])
+
+  React.useEffect(() => {
+    const req = faceSwitchRequest
+    if (!req || req.noteId !== noteId) return
+    if (req.seq !== faceSwitchLatestSeq) return
+    const faceId = String(req.faceId || '').trim()
+    if (!faceId) return
+    if (!facesReady) return
+    if (faces.includes(faceId)) setFace(faceId)
+    onFaceSwitchConsumed?.(req.seq)
+  }, [faceSwitchRequest, faceSwitchLatestSeq, faces, facesReady, noteId, onFaceSwitchConsumed])
+
+  React.useEffect(() => {
+    return () => {
+      const req = faceSwitchRequest
+      if (req && req.noteId === noteId) onFaceSwitchConsumed?.(req.seq)
+    }
+  }, [faceSwitchRequest, noteId, onFaceSwitchConsumed])
+
+  const copyFaceRef = React.useCallback((faceId: string) => {
+    const face = String(faceId || '').trim()
+    if (!face) return
+    const title = editTitle || doc?.title || note.title || ''
+    void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, title, face))
+    void gateway.host.toast('已复制此面引用占位符')
+  }, [doc?.title, editTitle, gateway, note.title, noteId])
 
   React.useImperativeHandle(ref, () => ({
     isDirty: () => dirty,
@@ -1210,32 +1273,47 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               }}
             >
               {faces.map(f => (
-                <Box
-                  key={f}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setFace(f)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setFace(f)
-                    }
-                  }}
-                  sx={{
-                    minWidth: 56,
-                    px: 1.5,
-                    py: 0.75,
-                    borderRadius: 999,
-                    bgcolor: face === f ? '#111' : 'transparent',
-                    color: face === f ? '#fff' : '#374151',
-                    fontSize: 12,
-                    lineHeight: 1,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
-                >
-                  {faceLabel(f, faceManifests)}
+                <Box key={f} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setFace(f)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setFace(f)
+                      }
+                    }}
+                    sx={{
+                      minWidth: 56,
+                      px: 1.5,
+                      py: 0.75,
+                      borderRadius: 999,
+                      bgcolor: face === f ? '#111' : 'transparent',
+                      color: face === f ? '#fff' : '#374151',
+                      fontSize: 12,
+                      lineHeight: 1,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {faceLabel(f, faceManifests)}
+                  </Box>
+                  <Tooltip title="复制此面引用" placement="bottom-end">
+                    <IconButton
+                      size="small"
+                      aria-label={`复制 ${faceLabel(f, faceManifests)} 面引用`}
+                      onClick={() => copyFaceRef(f)}
+                      sx={{
+                        color: 'rgba(0,0,0,.48)',
+                        p: 0.4,
+                        '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                      }}
+                    >
+                      <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
               ))}
             </Box>
@@ -1449,7 +1527,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 createdAtMs={doc.createdAtMs}
                 updatedAtMs={doc.updatedAtMs}
                 outgoingIds={outgoingIds}
-                backlinkIds={backlinkIds}
+                allBacklinks={allBacklinks}
+                faceBacklinkGroups={faceBacklinkGroups}
                 onDescriptionChange={setEditDescription}
                 resolveTitle={id => allNotesById[id]?.title}
                 canOpenId={id => !!allNotesById[id]}
@@ -1457,6 +1536,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   const meta = allNotesById[id]
                   if (meta) onOpenNote(meta)
                 }}
+                onOpenRef={ref => {
+                  const meta = allNotesById[ref.noteId]
+                  if (meta) onOpenNote(meta, ref.faceId || undefined)
+                }}
+                isBacklinkStale={ref => isBacklinkStaleFor(refIndex, noteId, ref.noteId, faceId => !!faceManifests[String(faceId || '').trim()])}
               />
             </Box>
           ) : null}

@@ -26,7 +26,7 @@ export type MarkdownRenderEngine = {
     options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void; assetInline?: boolean },
   ) => void
   bindPlaybackReporter: (el: unknown, onPlayingChange: (playing: boolean) => void) => MediaPlaybackCleanup
-  noteIndex?: Record<string, { title: string }>
+  noteIndex?: Record<string, { title: string; faceIds?: string[] }>
 }
 
 /* ------------------------------------------------------------------ */
@@ -80,6 +80,9 @@ const ENGINE_CSS = `
 .hc-note-ref{color:var(--hc-primary);text-decoration:none;background:var(--hc-primary-soft);border-radius:8px;padding:0 3px;cursor:pointer;transition:background-color 120ms ease;}
 .hc-note-ref:hover{background:var(--hc-primary-hover);}
 .hc-note-ref--broken{color:var(--hc-text-subtle);text-decoration:line-through;background:var(--hc-surface-soft);cursor:default;}
+.hc-note-ref--face-gone{color:var(--hc-text-subtle);text-decoration:line-through;background:var(--hc-surface-soft);cursor:pointer;}
+.hc-note-ref--face-gone:hover{background:var(--hc-surface-muted);}
+.hc-note-ref-badge{display:inline-flex;align-items:center;margin-left:4px;padding:0 5px;border-radius:999px;font-size:10px;line-height:1.5;font-weight:600;color:var(--hc-text-subtle);background:var(--hc-surface-muted);vertical-align:1px;user-select:none;}
 .math-block{margin:10px 0;overflow-x:auto;}
 .hc-render .katex,.hc-render .katex-display{max-width:100%;}
 .hc-render span.katex{display:inline-block;overflow:visible;vertical-align:middle;}
@@ -750,8 +753,15 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
           const text = custom || '未知笔记'
           return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(`不存在笔记：${text}`)}</a>`
         }
+        const faceId = String(r.faceId || '').trim()
+        const faceAttr = faceId ? ` data-face-id="${esc(faceId)}"` : ''
         const label = String(r.displayText || '').trim() || String(meta?.title || '').trim() || '未知笔记'
-        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(label)}</a>`
+        const faceList = faceId ? meta.faceIds : undefined
+        if (faceList && faceList.length > 0 && !faceList.includes(faceId)) {
+          return `<a class="hc-note-ref hc-note-ref--face-gone" data-note-id="${esc(r.noteId)}"${faceAttr}${remarksAttr}>${esc(`此面已失效：${label}`)}</a>`
+        }
+        const badge = faceList && faceList.includes(faceId) ? `<span class="hc-note-ref-badge">${esc(faceId)}</span>` : ''
+        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}"${faceAttr}${remarksAttr}>${esc(label)}${badge}</a>`
       })
     }
 
@@ -821,7 +831,7 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
 
 type PreprocessedMath = { tex: string; display: boolean }
 type PreprocessedAsset = { ref: string; name: string; width?: number; nameIsDefault?: boolean }
-type PreprocessedNoteRef = { noteId: string; displayText: string; remarks: string }
+type PreprocessedNoteRef = { noteId: string; faceId?: string; displayText: string; remarks: string }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -1030,8 +1040,9 @@ function replaceNoteRefsOutsideInlineCode(input: string, acc: PreprocessedNoteRe
         if (!noteId) return m
         const displayText = String(parsed.title || '').trim()
         const remarks = String(parsed.remarks || '').trim()
+        const faceId = String(parsed.face || '').trim() || undefined
         const id = acc.length
-        acc.push({ noteId, displayText, remarks })
+        acc.push({ noteId, faceId, displayText, remarks })
         return `@@NOTE_REF_${id}@@`
       })
     })
