@@ -33,11 +33,9 @@ func (svc *generationService) createNormal(params json.RawMessage) (any, error) 
 	if err := decodeRequest(params, &payload); err != nil {
 		return nil, err
 	}
-	rawImageOptions := rawImageOptionsFromCreateNormalParams(params)
-	if err := validateNormalRequest(payload.Request, rawImageOptions); err != nil {
+	if err := validateNormalRequest(payload.Request); err != nil {
 		return nil, err
 	}
-	payload.Request.ImageOptions = rawImageOptionsToStruct(rawImageOptions)
 	batchCount := clampInt(payload.Request.BatchCount, 1, maxBatchCount, 1)
 	tasks := make([]generationTask, 0, batchCount)
 	for i := 0; i < batchCount; i++ {
@@ -165,41 +163,11 @@ func decodeRequest(raw json.RawMessage, target any) error {
 	return nil
 }
 
-func validateNormalRequest(req createNormalGenerationRequest, rawImageOptions map[string]any) error {
+func validateNormalRequest(req createNormalGenerationRequest) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return newDirectError(errorBadRequest, "提示词为空")
 	}
-	if err := validateProviderBasics(req.Provider); err != nil {
-		return err
-	}
-	protocol := strings.TrimSpace(req.Provider.Protocol)
-	if protocol == "" {
-		protocol = "images"
-	}
-	requestKind := protocolKindImages
-	if len(req.RefImages) > 0 {
-		requestKind = protocolKindImagesEdits
-	}
-	if errors := validateRawImageGenerationOptions(rawImageOptions, resolveProviderModel(req.Provider), protocol, requestKind); len(errors) > 0 {
-		return newDirectError(errorBadRequest, strings.Join(errors, "\n"))
-	}
-	return nil
-}
-
-func rawImageOptionsFromCreateNormalParams(params json.RawMessage) map[string]any {
-	payload, err := decodeMap(params)
-	if err != nil {
-		return nil
-	}
-	request, ok := payload["request"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	imageOptions, ok := request["imageOptions"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return imageOptions
+	return validateProviderBasics(req.Provider)
 }
 
 func validateLocalEditRequest(req createLocalEditGenerationRequest) error {

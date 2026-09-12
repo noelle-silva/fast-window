@@ -32,15 +32,8 @@ func TestOpenAIImageProviderImagesGenerationSuccessAndDebugRedaction(t *testing.
 		TaskID: "task-1",
 		Mode:   generationModeNormal,
 		Normal: &createNormalGenerationRequest{
-			Provider: generationProvider{ID: "p1", Name: "P", BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "gpt-image-2", Size: "1024x1024"},
-			Prompt:   "draw cat",
-			ImageOptions: imageGenerationOptions{
-				Size:         "1024x1536",
-				Quality:      "high",
-				OutputFormat: "webp",
-				Background:   "opaque",
-				Moderation:   "low",
-			},
+			Provider:          generationProvider{ID: "p1", Name: "P", BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "test-model"},
+			Prompt:            "draw cat",
 			DebugMode:         true,
 			RequestTimeoutSec: 5,
 		},
@@ -54,11 +47,8 @@ func TestOpenAIImageProviderImagesGenerationSuccessAndDebugRedaction(t *testing.
 	if authHeader != "Bearer secret" {
 		t.Fatalf("expected auth header to reach upstream")
 	}
-	if receivedBody["size"] != "1024x1536" || receivedBody["quality"] != "high" || receivedBody["output_format"] != "webp" || receivedBody["background"] != "opaque" || receivedBody["moderation"] != "low" {
-		t.Fatalf("image options were not forwarded correctly: %#v", receivedBody)
-	}
-	if _, ok := receivedBody["response_format"]; ok {
-		t.Fatalf("gpt-image-2 requests should not send response_format: %#v", receivedBody)
+	if len(receivedBody) != 3 || receivedBody["model"] != "test-model" || receivedBody["prompt"] != "draw cat" || receivedBody["n"] != float64(1) {
+		t.Fatalf("generation body must only contain model/prompt/n, got %#v", receivedBody)
 	}
 	if !strings.HasPrefix(result.ImageDataURL, "data:image/png;base64,") {
 		t.Fatalf("expected image data URL, got %q", result.ImageDataURL)
@@ -100,7 +90,7 @@ func TestOpenAIImageProviderDownloadsHTTPImageURL(t *testing.T) {
 		TaskID: "task-http-url",
 		Mode:   generationModeNormal,
 		Normal: &createNormalGenerationRequest{
-			Provider:          generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "gpt-image-2"},
+			Provider:          generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "test-model"},
 			Prompt:            "draw cat",
 			RequestTimeoutSec: 5,
 		},
@@ -127,11 +117,8 @@ func TestOpenAIImageProviderImagesEditsMultipart(t *testing.T) {
 		if err := r.ParseMultipartForm(20 << 20); err != nil {
 			t.Fatalf("ParseMultipartForm failed: %v", err)
 		}
-		if r.FormValue("model") != "gpt-image-2" || r.FormValue("size") != "1024x1536" || r.FormValue("quality") != "high" || r.FormValue("output_format") != "webp" || r.FormValue("input_fidelity") != "high" {
-			t.Fatalf("missing multipart fields")
-		}
-		if r.FormValue("moderation") != "" || r.FormValue("response_format") != "" {
-			t.Fatalf("edits should not send moderation/response_format for gpt image models")
+		if len(r.MultipartForm.Value) != 2 || r.FormValue("model") != "test-model" || r.FormValue("prompt") != "draw cat" {
+			t.Fatalf("edits body must only contain model/prompt, got %#v", r.MultipartForm.Value)
 		}
 		if len(r.MultipartForm.File["image[]"]) != 1 {
 			t.Fatalf("expected one image[] file")
@@ -145,16 +132,9 @@ func TestOpenAIImageProviderImagesEditsMultipart(t *testing.T) {
 		TaskID: "task-1",
 		Mode:   generationModeNormal,
 		Normal: &createNormalGenerationRequest{
-			Provider:  generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "gpt-image-2"},
-			Prompt:    "draw cat",
-			RefImages: []generationRefImage{{Name: "ref", DataURL: testPNGDataURL}},
-			ImageOptions: imageGenerationOptions{
-				Size:          "1024x1536",
-				Quality:       "high",
-				OutputFormat:  "webp",
-				Background:    "opaque",
-				InputFidelity: "high",
-			},
+			Provider:          generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "test-model"},
+			Prompt:            "draw cat",
+			RefImages:         []generationRefImage{{Name: "ref", DataURL: testPNGDataURL}},
 			DebugMode:         true,
 			RequestTimeoutSec: 5,
 		},
@@ -206,7 +186,7 @@ func TestOpenAIImageProviderContextCancel(t *testing.T) {
 	_, err := provider.Generate(ctx, imageGenerationInput{
 		TaskID: "task-1",
 		Mode:   generationModeNormal,
-		Normal: &createNormalGenerationRequest{Provider: generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "gpt-image-2"}, Prompt: "draw cat", RequestTimeoutSec: 5},
+		Normal: &createNormalGenerationRequest{Provider: generationProvider{BaseURL: server.URL, APIKey: "secret", Protocol: "images", Model: "test-model"}, Prompt: "draw cat", RequestTimeoutSec: 5},
 	})
 	if err == nil {
 		t.Fatalf("expected cancel error")

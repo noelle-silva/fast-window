@@ -230,17 +230,10 @@ func buildProviderRequestData(input imageGenerationInput, config validatedProvid
 	if len(input.Normal.RefImages) > 0 {
 		return buildImagesEditsRequestData(input.Normal, config, headers)
 	}
-	optionFields, err := buildOpenAIImageOptionFields(input.Normal.ImageOptions, config.Model, protocolKindImages, protocolKindImages)
-	if err != nil {
-		return providerRequestData{}, err
-	}
 	bodyMap := map[string]any{
 		"model":  config.Model,
 		"prompt": input.Normal.Prompt,
 		"n":      1,
-	}
-	for key, value := range optionFields {
-		bodyMap[key] = value
 	}
 	body, err := json.Marshal(bodyMap)
 	if err != nil {
@@ -251,16 +244,9 @@ func buildProviderRequestData(input imageGenerationInput, config validatedProvid
 }
 
 func buildImagesEditsRequestData(req *createNormalGenerationRequest, config validatedProviderConfig, headers map[string]string) (providerRequestData, error) {
-	optionFields, err := buildOpenAIImageOptionFields(req.ImageOptions, config.Model, protocolKindImages, protocolKindImagesEdits)
-	if err != nil {
-		return providerRequestData{}, err
-	}
 	parts := []multipartPart{
 		{Name: "model", Value: config.Model},
 		{Name: "prompt", Value: req.Prompt},
-	}
-	for _, key := range orderedImageOptionFieldKeys(optionFields) {
-		parts = append(parts, multipartPart{Name: key, Value: fmt.Sprint(optionFields[key])})
 	}
 	var imageBytes int64
 	for index, image := range req.RefImages {
@@ -289,17 +275,6 @@ func buildImagesEditsRequestData(req *createNormalGenerationRequest, config vali
 		DebugSummary: fmt.Sprintf("图片总字节：%s", formatBytes(imageBytes)),
 		ProtocolKind: protocolKindImagesEdits,
 	}, nil
-}
-
-func orderedImageOptionFieldKeys(fields map[string]any) []string {
-	order := []string{"size", "quality", "output_format", "output_compression", "background", "moderation", "input_fidelity"}
-	out := []string{}
-	for _, key := range order {
-		if _, ok := fields[key]; ok {
-			out = append(out, key)
-		}
-	}
-	return out
 }
 
 func debugMultipartFieldNames(parts []multipartPart) string {

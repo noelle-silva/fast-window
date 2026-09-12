@@ -2,7 +2,6 @@ import { inferImageMimeFromBase64, normalizeImageBase64 } from '../../core/image
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../../core/httpParse'
 import { formatBytes, isHttpBaseUrl, trimSlash } from '../../core/utils'
 import { normalizeRequestTimeoutSec, resolveModel, type AiDrawProvider } from '../../core/schema'
-import { buildOpenAiImageOptionFields, normalizeImageGenerationOptions } from '../../core/imageGenerationOptions'
 import type { AiDrawCreateLocalEditGenerationRequest, AiDrawCreateNormalGenerationRequest, AiDrawGenerationDebugRecord } from '../../shared/domain'
 import { buildMultipartFormDataBytes, type MultipartPart } from './multipartNode'
 
@@ -78,13 +77,6 @@ export async function requestOpenAiImage(input: {
     debugBodyText = body
   } else {
     const req = input.request as AiDrawCreateNormalGenerationRequest
-    const imageOptions = normalizeImageGenerationOptions(req.imageOptions)
-    const optionFields = buildOpenAiImageOptionFields({
-      options: imageOptions,
-      model,
-      protocol: 'images',
-      requestKind: req.refImages.length ? 'edits' : 'generations',
-    })
     if (req.refImages.length) {
       protocolKind = 'images-edits'
       url = `${baseUrl}/images/edits`
@@ -93,9 +85,6 @@ export async function requestOpenAiImage(input: {
         { name: 'model', value: model },
         { name: 'prompt', value: prompt },
       ]
-      Object.entries(optionFields).forEach(([name, value]) => {
-        parts.push({ name, value: String(value) })
-      })
       let totalImageBytes = 0
       req.refImages.forEach((image, index) => {
         const mime = inferImageMimeFromBase64(image.dataUrl) || 'image/png'
@@ -111,7 +100,7 @@ export async function requestOpenAiImage(input: {
       protocolKind = 'images'
       url = `${baseUrl}/images/generations`
       headers = { ...headers, 'Content-Type': 'application/json' }
-      body = JSON.stringify({ model, prompt, n: 1, ...optionFields })
+      body = JSON.stringify({ model, prompt, n: 1 })
       debugBodyText = body
     }
   }
