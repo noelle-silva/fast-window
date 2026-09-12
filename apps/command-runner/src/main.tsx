@@ -343,6 +343,15 @@ function App() {
     void runCommand(command).catch(e => setSnack(errorMessage(e, '运行命令失败')))
   }, [runCommand])
 
+  const rerunCommandById = React.useCallback((commandId: string) => {
+    const command = commands.find(item => item.id === commandId)
+    if (!command) {
+      setSnack('该命令已被删除，无法重新运行')
+      return
+    }
+    requestRunCommand(command)
+  }, [commands, requestRunCommand])
+
   return (
     <ThemeProvider theme={commandRunnerTheme}>
       <CssBaseline />
@@ -397,7 +406,7 @@ function App() {
               onBack={() => setSpaceRepoId(null)}
               onStopRun={runId => void stopRun(runId)}
               onRemoveEntry={executionSpace.removeEntry}
-              onToggleCollapse={executionSpace.toggleCollapse}
+              onRerun={rerunCommandById}
               onMoveEntry={executionSpace.moveEntry}
             />
           ) : activeRepo ? (

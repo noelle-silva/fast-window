@@ -12,7 +12,7 @@ type ExecutionSpacePageProps = {
   onBack: () => void
   onStopRun: (runId: string) => void
   onRemoveEntry: (runId: string) => void
-  onToggleCollapse: (runId: string) => void
+  onRerun: (commandId: string) => void
   onMoveEntry: (activeRunId: string, overRunId: string) => void
 }
 
@@ -23,7 +23,7 @@ export function ExecutionSpacePage({
   onBack,
   onStopRun,
   onRemoveEntry,
-  onToggleCollapse,
+  onRerun,
   onMoveEntry,
 }: ExecutionSpacePageProps) {
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null)
@@ -69,7 +69,7 @@ export function ExecutionSpacePage({
           stoppingRunIds={stoppingRunIds}
           onStopRun={onStopRun}
           onRemoveEntry={onRemoveEntry}
-          onToggleCollapse={onToggleCollapse}
+          onRerun={onRerun}
         />
       </Box>
     </Box>

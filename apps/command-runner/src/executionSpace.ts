@@ -19,7 +19,6 @@ export type SpaceEntry = {
   exitCode: number | null
   lines: Array<{ text: string; stream: 'stdout' | 'stderr' }>
   countdownEndsAt: number | null
-  collapsed: boolean
 }
 
 type ExecutionSpace = {
@@ -28,7 +27,6 @@ type ExecutionSpace = {
   countsForCommand: (commandId: string) => SpaceEntryCounts
   stopRun: (runId: string) => Promise<void>
   removeEntry: (runId: string) => void
-  toggleCollapse: (runId: string) => void
   moveEntry: (activeRunId: string, overRunId: string) => void
 }
 
@@ -80,7 +78,6 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
             exitCode: null,
             lines: [],
             countdownEndsAt: null,
-            collapsed: false,
           }]
         })
         return
@@ -144,7 +141,6 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
             exitCode: null,
             lines: [],
             countdownEndsAt: null,
-            collapsed: false,
           }))
         return restored.length > 0 ? [...current, ...restored] : current
       })
@@ -201,10 +197,6 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     })
   }, [stopRun])
 
-  const toggleCollapse = React.useCallback((runId: string) => {
-    patchEntry(runId, entry => ({ ...entry, collapsed: !entry.collapsed }))
-  }, [patchEntry])
-
   // moveEntry 调整运行实例在侧边栏中的显示顺序（entries 数组顺序即显示顺序）。
   const moveEntry = React.useCallback((activeRunId: string, overRunId: string) => {
     setEntries(current => {
@@ -218,5 +210,5 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     })
   }, [])
 
-  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, toggleCollapse, moveEntry }
+  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, moveEntry }
 }
