@@ -7,6 +7,7 @@ import { SortableItem, SortableRoot, SortableSection } from './SortableDnd'
 
 type SpaceRunSidebarProps = {
   entries: SpaceEntry[]
+  repoNames?: ReadonlyMap<string, string>
   selectedRunId: string | null
   onSelect: (runId: string) => void
   onMove: (activeRunId: string, overRunId: string) => void
@@ -18,7 +19,7 @@ function startedAtTime(value: string): string {
   return date.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
-export function SpaceRunSidebar({ entries, selectedRunId, onSelect, onMove }: SpaceRunSidebarProps) {
+export function SpaceRunSidebar({ entries, repoNames, selectedRunId, onSelect, onMove }: SpaceRunSidebarProps) {
   const runIds = React.useMemo(() => entries.map(entry => entry.runId), [entries])
 
   if (entries.length === 0) {
@@ -39,7 +40,8 @@ export function SpaceRunSidebar({ entries, selectedRunId, onSelect, onMove }: Sp
             {entries.map(entry => {
               const selected = entry.runId === selectedRunId
               const time = startedAtTime(entry.startedAt)
-              const meta = time ? `${entryStatusLabel(entry)} · ${time}` : entryStatusLabel(entry)
+              const repoName = repoNames?.get(entry.repoId) || ''
+              const meta = [repoName, entryStatusLabel(entry), time].filter(Boolean).join(' · ')
               return (
                 <SortableItem key={entry.runId} id={entry.runId}>
                   {(sortable) => (

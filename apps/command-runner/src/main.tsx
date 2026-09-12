@@ -56,6 +56,8 @@ type DialogState =
 
 const NO_DIALOG: DialogState = { kind: 'none' }
 
+type SpaceView = { kind: 'repo'; repoId: string } | { kind: 'global' }
+
 function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
 }
@@ -67,7 +69,7 @@ function App() {
   const [busy, setBusy] = React.useState(false)
   const [connectError, setConnectError] = React.useState<string | null>(null)
   const [activeRepoId, setActiveRepoId] = React.useState<string | null>(null)
-  const [spaceRepoId, setSpaceRepoId] = React.useState<string | null>(null)
+  const [spaceView, setSpaceView] = React.useState<SpaceView | null>(null)
   const [dialog, setDialog] = React.useState<DialogState>(NO_DIALOG)
   const [snack, setSnack] = React.useState<string | null>(null)
   const [stoppingRunIds, setStoppingRunIds] = React.useState<Set<string>>(new Set())
@@ -83,9 +85,14 @@ function App() {
   const visibleError = connectError || error
 
   const activeRepo = repos.find(repo => repo.id === activeRepoId) || null
-  const spaceRepo = repos.find(repo => repo.id === spaceRepoId) || null
+  const spaceRepo = spaceView?.kind === 'repo' ? repos.find(repo => repo.id === spaceView.repoId) || null : null
+  const spaceEntries = spaceView
+    ? spaceView.kind === 'repo'
+      ? executionSpace.entries.filter(entry => entry.repoId === spaceView.repoId)
+      : executionSpace.entries
+    : []
+  const repoNameById = React.useMemo(() => new Map(repos.map(repo => [repo.id, repo.name])), [repos])
   const activeRepoCommands = activeRepo ? commands.filter(command => command.repoId === activeRepo.id) : []
-  const spaceEntries = spaceRepo ? executionSpace.entries.filter(entry => entry.repoId === spaceRepo.id) : []
   const activeRepoCollections = React.useMemo(
     () => selectRepoCollections(collections?.nodes ?? {}, activeRepo?.id ?? ''),
     [collections, activeRepo],
@@ -108,6 +115,15 @@ function App() {
       })
     }
   }, [executionSpace.stopRun])
+
+  const stopAllRuns = React.useCallback(async () => {
+    const runningIds = executionSpace.entries
+      .filter(entry => entry.status === 'running')
+      .map(entry => entry.runId)
+    if (runningIds.length === 0) return
+    await Promise.all(runningIds.map(runId => stopRun(runId)))
+    setSnack(`已请求停止 ${runningIds.length} 个运行进程`)
+  }, [executionSpace.entries, stopRun])
 
   const markAppReady = React.useCallback(() => {
     if (readyRef.current) return
@@ -166,6 +182,12 @@ function App() {
   React.useEffect(() => {
     if (activeRepoId && !activeRepo) setActiveRepoId(null)
   }, [activeRepo, activeRepoId])
+
+  React.useEffect(() => {
+    if (spaceView?.kind === 'repo' && !repos.some(repo => repo.id === spaceView.repoId)) {
+      setSpaceView(null)
+    }
+  }, [repos, spaceView])
 
   const openCreateRepo = React.useCallback(() => setDialog({ kind: 'repo-create' }), [])
   const openSettings = React.useCallback(() => setDialog({ kind: 'settings' }), [])
@@ -360,6 +382,7 @@ function App() {
           standalone={launchInfo.standalone}
           disabled={controlsDisabled}
           onCreateRepo={openCreateRepo}
+          onOpenExecutionSpace={() => setSpaceView({ kind: 'global' })}
           onOpenSettings={openSettings}
           onStartDragging={() => appWindow.startDragging()}
           windowActions={{
@@ -398,16 +421,21 @@ function App() {
         ) : null}
 
         {phase === 'ready' && !(loading && !repos.length && !settings) ? (
-          spaceRepo ? (
+          spaceView && (spaceView.kind === 'global' || spaceRepo) ? (
             <ExecutionSpacePage
-              repoName={spaceRepo.name}
+              title={spaceView.kind === 'repo' ? `内置执行空间 · ${spaceRepo?.name ?? ''}` : '全局内置执行空间'}
+              subtitle={spaceView.kind === 'repo'
+                ? '以内置模式运行的命令会在这里实时输出，输出不经过独立窗口。'
+                : '所有仓库以内置模式运行的命令都在这里实时输出。'}
               entries={spaceEntries}
+              repoNames={spaceView.kind === 'global' ? repoNameById : undefined}
               stoppingRunIds={stoppingRunIds}
-              onBack={() => setSpaceRepoId(null)}
+              onBack={() => setSpaceView(null)}
               onStopRun={runId => void stopRun(runId)}
               onRemoveEntry={executionSpace.removeEntry}
               onRerun={rerunCommandById}
               onMoveEntry={executionSpace.moveEntry}
+              onStopAll={spaceView.kind === 'global' ? stopAllRuns : undefined}
             />
           ) : activeRepo ? (
             <Box className="cr-repo-page">
@@ -422,7 +450,7 @@ function App() {
                 onCreateCommand={() => setDialog({ kind: 'command-create' })}
                 onAddFolder={() => setDialog({ kind: 'folder-create', repoId: activeRepo.id, parentId: folderNavigation.currentFolderId })}
                 onEditRepo={() => setDialog({ kind: 'repo-edit', repo: activeRepo })}
-                onOpenExecutionSpace={() => setSpaceRepoId(activeRepo.id)}
+                onOpenExecutionSpace={() => setSpaceView({ kind: 'repo', repoId: activeRepo.id })}
               />
               {!hasTreeContent ? (
                 <Box className="cr-empty-state">
