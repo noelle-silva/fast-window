@@ -352,6 +352,10 @@ func TestReorderReposAndCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cmdC, err := svc.createCommand(commandDraft{RepoID: repoB.ID, Name: "c", Script: "echo c"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmdB, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "b", Script: "echo b"})
 	if err != nil {
 		t.Fatal(err)
@@ -369,14 +373,15 @@ func TestReorderReposAndCommands(t *testing.T) {
 		t.Fatalf("unexpected repo order: %+v", doc.Repos)
 	}
 
-	if err := svc.reorderCommands([]string{cmdB.ID, cmdA.ID}); err != nil {
+	// 仓库子集重排：repoA 命令换成 [b, a]，repoB 的 cmdC 保持原位
+	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID, cmdA.ID}); err != nil {
 		t.Fatal(err)
 	}
 	commandsDoc, err := svc.loadCommands()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if commandsDoc.Commands[0].ID != cmdB.ID {
+	if commandsDoc.Commands[0].ID != cmdB.ID || commandsDoc.Commands[1].ID != cmdC.ID || commandsDoc.Commands[2].ID != cmdA.ID {
 		t.Fatalf("unexpected command order: %+v", commandsDoc.Commands)
 	}
 
@@ -388,8 +393,24 @@ func TestReorderReposAndCommands(t *testing.T) {
 	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID, repoB.ID, "repo-nope"}); err == nil {
 		t.Fatal("expected error for unknown id")
 	}
-	// 重复 ID 拒绝
-	if err := svc.reorderCommands([]string{cmdA.ID, cmdA.ID}); err == nil {
+	// 命令数量不匹配拒绝（漏掉 repoA 的命令）
+	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID}); err == nil {
+		t.Fatal("expected error for command count mismatch")
+	}
+	// 命令未知 ID 拒绝
+	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID, "cmd-nope"}); err == nil {
+		t.Fatal("expected error for unknown command id")
+	}
+	// 命令重复 ID 拒绝
+	if err := svc.reorderCommands(repoA.ID, []string{cmdA.ID, cmdA.ID}); err == nil {
 		t.Fatal("expected error for duplicate id")
+	}
+	// 空仓库 ID 拒绝
+	if err := svc.reorderCommands("", []string{cmdB.ID, cmdA.ID}); err == nil {
+		t.Fatal("expected error for empty repo id")
+	}
+	// 无命令仓库拒绝
+	if err := svc.reorderCommands(repoC.ID, []string{cmdB.ID, cmdA.ID}); err == nil {
+		t.Fatal("expected error for repo without commands")
 	}
 }

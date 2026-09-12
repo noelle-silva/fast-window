@@ -15,7 +15,7 @@ func (svc *service) reorderRepos(orderedIDs []string) error {
 	if err != nil {
 		return err
 	}
-	reordered, err := reorderByID(doc.Repos, orderedIDs, func(item repo) string { return item.ID })
+	reordered, err := reorderByID(doc.Repos, orderedIDs, func(item repo) string { return item.ID }, func(repo) bool { return true })
 	if err != nil {
 		return err
 	}
@@ -23,13 +23,20 @@ func (svc *service) reorderRepos(orderedIDs []string) error {
 	return svc.writeRepos(doc)
 }
 
-// reorderByID 按传入的 ID 顺序重排条目；ID 集合必须与现有条目完全一致（不多、不少、不重复）。
-func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string) ([]T, error) {
-	if len(orderedIDs) != len(items) {
-		return nil, fmt.Errorf("排序 ID 数量（%d）与现有条目数量（%d）不一致", len(orderedIDs), len(items))
-	}
-	existing := make(map[string]T, len(items))
+// reorderByID 在 inScope 命中的条目中按 orderedIDs 重排，并把它们放回各自原本占据的位置；
+// scope 外的条目保持原位不动。orderedIDs 必须恰好覆盖 scope 内全部条目（不多、不少、不重复）。
+func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string, inScope func(T) bool) ([]T, error) {
+	scoped := make([]T, 0, len(items))
 	for _, item := range items {
+		if inScope(item) {
+			scoped = append(scoped, item)
+		}
+	}
+	if len(orderedIDs) != len(scoped) {
+		return nil, fmt.Errorf("排序 ID 数量（%d）与现有条目数量（%d）不一致", len(orderedIDs), len(scoped))
+	}
+	existing := make(map[string]T, len(scoped))
+	for _, item := range scoped {
 		existing[idOf(item)] = item
 	}
 	seen := make(map[string]bool, len(orderedIDs))
@@ -45,7 +52,17 @@ func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string) ([]
 		seen[id] = true
 		reordered = append(reordered, item)
 	}
-	return reordered, nil
+	result := make([]T, len(items))
+	cursor := 0
+	for index, item := range items {
+		if !inScope(item) {
+			result[index] = item
+			continue
+		}
+		result[index] = reordered[cursor]
+		cursor++
+	}
+	return result, nil
 }
 
 func (svc *service) createRepo(name, path, closeMode string, countdownSeconds int, runMode, processOwnership string) (repo, error) {
@@ -206,12 +223,17 @@ func (svc *service) listCommands(repoID string) (map[string]any, error) {
 	return map[string]any{"commands": commands}, nil
 }
 
-func (svc *service) reorderCommands(orderedIDs []string) error {
+// reorderCommands 只重排指定仓库的命令：该仓库命令按 orderedIDs 换序后放回原位置，
+// 其他仓库的命令位置保持不变。
+func (svc *service) reorderCommands(repoID string, orderedIDs []string) error {
+	if strings.TrimSpace(repoID) == "" {
+		return fmt.Errorf("缺少仓库 ID")
+	}
 	doc, err := svc.loadCommands()
 	if err != nil {
 		return err
 	}
-	reordered, err := reorderByID(doc.Commands, orderedIDs, func(item command) string { return item.ID })
+	reordered, err := reorderByID(doc.Commands, orderedIDs, func(item command) string { return item.ID }, func(item command) bool { return item.RepoID == repoID })
 	if err != nil {
 		return err
 	}

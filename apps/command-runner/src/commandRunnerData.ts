@@ -29,7 +29,7 @@ type CommandRunnerActions = {
   createCommand: (draft: CommandDraft) => Promise<void>
   updateCommand: (id: string, draft: CommandDraft) => Promise<void>
   deleteCommand: (id: string) => Promise<void>
-  reorderCommands: (orderedIds: string[]) => Promise<void>
+  reorderCommands: (repoId: string, orderedIds: string[]) => Promise<void>
   runCommand: (id: string) => Promise<void>
   saveSettings: (draft: SettingsDraft) => Promise<void>
   addCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void>
@@ -108,27 +108,45 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
       await refresh()
     }
 
-    // reorder 先做本地乐观更新，让拖拽立即落位，再持久化到后端。
-    const applyLocalOrder = <T extends { id: string }>(current: T[], orderedIds: string[]): T[] =>
-      orderedIds
-        .map(id => current.find(item => item.id === id))
+    // 排序采用乐观更新：本地先按新顺序落位；请求结束后统一以服务端数据为准
+    // （成功即确认，失败即回滚），错误向上抛出由界面提示。
+    const mutateOrder = async (request: () => Promise<unknown>, optimistic: () => void) => {
+      optimistic()
+      try {
+        await request()
+      } finally {
+        await refresh()
+      }
+    }
+
+    // applyLocalOrder 将命中的条目按新顺序放回各自原位置，其余条目保持不动，
+    // 与后端「仓库子集重排」的合并语义一致。
+    const applyLocalOrder = <T extends { id: string }>(current: T[], orderedIds: string[]): T[] => {
+      const byId = new Map(current.map(item => [item.id, item]))
+      const reordered = orderedIds
+        .map(id => byId.get(id))
         .filter((item): item is T => Boolean(item))
+      if (reordered.length !== orderedIds.length) return current
+      const ordered = new Set(orderedIds)
+      let cursor = 0
+      return current.map(item => (ordered.has(item.id) ? reordered[cursor++] : item))
+    }
 
     return {
       createRepo: (name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.create', { name, path, closeMode, countdownSeconds, runMode, processOwnership }),
       updateRepo: (id, name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.update', { id, name, path, closeMode, countdownSeconds, runMode, processOwnership }),
       deleteRepo: id => mutate('commandRunner.repos.delete', { id }),
-      reorderRepos: orderedIds => {
-        setRepos(current => applyLocalOrder(current, orderedIds))
-        return mutate('commandRunner.repos.reorder', { orderedIds })
-      },
+      reorderRepos: orderedIds => mutateOrder(
+        () => client.request('commandRunner.repos.reorder', { orderedIds }),
+        () => setRepos(current => applyLocalOrder(current, orderedIds)),
+      ),
       createCommand: draft => mutate('commandRunner.commands.create', draft),
       updateCommand: (id, draft) => mutate('commandRunner.commands.update', { id, draft }),
       deleteCommand: id => mutate('commandRunner.commands.delete', { id }),
-      reorderCommands: orderedIds => {
-        setCommands(current => applyLocalOrder(current, orderedIds))
-        return mutate('commandRunner.commands.reorder', { orderedIds })
-      },
+      reorderCommands: (repoId, orderedIds) => mutateOrder(
+        () => client.request('commandRunner.commands.reorder', { repoId, orderedIds }),
+        () => setCommands(current => applyLocalOrder(current, orderedIds)),
+      ),
       runCommand: id => mutate('commandRunner.commands.run', { id }),
       saveSettings: draft => mutate('commandRunner.settings.save', draft),
       addCustomShell: (name, exePath, argsTemplate) =>

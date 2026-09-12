@@ -391,7 +391,7 @@ function App() {
                   onRun={requestRunCommand}
                   onEdit={command => setDialog({ kind: 'command-edit', command })}
                   onDelete={command => setDialog({ kind: 'command-delete', command })}
-                  onReorder={ids => actions.reorderCommands(ids)}
+                  onReorder={ids => actions.reorderCommands(activeRepo.id, ids).catch(e => setSnack(errorMessage(e, '命令排序保存失败')))}
                 />
               )}
             </Box>
@@ -405,7 +405,7 @@ function App() {
               countsForRepo={executionSpace.countsForRepo}
               onOpen={repo => setActiveRepoId(repo.id)}
               onEdit={repo => setDialog({ kind: 'repo-edit', repo })}
-              onReorder={ids => actions.reorderRepos(ids)}
+              onReorder={ids => actions.reorderRepos(ids).catch(e => setSnack(errorMessage(e, '仓库排序保存失败')))}
               onCreateRepo={openCreateRepo}
             />
           )

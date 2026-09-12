@@ -273,12 +273,13 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "commandRunner.commands.reorder":
 		var payload struct {
+			RepoID     string   `json:"repoId"`
 			OrderedIDs []string `json:"orderedIds"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid command payload: %w", err)
 		}
-		return nil, svc.reorderCommands(payload.OrderedIDs)
+		return nil, svc.reorderCommands(payload.RepoID, payload.OrderedIDs)
 
 	case "commandRunner.commands.run":
 		var payload struct {
