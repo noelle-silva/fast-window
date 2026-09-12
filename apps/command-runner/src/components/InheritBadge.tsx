@@ -14,11 +14,9 @@ export function InheritBadge() {
         color: 'info.main',
         px: 0.6,
         py: 0.1,
-        borderRadius: 999,
-        border: '1px solid',
-        borderColor: 'info.main',
-        bgcolor: 'rgba(25, 118, 210, 0.06)',
-      }}
+          borderRadius: 999,
+          bgcolor: 'rgba(25, 118, 210, 0.12)',
+        }}
     >
       继承
     </Box>

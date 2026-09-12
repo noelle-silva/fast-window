@@ -63,7 +63,6 @@ export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry
           <Chip
             size="small"
             color={entry.status === 'running' ? 'success' : (entry.exitCode === 0 ? 'default' : 'warning')}
-            variant="outlined"
             label={countdownLeft !== null && countdownLeft > 0 ? `${countdownLeft} 秒后关闭` : entryStatusLabel(entry)}
             sx={{ fontWeight: 800, fontSize: 11, height: 22, flexShrink: 0 }}
           />
@@ -75,7 +74,6 @@ export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry
                 <Button
                   size="small"
                   color="error"
-                  variant="outlined"
                   startIcon={<StopOutlinedIcon fontSize="small" />}
                   disabled={stoppingRunIds.has(entry.runId)}
                   onClick={() => onStopRun(entry.runId)}

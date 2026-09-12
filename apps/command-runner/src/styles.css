@@ -1,6 +1,6 @@
 :root {
   color: #111827;
-  background: #ffffff;
+  background: #f4f5f7;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -10,7 +10,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow: hidden;
-  background: #ffffff;
+  background: #f4f5f7;
 }
 
 .cr-app,
@@ -26,7 +26,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   color: #111827;
-  background: #ffffff;
+  background: #f4f5f7;
 }
 
 .cr-topbar {
@@ -37,7 +37,7 @@ body {
   align-items: center;
   gap: 4px;
   color: #111827;
-  background: #ffffff;
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -52,13 +52,12 @@ body {
 .cr-brand-mark {
   width: 24px;
   height: 24px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #1976d2;
-  background: #ffffff;
+  background: rgba(25, 118, 210, 0.12);
 }
 
 .cr-topbar-spacer {
@@ -128,9 +127,11 @@ body {
 .cr-space-layout {
   flex: 1;
   min-height: 0;
+  padding: 0 16px 16px;
   display: flex;
+  gap: 12px;
   overflow: hidden;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-space-sidebar {
@@ -139,8 +140,8 @@ body {
   padding: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fafafa;
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .cr-space-detail {
@@ -150,6 +151,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 12px;
   background: #ffffff;
 }
 
@@ -160,8 +162,7 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 12px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: #fafafa;
+  background: transparent;
 }
 
 .cr-run-dot {
@@ -214,11 +215,10 @@ body {
   gap: 12px;
   overflow: auto;
   align-content: start;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-repo-card {
-  border-color: rgba(0, 0, 0, 0.12);
   border-radius: 12px;
   background: #ffffff;
 }
@@ -229,7 +229,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-repo-page-header {
@@ -237,8 +237,7 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-repo-page-heading {
@@ -254,12 +253,11 @@ body {
   gap: 8px;
   align-content: start;
   overflow: auto;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-command-card {
   position: relative;
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 12px;
   background: #ffffff;
 }
@@ -307,9 +305,8 @@ body {
 .cr-command-script {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 8px;
-  background: #fafafa;
+  background: #f3f4f6;
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;
   white-space: pre-wrap;
@@ -325,7 +322,7 @@ body {
 .cr-status-alert {
   margin: 8px 16px 0;
   flex: 0 0 auto;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-service-panel {
@@ -337,7 +334,7 @@ body {
   gap: 12px;
   padding: 24px;
   text-align: center;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-empty-state {
@@ -350,18 +347,17 @@ body {
   padding: 24px;
   text-align: center;
   color: #6b7280;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-dialog {
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 12px;
   color: #111827;
   background: #ffffff;
 }
 
 .cr-dialog-header {
-  padding: 16px;
+  padding: 16px 16px 6px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -375,14 +371,14 @@ body {
 
 .cr-dialog-content {
   padding: 0;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-form {
-  padding: 16px;
+  padding: 10px 16px 16px;
   display: grid;
   gap: 14px;
-  background: #ffffff;
+  background: transparent;
 }
 
 .cr-form-actions {
@@ -405,14 +401,13 @@ body {
 }
 
 .cr-custom-shell-item {
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
   padding: 10px 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px 12px;
   align-items: center;
-  background: #ffffff;
+  background: #f3f4f6;
 }
 
 .cr-section-title {
@@ -429,9 +424,8 @@ body {
 
 .cr-run-script {
   padding: 10px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
-  background: #fafafa;
+  background: #f3f4f6;
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;
   white-space: pre-wrap;

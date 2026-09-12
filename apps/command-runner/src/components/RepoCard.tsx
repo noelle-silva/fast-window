@@ -15,7 +15,7 @@ type RepoCardProps = {
 export function RepoCard({ repo, commandCount, shellName, runningCount, onOpen, onEdit }: RepoCardProps) {
   const hasRunning = runningCount > 0
   return (
-    <Card className="cr-repo-card" variant="outlined" sx={{ position: 'relative' }}>
+    <Card className="cr-repo-card" sx={{ position: 'relative' }}>
       {hasRunning ? (
         <Tooltip title={`${runningCount} 个进程正在运行`}>
           <Box
@@ -28,7 +28,7 @@ export function RepoCard({ repo, commandCount, shellName, runningCount, onOpen, 
       <CardActionArea onClick={onOpen} sx={{ height: '100%', alignItems: 'stretch' }}>
         <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
           <Box sx={{ display: 'flex', width: '100%', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 32, height: 32, flex: '0 0 auto', border: '1px solid', borderColor: 'divider', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+            <Box sx={{ width: 32, height: 32, flex: '0 0 auto', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main', bgcolor: 'rgba(25, 118, 210, 0.10)' }}>
               <FolderOutlinedIcon sx={{ fontSize: 18 }} />
             </Box>
             <Typography component="h2" sx={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 900 }} noWrap>{repo.name}</Typography>
@@ -47,8 +47,8 @@ export function RepoCard({ repo, commandCount, shellName, runningCount, onOpen, 
             {repo.path}
           </Typography>
           <Box sx={{ mt: 'auto', display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-            <Chip size="small" label={`${commandCount} 条命令`} sx={{ fontWeight: 800, bgcolor: 'background.paper' }} />
-            <Chip size="small" label={shellName} sx={{ fontWeight: 800, bgcolor: 'background.paper' }} />
+            <Chip size="small" label={`${commandCount} 条命令`} sx={{ fontWeight: 800 }} />
+            <Chip size="small" label={shellName} sx={{ fontWeight: 800 }} />
           </Box>
         </CardContent>
       </CardActionArea>

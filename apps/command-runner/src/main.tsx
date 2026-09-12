@@ -327,10 +327,9 @@ function App() {
           <Alert
             className="cr-status-alert"
             severity="error"
-            variant="outlined"
             action={
               phase === 'failed' ? (
-                <Button size="small" disabled={busy} onClick={() => connect({ restartBackend: true })}>重试</Button>
+                <Button size="small" color="inherit" disabled={busy} onClick={() => connect({ restartBackend: true })}>重试</Button>
               ) : null
             }
           >
@@ -514,7 +513,7 @@ function App() {
           onClose={() => setSnack(null)}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
-          <Alert severity="success" variant="outlined" onClose={() => setSnack(null)} sx={{ background: '#ffffff' }}>
+          <Alert severity="success" onClose={() => setSnack(null)}>
             {snack}
           </Alert>
         </Snackbar>

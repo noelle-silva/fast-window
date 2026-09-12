@@ -24,7 +24,7 @@ export function DialogShell({ title, subtitle, action, closeDisabled = false, ch
           <IconButton size="small" disabled={closeDisabled} aria-label="关闭" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
         </Box>
       </DialogTitle>
-      <DialogContent className="cr-dialog-content" dividers>
+      <DialogContent className="cr-dialog-content">
         {children}
       </DialogContent>
     </Dialog>

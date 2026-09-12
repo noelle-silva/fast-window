@@ -62,7 +62,7 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
           </Box>
         </Typography>
         <pre className="cr-run-script">{command.script}</pre>
-        {error ? <Alert severity="error" variant="outlined">{error}</Alert> : null}
+        {error ? <Alert severity="error">{error}</Alert> : null}
         <Box className="cr-form-actions">
           <Button disabled={running} onClick={onClose}>取消</Button>
           <Button variant="contained" color="warning" disabled={disabled || running} onClick={confirm}>

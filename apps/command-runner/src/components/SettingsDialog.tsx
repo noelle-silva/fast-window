@@ -116,7 +116,7 @@ export function SettingsDialog({
 
         {error ? <Box component="p" sx={{ margin: 0, color: 'error.main', fontSize: 12 }}>{error}</Box> : null}
         {notice ? (
-          <Chip color="success" size="small" variant="outlined" label={notice} sx={{ justifySelf: 'start' }} />
+          <Chip color="success" size="small" label={notice} sx={{ justifySelf: 'start' }} />
         ) : null}
       </Box>
 

@@ -49,7 +49,7 @@ export function CommandCard({ command, repo, settings, shells, runningCount, dra
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
             <Typography component="h3" sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }} noWrap>{command.name}</Typography>
             {command.confirmBeforeRun ? (
-              <Chip size="small" color="warning" variant="outlined" label="需二次确认" sx={{ fontWeight: 800, fontSize: 11, height: 20 }} />
+              <Chip size="small" color="warning" label="需二次确认" sx={{ fontWeight: 800, fontSize: 11, height: 20 }} />
             ) : null}
           </Box>
           {command.note ? (
@@ -57,9 +57,9 @@ export function CommandCard({ command, repo, settings, shells, runningCount, dra
           ) : null}
           <pre className="cr-command-script">{command.script}</pre>
           <Box className="cr-command-meta">
-            <Chip size="small" label={`终端: ${shell ? shell.name : '未知'}`} sx={{ fontWeight: 700, fontSize: 11, height: 22, bgcolor: 'background.paper' }} />
-            <Chip size="small" label={`终端来源: ${shellTierLabel(command.shellId, repo.shellId)}`} sx={{ fontWeight: 700, fontSize: 11, height: 22, bgcolor: 'background.paper' }} />
-            <Chip size="small" label={closeModeLabel(closeMode, countdownSeconds)} sx={{ fontWeight: 700, fontSize: 11, height: 22, bgcolor: 'background.paper' }} />
+            <Chip size="small" label={`终端: ${shell ? shell.name : '未知'}`} sx={{ fontWeight: 700, fontSize: 11, height: 22 }} />
+            <Chip size="small" label={`终端来源: ${shellTierLabel(command.shellId, repo.shellId)}`} sx={{ fontWeight: 700, fontSize: 11, height: 22 }} />
+            <Chip size="small" label={closeModeLabel(closeMode, countdownSeconds)} sx={{ fontWeight: 700, fontSize: 11, height: 22 }} />
           </Box>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
