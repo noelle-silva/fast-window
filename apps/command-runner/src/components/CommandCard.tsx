@@ -6,6 +6,7 @@ import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/materia
 import type { DraggableAttributes } from '@dnd-kit/core'
 import { closeModeLabel, resolveCloseMode, resolveCountdownSeconds, resolveShellInfo, shellTierLabel } from '../shellResolve'
 import type { AppSettings, CommandItem, Repo, ShellInfo } from '../types'
+import { ProcessBadge } from './ProcessBadge'
 
 type DragHandle = {
   attributes: DraggableAttributes
@@ -17,6 +18,7 @@ type CommandCardProps = {
   repo: Repo
   settings: AppSettings | null
   shells: ShellInfo[]
+  runningCount: number
   dragHandle?: DragHandle
   disabled?: boolean
   onRun: () => void
@@ -24,13 +26,14 @@ type CommandCardProps = {
   onDelete: () => void
 }
 
-export function CommandCard({ command, repo, settings, shells, dragHandle, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
+export function CommandCard({ command, repo, settings, shells, runningCount, dragHandle, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
   const shell = resolveShellInfo(command.shellId, repo.shellId, settings, shells)
   const closeMode = resolveCloseMode(command, settings)
   const countdownSeconds = resolveCountdownSeconds(command, settings)
 
   return (
     <Box className="cr-command-card">
+      <ProcessBadge tone="running" count={runningCount} className="cr-command-card-badge" />
       <Box className="cr-command-card-content">
         {dragHandle ? (
           <Box

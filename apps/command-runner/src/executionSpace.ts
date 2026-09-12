@@ -4,6 +4,11 @@ import { resolveCloseMode, resolveCountdownSeconds } from './shellResolve'
 
 export type SpaceEntryStatus = 'running' | 'ended'
 
+export type SpaceEntryCounts = {
+  running: number
+  ended: number
+}
+
 export type SpaceEntry = {
   runId: string
   commandId: string
@@ -19,7 +24,8 @@ export type SpaceEntry = {
 
 type ExecutionSpace = {
   entries: SpaceEntry[]
-  runningCountFor: (repoId: string) => number
+  countsForRepo: (repoId: string) => SpaceEntryCounts
+  countsForCommand: (commandId: string) => SpaceEntryCounts
   stopRun: (runId: string) => Promise<void>
   removeEntry: (runId: string) => void
   toggleCollapse: (runId: string) => void
@@ -160,9 +166,24 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     return () => window.clearInterval(timer)
   }, [])
 
-  const runningCountFor = React.useCallback((repoId: string) =>
-    entries.filter(entry => entry.repoId === repoId && entry.status === 'running').length,
-  [entries])
+  const countEntries = React.useCallback((match: (entry: SpaceEntry) => boolean): SpaceEntryCounts => {
+    let running = 0
+    let ended = 0
+    for (const entry of entries) {
+      if (!match(entry)) continue
+      if (entry.status === 'running') running += 1
+      else ended += 1
+    }
+    return { running, ended }
+  }, [entries])
+
+  const countsForRepo = React.useCallback((repoId: string) =>
+    countEntries(entry => entry.repoId === repoId),
+  [countEntries])
+
+  const countsForCommand = React.useCallback((commandId: string) =>
+    countEntries(entry => entry.commandId === commandId),
+  [countEntries])
 
   const stopRun = React.useCallback(async (runId: string) => {
     if (!client) return
@@ -183,5 +204,5 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     patchEntry(runId, entry => ({ ...entry, collapsed: !entry.collapsed }))
   }, [patchEntry])
 
-  return { entries, runningCountFor, stopRun, removeEntry, toggleCollapse }
+  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, toggleCollapse }
 }

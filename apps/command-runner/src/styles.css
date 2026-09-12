@@ -91,6 +91,40 @@ body {
   z-index: 1;
 }
 
+.cr-process-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.cr-process-badge-running {
+  color: #2e7d32;
+  background: rgba(46, 125, 50, 0.12);
+}
+
+.cr-process-badge-ended {
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.12);
+}
+
+.cr-process-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.cr-process-badge-count {
+  font-variant-numeric: tabular-nums;
+}
+
 .cr-space-layout {
   flex: 1;
   min-height: 0;
@@ -224,9 +258,17 @@ body {
 }
 
 .cr-command-card {
+  position: relative;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 12px;
   background: #ffffff;
+}
+
+.cr-command-card-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
 }
 
 .cr-command-card-content {

@@ -367,6 +367,7 @@ function App() {
             <Box className="cr-repo-page">
               <RepoPage
                 repo={activeRepo}
+                processCounts={executionSpace.countsForRepo(activeRepo.id)}
                 onBack={() => setActiveRepoId(null)}
                 onCreateCommand={() => setDialog({ kind: 'command-create' })}
                 onEditRepo={() => setDialog({ kind: 'repo-edit', repo: activeRepo })}
@@ -386,6 +387,7 @@ function App() {
                   settings={settings}
                   shells={shells}
                   disabled={controlsDisabled}
+                  runningCountFor={commandId => executionSpace.countsForCommand(commandId).running}
                   onRun={requestRunCommand}
                   onEdit={command => setDialog({ kind: 'command-edit', command })}
                   onDelete={command => setDialog({ kind: 'command-delete', command })}
@@ -400,7 +402,7 @@ function App() {
               settings={settings}
               shells={shells}
               disabled={controlsDisabled}
-              runningCountFor={executionSpace.runningCountFor}
+              countsForRepo={executionSpace.countsForRepo}
               onOpen={repo => setActiveRepoId(repo.id)}
               onEdit={repo => setDialog({ kind: 'repo-edit', repo })}
               onReorder={ids => actions.reorderRepos(ids)}

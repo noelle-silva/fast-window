@@ -12,6 +12,7 @@ type CommandListProps = {
   settings: AppSettings | null
   shells: ShellInfo[]
   disabled?: boolean
+  runningCountFor: (commandId: string) => number
   onRun: (command: CommandItem) => void
   onEdit: (command: CommandItem) => void
   onDelete: (command: CommandItem) => void
@@ -23,6 +24,7 @@ function SortableCommandCard({
   repo,
   settings,
   shells,
+  runningCount,
   onRun,
   onEdit,
   onDelete,
@@ -31,6 +33,7 @@ function SortableCommandCard({
   repo: Repo
   settings: AppSettings | null
   shells: ShellInfo[]
+  runningCount: number
   onRun: () => void
   onEdit: () => void
   onDelete: () => void
@@ -52,6 +55,7 @@ function SortableCommandCard({
         repo={repo}
         settings={settings}
         shells={shells}
+        runningCount={runningCount}
         dragHandle={{ attributes, listeners }}
         onRun={onRun}
         onEdit={onEdit}
@@ -67,6 +71,7 @@ export function CommandList({
   settings,
   shells,
   disabled = false,
+  runningCountFor,
   onRun,
   onEdit,
   onDelete,
@@ -94,6 +99,7 @@ export function CommandList({
               repo={repo}
               settings={settings}
               shells={shells}
+              runningCount={runningCountFor(command.id)}
               onRun={() => onRun(command)}
               onEdit={() => onEdit(command)}
               onDelete={() => onDelete(command)}

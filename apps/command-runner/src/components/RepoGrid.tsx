@@ -4,6 +4,7 @@ import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@d
 import { CSS } from '@dnd-kit/utilities'
 import { Box, Button } from '@mui/material'
 import { RepoCard } from './RepoCard'
+import type { SpaceEntryCounts } from '../executionSpace'
 import type { AppSettings, Repo, ShellInfo } from '../types'
 
 type RepoGridProps = {
@@ -12,7 +13,7 @@ type RepoGridProps = {
   settings: AppSettings | null
   shells: ShellInfo[]
   disabled?: boolean
-  runningCountFor: (repoId: string) => number
+  countsForRepo: (repoId: string) => SpaceEntryCounts
   onOpen: (repo: Repo) => void
   onEdit: (repo: Repo) => void
   onReorder: (orderedIds: string[]) => Promise<void> | void
@@ -71,7 +72,7 @@ export function RepoGrid({
   settings,
   shells,
   disabled = false,
-  runningCountFor,
+  countsForRepo,
   onOpen,
   onEdit,
   onReorder,
@@ -98,7 +99,7 @@ export function RepoGrid({
               repo={repo}
               commandCount={commands.countFor(repo.id)}
               shellName={shells.find(shell => shell.id === (repo.shellId || settings?.defaultShellId || 'cmd'))?.name || '默认终端'}
-              runningCount={runningCountFor(repo.id)}
+              runningCount={countsForRepo(repo.id).running}
               onOpen={() => onOpen(repo)}
               onEdit={() => onEdit(repo)}
             />
