@@ -13,6 +13,7 @@ type ExecutionSpacePageProps = {
   onStopRun: (runId: string) => void
   onRemoveEntry: (runId: string) => void
   onToggleCollapse: (runId: string) => void
+  onMoveEntry: (activeRunId: string, overRunId: string) => void
 }
 
 export function ExecutionSpacePage({
@@ -23,6 +24,7 @@ export function ExecutionSpacePage({
   onStopRun,
   onRemoveEntry,
   onToggleCollapse,
+  onMoveEntry,
 }: ExecutionSpacePageProps) {
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null)
   const knownRunIdsRef = React.useRef<ReadonlySet<string>>(new Set())
@@ -60,6 +62,7 @@ export function ExecutionSpacePage({
           entries={entries}
           selectedRunId={selectedEntry?.runId ?? null}
           onSelect={setSelectedRunId}
+          onMove={onMoveEntry}
         />
         <SpaceRunDetail
           entry={selectedEntry}

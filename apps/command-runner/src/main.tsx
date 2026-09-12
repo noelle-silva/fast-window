@@ -1,16 +1,18 @@
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 import AddIcon from '@mui/icons-material/Add'
+import CreateNewFolderOutlinedIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import { Alert, Box, Button, CircularProgress, CssBaseline, Snackbar, ThemeProvider, Typography } from '@mui/material'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AppTopbar } from './components/AppTopbar'
-import { CommandList } from './components/CommandList'
+import { CommandExplorer } from './components/CommandExplorer'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
 import { DeleteConfirmDialog } from './components/DeleteConfirmDialog'
 import { ExecutionSpacePage } from './components/ExecutionSpacePage'
+import { FolderDialog } from './components/FolderDialog'
 import { RepoCard } from './components/RepoCard'
 import { RepoDialog } from './components/RepoDialog'
 import { RepoGrid } from './components/RepoGrid'
@@ -18,9 +20,12 @@ import { RepoPage } from './components/RepoPage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { createDirectClient } from './directClient'
 import { useCommandRunnerData, type SettingsDraft } from './commandRunnerData'
+import { selectRepoCollections } from './collectionsTree'
+import { useFolderNavigation } from './folderNavigation'
 import { useExecutionSpace } from './executionSpace'
 import { commandRunnerTheme } from './theme'
 import type {
+  CollectionNode,
   CommandDraft,
   CommandItem,
   CommandRunMode,
@@ -45,6 +50,9 @@ type DialogState =
   | { kind: 'command-edit'; command: CommandItem }
   | { kind: 'command-delete'; command: CommandItem }
   | { kind: 'confirm-run'; command: CommandItem }
+  | { kind: 'folder-create'; repoId: string; parentId: string }
+  | { kind: 'folder-rename'; folder: CollectionNode }
+  | { kind: 'folder-delete'; folder: CollectionNode }
 
 const NO_DIALOG: DialogState = { kind: 'none' }
 
@@ -70,7 +78,7 @@ function App() {
   const reposRef = React.useRef<Repo[]>([])
   const backendReady = phase === 'ready' && Boolean(client)
   const controlsDisabled = !backendReady || busy
-  const { settings, shells, repos, commands, loading, error, actions } = useCommandRunnerData(client)
+  const { settings, shells, repos, commands, collections, loading, error, actions } = useCommandRunnerData(client)
   const executionSpace = useExecutionSpace(client, commands, settings)
   const visibleError = connectError || error
 
@@ -78,6 +86,13 @@ function App() {
   const spaceRepo = repos.find(repo => repo.id === spaceRepoId) || null
   const activeRepoCommands = activeRepo ? commands.filter(command => command.repoId === activeRepo.id) : []
   const spaceEntries = spaceRepo ? executionSpace.entries.filter(entry => entry.repoId === spaceRepo.id) : []
+  const activeRepoCollections = React.useMemo(
+    () => selectRepoCollections(collections?.nodes ?? {}, activeRepo?.id ?? ''),
+    [collections, activeRepo],
+  )
+  const folderNavigation = useFolderNavigation(activeRepo?.id ?? '', activeRepoCollections)
+  const activeRepoRoot = activeRepo ? activeRepoCollections[activeRepo.id] : undefined
+  const hasTreeContent = activeRepoCommands.length > 0 || (activeRepoRoot?.children.length ?? 0) > 0
 
   const stopRun = React.useCallback(async (runId: string) => {
     setStoppingRunIds(current => new Set(current).add(runId))
@@ -257,6 +272,28 @@ function App() {
     }, `命令「${command.name}」已删除`)
   }, [actions.deleteCommand, wrap])
 
+  const submitFolderCreate = React.useCallback(async (name: string) => {
+    const state = dialog
+    if (state.kind !== 'folder-create') return
+    await wrap(async () => {
+      await actions.createFolder(state.repoId, state.parentId, name)
+    }, '收藏夹已创建')
+  }, [actions.createFolder, dialog, wrap])
+
+  const submitFolderRename = React.useCallback(async (name: string) => {
+    const state = dialog
+    if (state.kind !== 'folder-rename') return
+    await wrap(async () => {
+      await actions.renameFolder(state.folder.id, name)
+    }, '收藏夹已重命名')
+  }, [actions.renameFolder, dialog, wrap])
+
+  const submitFolderDelete = React.useCallback(async (folder: CollectionNode) => {
+    await wrap(async () => {
+      await actions.deleteFolder(folder.id)
+    }, `收藏夹「${folder.name}」已删除，内容已移到上一级`)
+  }, [actions.deleteFolder, wrap])
+
   const submitSettings = React.useCallback(async (draft: SettingsDraft) => {
     if (controlsDisabled) return
     setBusy(true)
@@ -361,36 +398,53 @@ function App() {
               onStopRun={runId => void stopRun(runId)}
               onRemoveEntry={executionSpace.removeEntry}
               onToggleCollapse={executionSpace.toggleCollapse}
+              onMoveEntry={executionSpace.moveEntry}
             />
           ) : activeRepo ? (
             <Box className="cr-repo-page">
               <RepoPage
                 repo={activeRepo}
                 processCounts={executionSpace.countsForRepo(activeRepo.id)}
+                canGoBack={folderNavigation.canGoBack}
+                canGoForward={folderNavigation.canGoForward}
+                onGoBack={folderNavigation.goBack}
+                onGoForward={folderNavigation.goForward}
                 onBack={() => setActiveRepoId(null)}
                 onCreateCommand={() => setDialog({ kind: 'command-create' })}
+                onAddFolder={() => setDialog({ kind: 'folder-create', repoId: activeRepo.id, parentId: folderNavigation.currentFolderId })}
                 onEditRepo={() => setDialog({ kind: 'repo-edit', repo: activeRepo })}
                 onOpenExecutionSpace={() => setSpaceRepoId(activeRepo.id)}
               />
-              {activeRepoCommands.length === 0 ? (
+              {!hasTreeContent ? (
                 <Box className="cr-empty-state">
                   <Typography component="strong" sx={{ fontSize: 14, fontWeight: 900 }}>这个仓库还没有命令</Typography>
-                  <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={() => setDialog({ kind: 'command-create' })}>
-                    新建第一条命令
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button size="small" variant="contained" startIcon={<AddIcon fontSize="small" />} onClick={() => setDialog({ kind: 'command-create' })}>
+                      新建第一条命令
+                    </Button>
+                    <Button size="small" startIcon={<CreateNewFolderOutlinedIcon fontSize="small" />} onClick={() => setDialog({ kind: 'folder-create', repoId: activeRepo.id, parentId: activeRepo.id })}>
+                      添加收藏夹
+                    </Button>
+                  </Box>
                 </Box>
               ) : (
-                <CommandList
+                <CommandExplorer
                   repo={activeRepo}
+                  nodes={activeRepoCollections}
                   commands={activeRepoCommands}
                   settings={settings}
                   shells={shells}
                   disabled={controlsDisabled}
+                  currentFolderId={folderNavigation.currentFolderId}
+                  pathIds={folderNavigation.pathIds}
+                  onNavigate={folderNavigation.navigateTo}
                   runningCountFor={commandId => executionSpace.countsForCommand(commandId).running}
                   onRun={requestRunCommand}
                   onEdit={command => setDialog({ kind: 'command-edit', command })}
                   onDelete={command => setDialog({ kind: 'command-delete', command })}
-                  onReorder={ids => actions.reorderCommands(activeRepo.id, ids).catch(e => setSnack(errorMessage(e, '命令排序保存失败')))}
+                  onMove={(nodeId, targetId, index) => actions.moveNode(nodeId, targetId, index).catch(e => setSnack(errorMessage(e, '移动失败')))}
+                  onRenameFolder={folder => setDialog({ kind: 'folder-rename', folder })}
+                  onDeleteFolder={folder => setDialog({ kind: 'folder-delete', folder })}
                 />
               )}
             </Box>
@@ -491,6 +545,40 @@ function App() {
             message={`将删除命令「${dialog.command.name}」及其全部配置。`}
             disabled={controlsDisabled}
             onConfirm={() => submitCommandDelete(dialog.command)}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'folder-create' ? (
+          <FolderDialog
+            title="添加收藏夹"
+            subtitle="收藏夹用来给命令分类，还可以在收藏夹里继续嵌套子收藏夹。"
+            submitLabel="创建收藏夹"
+            disabled={controlsDisabled}
+            submitting={busy}
+            onSubmit={submitFolderCreate}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'folder-rename' ? (
+          <FolderDialog
+            title="重命名收藏夹"
+            submitLabel="保存修改"
+            initialName={dialog.folder.name}
+            disabled={controlsDisabled}
+            submitting={busy}
+            onSubmit={submitFolderRename}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'folder-delete' ? (
+          <DeleteConfirmDialog
+            title="删除收藏夹"
+            message={`将删除收藏夹「${dialog.folder.name}」。其中的命令与子收藏夹会移动到上一级，命令不会被删除。`}
+            disabled={controlsDisabled}
+            onConfirm={() => submitFolderDelete(dialog.folder)}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}

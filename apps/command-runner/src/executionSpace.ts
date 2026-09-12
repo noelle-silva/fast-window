@@ -29,6 +29,7 @@ type ExecutionSpace = {
   stopRun: (runId: string) => Promise<void>
   removeEntry: (runId: string) => void
   toggleCollapse: (runId: string) => void
+  moveEntry: (activeRunId: string, overRunId: string) => void
 }
 
 const MAX_LINES_PER_ENTRY = 2000
@@ -204,5 +205,18 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     patchEntry(runId, entry => ({ ...entry, collapsed: !entry.collapsed }))
   }, [patchEntry])
 
-  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, toggleCollapse }
+  // moveEntry 调整运行实例在侧边栏中的显示顺序（entries 数组顺序即显示顺序）。
+  const moveEntry = React.useCallback((activeRunId: string, overRunId: string) => {
+    setEntries(current => {
+      const fromIndex = current.findIndex(entry => entry.runId === activeRunId)
+      const toIndex = current.findIndex(entry => entry.runId === overRunId)
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return current
+      const next = [...current]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+  }, [])
+
+  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, toggleCollapse, moveEntry }
 }

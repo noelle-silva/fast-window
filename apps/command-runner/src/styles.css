@@ -245,15 +245,72 @@ body {
   min-width: 0;
 }
 
-.cr-command-list {
+.cr-command-area {
   flex: 1;
   min-height: 0;
-  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cr-path-bar {
+  margin: 0 16px 10px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.cr-path-crumb {
+  border-radius: 999px;
+}
+
+.cr-explorer-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px 16px;
   display: grid;
   gap: 8px;
   align-content: start;
   overflow: auto;
   background: transparent;
+}
+
+.cr-folder-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.cr-folder-card:hover {
+  background: #f6f7f9;
+}
+
+.cr-folder-card-candidate {
+  background: rgba(25, 118, 210, 0.08);
+}
+
+.cr-folder-card-drop {
+  background: rgba(25, 118, 210, 0.18);
+}
+
+.cr-folder-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.14);
 }
 
 .cr-command-card {

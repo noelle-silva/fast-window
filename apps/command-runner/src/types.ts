@@ -109,6 +109,22 @@ export type RunInfo = {
   startedAt: string
 }
 
+// 收藏夹树节点：只有收藏夹会出现在 nodes 中（含每个仓库的隐式根节点，根节点 id = repoId）；
+// children 里不在 nodes 中的 id 即命令引用。
+export type CollectionNode = {
+  id: string
+  repoId: string
+  type: string
+  name: string
+  children: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type CollectionsDoc = {
+  nodes: Record<string, CollectionNode>
+}
+
 export type AppSettings = {
   schemaVersion: number
   dataVersion: number

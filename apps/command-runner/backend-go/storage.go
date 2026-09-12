@@ -33,6 +33,14 @@ func (svc *service) ensureReady() error {
 			return err
 		}
 	}
+	if _, err := os.Stat(svc.collectionsPath()); errors.Is(err, os.ErrNotExist) {
+		if err := writeJSON(svc.collectionsPath(), collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Nodes: map[string]*collectionNode{}}); err != nil {
+			return err
+		}
+	}
+	if err := svc.ensureCollections(); err != nil {
+		return err
+	}
 	return cleanRunTmp(svc.runTmpPath())
 }
 
@@ -71,6 +79,10 @@ func (svc *service) reposPath() string {
 
 func (svc *service) commandsPath() string {
 	return filepath.Join(svc.dataDir, commandsFile)
+}
+
+func (svc *service) collectionsPath() string {
+	return filepath.Join(svc.dataDir, collectionsFile)
 }
 
 func (svc *service) readSettings() (appSettings, error) {
@@ -199,6 +211,26 @@ func (svc *service) writeCommands(doc commandsDoc) error {
 		doc.Commands = []command{}
 	}
 	return writeJSON(svc.commandsPath(), doc)
+}
+
+func (svc *service) loadCollections() (collectionsDoc, error) {
+	var doc collectionsDoc
+	if err := readJSON(svc.collectionsPath(), &doc); err != nil {
+		return collectionsDoc{}, err
+	}
+	if doc.Nodes == nil {
+		doc.Nodes = map[string]*collectionNode{}
+	}
+	return doc, nil
+}
+
+func (svc *service) writeCollections(doc collectionsDoc) error {
+	doc.SchemaVersion = dataSchemaVersion
+	doc.DataVersion = dataVersion
+	if doc.Nodes == nil {
+		doc.Nodes = map[string]*collectionNode{}
+	}
+	return writeJSON(svc.collectionsPath(), doc)
 }
 
 func ensureWritable(dir string) error {

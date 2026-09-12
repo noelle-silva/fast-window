@@ -324,7 +324,7 @@ func TestBuildEmbeddedArgsPerShell(t *testing.T) {
 	}
 }
 
-func TestReorderReposAndCommands(t *testing.T) {
+func TestReorderRepos(t *testing.T) {
 	svc := newTestService(t)
 
 	mkRepoDir := func(name string) string {
@@ -348,19 +348,6 @@ func TestReorderReposAndCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmdA, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "a", Script: "echo a"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmdC, err := svc.createCommand(commandDraft{RepoID: repoB.ID, Name: "c", Script: "echo c"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmdB, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "b", Script: "echo b"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// 正常重排
 	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID, repoB.ID}); err != nil {
 		t.Fatal(err)
@@ -373,18 +360,6 @@ func TestReorderReposAndCommands(t *testing.T) {
 		t.Fatalf("unexpected repo order: %+v", doc.Repos)
 	}
 
-	// 仓库子集重排：repoA 命令换成 [b, a]，repoB 的 cmdC 保持原位
-	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID, cmdA.ID}); err != nil {
-		t.Fatal(err)
-	}
-	commandsDoc, err := svc.loadCommands()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if commandsDoc.Commands[0].ID != cmdB.ID || commandsDoc.Commands[1].ID != cmdC.ID || commandsDoc.Commands[2].ID != cmdA.ID {
-		t.Fatalf("unexpected command order: %+v", commandsDoc.Commands)
-	}
-
 	// ID 缺失拒绝
 	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID}); err == nil {
 		t.Fatal("expected error for missing id")
@@ -393,24 +368,201 @@ func TestReorderReposAndCommands(t *testing.T) {
 	if err := svc.reorderRepos([]string{repoC.ID, repoA.ID, repoB.ID, "repo-nope"}); err == nil {
 		t.Fatal("expected error for unknown id")
 	}
-	// 命令数量不匹配拒绝（漏掉 repoA 的命令）
-	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID}); err == nil {
-		t.Fatal("expected error for command count mismatch")
+}
+
+func loadCollectionNodes(t *testing.T, svc *service) map[string]*collectionNode {
+	t.Helper()
+	doc, err := svc.loadCollections()
+	if err != nil {
+		t.Fatal(err)
 	}
-	// 命令未知 ID 拒绝
-	if err := svc.reorderCommands(repoA.ID, []string{cmdB.ID, "cmd-nope"}); err == nil {
-		t.Fatal("expected error for unknown command id")
+	return doc.Nodes
+}
+
+func assertChildren(t *testing.T, nodes map[string]*collectionNode, folderID string, want ...string) {
+	t.Helper()
+	node, ok := nodes[folderID]
+	if !ok || node == nil {
+		t.Fatalf("folder not found: %s", folderID)
 	}
-	// 命令重复 ID 拒绝
-	if err := svc.reorderCommands(repoA.ID, []string{cmdA.ID, cmdA.ID}); err == nil {
-		t.Fatal("expected error for duplicate id")
+	if strings.Join(node.Children, ",") != strings.Join(want, ",") {
+		t.Fatalf("children of %s = %v, want %v", folderID, node.Children, want)
 	}
-	// 空仓库 ID 拒绝
-	if err := svc.reorderCommands("", []string{cmdB.ID, cmdA.ID}); err == nil {
-		t.Fatal("expected error for empty repo id")
+}
+
+func TestCollectionsTree(t *testing.T) {
+	svc := newTestService(t)
+
+	mkRepoDir := func(name string) string {
+		dir := filepath.Join(svc.dataDir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
 	}
-	// 无命令仓库拒绝
-	if err := svc.reorderCommands(repoC.ID, []string{cmdB.ID, cmdA.ID}); err == nil {
-		t.Fatal("expected error for repo without commands")
+
+	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoB, err := svc.createRepo("B", mkRepoDir("b"), "", 0, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmdA, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "a", Script: "echo a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdB, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "b", Script: "echo b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdC, err := svc.createCommand(commandDraft{RepoID: repoB.ID, Name: "c", Script: "echo c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 新命令默认挂在各自仓库根末尾（未分类区）
+	nodes := loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID)
+	assertChildren(t, nodes, repoB.ID, cmdC.ID)
+
+	// 新建收藏夹与子收藏夹
+	folder, err := svc.createCollectionFolder(repoA.ID, repoA.ID, "构建")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := svc.createCollectionFolder(repoA.ID, folder.ID, "发布")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID, folder.ID)
+	assertChildren(t, nodes, folder.ID, sub.ID)
+
+	// 移动命令进收藏夹末尾
+	if err := svc.moveCollectionNode(cmdA.ID, folder.ID, -1); err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, cmdB.ID, folder.ID)
+	assertChildren(t, nodes, folder.ID, sub.ID, cmdA.ID)
+
+	// 收藏夹同级排序：folder 移到根首位
+	if err := svc.moveCollectionNode(folder.ID, repoA.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, folder.ID, cmdB.ID)
+
+	// 重命名
+	if err := svc.renameCollectionFolder(folder.ID, "打包"); err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	if nodes[folder.ID].Name != "打包" {
+		t.Fatalf("folder name = %q", nodes[folder.ID].Name)
+	}
+
+	// 跨层级移动：sub 移到根末尾
+	if err := svc.moveCollectionNode(sub.ID, repoA.ID, -1); err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, folder.ID, cmdB.ID, sub.ID)
+	assertChildren(t, nodes, folder.ID, cmdA.ID)
+
+	// 解散 folder：其内容原位替换并上移，命令不丢
+	if err := svc.dissolveCollectionFolder(folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	if _, exists := nodes[folder.ID]; exists {
+		t.Fatal("dissolved folder still exists")
+	}
+	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID, sub.ID)
+
+	// 拒绝用例
+	if err := svc.dissolveCollectionFolder(repoA.ID); err == nil {
+		t.Fatal("expected error dissolving root")
+	}
+	if err := svc.renameCollectionFolder(repoA.ID, "x"); err == nil {
+		t.Fatal("expected error renaming root")
+	}
+	if err := svc.moveCollectionNode(cmdC.ID, repoA.ID, -1); err == nil {
+		t.Fatal("expected error moving across repos")
+	}
+	if err := svc.moveCollectionNode(sub.ID, sub.ID, -1); err == nil {
+		t.Fatal("expected error moving into itself")
+	}
+	childFolder, err := svc.createCollectionFolder(repoA.ID, sub.ID, "子夹")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.moveCollectionNode(sub.ID, childFolder.ID, -1); err == nil {
+		t.Fatal("expected error moving into own subtree")
+	}
+	if err := svc.moveCollectionNode("cmd-nope", repoA.ID, -1); err == nil {
+		t.Fatal("expected error for unknown node")
+	}
+	if err := svc.moveCollectionNode(cmdA.ID, "folder-nope", -1); err == nil {
+		t.Fatal("expected error for unknown target")
+	}
+	if _, err := svc.createCollectionFolder(repoA.ID, repoA.ID, "   "); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestCollectionsEnsure(t *testing.T) {
+	svc := newTestService(t)
+
+	mkRepoDir := func(name string) string {
+		dir := filepath.Join(svc.dataDir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdA, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "a", Script: "echo a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdB, err := svc.createCommand(commandDraft{RepoID: repoA.ID, Name: "b", Script: "echo b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := svc.createCollectionFolder(repoA.ID, repoA.ID, "孤儿")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 人为破坏数据：cmdB 丢失引用、cmdA 重复引用、无效引用、幽灵仓库节点
+	doc, err := svc.loadCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.Nodes[repoA.ID].Children = []string{cmdA.ID, cmdA.ID, "cmd-nope", orphan.ID, "folder-nope"}
+	doc.Nodes["repo-ghost"] = &collectionNode{ID: "repo-ghost", RepoID: "repo-ghost", Type: "folder", Name: "", Children: []string{cmdA.ID}}
+	if err := svc.writeCollections(doc); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ensureCollections(); err != nil {
+		t.Fatal(err)
+	}
+	nodes := loadCollectionNodes(t, svc)
+	// cmdA 只保留一次，cmdB 补回根末尾，无效引用与幽灵节点被清理，有效收藏夹保留
+	assertChildren(t, nodes, repoA.ID, cmdA.ID, orphan.ID, cmdB.ID)
+	if _, exists := nodes["repo-ghost"]; exists {
+		t.Fatal("ghost repo node should be removed")
+	}
+	if _, exists := nodes[orphan.ID]; !exists {
+		t.Fatal("valid folder should be kept")
 	}
 }

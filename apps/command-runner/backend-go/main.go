@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	settingsFile   = "settings.json"
-	reposFile      = "repos.json"
-	commandsFile   = "commands.json"
-	metaFile       = "_meta.json"
-	migrationsFile = "_migrations.json"
-	runTmpDir      = "run-tmp"
+	settingsFile    = "settings.json"
+	reposFile       = "repos.json"
+	commandsFile    = "commands.json"
+	collectionsFile = "collections.json"
+	metaFile        = "_meta.json"
+	migrationsFile  = "_migrations.json"
+	runTmpDir       = "run-tmp"
 )
 
 type service struct {
@@ -271,15 +272,53 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		}
 		return nil, svc.deleteCommand(payload.ID)
 
-	case "commandRunner.commands.reorder":
+	case "commandRunner.collections.list":
+		return svc.listCollections()
+
+	case "commandRunner.collections.create":
 		var payload struct {
-			RepoID     string   `json:"repoId"`
-			OrderedIDs []string `json:"orderedIds"`
+			RepoID   string `json:"repoId"`
+			ParentID string `json:"parentId"`
+			Name     string `json:"name"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid command payload: %w", err)
+			return nil, fmt.Errorf("invalid collection payload: %w", err)
 		}
-		return nil, svc.reorderCommands(payload.RepoID, payload.OrderedIDs)
+		return svc.createCollectionFolder(payload.RepoID, payload.ParentID, payload.Name)
+
+	case "commandRunner.collections.rename":
+		var payload struct {
+			FolderID string `json:"folderId"`
+			Name     string `json:"name"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid collection payload: %w", err)
+		}
+		return nil, svc.renameCollectionFolder(payload.FolderID, payload.Name)
+
+	case "commandRunner.collections.delete":
+		var payload struct {
+			FolderID string `json:"folderId"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid collection payload: %w", err)
+		}
+		return nil, svc.dissolveCollectionFolder(payload.FolderID)
+
+	case "commandRunner.collections.move":
+		var payload struct {
+			NodeID         string `json:"nodeId"`
+			TargetFolderID string `json:"targetFolderId"`
+			Index          *int   `json:"index"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid collection payload: %w", err)
+		}
+		index := -1
+		if payload.Index != nil {
+			index = *payload.Index
+		}
+		return nil, svc.moveCollectionNode(payload.NodeID, payload.TargetFolderID, index)
 
 	case "commandRunner.commands.run":
 		var payload struct {

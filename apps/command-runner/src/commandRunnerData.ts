@@ -1,6 +1,8 @@
 import * as React from 'react'
+import { moveCollectionNode } from './collectionsTree'
 import type {
   AppSettings,
+  CollectionsDoc,
   CommandDraft,
   CommandItem,
   CommandRunMode,
@@ -15,6 +17,7 @@ type CommandRunnerData = {
   shells: ShellInfo[]
   repos: Repo[]
   commands: CommandItem[]
+  collections: CollectionsDoc | null
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -29,7 +32,10 @@ type CommandRunnerActions = {
   createCommand: (draft: CommandDraft) => Promise<void>
   updateCommand: (id: string, draft: CommandDraft) => Promise<void>
   deleteCommand: (id: string) => Promise<void>
-  reorderCommands: (repoId: string, orderedIds: string[]) => Promise<void>
+  createFolder: (repoId: string, parentId: string, name: string) => Promise<void>
+  renameFolder: (folderId: string, name: string) => Promise<void>
+  deleteFolder: (folderId: string) => Promise<void>
+  moveNode: (nodeId: string, targetFolderId: string, index: number) => Promise<void>
   runCommand: (id: string) => Promise<void>
   saveSettings: (draft: SettingsDraft) => Promise<void>
   addCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void>
@@ -53,6 +59,7 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
   const [shells, setShells] = React.useState<ShellInfo[]>([])
   const [repos, setRepos] = React.useState<Repo[]>([])
   const [commands, setCommands] = React.useState<CommandItem[]>([])
+  const [collections, setCollections] = React.useState<CollectionsDoc | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -60,16 +67,18 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
     if (!client) return
     setLoading(true)
     try {
-      const [nextSettings, nextShells, nextRepos, nextCommands] = await Promise.all([
+      const [nextSettings, nextShells, nextRepos, nextCommands, nextCollections] = await Promise.all([
         client.request<AppSettings>('commandRunner.settings.get'),
         client.request<{ shells: ShellInfo[] }>('commandRunner.terminals.list'),
         client.request<{ repos: Repo[] }>('commandRunner.repos.list'),
         client.request<{ commands: CommandItem[] }>('commandRunner.commands.list', {}),
+        client.request<CollectionsDoc>('commandRunner.collections.list'),
       ])
       setSettings(nextSettings)
       setShells(nextShells.shells)
       setRepos(nextRepos.repos)
       setCommands(nextCommands.commands)
+      setCollections(nextCollections)
       setError(null)
     } catch (e) {
       setError(errorMessage(e, '读取数据失败'))
@@ -95,7 +104,10 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
         createCommand: unavailable,
         updateCommand: unavailable,
         deleteCommand: unavailable,
-        reorderCommands: unavailable,
+        createFolder: unavailable,
+        renameFolder: unavailable,
+        deleteFolder: unavailable,
+        moveNode: unavailable,
         runCommand: unavailable,
         saveSettings: unavailable,
         addCustomShell: unavailable,
@@ -143,9 +155,14 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
       createCommand: draft => mutate('commandRunner.commands.create', draft),
       updateCommand: (id, draft) => mutate('commandRunner.commands.update', { id, draft }),
       deleteCommand: id => mutate('commandRunner.commands.delete', { id }),
-      reorderCommands: (repoId, orderedIds) => mutateOrder(
-        () => client.request('commandRunner.commands.reorder', { repoId, orderedIds }),
-        () => setCommands(current => applyLocalOrder(current, orderedIds)),
+      createFolder: (repoId, parentId, name) => mutate('commandRunner.collections.create', { repoId, parentId, name }),
+      renameFolder: (folderId, name) => mutate('commandRunner.collections.rename', { folderId, name }),
+      deleteFolder: folderId => mutate('commandRunner.collections.delete', { folderId }),
+      moveNode: (nodeId, targetFolderId, index) => mutateOrder(
+        () => client.request('commandRunner.collections.move', { nodeId, targetFolderId, index }),
+        () => setCollections(current => current
+          ? { ...current, nodes: moveCollectionNode(current.nodes, nodeId, targetFolderId, index) }
+          : current),
       ),
       runCommand: id => mutate('commandRunner.commands.run', { id }),
       saveSettings: draft => mutate('commandRunner.settings.save', draft),
@@ -155,5 +172,5 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
     }
   }, [client, refresh])
 
-  return { settings, shells, repos, commands, loading, error, refresh, actions }
+  return { settings, shells, repos, commands, collections, loading, error, refresh, actions }
 }

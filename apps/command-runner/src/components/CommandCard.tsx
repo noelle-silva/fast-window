@@ -3,15 +3,10 @@ import DragIndicatorOutlinedIcon from '@mui/icons-material/DragIndicatorOutlined
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material'
-import type { DraggableAttributes } from '@dnd-kit/core'
 import { closeModeLabel, resolveCloseMode, resolveCountdownSeconds, resolveShellInfo, shellTierLabel } from '../shellResolve'
 import type { AppSettings, CommandItem, Repo, ShellInfo } from '../types'
 import { ProcessBadge } from './ProcessBadge'
-
-type DragHandle = {
-  attributes: DraggableAttributes
-  listeners: Record<string, Function> | undefined
-}
+import type { SortableItemRenderArgs } from './SortableDnd'
 
 type CommandCardProps = {
   command: CommandItem
@@ -19,28 +14,34 @@ type CommandCardProps = {
   settings: AppSettings | null
   shells: ShellInfo[]
   runningCount: number
-  dragHandle?: DragHandle
+  sortable?: SortableItemRenderArgs
   disabled?: boolean
   onRun: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-export function CommandCard({ command, repo, settings, shells, runningCount, dragHandle, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
+export function CommandCard({ command, repo, settings, shells, runningCount, sortable, disabled = false, onRun, onEdit, onDelete }: CommandCardProps) {
   const shell = resolveShellInfo(command.shellId, repo.shellId, settings, shells)
   const closeMode = resolveCloseMode(command, settings)
   const countdownSeconds = resolveCountdownSeconds(command, settings)
 
   return (
-    <Box className="cr-command-card">
+    <Box
+      ref={sortable?.setNodeRef}
+      style={sortable?.style}
+      className="cr-command-card"
+      sx={{ opacity: sortable?.isDragging ? 0.82 : 1 }}
+      {...sortable?.dropActivatorProps}
+    >
       <ProcessBadge tone="running" count={runningCount} className="cr-command-card-badge" />
       <Box className="cr-command-card-content">
-        {dragHandle ? (
+        {sortable ? (
           <Box
+            ref={sortable.setHandleRef}
             className="cr-drag-handle"
             aria-label="拖拽排序"
-            {...dragHandle.attributes}
-            {...dragHandle.listeners}
+            {...sortable.handleProps}
           >
             <DragIndicatorOutlinedIcon fontSize="small" />
           </Box>

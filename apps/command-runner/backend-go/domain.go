@@ -94,6 +94,24 @@ type commandsDoc struct {
 	Commands      []command `json:"commands"`
 }
 
+// collectionNode 是收藏夹树节点。nodes 中只存在收藏夹（含每个仓库的隐式根节点）；
+// children 里不属于 nodes 的 id 即命令引用——命令实体唯一存放在 commands.json。
+type collectionNode struct {
+	ID        string   `json:"id"`
+	RepoID    string   `json:"repoId"`
+	Type      string   `json:"type"`
+	Name      string   `json:"name"`
+	Children  []string `json:"children"`
+	CreatedAt string   `json:"createdAt"`
+	UpdatedAt string   `json:"updatedAt"`
+}
+
+type collectionsDoc struct {
+	SchemaVersion int                        `json:"schemaVersion"`
+	DataVersion   int                        `json:"dataVersion"`
+	Nodes         map[string]*collectionNode `json:"nodes"`
+}
+
 type commandDraft struct {
 	RepoID           string `json:"repoId"`
 	Name             string `json:"name"`

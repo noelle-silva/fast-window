@@ -115,6 +115,9 @@ func (svc *service) createRepo(name, path, closeMode string, countdownSeconds in
 	if err := svc.writeRepos(doc); err != nil {
 		return repo{}, err
 	}
+	if err := svc.ensureRepoRoot(item.ID); err != nil {
+		return repo{}, err
+	}
 	return item, nil
 }
 
@@ -205,7 +208,10 @@ func (svc *service) deleteRepo(id string) error {
 		keptCommands = append(keptCommands, item)
 	}
 	commandsDoc.Commands = keptCommands
-	return svc.writeCommands(commandsDoc)
+	if err := svc.writeCommands(commandsDoc); err != nil {
+		return err
+	}
+	return svc.dropRepoCollections(id)
 }
 
 func (svc *service) listCommands(repoID string) (map[string]any, error) {
@@ -221,24 +227,6 @@ func (svc *service) listCommands(repoID string) (map[string]any, error) {
 		commands = append(commands, item)
 	}
 	return map[string]any{"commands": commands}, nil
-}
-
-// reorderCommands 只重排指定仓库的命令：该仓库命令按 orderedIDs 换序后放回原位置，
-// 其他仓库的命令位置保持不变。
-func (svc *service) reorderCommands(repoID string, orderedIDs []string) error {
-	if strings.TrimSpace(repoID) == "" {
-		return fmt.Errorf("缺少仓库 ID")
-	}
-	doc, err := svc.loadCommands()
-	if err != nil {
-		return err
-	}
-	reordered, err := reorderByID(doc.Commands, orderedIDs, func(item command) string { return item.ID }, func(item command) bool { return item.RepoID == repoID })
-	if err != nil {
-		return err
-	}
-	doc.Commands = reordered
-	return svc.writeCommands(doc)
 }
 
 func (svc *service) createCommand(draft commandDraft) (command, error) {
@@ -281,6 +269,9 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 	}
 	doc.Commands = append(doc.Commands, item)
 	if err := svc.writeCommands(doc); err != nil {
+		return command{}, err
+	}
+	if err := svc.appendCommandToRoot(draft.RepoID, item.ID); err != nil {
 		return command{}, err
 	}
 	return item, nil
@@ -337,5 +328,8 @@ func (svc *service) deleteCommand(id string) error {
 		return fmt.Errorf("未找到命令: %s", id)
 	}
 	doc.Commands = kept
-	return svc.writeCommands(doc)
+	if err := svc.writeCommands(doc); err != nil {
+		return err
+	}
+	return svc.detachCommand(id)
 }
