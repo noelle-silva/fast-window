@@ -1,9 +1,7 @@
 export type { AiDrawProvider, AiDrawSettings, PromptLibraryV1, RefLibraryIndexV1 } from '../core/schema'
 export type { AiDrawTaskHistoryItem } from '../core/taskHistory'
-export type { AiDrawImageGenerationOptions } from '../core/imageGenerationOptions'
 
 import type { AiDrawProvider } from '../core/schema'
-import type { AiDrawImageGenerationOptions } from '../core/imageGenerationOptions'
 
 export type AiDrawGenerationStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'canceling'
 export type AiDrawGenerationMode = 'normal' | 'local-edit'
@@ -53,7 +51,6 @@ export type AiDrawCreateNormalGenerationRequest = {
   prompt: string
   refImages: AiDrawGenerationRefImage[]
   batchCount: number
-  imageOptions: AiDrawImageGenerationOptions
   autoSave: boolean
   shrinkRefImages: boolean
   debugMode: boolean

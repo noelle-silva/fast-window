@@ -23,7 +23,6 @@ export type AiDrawProvider = {
   models: string[]
   model: string
   customModel: string
-  size: string
   chatSystemPrompt: string
 }
 
@@ -56,18 +55,17 @@ export type RefLibraryIndexV1 = {
 }
 
 export function defaultProvider(): AiDrawProvider {
-  return {
+  return normalizeProvider({
     id: id('prov'),
     name: '默认供应商',
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     protocol: 'images',
-    models: ['gpt-image-2'],
-    model: 'gpt-image-2',
+    models: [],
+    model: '',
     customModel: '',
-    size: '1024x1024',
     chatSystemPrompt: '',
-  }
+  })
 }
 
 export function defaultSettings(): AiDrawSettings {
@@ -149,7 +147,6 @@ export function normalizeProvider(p: any): AiDrawProvider {
   out.models = normalizeModels(out.models)
   out.model = String(out.model || out.models[0] || '')
   out.customModel = String(out.customModel || '')
-  out.size = String(out.size || '1024x1024')
   out.chatSystemPrompt = typeof out.chatSystemPrompt === 'string' ? out.chatSystemPrompt : ''
 
   // 保持 UI 一致性：如果 models 列表不包含当前选择，则回退到第一个；若为空则切到自定义。
@@ -179,7 +176,6 @@ function migrateLegacySettings(s: any): AiDrawSettings {
   p.baseUrl = trimSlash(String(s?.baseUrl || p.baseUrl))
   p.apiKey = String(s?.apiKey || '')
   p.protocol = String(s?.protocol || 'images') === 'chat' ? 'chat' : 'images'
-  p.size = String(s?.size || p.size)
   p.chatSystemPrompt = typeof s?.chatSystemPrompt === 'string' ? s.chatSystemPrompt : ''
   const m = String(s?.model || '').trim()
   if (m) {

@@ -23,13 +23,6 @@ import {
   type RefLibraryIndexV1,
   type UiMode,
 } from '../core/schema'
-import {
-  DEFAULT_IMAGE_GENERATION_OPTIONS,
-  normalizeImageGenerationOptions,
-  patchImageGenerationOptions,
-  validateRawImageGenerationOptions,
-  type AiDrawImageGenerationOptions,
-} from '../core/imageGenerationOptions'
 import { normalizeImageDataUrlOrBase64 } from '../core/images'
 import {
   cropDataUrlByPixels,
@@ -82,7 +75,6 @@ export type AiDrawControllerState = {
   error: string
   prompt: string
   batchCount: string
-  imageOptions: AiDrawImageGenerationOptions
   refImages: PickedImage[]
   refLibrary: {
     loading: boolean
@@ -127,7 +119,6 @@ export type AiDrawController = {
 
   setPrompt: (text: string) => void
   setBatchCount: (text: string) => void
-  setImageOptions: (patch: Partial<AiDrawImageGenerationOptions>) => void
   switchPromptHistory: (direction: -1 | 1) => void
 
   setUiMode: (mode: UiMode) => Promise<void>
@@ -503,7 +494,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     error: '',
     prompt: '',
     batchCount: '1',
-    imageOptions: DEFAULT_IMAGE_GENERATION_OPTIONS,
     refImages: [],
     refLibrary: { loading: false, busy: false, paths: [], itemsByPath: {}, indexLoading: false, index: null },
     data: null,
@@ -1180,23 +1170,11 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       }
       if (String(p?.protocol || 'images') !== 'chat' && refImages.length) host.toast('已选参考图：自动使用 /images/edits（多图参考）')
 
-      const rawImageOptions = state.imageOptions
-      const imageOptionErrors = validateRawImageGenerationOptions({
-        raw: rawImageOptions,
-        model,
-        protocol: String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images',
-        requestKind: refImages.length ? 'edits' : 'generations',
-      })
-      if (imageOptionErrors.length) throw new Error(imageOptionErrors.join('\n'))
-
-      const imageOptions = normalizeImageGenerationOptions(rawImageOptions)
-
       const tasks = await generation.createNormal({
         provider: p,
         prompt,
         refImages,
         batchCount: batch,
-        imageOptions,
         autoSave: !!state.data?.autoSave,
         shrinkRefImages: isShrinkRefImagesEnabled(),
         debugMode: !!state.data?.debugMode,
@@ -2205,7 +2183,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
 
     const saved = await settingsStore.read().catch(() => null)
     state.data = normalizeSettings(saved)
-    state.imageOptions = normalizeImageGenerationOptions({ ...DEFAULT_IMAGE_GENERATION_OPTIONS, size: activeProvider(state.data)?.size || DEFAULT_IMAGE_GENERATION_OPTIONS.size })
     const taskHistorySaved = await taskHistoryStore.read().catch(() => null)
     state.taskHistory = normalizeTaskHistory(taskHistorySaved, state.data.taskHistoryLimit)
     state.uiMode = normalizeUiMode(state.data.uiMode)
@@ -2272,10 +2249,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     },
     setBatchCount: (text: string) => {
       state.batchCount = String(text ?? '')
-      notify()
-    },
-    setImageOptions: (patch: Partial<AiDrawImageGenerationOptions>) => {
-      state.imageOptions = patchImageGenerationOptions(state.imageOptions, patch)
       notify()
     },
     switchPromptHistory: (direction: -1 | 1) => {
