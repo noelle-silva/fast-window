@@ -264,6 +264,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		Script:           draft.Script,
 		Note:             strings.TrimSpace(draft.Note),
 		ConfirmBeforeRun: draft.ConfirmBeforeRun,
+		NotifyOnComplete: draft.NotifyOnComplete,
 		ShellID:          draft.ShellID,
 		CloseMode:        draft.CloseMode,
 		CountdownSeconds: draft.CountdownSeconds,
@@ -301,6 +302,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].Script = draft.Script
 		doc.Commands[index].Note = strings.TrimSpace(draft.Note)
 		doc.Commands[index].ConfirmBeforeRun = draft.ConfirmBeforeRun
+		doc.Commands[index].NotifyOnComplete = draft.NotifyOnComplete
 		doc.Commands[index].ShellID = draft.ShellID
 		doc.Commands[index].CloseMode = draft.CloseMode
 		doc.Commands[index].CountdownSeconds = draft.CountdownSeconds

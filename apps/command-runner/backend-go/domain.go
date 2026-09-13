@@ -79,6 +79,7 @@ type command struct {
 	Script           string `json:"script"`
 	Note             string `json:"note"`
 	ConfirmBeforeRun bool   `json:"confirmBeforeRun"`
+	NotifyOnComplete bool   `json:"notifyOnComplete"`
 	ShellID          string `json:"shellId"`
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`
@@ -134,6 +135,7 @@ type commandDraft struct {
 	Script           string `json:"script"`
 	Note             string `json:"note"`
 	ConfirmBeforeRun bool   `json:"confirmBeforeRun"`
+	NotifyOnComplete bool   `json:"notifyOnComplete"`
 	ShellID          string `json:"shellId"`
 	CloseMode        string `json:"closeMode"`
 	CountdownSeconds int    `json:"countdownSeconds"`

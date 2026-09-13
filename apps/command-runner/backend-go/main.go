@@ -32,6 +32,8 @@ type service struct {
 	mu      sync.Mutex
 	bus     *eventBus
 	runs    *runRegistry
+	// notify 是系统通知发送入口（默认指向平台实现；测试可注入捕获器）。
+	notify func(title, body string)
 }
 
 type requestFrame struct {
@@ -104,7 +106,7 @@ func newService() (*service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve data dir failed: %w", err)
 	}
-	return &service{dataDir: abs, bus: newEventBus(), runs: newRunRegistry()}, nil
+	return &service{dataDir: abs, bus: newEventBus(), runs: newRunRegistry(), notify: notifySystem}, nil
 }
 
 func handleConnection(conn *websocket.Conn, svc *service) {

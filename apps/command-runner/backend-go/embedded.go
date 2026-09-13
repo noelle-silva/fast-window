@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,9 +31,14 @@ type embeddedRun struct {
 	cmd         *exec.Cmd
 	stopOnce    sync.Once
 	jobCleanup  func()
+	// 以下两项是启动时的快照，用于自然结束后的完成提醒判定与内容。
+	notifyOnComplete bool
+	repoName         string
 	// done 在实例彻底结束（进程退出、管道读干、注册表移除、Job 回收全部完成）后关闭，
 	// 是重启流程判定「真正结束」的权威信号。
 	done chan struct{}
+	// stopRequested 标记用户主动停止：停止收尾不发送完成通知。
+	stopRequested atomic.Bool
 }
 
 type runRegistry struct {
@@ -104,13 +110,15 @@ func buildEmbeddedArgs(shell shellDef, scriptPath, workDir string) []string {
 // 内置空间固定挂载在 App 进程树下（startEmbeddedProcess 内挂 Job），不读进程归属配置。
 func (svc *service) runEmbeddedCommand(cmdItem command, target repo, plan runPlan) (map[string]any, error) {
 	run := &embeddedRun{
-		id:          newID("run"),
-		commandID:   cmdItem.ID,
-		repoID:      target.ID,
-		commandName: cmdItem.Name,
-		startedAt:   nowText(),
-		jobCleanup:  func() {},
-		done:        make(chan struct{}),
+		id:               newID("run"),
+		commandID:        cmdItem.ID,
+		repoID:           target.ID,
+		commandName:      cmdItem.Name,
+		startedAt:        nowText(),
+		jobCleanup:       func() {},
+		notifyOnComplete: cmdItem.NotifyOnComplete,
+		repoName:         target.Name,
+		done:             make(chan struct{}),
 	}
 	svc.runs.add(run)
 
@@ -216,6 +224,9 @@ func (svc *service) pumpOutput(run *embeddedRun, cmd *exec.Cmd, stdout, stderr i
 		"runId":    run.id,
 		"exitCode": exitCode,
 	})
+	if !run.stopRequested.Load() && run.notifyOnComplete {
+		svc.notifyCommandCompletion(run.commandName, run.repoName, exitCode)
+	}
 }
 
 // stopRun 停止一个内置运行：终结整个进程树（含脚本派生的子进程）。
@@ -226,6 +237,7 @@ func (svc *service) stopRun(id string) error {
 	}
 	var stopErr error
 	run.stopOnce.Do(func() {
+		run.stopRequested.Store(true)
 		stopErr = killProcessTree(run.cmd.Process.Pid)
 	})
 	return stopErr

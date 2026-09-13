@@ -119,6 +119,20 @@ func (svc *service) runConsoleCommand(cmdItem command, target repo, plan runPlan
 	return map[string]any{"started": true}, nil
 }
 
+// notifyCommandCompletion 在命令运行完成时发送系统通知（后端自治，不经过前端）。
+// 由调用方判断命令的通知开关与是否手动停止；通知标题区分成功/失败。
+func (svc *service) notifyCommandCompletion(commandName, repoName string, exitCode int) {
+	title := fmt.Sprintf("「%s」运行完成", commandName)
+	if exitCode != 0 {
+		title = fmt.Sprintf("「%s」运行失败", commandName)
+	}
+	body := fmt.Sprintf("退出码 %d", exitCode)
+	if repoName != "" {
+		body = repoName + " · " + body
+	}
+	svc.notify(title, body)
+}
+
 // writeScriptFile 将命令脚本写入临时目录，返回脚本路径。
 func (svc *service) writeScriptFile(cmd command, shell shellDef) (string, error) {
 	dir := svc.runTmpPath()

@@ -64,21 +64,30 @@ func (svc *service) launchInNewConsole(cmd command, repo repo, plan runPlan) err
 			_ = os.Remove(wrapperPath)
 			return fmt.Errorf("绑定进程守护失败: %w", err)
 		}
-		go func() {
-			_ = wrapperCmd.Wait()
-			cleanup()
-			_ = os.Remove(scriptPath)
-			_ = os.Remove(wrapperPath)
-		}()
+		svc.finishConsoleWrapper(cmd, repo, wrapperCmd, scriptPath, wrapperPath, cleanup)
 		return nil
 	}
 
+	svc.finishConsoleWrapper(cmd, repo, wrapperCmd, scriptPath, wrapperPath, func() {})
+	return nil
+}
+
+// finishConsoleWrapper 等待外部窗口实例结束并收尾：回收 Job、清理临时文件，
+// 最后按命令的通知开关发送系统通知（系统级独立进程同样经此被后端观察到结束）。
+func (svc *service) finishConsoleWrapper(cmd command, repo repo, wrapperCmd *exec.Cmd, scriptPath, wrapperPath string, cleanup func()) {
 	go func() {
 		_ = wrapperCmd.Wait()
+		cleanup()
 		_ = os.Remove(scriptPath)
 		_ = os.Remove(wrapperPath)
+		exitCode := 0
+		if wrapperCmd.ProcessState != nil {
+			exitCode = wrapperCmd.ProcessState.ExitCode()
+		}
+		if cmd.NotifyOnComplete {
+			svc.notifyCommandCompletion(cmd.Name, repo.Name, exitCode)
+		}
 	}()
-	return nil
 }
 
 // startWrapperCmd 启动 wrapper 命令进程。
