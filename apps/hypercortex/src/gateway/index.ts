@@ -3,6 +3,7 @@ import { createFavoritesService } from '../services/favoritesService'
 import { createMetadataService } from '../services/metadataService'
 import { createNotesService } from '../services/notesService'
 import { createRefsService } from '../services/refsService'
+import { createSearchService } from '../services/searchService'
 import { createTrashService } from '../services/trashService'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -27,6 +28,7 @@ export async function createHyperCortexGateway(): Promise<HyperCortexGateway> {
     host,
     clipboard,
     refs: createRefsService(background),
+    search: createSearchService(background),
     metadata: createMetadataService(background),
     notes: createNotesService(background),
     assets: createAssetsService(background),

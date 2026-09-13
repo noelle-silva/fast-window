@@ -40,6 +40,10 @@ export const HyperCortexRpc = {
   refs: {
     loadIndex: 'hypercortex.refs.loadIndex',
   },
+  search: {
+    kinds: 'hypercortex.search.kinds',
+    query: 'hypercortex.search.query',
+  },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',
     ensure: 'hypercortex.metadata.ensure',

@@ -2765,15 +2765,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             scope="library"
             open={quickSearchOpen}
             triggerEl={quickSearchAnchorRef.current}
-            notes={notesForQuickSearch}
             allNotesLayout={allNotesLayout}
             onToggleAllNotesLayout={toggleAllNotesLayout}
-            noteCardInfoById={noteCardInfoById}
-            onEnsureNoteCardInfoLoaded={ensureNoteCardInfoLoaded}
             onClose={() => setQuickSearchOpen(false)}
-            onOpenNote={note => {
+            onOpenNote={(note, faceId) => {
               setQuickSearchOpen(false)
-              handleOpenNote(note)
+              handleOpenNote(note, faceId)
             }}
             onOpenAsset={asset => {
               setQuickSearchOpen(false)

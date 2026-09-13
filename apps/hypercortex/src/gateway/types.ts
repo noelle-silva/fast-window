@@ -180,6 +180,39 @@ export type RefsService = {
   loadRefIndex: (scope: VaultScope) => Promise<NoteRefIndex>
 }
 
+export type NoteSearchFaceKind = {
+  kind: string
+  label: string
+}
+
+export type NoteSearchFaceHit = {
+  faceId: string
+  kind: string
+  title: string
+  snippet: string
+}
+
+export type NoteSearchHit = {
+  noteId: string
+  title: string
+  description: string
+  dir: string
+  createdAtMs: number
+  updatedAtMs: number
+  noteFields: string[]
+  faceHits: NoteSearchFaceHit[]
+}
+
+export type NoteSearchResult = {
+  kinds: NoteSearchFaceKind[]
+  items: NoteSearchHit[]
+}
+
+export type SearchService = {
+  listFaceKinds: () => Promise<NoteSearchFaceKind[]>
+  queryNotes: (scope: VaultScope, query: string, faceKinds?: string[]) => Promise<NoteSearchResult>
+}
+
 export type MetadataService = {
   tryLoadMetadata: () => Promise<HyperCortexMetadataV1 | null>
   ensureMetadata: () => Promise<HyperCortexMetadataV1>
@@ -194,6 +227,7 @@ export type HyperCortexGateway = {
   favorites: FavoritesService
   trash: TrashService
   refs: RefsService
+  search: SearchService
   metadata: MetadataService
 }
 
