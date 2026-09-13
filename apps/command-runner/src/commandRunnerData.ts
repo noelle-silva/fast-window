@@ -8,6 +8,8 @@ import type {
   CommandRunMode,
   DirectClient,
   ProcessOwnership,
+  QuickRun,
+  QuickRunRunResult,
   Repo,
   ShellInfo,
 } from './types'
@@ -18,6 +20,7 @@ type CommandRunnerData = {
   repos: Repo[]
   commands: CommandItem[]
   collections: CollectionsDoc | null
+  quickRuns: QuickRun[]
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -37,6 +40,10 @@ type CommandRunnerActions = {
   deleteFolder: (folderId: string) => Promise<void>
   moveNode: (nodeId: string, targetFolderId: string, index: number) => Promise<void>
   runCommand: (id: string) => Promise<void>
+  createQuickRun: (name: string, commandIds: string[]) => Promise<void>
+  updateQuickRun: (id: string, name: string, commandIds: string[]) => Promise<void>
+  deleteQuickRun: (id: string) => Promise<void>
+  runQuickRun: (id: string) => Promise<QuickRunRunResult>
   saveSettings: (draft: SettingsDraft) => Promise<void>
   addCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void>
   removeCustomShell: (id: string) => Promise<void>
@@ -60,6 +67,7 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
   const [repos, setRepos] = React.useState<Repo[]>([])
   const [commands, setCommands] = React.useState<CommandItem[]>([])
   const [collections, setCollections] = React.useState<CollectionsDoc | null>(null)
+  const [quickRuns, setQuickRuns] = React.useState<QuickRun[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -67,18 +75,20 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
     if (!client) return
     setLoading(true)
     try {
-      const [nextSettings, nextShells, nextRepos, nextCommands, nextCollections] = await Promise.all([
+      const [nextSettings, nextShells, nextRepos, nextCommands, nextCollections, nextQuickRuns] = await Promise.all([
         client.request<AppSettings>('commandRunner.settings.get'),
         client.request<{ shells: ShellInfo[] }>('commandRunner.terminals.list'),
         client.request<{ repos: Repo[] }>('commandRunner.repos.list'),
         client.request<{ commands: CommandItem[] }>('commandRunner.commands.list', {}),
         client.request<CollectionsDoc>('commandRunner.collections.list'),
+        client.request<{ quickRuns: QuickRun[] }>('commandRunner.quickRuns.list'),
       ])
       setSettings(nextSettings)
       setShells(nextShells.shells)
       setRepos(nextRepos.repos)
       setCommands(nextCommands.commands)
       setCollections(nextCollections)
+      setQuickRuns(nextQuickRuns.quickRuns)
       setError(null)
     } catch (e) {
       setError(errorMessage(e, '读取数据失败'))
@@ -109,6 +119,10 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
         deleteFolder: unavailable,
         moveNode: unavailable,
         runCommand: unavailable,
+        createQuickRun: unavailable,
+        updateQuickRun: unavailable,
+        deleteQuickRun: unavailable,
+        runQuickRun: unavailable,
         saveSettings: unavailable,
         addCustomShell: unavailable,
         removeCustomShell: unavailable,
@@ -165,6 +179,11 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
           : current),
       ),
       runCommand: id => mutate('commandRunner.commands.run', { id }),
+      createQuickRun: (name, commandIds) => mutate('commandRunner.quickRuns.create', { name, commandIds }),
+      updateQuickRun: (id, name, commandIds) => mutate('commandRunner.quickRuns.update', { id, name, commandIds }),
+      deleteQuickRun: id => mutate('commandRunner.quickRuns.delete', { id }),
+      // 运行不改变数据，直接返回启动结果供界面反馈，不触发刷新。
+      runQuickRun: id => client.request<QuickRunRunResult>('commandRunner.quickRuns.run', { id }),
       saveSettings: draft => mutate('commandRunner.settings.save', draft),
       addCustomShell: (name, exePath, argsTemplate) =>
         mutate('commandRunner.shells.custom.add', { name, exePath, argsTemplate }),
@@ -172,5 +191,5 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
     }
   }, [client, refresh])
 
-  return { settings, shells, repos, commands, collections, loading, error, refresh, actions }
+  return { settings, shells, repos, commands, collections, quickRuns, loading, error, refresh, actions }
 }

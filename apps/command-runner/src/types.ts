@@ -125,6 +125,32 @@ export type CollectionsDoc = {
   nodes: Record<string, CollectionNode>
 }
 
+// 快捷运行条目：名称 + 有序的命令引用列表（全局组合，跨仓库）。
+export type QuickRun = {
+  id: string
+  name: string
+  commandIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type QuickRunStartedItem = {
+  commandId: string
+  commandName: string
+  runId?: string
+}
+
+export type QuickRunFailureItem = {
+  commandId: string
+  commandName: string
+  error: string
+}
+
+export type QuickRunRunResult = {
+  started: QuickRunStartedItem[]
+  failures: QuickRunFailureItem[]
+}
+
 export type AppSettings = {
   schemaVersion: number
   dataVersion: number

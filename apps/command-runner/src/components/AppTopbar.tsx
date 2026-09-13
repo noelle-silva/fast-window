@@ -1,5 +1,6 @@
 import * as React from 'react'
 import AddIcon from '@mui/icons-material/Add'
+import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined'
 import CropSquareIcon from '@mui/icons-material/CropSquare'
 import PlayCircleOutlineOutlinedIcon from '@mui/icons-material/PlayCircleOutlineOutlined'
 import RemoveIcon from '@mui/icons-material/Remove'
@@ -18,6 +19,7 @@ type AppTopbarProps = {
   standalone: boolean
   disabled?: boolean
   onCreateRepo: () => void
+  onOpenQuickRuns: () => void
   onOpenExecutionSpace: () => void
   onOpenSettings: () => void
   onStartDragging: () => Promise<void> | void
@@ -28,7 +30,7 @@ function run(action: () => Promise<void> | void) {
   Promise.resolve(action()).catch(() => {})
 }
 
-export function AppTopbar({ standalone, disabled = false, onCreateRepo, onOpenExecutionSpace, onOpenSettings, onStartDragging, windowActions }: AppTopbarProps) {
+export function AppTopbar({ standalone, disabled = false, onCreateRepo, onOpenQuickRuns, onOpenExecutionSpace, onOpenSettings, onStartDragging, windowActions }: AppTopbarProps) {
   const onPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
     const target = event.target as HTMLElement | null
@@ -43,6 +45,11 @@ export function AppTopbar({ standalone, disabled = false, onCreateRepo, onOpenEx
         <Typography component="span" sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }}>Command Runner</Typography>
       </Box>
       <Box className="cr-topbar-spacer" />
+      <Tooltip title="快捷运行">
+        <IconButton size="small" disabled={disabled} onClick={onOpenQuickRuns} aria-label="快捷运行">
+          <BoltOutlinedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="全局内置执行空间">
         <IconButton size="small" disabled={disabled} onClick={onOpenExecutionSpace} aria-label="全局内置执行空间">
           <PlayCircleOutlineOutlinedIcon fontSize="small" />

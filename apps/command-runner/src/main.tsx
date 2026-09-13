@@ -17,6 +17,10 @@ import { RepoCard } from './components/RepoCard'
 import { RepoDialog } from './components/RepoDialog'
 import { RepoGrid } from './components/RepoGrid'
 import { RepoPage } from './components/RepoPage'
+import { QuickRunConfirmDialog } from './components/QuickRunConfirmDialog'
+import { QuickRunDialog } from './components/QuickRunDialog'
+import { QuickRunPage } from './components/QuickRunPage'
+import { QuickRunResultDialog } from './components/QuickRunResultDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { createDirectClient } from './directClient'
 import { useCommandRunnerData, type SettingsDraft } from './commandRunnerData'
@@ -33,6 +37,8 @@ import type {
   DirectClient,
   FwLaunchInfo,
   ProcessOwnership,
+  QuickRun,
+  QuickRunRunResult,
   Repo,
 } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
@@ -53,6 +59,11 @@ type DialogState =
   | { kind: 'folder-create'; repoId: string; parentId: string }
   | { kind: 'folder-rename'; folder: CollectionNode }
   | { kind: 'folder-delete'; folder: CollectionNode }
+  | { kind: 'quick-run-create' }
+  | { kind: 'quick-run-edit'; quickRun: QuickRun }
+  | { kind: 'quick-run-delete'; quickRun: QuickRun }
+  | { kind: 'quick-run-confirm'; quickRun: QuickRun }
+  | { kind: 'quick-run-result'; quickRunName: string; result: QuickRunRunResult }
 
 const NO_DIALOG: DialogState = { kind: 'none' }
 
@@ -70,6 +81,7 @@ function App() {
   const [connectError, setConnectError] = React.useState<string | null>(null)
   const [activeRepoId, setActiveRepoId] = React.useState<string | null>(null)
   const [spaceView, setSpaceView] = React.useState<SpaceView | null>(null)
+  const [quickRunView, setQuickRunView] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogState>(NO_DIALOG)
   const [snack, setSnack] = React.useState<string | null>(null)
   const [stoppingRunIds, setStoppingRunIds] = React.useState<Set<string>>(new Set())
@@ -80,7 +92,7 @@ function App() {
   const reposRef = React.useRef<Repo[]>([])
   const backendReady = phase === 'ready' && Boolean(client)
   const controlsDisabled = !backendReady || busy
-  const { settings, shells, repos, commands, collections, loading, error, actions } = useCommandRunnerData(client)
+  const { settings, shells, repos, commands, collections, quickRuns, loading, error, actions } = useCommandRunnerData(client)
   const executionSpace = useExecutionSpace(client, commands, settings)
   const visibleError = connectError || error
 
@@ -374,6 +386,47 @@ function App() {
     requestRunCommand(command)
   }, [commands, requestRunCommand])
 
+  const submitQuickRunCreate = React.useCallback(async (name: string, commandIds: string[]) => {
+    await wrap(async () => {
+      await actions.createQuickRun(name, commandIds)
+    }, '快捷运行已创建')
+  }, [actions.createQuickRun, wrap])
+
+  const submitQuickRunEdit = React.useCallback(async (name: string, commandIds: string[]) => {
+    const quickRun = dialog.kind === 'quick-run-edit' ? dialog.quickRun : null
+    if (!quickRun) return
+    await wrap(async () => {
+      await actions.updateQuickRun(quickRun.id, name, commandIds)
+    }, '快捷运行已更新')
+  }, [actions.updateQuickRun, dialog, wrap])
+
+  const submitQuickRunDelete = React.useCallback(async (quickRun: QuickRun) => {
+    await wrap(async () => {
+      await actions.deleteQuickRun(quickRun.id)
+    }, `快捷运行「${quickRun.name}」已删除`)
+  }, [actions.deleteQuickRun, wrap])
+
+  // executeQuickRun 启动整组命令并统一反馈：全部成功轻提示；存在失败弹结果窗列出明细。
+  const executeQuickRun = React.useCallback(async (quickRun: QuickRun) => {
+    const result = await actions.runQuickRun(quickRun.id)
+    if (result.failures.length > 0) {
+      setDialog({ kind: 'quick-run-result', quickRunName: quickRun.name, result })
+    } else {
+      setDialog(NO_DIALOG)
+      setSnack(`快捷运行「${quickRun.name}」已启动 ${result.started.length} 条命令`)
+    }
+  }, [actions.runQuickRun])
+
+  const requestQuickRun = React.useCallback((quickRun: QuickRun) => {
+    const commandById = new Map(commands.map(command => [command.id, command]))
+    const needsConfirm = quickRun.commandIds.some(id => commandById.get(id)?.confirmBeforeRun)
+    if (needsConfirm) {
+      setDialog({ kind: 'quick-run-confirm', quickRun })
+      return
+    }
+    void executeQuickRun(quickRun).catch(e => setSnack(errorMessage(e, '启动快捷运行失败')))
+  }, [commands, executeQuickRun])
+
   return (
     <ThemeProvider theme={commandRunnerTheme}>
       <CssBaseline />
@@ -382,7 +435,11 @@ function App() {
           standalone={launchInfo.standalone}
           disabled={controlsDisabled}
           onCreateRepo={openCreateRepo}
-          onOpenExecutionSpace={() => setSpaceView({ kind: 'global' })}
+          onOpenQuickRuns={() => setQuickRunView(true)}
+          onOpenExecutionSpace={() => {
+            setQuickRunView(false)
+            setSpaceView({ kind: 'global' })
+          }}
           onOpenSettings={openSettings}
           onStartDragging={() => appWindow.startDragging()}
           windowActions={{
@@ -421,7 +478,19 @@ function App() {
         ) : null}
 
         {phase === 'ready' && !(loading && !repos.length && !settings) ? (
-          spaceView && (spaceView.kind === 'global' || spaceRepo) ? (
+          quickRunView ? (
+            <QuickRunPage
+              quickRuns={quickRuns}
+              commands={commands}
+              repos={repos}
+              disabled={controlsDisabled}
+              onBack={() => setQuickRunView(false)}
+              onCreate={() => setDialog({ kind: 'quick-run-create' })}
+              onEdit={quickRun => setDialog({ kind: 'quick-run-edit', quickRun })}
+              onDelete={quickRun => setDialog({ kind: 'quick-run-delete', quickRun })}
+              onRun={requestQuickRun}
+            />
+          ) : spaceView && (spaceView.kind === 'global' || spaceRepo) ? (
             <ExecutionSpacePage
               title={spaceView.kind === 'repo' ? `内置执行空间 · ${spaceRepo?.name ?? ''}` : '全局内置执行空间'}
               subtitle={spaceView.kind === 'repo'
@@ -628,6 +697,63 @@ function App() {
             shells={shells}
             disabled={controlsDisabled}
             onConfirm={() => runCommand(dialog.command)}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'quick-run-create' ? (
+          <QuickRunDialog
+            title="新建快捷运行"
+            subtitle="从所有仓库中选择多条命令，运行时一键同时启动。"
+            submitLabel="创建快捷运行"
+            commands={commands}
+            repos={repos}
+            disabled={controlsDisabled}
+            submitting={busy}
+            onSubmit={submitQuickRunCreate}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'quick-run-edit' ? (
+          <QuickRunDialog
+            title="编辑快捷运行"
+            submitLabel="保存修改"
+            initial={dialog.quickRun}
+            commands={commands}
+            repos={repos}
+            disabled={controlsDisabled}
+            submitting={busy}
+            onSubmit={submitQuickRunEdit}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'quick-run-delete' ? (
+          <DeleteConfirmDialog
+            title="删除快捷运行"
+            message={`将删除快捷运行「${dialog.quickRun.name}」。其中的命令不会被删除。`}
+            disabled={controlsDisabled}
+            onConfirm={() => submitQuickRunDelete(dialog.quickRun)}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'quick-run-confirm' ? (
+          <QuickRunConfirmDialog
+            quickRun={dialog.quickRun}
+            commands={commands}
+            repos={repos}
+            disabled={controlsDisabled}
+            onConfirm={() => executeQuickRun(dialog.quickRun)}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'quick-run-result' ? (
+          <QuickRunResultDialog
+            quickRunName={dialog.quickRunName}
+            result={dialog.result}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}
