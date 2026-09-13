@@ -55,7 +55,7 @@ type DialogState =
   | { kind: 'command-create' }
   | { kind: 'command-edit'; command: CommandItem }
   | { kind: 'command-delete'; command: CommandItem }
-  | { kind: 'confirm-run'; command: CommandItem }
+  | { kind: 'confirm-run'; command: CommandItem; restartRunId?: string }
   | { kind: 'folder-create'; repoId: string; parentId: string }
   | { kind: 'folder-rename'; folder: CollectionNode }
   | { kind: 'folder-delete'; folder: CollectionNode }
@@ -85,6 +85,7 @@ function App() {
   const [dialog, setDialog] = React.useState<DialogState>(NO_DIALOG)
   const [snack, setSnack] = React.useState<string | null>(null)
   const [stoppingRunIds, setStoppingRunIds] = React.useState<Set<string>>(new Set())
+  const [restartingRunIds, setRestartingRunIds] = React.useState<Set<string>>(new Set())
   const readyRef = React.useRef(false)
   const clientRef = React.useRef<DirectClient | null>(null)
   const connectIdRef = React.useRef(0)
@@ -97,6 +98,9 @@ function App() {
   const visibleError = connectError || error
 
   const activeRepo = repos.find(repo => repo.id === activeRepoId) || null
+  const confirmRunRepo = dialog.kind === 'confirm-run'
+    ? repos.find(repo => repo.id === dialog.command.repoId) || null
+    : null
   const spaceRepo = spaceView?.kind === 'repo' ? repos.find(repo => repo.id === spaceView.repoId) || null : null
   const spaceEntries = spaceView
     ? spaceView.kind === 'repo'
@@ -377,14 +381,34 @@ function App() {
     void runCommand(command).catch(e => setSnack(errorMessage(e, '运行命令失败')))
   }, [runCommand])
 
-  const rerunCommandById = React.useCallback((commandId: string) => {
+  // performRestartRun 重启一个运行实例：后端确认旧实例彻底结束后才启动新实例；
+  // 成功后旧卡片退场（新实例已由运行事件流接替）。
+  const performRestartRun = React.useCallback(async (command: CommandItem, runId: string) => {
+    setRestartingRunIds(current => new Set(current).add(runId))
+    try {
+      await actions.restartRun(runId, command.id)
+      executionSpace.removeEntry(runId)
+    } finally {
+      setRestartingRunIds(current => {
+        const next = new Set(current)
+        next.delete(runId)
+        return next
+      })
+    }
+  }, [actions.restartRun, executionSpace.removeEntry])
+
+  const requestRestartRun = React.useCallback((runId: string, commandId: string) => {
     const command = commands.find(item => item.id === commandId)
     if (!command) {
       setSnack('该命令已被删除，无法重新运行')
       return
     }
-    requestRunCommand(command)
-  }, [commands, requestRunCommand])
+    if (command.confirmBeforeRun) {
+      setDialog({ kind: 'confirm-run', command, restartRunId: runId })
+      return
+    }
+    void performRestartRun(command, runId).catch(e => setSnack(errorMessage(e, '重新运行失败')))
+  }, [commands, performRestartRun])
 
   const submitQuickRunCreate = React.useCallback(async (name: string, commandIds: string[]) => {
     await wrap(async () => {
@@ -499,10 +523,11 @@ function App() {
               entries={spaceEntries}
               repoNames={spaceView.kind === 'global' ? repoNameById : undefined}
               stoppingRunIds={stoppingRunIds}
+              restartingRunIds={restartingRunIds}
               onBack={() => setSpaceView(null)}
               onStopRun={runId => void stopRun(runId)}
               onRemoveEntry={executionSpace.removeEntry}
-              onRerun={rerunCommandById}
+              onRestartRun={requestRestartRun}
               onMoveEntry={executionSpace.moveEntry}
               onStopAll={spaceView.kind === 'global' ? stopAllRuns : undefined}
             />
@@ -689,14 +714,17 @@ function App() {
           />
         ) : null}
 
-        {dialog.kind === 'confirm-run' && activeRepo ? (
+        {dialog.kind === 'confirm-run' && confirmRunRepo ? (
           <ConfirmRunDialog
             command={dialog.command}
-            repo={activeRepo}
+            repo={confirmRunRepo}
             settings={settings}
             shells={shells}
             disabled={controlsDisabled}
-            onConfirm={() => runCommand(dialog.command)}
+            variant={dialog.restartRunId ? 'restart' : 'run'}
+            onConfirm={() => dialog.restartRunId
+              ? performRestartRun(dialog.command, dialog.restartRunId)
+              : runCommand(dialog.command)}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}

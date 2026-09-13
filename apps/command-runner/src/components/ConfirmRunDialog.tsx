@@ -10,11 +10,13 @@ type ConfirmRunDialogProps = {
   settings: AppSettings | null
   shells: ShellInfo[]
   disabled?: boolean
+  variant?: 'run' | 'restart'
   onConfirm: () => Promise<void> | void
   onClose: () => void
 }
 
-export function ConfirmRunDialog({ command, repo, settings, shells, disabled = false, onConfirm, onClose }: ConfirmRunDialogProps) {
+export function ConfirmRunDialog({ command, repo, settings, shells, disabled = false, variant = 'run', onConfirm, onClose }: ConfirmRunDialogProps) {
+  const restart = variant === 'restart'
   const shell = resolveShellInfo(command.shellId, repo.shellId, settings, shells)
   const closeMode = resolveCloseMode(command, settings)
   const countdownSeconds = resolveCountdownSeconds(command, settings)
@@ -37,8 +39,8 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
 
   return (
     <DialogShell
-      title={`确认运行「${command.name}」`}
-      subtitle="该命令已开启二次确认，请核对信息后运行。"
+      title={restart ? `确认重新运行「${command.name}」` : `确认运行「${command.name}」`}
+      subtitle={restart ? '该命令已开启二次确认，确认后将停止当前实例并重新运行。' : '该命令已开启二次确认，请核对信息后运行。'}
       closeDisabled={running}
       onClose={onClose}
     >
@@ -66,7 +68,7 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
         <Box className="cr-form-actions">
           <Button disabled={running} onClick={onClose}>取消</Button>
           <Button variant="contained" color="warning" disabled={disabled || running} onClick={confirm}>
-            {running ? '启动中' : '确认运行'}
+            {running ? (restart ? '重启中' : '启动中') : restart ? '确认重新运行' : '确认运行'}
           </Button>
         </Box>
       </Box>

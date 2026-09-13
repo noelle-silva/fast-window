@@ -12,10 +12,11 @@ type ExecutionSpacePageProps = {
   entries: SpaceEntry[]
   repoNames?: ReadonlyMap<string, string>
   stoppingRunIds: Set<string>
+  restartingRunIds: Set<string>
   onBack: () => void
   onStopRun: (runId: string) => void
   onRemoveEntry: (runId: string) => void
-  onRerun: (commandId: string) => void
+  onRestartRun: (runId: string, commandId: string) => void
   onMoveEntry: (activeRunId: string, overRunId: string) => void
   onStopAll?: () => void
 }
@@ -26,10 +27,11 @@ export function ExecutionSpacePage({
   entries,
   repoNames,
   stoppingRunIds,
+  restartingRunIds,
   onBack,
   onStopRun,
   onRemoveEntry,
-  onRerun,
+  onRestartRun,
   onMoveEntry,
   onStopAll,
 }: ExecutionSpacePageProps) {
@@ -99,9 +101,10 @@ export function ExecutionSpacePage({
         <SpaceRunDetail
           entry={selectedEntry}
           stoppingRunIds={stoppingRunIds}
+          restartingRunIds={restartingRunIds}
           onStopRun={onStopRun}
           onRemoveEntry={onRemoveEntry}
-          onRerun={onRerun}
+          onRestartRun={onRestartRun}
         />
       </Box>
     </Box>

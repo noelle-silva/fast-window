@@ -9,9 +9,10 @@ import { entryStatusDotClass, entryStatusLabel } from '../spaceEntryStatus'
 type SpaceRunDetailProps = {
   entry: SpaceEntry | null
   stoppingRunIds: Set<string>
+  restartingRunIds: Set<string>
   onStopRun: (runId: string) => void
   onRemoveEntry: (runId: string) => void
-  onRerun: (commandId: string) => void
+  onRestartRun: (runId: string, commandId: string) => void
 }
 
 function RunOutput({ entry }: { entry: SpaceEntry }) {
@@ -35,7 +36,7 @@ function RunOutput({ entry }: { entry: SpaceEntry }) {
   )
 }
 
-export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry, onRerun }: SpaceRunDetailProps) {
+export function SpaceRunDetail({ entry, stoppingRunIds, restartingRunIds, onStopRun, onRemoveEntry, onRestartRun }: SpaceRunDetailProps) {
   if (!entry) {
     return (
       <Box className="cr-space-detail">
@@ -67,10 +68,15 @@ export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry
           />
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Tooltip title="重新运行该命令">
+          <Tooltip title="停止当前实例并重新运行">
             <span>
-              <Button size="small" startIcon={<ReplayIcon fontSize="small" />} onClick={() => onRerun(entry.commandId)}>
-                重新运行
+              <Button
+                size="small"
+                startIcon={<ReplayIcon fontSize="small" />}
+                disabled={stoppingRunIds.has(entry.runId) || restartingRunIds.has(entry.runId)}
+                onClick={() => onRestartRun(entry.runId, entry.commandId)}
+              >
+                {restartingRunIds.has(entry.runId) ? '重启中' : '重新运行'}
               </Button>
             </span>
           </Tooltip>
@@ -81,7 +87,7 @@ export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry
                   size="small"
                   color="error"
                   startIcon={<StopOutlinedIcon fontSize="small" />}
-                  disabled={stoppingRunIds.has(entry.runId)}
+                  disabled={stoppingRunIds.has(entry.runId) || restartingRunIds.has(entry.runId)}
                   onClick={() => onStopRun(entry.runId)}
                 >
                   {stoppingRunIds.has(entry.runId) ? '停止中' : '停止'}
