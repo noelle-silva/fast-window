@@ -88,12 +88,13 @@ export function SpaceRunDetail({ entry, stoppingRunIds, onStopRun, onRemoveEntry
                 </Button>
               </span>
             </Tooltip>
-          ) : null}
-          <Tooltip title="关闭此实例">
-            <IconButton size="small" aria-label="关闭此实例" onClick={() => onRemoveEntry(entry.runId)}>
-              <CloseOutlinedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          ) : (
+            <Tooltip title="关闭此实例">
+              <IconButton size="small" aria-label="关闭此实例" onClick={() => onRemoveEntry(entry.runId)}>
+                <CloseOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       </Box>
       <RunOutput key={entry.runId} entry={entry} />

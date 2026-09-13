@@ -187,15 +187,10 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     await client.request('commandRunner.runs.stop', { runId })
   }, [client])
 
+  // removeEntry 仅清理已结束的实例；运行中的停止统一由 stopRun（停止按钮）负责。
   const removeEntry = React.useCallback((runId: string) => {
-    setEntries(current => {
-      const target = current.find(entry => entry.runId === runId)
-      if (target?.status === 'running') {
-        void stopRun(runId).catch(() => {})
-      }
-      return current.filter(entry => entry.runId !== runId)
-    })
-  }, [stopRun])
+    setEntries(current => current.filter(entry => entry.runId !== runId))
+  }, [])
 
   // moveEntry 调整运行实例在侧边栏中的显示顺序（entries 数组顺序即显示顺序）。
   const moveEntry = React.useCallback((activeRunId: string, overRunId: string) => {
