@@ -381,6 +381,16 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		}
 		return nil, svc.stopRun(payload.RunID)
 
+	case "commandRunner.runs.restart":
+		var payload struct {
+			RunID     string `json:"runId"`
+			CommandID string `json:"commandId"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid restart payload: %w", err)
+		}
+		return svc.restartRun(payload.RunID, payload.CommandID)
+
 	case "commandRunner.runs.list":
 		return map[string]any{"runs": svc.runs.snapshot()}, nil
 

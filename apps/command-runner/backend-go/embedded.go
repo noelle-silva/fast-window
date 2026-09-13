@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -16,6 +17,9 @@ const (
 )
 
 const scannerLineBufferSize = 1 << 20
+
+// embeddedShutdownTimeout 是重启流程等待旧实例彻底退出的上限。
+const embeddedShutdownTimeout = 5 * time.Second
 
 type embeddedRun struct {
 	id          string
@@ -26,6 +30,9 @@ type embeddedRun struct {
 	cmd         *exec.Cmd
 	stopOnce    sync.Once
 	jobCleanup  func()
+	// done 在实例彻底结束（进程退出、管道读干、注册表移除、Job 回收全部完成）后关闭，
+	// 是重启流程判定「真正结束」的权威信号。
+	done chan struct{}
 }
 
 type runRegistry struct {
@@ -103,6 +110,7 @@ func (svc *service) runEmbeddedCommand(cmdItem command, target repo, plan runPla
 		commandName: cmdItem.Name,
 		startedAt:   nowText(),
 		jobCleanup:  func() {},
+		done:        make(chan struct{}),
 	}
 	svc.runs.add(run)
 
@@ -194,6 +202,7 @@ func (svc *service) pumpOutput(run *embeddedRun, cmd *exec.Cmd, stdout, stderr i
 	_ = os.Remove(scriptPath)
 	svc.runs.remove(run.id)
 	run.jobCleanup()
+	close(run.done)
 
 	exitCode := 0
 	if waitErr != nil {
@@ -220,6 +229,40 @@ func (svc *service) stopRun(id string) error {
 		stopErr = killProcessTree(run.cmd.Process.Pid)
 	})
 	return stopErr
+}
+
+// restartRun 重启一个运行实例：先确保旧实例彻底结束，再按命令配置启动新实例。
+// runId 仍在运行时先请求停止并等待结束信号；停止失败或等待超时均不启动新实例。
+// runId 已结束（不在注册表）时直接启动 commandId。
+func (svc *service) restartRun(runID, commandID string) (map[string]any, error) {
+	runID = strings.TrimSpace(runID)
+	commandID = strings.TrimSpace(commandID)
+	if runID == "" {
+		return nil, fmt.Errorf("重启参数不完整")
+	}
+
+	if run, ok := svc.runs.get(runID); ok {
+		if commandID == "" {
+			commandID = run.commandID
+		}
+		if commandID != run.commandID {
+			return nil, fmt.Errorf("运行实例与命令不匹配: %s", runID)
+		}
+		stopErr := svc.stopRun(runID)
+		select {
+		case <-run.done:
+			// 旧进程已彻底结束，继续启动新实例。
+		case <-time.After(embeddedShutdownTimeout):
+			if stopErr != nil {
+				return nil, fmt.Errorf("关闭旧进程失败: %w", stopErr)
+			}
+			return nil, fmt.Errorf("等待旧进程退出超时，已取消重新运行")
+		}
+	} else if commandID == "" {
+		return nil, fmt.Errorf("无法定位要重新运行的命令: %s", runID)
+	}
+
+	return svc.runCommandByMode(commandID)
 }
 
 // locateCommand 查找命令与其所属仓库。
