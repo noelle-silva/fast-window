@@ -67,6 +67,7 @@ export type CommandItem = {
   script: string
   note: string
   confirmBeforeRun: boolean
+  notifyOnComplete: boolean
   shellId: string
   closeMode: string
   countdownSeconds: number
@@ -82,6 +83,7 @@ export type CommandDraft = {
   script: string
   note: string
   confirmBeforeRun: boolean
+  notifyOnComplete: boolean
   shellId: string
   closeMode: string
   countdownSeconds: number

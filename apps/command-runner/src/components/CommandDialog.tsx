@@ -24,6 +24,7 @@ const EMPTY_DRAFT: CommandDraft = {
   script: '',
   note: '',
   confirmBeforeRun: false,
+  notifyOnComplete: false,
   shellId: '',
   closeMode: '',
   countdownSeconds: 0,
@@ -45,6 +46,7 @@ export function CommandDialog({
   const [script, setScript] = React.useState(initial?.script ?? '')
   const [note, setNote] = React.useState(initial?.note ?? '')
   const [confirmBeforeRun, setConfirmBeforeRun] = React.useState(initial?.confirmBeforeRun ?? false)
+  const [notifyOnComplete, setNotifyOnComplete] = React.useState(initial?.notifyOnComplete ?? false)
   const [shellId, setShellId] = React.useState(initial?.shellId ?? '')
   const [closeMode, setCloseMode] = React.useState(initial?.closeMode ?? '')
   const [countdownSeconds, setCountdownSeconds] = React.useState(
@@ -72,6 +74,7 @@ export function CommandDialog({
         script,
         note: note.trim(),
         confirmBeforeRun,
+        notifyOnComplete,
         shellId,
         closeMode,
         countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0,
@@ -81,7 +84,7 @@ export function CommandDialog({
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -135,6 +138,11 @@ export function CommandDialog({
         <FormControlLabel
           control={<Switch checked={confirmBeforeRun} disabled={disabled || submitting} onChange={event => setConfirmBeforeRun(event.target.checked)} />}
           label="运行前需要二次确认"
+          sx={{ alignSelf: 'flex-start' }}
+        />
+        <FormControlLabel
+          control={<Switch checked={notifyOnComplete} disabled={disabled || submitting} onChange={event => setNotifyOnComplete(event.target.checked)} />}
+          label="运行完成时发送系统通知"
           sx={{ alignSelf: 'flex-start' }}
         />
         <ShellSelect
