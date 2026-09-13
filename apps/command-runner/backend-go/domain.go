@@ -112,6 +112,22 @@ type collectionsDoc struct {
 	Nodes         map[string]*collectionNode `json:"nodes"`
 }
 
+// quickRun 是快捷运行条目：名称 + 有序的命令引用列表。
+// 条目是全局组合，引用可跨仓库、可被多个条目共享；命令实体仍唯一存于 commands.json。
+type quickRun struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	CommandIDs []string `json:"commandIds"`
+	CreatedAt  string   `json:"createdAt"`
+	UpdatedAt  string   `json:"updatedAt"`
+}
+
+type quickRunsDoc struct {
+	SchemaVersion int        `json:"schemaVersion"`
+	DataVersion   int        `json:"dataVersion"`
+	QuickRuns     []quickRun `json:"quickRuns"`
+}
+
 type commandDraft struct {
 	RepoID           string `json:"repoId"`
 	Name             string `json:"name"`

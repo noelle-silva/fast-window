@@ -201,8 +201,10 @@ func (svc *service) deleteRepo(id string) error {
 		return err
 	}
 	keptCommands := make([]command, 0, len(commandsDoc.Commands))
+	removedCommandIDs := make([]string, 0)
 	for _, item := range commandsDoc.Commands {
 		if item.RepoID == id {
+			removedCommandIDs = append(removedCommandIDs, item.ID)
 			continue
 		}
 		keptCommands = append(keptCommands, item)
@@ -211,7 +213,10 @@ func (svc *service) deleteRepo(id string) error {
 	if err := svc.writeCommands(commandsDoc); err != nil {
 		return err
 	}
-	return svc.dropRepoCollections(id)
+	if err := svc.dropRepoCollections(id); err != nil {
+		return err
+	}
+	return svc.detachCommandsFromQuickRuns(removedCommandIDs)
 }
 
 func (svc *service) listCommands(repoID string) (map[string]any, error) {
@@ -331,5 +336,8 @@ func (svc *service) deleteCommand(id string) error {
 	if err := svc.writeCommands(doc); err != nil {
 		return err
 	}
-	return svc.detachCommand(id)
+	if err := svc.detachCommand(id); err != nil {
+		return err
+	}
+	return svc.detachCommandsFromQuickRuns([]string{id})
 }

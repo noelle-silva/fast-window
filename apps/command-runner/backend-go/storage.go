@@ -38,7 +38,15 @@ func (svc *service) ensureReady() error {
 			return err
 		}
 	}
+	if _, err := os.Stat(svc.quickRunsPath()); errors.Is(err, os.ErrNotExist) {
+		if err := writeJSON(svc.quickRunsPath(), quickRunsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, QuickRuns: []quickRun{}}); err != nil {
+			return err
+		}
+	}
 	if err := svc.ensureCollections(); err != nil {
+		return err
+	}
+	if err := svc.ensureQuickRuns(); err != nil {
 		return err
 	}
 	return cleanRunTmp(svc.runTmpPath())
@@ -83,6 +91,10 @@ func (svc *service) commandsPath() string {
 
 func (svc *service) collectionsPath() string {
 	return filepath.Join(svc.dataDir, collectionsFile)
+}
+
+func (svc *service) quickRunsPath() string {
+	return filepath.Join(svc.dataDir, quickRunsFile)
 }
 
 func (svc *service) readSettings() (appSettings, error) {
@@ -231,6 +243,26 @@ func (svc *service) writeCollections(doc collectionsDoc) error {
 		doc.Nodes = map[string]*collectionNode{}
 	}
 	return writeJSON(svc.collectionsPath(), doc)
+}
+
+func (svc *service) loadQuickRuns() (quickRunsDoc, error) {
+	var doc quickRunsDoc
+	if err := readJSON(svc.quickRunsPath(), &doc); err != nil {
+		return quickRunsDoc{}, err
+	}
+	if doc.QuickRuns == nil {
+		doc.QuickRuns = []quickRun{}
+	}
+	return doc, nil
+}
+
+func (svc *service) writeQuickRuns(doc quickRunsDoc) error {
+	doc.SchemaVersion = dataSchemaVersion
+	doc.DataVersion = dataVersion
+	if doc.QuickRuns == nil {
+		doc.QuickRuns = []quickRun{}
+	}
+	return writeJSON(svc.quickRunsPath(), doc)
 }
 
 func ensureWritable(dir string) error {

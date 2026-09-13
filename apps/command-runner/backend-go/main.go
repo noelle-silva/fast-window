@@ -21,6 +21,7 @@ const (
 	reposFile       = "repos.json"
 	commandsFile    = "commands.json"
 	collectionsFile = "collections.json"
+	quickRunsFile   = "quick-runs.json"
 	metaFile        = "_meta.json"
 	migrationsFile  = "_migrations.json"
 	runTmpDir       = "run-tmp"
@@ -328,6 +329,48 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid command payload: %w", err)
 		}
 		return svc.runCommandByMode(payload.ID)
+
+	case "commandRunner.quickRuns.list":
+		return svc.listQuickRuns()
+
+	case "commandRunner.quickRuns.create":
+		var payload struct {
+			Name       string   `json:"name"`
+			CommandIDs []string `json:"commandIds"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid quick run payload: %w", err)
+		}
+		return svc.createQuickRun(payload.Name, payload.CommandIDs)
+
+	case "commandRunner.quickRuns.update":
+		var payload struct {
+			ID         string   `json:"id"`
+			Name       string   `json:"name"`
+			CommandIDs []string `json:"commandIds"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid quick run payload: %w", err)
+		}
+		return svc.updateQuickRun(payload.ID, payload.Name, payload.CommandIDs)
+
+	case "commandRunner.quickRuns.delete":
+		var payload struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid quick run payload: %w", err)
+		}
+		return nil, svc.deleteQuickRun(payload.ID)
+
+	case "commandRunner.quickRuns.run":
+		var payload struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid quick run payload: %w", err)
+		}
+		return svc.runQuickRun(payload.ID)
 
 	case "commandRunner.runs.stop":
 		var payload struct {
