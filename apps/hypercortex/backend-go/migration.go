@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	currentDataVersion                 = 4
+	currentDataVersion                 = 5
 	migrationsLedgerFile               = "_migrations.json"
 	migrationRecoveryDir               = "_migration-recovery"
 	migrationRecoveryFile              = "recovery.json"
@@ -18,6 +18,7 @@ const (
 	noteIDPackageDirMigration          = "2026-05-13-note-id-package-dir"
 	noteFaceSystemUnificationMigration = "2026-09-01-note-face-system-unification"
 	noteFaceRefsV2Migration            = "2026-09-01-note-face-refs-v2"
+	noteFaceSearchIndexMigration       = "2026-09-09-note-face-search-index-v1"
 )
 
 type dataMigration struct {
@@ -94,6 +95,10 @@ func (svc *service) migrateNoteFaceRefsV2() error {
 	return svc.rebuildRefsIndex("library")
 }
 
+func (svc *service) migrateNoteFaceSearchIndex() error {
+	return svc.rebuildSearchIndex("library")
+}
+
 func (svc *service) migrateNoteManifestsToUnifiedFaceProtocol() error {
 	root, err := svc.resolvePath("library", notesDir)
 	if err != nil {
@@ -160,6 +165,12 @@ func (svc *service) runDataMigrations() error {
 			FromVersion: 3,
 			ToVersion:   4,
 			Run:         (*service).migrateNoteFaceRefsV2,
+		},
+		{
+			ID:          noteFaceSearchIndexMigration,
+			FromVersion: 4,
+			ToVersion:   5,
+			Run:         (*service).migrateNoteFaceSearchIndex,
 		},
 	}
 	return svc.runMigrations(migrations)

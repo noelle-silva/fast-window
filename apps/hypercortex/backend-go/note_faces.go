@@ -24,6 +24,9 @@ type noteFaceAdapter struct {
 	EmptyContent      func(noteManifest) string
 	NormalizeSettings func(map[string]any) map[string]any
 	ExtractRefs       func(string) []noteRef
+	// SearchText 将该面内容转成交给搜索系统的可搜文本（供匹配与截取摘要）。
+	// 为 nil 表示该面类型不提供内容搜索，与 capabilities.Searchable=false 同源。
+	SearchText func(string) string
 }
 
 var noteFaceAdapters = map[string]noteFaceAdapter{
@@ -37,6 +40,7 @@ var noteFaceAdapters = map[string]noteFaceAdapter{
 		EmptyContent:      func(noteManifest) string { return "" },
 		NormalizeSettings: normalizePlainSettings,
 		ExtractRefs:       extractPlaceholderRefs,
+		SearchText:        markdownSearchText,
 	},
 	"html": {
 		Kind:              "html",
@@ -154,7 +158,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	refs, err := svc.updateRefsForNotePackage(scope, desiredDir, manifest)
+	refs, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +186,7 @@ func (svc *service) deleteNoteFace(scope string, packageDir string, faceID strin
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
 		return noteManifest{}, err
 	}
-	if _, err := svc.updateRefsForNotePackage(scope, packageDir, manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(scope, packageDir, manifest); err != nil {
 		return noteManifest{}, err
 	}
 	return manifest, nil

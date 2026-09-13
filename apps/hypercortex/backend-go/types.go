@@ -12,6 +12,7 @@ const (
 	metadataFile        = "hypercortex-metadata.json"
 	favoritesFile       = "hypercortex-favorites.json"
 	refsIndexFile       = "hypercortex-refs.json"
+	searchIndexFile     = "hypercortex-search.json"
 	assetsIndexFile     = "hypercortex-assets-index.json"
 	manifestFile        = "manifest.json"
 	versionsDirName     = "versions"

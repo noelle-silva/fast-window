@@ -157,7 +157,7 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	refs, err := svc.updateRefsForNotePackage(scope, desiredDir, manifest)
+	refs, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest)
 	if err != nil {
 		return nil, err
 	}

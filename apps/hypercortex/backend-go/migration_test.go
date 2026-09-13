@@ -68,8 +68,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 4 {
-		t.Fatalf("applied count = %d, want 4", len(ledger.Applied))
+	if len(ledger.Applied) != 5 {
+		t.Fatalf("applied count = %d, want 5", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -82,6 +82,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	}
 	if ledger.Applied[3].ID != noteFaceRefsV2Migration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[3].ID, noteFaceRefsV2Migration)
+	}
+	if ledger.Applied[4].ID != noteFaceSearchIndexMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[4].ID, noteFaceSearchIndexMigration)
 	}
 }
 
@@ -99,8 +102,8 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 4 {
-		t.Fatalf("applied count = %d, want 4", len(ledger.Applied))
+	if len(ledger.Applied) != 5 {
+		t.Fatalf("applied count = %d, want 5", len(ledger.Applied))
 	}
 }
 

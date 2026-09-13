@@ -333,7 +333,7 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	refs, err := svc.updateRefsForNotePackage(scope, packageDir, manifest)
+	refs, err := svc.refreshDerivedIndexesForNote(scope, packageDir, manifest)
 	if err != nil {
 		return nil, err
 	}

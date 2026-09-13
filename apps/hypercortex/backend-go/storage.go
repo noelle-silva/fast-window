@@ -139,8 +139,10 @@ func (svc *service) collectRefsForNote(scope string, manifest noteManifest, pack
 	return out
 }
 
-// updateRefsForNotePackage 整体重建单个笔记的引用索引条目，返回该笔记的面级引用
-func (svc *service) updateRefsForNotePackage(scope string, packageDir string, manifest noteManifest) (map[string][]noteRef, error) {
+// refreshDerivedIndexesForNote 笔记包（面内容/笔记级字段）变化时统一刷新该笔记的全部派生索引：
+// 引用索引 + 搜索索引共用同一个触发点，避免两份索引各自更新而失步。
+// 返回该笔记的面级引用，供调用方增量同步。
+func (svc *service) refreshDerivedIndexesForNote(scope string, packageDir string, manifest noteManifest) (map[string][]noteRef, error) {
 	refs := svc.collectRefsForNote(scope, manifest, packageDir)
 	idx, err := svc.loadRefIndex(scope)
 	if err != nil {
@@ -152,6 +154,9 @@ func (svc *service) updateRefsForNotePackage(scope string, packageDir string, ma
 		delete(idx, manifest.ID)
 	}
 	if err := svc.saveRefIndex(scope, idx); err != nil {
+		return nil, err
+	}
+	if err := svc.updateSearchEntryForNote(scope, packageDir, manifest); err != nil {
 		return nil, err
 	}
 	return refs, nil
@@ -205,6 +210,14 @@ func (svc *service) removeNoteRef(scope string, noteID string) error {
 	}
 	delete(idx, strings.TrimSpace(noteID))
 	return svc.saveRefIndex(scope, idx)
+}
+
+// removeNoteDerivedIndexes 删除笔记时同步清理引用索引与搜索索引条目
+func (svc *service) removeNoteDerivedIndexes(scope string, noteID string) error {
+	if err := svc.removeNoteRef(scope, noteID); err != nil {
+		return err
+	}
+	return svc.removeSearchEntryForNote(scope, noteID)
 }
 
 func (svc *service) listTrash(scope string) ([]trashItem, error) {
@@ -342,7 +355,7 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
 		_ = writeJSONFile(path, idx)
 	}
-	if err := svc.removeNoteRef(scope, note.ID); err != nil {
+	if err := svc.removeNoteDerivedIndexes(scope, note.ID); err != nil {
 		return nil, err
 	}
 	return map[string]string{"trashDir": toRel}, nil
@@ -449,7 +462,7 @@ func (svc *service) permanentlyDeleteNoteDir(scope string, noteID string, dir st
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
 		_ = writeJSONFile(path, idx)
 	}
-	return svc.removeNoteRef(scope, noteID)
+	return svc.removeNoteDerivedIndexes(scope, noteID)
 }
 
 func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, error) {
@@ -494,6 +507,9 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	idx.Notes[meta.ID] = meta
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
 		_ = writeJSONFile(path, idx)
+	}
+	if _, err := svc.refreshDerivedIndexesForNote(scope, filepath.ToSlash(desired), manifest); err != nil {
+		return nil, err
 	}
 	return map[string]any{"meta": meta}, nil
 }

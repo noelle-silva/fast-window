@@ -262,6 +262,11 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.refs.loadIndex":
 		return svc.loadRefIndex(requireScope(params))
 
+	case "hypercortex.search.kinds":
+		return listSearchableFaceKinds(), nil
+	case "hypercortex.search.query":
+		return svc.queryNoteSearch(requireScope(params), stringField(params, "query"), stringSliceField(params, "faceKinds"))
+
 	case "hypercortex.trash.list":
 		return svc.listTrash(requireScope(params))
 	case "hypercortex.trash.moveNote":

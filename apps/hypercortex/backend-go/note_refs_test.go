@@ -112,7 +112,7 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "[[note_id=target-a]]")
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "[[note_id=target-b|face=text]]")
 
-	if _, err := svc.updateRefsForNotePackage("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs")), manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs")), manifest); err != nil {
 		t.Fatal(err)
 	}
 
