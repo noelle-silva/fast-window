@@ -229,7 +229,7 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 	out := []trashItem{}
 	months, _ := os.ReadDir(trashRoot)
 	for _, month := range months {
-		if !month.IsDir() || month.Name() == "assets" {
+		if !month.IsDir() || month.Name() == "assets" || month.Name() == trashFacesDirName {
 			continue
 		}
 		packages, _ := os.ReadDir(filepath.Join(trashRoot, month.Name()))
@@ -261,6 +261,11 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 		return nil, err
 	}
 	out = append(out, assets...)
+	faces, err := svc.listFaceTrash(scope, trashRoot)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, faces...)
 	sort.Slice(out, func(i, j int) bool { return out[i].DeletedAtMs > out[j].DeletedAtMs })
 	return out, nil
 }
@@ -476,6 +481,9 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	if item.Kind == "asset" {
 		return svc.restoreAssetTrashItem(scope, item)
 	}
+	if item.Kind == "face" {
+		return svc.restoreFaceTrashItem(scope, item)
+	}
 	from, err := svc.resolvePath(scope, item.Dir)
 	if err != nil {
 		return nil, err
@@ -586,6 +594,20 @@ func (svc *service) permanentlyDeleteTrashItemByValue(scope string, item trashIt
 		}
 		if !strings.HasPrefix(filepath.ToSlash(clean)+"/", trashDir+"/assets/") {
 			return errors.New("附件回收站目录无效")
+		}
+		target, err := svc.resolvePath(scope, clean)
+		if err != nil {
+			return err
+		}
+		return os.RemoveAll(target)
+	}
+	if item.Kind == "face" {
+		clean, err := cleanRelPath(item.Dir)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(filepath.ToSlash(clean)+"/", trashDir+"/"+trashFacesDirName+"/") {
+			return errors.New("面回收站目录无效")
 		}
 		target, err := svc.resolvePath(scope, clean)
 		if err != nil {

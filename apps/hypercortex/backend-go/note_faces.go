@@ -79,6 +79,8 @@ func defaultFaceForKind(kind string, input noteFaceManifest) (noteFaceManifest, 
 		File:         nonEmpty(input.File, adapter.DefaultFileName),
 		Settings:     adapter.NormalizeSettings(settings),
 		Capabilities: adapter.Capabilities,
+		CreatedAtMs:  input.CreatedAtMs,
+		UpdatedAtMs:  input.UpdatedAtMs,
 		Extra:        input.Extra,
 	}, nil
 }
@@ -113,7 +115,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 
 	existing, _ := svc.loadNoteManifest(scope, desiredDir)
 	faceID := nonEmpty(asString(input["faceId"]), adapter.DefaultFaceID)
-	existingFace := existing.Faces[faceID]
+	existingFace, faceExists := existing.Faces[faceID]
 	settings := mapFromAny(input["settings"])
 	if settings == nil {
 		settings = existingFace.Settings
@@ -131,6 +133,11 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 		created = nowMs()
 	}
 	updated := nowMs()
+	face.CreatedAtMs = nonZeroFloat(existingFace.CreatedAtMs, created)
+	if !faceExists {
+		face.CreatedAtMs = updated
+	}
+	face.UpdatedAtMs = updated
 	resources := existing.Resources
 	if _, ok := input["resources"]; ok {
 		resources = normalizeResources(input["resources"])
@@ -140,7 +147,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	}
 	faces := existing.Faces
 	if faces == nil {
-		faces = map[string]noteFaceManifest{"text": defaultTextFace()}
+		faces = map[string]noteFaceManifest{}
 	}
 	faces[face.ID] = face
 	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
@@ -165,31 +172,43 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	return map[string]any{"meta": meta, "faceDoc": noteFaceDocFromManifest(manifest, desiredDir, manifest.Faces[face.ID], content, true), "manifest": manifest, "refs": refs}, nil
 }
 
-func (svc *service) deleteNoteFace(scope string, packageDir string, faceID string) (noteManifest, error) {
+// deleteNoteFace 删除笔记中的某个面：
+// mode 为 trash 时先移入回收站（可恢复），其余情况直接永久删除文件。
+// 两种模式都会同步清理该面发出的引用与搜索索引条目（Q15）。
+func (svc *service) deleteNoteFace(scope string, packageDir string, faceID string, mode string) (any, error) {
 	manifest, err := svc.loadNoteManifest(scope, packageDir)
 	if err != nil {
-		return noteManifest{}, err
+		return nil, err
 	}
 	id := strings.TrimSpace(faceID)
 	face, ok := manifest.Faces[id]
 	if !ok {
-		return manifest, nil
+		return nil, errors.New("笔记面不存在")
 	}
 	if !face.Capabilities.Deletable {
-		return noteManifest{}, errors.New("该笔记面不可删除")
+		return nil, errors.New("该笔记面不可删除")
 	}
-	_ = svc.deleteFile(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)))
+	if strings.TrimSpace(mode) == "permanent" {
+		_ = svc.deleteFile(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)))
+	} else if err := svc.moveNoteFaceToTrash(scope, packageDir, manifest, id); err != nil {
+		return nil, err
+	}
 	delete(manifest.Faces, id)
 	manifest.FaceOrder = removeString(manifest.FaceOrder, id)
 	manifest.UpdatedAtMs = nowMs()
 	manifest = normalizeManifest(manifest)
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
-		return noteManifest{}, err
+		return nil, err
 	}
-	if _, err := svc.refreshDerivedIndexesForNote(scope, packageDir, manifest); err != nil {
-		return noteManifest{}, err
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	if err := svc.upsertNoteMeta(scope, meta); err != nil {
+		return nil, err
 	}
-	return manifest, nil
+	refs, err := svc.refreshDerivedIndexesForNote(scope, packageDir, manifest)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
 }
 
 func noteFaceDocFromManifest(manifest noteManifest, packageDir string, face noteFaceManifest, content string, exists bool) noteFaceDoc {

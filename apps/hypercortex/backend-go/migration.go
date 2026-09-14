@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	currentDataVersion                 = 5
+	currentDataVersion                 = 6
 	migrationsLedgerFile               = "_migrations.json"
 	migrationRecoveryDir               = "_migration-recovery"
 	migrationRecoveryFile              = "recovery.json"
@@ -19,6 +19,7 @@ const (
 	noteFaceSystemUnificationMigration = "2026-09-01-note-face-system-unification"
 	noteFaceRefsV2Migration            = "2026-09-01-note-face-refs-v2"
 	noteFaceSearchIndexMigration       = "2026-09-09-note-face-search-index-v1"
+	noteFaceTimestampsMigration        = "2026-09-14-note-face-timestamps"
 )
 
 type dataMigration struct {
@@ -99,6 +100,51 @@ func (svc *service) migrateNoteFaceSearchIndex() error {
 	return svc.rebuildSearchIndex("library")
 }
 
+// migrateNoteFaceTimestamps 为旧数据的面补齐面级创建/更新时间：
+// 已有面继承所属笔记的创建/更新时间，缺失时间的面也一并规范化。
+func (svc *service) migrateNoteFaceTimestamps() error {
+	for _, rootName := range []string{notesDir, trashDir} {
+		root, err := svc.resolvePath("library", rootName)
+		if err != nil {
+			return err
+		}
+		months, err := os.ReadDir(root)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, month := range months {
+			if !month.IsDir() || month.Name() == "assets" || month.Name() == trashFacesDirName {
+				continue
+			}
+			monthDir := filepath.Join(root, month.Name())
+			packages, err := os.ReadDir(monthDir)
+			if err != nil {
+				return err
+			}
+			for _, pkg := range packages {
+				if !pkg.IsDir() {
+					continue
+				}
+				manifestPath := filepath.Join(monthDir, pkg.Name(), manifestFile)
+				var manifest noteManifest
+				if err := readJSONFile(manifestPath, &manifest); err != nil {
+					continue
+				}
+				if strings.TrimSpace(manifest.ID) == "" {
+					continue
+				}
+				if err := writeJSONFile(manifestPath, normalizeManifest(manifest)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (svc *service) migrateNoteManifestsToUnifiedFaceProtocol() error {
 	root, err := svc.resolvePath("library", notesDir)
 	if err != nil {
@@ -171,6 +217,12 @@ func (svc *service) runDataMigrations() error {
 			FromVersion: 4,
 			ToVersion:   5,
 			Run:         (*service).migrateNoteFaceSearchIndex,
+		},
+		{
+			ID:          noteFaceTimestampsMigration,
+			FromVersion: 5,
+			ToVersion:   6,
+			Run:         (*service).migrateNoteFaceTimestamps,
 		},
 	}
 	return svc.runMigrations(migrations)

@@ -170,14 +170,35 @@ func collectNoteVersionFaces(svc *service, scope string, packageDir string, mani
 	return faces, nil
 }
 
-func noteVersionContentHash(manifest noteManifest, faces map[string]noteVersionFaceSnapshot) (string, error) {
+// withoutVersionTimestamps 清除哈希口径中的时间信息：
+// 笔记级与面级的创建/更新时间都不算作内容，避免仅保存动作导致版本重复。
+func withoutVersionTimestamps(manifest noteManifest, faces map[string]noteVersionFaceSnapshot) (noteManifest, map[string]noteVersionFaceSnapshot) {
 	contentManifest := normalizeManifest(manifest)
 	contentManifest.CreatedAtMs = 0
 	contentManifest.UpdatedAtMs = 0
+	contentFaces := make(map[string]noteFaceManifest, len(contentManifest.Faces))
+	for id, face := range contentManifest.Faces {
+		face.CreatedAtMs = 0
+		face.UpdatedAtMs = 0
+		contentFaces[id] = face
+	}
+	contentManifest.Faces = contentFaces
+
+	snapshotFaces := make(map[string]noteVersionFaceSnapshot, len(faces))
+	for id, saved := range faces {
+		saved.Manifest.CreatedAtMs = 0
+		saved.Manifest.UpdatedAtMs = 0
+		snapshotFaces[id] = saved
+	}
+	return contentManifest, snapshotFaces
+}
+
+func noteVersionContentHash(manifest noteManifest, faces map[string]noteVersionFaceSnapshot) (string, error) {
+	contentManifest, contentFaces := withoutVersionTimestamps(manifest, faces)
 	payload := struct {
 		Manifest noteManifest                       `json:"manifest"`
 		Faces    map[string]noteVersionFaceSnapshot `json:"faces"`
-	}{Manifest: contentManifest, Faces: faces}
+	}{Manifest: contentManifest, Faces: contentFaces}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -302,9 +323,10 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 	if err != nil {
 		return nil, err
 	}
+	updated := nowMs()
 	manifest := normalizeManifest(snapshot.Manifest)
 	manifest.CreatedAtMs = current.CreatedAtMs
-	manifest.UpdatedAtMs = nowMs()
+	manifest.UpdatedAtMs = updated
 	for faceID, face := range manifest.Faces {
 		saved, ok := snapshot.Faces[faceID]
 		if !ok {
@@ -317,6 +339,8 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)), content, true); err != nil {
 			return nil, err
 		}
+		face.UpdatedAtMs = updated
+		manifest.Faces[faceID] = face
 	}
 	for faceID, face := range current.Faces {
 		if _, ok := manifest.Faces[faceID]; ok {

@@ -88,6 +88,8 @@ type noteFaceManifest struct {
 	File         string                     `json:"file"`
 	Settings     map[string]any             `json:"settings"`
 	Capabilities faceCapabilities           `json:"capabilities"`
+	CreatedAtMs  float64                    `json:"createdAtMs,omitempty"`
+	UpdatedAtMs  float64                    `json:"updatedAtMs,omitempty"`
 	Extra        map[string]json.RawMessage `json:"-"`
 }
 
@@ -98,6 +100,8 @@ var noteFaceKnownJSONKeys = map[string]bool{
 	"file":         true,
 	"settings":     true,
 	"capabilities": true,
+	"createdAtMs":  true,
+	"updatedAtMs":  true,
 }
 
 var noteFaceRetiredJSONKeys = map[string]bool{
@@ -112,7 +116,9 @@ func (face noteFaceManifest) MarshalJSON() ([]byte, error) {
 		File         string           `json:"file"`
 		Settings     map[string]any   `json:"settings"`
 		Capabilities faceCapabilities `json:"capabilities"`
-	}{ID: face.ID, Kind: face.Kind, Title: face.Title, File: face.File, Settings: face.Settings, Capabilities: face.Capabilities}
+		CreatedAtMs  float64          `json:"createdAtMs,omitempty"`
+		UpdatedAtMs  float64          `json:"updatedAtMs,omitempty"`
+	}{ID: face.ID, Kind: face.Kind, Title: face.Title, File: face.File, Settings: face.Settings, Capabilities: face.Capabilities, CreatedAtMs: face.CreatedAtMs, UpdatedAtMs: face.UpdatedAtMs}
 	raw, err := json.Marshal(base)
 	if err != nil {
 		return nil, err
@@ -144,6 +150,8 @@ func (face *noteFaceManifest) UnmarshalJSON(raw []byte) error {
 		File         string           `json:"file"`
 		Settings     map[string]any   `json:"settings"`
 		Capabilities faceCapabilities `json:"capabilities"`
+		CreatedAtMs  float64          `json:"createdAtMs"`
+		UpdatedAtMs  float64          `json:"updatedAtMs"`
 	}{}
 	if err := json.Unmarshal(raw, &base); err != nil {
 		return err
@@ -159,7 +167,7 @@ func (face *noteFaceManifest) UnmarshalJSON(raw []byte) error {
 		}
 		extra[key] = value
 	}
-	*face = noteFaceManifest{ID: base.ID, Kind: base.Kind, Title: base.Title, File: base.File, Settings: base.Settings, Capabilities: base.Capabilities, Extra: extra}
+	*face = noteFaceManifest{ID: base.ID, Kind: base.Kind, Title: base.Title, File: base.File, Settings: base.Settings, Capabilities: base.Capabilities, CreatedAtMs: base.CreatedAtMs, UpdatedAtMs: base.UpdatedAtMs, Extra: extra}
 	return nil
 }
 
@@ -265,10 +273,20 @@ type trashItem struct {
 	Dir         string  `json:"dir"`
 	AssetID     string  `json:"assetId,omitempty"`
 	Ext         string  `json:"ext,omitempty"`
+	NoteID      string  `json:"noteId,omitempty"`
+	FaceID      string  `json:"faceId,omitempty"`
 	CreatedAtMs float64 `json:"createdAtMs"`
 	UpdatedAtMs float64 `json:"updatedAtMs"`
 	DeletedAtMs float64 `json:"deletedAtMs"`
 	OriginalDir string  `json:"originalDir"`
+}
+
+type trashFaceMeta struct {
+	NoteID    string           `json:"noteId"`
+	NoteTitle string           `json:"noteTitle"`
+	FaceID    string           `json:"faceId"`
+	Order     int              `json:"order"`
+	Face      noteFaceManifest `json:"face"`
 }
 
 type trashMeta struct {
@@ -277,4 +295,5 @@ type trashMeta struct {
 	DeletedAtMs float64         `json:"deletedAtMs"`
 	OriginalDir string          `json:"originalDir,omitempty"`
 	Asset       assetIndexEntry `json:"asset,omitempty"`
+	Face        *trashFaceMeta  `json:"face,omitempty"`
 }

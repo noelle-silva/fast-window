@@ -68,8 +68,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 5 {
-		t.Fatalf("applied count = %d, want 5", len(ledger.Applied))
+	if len(ledger.Applied) != 6 {
+		t.Fatalf("applied count = %d, want 6", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -85,6 +85,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	}
 	if ledger.Applied[4].ID != noteFaceSearchIndexMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[4].ID, noteFaceSearchIndexMigration)
+	}
+	if ledger.Applied[5].ID != noteFaceTimestampsMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[5].ID, noteFaceTimestampsMigration)
 	}
 }
 
@@ -102,8 +105,8 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 5 {
-		t.Fatalf("applied count = %d, want 5", len(ledger.Applied))
+	if len(ledger.Applied) != 6 {
+		t.Fatalf("applied count = %d, want 6", len(ledger.Applied))
 	}
 }
 
@@ -251,8 +254,11 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 
 	htmlOnlyManifest := readManifestJSON(t, filepath.Join(htmlOnlyDir, manifestFile))
 	htmlOnlyFaces := htmlOnlyManifest["faces"].(map[string]any)
-	if _, ok := htmlOnlyFaces["text"]; !ok {
-		t.Fatalf("empty text face not preserved/ensured: %+v", htmlOnlyFaces)
+	if _, ok := htmlOnlyFaces["text"]; ok {
+		t.Fatalf("html only note must keep its own faces without injected text face: %+v", htmlOnlyFaces)
+	}
+	if len(htmlOnlyFaces) != 1 {
+		t.Fatalf("html only faces = %+v, want single html face", htmlOnlyFaces)
 	}
 	if _, ok := htmlOnlyManifest["primaryFaceId"]; ok {
 		t.Fatalf("htmlOnly manifest still has primaryFaceId")

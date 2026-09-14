@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -116,10 +117,12 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	next, err := svc.deleteNoteFace("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs")), "html")
+	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs"))
+	result, err := svc.deleteNoteFace("library", rel, "html", "trash")
 	if err != nil {
 		t.Fatalf("deleteNoteFace failed: %v", err)
 	}
+	next := result.(map[string]any)["manifest"].(noteManifest)
 	if next.Faces["text"].ID != "text" || len(next.FaceOrder) != 1 {
 		t.Fatalf("manifest after delete = %#v", next)
 	}
@@ -134,6 +137,45 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(idx, want) {
 		t.Fatalf("refs = %#v, want %#v", idx, want)
+	}
+
+	// Q21：删除的面进入回收站，可恢复回原笔记
+	items, err := svc.listTrash("library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Kind != "face" || items[0].FaceID != "html" || items[0].NoteID != "delete-face-refs-note" {
+		t.Fatalf("trash items = %#v", items)
+	}
+	if _, err := svc.restoreTrashItem("library", mustJSONRaw(t, items[0])); err != nil {
+		t.Fatalf("restore face failed: %v", err)
+	}
+	restored, err := svc.loadNoteManifest("library", rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := restored.Faces["html"]; !ok || len(restored.FaceOrder) != 2 || restored.FaceOrder[1] != "html" {
+		t.Fatalf("manifest after restore = %#v", restored)
+	}
+	faceDoc, err := svc.loadNoteFace("library", rel, "html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !faceDoc.Exists || !strings.Contains(faceDoc.Content, "target-b") {
+		t.Fatalf("restored face content = %#v", faceDoc)
+	}
+	afterRestore, err := svc.loadRefIndex("library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAfterRestore := noteRefIndex{
+		"delete-face-refs-note": {
+			"text": {{NoteID: "target-a"}},
+			"html": {{NoteID: "target-b", FaceID: "text"}},
+		},
+	}
+	if !reflect.DeepEqual(afterRestore, wantAfterRestore) {
+		t.Fatalf("refs after restore = %#v, want %#v", afterRestore, wantAfterRestore)
 	}
 }
 
