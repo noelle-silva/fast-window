@@ -223,8 +223,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.loadHTMLFace(requireScope(params), stringField(params, "packageDir"))
 	case "hypercortex.notes.saveHtmlFace":
 		return svc.saveHTMLFace(requireScope(params), rawField(params, "input"))
-	case "hypercortex.notes.saveHtmlFaceFixedScale":
-		return nil, svc.saveHTMLFaceFixedScale(requireScope(params), stringField(params, "packageDir"), rawField(params, "fixedScale"))
+	case "hypercortex.notes.saveFaceSettings":
+		return svc.saveNoteFaceSettings(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), rawField(params, "settings"))
 	case "hypercortex.notes.versions.publish":
 		return svc.publishNoteVersion(requireScope(params), stringField(params, "packageDir"), stringField(params, "commitName"))
 	case "hypercortex.notes.versions.list":

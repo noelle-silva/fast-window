@@ -131,9 +131,6 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	if faces == nil {
 		faces = map[string]noteFaceManifest{}
 	}
-	if rawTitle == "" && len(faces) == 0 {
-		return nil, errors.New("无面笔记至少需要一个标题")
-	}
 	created := asFloat(input["createdAtMs"])
 	if created <= 0 {
 		created = existing.CreatedAtMs
@@ -142,13 +139,20 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 		created = nowMs()
 	}
 	updated := nowMs()
+	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil}
+	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
+		return nil, err
+	}
+	if rawTitle == "" && len(manifest.Faces) == 0 {
+		return nil, errors.New("无面笔记至少需要一个标题")
+	}
 	saveTextFace := input["saveTextFace"] == true
 	if saveTextFace {
-		if _, ok := faces["text"]; !ok {
+		if _, ok := manifest.Faces["text"]; !ok {
 			textFace := defaultTextFace()
 			textFace.CreatedAtMs = updated
 			textFace.UpdatedAtMs = updated
-			faces["text"] = textFace
+			manifest.Faces["text"] = textFace
 		}
 	}
 	resources := existing.Resources
@@ -158,7 +162,8 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	if resources == nil {
 		resources = existing.Resources
 	}
-	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
+	manifest.Resources = resources
+	manifest = normalizeManifest(manifest)
 
 	if saveTextFace {
 		textFace := manifest.Faces["text"]
@@ -180,7 +185,7 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 		return nil, err
 	}
 	doc := noteDoc{ID: id, PackageDir: desiredDir, Title: title, Description: description, Body: body, Tags: manifest.Tags, CreatedAtMs: created, UpdatedAtMs: updated, SchemaVersion: 2, Resources: manifest.Resources, DisplayHTML: renderMarkdownLite(body)}
-	return map[string]any{"meta": meta, "doc": doc, "refs": refs}, nil
+	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest, "refs": refs}, nil
 }
 
 func (svc *service) loadNotePackage(scope string, packageDir string) (noteDoc, error) {
@@ -269,46 +274,15 @@ func (svc *service) saveHTMLFace(scope string, raw json.RawMessage) (any, error)
 	if !ok {
 		return nil, errors.New("保存 HTML 面缺少 faceDoc")
 	}
+	manifest, ok := resultMap["manifest"].(noteManifest)
+	if !ok {
+		return nil, errors.New("保存 HTML 面缺少 manifest")
+	}
 	refs, ok := resultMap["refs"].(map[string][]noteRef)
 	if !ok {
 		return nil, errors.New("保存 HTML 面缺少 refs")
 	}
-	return map[string]any{"meta": meta, "htmlFace": htmlFaceDocFromFaceDoc(faceDoc), "refs": refs}, nil
-}
-
-func (svc *service) saveHTMLFaceFixedScale(scope string, packageDir string, raw json.RawMessage) error {
-	manifest, err := svc.loadNoteManifest(scope, packageDir)
-	if err != nil {
-		return err
-	}
-	face, ok := manifest.Faces["html"]
-	if !ok {
-		return nil
-	}
-	if face.Settings == nil {
-		face.Settings = map[string]any{}
-	}
-	if len(raw) == 0 || string(raw) == "null" {
-		delete(face.Settings, "fixedScale")
-	} else {
-		var scale float64
-		if err := json.Unmarshal(raw, &scale); err != nil {
-			return err
-		}
-		if scale >= 0.25 && scale <= 2 {
-			face.Settings["fixedScale"] = scale
-		}
-	}
-	updated := nowMs()
-	face.UpdatedAtMs = updated
-	face.CreatedAtMs = nonZeroFloat(face.CreatedAtMs, manifest.CreatedAtMs)
-	manifest.Faces["html"] = face
-	manifest.UpdatedAtMs = updated
-	manifest = normalizeManifest(manifest)
-	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
-		return err
-	}
-	return svc.upsertNoteMeta(scope, noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs})
+	return map[string]any{"meta": meta, "htmlFace": htmlFaceDocFromFaceDoc(faceDoc), "manifest": manifest, "refs": refs}, nil
 }
 
 func (svc *service) upsertNoteMeta(scope string, meta noteMeta) error {

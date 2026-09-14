@@ -14,6 +14,13 @@ var fenceLineSeekRe = regexp.MustCompile(`\n[ \t]{0,3}` + "```")
 
 const noteFaceSchemaVersion = 2
 
+// htmlFaceDisplayModes 与前端 htmlFaceDisplay.ts 的 isHtmlFaceDisplayMode 保持同一枚举。
+var htmlFaceDisplayModes = map[string]bool{
+	"natural":    true,
+	"fit-window": true,
+	"fixed-fit":  true,
+}
+
 type noteFaceAdapter struct {
 	Kind              string
 	Label             string
@@ -150,7 +157,10 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 		faces = map[string]noteFaceManifest{}
 	}
 	faces[face.ID] = face
-	manifest := normalizeManifest(noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources})
+	manifest := noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources}
+	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
+		return nil, err
+	}
 	manifest.FaceOrder = appendIfMissing(manifest.FaceOrder, face.ID)
 	manifest = normalizeManifest(manifest)
 
@@ -405,11 +415,17 @@ func normalizePlainSettings(value map[string]any) map[string]any {
 }
 
 func normalizeHTMLSettings(value map[string]any) map[string]any {
-	scale := asFloat(value["fixedScale"])
-	if scale < 0.25 || scale > 2 {
-		return map[string]any{}
+	out := map[string]any{}
+	if value == nil {
+		return out
 	}
-	return map[string]any{"fixedScale": scale}
+	if scale := asFloat(value["fixedScale"]); scale >= 0.25 && scale <= 2 {
+		out["fixedScale"] = scale
+	}
+	if mode := strings.TrimSpace(asString(value["displayMode"])); htmlFaceDisplayModes[mode] {
+		out["displayMode"] = mode
+	}
+	return out
 }
 
 func mapFromAny(value any) map[string]any {
@@ -435,4 +451,164 @@ func firstNonNil(value any, fallback any) any {
 		return fallback
 	}
 	return value
+}
+
+func faceKindsFromAny(value any) []string {
+	list, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, item := range list {
+		kind := strings.TrimSpace(asString(item))
+		if kind == "" || seen[kind] {
+			continue
+		}
+		seen[kind] = true
+		out = append(out, kind)
+	}
+	return out
+}
+
+func faceKindExists(faces map[string]noteFaceManifest, kind string) bool {
+	return faceIDForKind(faces, kind) != ""
+}
+
+func faceIDForKind(faces map[string]noteFaceManifest, kind string) string {
+	for id, face := range faces {
+		if face.Kind == kind {
+			return id
+		}
+	}
+	return ""
+}
+
+// ensureFaceKinds 确保 kinds 中每个类型的面都存在（缺失时补齐默认面并写入空内容文件）。
+// resetOrder 为 true（新建笔记）时按 kinds 顺序建立 FaceOrder；
+// 否则只把新补齐的面追加到既有 FaceOrder 末尾，不改动笔记级面顺序。
+func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *noteManifest, kinds []string, resetOrder bool, now float64) error {
+	if len(kinds) == 0 {
+		return nil
+	}
+	if manifest.Faces == nil {
+		manifest.Faces = map[string]noteFaceManifest{}
+	}
+	created := []string{}
+	for _, kind := range kinds {
+		adapter, err := requireFaceAdapter(kind)
+		if err != nil {
+			continue
+		}
+		if faceKindExists(manifest.Faces, adapter.Kind) {
+			continue
+		}
+		face, err := defaultFaceForKind(adapter.Kind, noteFaceManifest{CreatedAtMs: now, UpdatedAtMs: now})
+		if err != nil {
+			return err
+		}
+		manifest.Faces[face.ID] = face
+		created = append(created, face.ID)
+		if err := svc.writeFaceEmptyContentIfMissing(scope, packageDir, face, *manifest); err != nil {
+			return err
+		}
+	}
+	if resetOrder {
+		order := []string{}
+		for _, kind := range kinds {
+			adapter, err := requireFaceAdapter(kind)
+			if err != nil {
+				continue
+			}
+			id := faceIDForKind(manifest.Faces, adapter.Kind)
+			if id == "" {
+				id = adapter.DefaultFaceID
+			}
+			if _, ok := manifest.Faces[id]; ok {
+				order = appendIfMissing(order, id)
+			}
+		}
+		manifest.FaceOrder = order
+		return nil
+	}
+	for _, id := range created {
+		manifest.FaceOrder = appendIfMissing(manifest.FaceOrder, id)
+	}
+	return nil
+}
+
+// writeFaceEmptyContentIfMissing 为新建面补上协议默认的空内容文件；已存在文件不覆盖。
+func (svc *service) writeFaceEmptyContentIfMissing(scope string, packageDir string, face noteFaceManifest, manifest noteManifest) error {
+	rel := filepath.ToSlash(filepath.Join(packageDir, face.File))
+	target, err := svc.resolvePath(scope, rel)
+	if err != nil {
+		return err
+	}
+	if exists(target) {
+		return nil
+	}
+	adapter, err := requireFaceAdapter(face.Kind)
+	if err != nil {
+		return nil
+	}
+	content := ""
+	if adapter.EmptyContent != nil {
+		content = adapter.EmptyContent(manifest)
+	}
+	return svc.writeText(scope, rel, content, false)
+}
+
+// saveNoteFaceSettings 以补丁语义更新笔记级面设置：
+// 补丁中值为 null 表示删除该字段，其余字段与既有设置合并后按面协议规范化。
+// 这是笔记包内面设置的唯一写入通道，优先级解析由前端统一机制负责。
+func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID string, rawSettings json.RawMessage) (any, error) {
+	manifest, err := svc.loadNoteManifest(scope, packageDir)
+	if err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(faceID)
+	face, ok := manifest.Faces[id]
+	if !ok {
+		return nil, errors.New("笔记面不存在")
+	}
+	patch := map[string]any{}
+	if len(rawSettings) > 0 && string(rawSettings) != "null" {
+		if err := json.Unmarshal(rawSettings, &patch); err != nil {
+			return nil, err
+		}
+	}
+	settings := map[string]any{}
+	for key, value := range face.Settings {
+		settings[key] = value
+	}
+	for key, value := range patch {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if value == nil {
+			delete(settings, key)
+			continue
+		}
+		settings[key] = value
+	}
+	adapter, err := requireFaceAdapter(face.Kind)
+	if err != nil {
+		return nil, err
+	}
+	updated := nowMs()
+	face.Settings = adapter.NormalizeSettings(settings)
+	face.UpdatedAtMs = updated
+	face.CreatedAtMs = nonZeroFloat(face.CreatedAtMs, manifest.CreatedAtMs)
+	manifest.Faces[id] = face
+	manifest.UpdatedAtMs = updated
+	manifest = normalizeManifest(manifest)
+	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
+		return nil, err
+	}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	if err := svc.upsertNoteMeta(scope, meta); err != nil {
+		return nil, err
+	}
+	return map[string]any{"meta": meta, "manifest": manifest}, nil
 }
