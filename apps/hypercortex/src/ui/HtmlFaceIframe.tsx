@@ -12,7 +12,9 @@ type Props = {
   html: string
   mode: HyperCortexHtmlFaceDisplayModeV1
   minHeightPx?: number
-  globalDefaultScale?: number
+  /** 生效的缩放比例：由统一优先级机制（笔记级 > 全局级 > 默认）解析后的最终值。 */
+  fixedScale?: number
+  /** 笔记级缩放覆盖值；null 表示未覆盖（使用全局值）。 */
   noteFixedScale?: number | null
   onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
   scaleControlsVisible?: boolean
@@ -93,19 +95,18 @@ function FitWindowHtmlIframe(props: { html: string; minHeightPx: number }) {
 function FixedFitHtmlIframe(props: {
   html: string
   minHeightPx: number
-  globalDefaultScale: number
+  fixedScale: number
   noteFixedScale?: number | null
   onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
   scaleControlsVisible?: boolean
 }) {
-  const { html, minHeightPx, globalDefaultScale, noteFixedScale, onSaveNoteFixedScale, scaleControlsVisible } = props
+  const { html, minHeightPx, fixedScale, noteFixedScale, onSaveNoteFixedScale, scaleControlsVisible } = props
   const tokenRef = React.useRef('')
   if (!tokenRef.current) tokenRef.current = createToken()
 
   const srcDoc = React.useMemo(() => normalizeHtmlDocument(html), [html])
   const { ref: stageRef, size: stageSize } = useElementSize<HTMLDivElement>()
-  const preferredScale = noteFixedScale ?? globalDefaultScale
-  const normalizedPreferredScale = normalizeScale(preferredScale)
+  const normalizedPreferredScale = normalizeScale(fixedScale)
   const [scale, setScale] = React.useState(normalizedPreferredScale)
   const [saving, setSaving] = React.useState(false)
 
@@ -260,7 +261,7 @@ export function HtmlFaceIframe(props: Props) {
     html,
     mode,
     minHeightPx = 240,
-    globalDefaultScale = HTML_FACE_FIXED_SCALE.default,
+    fixedScale = HTML_FACE_FIXED_SCALE.default,
     noteFixedScale,
     onSaveNoteFixedScale,
     scaleControlsVisible,
@@ -275,7 +276,7 @@ export function HtmlFaceIframe(props: Props) {
       <FixedFitHtmlIframe
         html={html}
         minHeightPx={minHeightPx}
-        globalDefaultScale={globalDefaultScale}
+        fixedScale={fixedScale}
         noteFixedScale={noteFixedScale}
         onSaveNoteFixedScale={onSaveNoteFixedScale}
         scaleControlsVisible={scaleControlsVisible}

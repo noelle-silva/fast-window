@@ -12,7 +12,7 @@ export const HyperCortexRpc = {
     deleteFace: 'hypercortex.notes.deleteFace',
     loadHtmlFace: 'hypercortex.notes.loadHtmlFace',
     saveHtmlFace: 'hypercortex.notes.saveHtmlFace',
-    saveHtmlFaceFixedScale: 'hypercortex.notes.saveHtmlFaceFixedScale',
+    saveFaceSettings: 'hypercortex.notes.saveFaceSettings',
     versions: {
       publish: 'hypercortex.notes.versions.publish',
       list: 'hypercortex.notes.versions.list',

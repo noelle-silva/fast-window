@@ -1,4 +1,10 @@
+import {
+  htmlFaceDisplayModeFromSettings,
+  htmlFaceFixedScaleFromSettings,
+  normalizeHtmlFaceSettingsFields,
+} from './htmlFaceDisplay'
 import { buildEmptyHtmlViewDoc, normalizeHtmlViewContent } from './noteHtml'
+import type { HyperCortexHtmlFaceDisplayModeV1 } from './core'
 
 export const HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION = 2
 
@@ -73,14 +79,6 @@ function normalizePlainSettings(value?: HyperCortexNoteFaceSettingsV2 | null): H
   return { ...value }
 }
 
-function normalizeFixedScale(value: unknown): number | undefined {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return undefined
-  if (n < 0.25) return 0.25
-  if (n > 2) return 2
-  return n
-}
-
 type HyperCortexNoteFaceCapabilitiesRaw = Partial<HyperCortexNoteFaceCapabilitiesV2>
 
 function normalizeFaceCapabilities(input: unknown): HyperCortexNoteFaceCapabilitiesV2 {
@@ -127,10 +125,7 @@ const HTML_FACE_ADAPTER: HyperCortexNoteFaceAdapter = {
   },
   normalizeContent: normalizeHtmlViewContent,
   createEmptyContent: input => buildEmptyHtmlViewDoc({ title: input.title, noteId: input.noteId, schemaVersion: HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION }),
-  normalizeSettings: settings => {
-    const fixedScale = normalizeFixedScale(settings?.fixedScale)
-    return fixedScale !== undefined ? { fixedScale } : {}
-  },
+  normalizeSettings: settings => normalizeHtmlFaceSettingsFields(settings),
 }
 
 const NOTE_FACE_REGISTRY: Record<string, HyperCortexNoteFaceAdapter> = {
@@ -241,7 +236,12 @@ export function isMarkdownFace(face: HyperCortexNoteFaceManifestV2 | null | unde
 
 export function getHtmlFaceFixedScale(face: HyperCortexNoteFaceManifestV2 | null | undefined): number | undefined {
   if (!isHtmlFace(face)) return undefined
-  return normalizeFixedScale(face?.settings?.fixedScale)
+  return htmlFaceFixedScaleFromSettings(face?.settings)
+}
+
+export function getHtmlFaceDisplayMode(face: HyperCortexNoteFaceManifestV2 | null | undefined): HyperCortexHtmlFaceDisplayModeV1 | null {
+  if (!isHtmlFace(face)) return null
+  return htmlFaceDisplayModeFromSettings(face?.settings)
 }
 
 export function labelForFaceKind(kind: string): string {

@@ -1,10 +1,16 @@
 import type { NoteMeta, VaultScope } from '../core'
 import { isDraftNoteId } from '../drafts'
+import { resolveNoteFaceOrder } from '../facePreferences'
 import type { NotesService } from '../gateway/types'
 import { labelForFaceKind } from '../noteFaces'
 import type { NoteCardInfo } from './noteCardInfo'
 
-export async function loadNoteCardInfo(notes: NotesService, scope: VaultScope, meta: NoteMeta): Promise<NoteCardInfo | null> {
+export async function loadNoteCardInfo(
+  notes: NotesService,
+  scope: VaultScope,
+  meta: NoteMeta,
+  globalKindOrder?: readonly string[],
+): Promise<NoteCardInfo | null> {
   const nid = String(meta?.id || '').trim()
   if (!nid) return null
   if (isDraftNoteId(nid) || !String(meta?.dir || '').trim()) return null
@@ -12,7 +18,7 @@ export async function loadNoteCardInfo(notes: NotesService, scope: VaultScope, m
   const manifest = await notes.tryReadNoteManifest(scope, meta.dir)
   if (!manifest) return null
 
-  const faceOrder = Array.isArray(manifest.faceOrder) ? manifest.faceOrder.map(v => String(v || '').trim()).filter(Boolean) : Object.keys(manifest.faces || {})
+  const faceOrder = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder })
 
   return {
     tags: Array.isArray(manifest.tags) ? manifest.tags.map(v => String(v || '').trim()).filter(Boolean) : [],
@@ -20,7 +26,7 @@ export async function loadNoteCardInfo(notes: NotesService, scope: VaultScope, m
       .map(faceId => manifest.faces?.[faceId])
       .filter(Boolean)
       .map(face => String(face.title || '').trim() || labelForFaceKind(face.kind)),
-    faceIds: faceOrder.filter(faceId => !!manifest.faces?.[faceId]),
+    faceIds: faceOrder,
   }
 }
 

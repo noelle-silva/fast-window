@@ -70,6 +70,13 @@ import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE, normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
+import {
+  DEFAULT_FACE_KIND_ORDER,
+  normalizeDefaultFaceKinds,
+  normalizeFaceKindOrder,
+  orderKindsByGlobalOrder,
+} from '../facePreferences'
+import { createDefaultFaceManifest } from '../noteFaces'
 import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
@@ -421,6 +428,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
   const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>(DEFAULT_HTML_FACE_DISPLAY_MODE)
   const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE.default)
+  const [faceKindOrder, setFaceKindOrder] = React.useState<string[]>(() => [...DEFAULT_FACE_KIND_ORDER])
+  const [defaultFaceKinds, setDefaultFaceKinds] = React.useState<string[]>([])
   const [colorPresetId, setColorPresetId] = React.useState<HyperCortexColorPresetIdV1>(DEFAULT_COLOR_PRESET_ID)
   const colorPreset = React.useMemo(() => getColorPreset(colorPresetId), [colorPresetId])
   const theme = React.useMemo(() => createHyperCortexTheme(colorPreset), [colorPreset])
@@ -781,11 +790,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     async (meta: NoteMeta) => {
       const nid = String(meta?.id || '').trim()
       if (!nid) return
-      const info = await loadNoteCardInfo(gateway.notes, 'library', meta).catch(() => null)
+      const info = await loadNoteCardInfo(gateway.notes, 'library', meta, faceKindOrder).catch(() => null)
       if (!info) return
       upsertNoteCardInfo(nid, info)
     },
-    [gateway, upsertNoteCardInfo],
+    [faceKindOrder, gateway, upsertNoteCardInfo],
   )
 
   const ensureNoteCardInfoLoaded = React.useCallback(
@@ -1412,6 +1421,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedHtmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(normalizedMeta.htmlFaceFixedScaleDefault)
         setHtmlFaceDisplayMode(normalizedHtmlFaceDisplayMode)
         setHtmlFaceFixedScaleDefault(normalizedHtmlFaceFixedScaleDefault)
+        const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder)
+        const normalizedDefaultFaceKinds = normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds)
+        setFaceKindOrder(normalizedFaceKindOrder)
+        setDefaultFaceKinds(normalizedDefaultFaceKinds)
         const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
         setColorPresetId(normalizedColorPresetId)
         setCurrentFolderId(String((normalizedMeta as any).currentFolderId || '').trim() || 'root')
@@ -1474,6 +1487,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
           normalizedMeta.htmlFaceDisplayMode !== normalizedHtmlFaceDisplayMode ||
           normalizedMeta.htmlFaceFixedScaleDefault !== normalizedHtmlFaceFixedScaleDefault ||
+          JSON.stringify(normalizedMeta.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
+          JSON.stringify(normalizedMeta.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
           normalizedMeta.colorPresetId !== normalizedColorPresetId ||
           JSON.stringify(normalizedMeta.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes)
         if (shouldPersistNormalized) {
@@ -1484,6 +1499,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
             htmlFaceDisplayMode: normalizedHtmlFaceDisplayMode,
             htmlFaceFixedScaleDefault: normalizedHtmlFaceFixedScaleDefault,
+            faceKindOrder: normalizedFaceKindOrder,
+            defaultFaceKinds: normalizedDefaultFaceKinds,
             colorPresetId: normalizedColorPresetId,
             pageDisplayModes: nextPageDisplayModes,
           }).catch(() => {})
@@ -1536,6 +1553,26 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setHtmlFaceDisplayMode(next)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleFaceKindOrderChange = React.useCallback(
+    (next: string[]) => {
+      const normalized = normalizeFaceKindOrder(next)
+      setFaceKindOrder(normalized)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ faceKindOrder: normalized }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleDefaultFaceKindsChange = React.useCallback(
+    (next: string[]) => {
+      const normalized = normalizeDefaultFaceKinds(next)
+      setDefaultFaceKinds(normalized)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ defaultFaceKinds: normalized }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -1862,15 +1899,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     }
     draftNoteMetaRef.current[draftId] = meta
 
+    // 新笔记默认创建的面：按全局顺序排列，落到第一个面。
+    const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => createDefaultFaceManifest(kind))
+    const defaultFaces = defaultFaceManifests.map(face => face.id)
     noteInitSnapshotsRef.current[draftId] = {
       doc: null,
       htmlFace: null,
-      faceManifests: {},
+      faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
       base: { title: '未命名', description: '', body: '', tags: [], html: '' },
       editing: true,
       textEditorMode: 'live',
-      face: '',
-      faces: [],
+      face: defaultFaces[0] || '',
+      faces: defaultFaces,
       editTitle: '未命名',
       editDescription: '',
       editBody: '',
@@ -1887,7 +1927,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     setActiveTabKey(draftKey)
     updateSidebarItems(prev => insertTabAsUngrouped(prev, draftKey, prev.length), { activeTabKey: draftKey })
     navigatePage('note-detail')
-  }, [navigatePage, tabsInitReady, updateSidebarItems])
+  }, [defaultFaceKinds, faceKindOrder, navigatePage, tabsInitReady, updateSidebarItems])
 
   const handleAppCommand = React.useCallback(
     (command: string | null | undefined) => {
@@ -2219,6 +2259,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           body: '',
           tags: [],
           saveTextFace: false,
+          faceKinds: orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder),
         })
         const meta = result.meta
         const added = addRef(baseDoc, fid, 'note', meta.id)
@@ -2233,7 +2274,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
         })
         noteInitSnapshotsRef.current[meta.id] = {
-          doc: result.doc,
+          doc: null,
           htmlFace: null,
           faceManifests: {},
           base: { title: meta.title || '未命名', description: meta.description || '', body: '', tags: [], html: '' },
@@ -2254,7 +2295,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         void gateway.host.toast(String(e?.message || e || '创建笔记失败'))
       }
     },
-    [favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
+    [defaultFaceKinds, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
   )
 
   const handleOpenAssetTab = React.useCallback(
@@ -2640,6 +2681,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             onColorPresetChange={handleColorPresetChange}
             pageDisplayModes={pageDisplayModes}
             onPageDisplayModeChange={handlePageDisplayModeChange}
+            faceKindOrder={faceKindOrder}
+            onFaceKindOrderChange={handleFaceKindOrderChange}
+            defaultFaceKinds={defaultFaceKinds}
+            onDefaultFaceKindsChange={handleDefaultFaceKindsChange}
           />
         )
       default:
@@ -3024,6 +3069,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       onPlayingChange={playing => setTabPlaying(noteTabKey(tab.id), playing)}
                       htmlFaceDisplayMode={htmlFaceDisplayMode}
                       htmlFaceGlobalDefaultScale={htmlFaceFixedScaleDefault}
+                      globalFaceKindOrder={faceKindOrder}
                     />
                   ))
                 )}
@@ -3129,6 +3175,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onColorPresetChange={handleColorPresetChange}
                   pageDisplayModes={pageDisplayModes}
                   onPageDisplayModeChange={handlePageDisplayModeChange}
+                  faceKindOrder={faceKindOrder}
+                  onFaceKindOrderChange={handleFaceKindOrderChange}
+                  defaultFaceKinds={defaultFaceKinds}
+                  onDefaultFaceKindsChange={handleDefaultFaceKindsChange}
                 />
               ) : null}
             </Box>

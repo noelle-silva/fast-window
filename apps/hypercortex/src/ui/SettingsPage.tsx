@@ -4,6 +4,7 @@ import type { HyperCortexColorPresetIdV1, HyperCortexHtmlFaceDisplayModeV1, Hype
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
+import { FaceSettingsPanel } from './FaceSettingsPanel'
 import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
@@ -46,6 +47,10 @@ export type SettingsPageProps = {
   onColorPresetChange: (presetId: HyperCortexColorPresetIdV1) => void
   pageDisplayModes: PageDisplayModesV1
   onPageDisplayModeChange: (pageId: ModalCapablePageId, mode: PageDisplayMode) => void
+  faceKindOrder: string[]
+  onFaceKindOrderChange: (next: string[]) => void
+  defaultFaceKinds: string[]
+  onDefaultFaceKindsChange: (next: string[]) => void
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -146,6 +151,12 @@ export function SettingsPage(props: SettingsPageProps) {
             <SidebarSortSettingsPanel
               mode={props.sidebarSortMode}
               onChange={props.onSidebarSortModeChange}
+            />
+            <FaceSettingsPanel
+              faceKindOrder={props.faceKindOrder}
+              onFaceKindOrderChange={props.onFaceKindOrderChange}
+              defaultFaceKinds={props.defaultFaceKinds}
+              onDefaultFaceKindsChange={props.onDefaultFaceKindsChange}
             />
             <HtmlFaceDisplaySettingsPanel
               mode={props.htmlFaceDisplayMode}

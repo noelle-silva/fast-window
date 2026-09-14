@@ -66,3 +66,40 @@ export function normalizeHtmlFaceFixedScale(value: unknown, fallback = HTML_FACE
   const n = finiteNumberFrom(value)
   return clampHtmlFaceFixedScale(n === null ? fallback : n)
 }
+
+// ---- 笔记包内 HTML 面 settings 的字段读写（笔记级设置的事实源） ----
+
+function nonArrayRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+/** 读取笔记级显示方式；缺失或非法时返回 null（表示未覆盖全局）。 */
+export function htmlFaceDisplayModeFromSettings(settings: unknown): HyperCortexHtmlFaceDisplayModeV1 | null {
+  const record = nonArrayRecord(settings)
+  if (!record) return null
+  return isHtmlFaceDisplayMode(record.displayMode) ? record.displayMode : null
+}
+
+/** 读取笔记级缩放比例；缺失或非法时返回 undefined（表示未覆盖全局）。 */
+export function htmlFaceFixedScaleFromSettings(settings: unknown): number | undefined {
+  const record = nonArrayRecord(settings)
+  if (!record) return undefined
+  const n = finiteNumberFrom(record.fixedScale)
+  return n === null ? undefined : clampHtmlFaceFixedScale(n)
+}
+
+export type HyperCortexHtmlFaceSettingsFieldsV1 = {
+  fixedScale?: number
+  displayMode?: HyperCortexHtmlFaceDisplayModeV1
+}
+
+/** 将任意 settings 收敛为 HTML 面协议的合法字段集合，非法字段直接丢弃。 */
+export function normalizeHtmlFaceSettingsFields(settings: unknown): HyperCortexHtmlFaceSettingsFieldsV1 {
+  const out: HyperCortexHtmlFaceSettingsFieldsV1 = {}
+  const fixedScale = htmlFaceFixedScaleFromSettings(settings)
+  if (fixedScale !== undefined) out.fixedScale = fixedScale
+  const displayMode = htmlFaceDisplayModeFromSettings(settings)
+  if (displayMode !== null) out.displayMode = displayMode
+  return out
+}

@@ -100,6 +100,10 @@ export type HyperCortexMetadataV1 = {
   shortcutHintsEnabled?: boolean
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceFixedScaleDefault?: number
+  // 面类型的全局顺序；新笔记默认创建的面按此顺序排列。
+  faceKindOrder?: string[]
+  // 新建笔记时默认创建的面类型（多选，空数组表示无面）。
+  defaultFaceKinds?: string[]
   colorPresetId?: HyperCortexColorPresetIdV1
   pageDisplayModes?: PageDisplayModesV1
   currentFolderId?: string

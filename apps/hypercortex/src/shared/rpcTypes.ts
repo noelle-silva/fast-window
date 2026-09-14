@@ -12,7 +12,7 @@ export type LoadManifestParams = LoadPackageParams
 export type TryReadManifestParams = LoadPackageParams
 export type LoadFaceParams = LoadPackageParams & { faceId: string }
 export type DeleteFaceParams = LoadPackageParams & { faceId: string; mode: 'trash' | 'permanent' }
-export type SaveHtmlFaceFixedScaleParams = LoadPackageParams & { fixedScale: number | null }
+export type SaveFaceSettingsParams = LoadPackageParams & { faceId: string; settings: HyperCortexNoteFaceSettingsV2 }
 
 export type SavePackageInput = {
   id?: string
@@ -24,6 +24,7 @@ export type SavePackageInput = {
   createdAtMs?: number
   resources?: HyperCortexNoteResourceRef[]
   saveTextFace?: boolean
+  faceKinds?: string[]
 }
 
 export type SavePackageParams = ScopeParams & { input: SavePackageInput }

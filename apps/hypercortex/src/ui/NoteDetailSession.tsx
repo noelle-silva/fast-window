@@ -24,6 +24,7 @@ import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/past
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
+import { DEFAULT_FACE_KIND_ORDER, resolveHtmlFacePreferences, resolveNoteFaceOrder } from '../facePreferences'
 import { HTML_FACE_KIND, createDefaultFaceManifest, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
@@ -91,20 +92,6 @@ function faceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceMani
   const title = String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
   if (!isKnownFaceKind(manifest.kind)) return `${title}（暂不支持）`
   return title
-}
-
-function normalizeFaceOrder(faceOrder: string[], faces: Record<string, HyperCortexNoteFaceManifestV2>): string[] {
-  const out: string[] = []
-  for (const id of faceOrder || []) {
-    const faceId = String(id || '').trim()
-    if (!faceId || !faces[faceId] || out.includes(faceId)) continue
-    out.push(faceId)
-  }
-  for (const faceId of Object.keys(faces)) {
-    if (out.includes(faceId)) continue
-    out.push(faceId)
-  }
-  return out
 }
 
 function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.ReactNode {
@@ -219,6 +206,7 @@ export type NoteDetailSessionProps = {
   onPlayingChange?: (playing: boolean) => void
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceGlobalDefaultScale?: number
+  globalFaceKindOrder?: readonly string[]
 }
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
@@ -246,6 +234,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onPlayingChange,
     htmlFaceDisplayMode = DEFAULT_HTML_FACE_DISPLAY_MODE,
     htmlFaceGlobalDefaultScale = HTML_FACE_FIXED_SCALE.default,
+    globalFaceKindOrder = DEFAULT_FACE_KIND_ORDER,
   } = props
 
   const noteId = String(note.id || '').trim()
@@ -367,6 +356,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     () => faces.filter(faceId => !!faceManifests[faceId]?.capabilities.deletable),
     [faceManifests, faces],
   )
+  const htmlFaceManifest = React.useMemo(
+    () => Object.values(faceManifests).find(face => isHtmlFace(face)) || null,
+    [faceManifests],
+  )
+  // HTML 面显示偏好统一按“笔记级 > 全局级 > 协议默认”解析（Q33/Q34/Q35）。
+  const htmlFacePreferences = React.useMemo(
+    () => resolveHtmlFacePreferences({
+      faceSettings: htmlFaceManifest?.settings,
+      globalMode: htmlFaceDisplayMode,
+      globalFixedScale: htmlFaceGlobalDefaultScale,
+    }),
+    [htmlFaceDisplayMode, htmlFaceGlobalDefaultScale, htmlFaceManifest],
+  )
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
     if (lastDirtyRef.current === dirty) return
@@ -477,7 +479,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
       const result = await gateway.notes.deleteNoteFace(scope, dir, targetFaceId, mode)
       setFaceManifests(result.manifest.faces)
-      const nextFaces = normalizeFaceOrder(result.manifest.faceOrder, result.manifest.faces)
+      const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
       setFaces(nextFaces)
       setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
       if (isHtmlFaceId(targetFaceId, faceManifests)) {
@@ -498,34 +500,24 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setDeleting('')
     }
-  }, [deleteFaceTarget, deleting, faceManifests, gateway, note.dir, noteId, onSaved, scope, trashEnabled])
+  }, [deleteFaceTarget, deleting, faceManifests, gateway, globalFaceKindOrder, note.dir, noteId, onSaved, scope, trashEnabled])
 
   const handleSaveNoteFixedScale = React.useCallback(async (scale: number | null) => {
     const dir = String(note.dir || '').trim()
-    if (!dir || htmlFaceScaleSaving) return
+    if (!dir || htmlFaceScaleSaving || !htmlFaceManifest) return
     setHtmlFaceScaleSaving(true)
     try {
-      await gateway.notes.saveHtmlFaceFixedScale(scope, dir, scale)
+      const result = await gateway.notes.saveFaceSettings(scope, dir, htmlFaceManifest.id, { fixedScale: scale })
       setHtmlFace(prev => prev ? { ...prev, fixedScale: scale ?? undefined } : prev)
-      setFaceManifests(prev => {
-      const htmlId = Object.keys(prev).find(id => isHtmlFace(prev[id])) || 'html'
-        const htmlFaceManifest = prev[htmlId]
-        if (!htmlFaceManifest) return prev
-        return {
-          ...prev,
-          [htmlId]: {
-            ...htmlFaceManifest,
-            settings: scale !== null && Number.isFinite(scale) ? { ...htmlFaceManifest.settings, fixedScale: scale } : {},
-          },
-        }
-      })
+      setFaceManifests(result.manifest.faces)
+      setFaces(resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder }))
       void gateway.host.toast('已保存笔记缩放比例')
     } catch (e: any) {
       void gateway.host.toast(String(e?.message || e || '保存缩放比例失败'))
     } finally {
       setHtmlFaceScaleSaving(false)
     }
-  }, [gateway, htmlFaceScaleSaving, note.dir, scope])
+  }, [gateway, globalFaceKindOrder, htmlFaceManifest, htmlFaceScaleSaving, note.dir, scope])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -548,8 +540,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       resources: [],
       displayHtml: renderNoteDisplayHtml({ title, description, body, tags }),
     })
-    setFaceManifests({})
-    setFaces([])
+    // 草稿的面清单来自初始快照（含默认面配置），这里不重置。
     setFacesReady(true)
   }, [doc, editBody, editDescription, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
 
@@ -576,7 +567,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setHtmlFace(loadedHtml)
       setFaceManifests(manifest.faces)
 
-      const nextFaces: NoteFaceId[] = normalizeFaceOrder(manifest.faceOrder, manifest.faces)
+      const nextFaces: NoteFaceId[] = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
       setFaces(nextFaces)
       setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
       setFacesReady(true)
@@ -606,7 +597,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       if (!options?.force) setLoading(false)
     }
-  }, [doc, ensureDraftDocIfNeeded, gateway, isDraft, note.description, note.dir, note.title, noteId, scope])
+  }, [doc, ensureDraftDocIfNeeded, gateway, globalFaceKindOrder, isDraft, note.description, note.dir, note.title, noteId, scope])
 
   React.useEffect(() => {
     if (!hasEverActivatedRef.current) return
@@ -766,10 +757,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const description = String(editDescription || '').trim()
       const body = String(editBody || '').replace(/\r\n/g, '\n')
       const tags = editTags.map(normalizeTagText).filter(Boolean)
+      // 当前笔记的面清单（按界面顺序）：保存时确保这些面存在，即新笔记默认面的落盘点。
+      const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
 
       let nextMeta: NoteMeta
       let nextDoc: HyperCortexNoteDoc | null = doc
       let nextHtmlFace: HyperCortexHtmlFaceDoc | null = htmlFace
+      let nextFaceManifests: Record<string, HyperCortexNoteFaceManifestV2> = faceManifests
+      let nextFaces: NoteFaceId[] = faces
       let toastMsg: string
       let refsForIndex: NoteRefEntryMap | undefined
 
@@ -784,13 +779,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           createdAtMs: note.createdAtMs,
           resources: editResources,
           html: editHtml,
+          faceKinds,
         })
         nextMeta = result.meta
         nextHtmlFace = result.htmlFace
+        nextFaceManifests = result.manifest.faces
+        nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
         setHtmlFace(nextHtmlFace)
-        const savedManifest = await gateway.notes.loadNoteManifest(scope, result.meta.dir)
-        setFaceManifests(savedManifest.faces)
-        setFaces(normalizeFaceOrder(savedManifest.faceOrder, savedManifest.faces))
+        setFaceManifests(nextFaceManifests)
+        setFaces(nextFaces)
         if (nextDoc) {
           nextDoc = { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir, title, description, tags, updatedAtMs: nextMeta.updatedAtMs }
           setDoc(nextDoc)
@@ -808,12 +805,17 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           createdAtMs: note.createdAtMs,
           resources: editResources,
           saveTextFace: isTextFaceId(face, faceManifests),
+          faceKinds,
         })
         nextMeta = result.meta
         nextDoc = result.doc
+        nextFaceManifests = result.manifest.faces
+        nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
         setDoc(nextDoc)
         setEditBody(nextDoc.body)
         setEditResources(nextDoc.resources || [])
+        setFaceManifests(nextFaceManifests)
+        setFaces(nextFaces)
         toastMsg = '笔记已保存'
         refsForIndex = result.refs
       }
@@ -837,8 +839,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         editing,
         textEditorMode,
         face,
-        faceManifests,
-        faces,
+        faceManifests: nextFaceManifests,
+        faces: nextFaces,
         editTitle: title,
         editDescription: description,
         editBody: isTextFaceId(face, faceManifests) ? body : editBody,
@@ -860,7 +862,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
   const saveCurrentForVersionPublish = React.useCallback(async () => {
     const saved = await handleSave()
@@ -872,7 +874,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (!dir) throw new Error('请先保存笔记，再恢复版本')
     const result = await gateway.notes.restoreNoteVersion(scope, dir, versionId)
     const restoredHtml = await gateway.notes.loadHtmlFace(scope, result.meta.dir)
-    const nextFaces = normalizeFaceOrder(result.manifest.faceOrder, result.manifest.faces)
+    const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
     const nextBase: NoteContent = {
       title: result.doc.title || '未命名',
       description: result.doc.description || '',
@@ -899,7 +901,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
     onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
     onDirtyChange?.({ noteId, dirty: false })
-  }, [gateway, note.dir, noteId, onDirtyChange, onSaved, scope])
+  }, [gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -1563,10 +1565,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             ) : (
               <HtmlFaceIframe
                 html={editHtml}
-                mode={htmlFaceDisplayMode}
+                mode={htmlFacePreferences.mode}
                 minHeightPx={240}
-                globalDefaultScale={htmlFaceGlobalDefaultScale}
-                noteFixedScale={htmlFace?.fixedScale ?? null}
+                fixedScale={htmlFacePreferences.fixedScale}
+                noteFixedScale={htmlFacePreferences.noteFixedScale}
                 onSaveNoteFixedScale={String(note.dir || '').trim() ? handleSaveNoteFixedScale : undefined}
                 scaleControlsVisible={htmlScaleControlsVisible}
               />
