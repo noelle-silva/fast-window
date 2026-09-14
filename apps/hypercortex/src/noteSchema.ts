@@ -1,6 +1,5 @@
 import { HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION } from './noteFaces'
 import {
-  createDefaultNoteFaces,
   createNoteManifest as createNoteManifestV2,
   type HyperCortexNoteManifestV2,
 } from './noteManifest'
@@ -99,6 +98,6 @@ export function createNoteManifest(input: {
 }): HyperCortexNoteManifestV1 {
   return createNoteManifestV2({
     ...input,
-    faces: input.faces || createDefaultNoteFaces(),
+    faces: input.faces || {},
   })
 }

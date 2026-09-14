@@ -22,6 +22,35 @@ export type HyperCortexNoteFaceManifestV2 = {
   file: string
   settings: HyperCortexNoteFaceSettingsV2
   capabilities: HyperCortexNoteFaceCapabilitiesV2
+  createdAtMs?: number
+  updatedAtMs?: number
+}
+
+export type HyperCortexNoteFaceDoc = {
+  id: string
+  packageDir: string
+  noteId: string
+  noteTitle: string
+  noteDescription: string
+  face: HyperCortexNoteFaceManifestV2
+  content: string
+  exists: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  schemaVersion: number
+}
+
+export type HyperCortexHtmlFaceDoc = {
+  id: string
+  packageDir: string
+  title: string
+  description: string
+  html: string
+  exists: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  schemaVersion: number
+  fixedScale?: number
 }
 
 export type HyperCortexNoteFaceAdapter = {
@@ -133,9 +162,13 @@ export function createDefaultFaceManifest(kind: string, input?: {
   title?: string
   file?: string
   settings?: HyperCortexNoteFaceSettingsV2 | null
+  createdAtMs?: number
+  updatedAtMs?: number
 }): HyperCortexNoteFaceManifestV2 {
   const adapter = requireNoteFaceAdapter(kind)
   const settings = adapter.normalizeSettings(input?.settings || null)
+  const createdAtMs = Number(input?.createdAtMs) > 0 ? Number(input?.createdAtMs) : 0
+  const updatedAtMs = Number(input?.updatedAtMs) > 0 ? Number(input?.updatedAtMs) : createdAtMs
   return {
     id: String(input?.id || '').trim() || adapter.defaultFaceId,
     kind: adapter.kind,
@@ -143,6 +176,8 @@ export function createDefaultFaceManifest(kind: string, input?: {
     file: String(input?.file || '').trim() || adapter.defaultFileName,
     settings,
     capabilities: { ...adapter.capabilities },
+    createdAtMs,
+    updatedAtMs,
   }
 }
 
@@ -150,7 +185,7 @@ export function isKnownFaceKind(kind: string): boolean {
   return getNoteFaceAdapter(String(kind || '').trim()) !== null
 }
 
-const FACE_STANDARD_MANIFEST_KEYS = new Set(['id', 'kind', 'title', 'file', 'role', 'settings', 'capabilities'])
+const FACE_STANDARD_MANIFEST_KEYS = new Set(['id', 'kind', 'title', 'file', 'role', 'settings', 'capabilities', 'createdAtMs', 'updatedAtMs'])
 
 function collectUnknownFaceFields(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -159,6 +194,11 @@ function collectUnknownFaceFields(raw: Record<string, unknown>): Record<string, 
     out[key] = value
   }
   return out
+}
+
+function toTimestamp(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 export function normalizeFaceManifest(input: unknown): HyperCortexNoteFaceManifestV2 | null {
@@ -175,6 +215,8 @@ export function normalizeFaceManifest(input: unknown): HyperCortexNoteFaceManife
       file: String(raw.file || '').trim(),
       settings: normalizePlainSettings(raw.settings),
       capabilities: normalizeFaceCapabilities(raw.capabilities),
+      createdAtMs: toTimestamp(raw.createdAtMs),
+      updatedAtMs: toTimestamp(raw.updatedAtMs),
     }
     Object.assign(face, collectUnknownFaceFields(raw))
     return face
@@ -184,6 +226,8 @@ export function normalizeFaceManifest(input: unknown): HyperCortexNoteFaceManife
     title: raw.title,
     file: raw.file,
     settings: raw.settings,
+    createdAtMs: toTimestamp(raw.createdAtMs),
+    updatedAtMs: toTimestamp(raw.updatedAtMs),
   })
 }
 

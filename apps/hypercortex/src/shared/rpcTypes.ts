@@ -11,8 +11,7 @@ export type LoadPackageParams = ScopeParams & { packageDir: string }
 export type LoadManifestParams = LoadPackageParams
 export type TryReadManifestParams = LoadPackageParams
 export type LoadFaceParams = LoadPackageParams & { faceId: string }
-export type DeleteFaceParams = LoadPackageParams & { faceId: string }
-export type DeleteHtmlFaceParams = LoadPackageParams
+export type DeleteFaceParams = LoadPackageParams & { faceId: string; mode: 'trash' | 'permanent' }
 export type SaveHtmlFaceFixedScaleParams = LoadPackageParams & { fixedScale: number | null }
 
 export type SavePackageInput = {

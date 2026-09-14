@@ -24,7 +24,7 @@ import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/past
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
-import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, isKnownFaceKind, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import { HTML_FACE_KIND, createDefaultFaceManifest, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
@@ -107,6 +107,61 @@ function normalizeFaceOrder(faceOrder: string[], faces: Record<string, HyperCort
   return out
 }
 
+function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.ReactNode {
+  const creatableFaces = listNoteFaceAdapters().filter(adapter => adapter.capabilities.creatable)
+  return (
+    <Box
+      sx={{
+        mt: 0.5,
+        px: 2,
+        py: 5,
+        borderRadius: 3,
+        bgcolor: 'rgba(15,23,42,.035)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2,
+      }}
+    >
+      <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
+        当前笔记没有面，请选择创建一个面
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+        {creatableFaces.map(adapter => (
+          <Box
+            key={adapter.kind}
+            role="button"
+            tabIndex={0}
+            onClick={() => props.onCreateFace(adapter.kind)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                props.onCreateFace(adapter.kind)
+              }
+            }}
+            sx={{
+              px: 2,
+              py: 1,
+              borderRadius: 999,
+              bgcolor: '#fff',
+              boxShadow: '0 1px 2px rgba(0,0,0,.06)',
+              fontSize: 13,
+              lineHeight: 1,
+              fontWeight: 700,
+              color: '#111',
+              cursor: 'pointer',
+              userSelect: 'none',
+              '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
+            }}
+          >
+            {adapter.label}
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
 export type NoteDetailSnapshotV1 = {
   doc: HyperCortexNoteDoc | null
   htmlFace: HyperCortexHtmlFaceDoc | null
@@ -132,6 +187,7 @@ export type NoteDetailSessionHandle = {
   cycleFace: () => void
   save: () => Promise<void>
   discardChanges: () => void
+  reload: () => Promise<void>
 }
 
 export type NoteDetailSessionProps = {
@@ -201,7 +257,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [doc, setDoc] = React.useState<HyperCortexNoteDoc | null>(init?.doc ?? null)
   const [htmlFace, setHtmlFace] = React.useState<HyperCortexHtmlFaceDoc | null>(init?.htmlFace ?? null)
-  const [faceManifests, setFaceManifests] = React.useState<Record<string, HyperCortexNoteFaceManifestV2>>(init?.faceManifests ?? { text: createDefaultFaceManifest('markdown') })
+  const [faceManifests, setFaceManifests] = React.useState<Record<string, HyperCortexNoteFaceManifestV2>>(init?.faceManifests ?? {})
   const [htmlFaceScaleSaving, setHtmlFaceScaleSaving] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -209,8 +265,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [editing, setEditing] = React.useState(init?.editing ?? (isDraft ? true : false))
   const [textEditorMode, setTextEditorMode] = React.useState<TextEditorMode>(init?.textEditorMode ?? 'live')
-  const [face, setFace] = React.useState<NoteFaceId>(init?.face ?? 'text')
-  const [faces, setFaces] = React.useState<NoteFaceId[]>(init?.faces ?? ['text'])
+  const [face, setFace] = React.useState<NoteFaceId>(init?.face ?? '')
+  const [faces, setFaces] = React.useState<NoteFaceId[]>(init?.faces ?? [])
   const [facesReady, setFacesReady] = React.useState(() => !!init?.faces || isDraft)
   const [infoSidebarVisible, setInfoSidebarVisible] = React.useState(init?.infoSidebarVisible ?? false)
   const facesRef = React.useRef<NoteFaceId[]>(faces)
@@ -240,10 +296,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [])
 
   const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
-  const [deleteHtmlConfirmOpen, setDeleteHtmlConfirmOpen] = React.useState(false)
+  const [deleteFaceTarget, setDeleteFaceTarget] = React.useState<NoteFaceId | null>(null)
   const [htmlFullscreenOpen, setHtmlFullscreenOpen] = React.useState(false)
   const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false)
-  const [deleting, setDeleting] = React.useState<'note' | 'html' | ''>('')
+  const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
 
   const [base, setBase] = React.useState<NoteContent>(
     init?.base ?? {
@@ -307,8 +363,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     const s = String(editTitle || doc?.title || note.title || '').trim()
     return s || '未命名'
   }, [doc?.title, editTitle, note.title])
-  const activeFaceManifest = faceManifests[face] || null
-  const canDeleteCurrentFace = !!activeFaceManifest?.capabilities.deletable
+  const deletableFaceIds = React.useMemo(
+    () => faces.filter(faceId => !!faceManifests[faceId]?.capabilities.deletable),
+    [faceManifests, faces],
+  )
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
     if (lastDirtyRef.current === dirty) return
@@ -405,39 +463,42 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [deleting, gateway, note, onRequestDeleteNote, trashEnabled])
 
-  const requestDeleteHtmlFace = React.useCallback(() => {
+  const requestDeleteFace = React.useCallback((faceId: string) => {
     closeMoreMenu()
-    setDeleteHtmlConfirmOpen(true)
+    setDeleteFaceTarget(String(faceId || '').trim() || null)
   }, [closeMoreMenu])
 
-  const confirmDeleteHtmlFace = React.useCallback(async () => {
-    if (!String(note.dir || '').trim()) return
-    if (deleting) return
-    const deletingFaceId = face
-    if (!canDeleteCurrentFace || !isHtmlFaceId(deletingFaceId, faceManifests)) return
-    setDeleting('html')
+  const confirmDeleteFace = React.useCallback(async () => {
+    const targetFaceId = String(deleteFaceTarget || '').trim()
+    const dir = String(note.dir || '').trim()
+    if (!targetFaceId || !dir || deleting) return
+    setDeleting('face')
     try {
-      const next = await gateway.notes.deleteHtmlFace(scope, note.dir)
-      setHtmlFace(next)
-      setFaces(prev => prev.filter(f => f !== deletingFaceId))
-      setFaceManifests(prev => {
-        const out = { ...prev }
-        delete out[deletingFaceId]
-        return out
-      })
-      setFace(normalizeFaceOrder(['text'], faceManifests)[0] || 'text')
-      setEditHtml(next.html)
-      setBase(prev => ({ ...prev, html: next.html }))
+      const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
+      const result = await gateway.notes.deleteNoteFace(scope, dir, targetFaceId, mode)
+      setFaceManifests(result.manifest.faces)
+      const nextFaces = normalizeFaceOrder(result.manifest.faceOrder, result.manifest.faces)
+      setFaces(nextFaces)
+      setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
+      if (isHtmlFaceId(targetFaceId, faceManifests)) {
+        const nextHtml = await gateway.notes.loadHtmlFace(scope, dir).catch(() => null)
+        if (nextHtml) {
+          setHtmlFace(nextHtml)
+          setEditHtml(nextHtml.html || '')
+          setBase(prev => ({ ...prev, html: nextHtml.html || '' }))
+        }
+      }
       setAddFaceSelectorVisible(false)
       setPendingAddFace(null)
-      setDeleteHtmlConfirmOpen(false)
-      void gateway.host.toast('已删除 HTML 面')
+      setDeleteFaceTarget(null)
+      onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
+      void gateway.host.toast(mode === 'trash' ? '已移入回收站（可在回收站恢复）' : '已删除面')
     } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '删除 HTML 面失败'))
+      void gateway.host.toast(String(e?.message || e || '删除面失败'))
     } finally {
       setDeleting('')
     }
-  }, [canDeleteCurrentFace, deleting, face, faceManifests, gateway, note.dir, scope])
+  }, [deleteFaceTarget, deleting, faceManifests, gateway, note.dir, noteId, onSaved, scope, trashEnabled])
 
   const handleSaveNoteFixedScale = React.useCallback(async (scale: number | null) => {
     const dir = String(note.dir || '').trim()
@@ -487,8 +548,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       resources: [],
       displayHtml: renderNoteDisplayHtml({ title, description, body, tags }),
     })
-    setFaceManifests({ text: createDefaultFaceManifest('markdown') })
-    setFaces(['text'])
+    setFaceManifests({})
+    setFaces([])
     setFacesReady(true)
   }, [doc, editBody, editDescription, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
 
@@ -497,13 +558,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (visible) hasEverActivatedRef.current = true
   }, [visible])
 
-  const loadNoteIfNeeded = React.useCallback(async () => {
+  const loadNoteIfNeeded = React.useCallback(async (options?: { force?: boolean }) => {
     if (!noteId) return
     if (isDraft) return ensureDraftDocIfNeeded()
-    if (doc) return
+    if (doc && !options?.force) return
     if (!String(note.dir || '').trim()) return
 
-    setLoading(true)
+    if (!options?.force) setLoading(true)
     setLoadError(null)
     try {
       const [loadedDoc, loadedHtml] = await Promise.all([
@@ -517,6 +578,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       const nextFaces: NoteFaceId[] = normalizeFaceOrder(manifest.faceOrder, manifest.faces)
       setFaces(nextFaces)
+      setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
       setFacesReady(true)
 
       const nextBase: NoteContent = {
@@ -536,9 +598,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setEditResources(loadedDoc.resources || [])
       setTagInput('')
     } catch (e: any) {
-      setLoadError(String(e?.message || e || '加载笔记失败'))
+      if (options?.force) {
+        void gateway.host.toast(String(e?.message || e || '刷新笔记失败'))
+      } else {
+        setLoadError(String(e?.message || e || '加载笔记失败'))
+      }
     } finally {
-      setLoading(false)
+      if (!options?.force) setLoading(false)
     }
   }, [doc, ensureDraftDocIfNeeded, gateway, isDraft, note.description, note.dir, note.title, noteId, scope])
 
@@ -688,10 +754,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const handleSave = React.useCallback(async () => {
     if (!noteId) return false
     if (saving) return false
+    const rawTitle = String(editTitle || '').trim()
+    if (faces.length === 0 && !rawTitle) {
+      await gateway.host.toast('无面笔记至少需要一个标题')
+      return false
+    }
     setSaving(true)
     try {
       const originalId = noteId
-      const title = String(editTitle || '').trim() || '未命名'
+      const title = rawTitle || '未命名'
       const description = String(editDescription || '').trim()
       const body = String(editBody || '').replace(/\r\n/g, '\n')
       const tags = editTags.map(normalizeTagText).filter(Boolean)
@@ -736,7 +807,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           tags,
           createdAtMs: note.createdAtMs,
           resources: editResources,
-          saveTextFace: true,
+          saveTextFace: isTextFaceId(face, faceManifests),
         })
         nextMeta = result.meta
         nextDoc = result.doc
@@ -814,7 +885,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setHtmlFace(restoredHtml)
     setFaceManifests(result.manifest.faces)
     setFaces(nextFaces)
-    setFace(prev => nextFaces.includes(prev) ? prev : nextFaces[0] || 'text')
+    setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
     setBase(nextBase)
     setEditTitle(nextBase.title)
     setEditDescription(nextBase.description)
@@ -832,7 +903,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
-      const list = Array.isArray(facesRef.current) && facesRef.current.length ? facesRef.current : ['text']
+      const list = Array.isArray(facesRef.current) ? facesRef.current : []
       if (list.length <= 1) return prev
       const idx = list.indexOf(prev)
       const next = list[(idx >= 0 ? idx + 1 : 0) % list.length]
@@ -874,14 +945,17 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     cycleFace: () => handleCycleFace(),
     save: async () => { await handleSave() },
     discardChanges: () => handleDiscard(),
-  }), [dirty, handleCycleFace, handleDiscard, handleSave, handleToggleMode, saving])
+    reload: async () => { await loadNoteIfNeeded({ force: true }) },
+  }), [dirty, handleCycleFace, handleDiscard, handleSave, handleToggleMode, loadNoteIfNeeded, saving])
 
-  const handleAddFace = React.useCallback(async () => {
-    if (!pendingAddFace) return
-    const pendingFace = faceManifests[pendingAddFace] || (pendingAddFace === 'html' ? createDefaultFaceManifest(HTML_FACE_KIND) : null)
-    if (!pendingFace) return
-    if (isHtmlFace(pendingFace)) {
-      if (!doc) return
+  const handleAddFace = React.useCallback(async (kind?: string) => {
+    const targetKind = String(kind || pendingAddFace || '').trim()
+    const adapter = getNoteFaceAdapter(targetKind)
+    if (!adapter || !adapter.capabilities.creatable) return
+    if (!doc) return
+    if (Object.values(faceManifests).some(face => face.kind === adapter.kind)) return
+    const nextFace = createDefaultFaceManifest(adapter.kind)
+    if (adapter.kind === HTML_FACE_KIND) {
       let nextHtml = ''
       if (!isDraft && String(note.dir || '').trim()) {
         try {
@@ -893,11 +967,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         }
       }
       setEditHtml(nextHtml)
-      setFaceManifests(prev => ({ ...prev, [pendingFace.id]: pendingFace }))
-      setFaces(prev => (prev.includes(pendingFace.id) ? prev : [...prev, pendingFace.id]))
-      setFace(pendingFace.id)
-      setEditing(true)
     }
+    setFaceManifests(prev => ({ ...prev, [nextFace.id]: nextFace }))
+    setFaces(prev => (prev.includes(nextFace.id) ? prev : [...prev, nextFace.id]))
+    setFace(nextFace.id)
+    setEditing(true)
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
   }, [doc, faceManifests, gateway, isDraft, note.dir, pendingAddFace, scope])
@@ -1123,7 +1197,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               >
                 删除当前整个笔记…
               </MenuItem>
-              {canDeleteCurrentFace ? (
+              {deletableFaceIds.length > 0 ? (
                 <>
                   <MenuItem
                     onClick={e => setDeleteFaceMenuAnchorEl(e.currentTarget as HTMLElement)}
@@ -1141,9 +1215,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               anchorEl={deleteFaceMenuAnchorEl}
               PaperProps={{ sx: menuPaperSx }}
             >
-              <MenuItem onClick={() => requestDeleteHtmlFace()} sx={{ color: 'var(--hc-danger)' }}>
-                HTML 面
-              </MenuItem>
+              {deletableFaceIds.map(faceId => (
+                <MenuItem key={faceId} onClick={() => requestDeleteFace(faceId)} sx={{ color: 'var(--hc-danger)' }}>
+                  {faceLabel(faceId, faceManifests)}
+                </MenuItem>
+              ))}
             </Menu>
 
             <Tooltip title="复制引用占位符" placement="bottom-end">
@@ -1205,34 +1281,37 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   gap: 0.5,
                 }}
               >
-                {!faces.some(f => isHtmlFaceId(f, faceManifests)) ? (
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setPendingAddFace('html')}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setPendingAddFace('html')
-                      }
-                    }}
-                    sx={{
-                      minWidth: 56,
-                      px: 1.5,
-                      py: 0.75,
-                      borderRadius: 999,
-                      bgcolor: pendingAddFace === 'html' ? '#111' : 'transparent',
-                      color: pendingAddFace === 'html' ? '#fff' : '#374151',
-                      fontSize: 12,
-                      lineHeight: 1,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                    }}
-                  >
-                    HTML
-                  </Box>
-                ) : null}
+                {listNoteFaceAdapters()
+                  .filter(adapter => adapter.capabilities.creatable && !faces.some(f => faceManifests[f]?.kind === adapter.kind))
+                  .map(adapter => (
+                    <Box
+                      key={adapter.kind}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setPendingAddFace(adapter.kind)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setPendingAddFace(adapter.kind)
+                        }
+                      }}
+                      sx={{
+                        minWidth: 56,
+                        px: 1.5,
+                        py: 0.75,
+                        borderRadius: 999,
+                        bgcolor: pendingAddFace === adapter.kind ? '#111' : 'transparent',
+                        color: pendingAddFace === adapter.kind ? '#fff' : '#374151',
+                        fontSize: 12,
+                        lineHeight: 1,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                      }}
+                    >
+                      {adapter.label}
+                    </Box>
+                  ))}
                 <Box
                   role="button"
                   tabIndex={0}
@@ -1468,7 +1547,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               )}
             </Box>
 
-            {isHtmlFaceId(face, faceManifests) ? editing ? (
+            {facesReady && faces.length === 0 ? (
+              <FaceEmptyState onCreateFace={kind => void handleAddFace(kind)} />
+            ) : isHtmlFaceId(face, faceManifests) ? editing ? (
               <CodeMirrorCodeEditor
                 value={editHtml}
                 onChange={setEditHtml}
@@ -1571,22 +1652,24 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteHtmlConfirmOpen} onClose={() => setDeleteHtmlConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>删除面</DialogTitle>
+      <Dialog open={!!deleteFaceTarget} onClose={() => setDeleteFaceTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{trashEnabled ? '移入回收站' : '永久删除面'}</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-            确定删除当前笔记的 HTML 面吗？此操作不可撤销。
+            {trashEnabled
+              ? `确定将笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面移入回收站吗？删除后可在回收站恢复。`
+              : `回收站当前未启用。确定永久删除笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面吗？此操作不可撤销。`}
           </Typography>
-          {dirty && isHtmlFaceId(face, faceManifests) ? (
+          {dirty && isHtmlFaceId(deleteFaceTarget || '', faceManifests) ? (
             <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
-              提示：会丢弃 HTML 面的未保存改动。
+              提示：会丢弃该面的未保存改动。
             </Typography>
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteHtmlConfirmOpen(false)} disabled={deleting === 'html'}>取消</Button>
-          <Button variant="contained" color="error" onClick={() => void confirmDeleteHtmlFace()} disabled={deleting === 'html'}>
-            {deleting === 'html' ? '删除中…' : '删除'}
+          <Button onClick={() => setDeleteFaceTarget(null)} disabled={deleting === 'face'}>取消</Button>
+          <Button variant="contained" color="error" onClick={() => void confirmDeleteFace()} disabled={deleting === 'face'}>
+            {deleting === 'face' ? '处理中…' : trashEnabled ? '移入回收站' : '永久删除'}
           </Button>
         </DialogActions>
       </Dialog>

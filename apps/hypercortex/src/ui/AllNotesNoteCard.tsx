@@ -150,6 +150,45 @@ function showContainsForNote(note: NoteMeta): boolean {
   return shouldShowNoteContains(note)
 }
 
+function isFaceLessNote(info: NoteCardInfo | null | undefined): boolean {
+  return !!info && info.faceIds.length === 0
+}
+
+function NoteCardFaceLessLine(props: { note: NoteMeta; fontSize: number; centered?: boolean }): React.ReactNode {
+  const description = String(props.note.description || '').trim()
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, maxWidth: '100%', justifyContent: props.centered ? 'center' : 'flex-start' }}>
+      <Box
+        component="span"
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          px: 0.9,
+          py: 0.25,
+          borderRadius: 999,
+          fontSize: 10.5,
+          lineHeight: 1,
+          fontWeight: 800,
+          bgcolor: 'rgba(0,0,0,.06)',
+          color: 'rgba(0,0,0,.55)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        无面
+      </Box>
+      {description ? (
+        <Typography
+          title={description}
+          sx={{ fontSize: props.fontSize, lineHeight: 1.6, color: 'rgba(0,0,0,.42)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {description}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
 export function AllNotesGridNoteCard(props: {
   note: NoteMeta
   info?: NoteCardInfo
@@ -225,9 +264,15 @@ export function AllNotesGridNoteCard(props: {
       ) : null}
 
       {showContains ? (
-        <Typography sx={{ mt: 'auto', fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
-          包含：{containsText}
-        </Typography>
+        isFaceLessNote(info) ? (
+          <Box sx={{ mt: 'auto', pt: 0.5 }}>
+            <NoteCardFaceLessLine note={note} fontSize={12} />
+          </Box>
+        ) : (
+          <Typography sx={{ mt: 'auto', fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
+            包含：{containsText}
+          </Typography>
+        )
       ) : null}
     </Box>
   )
@@ -310,9 +355,15 @@ export function AllNotesIconNoteCard(props: {
       ) : null}
 
       {showContains ? (
-        <Typography sx={{ mt: 'auto', fontSize: 11.5, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
-          包含：{containsText}
-        </Typography>
+        isFaceLessNote(info) ? (
+          <Box sx={{ mt: 'auto', pt: 0.4, width: '100%' }}>
+            <NoteCardFaceLessLine note={note} fontSize={11.5} centered />
+          </Box>
+        ) : (
+          <Typography sx={{ mt: 'auto', fontSize: 11.5, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
+            包含：{containsText}
+          </Typography>
+        )
       ) : null}
     </Box>
   )
@@ -389,9 +440,13 @@ export function AllNotesListNoteRow(props: {
             {tags.length ? <TagsLine tags={tags} max={6} fontSize={11} /> : null}
           </Box>
           {showContains ? (
-            <Typography sx={{ fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)', flexShrink: 0 }}>
-              包含：{containsText}
-            </Typography>
+            isFaceLessNote(info) ? (
+              <NoteCardFaceLessLine note={note} fontSize={12} />
+            ) : (
+              <Typography sx={{ fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)', flexShrink: 0 }}>
+                包含：{containsText}
+              </Typography>
+            )
           ) : null}
         </Box>
       ) : null}

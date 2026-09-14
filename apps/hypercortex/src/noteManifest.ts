@@ -68,7 +68,6 @@ function normalizeFaces(input: unknown): Record<string, HyperCortexNoteFaceManif
     faces[face.id] = face
   }
 
-  if (!faces.text) faces.text = createDefaultFaceManifest(MARKDOWN_FACE_KIND)
   return faces
 }
 

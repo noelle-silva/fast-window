@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import LayersRoundedIcon from '@mui/icons-material/LayersRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta, VaultScope } from '../core'
@@ -17,7 +18,7 @@ function formatDateTime(ms: number): string {
 export function TrashPanel(props: {
   gateway: HyperCortexGateway
   scope: VaultScope
-  onRestored?: (meta: NoteMeta) => void
+  onRestored?: (meta: NoteMeta, kind: HyperCortexTrashItem['kind']) => void
   onAssetRestored?: (asset: AssetEntry) => void
   onPermanentlyDeleted?: (item: HyperCortexTrashItem) => void
 }) {
@@ -54,7 +55,7 @@ export function TrashPanel(props: {
       setRestoringId(item.id)
       try {
         const result = await gateway.trash.restoreTrashItem(scope, item)
-        if (result.meta) onRestored?.(result.meta)
+        if (result.meta) onRestored?.(result.meta, item.kind)
         if (result.asset) onAssetRestored?.(result.asset)
         setItems(prev => prev.filter(x => x.dir !== item.dir))
       } catch (e: any) {
@@ -122,8 +123,8 @@ export function TrashPanel(props: {
                   </Typography>
                   <Chip
                     size="small"
-                    icon={item.kind === 'asset' ? <AttachFileRoundedIcon /> : <NotesRoundedIcon />}
-                    label={item.kind === 'asset' ? '附件' : '笔记'}
+                    icon={item.kind === 'asset' ? <AttachFileRoundedIcon /> : item.kind === 'face' ? <LayersRoundedIcon /> : <NotesRoundedIcon />}
+                    label={item.kind === 'asset' ? '附件' : item.kind === 'face' ? '笔记面' : '笔记'}
                     sx={{ mt: 0.75, height: 22, fontSize: 11, fontWeight: 800 }}
                   />
                   <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.58)', lineHeight: 1.6 }}>

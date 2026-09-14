@@ -30,36 +30,11 @@ import {
   isHtmlFace,
   isMarkdownFace,
   requireNoteFaceAdapter,
+  type HyperCortexHtmlFaceDoc,
+  type HyperCortexNoteFaceDoc,
   type HyperCortexNoteFaceManifestV2,
   type HyperCortexNoteFaceSettingsV2,
 } from './noteFaces'
-
-export type HyperCortexHtmlFaceDoc = {
-  id: string
-  packageDir: string
-  title: string
-  description: string
-  html: string
-  exists: boolean
-  createdAtMs: number
-  updatedAtMs: number
-  schemaVersion: number
-  fixedScale?: number
-}
-
-export type HyperCortexNoteFaceDoc = {
-  id: string
-  packageDir: string
-  noteId: string
-  noteTitle: string
-  noteDescription: string
-  face: HyperCortexNoteFaceManifestV2
-  content: string
-  exists: boolean
-  createdAtMs: number
-  updatedAtMs: number
-  schemaVersion: number
-}
 
 function noteMetaFromDoc(doc: HyperCortexNoteDocData): NoteMeta {
   return {
@@ -109,10 +84,6 @@ function htmlFaceDocFromFaceDoc(doc: HyperCortexNoteFaceDoc): HyperCortexHtmlFac
     updatedAtMs: doc.updatedAtMs,
     schemaVersion: doc.schemaVersion,
   }
-}
-
-async function deleteNoteFileIfExists(api: Api, scope: VaultScope, packageDir: string, file: string): Promise<void> {
-  await api.files.delete({ scope, path: notePathInPackage(packageDir, file) }).catch(() => {})
 }
 
 async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexNoteManifestV1> {
@@ -363,30 +334,6 @@ export async function saveNoteFace(
   return { meta, faceDoc, manifest }
 }
 
-export async function deleteNoteFace(api: Api, scope: VaultScope, packageDir: string, faceId: string): Promise<HyperCortexNoteManifestV1> {
-  const manifest = await readNoteManifest(api, scope, packageDir)
-  const id = String(faceId || '').trim()
-  const face = manifest.faces[id]
-  if (!face) return manifest
-  if (!face.capabilities.deletable) throw new Error('该笔记面不可删除')
-  await deleteNoteFileIfExists(api, scope, packageDir, face.file)
-  const faces = { ...manifest.faces }
-  delete faces[id]
-  const next = createNoteManifest({
-    ...manifest,
-    faces,
-    faceOrder: manifest.faceOrder.filter(item => item !== id),
-    updatedAtMs: Date.now(),
-  })
-  await api.files.writeText({
-    scope,
-    path: notePathInPackage(packageDir, NOTE_MANIFEST_FILE),
-    text: JSON.stringify(next, null, 2),
-    overwrite: true,
-  })
-  return next
-}
-
 export async function saveNoteFaceSettings(
   api: Api,
   scope: VaultScope,
@@ -466,22 +413,6 @@ export async function saveHtmlFace(
     meta: result.meta,
     htmlFace: htmlFaceDocFromFaceDoc(result.faceDoc),
   }
-}
-
-export async function deleteHtmlFace(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexHtmlFaceDoc> {
-  const manifest = await readNoteManifest(api, scope, packageDir)
-  const face = manifest.faces.html || Object.values(manifest.faces).find(isHtmlFace)
-  if (face) await deleteNoteFace(api, scope, packageDir, face.id)
-  const nextManifest = await readNoteManifest(api, scope, packageDir)
-  const placeholder = createDefaultFaceManifest(HTML_FACE_KIND)
-  return htmlFaceDocFromFaceDoc(noteFaceDocFromManifest(
-    nextManifest,
-    packageDir,
-    placeholder,
-    nextManifest.description,
-    requireNoteFaceAdapter(HTML_FACE_KIND).createEmptyContent({ noteId: nextManifest.id, title: nextManifest.title }),
-    false,
-  ))
 }
 
 export async function rebuildNoteIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {

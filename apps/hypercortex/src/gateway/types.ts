@@ -5,19 +5,21 @@ import type { NoteRefEntryMap, NoteRefIndex } from '../noteRefs'
 import type {
   HyperCortexHtmlFaceDoc,
   HyperCortexNoteFaceDoc,
-} from '../notePackage'
+} from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, HyperCortexNoteDoc, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
 
 export type HyperCortexTrashItem = {
-  kind: 'note' | 'asset'
+  kind: 'note' | 'asset' | 'face'
   id: string
   title: string
   dir: string
   assetId?: string
   ext?: string
+  noteId?: string
+  faceId?: string
   createdAtMs: number
   updatedAtMs: number
   deletedAtMs: number
@@ -62,10 +64,9 @@ export type NotesService = {
   tryReadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1 | null>
   loadNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteFaceDoc>
   saveNoteFace: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveNoteFace>[2]) => Promise<{ meta: NoteMeta; faceDoc: HyperCortexNoteFaceDoc; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
-  deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteManifestV1>
+  deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string, mode: 'trash' | 'permanent') => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   loadHtmlFace: (scope: VaultScope, packageDir: string) => Promise<HyperCortexHtmlFaceDoc>
   saveHtmlFace: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveHtmlFace>[2]) => Promise<{ meta: NoteMeta; htmlFace: HyperCortexHtmlFaceDoc; refs?: NoteRefEntryMap }>
-  deleteHtmlFace: (scope: VaultScope, packageDir: string) => Promise<HyperCortexHtmlFaceDoc>
   saveHtmlFaceFixedScale: (scope: VaultScope, packageDir: string, fixedScale: number | null) => Promise<void>
   publishNoteVersion: (scope: VaultScope, packageDir: string, commitName: string) => Promise<HyperCortexNoteVersionSummary>
   listNoteVersions: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteVersionSummary[]>

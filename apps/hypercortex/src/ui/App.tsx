@@ -1574,7 +1574,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           body: loaded.body,
           tags: loaded.tags,
           resources: loaded.resources,
-          saveTextFace: true,
+          saveTextFace: false,
         })
         setNoteIndex(prev => {
           const current = prev || { version: 1, notes: {} }
@@ -1815,7 +1815,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [gateway, closeNoteCardMenu, noteCardMenu])
 
   const handleTrashRestored = React.useCallback(
-    (meta: NoteMeta) => {
+    (meta: NoteMeta, kind: 'note' | 'asset' | 'face' = 'note') => {
       if (!meta?.id) return
       setNoteIndex(prev => {
         const current = prev || { version: 1, notes: {} }
@@ -1823,9 +1823,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         nextNotes[meta.id] = meta
         return { ...current, notes: nextNotes }
       })
-      void gateway.host.toast('已恢复笔记')
+      void refreshNoteCardInfo(meta).catch(() => {})
+      if (kind === 'face') {
+        const handle = noteSessionHandlesRef.current[meta.id]
+        if (handle && !handle.isDirty() && !handle.isSaving()) {
+          void handle.reload().catch(() => {})
+        }
+      }
+      void gateway.host.toast(kind === 'face' ? '已恢复笔记面' : '已恢复笔记')
     },
-    [gateway],
+    [gateway, refreshNoteCardInfo],
   )
 
   const handleTrashAssetRestored = React.useCallback(
@@ -1858,12 +1865,14 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     noteInitSnapshotsRef.current[draftId] = {
       doc: null,
       htmlFace: null,
+      faceManifests: {},
       base: { title: '未命名', description: '', body: '', tags: [], html: '' },
       editing: true,
       textEditorMode: 'live',
-      face: 'text',
-      faces: ['text'],
+      face: '',
+      faces: [],
       editTitle: '未命名',
+      editDescription: '',
       editBody: '',
       editTags: [],
       editHtml: '',
@@ -2209,7 +2218,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           description: '',
           body: '',
           tags: [],
-          saveTextFace: true,
+          saveTextFace: false,
         })
         const meta = result.meta
         const added = addRef(baseDoc, fid, 'note', meta.id)
@@ -2226,11 +2235,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         noteInitSnapshotsRef.current[meta.id] = {
           doc: result.doc,
           htmlFace: null,
+          faceManifests: {},
           base: { title: meta.title || '未命名', description: meta.description || '', body: '', tags: [], html: '' },
           editing: true,
           textEditorMode: 'live',
-          face: 'text',
-          faces: ['text'],
+          face: '',
+          faces: [],
           editTitle: meta.title || '未命名',
           editDescription: meta.description || '',
           editBody: '',
@@ -3075,6 +3085,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       closeTabKeysDirectRef.current([`asset:${key}`])
                       return
                     }
+                    if (item.kind === 'face') return
                     const nid = String(item.id || '').trim()
                     if (!nid) return
                     closeTabKeysDirectRef.current([noteTabKey(nid)])
