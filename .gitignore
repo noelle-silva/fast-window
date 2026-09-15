@@ -54,3 +54,6 @@ npm-debug.log*
 
 .dev-management/
 dev-docs/
+
+# 独立外部仓库
+apps/eucli-box/
