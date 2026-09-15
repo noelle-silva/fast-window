@@ -558,6 +558,186 @@ func (svc *service) writeFaceEmptyContentIfMissing(scope string, packageDir stri
 	return svc.writeText(scope, rel, content, false)
 }
 
+// noteFaceContentInput 是批量保存时提交的单个面内容。
+type noteFaceContentInput struct {
+	FaceID  string
+	Kind    string
+	Content string
+}
+
+// faceContentsFromAny 解析批量保存的提交面清单；结构非法或缺少面类型时快速失败，
+// 避免静默丢弃用户明确要求保存的内容。
+func faceContentsFromAny(value any) ([]noteFaceContentInput, error) {
+	if value == nil {
+		return nil, nil
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return nil, errors.New("faces 必须是数组")
+	}
+	out := make([]noteFaceContentInput, 0, len(list))
+	for _, item := range list {
+		rec, ok := item.(map[string]any)
+		if !ok {
+			return nil, errors.New("faces 条目必须是对象")
+		}
+		kind := strings.TrimSpace(asString(rec["kind"]))
+		if kind == "" {
+			return nil, errors.New("faces 条目缺少面类型")
+		}
+		out = append(out, noteFaceContentInput{FaceID: strings.TrimSpace(asString(rec["faceId"])), Kind: kind, Content: asString(rec["content"])})
+	}
+	return out, nil
+}
+
+// saveNoteFaces 一次保存整篇笔记的所有面内容与笔记级元数据（Q24）。
+// 提交的面内容全部写盘成功后再写 manifest、更新笔记索引并刷新派生索引，
+// 不使用多面逐次保存，避免出现“部分面已保存”的中间状态。
+func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error) {
+	input := map[string]any{}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return nil, err
+	}
+	if err := svc.ensureRoots(); err != nil {
+		return nil, err
+	}
+	submitted, err := faceContentsFromAny(input["faces"])
+	if err != nil {
+		return nil, err
+	}
+	// 先解析全部提交面的协议输入：任何未知面类型都在产生磁盘副作用之前快速失败。
+	type resolvedFaceInput struct {
+		adapter noteFaceAdapter
+		faceID  string
+		content string
+	}
+	resolved := make([]resolvedFaceInput, 0, len(submitted))
+	for _, item := range submitted {
+		adapter, err := requireFaceAdapter(item.Kind)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, resolvedFaceInput{adapter: adapter, faceID: nonEmpty(item.FaceID, adapter.DefaultFaceID), content: adapter.NormalizeContent(item.Content)})
+	}
+
+	id := strings.TrimSpace(asString(input["id"]))
+	if id == "" {
+		id = noteID()
+	}
+	rawTitle := strings.TrimSpace(asString(input["title"]))
+	title := nonEmpty(rawTitle, "未命名")
+	description := strings.TrimSpace(asString(input["description"]))
+	currentDir := strings.TrimSpace(asString(input["packageDir"]))
+	desiredDir, err := notePackageDirForID(id)
+	if err != nil {
+		return nil, err
+	}
+	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
+		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {
+			return nil, err
+		}
+	}
+
+	existing, _ := svc.loadNoteManifest(scope, desiredDir)
+	faces := existing.Faces
+	if faces == nil {
+		faces = map[string]noteFaceManifest{}
+	}
+	created := asFloat(input["createdAtMs"])
+	if created <= 0 {
+		created = existing.CreatedAtMs
+	}
+	if created <= 0 {
+		created = nowMs()
+	}
+	updated := nowMs()
+	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil}
+	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
+		return nil, err
+	}
+	if rawTitle == "" && len(manifest.Faces) == 0 {
+		return nil, errors.New("无面笔记至少需要一个标题")
+	}
+	resources := existing.Resources
+	if _, ok := input["resources"]; ok {
+		resources = normalizeResources(input["resources"])
+	}
+	if resources == nil {
+		resources = existing.Resources
+	}
+	manifest.Resources = resources
+
+	// 面被写回即面更新（Q30）：提交的面按协议规范化内容，并在落盘后刷新面级时间戳。
+	type pendingFaceWrite struct {
+		face    noteFaceManifest
+		content string
+	}
+	writes := make([]pendingFaceWrite, 0, len(resolved))
+	for _, item := range resolved {
+		existingFace := manifest.Faces[item.faceID]
+		face, err := defaultFaceForKind(item.adapter.Kind, noteFaceManifest{ID: item.faceID, Title: existingFace.Title, File: existingFace.File, Settings: existingFace.Settings, Extra: existingFace.Extra})
+		if err != nil {
+			return nil, err
+		}
+		face.CreatedAtMs = nonZeroFloat(existingFace.CreatedAtMs, updated)
+		face.UpdatedAtMs = updated
+		manifest.Faces[face.ID] = face
+		manifest.FaceOrder = appendIfMissing(manifest.FaceOrder, face.ID)
+		writes = append(writes, pendingFaceWrite{face: face, content: item.content})
+	}
+	manifest = normalizeManifest(manifest)
+
+	for _, write := range writes {
+		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(desiredDir, write.face.File)), write.content, true); err != nil {
+			return nil, err
+		}
+	}
+	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(desiredDir, manifestFile)), manifest); err != nil {
+		return nil, err
+	}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	if err := svc.upsertNoteMeta(scope, meta); err != nil {
+		return nil, err
+	}
+	refs, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := svc.loadNotePackage(scope, desiredDir)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"meta": meta, "doc": doc, "htmlFace": nil, "manifest": manifest, "refs": refs}
+	if faceIDForKind(manifest.Faces, "html") != "" {
+		htmlFace, err := svc.loadHTMLFace(scope, desiredDir)
+		if err != nil {
+			return nil, err
+		}
+		result["htmlFace"] = htmlFace
+	}
+	return result, nil
+}
+
+// saveNoteFaceOrder 保存笔记级面顺序（Q35 统一优先级机制的笔记级覆盖）。
+// 只接受笔记内已存在的面，未列出的面由规范化逻辑补齐，任何面都不会因排序而丢失。
+func (svc *service) saveNoteFaceOrder(scope string, packageDir string, faceOrder []string) (any, error) {
+	manifest, err := svc.loadNoteManifest(scope, packageDir)
+	if err != nil {
+		return nil, err
+	}
+	manifest.FaceOrder = faceOrder
+	manifest.UpdatedAtMs = nowMs()
+	manifest = normalizeManifest(manifest)
+	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
+		return nil, err
+	}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	if err := svc.upsertNoteMeta(scope, meta); err != nil {
+		return nil, err
+	}
+	return map[string]any{"meta": meta, "manifest": manifest}, nil
+}
+
 // saveNoteFaceSettings 以补丁语义更新笔记级面设置：
 // 补丁中值为 null 表示删除该字段，其余字段与既有设置合并后按面协议规范化。
 // 这是笔记包内面设置的唯一写入通道，优先级解析由前端统一机制负责。
