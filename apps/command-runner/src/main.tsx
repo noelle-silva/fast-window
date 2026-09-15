@@ -6,7 +6,7 @@ import { Alert, Box, Button, CircularProgress, CssBaseline, Snackbar, ThemeProvi
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { AppTopbar } from './components/AppTopbar'
+import { AppTopbar, type TopbarSpaceItem } from './components/AppTopbar'
 import { CommandExplorer } from './components/CommandExplorer'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
@@ -69,6 +69,9 @@ const NO_DIALOG: DialogState = { kind: 'none' }
 
 type SpaceView = { kind: 'repo'; repoId: string } | { kind: 'global' }
 
+// GLOBAL_SPACE_KEY 是「全局内置执行空间」在顶部空间菜单中的标识。
+const GLOBAL_SPACE_KEY = 'global'
+
 function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
 }
@@ -107,6 +110,12 @@ function App() {
       ? executionSpace.entries.filter(entry => entry.repoId === spaceView.repoId)
       : executionSpace.entries
     : []
+  const activeSpaceKey = spaceView ? (spaceView.kind === 'global' ? GLOBAL_SPACE_KEY : spaceView.repoId) : null
+  // spaceNavItems 供顶部栏空间菜单列出全部内置执行空间：全局 + 各仓库。
+  const spaceNavItems = React.useMemo<TopbarSpaceItem[]>(() => [
+    { key: GLOBAL_SPACE_KEY, label: '全局内置执行空间' },
+    ...repos.map(repo => ({ key: repo.id, label: `内置执行空间 · ${repo.name}` })),
+  ], [repos])
   const repoNameById = React.useMemo(() => new Map(repos.map(repo => [repo.id, repo.name])), [repos])
   const activeRepoCommands = activeRepo ? commands.filter(command => command.repoId === activeRepo.id) : []
   const activeRepoCollections = React.useMemo(
@@ -207,6 +216,19 @@ function App() {
 
   const openCreateRepo = React.useCallback(() => setDialog({ kind: 'repo-create' }), [])
   const openSettings = React.useCallback(() => setDialog({ kind: 'settings' }), [])
+
+  // openSpaceByKey 按顶部栏空间菜单的标识切换到对应空间：全局标识或仓库 id。
+  const openSpaceByKey = React.useCallback((key: string) => {
+    if (key === GLOBAL_SPACE_KEY) {
+      setQuickRunView(false)
+      setSpaceView({ kind: 'global' })
+      return
+    }
+    const repo = repos.find(item => item.id === key)
+    if (!repo) return
+    setQuickRunView(false)
+    setSpaceView({ kind: 'repo', repoId: repo.id })
+  }, [repos])
 
   const handleCommand = React.useCallback((command: string | null) => {
     if (command === 'new-repo') openCreateRepo()
@@ -459,12 +481,15 @@ function App() {
         <AppTopbar
           standalone={launchInfo.standalone}
           disabled={controlsDisabled}
+          spaceItems={spaceNavItems}
+          activeSpaceKey={activeSpaceKey}
           onCreateRepo={openCreateRepo}
           onOpenQuickRuns={() => setQuickRunView(true)}
           onOpenExecutionSpace={() => {
             setQuickRunView(false)
             setSpaceView({ kind: 'global' })
           }}
+          onOpenSpace={openSpaceByKey}
           onOpenSettings={openSettings}
           onStartDragging={() => appWindow.startDragging()}
           windowActions={{
