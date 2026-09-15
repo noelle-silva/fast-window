@@ -382,12 +382,13 @@ function App() {
   }, [runCommand])
 
   // performRestartRun 重启一个运行实例：后端确认旧实例彻底结束后才启动新实例；
-  // 成功后旧卡片退场（新实例已由运行事件流接替）。
+  // 新实例接管旧卡片在侧边栏中的位置，旧卡片随之退场。
   const performRestartRun = React.useCallback(async (command: CommandItem, runId: string) => {
     setRestartingRunIds(current => new Set(current).add(runId))
     try {
-      await actions.restartRun(runId, command.id)
-      executionSpace.removeEntry(runId)
+      const anchorIndex = executionSpace.entryIndex(runId)
+      const result = await actions.restartRun(runId, command.id)
+      executionSpace.handOffEntry(runId, result.runId, anchorIndex)
     } finally {
       setRestartingRunIds(current => {
         const next = new Set(current)
@@ -395,7 +396,7 @@ function App() {
         return next
       })
     }
-  }, [actions.restartRun, executionSpace.removeEntry])
+  }, [actions.restartRun, executionSpace.entryIndex, executionSpace.handOffEntry])
 
   const requestRestartRun = React.useCallback((runId: string, commandId: string) => {
     const command = commands.find(item => item.id === commandId)

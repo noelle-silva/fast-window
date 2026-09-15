@@ -40,7 +40,7 @@ type CommandRunnerActions = {
   deleteFolder: (folderId: string) => Promise<void>
   moveNode: (nodeId: string, targetFolderId: string, index: number) => Promise<void>
   runCommand: (id: string) => Promise<void>
-  restartRun: (runId: string, commandId: string) => Promise<void>
+  restartRun: (runId: string, commandId: string) => Promise<{ runId?: string }>
   createQuickRun: (name: string, commandIds: string[]) => Promise<void>
   updateQuickRun: (id: string, name: string, commandIds: string[]) => Promise<void>
   deleteQuickRun: (id: string) => Promise<void>
@@ -181,8 +181,9 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
           : current),
       ),
       runCommand: id => mutate('commandRunner.commands.run', { id }),
-      // 重启不改变持久数据：旧实例结束与新实例启动均经运行事件流体现，不触发刷新。
-      restartRun: (runId, commandId) => client.request<void>('commandRunner.runs.restart', { runId, commandId }),
+      // 重启不改变持久数据：旧实例结束与新实例启动均经运行事件流体现，不触发刷新；
+      // 返回新实例标识，供内置空间让新实例接管旧实例的显示位置。
+      restartRun: (runId, commandId) => client.request<{ runId?: string }>('commandRunner.runs.restart', { runId, commandId }),
       createQuickRun: (name, commandIds) => mutate('commandRunner.quickRuns.create', { name, commandIds }),
       updateQuickRun: (id, name, commandIds) => mutate('commandRunner.quickRuns.update', { id, name, commandIds }),
       deleteQuickRun: id => mutate('commandRunner.quickRuns.delete', { id }),

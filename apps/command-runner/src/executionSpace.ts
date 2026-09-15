@@ -27,6 +27,8 @@ type ExecutionSpace = {
   countsForCommand: (commandId: string) => SpaceEntryCounts
   stopRun: (runId: string) => Promise<void>
   removeEntry: (runId: string) => void
+  entryIndex: (runId: string) => number
+  handOffEntry: (oldRunId: string, newRunId: string | undefined, anchorIndex: number) => void
   moveEntry: (activeRunId: string, overRunId: string) => void
 }
 
@@ -192,6 +194,26 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     setEntries(current => current.filter(entry => entry.runId !== runId))
   }, [])
 
+  // entryIndex 返回实例当前的显示位置（不存在时为 -1）；重启发起时用它留存旧实例的位置。
+  const entryIndex = React.useCallback((runId: string) =>
+    entriesRef.current.findIndex(entry => entry.runId === runId),
+  [])
+
+  // handOffEntry 交接重启实例的显示位置：新实例接管发起重启时留存的位置，旧实例退场。
+  // 旧卡片若因「立即关闭」等规则提前消失，位置仍由 anchorIndex 保住；
+  // 重启未产生新实例（例如重启时命令已切到独立窗口模式）时，仅让旧实例退场。
+  const handOffEntry = React.useCallback((oldRunId: string, newRunId: string | undefined, anchorIndex: number) => {
+    setEntries(current => {
+      const next = current.filter(entry => entry.runId !== oldRunId)
+      if (newRunId === undefined || anchorIndex < 0) return next
+      const newIndex = next.findIndex(entry => entry.runId === newRunId)
+      if (newIndex < 0) return next
+      const [adopted] = next.splice(newIndex, 1)
+      next.splice(Math.min(anchorIndex, next.length), 0, adopted)
+      return next
+    })
+  }, [])
+
   // moveEntry 调整运行实例在侧边栏中的显示顺序（entries 数组顺序即显示顺序）。
   const moveEntry = React.useCallback((activeRunId: string, overRunId: string) => {
     setEntries(current => {
@@ -205,5 +227,5 @@ export function useExecutionSpace(client: DirectClient | null, commands: Command
     })
   }, [])
 
-  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, moveEntry }
+  return { entries, countsForRepo, countsForCommand, stopRun, removeEntry, entryIndex, handOffEntry, moveEntry }
 }
