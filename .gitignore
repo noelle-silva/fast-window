@@ -23,6 +23,9 @@ apps/*/src-tauri/target/
 apps/*/src-tauri/binaries/
 apps/*/backend-go/*.exe
 
+# 语言学习应用：参考词库（外部研究数据，不入库）
+apps/language-learning/reference-wordlists/
+
 # Legacy generated dirs (已废弃的随包插件种子机制遗留；保持忽略，避免误提交)
 src-tauri/plugin-seeds/
 src-tauri/plugins/
