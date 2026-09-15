@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Language Learning">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#C9D9A9" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 33C27 29 21 28 15 29L15 47C21 46 27 47 32 51" />
+    <path d="M32 33C37 29 43 28 49 29L49 47C43 46 37 47 32 51" />
+    <path d="M32 33V51" />
+    <path d="M38 12H45A4 4 0 0 1 49 16V20A4 4 0 0 1 45 24H42L38 28V24A4 4 0 0 1 34 20V16A4 4 0 0 1 38 12Z" />
+  </g>
+</svg>

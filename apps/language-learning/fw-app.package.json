@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "id": "language-learning",
+  "name": "Language Learning",
+  "description": "Fast Window v5 独立 App：语言学习",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/language-learning.exe", "to": "language-learning.exe" },
+        { "from": "src-tauri/target/release/language-learning-backend.exe", "to": "language-learning-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/language-learning.exe", "to": "language-learning.exe" },
+        { "from": "src-tauri/target/debug/language-learning-backend.exe", "to": "language-learning-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "language-learning.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-language-learning", "title": "打开 Language Learning" },
+    { "id": "show-health", "title": "查看 Language Learning 健康状态" },
+    { "id": "edit-settings", "title": "打开 Language Learning 设置" }
+  ]
+}
