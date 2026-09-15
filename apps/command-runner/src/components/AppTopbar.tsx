@@ -64,6 +64,9 @@ export function AppTopbar({ standalone, disabled = false, spaceItems, activeSpac
   const [spaceMenuAnchor, setSpaceMenuAnchor] = React.useState<HTMLElement | null>(null)
   const topbarRef = React.useRef<HTMLElement | null>(null)
 
+  // 空间菜单按钮跟随当前选中的空间显示名称；未进入任何空间时用中性占位。
+  const activeSpaceLabel = spaceItems.find(item => item.key === activeSpaceKey)?.label ?? '空间'
+
   // 仅在按到顶部栏自身区域（排除按钮）时启动窗口拖动。
   // 菜单等浮层经 React 门户渲染，事件会沿 React 树冒泡回顶部栏，
   // 用 DOM 包含关系判断，避免浮层内的点击被误当成拖动而丢失。
@@ -94,9 +97,9 @@ export function AppTopbar({ standalone, disabled = false, spaceItems, activeSpac
         aria-expanded={Boolean(spaceMenuAnchor)}
         endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
         onClick={openSpaceMenu}
-        sx={{ ...topbarActionSx, ml: 0.5 }}
+        sx={{ ...topbarActionSx, ml: 0.5, minWidth: 96 }}
       >
-        内置执行空间
+        {activeSpaceLabel}
       </Button>
       <Menu
         anchorEl={spaceMenuAnchor}

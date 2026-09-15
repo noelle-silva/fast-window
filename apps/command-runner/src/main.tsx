@@ -69,7 +69,7 @@ const NO_DIALOG: DialogState = { kind: 'none' }
 
 type SpaceView = { kind: 'repo'; repoId: string } | { kind: 'global' }
 
-// GLOBAL_SPACE_KEY 是「全局内置执行空间」在顶部空间菜单中的标识。
+// GLOBAL_SPACE_KEY 是「全局空间」在顶部空间菜单中的标识。
 const GLOBAL_SPACE_KEY = 'global'
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -111,10 +111,10 @@ function App() {
       : executionSpace.entries
     : []
   const activeSpaceKey = spaceView ? (spaceView.kind === 'global' ? GLOBAL_SPACE_KEY : spaceView.repoId) : null
-  // spaceNavItems 供顶部栏空间菜单列出全部内置执行空间：全局 + 各仓库。
+  // spaceNavItems 供顶部栏空间菜单列出全部空间：全局空间 + 各仓库。
   const spaceNavItems = React.useMemo<TopbarSpaceItem[]>(() => [
-    { key: GLOBAL_SPACE_KEY, label: '全局内置执行空间' },
-    ...repos.map(repo => ({ key: repo.id, label: `内置执行空间 · ${repo.name}` })),
+    { key: GLOBAL_SPACE_KEY, label: '全局空间' },
+    ...repos.map(repo => ({ key: repo.id, label: repo.name })),
   ], [repos])
   const repoNameById = React.useMemo(() => new Map(repos.map(repo => [repo.id, repo.name])), [repos])
   const activeRepoCommands = activeRepo ? commands.filter(command => command.repoId === activeRepo.id) : []
