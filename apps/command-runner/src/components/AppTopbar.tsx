@@ -3,7 +3,6 @@ import AddIcon from '@mui/icons-material/Add'
 import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined'
 import CropSquareIcon from '@mui/icons-material/CropSquare'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import PlayCircleOutlineOutlinedIcon from '@mui/icons-material/PlayCircleOutlineOutlined'
 import RemoveIcon from '@mui/icons-material/Remove'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import CloseIcon from '@mui/icons-material/Close'
@@ -16,8 +15,8 @@ type WindowActions = {
   closeToTray: () => Promise<void> | void
 }
 
-// TopbarSpaceItem 是空间切换菜单的一项；key 的语义由主界面解释为对应的执行空间。
-export type TopbarSpaceItem = {
+// TopbarMenuItem 是顶部栏下拉菜单的一项；key 的语义由主界面解释为对应的跳转目标。
+export type TopbarMenuItem = {
   key: string
   label: string
 }
@@ -25,11 +24,13 @@ export type TopbarSpaceItem = {
 type AppTopbarProps = {
   standalone: boolean
   disabled?: boolean
-  spaceItems: TopbarSpaceItem[]
+  repoItems: TopbarMenuItem[]
+  activeRepoKey: string | null
+  spaceItems: TopbarMenuItem[]
   activeSpaceKey: string | null
   onCreateRepo: () => void
   onOpenQuickRuns: () => void
-  onOpenExecutionSpace: () => void
+  onOpenRepo: (key: string) => void
   onOpenSpace: (key: string) => void
   onOpenSettings: () => void
   onStartDragging: () => Promise<void> | void
@@ -56,16 +57,61 @@ const topbarActionSx = {
   },
 }
 
+type TopbarDropdownProps = {
+  disabled?: boolean
+  items: TopbarMenuItem[]
+  activeKey: string | null
+  fallbackLabel: string
+  onSelect: (key: string) => void
+}
+
+// TopbarDropdown 是顶部栏通用下拉切换按钮：按钮显示当前选中项（未选中时用占位文案），菜单列出全部条目。
+function TopbarDropdown({ disabled = false, items, activeKey, fallbackLabel, onSelect }: TopbarDropdownProps) {
+  const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null)
+  const label = items.find(item => item.key === activeKey)?.label ?? fallbackLabel
+
+  return (
+    <>
+      <Button
+        size="small"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(menuAnchor)}
+        endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+        onClick={event => setMenuAnchor(event.currentTarget)}
+        sx={{ ...topbarActionSx, minWidth: 96 }}
+      >
+        {label}
+      </Button>
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={() => setMenuAnchor(null)}
+        slotProps={{ paper: { sx: { minWidth: 220, maxWidth: 340 } } }}
+      >
+        {items.map(item => (
+          <MenuItem
+            key={item.key}
+            selected={item.key === activeKey}
+            onClick={() => {
+              setMenuAnchor(null)
+              onSelect(item.key)
+            }}
+          >
+            <Typography noWrap sx={{ minWidth: 0 }}>{item.label}</Typography>
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  )
+}
+
 function run(action: () => Promise<void> | void) {
   Promise.resolve(action()).catch(() => {})
 }
 
-export function AppTopbar({ standalone, disabled = false, spaceItems, activeSpaceKey, onCreateRepo, onOpenQuickRuns, onOpenExecutionSpace, onOpenSpace, onOpenSettings, onStartDragging, windowActions }: AppTopbarProps) {
-  const [spaceMenuAnchor, setSpaceMenuAnchor] = React.useState<HTMLElement | null>(null)
+export function AppTopbar({ standalone, disabled = false, repoItems, activeRepoKey, spaceItems, activeSpaceKey, onCreateRepo, onOpenQuickRuns, onOpenRepo, onOpenSpace, onOpenSettings, onStartDragging, windowActions }: AppTopbarProps) {
   const topbarRef = React.useRef<HTMLElement | null>(null)
-
-  // 空间菜单按钮跟随当前选中的空间显示名称；未进入任何空间时用中性占位。
-  const activeSpaceLabel = spaceItems.find(item => item.key === activeSpaceKey)?.label ?? '空间'
 
   // 仅在按到顶部栏自身区域（排除按钮）时启动窗口拖动。
   // 菜单等浮层经 React 门户渲染，事件会沿 React 树冒泡回顶部栏，
@@ -78,49 +124,27 @@ export function AppTopbar({ standalone, disabled = false, spaceItems, activeSpac
     run(onStartDragging)
   }, [onStartDragging])
 
-  const closeSpaceMenu = React.useCallback(() => setSpaceMenuAnchor(null), [])
-
-  const openSpaceMenu = React.useCallback((event: React.MouseEvent<HTMLElement>) => {
-    setSpaceMenuAnchor(event.currentTarget)
-  }, [])
-
   return (
     <Box ref={topbarRef} component="header" className="cr-topbar" onPointerDown={onPointerDown}>
       <Box className="cr-brand">
         <Box className="cr-brand-mark" aria-hidden="true"><TerminalOutlinedIcon sx={{ fontSize: 15 }} /></Box>
         <Typography component="span" noWrap sx={{ minWidth: 0, fontSize: 14, fontWeight: 900 }}>Command Runner</Typography>
       </Box>
-      <Button
-        size="small"
+      <TopbarDropdown
         disabled={disabled}
-        aria-haspopup="menu"
-        aria-expanded={Boolean(spaceMenuAnchor)}
-        endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
-        onClick={openSpaceMenu}
-        sx={{ ...topbarActionSx, ml: 0.5, minWidth: 96 }}
-      >
-        {activeSpaceLabel}
-      </Button>
-      <Menu
-        anchorEl={spaceMenuAnchor}
-        open={Boolean(spaceMenuAnchor)}
-        onClose={closeSpaceMenu}
-        slotProps={{ paper: { sx: { minWidth: 220, maxWidth: 340 } } }}
-      >
-        {spaceItems.map(item => (
-          <MenuItem
-            key={item.key}
-            selected={item.key === activeSpaceKey}
-            onClick={() => {
-              closeSpaceMenu()
-              onOpenSpace(item.key)
-            }}
-          >
-            <Typography noWrap sx={{ minWidth: 0 }}>{item.label}</Typography>
-          </MenuItem>
-        ))}
-      </Menu>
+        items={repoItems}
+        activeKey={activeRepoKey}
+        fallbackLabel="仓库"
+        onSelect={onOpenRepo}
+      />
       <Box className="cr-topbar-spacer" />
+      <TopbarDropdown
+        disabled={disabled}
+        items={spaceItems}
+        activeKey={activeSpaceKey}
+        fallbackLabel="空间"
+        onSelect={onOpenSpace}
+      />
       <Button
         size="small"
         disabled={disabled}
@@ -129,15 +153,6 @@ export function AppTopbar({ standalone, disabled = false, spaceItems, activeSpac
         sx={topbarActionSx}
       >
         快捷运行
-      </Button>
-      <Button
-        size="small"
-        disabled={disabled}
-        startIcon={<PlayCircleOutlineOutlinedIcon sx={{ fontSize: 16 }} />}
-        onClick={onOpenExecutionSpace}
-        sx={topbarActionSx}
-      >
-        全局内置执行空间
       </Button>
       <Tooltip title="注册仓库">
         <IconButton size="small" disabled={disabled} onClick={onCreateRepo} aria-label="注册仓库">

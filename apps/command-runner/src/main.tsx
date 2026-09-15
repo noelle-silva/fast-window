@@ -6,7 +6,7 @@ import { Alert, Box, Button, CircularProgress, CssBaseline, Snackbar, ThemeProvi
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { AppTopbar, type TopbarSpaceItem } from './components/AppTopbar'
+import { AppTopbar, type TopbarMenuItem } from './components/AppTopbar'
 import { CommandExplorer } from './components/CommandExplorer'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
@@ -72,6 +72,9 @@ type SpaceView = { kind: 'repo'; repoId: string } | { kind: 'global' }
 // GLOBAL_SPACE_KEY 是「全局空间」在顶部空间菜单中的标识。
 const GLOBAL_SPACE_KEY = 'global'
 
+// REPO_HOME_KEY 是「首页」在顶部仓库菜单中的标识。
+const REPO_HOME_KEY = 'home'
+
 function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
 }
@@ -112,8 +115,13 @@ function App() {
     : []
   const activeSpaceKey = spaceView ? (spaceView.kind === 'global' ? GLOBAL_SPACE_KEY : spaceView.repoId) : null
   // spaceNavItems 供顶部栏空间菜单列出全部空间：全局空间 + 各仓库。
-  const spaceNavItems = React.useMemo<TopbarSpaceItem[]>(() => [
+  const spaceNavItems = React.useMemo<TopbarMenuItem[]>(() => [
     { key: GLOBAL_SPACE_KEY, label: '全局空间' },
+    ...repos.map(repo => ({ key: repo.id, label: repo.name })),
+  ], [repos])
+  // repoNavItems 供顶部栏仓库菜单列出首页与全部仓库：首页 + 各仓库。
+  const repoNavItems = React.useMemo<TopbarMenuItem[]>(() => [
+    { key: REPO_HOME_KEY, label: '首页' },
     ...repos.map(repo => ({ key: repo.id, label: repo.name })),
   ], [repos])
   const repoNameById = React.useMemo(() => new Map(repos.map(repo => [repo.id, repo.name])), [repos])
@@ -228,6 +236,14 @@ function App() {
     if (!repo) return
     setQuickRunView(false)
     setSpaceView({ kind: 'repo', repoId: repo.id })
+  }, [repos])
+
+  // openRepoByKey 按顶部栏仓库菜单的标识切换视图：首页标识回到仓库总览，仓库 id 打开对应仓库的命令页。
+  const openRepoByKey = React.useCallback((key: string) => {
+    if (key !== REPO_HOME_KEY && !repos.some(item => item.id === key)) return
+    setQuickRunView(false)
+    setSpaceView(null)
+    setActiveRepoId(key === REPO_HOME_KEY ? null : key)
   }, [repos])
 
   const handleCommand = React.useCallback((command: string | null) => {
@@ -481,14 +497,13 @@ function App() {
         <AppTopbar
           standalone={launchInfo.standalone}
           disabled={controlsDisabled}
+          repoItems={repoNavItems}
+          activeRepoKey={activeRepoId}
           spaceItems={spaceNavItems}
           activeSpaceKey={activeSpaceKey}
           onCreateRepo={openCreateRepo}
           onOpenQuickRuns={() => setQuickRunView(true)}
-          onOpenExecutionSpace={() => {
-            setQuickRunView(false)
-            setSpaceView({ kind: 'global' })
-          }}
+          onOpenRepo={openRepoByKey}
           onOpenSpace={openSpaceByKey}
           onOpenSettings={openSettings}
           onStartDragging={() => appWindow.startDragging()}
