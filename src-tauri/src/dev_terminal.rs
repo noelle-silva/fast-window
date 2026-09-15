@@ -1,8 +1,13 @@
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
+// CREATE_NO_WINDOW 让宿主启动的外层进程保持隐藏：可见窗口由脚本用 start 自己创建。
 #[cfg(windows)]
-const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+// DEV_TERMINAL_HOLD_SECONDS 是命令结束后 dev 终端窗口停留的秒数。
+#[cfg(windows)]
+const DEV_TERMINAL_HOLD_SECONDS: u32 = 5;
 
 pub(crate) struct DevTerminalCommandSpec {
     pub(crate) title: String,
@@ -40,11 +45,10 @@ pub(crate) async fn run_dev_terminal_command(
     workspace_root: &Path,
     spec: &DevTerminalCommandSpec,
 ) -> Result<(), String> {
-    let mut command = dev_terminal_command(workspace_root, spec)?;
-    let status = command
-        .status()
-        .await
-        .map_err(|error| format!("启动 dev 终端命令失败: {error}"))?;
+    let (mut command, script_path) = dev_terminal_command(workspace_root, spec)?;
+    let status = command.status().await;
+    let _ = std::fs::remove_file(&script_path);
+    let status = status.map_err(|error| format!("启动 dev 终端命令失败: {error}"))?;
 
     if !status.success() {
         return Err(format!("dev 终端命令失败，退出码: {status}"));
@@ -57,45 +61,80 @@ pub(crate) async fn run_dev_terminal_command(
 fn dev_terminal_command(
     workspace_root: &Path,
     spec: &DevTerminalCommandSpec,
-) -> Result<Command, String> {
-    let command_text = cmd_display_command(spec);
-    let command_args = cmd_command_args(spec);
-    let script = format!(
-        "title {} && \
-         echo [fast-window] {} && \
-         echo [fast-window] command: {} && \
-         echo. && \
-         call pnpm.cmd {} & \
-         set \"FW_EXIT_CODE=!ERRORLEVEL!\" & \
-         echo. & \
-         if !FW_EXIT_CODE! EQU 0 (echo [fast-window] command completed.) else (echo [fast-window] command failed with exit code !FW_EXIT_CODE!.) & \
-         echo [fast-window] window will close in 5 seconds... & \
-         timeout /t 5 /nobreak >nul & \
-         exit /b !FW_EXIT_CODE!",
-        cmd_quote(&spec.title),
-        spec.description,
-        command_text,
-        command_args,
-    );
-
+) -> Result<(Command, PathBuf), String> {
+    let script_path = write_dev_terminal_script(spec)?;
     let mut command = Command::new("cmd.exe");
     command
         .current_dir(workspace_root)
-        .creation_flags(CREATE_NEW_CONSOLE)
+        .creation_flags(CREATE_NO_WINDOW)
         .arg("/d")
         .arg("/s")
-        .arg("/v:on")
         .arg("/c")
-        .arg(script);
-    Ok(command)
+        // 路径按原文交给 cmd（call + 引号）：常规参数传递会把引号转义成 cmd 不认识的 \"，
+        // 破坏解析；call 前缀同时避开 /s 对首个引号的剥离规则，带空格的路径也能正确执行。
+        .raw_arg(format!("call {}", cmd_quote(&script_path.to_string_lossy())));
+    Ok((command, script_path))
 }
 
 #[cfg(not(windows))]
 fn dev_terminal_command(
     _workspace_root: &Path,
     _spec: &DevTerminalCommandSpec,
-) -> Result<Command, String> {
+) -> Result<(Command, PathBuf), String> {
     Err("当前平台暂不支持可视化 dev 终端命令".to_string())
+}
+
+// write_dev_terminal_script 把命令写成临时批处理脚本：批处理自带清晰的语句结构，
+// 避免把整段逻辑压进一条命令行时的引号与转义陷阱。
+#[cfg(windows)]
+fn write_dev_terminal_script(spec: &DevTerminalCommandSpec) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let script_path = std::env::temp_dir().join(format!(
+        "fast-window-dev-terminal-{}-{stamp}.bat",
+        std::process::id()
+    ));
+    std::fs::write(&script_path, dev_terminal_script(spec))
+        .map_err(|error| format!("写入 dev 终端脚本失败: {error}"))?;
+    Ok(script_path)
+}
+
+// dev_terminal_script 生成的脚本有两种角色：
+// 宿主以隐藏进程启动它时，它用 start 把真正的命令放进一个独立可见控制台再执行，
+// 并把那次运行的退出码带回来；独立控制台里的那次运行负责输出进度、结果与停留。
+// 这样窗口的输出由窗口自己的控制台承载，宿主启动环境的重定向句柄不会影响显示；
+// 结束后用 ping 等待（timeout 需要读取控制台输入），任何场景都能稳定停留。
+#[cfg(windows)]
+fn dev_terminal_script(spec: &DevTerminalCommandSpec) -> String {
+    let command_text = cmd_display_command(spec);
+    let command_args = cmd_command_args(spec);
+    format!(
+        "@echo off\r\n\
+         if \"%~1\"==\"run\" goto run\r\n\
+         start \"\" /wait cmd.exe /d /s /c call \"%~f0\" run\r\n\
+         exit /b %ERRORLEVEL%\r\n\
+         \r\n\
+         :run\r\n\
+         title {}\r\n\
+         echo [fast-window] {}\r\n\
+         echo [fast-window] command: {}\r\n\
+         echo.\r\n\
+         call pnpm.cmd {}\r\n\
+         set \"FW_EXIT_CODE=%ERRORLEVEL%\"\r\n\
+         echo.\r\n\
+         if %FW_EXIT_CODE% EQU 0 (echo [fast-window] command completed.) else (echo [fast-window] command failed with exit code %FW_EXIT_CODE%.)\r\n\
+         echo [fast-window] window will close in {} seconds...\r\n\
+         ping -n {} 127.0.0.1 >nul\r\n\
+         exit /b %FW_EXIT_CODE%\r\n",
+        spec.title,
+        spec.description,
+        command_text,
+        command_args,
+        DEV_TERMINAL_HOLD_SECONDS,
+        DEV_TERMINAL_HOLD_SECONDS + 1,
+    )
 }
 
 #[cfg(windows)]
