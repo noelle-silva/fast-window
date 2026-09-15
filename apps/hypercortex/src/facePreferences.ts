@@ -54,6 +54,16 @@ export function normalizeDefaultFaceKinds(value: unknown): string[] {
 
 // ---- 面顺序解析（Q28 / Q48） ----
 
+/** 将列表中的元素移动 delta 位；越界或位置非法时原样返回（浅拷贝）。 */
+export function moveListItem<T>(list: readonly T[], index: number, delta: number): T[] {
+  const next = index + delta
+  if (index < 0 || next < 0 || next >= list.length) return list.slice()
+  const out = list.slice()
+  const [item] = out.splice(index, 1)
+  out.splice(next, 0, item)
+  return out
+}
+
 /** 将面类型列表按全局顺序重排；全局顺序未覆盖的类型保持原有相对顺序追加在后。 */
 export function orderKindsByGlobalOrder(kinds: readonly string[], globalKindOrder: readonly string[]): string[] {
   const out: string[] = []

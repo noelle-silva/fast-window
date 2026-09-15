@@ -37,7 +37,17 @@ export type SaveFaceInput = SavePackageInput & {
   settings?: HyperCortexNoteFaceSettingsV2 | null
 }
 
+export type SaveFaceContentInput = {
+  faceId: string
+  kind: string
+  content: string
+}
+
+export type SaveFacesInput = SavePackageInput & { faces: SaveFaceContentInput[] }
+
 export type SaveFaceParams = ScopeParams & { input: SaveFaceInput }
+export type SaveFacesParams = ScopeParams & { input: SaveFacesInput }
+export type SaveFaceOrderParams = LoadPackageParams & { faceOrder: string[] }
 export type SaveHtmlFaceParams = ScopeParams & { input: SavePackageInput & { html: string } }
 export type RebuildIndexParams = ScopeParams & { idx: HyperCortexIndexV1 }
 

@@ -1,8 +1,7 @@
 import * as React from 'react'
-import { Box, Checkbox, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material'
-import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
+import { Box, Checkbox, FormControlLabel, Typography } from '@mui/material'
 import { labelForFaceKind, listNoteFaceAdapters } from '../noteFaces'
+import { FaceOrderList } from './FaceOrderList'
 import { settingsSelectableSurfaceSx } from './settingsUiStyles'
 
 type FaceSettingsPanelProps = {
@@ -10,15 +9,6 @@ type FaceSettingsPanelProps = {
   onFaceKindOrderChange: (next: string[]) => void
   defaultFaceKinds: string[]
   onDefaultFaceKindsChange: (next: string[]) => void
-}
-
-function moveKind(order: string[], index: number, delta: number): string[] {
-  const next = index + delta
-  if (index < 0 || next < 0 || next >= order.length) return order
-  const out = order.slice()
-  const [item] = out.splice(index, 1)
-  out.splice(next, 0, item)
-  return out
 }
 
 export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
@@ -46,53 +36,11 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
         <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
           新建笔记的默认面按此顺序排列；笔记没有自己的面顺序时，打开笔记也按此顺序定位第一个面。
         </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          {faceKindOrder.map((kind, index) => (
-            <Box
-              key={kind}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 1,
-                px: 1.25,
-                py: 0.75,
-                borderRadius: 2,
-                bgcolor: 'var(--hc-surface-soft)',
-              }}
-            >
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>
-                {labelForFaceKind(kind)}
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                <Tooltip title="上移">
-                  <span>
-                    <IconButton
-                      size="small"
-                      aria-label={`将 ${labelForFaceKind(kind)} 上移`}
-                      disabled={index === 0}
-                      onClick={() => onFaceKindOrderChange(moveKind(faceKindOrder, index, -1))}
-                    >
-                      <ArrowUpwardRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="下移">
-                  <span>
-                    <IconButton
-                      size="small"
-                      aria-label={`将 ${labelForFaceKind(kind)} 下移`}
-                      disabled={index === faceKindOrder.length - 1}
-                      onClick={() => onFaceKindOrderChange(moveKind(faceKindOrder, index, 1))}
-                    >
-                      <ArrowDownwardRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </Box>
-            </Box>
-          ))}
-        </Box>
+        <FaceOrderList
+          order={faceKindOrder}
+          labelOf={kind => labelForFaceKind(kind)}
+          onReorder={onFaceKindOrderChange}
+        />
       </Box>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>

@@ -12,9 +12,10 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
+import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
 import { createMarkdownRenderEngine } from '../render/engine'
-import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
+import { HYPERCORTEX_NOTE_SCHEMA_VERSION, type HyperCortexNoteManifestV1 } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
@@ -23,9 +24,10 @@ import { mergeNoteResources } from '../noteResources'
 import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
+import type { SaveNoteFaceContentInput } from '../gateway/types'
 import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
 import { DEFAULT_FACE_KIND_ORDER, resolveHtmlFacePreferences, resolveNoteFaceOrder } from '../facePreferences'
-import { HTML_FACE_KIND, createDefaultFaceManifest, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import { HTML_FACE_KIND, MARKDOWN_FACE_KIND, createDefaultFaceManifest, getHtmlFaceFixedScale, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
@@ -42,6 +44,7 @@ import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreview
 import { usePreviewController } from './preview/usePreviewController'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
+import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
 
 type NoteFaceId = string
 type TextEditorMode = 'source' | 'live'
@@ -288,6 +291,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [deleteFaceTarget, setDeleteFaceTarget] = React.useState<NoteFaceId | null>(null)
   const [htmlFullscreenOpen, setHtmlFullscreenOpen] = React.useState(false)
   const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false)
+  const [noteSettingsOpen, setNoteSettingsOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
 
   const [base, setBase] = React.useState<NoteContent>(
@@ -369,6 +373,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }),
     [htmlFaceDisplayMode, htmlFaceGlobalDefaultScale, htmlFaceManifest],
   )
+  // 笔记级设置写回后，把最新面清单同步到会话状态（面顺序与缩放覆盖共用同一入口）。
+  const applyNoteManifest = React.useCallback((manifest: HyperCortexNoteManifestV1) => {
+    setFaceManifests(manifest.faces)
+    const nextFaces = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
+    setFaces(nextFaces)
+    setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
+    const htmlManifest = Object.values(manifest.faces).find(face => isHtmlFace(face)) || null
+    setHtmlFace(prev => (prev ? { ...prev, fixedScale: getHtmlFaceFixedScale(htmlManifest) } : prev))
+  }, [globalFaceKindOrder])
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
     if (lastDirtyRef.current === dirty) return
@@ -508,16 +521,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setHtmlFaceScaleSaving(true)
     try {
       const result = await gateway.notes.saveFaceSettings(scope, dir, htmlFaceManifest.id, { fixedScale: scale })
-      setHtmlFace(prev => prev ? { ...prev, fixedScale: scale ?? undefined } : prev)
-      setFaceManifests(result.manifest.faces)
-      setFaces(resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder }))
+      applyNoteManifest(result.manifest)
       void gateway.host.toast('已保存笔记缩放比例')
     } catch (e: any) {
       void gateway.host.toast(String(e?.message || e || '保存缩放比例失败'))
     } finally {
       setHtmlFaceScaleSaving(false)
     }
-  }, [gateway, globalFaceKindOrder, htmlFaceManifest, htmlFaceScaleSaving, note.dir, scope])
+  }, [applyNoteManifest, gateway, htmlFaceManifest, htmlFaceScaleSaving, note.dir, scope])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -869,6 +880,101 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (!saved) throw new Error('保存当前笔记失败，已停止发布版本')
   }, [handleSave])
 
+  // Q24：保存整个笔记所有面——一次提交全部有改动的面与笔记级元数据，全部落盘；
+  // 与“保存当前面”共用同一保存语义，仅覆盖范围不同。
+  const handleSaveAllFaces = React.useCallback(async () => {
+    if (!noteId) return false
+    if (saving) return false
+    const rawTitle = String(editTitle || '').trim()
+    if (faces.length === 0 && !rawTitle) {
+      await gateway.host.toast('无面笔记至少需要一个标题')
+      return false
+    }
+    setSaving(true)
+    try {
+      const originalId = noteId
+      const title = rawTitle || '未命名'
+      const description = String(editDescription || '').trim()
+      const body = String(editBody || '').replace(/\r\n/g, '\n')
+      const tags = editTags.map(normalizeTagText).filter(Boolean)
+      const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
+      // 只提交需要写回的面：草稿首次落盘提交全部面，已保存笔记提交内容有改动的面。
+      const facePayloads: SaveNoteFaceContentInput[] = []
+      for (const faceId of faces) {
+        const faceManifest = faceManifests[faceId]
+        if (!faceManifest) continue
+        if (faceManifest.kind === MARKDOWN_FACE_KIND && (isDraft || body !== base.body)) {
+          facePayloads.push({ faceId, kind: faceManifest.kind, content: body })
+        } else if (faceManifest.kind === HTML_FACE_KIND && (isDraft || editHtml !== base.html)) {
+          facePayloads.push({ faceId, kind: faceManifest.kind, content: editHtml })
+        }
+      }
+
+      const result = await gateway.notes.saveNoteFaces(scope, {
+        id: isDraft ? undefined : originalId,
+        packageDir: isDraft ? undefined : note.dir,
+        title,
+        description,
+        tags,
+        createdAtMs: note.createdAtMs,
+        resources: editResources,
+        faceKinds,
+        faces: facePayloads,
+      })
+
+      const nextMeta = result.meta
+      const nextDoc = result.doc
+      const nextHtmlFace = result.htmlFace
+      const nextFaceManifests = result.manifest.faces
+      const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
+
+      setDoc(nextDoc)
+      setEditBody(nextDoc.body)
+      setEditResources(nextDoc.resources || [])
+      if (nextHtmlFace) setHtmlFace(nextHtmlFace)
+      setFaceManifests(nextFaceManifests)
+      setFaces(nextFaces)
+
+      const nextBase: NoteContent = {
+        title,
+        description,
+        body: nextDoc.body,
+        tags: tags.slice(),
+        html: nextHtmlFace ? nextHtmlFace.html : base.html,
+      }
+      setBase(nextBase)
+
+      const didMigrateId = isDraft && nextMeta.id !== originalId
+      const snapshotForNewId: NoteDetailSnapshotV1 | undefined = didMigrateId ? {
+        doc: nextDoc ? { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir } : null,
+        htmlFace: nextHtmlFace ? { ...nextHtmlFace, id: nextMeta.id, packageDir: nextMeta.dir } : null,
+        base: nextBase,
+        editing,
+        textEditorMode,
+        face,
+        faceManifests: nextFaceManifests,
+        faces: nextFaces,
+        editTitle: title,
+        editDescription: description,
+        editBody: nextDoc.body,
+        editTags: tags.slice(),
+        editHtml: nextHtmlFace ? nextHtmlFace.html : editHtml,
+        infoSidebarVisible,
+      } : undefined
+
+      onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex: result.refs })
+      onDirtyChange?.({ noteId: originalId, dirty: false })
+      if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
+      await gateway.host.toast('笔记所有面已保存')
+      return true
+    } catch (e: any) {
+      await gateway.host.toast(String(e?.message || e || '保存失败'))
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }, [base.body, base.html, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onDirtyChange, onSaved, saving, scope, textEditorMode])
+
   const handleRestoreVersion = React.useCallback(async (versionId: string) => {
     const dir = String(note.dir || '').trim()
     if (!dir) throw new Error('请先保存笔记，再恢复版本')
@@ -1039,6 +1145,28 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
+          {!loading && !loadError && doc ? (
+            <Tooltip title="保存整个笔记所有面" placement="bottom-start">
+              <IconButton
+                size="small"
+                aria-label="保存整个笔记所有面"
+                onClick={() => void handleSaveAllFaces()}
+                disabled={saving || (!dirty && !isDraft)}
+                sx={{
+                  color: 'rgba(0,0,0,.58)',
+                  bgcolor: 'transparent',
+                  boxShadow: 'none',
+                  border: 0,
+                  flex: '0 0 auto',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                }}
+              >
+                <PlaylistAddCheckRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+
           {!loading && !loadError && doc && dirty ? (
             <Tooltip title="放弃改动（回到已保存状态）" placement="bottom-start">
               <IconButton
@@ -1189,6 +1317,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 disabled={isDraft || !String(note.dir || '').trim()}
               >
                 版本历史…
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  closeMoreMenu()
+                  setNoteSettingsOpen(true)
+                }}
+                disabled={isDraft || !String(note.dir || '').trim()}
+              >
+                笔记设置…
               </MenuItem>
               <MenuItem onClick={openFavoritesPicker} disabled={isDraft || !favoritesDoc}>
                 收藏到…
@@ -1697,6 +1834,22 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           onClose={() => setVersionHistoryOpen(false)}
           onSaveCurrent={saveCurrentForVersionPublish}
           onRestoreVersion={handleRestoreVersion}
+        />
+      ) : null}
+
+      {!isDraft && String(note.dir || '').trim() ? (
+        <NoteSettingsDialog
+          open={noteSettingsOpen}
+          onClose={() => setNoteSettingsOpen(false)}
+          gateway={gateway}
+          scope={scope}
+          packageDir={note.dir}
+          faceManifests={faceManifests}
+          faceOrder={faces}
+          htmlFacePreferences={htmlFacePreferences}
+          globalHtmlFaceMode={htmlFaceDisplayMode}
+          globalHtmlFaceScale={htmlFaceGlobalDefaultScale}
+          onManifestSaved={applyNoteManifest}
         />
       ) : null}
 

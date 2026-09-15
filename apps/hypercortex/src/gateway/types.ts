@@ -101,6 +101,25 @@ export type SaveHtmlFaceInput = {
   faceKinds?: string[]
 }
 
+// 批量保存时提交的单个面内容（Q24：保存整个笔记所有面）。
+export type SaveNoteFaceContentInput = {
+  faceId: string
+  kind: string
+  content: string
+}
+
+export type SaveNoteFacesInput = {
+  id?: string
+  packageDir?: string
+  title?: string
+  description?: string
+  tags?: string[]
+  createdAtMs?: number
+  resources?: HyperCortexNoteResourceRef[]
+  faceKinds?: string[]
+  faces: SaveNoteFaceContentInput[]
+}
+
 // 笔记包内面设置的补丁：值为 null 表示删除该字段。
 export type HyperCortexNoteFaceSettingsPatch = Record<string, unknown>
 
@@ -114,6 +133,8 @@ export type NotesService = {
   deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string, mode: 'trash' | 'permanent') => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   loadHtmlFace: (scope: VaultScope, packageDir: string) => Promise<HyperCortexHtmlFaceDoc>
   saveHtmlFace: (scope: VaultScope, input: SaveHtmlFaceInput) => Promise<{ meta: NoteMeta; htmlFace: HyperCortexHtmlFaceDoc; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
+  saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc; htmlFace: HyperCortexHtmlFaceDoc | null; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
+  saveNoteFaceOrder: (scope: VaultScope, packageDir: string, faceOrder: string[]) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   saveFaceSettings: (scope: VaultScope, packageDir: string, faceId: string, settings: HyperCortexNoteFaceSettingsPatch) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   publishNoteVersion: (scope: VaultScope, packageDir: string, commitName: string) => Promise<HyperCortexNoteVersionSummary>
   listNoteVersions: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteVersionSummary[]>

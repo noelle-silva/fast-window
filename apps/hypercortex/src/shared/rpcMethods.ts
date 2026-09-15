@@ -9,6 +9,8 @@ export const HyperCortexRpc = {
     tryReadManifest: 'hypercortex.notes.tryReadManifest',
     loadFace: 'hypercortex.notes.loadFace',
     saveFace: 'hypercortex.notes.saveFace',
+    saveFaces: 'hypercortex.notes.saveFaces',
+    saveFaceOrder: 'hypercortex.notes.saveFaceOrder',
     deleteFace: 'hypercortex.notes.deleteFace',
     loadHtmlFace: 'hypercortex.notes.loadHtmlFace',
     saveHtmlFace: 'hypercortex.notes.saveHtmlFace',

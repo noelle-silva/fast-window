@@ -1,4 +1,6 @@
-export function settingsTabSx() {
+import type { SxProps, Theme } from '@mui/material/styles'
+
+export function settingsTabSx(): SxProps<Theme> {
   return {
     position: 'relative',
     overflow: 'hidden',
@@ -25,7 +27,7 @@ export function settingsTabSx() {
   }
 }
 
-export function settingsSelectableSurfaceSx(active: boolean) {
+export function settingsSelectableSurfaceSx(active: boolean): SxProps<Theme> {
   return {
     position: 'relative',
     overflow: 'hidden',
@@ -34,11 +36,22 @@ export function settingsSelectableSurfaceSx(active: boolean) {
     '&:hover': {
       bgcolor: active ? 'var(--hc-surface-soft)' : 'var(--hc-surface-muted)',
     },
-    '&::before': active ? settingsSelectionStripSx() : undefined,
+    '&::before': active
+      ? {
+          content: '""',
+          position: 'absolute',
+          left: 0,
+          top: 8,
+          bottom: 8,
+          width: 4,
+          borderRadius: 999,
+          bgcolor: 'var(--hc-primary)',
+        }
+      : undefined,
   }
 }
 
-export function settingsChoiceMarkSx(active: boolean) {
+export function settingsChoiceMarkSx(active: boolean): SxProps<Theme> {
   return {
     flex: '0 0 18px',
     width: 18,
@@ -53,22 +66,9 @@ export function settingsChoiceMarkSx(active: boolean) {
   }
 }
 
-export function settingsAccentTextSx() {
+export function settingsAccentTextSx(): SxProps<Theme> {
   return {
     color: 'var(--hc-primary)',
     fontWeight: 900,
-  }
-}
-
-function settingsSelectionStripSx() {
-  return {
-    content: '""',
-    position: 'absolute',
-    left: 0,
-    top: 8,
-    bottom: 8,
-    width: 4,
-    borderRadius: 999,
-    bgcolor: 'var(--hc-primary)',
   }
 }
