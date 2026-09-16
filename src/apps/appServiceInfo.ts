@@ -35,6 +35,13 @@ export interface AppServiceInfo {
   connection?: AppServiceConnectionInfo
 }
 
+export type AppServiceConfigField = 'port' | 'key'
+
+export interface AppServiceConfigSaveResult {
+  field: AppServiceConfigField
+  value: string
+}
+
 function normalizeConnectionValue(
   value: AppServiceConnectionValue | undefined,
   missingReason: string,
@@ -72,4 +79,12 @@ function normalizeAppServiceInfo(info: AppServiceInfo): AppServiceInfo {
 export async function loadAppServiceInfo(exePath: string): Promise<AppServiceInfo> {
   const info = await invoke<AppServiceInfo>('app_service_info', { exePath })
   return normalizeAppServiceInfo(info)
+}
+
+export async function saveAppServiceConfig(
+  exePath: string,
+  field: AppServiceConfigField,
+  value: string,
+): Promise<AppServiceConfigSaveResult> {
+  return invoke<AppServiceConfigSaveResult>('app_service_config_save', { exePath, field, value })
 }

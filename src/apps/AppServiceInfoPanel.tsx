@@ -1,13 +1,22 @@
-import { invoke } from '@tauri-apps/api/core'
-import { Box, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import type { AppServiceConnectionValue, AppServiceInfo } from './appServiceInfo'
+import { useState } from 'react'
+import { Box, Button, CircularProgress, TextField, Typography } from '@mui/material'
+import type {
+  AppServiceConfigField,
+  AppServiceConnectionValue,
+  AppServiceInfo,
+} from './appServiceInfo'
+import { saveAppServiceConfig } from './appServiceInfo'
 import { hostToast } from '../host/hostPrimitives'
+import { hostButtonSx, hostTextFieldSx } from '../components/hostUiStyles'
+
+const MONO_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
 interface AppServiceInfoPanelProps {
   info: AppServiceInfo | null
   loading: boolean
   error: string | null
+  exePath: string
+  onSaved: () => void | Promise<void>
 }
 
 const fieldRowSx = {
@@ -21,9 +30,14 @@ const fieldRowSx = {
 const labelSx = { color: 'text.secondary', fontSize: 13 } as const
 
 const valueSx = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontFamily: MONO_FONT_FAMILY,
   fontSize: 13,
   wordBreak: 'break-all',
+} as const
+
+const editorInputSx = {
+  ...hostTextFieldSx,
+  '& .MuiInputBase-input': { fontFamily: MONO_FONT_FAMILY, fontSize: 13 },
 } as const
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -34,7 +48,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ReadOnlyField({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <Box sx={fieldRowSx}>
       <Typography sx={labelSx}>{label}</Typography>
@@ -43,39 +57,68 @@ function ReadOnlyField({ label, children }: { label: string; children: React.Rea
   )
 }
 
-function ConnectionValueField({ label, entry }: { label: string; entry: AppServiceConnectionValue }) {
-  const copyValue = async () => {
+function ConnectionValueEditor({
+  label,
+  field,
+  entry,
+  exePath,
+  onSaved,
+}: {
+  label: string
+  field: AppServiceConfigField
+  entry: AppServiceConnectionValue
+  exePath: string
+  onSaved: () => void | Promise<void>
+}) {
+  const [draft, setDraft] = useState(entry.available ? entry.value : '')
+  const [saving, setSaving] = useState(false)
+  const baseline = entry.available ? entry.value : ''
+
+  const save = async () => {
+    setSaving(true)
     try {
-      await invoke('clipboard_write_text', { text: entry.value })
-      await hostToast(`已复制${label}`)
+      await saveAppServiceConfig(exePath, field, draft)
+      await hostToast('已保存，重启服务后生效')
+      await onSaved()
     } catch (error: any) {
-      await hostToast(String(error?.message || error || `复制${label}失败`))
+      await hostToast(String(error?.message || error || `保存${label}失败`))
+    } finally {
+      setSaving(false)
     }
   }
 
-  if (!entry.available) {
-    return (
-      <ReadOnlyField label={label}>
-        <Typography sx={{ ...valueSx, color: 'text.secondary' }}>{entry.reason || '不可用'}</Typography>
-      </ReadOnlyField>
-    )
-  }
-
   return (
-    <ReadOnlyField label={label}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-        <Typography sx={{ ...valueSx, flex: 1, minWidth: 0 }}>{entry.value}</Typography>
-        <Tooltip title={`复制${label}`}>
-          <IconButton size="small" aria-label={`复制${label}`} onClick={() => void copyValue()}>
-            <ContentCopyRoundedIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+    <FieldRow label={label}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+          <TextField
+            size="small"
+            fullWidth
+            value={draft}
+            disabled={saving}
+            onChange={event => setDraft(event.target.value)}
+            slotProps={{ htmlInput: { 'aria-label': label } }}
+            sx={editorInputSx}
+          />
+          <Button
+            size="small"
+            variant="text"
+            disabled={saving || draft.trim() === baseline}
+            onClick={() => void save()}
+            sx={{ ...hostButtonSx, flexShrink: 0 }}
+          >
+            保存
+          </Button>
+        </Box>
+        {!entry.available ? (
+          <Typography sx={{ ...valueSx, color: 'text.secondary' }}>{entry.reason || '不可用'}</Typography>
+        ) : null}
       </Box>
-    </ReadOnlyField>
+    </FieldRow>
   )
 }
 
-export default function AppServiceInfoPanel({ info, loading, error }: AppServiceInfoPanelProps) {
+export default function AppServiceInfoPanel({ info, loading, error, exePath, onSaved }: AppServiceInfoPanelProps) {
   if (loading && !info) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -102,13 +145,13 @@ export default function AppServiceInfoPanel({ info, loading, error }: AppService
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       <Box>
         <SectionTitle>启动方式</SectionTitle>
-        <ReadOnlyField label="主程序">
+        <FieldRow label="主程序">
           <Typography sx={valueSx}>{start?.executable || '(未声明)'}</Typography>
-        </ReadOnlyField>
-        <ReadOnlyField label="启动参数">
+        </FieldRow>
+        <FieldRow label="启动参数">
           <Typography sx={valueSx}>{start?.args.length ? start.args.join(' ') : '(无)'}</Typography>
-        </ReadOnlyField>
-        <ReadOnlyField label="环境变量">
+        </FieldRow>
+        <FieldRow label="环境变量">
           {environmentEntries.length ? (
             <Box sx={{ display: 'flex', flexDirection: 'column' }}>
               {environmentEntries.map(([key, value]) => (
@@ -118,34 +161,46 @@ export default function AppServiceInfoPanel({ info, loading, error }: AppService
           ) : (
             <Typography sx={valueSx}>(无)</Typography>
           )}
-        </ReadOnlyField>
+        </FieldRow>
       </Box>
 
       <Box>
         <SectionTitle>就绪规则</SectionTitle>
-        <ReadOnlyField label="匹配文本">
+        <FieldRow label="匹配文本">
           <Typography sx={valueSx}>{info.ready?.match || '(未声明)'}</Typography>
-        </ReadOnlyField>
-        <ReadOnlyField label="超时">
+        </FieldRow>
+        <FieldRow label="超时">
           <Typography sx={valueSx}>
             {info.ready ? `${info.ready.timeoutSeconds} 秒` : '(未声明)'}
           </Typography>
-        </ReadOnlyField>
+        </FieldRow>
       </Box>
 
       <Box>
         <SectionTitle>停止方式</SectionTitle>
-        <ReadOnlyField label="方式">
+        <FieldRow label="方式">
           <Typography sx={valueSx}>{info.stop?.type || '(未声明)'}</Typography>
-        </ReadOnlyField>
+        </FieldRow>
       </Box>
 
       <Box>
         <SectionTitle>连接信息</SectionTitle>
         {info.connection ? (
           <>
-            <ConnectionValueField label="端口" entry={info.connection.port} />
-            <ConnectionValueField label="钥匙" entry={info.connection.key} />
+            <ConnectionValueEditor
+              label="端口"
+              field="port"
+              entry={info.connection.port}
+              exePath={exePath}
+              onSaved={onSaved}
+            />
+            <ConnectionValueEditor
+              label="钥匙"
+              field="key"
+              entry={info.connection.key}
+              exePath={exePath}
+              onSaved={onSaved}
+            />
           </>
         ) : (
           <Typography sx={{ ...valueSx, color: 'text.secondary' }}>声明中没有配置连接信息</Typography>

@@ -643,7 +643,13 @@ export default function AppRegistrationPanel({
           {showServiceInfo ? (
             <>
               {autoStartField}
-              <AppServiceInfoPanel info={serviceInfo} loading={serviceInfoLoading} error={serviceInfoError} />
+              <AppServiceInfoPanel
+                info={serviceInfo}
+                loading={serviceInfoLoading}
+                error={serviceInfoError}
+                exePath={path.trim()}
+                onSaved={() => refreshServiceInfo(path.trim())}
+              />
             </>
           ) : (
             <>
