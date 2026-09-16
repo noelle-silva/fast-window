@@ -112,6 +112,11 @@ struct RegisteredInstalledApp {
     installed: ResolvedInstalledApp,
 }
 
+pub(crate) struct InstalledServiceDeclarationLocation {
+    pub(crate) manifest_dir: PathBuf,
+    pub(crate) declaration_path: PathBuf,
+}
+
 impl Drop for ExtractedAppPackage {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.tmp_dir);
@@ -400,6 +405,26 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
             return Ok(None);
         }
     }
+}
+
+/// 从已安装应用的可执行文件向上定位包清单，并解析出包内服务声明文件的绝对路径。
+/// 窗口应用（清单没有 service 字段）返回 None。
+pub(crate) fn resolve_installed_service_declaration_location(
+    exe_path: &Path,
+) -> Result<Option<InstalledServiceDeclarationLocation>, String> {
+    let Some(installed) = resolve_installed_app_from_exe(exe_path)? else {
+        return Ok(None);
+    };
+    let Some(service) = service_declaration_path(&installed.manifest) else {
+        return Ok(None);
+    };
+    let declaration_path = installed
+        .manifest_dir
+        .join(safe_relative_path_no_curdir(service)?);
+    Ok(Some(InstalledServiceDeclarationLocation {
+        manifest_dir: installed.manifest_dir,
+        declaration_path,
+    }))
 }
 
 fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppInfo, String> {
@@ -1085,7 +1110,7 @@ fn image_mime_by_ext(path: &Path) -> &'static str {
     }
 }
 
-fn same_path(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
@@ -1189,6 +1214,72 @@ mod tests {
 
         std::fs::write(root.join("fw-app.service.json"), "{}").expect("写入服务声明失败");
         assert!(validate_extracted_app(&root, &manifest).is_ok());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn write_test_package(root: &Path, manifest: &str) -> (PathBuf, PathBuf) {
+        let package_dir = root.join("eucli-box").join("package");
+        std::fs::create_dir_all(&package_dir).expect("创建测试目录失败");
+        std::fs::write(package_dir.join(FW_APP_MANIFEST), manifest).expect("写入清单失败");
+        let exe_path = package_dir.join("eucli-box.exe");
+        std::fs::write(&exe_path, b"").expect("写入可执行文件失败");
+        (package_dir, exe_path)
+    }
+
+    #[test]
+    fn resolves_service_declaration_location_for_service_app() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-service-location-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (package_dir, exe_path) = write_test_package(
+            &root,
+            r#"{
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "windowsExecutable": "eucli-box.exe",
+                "service": "fw-app.service.json"
+            }"#,
+        );
+        std::fs::write(package_dir.join("fw-app.service.json"), "{}").expect("写入服务声明失败");
+
+        let location = resolve_installed_service_declaration_location(&exe_path)
+            .expect("解析服务声明位置失败")
+            .expect("服务应用应定位到声明文件");
+
+        assert_eq!(location.manifest_dir, package_dir);
+        assert_eq!(
+            location.declaration_path,
+            package_dir.join("fw-app.service.json")
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolves_no_service_declaration_location_for_window_app() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-window-location-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_test_package(
+            &root,
+            r#"{
+                "id": "legacy-app",
+                "name": "legacy-app",
+                "version": "0.1.0",
+                "windowsExecutable": "eucli-box.exe"
+            }"#,
+        );
+
+        let location = resolve_installed_service_declaration_location(&exe_path)
+            .expect("解析服务声明位置失败");
+
+        assert!(location.is_none());
 
         let _ = std::fs::remove_dir_all(&root);
     }

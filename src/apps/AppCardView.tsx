@@ -11,7 +11,22 @@ interface AppCardViewProps {
   onContextMenu?: (e: React.MouseEvent) => void
 }
 
+type AppStatusChip = {
+  label: string
+  color?: 'success' | 'warning' | 'error'
+}
+
+function statusChipFor(status?: AppStatus): AppStatusChip {
+  if (status?.phase === 'failed') return { label: '启动失败', color: 'error' }
+  if (status?.phase === 'starting') return { label: '启动中', color: 'warning' }
+  if (status?.phase === 'ready') return { label: '已就绪', color: 'success' }
+  if (status?.running) return { label: '运行中', color: 'success' }
+  return { label: '未运行' }
+}
+
 export default function AppCardView({ app, status, showStatus, selected, onClick, onContextMenu }: AppCardViewProps) {
+  const statusChip = statusChipFor(status)
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!onClick) return
     if (e.key !== 'Enter' && e.key !== ' ') return
@@ -54,11 +69,12 @@ export default function AppCardView({ app, status, showStatus, selected, onClick
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
           {showStatus ? (
-            status?.running ? (
-              <Chip label="运行中" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
-            ) : (
-              <Chip label="未运行" size="small" sx={{ ...hostSoftChipSx, height: 18, fontSize: 10 }} />
-            )
+            <Chip
+              label={statusChip.label}
+              size="small"
+              color={statusChip.color}
+              sx={statusChip.color ? { height: 18, fontSize: 10 } : { ...hostSoftChipSx, height: 18, fontSize: 10 }}
+            />
           ) : null}
           {app.hotkey ? (
             <Typography variant="caption" color="text.secondary">

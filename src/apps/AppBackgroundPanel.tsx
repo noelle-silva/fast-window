@@ -36,6 +36,7 @@ function formatDuration(ms: number): string {
 
 function runningDurationText(status: AppStatus | undefined, now: number): string | null {
   if (!status?.running || !status.startedAt) return null
+  if (status.phase === 'starting') return null
   return `已运行 ${formatDuration(now - status.startedAt)}`
 }
 
@@ -88,8 +89,11 @@ export default function AppBackgroundPanel({ apps, onClose, embedded }: AppBackg
     setBusyId(app.id)
     try {
       await launchApp(app, 'show')
-    } catch (e) {
+    } catch (e: any) {
       console.error('[app] launch failed:', e)
+      if (app.appKind === 'service') {
+        await hostToast(String(e?.message || e || '启动应用失败'))
+      }
     }
     window.setTimeout(() => void refreshStatuses(), 500)
     setBusyId(null)
@@ -154,7 +158,7 @@ export default function AppBackgroundPanel({ apps, onClose, embedded }: AppBackg
                     onClick={() => handleLaunch(app)}
                     disabled={busyId === app.id}
                   >
-                    {status?.running ? '唤醒' : '启动'}
+                    {app.appKind === 'service' ? '启动' : status?.running ? '唤醒' : '启动'}
                   </Button>
                   {status?.running ? (
                     <Button

@@ -9,10 +9,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::control_channel::{send_control_json, AppControlEndpoint};
-use super::{ManagedAppChild, ManagedAppCommand, ManagedAppStdout};
+use super::service_declaration::{self, ServiceDeclaration};
+use super::{ManagedAppChild, ManagedAppCommand, ManagedAppPipe};
 
 const STOP_GRACE_TIMEOUT: Duration = Duration::from_millis(2_500);
 const STOP_GRACE_POLL: Duration = Duration::from_millis(100);
+const SERVICE_EXIT_POLL: Duration = Duration::from_millis(200);
 
 #[derive(Default)]
 pub(crate) struct AppLifecycleManager {
@@ -28,6 +30,14 @@ pub(crate) enum AppColdStartPolicy {
 pub(crate) enum AppLaunchOutcome {
     Activated,
     SkippedColdStart,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AppRuntimePhase {
+    Starting,
+    Ready,
+    Failed,
 }
 
 #[derive(Clone, Deserialize)]
@@ -68,6 +78,7 @@ struct AppProcessEntry {
     child: AsyncMutex<Option<ManagedAppChild>>,
     exit_code: Mutex<Option<i32>>,
     control: Mutex<Option<AppControlEndpoint>>,
+    service_phase: Mutex<Option<AppRuntimePhase>>,
 }
 
 enum AppRuntimeMessage {
@@ -312,8 +323,53 @@ fn entry_exit_code(entry: &AppProcessEntry) -> Result<Option<i32>, String> {
         .map_err(|_| "应用退出状态锁定失败".to_string())
 }
 
+fn entry_service_phase(entry: &AppProcessEntry) -> Result<Option<AppRuntimePhase>, String> {
+    entry
+        .service_phase
+        .lock()
+        .map(|phase| *phase)
+        .map_err(|_| "应用运行阶段锁定失败".to_string())
+}
+
+fn set_service_phase(entry: &AppProcessEntry, phase: AppRuntimePhase) {
+    if let Ok(mut guard) = entry.service_phase.lock() {
+        *guard = Some(phase);
+    }
+}
+
 fn entry_is_running(entry: &AppProcessEntry) -> Result<bool, String> {
+    if entry_service_phase(entry)? == Some(AppRuntimePhase::Failed) {
+        return Ok(false);
+    }
     entry_exit_code(entry).map(|code| code.is_none())
+}
+
+fn registered_app_is_service(app_handle: &AppHandle, app_id: &str) -> bool {
+    match crate::app_registry::load_registered_app_record(app_handle, app_id) {
+        Ok(Some(record)) => {
+            record
+                .get("appKind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                == Some("service")
+        }
+        // 注册记录读取失败时保持窗口应用既有启动行为
+        Ok(None) | Err(_) => false,
+    }
+}
+
+fn service_declaration_for_launch(
+    app_handle: &AppHandle,
+    app_id: &str,
+    exe_path: &str,
+) -> Result<Option<ServiceDeclaration>, String> {
+    if !registered_app_is_service(app_handle, app_id) {
+        return Ok(None);
+    }
+    let path = app_executable_path(exe_path.to_string())?;
+    let declaration = service_declaration::load_service_declaration_for_exe(&path)?
+        .ok_or_else(|| "服务类应用缺少服务声明文件（fw-app.service）".to_string())?;
+    Ok(Some(declaration))
 }
 
 async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppControlEndpoint, String> {
@@ -389,6 +445,39 @@ async fn kill_process_entry(entry: &Arc<AppProcessEntry>) -> Result<bool, String
     Ok(false)
 }
 
+fn spawn_process_reaper(entry: Arc<AppProcessEntry>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let code = {
+                let mut g = entry.child.lock().await;
+                if let Some(ch) = g.as_mut() {
+                    match ch.try_wait() {
+                        Ok(Some(st)) => {
+                            let code = st.code();
+                            let _ = g.take();
+                            Some(code)
+                        }
+                        Ok(None) => None,
+                        Err(_) => {
+                            let _ = g.take();
+                            None
+                        }
+                    }
+                } else {
+                    return;
+                }
+            };
+            if let Some(code) = code {
+                if let Ok(mut g) = entry.exit_code.lock() {
+                    *g = code;
+                }
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    });
+}
+
 fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
         return AppRuntimeMessage::Ignore;
@@ -433,6 +522,8 @@ fn control_from_stdout_value(value: &serde_json::Value) -> Option<AppControlEndp
 pub(crate) struct AppStatusResult {
     pub running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<AppRuntimePhase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
@@ -446,6 +537,7 @@ pub(crate) enum AppStopMethod {
     AlreadyStopped,
     Graceful,
     Killed,
+    Terminated,
 }
 
 #[derive(Serialize)]
@@ -476,12 +568,20 @@ impl AppStopResult {
             method: AppStopMethod::Killed,
         }
     }
+
+    fn terminated() -> Self {
+        Self {
+            stopped: true,
+            method: AppStopMethod::Terminated,
+        }
+    }
 }
 
 impl AppStatusResult {
     fn stopped() -> Self {
         Self {
             running: false,
+            phase: None,
             pid: None,
             started_at: None,
             exit_code: None,
@@ -503,6 +603,139 @@ fn running_entry(
         Some(entry) if entry_is_running(&entry)? => Ok(Some(entry)),
         _ => Ok(None),
     }
+}
+
+async fn launch_service_app(
+    state: &Arc<AppLifecycleManager>,
+    app_id: String,
+    exe_path: String,
+    declaration: ServiceDeclaration,
+    cold_start_policy: AppColdStartPolicy,
+    launch_options: AppLaunchOptions,
+) -> Result<AppLaunchOutcome, String> {
+    let already_running = running_entry(state, &app_id)?.is_some();
+    if cold_start_policy == AppColdStartPolicy::Skip {
+        return Ok(if already_running {
+            AppLaunchOutcome::Activated
+        } else {
+            AppLaunchOutcome::SkippedColdStart
+        });
+    }
+    if already_running {
+        return Err("应用已在运行".to_string());
+    }
+
+    let path = app_executable_path(exe_path)?;
+    if !crate::app_installer::same_path(&path, &declaration.executable) {
+        return Err("服务声明的可执行文件与注册应用路径不一致，拒绝启动".to_string());
+    }
+
+    let mut envs = declaration.environment.clone();
+    envs.extend(launch_options.env_vars());
+
+    let command = ManagedAppCommand::new(&path)
+        .args(declaration.args.clone())
+        .stdout(ManagedAppPipe::Piped)
+        .stderr(ManagedAppPipe::Piped)
+        .envs(envs);
+    let mut child = ManagedAppChild::spawn(command)?;
+    let pid = child.id();
+    let (Some(stdout), Some(stderr)) = (child.stdout(), child.stderr()) else {
+        let _ = child.start_kill();
+        return Err("服务应用输出管道不可用".to_string());
+    };
+    let started_at_ms = now_ms();
+
+    let entry = Arc::new(AppProcessEntry {
+        pid,
+        started_at_ms,
+        child: AsyncMutex::new(Some(child)),
+        exit_code: Mutex::new(None),
+        control: Mutex::new(None),
+        service_phase: Mutex::new(Some(AppRuntimePhase::Starting)),
+    });
+
+    spawn_service_readiness_watcher(
+        entry.clone(),
+        app_id.clone(),
+        stdout,
+        stderr,
+        declaration.ready_match,
+        declaration.ready_timeout,
+    );
+    spawn_process_reaper(entry.clone());
+
+    if let Ok(mut g) = state.processes.lock() {
+        g.insert(app_id, entry);
+    }
+
+    Ok(AppLaunchOutcome::Activated)
+}
+
+fn spawn_service_readiness_watcher(
+    entry: Arc<AppProcessEntry>,
+    app_id: String,
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStdout,
+    ready_match: String,
+    ready_timeout: Duration,
+) {
+    spawn_service_log_drain(entry.clone(), stdout, ready_match.clone());
+    spawn_service_log_drain(entry.clone(), stderr, ready_match);
+    spawn_service_readiness_watchdog(entry, app_id, ready_timeout);
+}
+
+/// 持续排空服务日志流（stdout/stderr）：命中 ready.match 即标记就绪；
+/// 排空本身也是防止服务在管道写满后阻塞的必要动作。
+fn spawn_service_log_drain(
+    entry: Arc<AppProcessEntry>,
+    stream: tokio::process::ChildStdout,
+    ready_match: String,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut lines = BufReader::new(stream).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if matches!(
+                entry_service_phase(&entry),
+                Ok(Some(AppRuntimePhase::Starting))
+            ) && service_declaration::is_ready_line(&line, &ready_match)
+            {
+                set_service_phase(&entry, AppRuntimePhase::Ready);
+            }
+        }
+    });
+}
+
+/// 就绪看门狗：进程在就绪前退出或超过 ready.timeoutSeconds 仍未就绪 → 标记失败；
+/// 超时同时结束进程。
+fn spawn_service_readiness_watchdog(
+    entry: Arc<AppProcessEntry>,
+    app_id: String,
+    ready_timeout: Duration,
+) {
+    tauri::async_runtime::spawn(async move {
+        let deadline = tokio::time::Instant::now() + ready_timeout;
+        loop {
+            if !matches!(
+                entry_service_phase(&entry),
+                Ok(Some(AppRuntimePhase::Starting))
+            ) {
+                return;
+            }
+            if matches!(entry_exit_code(&entry), Ok(Some(_))) {
+                set_service_phase(&entry, AppRuntimePhase::Failed);
+                return;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                set_service_phase(&entry, AppRuntimePhase::Failed);
+                if let Err(error) = kill_process_entry(&entry).await {
+                    eprintln!("[app-launcher] failed to stop service {app_id} after ready timeout: {error}");
+                }
+                return;
+            }
+            tokio::time::sleep(SERVICE_EXIT_POLL).await;
+        }
+    });
 }
 
 pub(crate) async fn ensure_app_control_endpoint(
@@ -648,6 +881,19 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
 ) -> Result<AppLaunchOutcome, String> {
     let id = normalize_app_id(app_id)?;
 
+    if let Some(declaration) = service_declaration_for_launch(&app_handle, &id, &exe_path)? {
+        return launch_service_app(
+            &state,
+            id,
+            exe_path,
+            declaration,
+            cold_start_policy,
+            launch_options,
+        )
+        .await;
+    }
+
+    // 以下为窗口应用既有启动路径
     let running_entry = running_entry(&state, &id)?;
 
     if let Some(entry) = running_entry {
@@ -676,7 +922,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
     let action = launch_action(&args);
     let command = ManagedAppCommand::new(&path)
         .args(args)
-        .stdout(ManagedAppStdout::Piped)
+        .stdout(ManagedAppPipe::Piped)
         .envs(launch_options.env_vars());
     let mut child = ManagedAppChild::spawn(command)?;
     let pid = child.id();
@@ -692,6 +938,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
         child: AsyncMutex::new(Some(child)),
         exit_code: Mutex::new(None),
         control: Mutex::new(None),
+        service_phase: Mutex::new(None),
     });
 
     if let Some(stdout) = stdout {
@@ -723,37 +970,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
     }
 
     // spawn reaper
-    let entry_reap = entry.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let code = {
-                let mut g = entry_reap.child.lock().await;
-                if let Some(ch) = g.as_mut() {
-                    match ch.try_wait() {
-                        Ok(Some(st)) => {
-                            let code = st.code();
-                            let _ = g.take();
-                            Some(code)
-                        }
-                        Ok(None) => None,
-                        Err(_) => {
-                            let _ = g.take();
-                            None
-                        }
-                    }
-                } else {
-                    return;
-                }
-            };
-            if let Some(code) = code {
-                if let Ok(mut g) = entry_reap.exit_code.lock() {
-                    *g = code;
-                }
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(300)).await;
-        }
-    });
+    spawn_process_reaper(entry.clone());
 
     if let Ok(mut g) = state.processes.lock() {
         g.insert(id, entry);
@@ -796,22 +1013,31 @@ async fn app_stop_with_mode(
         return Ok(AppStopResult::already_stopped());
     };
 
-    let result = match mode {
-        AppStopMode::Graceful => {
-            let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
-            if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await? {
-                AppStopResult::graceful()
-            } else if kill_process_entry(&entry).await? {
-                AppStopResult::killed()
-            } else {
-                AppStopResult::already_stopped()
-            }
+    let result = if entry_service_phase(&entry)?.is_some() {
+        // 服务类应用没有控制通道，停止即结束进程
+        if kill_process_entry(&entry).await? {
+            AppStopResult::terminated()
+        } else {
+            AppStopResult::already_stopped()
         }
-        AppStopMode::Force => {
-            if kill_process_entry(&entry).await? {
-                AppStopResult::killed()
-            } else {
-                AppStopResult::already_stopped()
+    } else {
+        match mode {
+            AppStopMode::Graceful => {
+                let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
+                if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await? {
+                    AppStopResult::graceful()
+                } else if kill_process_entry(&entry).await? {
+                    AppStopResult::killed()
+                } else {
+                    AppStopResult::already_stopped()
+                }
+            }
+            AppStopMode::Force => {
+                if kill_process_entry(&entry).await? {
+                    AppStopResult::killed()
+                } else {
+                    AppStopResult::already_stopped()
+                }
             }
         }
     };
@@ -931,12 +1157,27 @@ fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppSta
     };
 
     let exit_code = entry_exit_code(&entry)?;
+    let phase = entry_service_phase(&entry)?;
+
+    let failed = phase == Some(AppRuntimePhase::Failed)
+        || (phase == Some(AppRuntimePhase::Starting) && exit_code.is_some());
+    if failed {
+        return Ok(AppStatusResult {
+            running: false,
+            phase: Some(AppRuntimePhase::Failed),
+            pid: Some(entry.pid),
+            started_at: Some(entry.started_at_ms),
+            exit_code,
+        });
+    }
+
     if exit_code.is_some() {
         return Ok(AppStatusResult::stopped());
     }
 
     Ok(AppStatusResult {
         running: true,
+        phase,
         pid: Some(entry.pid),
         started_at: Some(entry.started_at_ms),
         exit_code: None,
@@ -945,7 +1186,14 @@ fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppSta
 
 #[cfg(test)]
 mod tests {
-    use super::{launch_display_mode, running_instance_action};
+    use std::sync::{Arc, Mutex};
+
+    use tokio::sync::Mutex as AsyncMutex;
+
+    use super::{
+        app_status_inner, entry_is_running, launch_display_mode, running_instance_action,
+        AppLifecycleManager, AppProcessEntry, AppRuntimePhase, AppStatusResult,
+    };
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_string()).collect()
@@ -1008,5 +1256,103 @@ mod tests {
             running_instance_action("hide", "window", Some(false)),
             "hide"
         );
+    }
+
+    fn service_entry(phase: AppRuntimePhase, exit_code: Option<i32>) -> AppProcessEntry {
+        AppProcessEntry {
+            pid: 4242,
+            started_at_ms: 1000,
+            child: AsyncMutex::new(None),
+            exit_code: Mutex::new(exit_code),
+            control: Mutex::new(None),
+            service_phase: Mutex::new(Some(phase)),
+        }
+    }
+
+    fn window_entry(exit_code: Option<i32>) -> AppProcessEntry {
+        AppProcessEntry {
+            pid: 4242,
+            started_at_ms: 1000,
+            child: AsyncMutex::new(None),
+            exit_code: Mutex::new(exit_code),
+            control: Mutex::new(None),
+            service_phase: Mutex::new(None),
+        }
+    }
+
+    fn status_for(app_id: &str, entry: AppProcessEntry) -> AppStatusResult {
+        let state = Arc::new(AppLifecycleManager::default());
+        state
+            .processes
+            .lock()
+            .expect("进程状态锁定失败")
+            .insert(app_id.to_string(), Arc::new(entry));
+        app_status_inner(&state, app_id).expect("读取应用状态失败")
+    }
+
+    #[test]
+    fn starting_service_reports_starting_phase() {
+        let status = status_for("svc", service_entry(AppRuntimePhase::Starting, None));
+
+        assert!(status.running);
+        assert_eq!(status.phase, Some(AppRuntimePhase::Starting));
+        assert_eq!(status.exit_code, None);
+    }
+
+    #[test]
+    fn ready_service_reports_ready_phase() {
+        let status = status_for("svc", service_entry(AppRuntimePhase::Ready, None));
+
+        assert!(status.running);
+        assert_eq!(status.phase, Some(AppRuntimePhase::Ready));
+    }
+
+    #[test]
+    fn failed_service_reports_failed_phase() {
+        let status = status_for("svc", service_entry(AppRuntimePhase::Failed, Some(1)));
+
+        assert!(!status.running);
+        assert_eq!(status.phase, Some(AppRuntimePhase::Failed));
+        assert_eq!(status.exit_code, Some(1));
+    }
+
+    #[test]
+    fn service_exiting_before_ready_reports_failed_phase() {
+        let status = status_for("svc", service_entry(AppRuntimePhase::Starting, Some(1)));
+
+        assert!(!status.running);
+        assert_eq!(status.phase, Some(AppRuntimePhase::Failed));
+    }
+
+    #[test]
+    fn ready_service_that_exited_is_reported_stopped() {
+        let status = status_for("svc", service_entry(AppRuntimePhase::Ready, Some(0)));
+
+        assert!(!status.running);
+        assert_eq!(status.phase, None);
+        assert_eq!(status.pid, None);
+        assert_eq!(status.exit_code, None);
+    }
+
+    #[test]
+    fn failed_service_entry_is_not_running() {
+        let entry = service_entry(AppRuntimePhase::Failed, None);
+
+        assert!(!entry_is_running(&entry).expect("读取运行状态失败"));
+    }
+
+    #[test]
+    fn window_app_status_keeps_legacy_shape() {
+        let running = status_for("win", window_entry(None));
+
+        assert!(running.running);
+        assert_eq!(running.phase, None);
+        assert_eq!(running.pid, Some(4242));
+
+        let stopped = status_for("win", window_entry(Some(0)));
+
+        assert!(!stopped.running);
+        assert_eq!(stopped.phase, None);
+        assert_eq!(stopped.pid, None);
     }
 }

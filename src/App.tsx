@@ -442,6 +442,21 @@ function App() {
     }
   }, [query, refreshRegisteredAppStatuses, showToast])
 
+  const launchRegisteredApp = useCallback(async (app: RegisteredApp) => {
+    try {
+      const launchOptions = await launchOptionsForApp(app)
+      await launchApp(app, 'show', undefined, launchOptions)
+    } catch (error: any) {
+      console.warn('[app] launch failed:', error)
+      // 窗口应用维持原有静默失败行为，服务应用需要把"已在运行"等状态提示给用户
+      if (app.appKind === 'service') {
+        showToast(String(error?.message || error || '启动应用失败'))
+      }
+    } finally {
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+    }
+  }, [refreshRegisteredAppStatuses, showToast])
+
   const activateListItem = useCallback((plugin: Plugin) => {
     const selection = parseRegisteredAppListItemId(plugin.id)
     if (selection.type === 'appShortcut') {
@@ -487,17 +502,13 @@ function App() {
           showToast(`开发命令运行中，暂不打开：${app.name}`)
           return
         }
-        void (async () => {
-          const launchOptions = await launchOptionsForApp(app)
-          await launchApp(app, 'show', undefined, launchOptions)
-        })()
-          .finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
+        void launchRegisteredApp(app)
       }
       return
     }
     setActiveHostPage(null)
     setActivePlugin(plugin)
-  }, [activateRegisteredAppCapability, activateRegisteredAppShortcut, appCapabilitySelections, appDevCommandRuns, registeredApps, refreshRegisteredAppStatuses, showToast])
+  }, [activateRegisteredAppCapability, activateRegisteredAppShortcut, appCapabilitySelections, appDevCommandRuns, launchRegisteredApp, registeredApps, refreshRegisteredAppStatuses, showToast])
 
   const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
     return registeredAppFromListItem(registeredApps, plugin.id)

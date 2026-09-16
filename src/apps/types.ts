@@ -83,14 +83,17 @@ export interface RegisteredAppCapabilitySelection {
   config?: Record<string, unknown>
 }
 
+export type AppServicePhase = 'starting' | 'ready' | 'failed'
+
 export type AppStatus = {
   running: boolean
+  phase?: AppServicePhase
   pid?: number
   startedAt?: number
   exitCode?: number
 }
 
-export type AppStopMethod = 'graceful' | 'killed' | 'alreadyStopped'
+export type AppStopMethod = 'graceful' | 'killed' | 'alreadyStopped' | 'terminated'
 
 export type AppStopResult = {
   stopped: boolean

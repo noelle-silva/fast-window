@@ -51,6 +51,7 @@ export async function stopRegisteredApp(app: RegisteredApp, mode: AppStopMode = 
 }
 
 export function appStopToastMessage(appName: string, result: AppStopResult, mode: AppStopMode = 'graceful'): string {
+  if (result.method === 'terminated') return `已停止：${appName}`
   if (result.method === 'killed') return mode === 'force' ? `已强制 kill：${appName}` : `已兜底 kill：${appName}`
   if (result.method === 'alreadyStopped') return `应用已不在运行：${appName}`
   return `已停止：${appName}`

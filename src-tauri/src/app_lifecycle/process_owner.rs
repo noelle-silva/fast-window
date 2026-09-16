@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tokio::process::{Child, Command};
 
 #[derive(Clone, Copy)]
-pub(crate) enum ManagedAppStdout {
+pub(crate) enum ManagedAppPipe {
     Null,
     Piped,
 }
@@ -12,7 +12,8 @@ pub(crate) enum ManagedAppStdout {
 pub(crate) struct ManagedAppCommand {
     executable: PathBuf,
     args: Vec<String>,
-    stdout: ManagedAppStdout,
+    stdout: ManagedAppPipe,
+    stderr: ManagedAppPipe,
     envs: Vec<(String, String)>,
 }
 
@@ -21,7 +22,8 @@ impl ManagedAppCommand {
         Self {
             executable: executable.into(),
             args: Vec::new(),
-            stdout: ManagedAppStdout::Null,
+            stdout: ManagedAppPipe::Null,
+            stderr: ManagedAppPipe::Null,
             envs: Vec::new(),
         }
     }
@@ -31,8 +33,13 @@ impl ManagedAppCommand {
         self
     }
 
-    pub(crate) fn stdout(mut self, stdout: ManagedAppStdout) -> Self {
+    pub(crate) fn stdout(mut self, stdout: ManagedAppPipe) -> Self {
         self.stdout = stdout;
+        self
+    }
+
+    pub(crate) fn stderr(mut self, stderr: ManagedAppPipe) -> Self {
+        self.stderr = stderr;
         self
     }
 
@@ -67,6 +74,10 @@ impl ManagedAppChild {
         self.inner.stdout()
     }
 
+    pub(crate) fn stderr(&mut self) -> Option<tokio::process::ChildStdout> {
+        self.inner.stderr()
+    }
+
     pub(crate) fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, String> {
         self.inner.try_wait()
     }
@@ -78,7 +89,7 @@ impl ManagedAppChild {
 
 #[cfg(target_os = "windows")]
 mod platform {
-    use super::{ManagedAppCommand, ManagedAppStdout};
+    use super::{ManagedAppCommand, ManagedAppPipe};
     use std::ffi::OsStr;
     use std::mem::{size_of, zeroed};
     use std::os::windows::ffi::OsStrExt;
@@ -116,6 +127,7 @@ mod platform {
         process_handle: OwnedHandle,
         job_handle: OwnedHandle,
         stdout: Option<ChildStdout>,
+        stderr: Option<ChildStdout>,
     }
 
     impl PlatformManagedAppChild {
@@ -125,6 +137,10 @@ mod platform {
 
         pub(super) fn stdout(&mut self) -> Option<ChildStdout> {
             self.stdout.take()
+        }
+
+        pub(super) fn stderr(&mut self) -> Option<ChildStdout> {
+            self.stderr.take()
         }
 
         pub(super) fn try_wait(&mut self) -> Result<Option<ExitStatus>, String> {
@@ -151,10 +167,11 @@ mod platform {
     pub(super) fn spawn(command: ManagedAppCommand) -> Result<PlatformManagedAppChild, String> {
         let job_handle = create_host_owned_job()?;
         let stdin = open_nul_for_child(FILE_GENERIC_READ.0)?;
-        let stdout = create_stdout(command.stdout)?;
-        let stderr = open_nul_for_child(FILE_GENERIC_WRITE.0)?;
+        let stdout = create_child_pipe(command.stdout)?;
+        let stderr = create_child_pipe(command.stderr)?;
 
-        let mut inheritable_handles = vec![stdin.raw(), stdout.child_handle(), stderr.raw()];
+        let mut inheritable_handles =
+            vec![stdin.raw(), stdout.child_handle(), stderr.child_handle()];
         let mut attributes = ProcThreadAttributes::new(2)?;
         let mut job_list = [job_handle.raw()];
         attributes.update(
@@ -173,7 +190,7 @@ mod platform {
         startup_info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup_info.StartupInfo.hStdInput = stdin.raw();
         startup_info.StartupInfo.hStdOutput = stdout.child_handle();
-        startup_info.StartupInfo.hStdError = stderr.raw();
+        startup_info.StartupInfo.hStdError = stderr.child_handle();
         startup_info.lpAttributeList = attributes.as_mut_ptr();
 
         let mut process_info: PROCESS_INFORMATION = unsafe { zeroed() };
@@ -217,7 +234,8 @@ mod platform {
             pid: process_info.dwProcessId,
             process_handle,
             job_handle,
-            stdout: stdout.into_parent_stdout()?,
+            stdout: stdout.into_parent_stream()?,
+            stderr: stderr.into_parent_stream()?,
         })
     }
 
@@ -329,7 +347,7 @@ mod platform {
         }
     }
 
-    enum ChildStdoutOwner {
+    enum ChildPipeOwner {
         Null {
             child_handle: OwnedHandle,
         },
@@ -339,7 +357,7 @@ mod platform {
         },
     }
 
-    impl ChildStdoutOwner {
+    impl ChildPipeOwner {
         fn child_handle(&self) -> HANDLE {
             match self {
                 Self::Null { child_handle } | Self::Piped { child_handle, .. } => {
@@ -348,7 +366,7 @@ mod platform {
             }
         }
 
-        fn into_parent_stdout(self) -> Result<Option<ChildStdout>, String> {
+        fn into_parent_stream(self) -> Result<Option<ChildStdout>, String> {
             match self {
                 Self::Piped {
                     mut parent_handle, ..
@@ -365,15 +383,15 @@ mod platform {
         }
     }
 
-    fn create_stdout(stdout: ManagedAppStdout) -> Result<ChildStdoutOwner, String> {
-        match stdout {
-            ManagedAppStdout::Null => open_nul_for_child(FILE_GENERIC_WRITE.0)
-                .map(|child_handle| ChildStdoutOwner::Null { child_handle }),
-            ManagedAppStdout::Piped => create_child_stdout_pipe(),
+    fn create_child_pipe(pipe: ManagedAppPipe) -> Result<ChildPipeOwner, String> {
+        match pipe {
+            ManagedAppPipe::Null => open_nul_for_child(FILE_GENERIC_WRITE.0)
+                .map(|child_handle| ChildPipeOwner::Null { child_handle }),
+            ManagedAppPipe::Piped => create_child_pipe_handles(),
         }
     }
 
-    fn create_child_stdout_pipe() -> Result<ChildStdoutOwner, String> {
+    fn create_child_pipe_handles() -> Result<ChildPipeOwner, String> {
         let mut read_handle = HANDLE::default();
         let mut write_handle = HANDLE::default();
         let security = inheritable_security_attributes();
@@ -391,7 +409,7 @@ mod platform {
         }
         .map_err(|e| format!("配置应用输出管道失败: {e}"))?;
 
-        Ok(ChildStdoutOwner::Piped {
+        Ok(ChildPipeOwner::Piped {
             child_handle,
             parent_handle,
         })
@@ -507,7 +525,7 @@ mod platform {
 
 #[cfg(not(target_os = "windows"))]
 mod platform {
-    use super::{Child, Command, ManagedAppCommand, ManagedAppStdout};
+    use super::{Child, Command, ManagedAppCommand, ManagedAppPipe};
 
     pub(super) struct PlatformManagedAppChild {
         child: Child,
@@ -520,6 +538,10 @@ mod platform {
 
         pub(super) fn stdout(&mut self) -> Option<tokio::process::ChildStdout> {
             self.child.stdout.take()
+        }
+
+        pub(super) fn stderr(&mut self) -> Option<tokio::process::ChildStdout> {
+            self.child.stderr.take()
         }
 
         pub(super) fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, String> {
@@ -539,8 +561,8 @@ mod platform {
         let mut cmd = Command::new(command.executable());
         cmd.args(command.args_ref());
         cmd.stdin(std::process::Stdio::null());
-        cmd.stdout(stdout_to_stdio(command.stdout));
-        cmd.stderr(std::process::Stdio::null());
+        cmd.stdout(pipe_to_stdio(command.stdout));
+        cmd.stderr(pipe_to_stdio(command.stderr));
         for (k, v) in &command.envs {
             cmd.env(k, v);
         }
@@ -550,10 +572,38 @@ mod platform {
         Ok(PlatformManagedAppChild { child })
     }
 
-    fn stdout_to_stdio(stdout: ManagedAppStdout) -> std::process::Stdio {
-        match stdout {
-            ManagedAppStdout::Null => std::process::Stdio::null(),
-            ManagedAppStdout::Piped => std::process::Stdio::piped(),
+    fn pipe_to_stdio(pipe: ManagedAppPipe) -> std::process::Stdio {
+        match pipe {
+            ManagedAppPipe::Null => std::process::Stdio::null(),
+            ManagedAppPipe::Piped => std::process::Stdio::piped(),
         }
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    use super::{ManagedAppChild, ManagedAppCommand, ManagedAppPipe};
+
+    #[test]
+    fn pipes_child_stderr_output() {
+        tauri::async_runtime::block_on(async {
+            let command = ManagedAppCommand::new(r"C:\Windows\System32\cmd.exe")
+                .args(vec!["/C".to_string(), "echo is ready 1>&2".to_string()])
+                .stderr(ManagedAppPipe::Piped);
+            let mut child = ManagedAppChild::spawn(command).expect("启动测试进程失败");
+            let stderr = child.stderr().expect("stderr 管道应可用");
+
+            let line = BufReader::new(stderr)
+                .lines()
+                .next_line()
+                .await
+                .expect("读取 stderr 失败")
+                .expect("stderr 应有一行输出");
+            assert!(line.contains("is ready"), "{line}");
+
+            let _ = child.start_kill();
+        });
     }
 }
