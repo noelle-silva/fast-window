@@ -25,36 +25,38 @@ a 与 b 只共同遵守本契约，不互相依赖对方的实现。契约是双
 | status | 字符串 | 是 | `succeeded` 或 `failed` |
 | exitCode | 整数或 null | 是 | 命令退出码；b 自身错误、未执行命令时为 null |
 | error | 字符串 | 是 | b 自身的错误说明；没有错误时为空串 |
-| data | 对象 | 是 | 结构化数据载荷；没有时为 `{}` |
+| data | 对象 | 是 | 结构化数据载荷，固定两格（result 与 artifact），见下方说明 |
 
 说明：
 
 - 命令的原始输出已经完整地显示在回执之前的输出流里，因此回执**不重复携带命令原文**。
-- 命令输出本身就是 JSON 的，b 解析后原样放入 `data`。
-- 纯文本命令的 `data` 为空对象。
-- 动作有成品产物时，`data` 使用以下推荐字段（固定名字）：
-  - `data.artifact.path`：成品绝对路径
-  - `data.artifact.name`：成品文件名
-  - `data.artifact.sha256`：成品校验值
+- `data` 固定两个格子：
+  - `result`：命令输出的解析结果。命令输出本身就是 JSON 的，b 解析后原样放入；不是 JSON 的命令为 `null`。
+  - `artifact`：动作产物的规范化信息。没有产物或没有取到时为 `{}`。
+- `artifact` 使用以下固定字段：
+  - `path`：成品绝对路径
+  - `name`：成品文件名
+  - `sha256`：成品校验值
+- 产物信息的来源由动作在协议字典中声明，b 按声明提取；a 只读规范化后的 `artifact`，不关心来源。
 
 ## 三、示例
 
 成功（构建动作，带成品信息）：
 
 ```
-FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"eucli-box-build","status":"succeeded","exitCode":0,"error":"","data":{"artifact":{"path":"E:\\...\\eucli-box_0.1.2_windows-x64.zip","name":"eucli-box_0.1.2_windows-x64.zip","sha256":"6765592f..."}}}
+FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"eucli-box-build","status":"succeeded","exitCode":0,"error":"","data":{"result":{"Manifest":{"archive":{"name":"eucli-box_0.1.2_windows-x64.zip","sha256":"6765592f..."}},"ArchivePath":"E:\\...\\eucli-box_0.1.2_windows-x64.zip"},"artifact":{"path":"E:\\...\\eucli-box_0.1.2_windows-x64.zip","name":"eucli-box_0.1.2_windows-x64.zip","sha256":"6765592f..."}}}
 ```
 
 失败（命令以非零退出码结束）：
 
 ```
-FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"eucli-box-build","status":"failed","exitCode":1,"error":"","data":{}}
+FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"eucli-box-build","status":"failed","exitCode":1,"error":"","data":{"result":null,"artifact":{}}}
 ```
 
 失败（b 自身错误：动作未定义）：
 
 ```
-FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"whatever","status":"failed","exitCode":null,"error":"协议未定义动作 \"whatever\"","data":{}}
+FAST-WINDOW-DEV-RECEIPT: {"contractVersion":1,"action":"whatever","status":"failed","exitCode":null,"error":"协议未定义动作 \"whatever\"","data":{"result":null,"artifact":{}}}
 ```
 
 ## 四、双方行为边界
