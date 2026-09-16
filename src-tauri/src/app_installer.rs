@@ -36,6 +36,8 @@ struct AppPackageManifest {
     #[serde(default)]
     icon: Option<String>,
     #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
     display_mode: Option<String>,
     #[serde(default)]
     commands: Vec<AppPackageCommand>,
@@ -87,6 +89,7 @@ pub(crate) struct InstalledAppInfo {
     version: String,
     path: String,
     icon: String,
+    app_kind: String,
     display_mode: String,
     commands: Vec<AppPackageCommand>,
 }
@@ -338,6 +341,22 @@ fn manifest_identity(manifest: &AppPackageManifest) -> Result<(String, String), 
     Ok((id, version))
 }
 
+fn service_declaration_path(manifest: &AppPackageManifest) -> Option<&str> {
+    manifest
+        .service
+        .as_deref()
+        .map(str::trim)
+        .filter(|service| !service.is_empty())
+}
+
+fn manifest_app_kind(manifest: &AppPackageManifest) -> &'static str {
+    if service_declaration_path(manifest).is_some() {
+        "service"
+    } else {
+        "window"
+    }
+}
+
 fn validate_manifest_against_self(
     manifest: &AppPackageManifest,
 ) -> Result<(String, String), String> {
@@ -395,6 +414,7 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
             &installed.manifest_dir,
             &installed.exe_path,
         )?,
+        app_kind: manifest_app_kind(&installed.manifest).to_string(),
         display_mode: installed
             .manifest
             .display_mode
@@ -660,6 +680,7 @@ fn validate_package_manifest(
     }
     validate_display_mode(manifest.display_mode.as_deref())?;
     validate_icon(manifest.icon.as_deref())?;
+    validate_service_declaration(manifest.service.as_deref())?;
     validate_commands(&manifest.commands)?;
     Ok(())
 }
@@ -686,6 +707,14 @@ fn validate_icon(icon: Option<&str>) -> Result<(), String> {
         return Ok(());
     }
     let _ = safe_relative_path_no_curdir(icon)?;
+    Ok(())
+}
+
+fn validate_service_declaration(value: Option<&str>) -> Result<(), String> {
+    let Some(service) = value.map(str::trim).filter(|service| !service.is_empty()) else {
+        return Ok(());
+    };
+    safe_relative_path_no_curdir(service).map_err(|e| format!("fw-app.service 不合法: {e}"))?;
     Ok(())
 }
 
@@ -783,6 +812,12 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
     let exe = safe_relative_path_no_curdir(&manifest.windows_executable)?;
     if !root.join(exe).is_file() {
         return Err("应用入口文件不存在（fw-app.windowsExecutable）".to_string());
+    }
+    if let Some(service) = service_declaration_path(manifest) {
+        let rel = safe_relative_path_no_curdir(service)?;
+        if !root.join(rel).is_file() {
+            return Err("应用服务声明文件不存在（fw-app.service）".to_string());
+        }
     }
     if let Some(icon) = manifest.icon.as_deref().map(str::trim).filter(|icon| {
         !icon.is_empty() && !icon.starts_with("data:image/") && !is_short_icon_text(icon)
@@ -926,6 +961,10 @@ fn build_registered_app_record(
         "version".to_string(),
         Value::String(manifest.version.trim().to_string()),
     );
+    record.insert(
+        "appKind".to_string(),
+        Value::String(manifest_app_kind(manifest).to_string()),
+    );
     if !record.contains_key("icon") {
         record.insert(
             "icon".to_string(),
@@ -1050,5 +1089,107 @@ fn same_path(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_manifest(text: &str) -> AppPackageManifest {
+        serde_json::from_str(text).expect("清单应可解析")
+    }
+
+    fn service_manifest() -> AppPackageManifest {
+        parse_manifest(
+            r#"{
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "windowsExecutable": "eucli-box.exe",
+                "service": "fw-app.service.json"
+            }"#,
+        )
+    }
+
+    #[test]
+    fn parses_service_declaration_and_marks_app_as_service() {
+        let manifest = service_manifest();
+
+        assert_eq!(manifest.service.as_deref(), Some("fw-app.service.json"));
+        assert_eq!(manifest_app_kind(&manifest), "service");
+    }
+
+    #[test]
+    fn legacy_manifest_without_service_is_window_app() {
+        let manifest = parse_manifest(
+            r#"{
+                "id": "legacy-app",
+                "name": "legacy-app",
+                "version": "0.1.0",
+                "windowsExecutable": "legacy-app.exe"
+            }"#,
+        );
+
+        assert!(manifest.service.is_none());
+        assert_eq!(manifest_app_kind(&manifest), "window");
+    }
+
+    #[test]
+    fn blank_service_declaration_is_window_app() {
+        let manifest = parse_manifest(
+            r#"{
+                "id": "legacy-app",
+                "name": "legacy-app",
+                "version": "0.1.0",
+                "windowsExecutable": "legacy-app.exe",
+                "service": "  "
+            }"#,
+        );
+
+        assert_eq!(manifest_app_kind(&manifest), "window");
+        assert!(validate_service_declaration(manifest.service.as_deref()).is_ok());
+    }
+
+    #[test]
+    fn accepts_relative_service_declaration_path() {
+        assert!(validate_service_declaration(Some("fw-app.service.json")).is_ok());
+        assert!(validate_service_declaration(Some("declarations/fw-app.service.json")).is_ok());
+        assert!(validate_service_declaration(None).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsafe_service_declaration_paths() {
+        assert_eq!(
+            validate_service_declaration(Some("../fw-app.service.json")).unwrap_err(),
+            "fw-app.service 不合法: 路径不合法（不允许包含 .. 等）"
+        );
+        assert_eq!(
+            validate_service_declaration(Some("./fw-app.service.json")).unwrap_err(),
+            "fw-app.service 不合法: 路径不合法（不允许包含 .）"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_service_declaration_in_extracted_app() {
+        let manifest = service_manifest();
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-service-declaration-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("创建测试目录失败");
+        std::fs::write(root.join(FW_APP_MANIFEST), "{}").expect("写入清单失败");
+        std::fs::write(root.join("eucli-box.exe"), b"").expect("写入可执行文件失败");
+
+        assert_eq!(
+            validate_extracted_app(&root, &manifest).unwrap_err(),
+            "应用服务声明文件不存在（fw-app.service）"
+        );
+
+        std::fs::write(root.join("fw-app.service.json"), "{}").expect("写入服务声明失败");
+        assert!(validate_extracted_app(&root, &manifest).is_ok());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

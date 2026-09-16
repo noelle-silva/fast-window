@@ -248,7 +248,24 @@ fn validate_app_value(value: &Value) -> Result<String, String> {
     if !crate::is_safe_id(id) {
         return Err("appId 不合法".to_string());
     }
+    validate_app_kind(value, id)?;
     Ok(id.to_string())
+}
+
+fn validate_app_kind(value: &Value, app_id: &str) -> Result<(), String> {
+    let Some(kind) = value.get("appKind") else {
+        return Ok(());
+    };
+    if kind.is_null() {
+        return Ok(());
+    }
+    let Some(kind) = kind.as_str().map(str::trim) else {
+        return Err(format!("{app_id} 的 appKind 必须是字符串"));
+    };
+    if matches!(kind, "window" | "service") {
+        return Ok(());
+    }
+    Err(format!("{app_id} 的 appKind 不合法: {kind}"))
 }
 
 fn app_hotkey_from_value(value: &Value) -> Option<&str> {
@@ -700,4 +717,50 @@ pub(crate) fn persist_app_window_bounds(
     );
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_app_value;
+
+    #[test]
+    fn accepts_window_and_service_app_kinds() {
+        assert!(validate_app_value(&serde_json::json!({
+            "id": "app-1",
+            "appKind": "window",
+        }))
+        .is_ok());
+        assert!(validate_app_value(&serde_json::json!({
+            "id": "app-1",
+            "appKind": "service",
+        }))
+        .is_ok());
+    }
+
+    #[test]
+    fn accepts_missing_app_kind_as_window() {
+        assert!(validate_app_value(&serde_json::json!({ "id": "app-1" })).is_ok());
+        assert!(validate_app_value(&serde_json::json!({
+            "id": "app-1",
+            "appKind": null,
+        }))
+        .is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_app_kind() {
+        let error = validate_app_value(&serde_json::json!({
+            "id": "app-1",
+            "appKind": "daemon",
+        }))
+        .unwrap_err();
+        assert!(error.contains("appKind 不合法"));
+
+        let error = validate_app_value(&serde_json::json!({
+            "id": "app-1",
+            "appKind": 1,
+        }))
+        .unwrap_err();
+        assert!(error.contains("appKind 必须是字符串"));
+    }
 }

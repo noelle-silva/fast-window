@@ -4,6 +4,8 @@ export type AppActivationAction = 'toggle' | 'show' | 'hide' | 'close'
 
 export type AppHotkeyLaunchBehavior = 'launch' | 'runningOnly'
 
+export type AppKind = 'window' | 'service'
+
 export interface RegisteredAppShortcut {
   id: string
   title: string
@@ -38,6 +40,7 @@ export interface InstalledAppInfo {
   version: string
   path: string
   icon: string
+  appKind?: AppKind
   displayMode: AppDisplayMode
   commands: RegisteredAppShortcut[]
 }
@@ -48,6 +51,7 @@ export interface RegisteredApp {
   icon: string
   path: string
   version?: string
+  appKind?: AppKind
   hotkey?: string
   hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior
   displayMode: AppDisplayMode

@@ -8,6 +8,7 @@ function applyRegisteredAppPatch(app: RegisteredApp, patch: RegisteredAppUpdateP
   if (patch.icon !== undefined) next.icon = patch.icon
   if (patch.path !== undefined) next.path = patch.path
   if (patch.version !== undefined) next.version = patch.version
+  if (patch.appKind !== undefined) next.appKind = patch.appKind
   if (patch.displayMode !== undefined) next.displayMode = patch.displayMode
   if (patch.hotkeyLaunchBehavior !== undefined) {
     if (patch.hotkeyLaunchBehavior) next.hotkeyLaunchBehavior = patch.hotkeyLaunchBehavior

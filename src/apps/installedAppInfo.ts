@@ -1,8 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppDisplayMode, InstalledAppInfo } from './types'
+import type { AppDisplayMode, AppKind, InstalledAppInfo } from './types'
 
 function normalizeDisplayMode(value: string): AppDisplayMode {
   return value === 'window' || value === 'top' ? value : 'default'
+}
+
+function normalizeAppKind(value: AppKind | undefined): AppKind {
+  return value === 'service' ? 'service' : 'window'
 }
 
 export async function inspectInstalledApp(path: string): Promise<InstalledAppInfo> {
@@ -18,6 +22,7 @@ export async function inspectLocalStoreApp(path: string): Promise<InstalledAppIn
 function normalizeInstalledAppInfo(info: InstalledAppInfo): InstalledAppInfo {
   return {
     ...info,
+    appKind: normalizeAppKind(info.appKind),
     displayMode: normalizeDisplayMode(info.displayMode),
     commands: Array.isArray(info.commands) ? info.commands : [],
   }
