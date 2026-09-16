@@ -1,17 +1,18 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+
+import { publishArtifactToStore } from './modules/fast-window-dev-release.mjs'
 
 const protocolDirName = '.fast-window-dev-protocol'
 const protocolFileName = 'fast-window-dev-protocol.json'
 const protocolToolPrefix = 'fast-window-dev-tool.'
 const receiptPrefix = 'FAST-WINDOW-DEV-RECEIPT: '
 const contractVersion = 1
-const copyMode = 'copy'
-const copyDirName = 'tttt'
-const usageLine = '用法：node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> <动作代号> [copy]'
+const releaseMode = 'release'
+const usageLine = '用法：node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> <动作代号> [release]'
 
 function isSafeSegment(value) {
   return value !== '' && value !== '.' && value !== '..' && !/[\\/]/.test(value)
@@ -23,8 +24,8 @@ function parseArgs(argv) {
     throw new Error(usageLine)
   }
   const mode = args[2] ?? ''
-  if (mode !== '' && mode !== copyMode) {
-    throw new Error(`暂不支持的第三参数：${mode}（目前只支持 copy）`)
+  if (mode !== '' && mode !== releaseMode) {
+    throw new Error(`暂不支持的第三参数：${mode}（目前只支持 release）`)
   }
   return { appName: args[0], action: args[1], mode }
 }
@@ -126,24 +127,15 @@ async function main() {
   if (artifactPath !== '') {
     console.log(`fast-window-dev-tool: 成品 ${artifactPath}`)
   }
-  if (mode === copyMode) {
+  if (mode === releaseMode) {
     if (artifactPath === '') {
-      throw new Error(`动作 ${action} 没有可复制的成品`)
+      throw new Error(`动作 ${action} 没有可发布的成品`)
     }
-    const target = copyArtifact(root, artifactPath)
-    console.log(`fast-window-dev-tool: 已复制到 ${target}`)
+    const published = await publishArtifactToStore({ protocolDir: dir, artifactPath })
+    console.log(`fast-window-dev-tool: 已发布 ${published.appId} ${published.version}`)
+    console.log(`fast-window-dev-tool: 发布地址 ${published.releaseUrl}`)
+    console.log(`fast-window-dev-tool: 商店目录 ${published.catalogUrl}`)
   }
-}
-
-function copyArtifact(root, source) {
-  if (!existsSync(source)) {
-    throw new Error(`成品文件不存在：${source}`)
-  }
-  const targetDir = path.join(root, copyDirName)
-  mkdirSync(targetDir, { recursive: true })
-  const target = path.join(targetDir, path.basename(source))
-  copyFileSync(source, target)
-  return target
 }
 
 await main().catch(error => {
