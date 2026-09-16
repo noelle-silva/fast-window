@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,9 @@ const protocolFileName = 'fast-window-dev-protocol.json'
 const protocolToolPrefix = 'fast-window-dev-tool.'
 const receiptPrefix = 'FAST-WINDOW-DEV-RECEIPT: '
 const contractVersion = 1
-const usageLine = '用法：node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> <动作代号>'
+const copyMode = 'copy'
+const copyDirName = 'tttt'
+const usageLine = '用法：node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> <动作代号> [copy]'
 
 function isSafeSegment(value) {
   return value !== '' && value !== '.' && value !== '..' && !/[\\/]/.test(value)
@@ -17,10 +19,14 @@ function isSafeSegment(value) {
 
 function parseArgs(argv) {
   const args = argv.slice(2)
-  if (args.length !== 2 || !isSafeSegment(args[0]) || !isSafeSegment(args[1])) {
+  if (args.length < 2 || args.length > 3 || !isSafeSegment(args[0]) || !isSafeSegment(args[1])) {
     throw new Error(usageLine)
   }
-  return { appName: args[0], action: args[1] }
+  const mode = args[2] ?? ''
+  if (mode !== '' && mode !== copyMode) {
+    throw new Error(`暂不支持的第三参数：${mode}（目前只支持 copy）`)
+  }
+  return { appName: args[0], action: args[1], mode }
 }
 
 function projectRoot() {
@@ -99,7 +105,7 @@ function parseReceipt(stdout) {
 }
 
 async function main() {
-  const { appName, action } = parseArgs(process.argv)
+  const { appName, action, mode } = parseArgs(process.argv)
   const root = projectRoot()
   const dir = resolveProtocolDir(root, appName)
   const runner = readRunner(dir)
@@ -116,10 +122,28 @@ async function main() {
     throw new Error(receipt.error || `工具执行失败，退出码 ${receipt.exitCode ?? status}`)
   }
   console.log(`fast-window-dev-tool: ${appName} ${action} 执行成功`)
-  const artifactPath = receipt.data?.artifact?.path
-  if (typeof artifactPath === 'string' && artifactPath !== '') {
+  const artifactPath = typeof receipt.data?.artifact?.path === 'string' ? receipt.data.artifact.path : ''
+  if (artifactPath !== '') {
     console.log(`fast-window-dev-tool: 成品 ${artifactPath}`)
   }
+  if (mode === copyMode) {
+    if (artifactPath === '') {
+      throw new Error(`动作 ${action} 没有可复制的成品`)
+    }
+    const target = copyArtifact(root, artifactPath)
+    console.log(`fast-window-dev-tool: 已复制到 ${target}`)
+  }
+}
+
+function copyArtifact(root, source) {
+  if (!existsSync(source)) {
+    throw new Error(`成品文件不存在：${source}`)
+  }
+  const targetDir = path.join(root, copyDirName)
+  mkdirSync(targetDir, { recursive: true })
+  const target = path.join(targetDir, path.basename(source))
+  copyFileSync(source, target)
+  return target
 }
 
 await main().catch(error => {
