@@ -2,9 +2,9 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
-import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from '../../scripts/lib/github-release-assets.mjs'
-import { assertV5AppPublishVersionPolicy } from '../../scripts/lib/v5-app-publishing.mjs'
-import { sha256FileHex, upsertStoreApp } from '../../scripts/lib/v5-app-packaging.mjs'
+import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
+import { assertV5AppPublishVersionPolicy } from './v5-app-publishing.mjs'
+import { sha256FileHex, upsertStoreApp } from './v5-app-packaging.mjs'
 import {
   DEFAULT_DOWNLOAD_BRANCH,
   DEFAULT_DOWNLOAD_OWNER,
@@ -14,7 +14,7 @@ import {
   loadCatalogOrMigrateIndex,
   pickGithubToken,
   writeRemoteJsonFile,
-} from '../../scripts/lib/v5-download-store.mjs'
+} from './v5-download-store.mjs'
 
 const manifestFileName = 'fw-app.package.json'
 const manifestSchemaVersion = 1
