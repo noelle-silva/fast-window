@@ -1,25 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  Box, Typography, IconButton, Button,
+  Box, Typography, IconButton, Button, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControlLabel, Stack, Switch, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppShortcut, RegisteredAppUpdatePatch } from './types'
+import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppKind, AppRegistrationEditRequest, RegisteredApp, RegisteredAppShortcut, RegisteredAppUpdatePatch } from './types'
+import type { AppServiceInfo } from './appServiceInfo'
 import AppCardView from './AppCardView'
 import AppHostShortcutEditor from './AppHostShortcutEditor'
 import AppIconEditor from './AppIconEditor'
+import AppServiceInfoPanel from './AppServiceInfoPanel'
 import { getAppStatus } from './appLauncher'
 import { listAppHostShortcuts } from './appHostShortcuts'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { inspectInstalledApp } from './installedAppInfo'
+import { loadAppServiceInfo } from './appServiceInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
-import { hostButtonSx, hostDangerButtonSx, hostTextFieldSx, hostToggleGroupSx } from '../components/hostUiStyles'
+import { hostButtonSx, hostDangerButtonSx, hostSoftChipSx, hostTextFieldSx, hostToggleGroupSx } from '../components/hostUiStyles'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
@@ -87,9 +90,41 @@ export default function AppRegistrationPanel({
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
   const [editMenuAnchorEl, setEditMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [editingAppKind, setEditingAppKind] = useState<AppKind | null>(null)
+  const [serviceInfo, setServiceInfo] = useState<AppServiceInfo | null>(null)
+  const [serviceInfoLoading, setServiceInfoLoading] = useState(false)
+  const [serviceInfoError, setServiceInfoError] = useState<string | null>(null)
   const handledEditRequestIdRef = useRef<number | null>(null)
+  const serviceInfoRequestIdRef = useRef(0)
 
   const editingApp = editingId ? apps.find(app => app.id === editingId) ?? null : null
+  const dialogAppKind: AppKind | null = serviceInfo?.appKind ?? editingAppKind
+  const showServiceInfo = dialogAppKind === 'service'
+
+  const clearServiceInfo = () => {
+    serviceInfoRequestIdRef.current += 1
+    setServiceInfo(null)
+    setServiceInfoError(null)
+    setServiceInfoLoading(false)
+  }
+
+  const refreshServiceInfo = async (exePath: string) => {
+    const requestId = ++serviceInfoRequestIdRef.current
+    setServiceInfo(null)
+    setServiceInfoError(null)
+    setServiceInfoLoading(true)
+    try {
+      const info = await loadAppServiceInfo(exePath)
+      if (serviceInfoRequestIdRef.current !== requestId) return
+      setServiceInfo(info)
+      setEditingAppKind(info.appKind)
+    } catch (error: any) {
+      if (serviceInfoRequestIdRef.current !== requestId) return
+      setServiceInfoError(String(error?.message || error || '读取服务信息失败'))
+    } finally {
+      if (serviceInfoRequestIdRef.current === requestId) setServiceInfoLoading(false)
+    }
+  }
 
   const closeEditMenu = () => {
     setEditMenuAnchorEl(null)
@@ -100,6 +135,7 @@ export default function AppRegistrationPanel({
     setRecordingHostShortcutHotkeyId(null)
     setChangingHostShortcutIconId(null)
     setHostShortcutReadConfirm(null)
+    clearServiceInfo()
     closeEditMenu()
     setEditOpen(false)
   }
@@ -120,6 +156,8 @@ export default function AppRegistrationPanel({
     setHostShortcuts([])
     setHostShortcutsEdited(false)
     setPickingPath(false)
+    setEditingAppKind(null)
+    clearServiceInfo()
     closeEditMenu()
     setEditOpen(true)
   }
@@ -140,6 +178,8 @@ export default function AppRegistrationPanel({
     setHostShortcuts(Array.isArray(app.commands) ? app.commands : [])
     setHostShortcutsEdited(false)
     setPickingPath(false)
+    setEditingAppKind(app.appKind ?? null)
+    void refreshServiceInfo(app.path)
     closeEditMenu()
     setEditOpen(true)
   }
@@ -167,6 +207,8 @@ export default function AppRegistrationPanel({
       setDisplayMode(info.displayMode)
       setHostShortcuts(info.commands)
       setHostShortcutsEdited(true)
+      setEditingAppKind(info.appKind ?? null)
+      void refreshServiceInfo(info.path)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
     } finally {
@@ -488,6 +530,28 @@ export default function AppRegistrationPanel({
     saveHotkey(shot)
   }
 
+  const autoStartField = (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>FW 启动时自启</Typography>
+      <FormControlLabel
+        sx={{ m: 0 }}
+        control={
+          <Switch
+            size="small"
+            checked={autoStart}
+            disabled={saving}
+            onChange={e => setAutoStart(e.target.checked)}
+            inputProps={{ 'aria-label': 'FW 启动时自启' }}
+          />
+        }
+        label={autoStart ? '已开启' : '已关闭'}
+      />
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+        开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
+      </Typography>
+    </Box>
+  )
+
   const content = (
     <>
       {embedded ? (
@@ -520,7 +584,16 @@ export default function AppRegistrationPanel({
 
       <Dialog open={editOpen} onClose={closeEditDialog} fullWidth maxWidth="md">
         <DialogTitle sx={{ pr: editingId ? 6 : undefined }}>
-          {editingId ? '编辑应用' : '添加应用'}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box component="span">{editingId ? '编辑应用' : '添加应用'}</Box>
+            {dialogAppKind ? (
+              <Chip
+                label={dialogAppKind === 'service' ? '服务' : '窗口'}
+                size="small"
+                sx={{ ...hostSoftChipSx, height: 20, fontSize: 11 }}
+              />
+            ) : null}
+          </Box>
           {editingId ? (
             <>
               <IconButton
@@ -567,94 +640,85 @@ export default function AppRegistrationPanel({
             onChange={source => void changeIcon(source)}
             onResetDefault={() => void resetIconToDefault()}
           />
-          <TextField
-            label="快捷键（可选）"
-            value={hotkey}
-            size="small"
-            fullWidth
-            placeholder="点击录制然后按键"
-            InputProps={{ readOnly: true }}
-            helperText={hotkeyRecording ? '录制中…按 ESC 取消，按下组合键即可保存到输入框里。' : '点击开始录制，然后按下组合键。'}
-            sx={hostTextFieldSx}
-          />
-          <Stack direction="row" spacing={1}>
-            <Button variant={hotkeyRecording ? 'contained' : 'text'} sx={hostButtonSx} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
-              {hotkeyRecording ? '录制中…' : '开始录制'}
-            </Button>
-            <Button variant="text" sx={hostButtonSx} onClick={() => setHotkey('')}>
-              清空快捷键
-            </Button>
-          </Stack>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>快捷键启动方式</Typography>
-            <ToggleButtonGroup
-              value={hotkeyLaunchBehavior}
-              exclusive
-              onChange={(_, v) => v && setHotkeyLaunchBehavior(v)}
-              size="small"
-              disabled={!hotkey.trim()}
-              aria-label="快捷键启动方式"
-              sx={hostToggleGroupSx}
-            >
-              <ToggleButton value="launch">可启动未运行应用</ToggleButton>
-              <ToggleButton value="runningOnly">仅控制已运行应用</ToggleButton>
-            </ToggleButtonGroup>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
-              选择“仅控制已运行应用”后，应用未运行时按下快捷键不会唤醒或启动它。
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>显示模式</Typography>
-            <ToggleButtonGroup
-              value={displayMode}
-              exclusive
-              onChange={(_, v) => v && setDisplayMode(v)}
-              size="small"
-              sx={hostToggleGroupSx}
-            >
-              <ToggleButton value="default">默认</ToggleButton>
-              <ToggleButton value="window">窗口</ToggleButton>
-              <ToggleButton value="top">置顶</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>FW 启动时自启</Typography>
-            <FormControlLabel
-              sx={{ m: 0 }}
-              control={
-                <Switch
+          {showServiceInfo ? (
+            <>
+              {autoStartField}
+              <AppServiceInfoPanel info={serviceInfo} loading={serviceInfoLoading} error={serviceInfoError} />
+            </>
+          ) : (
+            <>
+              <TextField
+                label="快捷键（可选）"
+                value={hotkey}
+                size="small"
+                fullWidth
+                placeholder="点击录制然后按键"
+                InputProps={{ readOnly: true }}
+                helperText={hotkeyRecording ? '录制中…按 ESC 取消，按下组合键即可保存到输入框里。' : '点击开始录制，然后按下组合键。'}
+                sx={hostTextFieldSx}
+              />
+              <Stack direction="row" spacing={1}>
+                <Button variant={hotkeyRecording ? 'contained' : 'text'} sx={hostButtonSx} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
+                  {hotkeyRecording ? '录制中…' : '开始录制'}
+                </Button>
+                <Button variant="text" sx={hostButtonSx} onClick={() => setHotkey('')}>
+                  清空快捷键
+                </Button>
+              </Stack>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>快捷键启动方式</Typography>
+                <ToggleButtonGroup
+                  value={hotkeyLaunchBehavior}
+                  exclusive
+                  onChange={(_, v) => v && setHotkeyLaunchBehavior(v)}
                   size="small"
-                  checked={autoStart}
-                  disabled={saving}
-                  onChange={e => setAutoStart(e.target.checked)}
-                  inputProps={{ 'aria-label': 'FW 启动时自启' }}
-                />
-              }
-              label={autoStart ? '已开启' : '已关闭'}
-            />
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
-              开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
-            </Typography>
-          </Box>
-          <AppHostShortcutEditor
-            shortcuts={hostShortcuts}
-            appIcon={icon}
-            appName={name}
-            disabled={saving}
-            changingShortcutIconId={changingHostShortcutIconId}
-            readingHostShortcuts={readingHostShortcuts}
-            canReadHostShortcuts={!!path.trim()}
-            onReadHostShortcuts={() => void readHostShortcuts()}
-            recordingShortcutId={recordingHostShortcutHotkeyId}
-            onChangeIcon={(shortcutId, source) => void changeHostShortcutIcon(shortcutId, source)}
-            onResetIcon={resetHostShortcutIconToAppIcon}
-            onStartHotkeyRecording={startHostShortcutHotkeyRecording}
-            onClearHotkey={clearHostShortcutHotkey}
-            onChange={nextShortcuts => {
-              setHostShortcutsEdited(true)
-              setHostShortcuts(nextShortcuts)
-            }}
-          />
+                  disabled={!hotkey.trim()}
+                  aria-label="快捷键启动方式"
+                  sx={hostToggleGroupSx}
+                >
+                  <ToggleButton value="launch">可启动未运行应用</ToggleButton>
+                  <ToggleButton value="runningOnly">仅控制已运行应用</ToggleButton>
+                </ToggleButtonGroup>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                  选择“仅控制已运行应用”后，应用未运行时按下快捷键不会唤醒或启动它。
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>显示模式</Typography>
+                <ToggleButtonGroup
+                  value={displayMode}
+                  exclusive
+                  onChange={(_, v) => v && setDisplayMode(v)}
+                  size="small"
+                  sx={hostToggleGroupSx}
+                >
+                  <ToggleButton value="default">默认</ToggleButton>
+                  <ToggleButton value="window">窗口</ToggleButton>
+                  <ToggleButton value="top">置顶</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              {autoStartField}
+              <AppHostShortcutEditor
+                shortcuts={hostShortcuts}
+                appIcon={icon}
+                appName={name}
+                disabled={saving}
+                changingShortcutIconId={changingHostShortcutIconId}
+                readingHostShortcuts={readingHostShortcuts}
+                canReadHostShortcuts={!!path.trim()}
+                onReadHostShortcuts={() => void readHostShortcuts()}
+                recordingShortcutId={recordingHostShortcutHotkeyId}
+                onChangeIcon={(shortcutId, source) => void changeHostShortcutIcon(shortcutId, source)}
+                onResetIcon={resetHostShortcutIconToAppIcon}
+                onStartHotkeyRecording={startHostShortcutHotkeyRecording}
+                onClearHotkey={clearHostShortcutHotkey}
+                onChange={nextShortcuts => {
+                  setHostShortcutsEdited(true)
+                  setHostShortcuts(nextShortcuts)
+                }}
+              />
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={closeEditDialog}>取消</Button>

@@ -21,6 +21,7 @@ mod app_installer;
 mod app_layout;
 mod app_lifecycle;
 mod app_registry;
+mod app_service_info;
 mod app_shortcuts;
 mod browser_stack;
 mod capability_server;
@@ -2547,6 +2548,7 @@ fn main() {
         app_installer::inspect_local_store_app,
         app_installer::app_store_install,
         app_installer::app_store_update,
+        app_service_info::app_service_info,
         host_updater::host_update_download_msi,
         host_updater::host_update_install_msi,
         // v3 稳定 process 命令入口（v2 旧命令仍保留在后面）
