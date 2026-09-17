@@ -149,6 +149,11 @@ test('stage keeps container data and replaces only package', async () => {
     assert.equal(first.executablePath, path.join(first.packageDir, 'fake.exe'))
     assert.equal(first.manifestPath, path.join(first.packageDir, 'fw-app.json'))
 
+    const stagedManifest = JSON.parse(await fs.readFile(first.manifestPath, 'utf8'))
+    assert.equal(stagedManifest.type, 'desktop-app')
+    assert.equal(stagedManifest.package.windowsExecutable, 'fake.exe')
+    assert.equal(stagedManifest.package.icon, 'assets/icon.svg')
+
     const dataFile = path.join(first.stageDir, 'data', 'sentinel.txt')
     await fs.mkdir(path.dirname(dataFile), { recursive: true })
     await fs.writeFile(dataFile, 'keep me', 'utf8')

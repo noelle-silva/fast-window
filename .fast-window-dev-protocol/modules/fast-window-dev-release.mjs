@@ -16,8 +16,8 @@ import {
   writeRemoteJsonFile,
 } from './v5-download-store.mjs'
 
-const manifestFileName = 'fw-app.package.json'
-const manifestSchemaVersion = 1
+const manifestFileName = 'fw-app.json'
+const appTypes = new Set(['desktop-app', 'service-app'])
 const catalogIconMaxDataUrlLength = 200000
 const safeIDPattern = /^[A-Za-z0-9_-]+$/
 const displayModes = new Set(['default', 'window', 'top'])
@@ -112,8 +112,9 @@ function readManifest(protocolDir) {
 }
 
 function manifestFacts(manifest) {
-  if (Number(manifest?.schemaVersion) !== manifestSchemaVersion) {
-    throw new Error(`清单 schemaVersion 必须为 ${manifestSchemaVersion}`)
+  const type = String(manifest?.type ?? '').trim()
+  if (!appTypes.has(type)) {
+    throw new Error(`清单 type 必须为 desktop-app 或 service-app：${type || '(empty)'}`)
   }
   const id = String(manifest?.id ?? '').trim()
   if (!safeIDPattern.test(id)) {

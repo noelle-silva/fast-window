@@ -153,18 +153,21 @@ async function validatePackage(zipPath, appId) {
   try {
     const root = await findSingleManifestRoot(extractDir)
     const manifest = await readJson(path.join(root, 'fw-app.json'))
+    if (manifest.type !== 'desktop-app') throw new Error(`fw-app.type 必须为 desktop-app: ${manifest.type}`)
     if (manifest.id !== appId) throw new Error(`fw-app.id 不匹配: expected=${appId}, got=${manifest.id}`)
     if (!isSafeId(manifest.id)) throw new Error(`fw-app.id 不合法: ${manifest.id}`)
     if (!String(manifest.name || '').trim()) throw new Error('fw-app.name 不能为空')
     if (!isSemver(manifest.version)) throw new Error(`fw-app.version 必须是 x.y.z: ${manifest.version}`)
-    const executable = safeRel(manifest.windowsExecutable, 'fw-app.windowsExecutable')
-    if (!executable.toLowerCase().endsWith('.exe')) throw new Error('fw-app.windowsExecutable 必须指向 .exe')
-    if (!(await exists(path.join(root, executable)))) throw new Error(`fw-app.windowsExecutable 文件不存在: ${executable}`)
-    if (manifest.icon) {
-      const icon = String(manifest.icon || '').trim()
+    const pkg = manifest.package
+    if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) throw new Error('fw-app.package 必须是对象')
+    const executable = safeRel(pkg.windowsExecutable, 'fw-app.package.windowsExecutable')
+    if (!executable.toLowerCase().endsWith('.exe')) throw new Error('fw-app.package.windowsExecutable 必须指向 .exe')
+    if (!(await exists(path.join(root, executable)))) throw new Error(`fw-app.package.windowsExecutable 文件不存在: ${executable}`)
+    if (pkg.icon) {
+      const icon = String(pkg.icon || '').trim()
       if (!icon.startsWith('data:image/') && !(icon.length <= 8 && !/[\\/.]/.test(icon))) {
-        const iconRel = safeRel(icon, 'fw-app.icon')
-        if (!(await exists(path.join(root, iconRel)))) throw new Error(`fw-app.icon 文件不存在: ${iconRel}`)
+        const iconRel = safeRel(icon, 'fw-app.package.icon')
+        if (!(await exists(path.join(root, iconRel)))) throw new Error(`fw-app.package.icon 文件不存在: ${iconRel}`)
       }
     }
     validateCommands(manifest.commands || [])

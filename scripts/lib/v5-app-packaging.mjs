@@ -255,22 +255,26 @@ function validateCommands(commands) {
 
 function buildRuntimeManifest(config, version) {
   return {
+    type: 'desktop-app',
     id: config.id,
     name: config.name,
     version,
-    windowsExecutable: normalizeRel(config.executable, 'executable'),
-    icon: normalizeRel(config.icon, 'icon'),
+    package: {
+      windowsExecutable: normalizeRel(config.executable, 'executable'),
+      icon: normalizeRel(config.icon, 'icon'),
+    },
     displayMode: config.displayMode,
     commands: validateCommands(config.commands || []),
   }
 }
 
 async function validateStagedV5App(packageRoot, manifest) {
-  const executable = normalizeRel(manifest.windowsExecutable, 'fw-app.windowsExecutable')
-  const icon = normalizeRel(manifest.icon, 'fw-app.icon')
+  if (manifest.type !== 'desktop-app') throw new Error(`fw-app.type 必须为 desktop-app: ${manifest.type}`)
+  const executable = normalizeRel(manifest.package.windowsExecutable, 'fw-app.package.windowsExecutable')
+  const icon = normalizeRel(manifest.package.icon, 'fw-app.package.icon')
   if (!(await exists(path.join(packageRoot, executable)))) throw new Error(`windowsExecutable 不存在: ${executable}`)
   if (!(await exists(path.join(packageRoot, icon)))) throw new Error(`icon 不存在: ${icon}`)
-  if (!getV5AppIconMime(icon)) throw new Error(`fw-app.icon 必须是受支持的图片格式: ${icon}`)
+  if (!getV5AppIconMime(icon)) throw new Error(`fw-app.package.icon 必须是受支持的图片格式: ${icon}`)
   if (!(await exists(path.join(packageRoot, 'fw-app.json')))) throw new Error('staging 目录缺少 fw-app.json')
   await assertNoReservedPackageDataDir(packageRoot)
 }
@@ -314,7 +318,7 @@ export async function stageV5AppPackage(config, opts = {}) {
   try {
     const manifest = await populateV5AppStageDir(config, profile, tmpDir, version)
     await replaceDirAtomic(tmpDir, packageDir)
-    const executablePath = path.join(packageDir, manifest.windowsExecutable)
+    const executablePath = path.join(packageDir, manifest.package.windowsExecutable)
     await validateV5AppArtifact(config, profile.id, executablePath, opts)
     return {
       appId: config.id,
@@ -416,7 +420,7 @@ export async function buildV5AppPackage(config, opts) {
 
   try {
     await copyEntry(staged.packageDir, packageRoot)
-    const catalogIcon = await buildCatalogIconFromPackagedAppIcon(packageRoot, staged.manifest.icon)
+    const catalogIcon = await buildCatalogIconFromPackagedAppIcon(packageRoot, staged.manifest.package.icon)
 
     const zipName = `${config.id}-${version}-windows.zip`
     const zipPath = path.join(outDir, zipName)
