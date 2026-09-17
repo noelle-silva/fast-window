@@ -73,6 +73,8 @@ export type CommandItem = {
   countdownSeconds: number
   runMode: CommandRunMode | ''
   processOwnership: ProcessOwnership
+  // 内置空间同时运行实例数上限；0 表示不限制。
+  maxEmbeddedRuns: number
   createdAt: string
   updatedAt: string
 }
@@ -89,6 +91,7 @@ export type CommandDraft = {
   countdownSeconds: number
   runMode: CommandRunMode | ''
   processOwnership: ProcessOwnership
+  maxEmbeddedRuns: number
 }
 
 export type RunEvent = {

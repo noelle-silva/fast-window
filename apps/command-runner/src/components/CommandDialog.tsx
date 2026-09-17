@@ -18,6 +18,8 @@ type CommandDialogProps = {
   onClose: () => void
 }
 
+const MAX_EMBEDDED_RUNS = 99
+
 const EMPTY_DRAFT: CommandDraft = {
   repoId: '',
   name: '',
@@ -30,6 +32,7 @@ const EMPTY_DRAFT: CommandDraft = {
   countdownSeconds: 0,
   runMode: '',
   processOwnership: '',
+  maxEmbeddedRuns: 0,
 }
 
 export function CommandDialog({
@@ -54,6 +57,8 @@ export function CommandDialog({
   )
   const [runMode, setRunMode] = React.useState<CommandRunMode | ''>(initial?.runMode ?? '')
   const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
+  const [limitEmbeddedRuns, setLimitEmbeddedRuns] = React.useState((initial?.maxEmbeddedRuns ?? 0) > 0)
+  const [maxEmbeddedRuns, setMaxEmbeddedRuns] = React.useState(initial && initial.maxEmbeddedRuns > 0 ? initial.maxEmbeddedRuns : 1)
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && script.trim().length > 0 && !disabled && !submitting
 
@@ -80,11 +85,12 @@ export function CommandDialog({
         countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0,
         runMode,
         processOwnership,
+        maxEmbeddedRuns: limitEmbeddedRuns ? maxEmbeddedRuns : 0,
       })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, limitEmbeddedRuns, maxEmbeddedRuns, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -145,6 +151,28 @@ export function CommandDialog({
           label="运行完成时发送系统通知"
           sx={{ alignSelf: 'flex-start' }}
         />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <FormControlLabel
+            control={<Switch checked={limitEmbeddedRuns} disabled={disabled || submitting} onChange={event => setLimitEmbeddedRuns(event.target.checked)} />}
+            label="限制内置空间同时运行数量"
+            sx={{ mr: 0 }}
+          />
+          {limitEmbeddedRuns ? (
+            <TextField
+              type="number"
+              size="small"
+              label="上限"
+              value={maxEmbeddedRuns}
+              disabled={disabled || submitting}
+              onChange={event => {
+                const parsed = Math.floor(Number(event.target.value))
+                setMaxEmbeddedRuns(Number.isFinite(parsed) ? Math.min(MAX_EMBEDDED_RUNS, Math.max(1, parsed)) : 1)
+              }}
+              sx={{ width: 110 }}
+              inputProps={{ min: 1, max: MAX_EMBEDDED_RUNS }}
+            />
+          ) : null}
+        </Box>
         <ShellSelect
           value={shellId}
           shells={shells}
