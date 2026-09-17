@@ -11,6 +11,6 @@ pub(crate) use manager::{
 };
 pub(crate) use process_owner::{ManagedAppChild, ManagedAppCommand, ManagedAppPipe};
 pub(crate) use service_declaration::{
-    read_service_declaration_at, ServiceConnection, ServiceConnectionFile,
-    ServiceConnectionFileFormat, ServiceConnectionValue, ServiceDeclaration,
+    ServiceConnection, ServiceConnectionFile, ServiceConnectionFileFormat,
+    ServiceConnectionValue, ServiceDeclaration,
 };

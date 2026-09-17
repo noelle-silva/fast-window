@@ -4,8 +4,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::app_lifecycle::{
-    read_service_declaration_at, ServiceConnection, ServiceConnectionFile,
-    ServiceConnectionFileFormat, ServiceConnectionValue,
+    ServiceConnection, ServiceConnectionFile, ServiceConnectionFileFormat, ServiceConnectionValue,
 };
 
 const CONNECTION_KEY_MAX_BYTES: usize = 4096;
@@ -82,13 +81,10 @@ fn save_connection_value(
     field: ConnectionField,
     raw_value: &str,
 ) -> Result<String, String> {
-    let Some(location) =
-        crate::app_installer::resolve_installed_service_declaration_location(exe_path)?
-    else {
+    let Some(app) = crate::app_installer::resolve_installed_service_app(exe_path)? else {
         return Err("该应用不是服务应用，无法保存服务信息".to_string());
     };
-    let declaration = read_service_declaration_at(&location.declaration_path)?;
-    let Some(entry) = field.from_connection(declaration.connection.as_ref()) else {
+    let Some(entry) = field.from_connection(app.declaration.connection.as_ref()) else {
         return Err("声明中没有配置该项".to_string());
     };
     let ServiceConnectionValue::File(file) = entry else {
@@ -96,7 +92,7 @@ fn save_connection_value(
     };
 
     let value = normalize_connection_value(field, raw_value)?;
-    let target = location.manifest_dir.join(&file.path);
+    let target = app.manifest_dir.join(&file.path);
     write_connection_file(file, &target, &value)?;
     Ok(value)
 }
@@ -220,16 +216,7 @@ mod tests {
 
     use super::{app_service_config_save, save_connection_value, ConnectionField};
 
-    const SERVICE_MANIFEST: &str = r#"{
-        "id": "eucli-box",
-        "name": "eucli-box",
-        "version": "0.1.2",
-        "windowsExecutable": "eucli-box.exe",
-        "service": "fw-app.service.json"
-    }"#;
-
     const SERVICE_DECLARATION: &str = r#"{
-        "start": { "executable": "eucli-box.exe" },
         "ready": { "type": "log", "match": "is ready" },
         "connection": {
             "port": { "type": "file", "path": "data/.meta/port.json", "format": "json", "field": "port" },
@@ -247,15 +234,30 @@ mod tests {
         root
     }
 
-    fn write_service_package(root: &Path, declaration: &str) -> PathBuf {
+    fn service_manifest(declaration: &str) -> String {
+        format!(
+            r#"{{
+  "type": "service-app",
+  "id": "eucli-box",
+  "name": "eucli-box",
+  "version": "0.1.2",
+  "package": {{ "windowsExecutable": "eucli-box.exe" }},
+  "service": {declaration}
+}}"#
+        )
+    }
+
+    fn write_package(root: &Path, manifest: &str) -> PathBuf {
         let package_dir = root.join("eucli-box").join("package");
         std::fs::create_dir_all(&package_dir).expect("创建测试目录失败");
-        std::fs::write(package_dir.join("fw-app.json"), SERVICE_MANIFEST).expect("写入清单失败");
-        std::fs::write(package_dir.join("fw-app.service.json"), declaration)
-            .expect("写入服务声明失败");
+        std::fs::write(package_dir.join("fw-app.json"), manifest).expect("写入清单失败");
         let exe_path = package_dir.join("eucli-box.exe");
         std::fs::write(&exe_path, b"").expect("写入可执行文件失败");
         exe_path
+    }
+
+    fn write_service_package(root: &Path, declaration: &str) -> PathBuf {
+        write_package(root, &service_manifest(declaration))
     }
 
     fn connection_file_path(exe_path: &Path, relative: &str) -> PathBuf {
@@ -389,7 +391,6 @@ mod tests {
         let exe_path = write_service_package(
             &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "port": { "type": "value", "value": "9000" }
@@ -410,7 +411,6 @@ mod tests {
         let exe_path = write_service_package(
             &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "key": { "type": "file", "path": "data/.meta/box.key" }
@@ -426,21 +426,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_window_app_save() {
+    fn rejects_desktop_app_save() {
         let root = test_root("window-app");
-        let package_dir = root.join("demo").join("package");
-        std::fs::create_dir_all(&package_dir).expect("创建测试目录失败");
-        std::fs::write(
-            package_dir.join("fw-app.json"),
+        write_package(
+            &root,
             r#"{
+                "type": "desktop-app",
                 "id": "demo",
                 "name": "demo",
                 "version": "0.1.0",
-                "windowsExecutable": "demo.exe"
+                "package": { "windowsExecutable": "demo.exe" }
             }"#,
-        )
-        .expect("写入清单失败");
-        let exe_path = package_dir.join("demo.exe");
+        );
+        let exe_path = root.join("eucli-box").join("package").join("demo.exe");
         std::fs::write(&exe_path, b"").expect("写入可执行文件失败");
 
         let error = save_connection_value(&exe_path, ConnectionField::Port, "9000").unwrap_err();
@@ -455,7 +453,6 @@ mod tests {
         let exe_path = write_service_package(
             &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "key": { "type": "file", "path": "../box.key" }
@@ -467,7 +464,7 @@ mod tests {
         let error = save_connection_value(&exe_path, ConnectionField::Key, "secret").unwrap_err();
 
         assert!(
-            error.starts_with("fw-app.service.connection.key.path 不合法"),
+            error.contains("fw-app.service.connection.key.path 不合法"),
             "{error}"
         );
         assert!(!root.join("eucli-box").join("box.key").exists());
@@ -497,7 +494,6 @@ mod tests {
         let exe_path = write_service_package(
             &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "key": { "type": "file", "path": "data/.meta/box.key.json", "format": "json", "field": "key" }

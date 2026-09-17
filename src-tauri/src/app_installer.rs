@@ -5,14 +5,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::Shortcut;
 use tokio::io::AsyncWriteExt;
 
-use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager};
+use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager, ServiceDeclaration};
 use crate::install_fs::begin_replace_dir_from_tmp;
 use crate::{
     app_apps_dir, ensure_writable_dir, is_https_url, normalize_zip_name, now_ms,
@@ -29,18 +30,63 @@ const APP_ICON_DATA_URL_MAX_LEN: usize = 700 * 1024;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppPackageManifest {
+    #[serde(rename = "type")]
+    app_type: AppType,
     id: String,
     name: String,
     version: String,
-    windows_executable: String,
+    package: AppPackageSection,
     #[serde(default)]
-    icon: Option<String>,
-    #[serde(default)]
-    service: Option<String>,
+    service: Option<ServiceDeclaration>,
     #[serde(default)]
     display_mode: Option<String>,
     #[serde(default)]
     commands: Vec<AppPackageCommand>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AppType {
+    DesktopApp,
+    ServiceApp,
+}
+
+impl AppType {
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim() {
+            "desktop-app" => Ok(Self::DesktopApp),
+            "service-app" => Ok(Self::ServiceApp),
+            _ => Err("fw-app.type 必须为 desktop-app 或 service-app".to_string()),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::DesktopApp => "desktop-app",
+            Self::ServiceApp => "service-app",
+        }
+    }
+
+    fn is_service(self) -> bool {
+        matches!(self, Self::ServiceApp)
+    }
+}
+
+impl<'de> Deserialize<'de> for AppType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(D::Error::custom)
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppPackageSection {
+    windows_executable: String,
+    #[serde(default)]
+    icon: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -102,6 +148,7 @@ struct ExtractedAppPackage {
 struct ResolvedInstalledApp {
     app_container: PathBuf,
     manifest_dir: PathBuf,
+    executable_relative: PathBuf,
     exe_path: PathBuf,
     manifest: AppPackageManifest,
 }
@@ -112,9 +159,11 @@ struct RegisteredInstalledApp {
     installed: ResolvedInstalledApp,
 }
 
-pub(crate) struct InstalledServiceDeclarationLocation {
+pub(crate) struct InstalledServiceApp {
     pub(crate) manifest_dir: PathBuf,
-    pub(crate) declaration_path: PathBuf,
+    pub(crate) executable_relative: PathBuf,
+    pub(crate) executable_path: PathBuf,
+    pub(crate) declaration: ServiceDeclaration,
 }
 
 impl Drop for ExtractedAppPackage {
@@ -346,22 +395,6 @@ fn manifest_identity(manifest: &AppPackageManifest) -> Result<(String, String), 
     Ok((id, version))
 }
 
-fn service_declaration_path(manifest: &AppPackageManifest) -> Option<&str> {
-    manifest
-        .service
-        .as_deref()
-        .map(str::trim)
-        .filter(|service| !service.is_empty())
-}
-
-fn manifest_app_kind(manifest: &AppPackageManifest) -> &'static str {
-    if service_declaration_path(manifest).is_some() {
-        "service"
-    } else {
-        "window"
-    }
-}
-
 fn validate_manifest_against_self(
     manifest: &AppPackageManifest,
 ) -> Result<(String, String), String> {
@@ -385,8 +418,9 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
         if manifest_path.is_file() {
             let manifest = read_installed_manifest(&manifest_path)?;
             validate_manifest_against_self(&manifest)?;
-            let declared_exe =
-                dir.join(safe_relative_path_no_curdir(&manifest.windows_executable)?);
+            let executable_relative =
+                safe_relative_path_no_curdir(&manifest.package.windows_executable)?;
+            let declared_exe = dir.join(&executable_relative);
             if !same_path(&declared_exe, exe_path) {
                 return Err(
                     "所选应用文件不是 fw-app.json 声明的 windowsExecutable，拒绝注册".to_string(),
@@ -397,6 +431,7 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
             return Ok(Some(ResolvedInstalledApp {
                 app_container,
                 manifest_dir: dir,
+                executable_relative,
                 exe_path: declared_exe,
                 manifest,
             }));
@@ -407,23 +442,22 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
     }
 }
 
-/// 从已安装应用的可执行文件向上定位包清单，并解析出包内服务声明文件的绝对路径。
-/// 窗口应用（清单没有 service 字段）返回 None。
-pub(crate) fn resolve_installed_service_declaration_location(
+/// 从已安装应用的可执行文件向上定位包清单，并取出包内内联的服务声明。
+/// 桌面类应用（type=desktop-app）返回 None。
+pub(crate) fn resolve_installed_service_app(
     exe_path: &Path,
-) -> Result<Option<InstalledServiceDeclarationLocation>, String> {
+) -> Result<Option<InstalledServiceApp>, String> {
     let Some(installed) = resolve_installed_app_from_exe(exe_path)? else {
         return Ok(None);
     };
-    let Some(service) = service_declaration_path(&installed.manifest) else {
+    let Some(declaration) = installed.manifest.service.clone() else {
         return Ok(None);
     };
-    let declaration_path = installed
-        .manifest_dir
-        .join(safe_relative_path_no_curdir(service)?);
-    Ok(Some(InstalledServiceDeclarationLocation {
+    Ok(Some(InstalledServiceApp {
         manifest_dir: installed.manifest_dir,
-        declaration_path,
+        executable_relative: installed.executable_relative,
+        executable_path: installed.exe_path,
+        declaration,
     }))
 }
 
@@ -439,7 +473,7 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
             &installed.manifest_dir,
             &installed.exe_path,
         )?,
-        app_kind: manifest_app_kind(&installed.manifest).to_string(),
+        app_kind: installed.manifest.app_type.as_str().to_string(),
         display_mode: installed
             .manifest
             .display_mode
@@ -694,20 +728,29 @@ fn validate_package_manifest(
             expected_version, version
         ));
     }
-    let exe = safe_relative_path_no_curdir(&manifest.windows_executable)?;
+    let exe = safe_relative_path_no_curdir(&manifest.package.windows_executable)?;
     if !exe
         .extension()
         .and_then(|s| s.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("exe"))
         .unwrap_or(false)
     {
-        return Err("fw-app.windowsExecutable 必须指向 .exe 文件".to_string());
+        return Err("fw-app.package.windowsExecutable 必须指向 .exe 文件".to_string());
     }
     validate_display_mode(manifest.display_mode.as_deref())?;
-    validate_icon(manifest.icon.as_deref())?;
-    validate_service_declaration(manifest.service.as_deref())?;
+    validate_icon(manifest.package.icon.as_deref(), "fw-app.package.icon")?;
+    validate_app_type_consistency(manifest)?;
     validate_commands(&manifest.commands)?;
     Ok(())
+}
+
+/// 校验清单类别与 service 段的一致性：service-app 必带段，desktop-app 不得带段。
+fn validate_app_type_consistency(manifest: &AppPackageManifest) -> Result<(), String> {
+    match (manifest.app_type.is_service(), manifest.service.is_some()) {
+        (true, false) => Err("fw-app.type 为 service-app 时必须提供 service 段".to_string()),
+        (false, true) => Err("fw-app.type 为 desktop-app 时不允许提供 service 段".to_string()),
+        _ => Ok(()),
+    }
 }
 
 fn validate_display_mode(value: Option<&str>) -> Result<(), String> {
@@ -721,25 +764,17 @@ fn validate_display_mode(value: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn validate_icon(icon: Option<&str>) -> Result<(), String> {
+fn validate_icon(icon: Option<&str>, field: &str) -> Result<(), String> {
     let Some(icon) = icon.map(str::trim).filter(|icon| !icon.is_empty()) else {
         return Ok(());
     };
     if icon.starts_with("data:image/") && icon.len() > APP_ICON_DATA_URL_MAX_LEN {
-        return Err("fw-app.icon data URL 过大".to_string());
+        return Err(format!("{field} data URL 过大"));
     }
     if icon.starts_with("data:image/") || is_short_icon_text(icon) {
         return Ok(());
     }
-    let _ = safe_relative_path_no_curdir(icon)?;
-    Ok(())
-}
-
-fn validate_service_declaration(value: Option<&str>) -> Result<(), String> {
-    let Some(service) = value.map(str::trim).filter(|service| !service.is_empty()) else {
-        return Ok(());
-    };
-    safe_relative_path_no_curdir(service).map_err(|e| format!("fw-app.service 不合法: {e}"))?;
+    safe_relative_path_no_curdir(icon).map_err(|e| format!("{field} 不合法: {e}"))?;
     Ok(())
 }
 
@@ -757,8 +792,10 @@ fn validate_commands(commands: &[AppPackageCommand]) -> Result<(), String> {
         if title.is_empty() || title.len() > 80 {
             return Err(format!("fw-app.commands.title 不合法: {id}"));
         }
-        validate_icon(command.icon.as_deref())
-            .map_err(|e| format!("fw-app.commands.icon 不合法: {id}, {e}"))?;
+        validate_icon(
+            command.icon.as_deref(),
+            &format!("fw-app.commands.icon[{id}]"),
+        )?;
         if let Some(hotkey) = command
             .hotkey
             .as_deref()
@@ -834,22 +871,16 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
     if !root.join(FW_APP_MANIFEST).is_file() {
         return Err("解压后的应用缺少 fw-app.json".to_string());
     }
-    let exe = safe_relative_path_no_curdir(&manifest.windows_executable)?;
+    let exe = safe_relative_path_no_curdir(&manifest.package.windows_executable)?;
     if !root.join(exe).is_file() {
-        return Err("应用入口文件不存在（fw-app.windowsExecutable）".to_string());
+        return Err("应用入口文件不存在（fw-app.package.windowsExecutable）".to_string());
     }
-    if let Some(service) = service_declaration_path(manifest) {
-        let rel = safe_relative_path_no_curdir(service)?;
-        if !root.join(rel).is_file() {
-            return Err("应用服务声明文件不存在（fw-app.service）".to_string());
-        }
-    }
-    if let Some(icon) = manifest.icon.as_deref().map(str::trim).filter(|icon| {
+    if let Some(icon) = manifest.package.icon.as_deref().map(str::trim).filter(|icon| {
         !icon.is_empty() && !icon.starts_with("data:image/") && !is_short_icon_text(icon)
     }) {
         let rel = safe_relative_path_no_curdir(icon)?;
         if !root.join(rel).is_file() {
-            return Err("应用图标文件不存在（fw-app.icon）".to_string());
+            return Err("应用图标文件不存在（fw-app.package.icon）".to_string());
         }
     }
     for command in &manifest.commands {
@@ -877,10 +908,10 @@ async fn install_extracted_app_package(
 ) -> Result<AppStoreInstallResult, String> {
     let app_id = package.manifest.id.trim().to_string();
     let package_dir = crate::app_layout::app_package_dir(&app_container);
-    let exe_rel = safe_relative_path_no_curdir(&package.manifest.windows_executable)?;
+    let exe_rel = safe_relative_path_no_curdir(&package.manifest.package.windows_executable)?;
     let exe_path = package_dir.join(exe_rel);
     let icon_exe_path = package.tmp_dir.join(safe_relative_path_no_curdir(
-        &package.manifest.windows_executable,
+        &package.manifest.package.windows_executable,
     )?);
     let record = build_registered_app_record(
         &package.manifest,
@@ -988,7 +1019,7 @@ fn build_registered_app_record(
     );
     record.insert(
         "appKind".to_string(),
-        Value::String(manifest_app_kind(manifest).to_string()),
+        Value::String(manifest.app_type.as_str().to_string()),
     );
     if !record.contains_key("icon") {
         record.insert(
@@ -1025,6 +1056,7 @@ fn resolve_app_icon(
     exe_path: &Path,
 ) -> Result<String, String> {
     if let Some(icon) = manifest
+        .package
         .icon
         .as_deref()
         .map(str::trim)
@@ -1128,94 +1160,108 @@ mod tests {
     fn service_manifest() -> AppPackageManifest {
         parse_manifest(
             r#"{
+                "type": "service-app",
                 "id": "eucli-box",
                 "name": "eucli-box",
                 "version": "0.1.2",
-                "windowsExecutable": "eucli-box.exe",
-                "service": "fw-app.service.json"
+                "package": { "windowsExecutable": "eucli-box.exe" },
+                "service": {
+                    "ready": { "type": "log", "match": "is ready" },
+                    "stop": { "type": "terminate" }
+                }
+            }"#,
+        )
+    }
+
+    fn desktop_manifest() -> AppPackageManifest {
+        parse_manifest(
+            r#"{
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "demo-app",
+                "version": "0.1.0",
+                "package": { "windowsExecutable": "demo-app.exe" }
             }"#,
         )
     }
 
     #[test]
-    fn parses_service_declaration_and_marks_app_as_service() {
+    fn parses_service_app_and_reports_kind() {
         let manifest = service_manifest();
 
-        assert_eq!(manifest.service.as_deref(), Some("fw-app.service.json"));
-        assert_eq!(manifest_app_kind(&manifest), "service");
+        assert_eq!(manifest.app_type.as_str(), "service-app");
+        assert!(manifest.service.is_some());
+        assert!(validate_app_type_consistency(&manifest).is_ok());
     }
 
     #[test]
-    fn legacy_manifest_without_service_is_window_app() {
-        let manifest = parse_manifest(
-            r#"{
-                "id": "legacy-app",
-                "name": "legacy-app",
-                "version": "0.1.0",
-                "windowsExecutable": "legacy-app.exe"
-            }"#,
-        );
+    fn desktop_manifest_is_desktop_app() {
+        let manifest = desktop_manifest();
 
+        assert_eq!(manifest.app_type.as_str(), "desktop-app");
         assert!(manifest.service.is_none());
-        assert_eq!(manifest_app_kind(&manifest), "window");
+        assert!(validate_app_type_consistency(&manifest).is_ok());
     }
 
     #[test]
-    fn blank_service_declaration_is_window_app() {
+    fn rejects_unknown_app_type() {
+        let error = serde_json::from_str::<AppPackageManifest>(
+            r#"{
+                "type": "daemon-app",
+                "id": "demo-app",
+                "name": "demo-app",
+                "version": "0.1.0",
+                "package": { "windowsExecutable": "demo-app.exe" }
+            }"#,
+        )
+        .err()
+        .expect("未知类别应解析失败")
+        .to_string();
+
+        assert!(
+            error.contains("fw-app.type 必须为 desktop-app 或 service-app"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_service_app_without_service_section() {
         let manifest = parse_manifest(
             r#"{
-                "id": "legacy-app",
-                "name": "legacy-app",
-                "version": "0.1.0",
-                "windowsExecutable": "legacy-app.exe",
-                "service": "  "
+                "type": "service-app",
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "package": { "windowsExecutable": "eucli-box.exe" }
             }"#,
         );
 
-        assert_eq!(manifest_app_kind(&manifest), "window");
-        assert!(validate_service_declaration(manifest.service.as_deref()).is_ok());
-    }
-
-    #[test]
-    fn accepts_relative_service_declaration_path() {
-        assert!(validate_service_declaration(Some("fw-app.service.json")).is_ok());
-        assert!(validate_service_declaration(Some("declarations/fw-app.service.json")).is_ok());
-        assert!(validate_service_declaration(None).is_ok());
-    }
-
-    #[test]
-    fn rejects_unsafe_service_declaration_paths() {
         assert_eq!(
-            validate_service_declaration(Some("../fw-app.service.json")).unwrap_err(),
-            "fw-app.service 不合法: 路径不合法（不允许包含 .. 等）"
-        );
-        assert_eq!(
-            validate_service_declaration(Some("./fw-app.service.json")).unwrap_err(),
-            "fw-app.service 不合法: 路径不合法（不允许包含 .）"
+            validate_app_type_consistency(&manifest).unwrap_err(),
+            "fw-app.type 为 service-app 时必须提供 service 段"
         );
     }
 
     #[test]
-    fn rejects_missing_service_declaration_in_extracted_app() {
-        let manifest = service_manifest();
-        let root = std::env::temp_dir().join(format!(
-            "fw-app-installer-test-service-declaration-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("创建测试目录失败");
-        std::fs::write(root.join(FW_APP_MANIFEST), "{}").expect("写入清单失败");
-        std::fs::write(root.join("eucli-box.exe"), b"").expect("写入可执行文件失败");
-
-        assert_eq!(
-            validate_extracted_app(&root, &manifest).unwrap_err(),
-            "应用服务声明文件不存在（fw-app.service）"
+    fn rejects_desktop_app_with_service_section() {
+        let manifest = parse_manifest(
+            r#"{
+                "type": "desktop-app",
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "package": { "windowsExecutable": "eucli-box.exe" },
+                "service": {
+                    "ready": { "type": "log", "match": "is ready" },
+                    "stop": { "type": "terminate" }
+                }
+            }"#,
         );
 
-        std::fs::write(root.join("fw-app.service.json"), "{}").expect("写入服务声明失败");
-        assert!(validate_extracted_app(&root, &manifest).is_ok());
-
-        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(
+            validate_app_type_consistency(&manifest).unwrap_err(),
+            "fw-app.type 为 desktop-app 时不允许提供 service 段"
+        );
     }
 
     fn write_test_package(root: &Path, manifest: &str) -> (PathBuf, PathBuf) {
@@ -1228,58 +1274,64 @@ mod tests {
     }
 
     #[test]
-    fn resolves_service_declaration_location_for_service_app() {
+    fn resolves_service_app_with_inline_declaration() {
         let root = std::env::temp_dir().join(format!(
-            "fw-app-installer-test-service-location-{}",
+            "fw-app-installer-test-service-app-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);
         let (package_dir, exe_path) = write_test_package(
             &root,
             r#"{
+                "type": "service-app",
                 "id": "eucli-box",
                 "name": "eucli-box",
                 "version": "0.1.2",
-                "windowsExecutable": "eucli-box.exe",
-                "service": "fw-app.service.json"
+                "package": { "windowsExecutable": "eucli-box.exe" },
+                "service": {
+                    "ready": { "type": "log", "match": "is ready" },
+                    "connection": {
+                        "port": { "type": "file", "path": "data/.meta/port.json", "format": "json", "field": "port" }
+                    },
+                    "stop": { "type": "terminate" }
+                }
             }"#,
         );
-        std::fs::write(package_dir.join("fw-app.service.json"), "{}").expect("写入服务声明失败");
 
-        let location = resolve_installed_service_declaration_location(&exe_path)
-            .expect("解析服务声明位置失败")
-            .expect("服务应用应定位到声明文件");
+        let app = resolve_installed_service_app(&exe_path)
+            .expect("解析服务应用失败")
+            .expect("服务应用应解析出内联声明");
 
-        assert_eq!(location.manifest_dir, package_dir);
-        assert_eq!(
-            location.declaration_path,
-            package_dir.join("fw-app.service.json")
-        );
+        assert_eq!(app.manifest_dir, package_dir);
+        assert_eq!(app.executable_relative, PathBuf::from("eucli-box.exe"));
+        assert_eq!(app.executable_path, package_dir.join("eucli-box.exe"));
+        assert_eq!(app.declaration.ready_match, "is ready");
+        assert!(app.declaration.connection.is_some());
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn resolves_no_service_declaration_location_for_window_app() {
+    fn resolves_no_service_app_for_desktop_app() {
         let root = std::env::temp_dir().join(format!(
-            "fw-app-installer-test-window-location-{}",
+            "fw-app-installer-test-desktop-app-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);
         let (_package_dir, exe_path) = write_test_package(
             &root,
             r#"{
-                "id": "legacy-app",
-                "name": "legacy-app",
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "demo-app",
                 "version": "0.1.0",
-                "windowsExecutable": "eucli-box.exe"
+                "package": { "windowsExecutable": "eucli-box.exe" }
             }"#,
         );
 
-        let location = resolve_installed_service_declaration_location(&exe_path)
-            .expect("解析服务声明位置失败");
+        let app = resolve_installed_service_app(&exe_path).expect("解析服务应用失败");
 
-        assert!(location.is_none());
+        assert!(app.is_none());
 
         let _ = std::fs::remove_dir_all(&root);
     }

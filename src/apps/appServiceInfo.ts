@@ -55,7 +55,7 @@ function normalizeConnectionValue(
 
 function normalizeAppServiceInfo(info: AppServiceInfo): AppServiceInfo {
   return {
-    appKind: info.appKind === 'service' ? 'service' : 'window',
+    appKind: info.appKind === 'service-app' ? 'service-app' : 'desktop-app',
     start: info.start
       ? {
           executable: info.start.executable || '',

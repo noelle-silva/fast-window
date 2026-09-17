@@ -6,7 +6,7 @@ function normalizeDisplayMode(value: string): AppDisplayMode {
 }
 
 function normalizeAppKind(value: AppKind | undefined): AppKind {
-  return value === 'service' ? 'service' : 'window'
+  return value === 'service-app' ? 'service-app' : 'desktop-app'
 }
 
 export async function inspectInstalledApp(path: string): Promise<InstalledAppInfo> {

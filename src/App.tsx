@@ -449,7 +449,7 @@ function App() {
     } catch (error: any) {
       console.warn('[app] launch failed:', error)
       // 窗口应用维持原有静默失败行为，服务应用需要把"已在运行"等状态提示给用户
-      if (app.appKind === 'service') {
+      if (app.appKind === 'service-app') {
         showToast(String(error?.message || error || '启动应用失败'))
       }
     } finally {

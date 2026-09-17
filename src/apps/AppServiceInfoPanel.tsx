@@ -136,7 +136,7 @@ export default function AppServiceInfoPanel({ info, loading, error, exePath, onS
     )
   }
 
-  if (!info || info.appKind !== 'service') return null
+  if (!info || info.appKind !== 'service-app') return null
 
   const start = info.start
   const environmentEntries = start ? Object.entries(start.environment) : []

@@ -91,7 +91,7 @@ export default function AppBackgroundPanel({ apps, onClose, embedded }: AppBackg
       await launchApp(app, 'show')
     } catch (e: any) {
       console.error('[app] launch failed:', e)
-      if (app.appKind === 'service') {
+      if (app.appKind === 'service-app') {
         await hostToast(String(e?.message || e || '启动应用失败'))
       }
     }
@@ -158,7 +158,7 @@ export default function AppBackgroundPanel({ apps, onClose, embedded }: AppBackg
                     onClick={() => handleLaunch(app)}
                     disabled={busyId === app.id}
                   >
-                    {app.appKind === 'service' ? '启动' : status?.running ? '唤醒' : '启动'}
+                    {app.appKind === 'service-app' ? '启动' : status?.running ? '唤醒' : '启动'}
                   </Button>
                   {status?.running ? (
                     <Button

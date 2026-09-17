@@ -99,7 +99,7 @@ export default function AppRegistrationPanel({
 
   const editingApp = editingId ? apps.find(app => app.id === editingId) ?? null : null
   const dialogAppKind: AppKind | null = serviceInfo?.appKind ?? editingAppKind
-  const showServiceInfo = dialogAppKind === 'service'
+  const showServiceInfo = dialogAppKind === 'service-app'
 
   const clearServiceInfo = () => {
     serviceInfoRequestIdRef.current += 1
@@ -588,7 +588,7 @@ export default function AppRegistrationPanel({
             <Box component="span">{editingId ? '编辑应用' : '添加应用'}</Box>
             {dialogAppKind ? (
               <Chip
-                label={dialogAppKind === 'service' ? '服务' : '窗口'}
+                label={dialogAppKind === 'service-app' ? '服务' : '窗口'}
                 size="small"
                 sx={{ ...hostSoftChipSx, height: 20, fontSize: 11 }}
               />

@@ -3,9 +3,9 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::app_installer::InstalledServiceApp;
 use crate::app_lifecycle::{
-    read_service_declaration_at, ServiceConnection, ServiceConnectionFile,
-    ServiceConnectionFileFormat, ServiceConnectionValue, ServiceDeclaration,
+    ServiceConnection, ServiceConnectionFile, ServiceConnectionFileFormat, ServiceConnectionValue,
 };
 
 const SERVICE_CONNECTION_VALUE_MAX_BYTES: u64 = 16 * 1024;
@@ -64,9 +64,9 @@ struct AppServiceConnectionValueInfo {
 }
 
 impl AppServiceInfo {
-    fn window() -> Self {
+    fn desktop() -> Self {
         Self {
-            app_kind: "window",
+            app_kind: "desktop-app",
             start: None,
             ready: None,
             stop: None,
@@ -93,7 +93,7 @@ impl AppServiceConnectionValueInfo {
     }
 }
 
-/// 读取已安装应用的服务信息：窗口应用返回 appKind=window 信号，服务应用附带只读声明信息。
+/// 读取已安装应用的服务信息：桌面应用返回 appKind=desktop-app 信号，服务应用附带只读声明信息。
 #[tauri::command]
 pub(crate) fn app_service_info(exe_path: String) -> Result<AppServiceInfo, String> {
     let raw = exe_path.trim();
@@ -104,21 +104,19 @@ pub(crate) fn app_service_info(exe_path: String) -> Result<AppServiceInfo, Strin
 }
 
 fn build_app_service_info_for_exe(exe_path: &Path) -> Result<AppServiceInfo, String> {
-    let Some(location) =
-        crate::app_installer::resolve_installed_service_declaration_location(exe_path)?
-    else {
-        return Ok(AppServiceInfo::window());
+    let Some(app) = crate::app_installer::resolve_installed_service_app(exe_path)? else {
+        return Ok(AppServiceInfo::desktop());
     };
 
-    let declaration = read_service_declaration_at(&location.declaration_path)?;
-    Ok(build_service_info(&location.manifest_dir, &declaration))
+    Ok(build_service_info(&app))
 }
 
-fn build_service_info(manifest_dir: &Path, declaration: &ServiceDeclaration) -> AppServiceInfo {
+fn build_service_info(app: &InstalledServiceApp) -> AppServiceInfo {
+    let declaration = &app.declaration;
     AppServiceInfo {
-        app_kind: "service",
+        app_kind: "service-app",
         start: Some(AppServiceStartInfo {
-            executable: declaration.executable.to_string_lossy().to_string(),
+            executable: app.executable_relative.to_string_lossy().to_string(),
             args: declaration.args.clone(),
             environment: declaration.environment.iter().cloned().collect(),
         }),
@@ -129,7 +127,7 @@ fn build_service_info(manifest_dir: &Path, declaration: &ServiceDeclaration) -> 
         stop: Some(AppServiceStopInfo {
             kind: declaration.stop_type.clone(),
         }),
-        connection: build_connection_info(manifest_dir, declaration.connection.as_ref()),
+        connection: build_connection_info(&app.manifest_dir, declaration.connection.as_ref()),
     }
 }
 
@@ -238,10 +236,7 @@ mod tests {
     };
 
     const SERVICE_DECLARATION: &str = r#"{
-        "schemaVersion": 1,
-        "id": "eucli-box",
         "start": {
-            "executable": "eucli-box.exe",
             "args": ["--port", "8765"]
         },
         "ready": { "type": "log", "match": "is ready", "timeoutSeconds": 10 },
@@ -261,6 +256,19 @@ mod tests {
         root
     }
 
+    fn service_manifest(declaration: &str) -> String {
+        format!(
+            r#"{{
+  "type": "service-app",
+  "id": "eucli-box",
+  "name": "eucli-box",
+  "version": "0.1.2",
+  "package": {{ "windowsExecutable": "eucli-box.exe" }},
+  "service": {declaration}
+}}"#
+        )
+    }
+
     fn write_package(root: &Path, manifest: &str) -> PathBuf {
         let package_dir = root.join("eucli-box").join("package");
         std::fs::create_dir_all(&package_dir).expect("创建测试目录失败");
@@ -270,22 +278,8 @@ mod tests {
         exe_path
     }
 
-    fn service_manifest() -> &'static str {
-        r#"{
-            "id": "eucli-box",
-            "name": "eucli-box",
-            "version": "0.1.2",
-            "windowsExecutable": "eucli-box.exe",
-            "service": "fw-app.service.json"
-        }"#
-    }
-
-    fn write_service_package(root: &Path) -> PathBuf {
-        let exe_path = write_package(root, service_manifest());
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        std::fs::write(package_dir.join("fw-app.service.json"), SERVICE_DECLARATION)
-            .expect("写入服务声明失败");
-        exe_path
+    fn write_service_package(root: &Path, declaration: &str) -> PathBuf {
+        write_package(root, &service_manifest(declaration))
     }
 
     fn connection_value<'a>(
@@ -308,21 +302,22 @@ mod tests {
     }
 
     #[test]
-    fn window_app_reports_window_kind_without_service_sections() {
+    fn desktop_app_reports_desktop_kind_without_service_sections() {
         let root = test_root("window");
         let exe_path = write_package(
             &root,
             r#"{
-                "id": "legacy-app",
-                "name": "legacy-app",
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "demo-app",
                 "version": "0.1.0",
-                "windowsExecutable": "eucli-box.exe"
+                "package": { "windowsExecutable": "eucli-box.exe" }
             }"#,
         );
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
-        assert_eq!(info.app_kind, "window");
+        assert_eq!(info.app_kind, "desktop-app");
         assert!(info.start.is_none());
         assert!(info.ready.is_none());
         assert!(info.stop.is_none());
@@ -334,11 +329,11 @@ mod tests {
     #[test]
     fn service_app_reports_declaration_sections() {
         let root = test_root("service");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
-        assert_eq!(info.app_kind, "service");
+        assert_eq!(info.app_kind, "service-app");
         let start = info.start.as_ref().expect("服务应用应有启动方式");
         assert_eq!(start.executable, "eucli-box.exe");
         assert_eq!(start.args, vec!["--port", "8765"]);
@@ -359,20 +354,16 @@ mod tests {
     #[test]
     fn connection_literal_value_is_returned_verbatim() {
         let root = test_root("literal");
-        let exe_path = write_package(&root, service_manifest());
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        std::fs::write(
-            package_dir.join("fw-app.service.json"),
+        let exe_path = write_service_package(
+            &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "port": { "type": "value", "value": "http://127.0.0.1:8765" }
                 },
                 "stop": { "type": "terminate" }
             }"#,
-        )
-        .expect("写入服务声明失败");
+        );
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
@@ -387,7 +378,7 @@ mod tests {
     #[test]
     fn connection_text_file_is_read_and_trimmed() {
         let root = test_root("text-file");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/box.key", "  secret-key\n");
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -403,7 +394,7 @@ mod tests {
     #[test]
     fn connection_json_file_reads_string_field() {
         let root = test_root("json-string");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": "8765" }"#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -419,7 +410,7 @@ mod tests {
     #[test]
     fn connection_json_file_reads_number_field() {
         let root = test_root("json-number");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": 9000 }"#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -435,7 +426,7 @@ mod tests {
     #[test]
     fn missing_connection_files_report_pending_reason() {
         let root = test_root("missing-file");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
@@ -452,7 +443,7 @@ mod tests {
     #[test]
     fn broken_connection_json_reports_unavailable_reason() {
         let root = test_root("broken-json");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": "#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -468,7 +459,7 @@ mod tests {
     #[test]
     fn missing_connection_json_field_reports_unavailable_reason() {
         let root = test_root("missing-json-field");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "other": 9000 }"#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -483,7 +474,7 @@ mod tests {
     #[test]
     fn unsupported_connection_json_field_type_reports_unavailable_reason() {
         let root = test_root("json-field-type");
-        let exe_path = write_service_package(&root);
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
         write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": true }"#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -498,20 +489,16 @@ mod tests {
     #[test]
     fn missing_connection_sections_report_unavailable_reasons() {
         let root = test_root("partial");
-        let exe_path = write_package(&root, service_manifest());
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        std::fs::write(
-            package_dir.join("fw-app.service.json"),
+        let exe_path = write_service_package(
+            &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "connection": {
                     "key": { "type": "file", "path": "data/.meta/box.key" }
                 },
                 "stop": { "type": "terminate" }
             }"#,
-        )
-        .expect("写入服务声明失败");
+        );
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
@@ -525,37 +512,40 @@ mod tests {
     #[test]
     fn missing_connection_section_leaves_connection_absent() {
         let root = test_root("no-connection");
-        let exe_path = write_package(&root, service_manifest());
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        std::fs::write(
-            package_dir.join("fw-app.service.json"),
+        let exe_path = write_service_package(
+            &root,
             r#"{
-                "start": { "executable": "eucli-box.exe" },
                 "ready": { "type": "log", "match": "is ready" },
                 "stop": { "type": "terminate" }
             }"#,
-        )
-        .expect("写入服务声明失败");
+        );
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
-        assert_eq!(info.app_kind, "service");
+        assert_eq!(info.app_kind, "service-app");
         assert!(info.connection.is_none());
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn broken_declaration_reports_read_error() {
+    fn broken_inline_service_section_reports_parse_error() {
         let root = test_root("broken");
-        let exe_path = write_service_package(&root);
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        std::fs::write(package_dir.join("fw-app.service.json"), "not-json")
-            .expect("写入服务声明失败");
+        let exe_path = write_package(
+            &root,
+            r#"{
+                "type": "service-app",
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "package": { "windowsExecutable": "eucli-box.exe" },
+                "service": "not-an-object"
+            }"#,
+        );
 
         let error = build_app_service_info_for_exe(&exe_path).unwrap_err();
 
-        assert!(error.starts_with("服务声明文件解析失败"), "{error}");
+        assert!(error.starts_with("已安装 fw-app.json 解析失败"), "{error}");
 
         let _ = std::fs::remove_dir_all(&root);
     }

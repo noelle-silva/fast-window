@@ -9,8 +9,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::control_channel::{send_control_json, AppControlEndpoint};
-use super::service_declaration::{self, ServiceDeclaration};
+use super::service_declaration;
 use super::{ManagedAppChild, ManagedAppCommand, ManagedAppPipe};
+use crate::app_installer::InstalledServiceApp;
 
 const STOP_GRACE_TIMEOUT: Duration = Duration::from_millis(2_500);
 const STOP_GRACE_POLL: Duration = Duration::from_millis(100);
@@ -351,25 +352,25 @@ fn registered_app_is_service(app_handle: &AppHandle, app_id: &str) -> bool {
                 .get("appKind")
                 .and_then(serde_json::Value::as_str)
                 .map(str::trim)
-                == Some("service")
+                == Some("service-app")
         }
         // 注册记录读取失败时保持窗口应用既有启动行为
         Ok(None) | Err(_) => false,
     }
 }
 
-fn service_declaration_for_launch(
+fn service_app_for_launch(
     app_handle: &AppHandle,
     app_id: &str,
     exe_path: &str,
-) -> Result<Option<ServiceDeclaration>, String> {
+) -> Result<Option<InstalledServiceApp>, String> {
     if !registered_app_is_service(app_handle, app_id) {
         return Ok(None);
     }
     let path = app_executable_path(exe_path.to_string())?;
-    let declaration = service_declaration::load_service_declaration_for_exe(&path)?
-        .ok_or_else(|| "服务类应用缺少服务声明文件（fw-app.service）".to_string())?;
-    Ok(Some(declaration))
+    let app = crate::app_installer::resolve_installed_service_app(&path)?
+        .ok_or_else(|| "服务类应用缺少服务声明（fw-app.json 的 service 段）".to_string())?;
+    Ok(Some(app))
 }
 
 async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppControlEndpoint, String> {
@@ -608,8 +609,7 @@ fn running_entry(
 async fn launch_service_app(
     state: &Arc<AppLifecycleManager>,
     app_id: String,
-    exe_path: String,
-    declaration: ServiceDeclaration,
+    service_app: InstalledServiceApp,
     cold_start_policy: AppColdStartPolicy,
     launch_options: AppLaunchOptions,
 ) -> Result<AppLaunchOutcome, String> {
@@ -625,11 +625,8 @@ async fn launch_service_app(
         return Err("应用已在运行".to_string());
     }
 
-    let path = app_executable_path(exe_path)?;
-    if !crate::app_installer::same_path(&path, &declaration.executable) {
-        return Err("服务声明的可执行文件与注册应用路径不一致，拒绝启动".to_string());
-    }
-
+    let path = service_app.executable_path;
+    let declaration = service_app.declaration;
     let mut envs = declaration.environment.clone();
     envs.extend(launch_options.env_vars());
 
@@ -881,12 +878,11 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy_and_options(
 ) -> Result<AppLaunchOutcome, String> {
     let id = normalize_app_id(app_id)?;
 
-    if let Some(declaration) = service_declaration_for_launch(&app_handle, &id, &exe_path)? {
+    if let Some(service_app) = service_app_for_launch(&app_handle, &id, &exe_path)? {
         return launch_service_app(
             &state,
             id,
-            exe_path,
-            declaration,
+            service_app,
             cold_start_policy,
             launch_options,
         )

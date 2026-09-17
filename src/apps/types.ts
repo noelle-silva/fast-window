@@ -4,7 +4,7 @@ export type AppActivationAction = 'toggle' | 'show' | 'hide' | 'close'
 
 export type AppHotkeyLaunchBehavior = 'launch' | 'runningOnly'
 
-export type AppKind = 'window' | 'service'
+export type AppKind = 'desktop-app' | 'service-app'
 
 export interface RegisteredAppShortcut {
   id: string

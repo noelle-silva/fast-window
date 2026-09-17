@@ -262,7 +262,7 @@ fn validate_app_kind(value: &Value, app_id: &str) -> Result<(), String> {
     let Some(kind) = kind.as_str().map(str::trim) else {
         return Err(format!("{app_id} 的 appKind 必须是字符串"));
     };
-    if matches!(kind, "window" | "service") {
+    if matches!(kind, "desktop-app" | "service-app") {
         return Ok(());
     }
     Err(format!("{app_id} 的 appKind 不合法: {kind}"))
@@ -724,15 +724,15 @@ mod tests {
     use super::validate_app_value;
 
     #[test]
-    fn accepts_window_and_service_app_kinds() {
+    fn accepts_desktop_and_service_app_kinds() {
         assert!(validate_app_value(&serde_json::json!({
             "id": "app-1",
-            "appKind": "window",
+            "appKind": "desktop-app",
         }))
         .is_ok());
         assert!(validate_app_value(&serde_json::json!({
             "id": "app-1",
-            "appKind": "service",
+            "appKind": "service-app",
         }))
         .is_ok());
     }
