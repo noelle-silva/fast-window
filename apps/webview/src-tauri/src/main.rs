@@ -4,13 +4,12 @@ mod app_config;
 mod app_layout;
 mod backend_lifecycle;
 mod backend_sidecar;
-mod bookmarks;
 mod browser_commands;
 mod browser_stack;
+mod collections;
 mod control_server;
 mod data_dir;
 mod fw_window;
-mod http_gateway;
 mod native_dialog;
 mod shutdown;
 mod single_instance;
@@ -19,6 +18,7 @@ mod util;
 mod webview_settings;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
+use collections::{collections_request, CollectionsIoLock};
 use control_server::{
     available_commands, random_token, start_control_server, ControlServerConfig, REFERENCE_APP_ID,
 };
@@ -140,6 +140,7 @@ fn main() {
         .manage(backend_state)
         .manage(window_state)
         .manage(browser_stack_state)
+        .manage(CollectionsIoLock::default())
         .invoke_handler(tauri::generate_handler![
             backend_endpoint,
             data_dir_status,
@@ -149,6 +150,7 @@ fn main() {
             app_ready,
             fw_initial_command,
             fw_launch_info,
+            collections_request,
             browser_commands::open_browser_window,
             browser_commands::close_browser_window,
             browser_commands::hide_browser_stack,
@@ -164,13 +166,6 @@ fn main() {
             browser_commands::browser_video_set_rate,
             browser_commands::browser_video_toggle_preset,
             browser_commands::window_start_dragging,
-            http_gateway::http_request,
-            http_gateway::http_request_base64,
-            bookmarks::bookmarks_load,
-            bookmarks::bookmarks_save,
-            bookmarks::bookmark_icon_write,
-            bookmarks::bookmark_icon_read,
-            bookmarks::bookmark_icon_delete,
         ])
         .setup(move |app| {
             let window = app

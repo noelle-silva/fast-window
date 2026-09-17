@@ -51,11 +51,11 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
     vec![
         AppCommandDescriptor {
             id: "open-webview",
-            title: "打开 webview 书签主页",
+            title: "打开 webview 收藏桌面",
         },
         AppCommandDescriptor {
             id: "open-settings",
-            title: "编辑 webview 倍速设置",
+            title: "打开 webview 设置",
         },
         AppCommandDescriptor {
             id: "show-health",
