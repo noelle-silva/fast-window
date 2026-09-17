@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppKind } from './types'
 
 export interface AppServiceConnectionValue {
   available: boolean
@@ -27,13 +26,19 @@ export interface AppServiceStopInfo {
   type: string
 }
 
-export interface AppServiceInfo {
-  appKind: AppKind
+export interface DesktopAppServiceInfo {
+  appKind: 'desktop-app'
+}
+
+export interface ServiceAppServiceInfo {
+  appKind: 'service-app'
   start?: AppServiceStartInfo
   ready?: AppServiceReadyInfo
   stop?: AppServiceStopInfo
-  connection?: AppServiceConnectionInfo
+  connection: AppServiceConnectionInfo
 }
+
+export type AppServiceInfo = DesktopAppServiceInfo | ServiceAppServiceInfo
 
 export type AppServiceConfigField = 'port' | 'key'
 
@@ -42,20 +47,22 @@ export interface AppServiceConfigSaveResult {
   value: string
 }
 
+const PROFILE_PENDING_REASON = '尚未生成：启动服务后可用'
+
 function normalizeConnectionValue(
   value: AppServiceConnectionValue | undefined,
-  missingReason: string,
 ): AppServiceConnectionValue {
-  if (!value) return { available: false, value: '', reason: missingReason }
+  if (!value) return { available: false, value: '', reason: PROFILE_PENDING_REASON }
   if (value.available && value.value) {
     return { available: true, value: value.value, reason: '' }
   }
-  return { available: false, value: '', reason: value.reason || '不可用' }
+  return { available: false, value: '', reason: value.reason || PROFILE_PENDING_REASON }
 }
 
 function normalizeAppServiceInfo(info: AppServiceInfo): AppServiceInfo {
+  if (info.appKind !== 'service-app') return { appKind: 'desktop-app' }
   return {
-    appKind: info.appKind === 'service-app' ? 'service-app' : 'desktop-app',
+    appKind: 'service-app',
     start: info.start
       ? {
           executable: info.start.executable || '',
@@ -67,12 +74,10 @@ function normalizeAppServiceInfo(info: AppServiceInfo): AppServiceInfo {
       ? { match: info.ready.match || '', timeoutSeconds: info.ready.timeoutSeconds }
       : undefined,
     stop: info.stop ? { type: info.stop.type || '' } : undefined,
-    connection: info.connection
-      ? {
-          port: normalizeConnectionValue(info.connection.port, '声明中没有配置端口'),
-          key: normalizeConnectionValue(info.connection.key, '声明中没有配置钥匙'),
-        }
-      : undefined,
+    connection: {
+      port: normalizeConnectionValue(info.connection?.port),
+      key: normalizeConnectionValue(info.connection?.key),
+    },
   }
 }
 

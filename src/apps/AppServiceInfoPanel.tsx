@@ -185,26 +185,20 @@ export default function AppServiceInfoPanel({ info, loading, error, exePath, onS
 
       <Box>
         <SectionTitle>连接信息</SectionTitle>
-        {info.connection ? (
-          <>
-            <ConnectionValueEditor
-              label="端口"
-              field="port"
-              entry={info.connection.port}
-              exePath={exePath}
-              onSaved={onSaved}
-            />
-            <ConnectionValueEditor
-              label="钥匙"
-              field="key"
-              entry={info.connection.key}
-              exePath={exePath}
-              onSaved={onSaved}
-            />
-          </>
-        ) : (
-          <Typography sx={{ ...valueSx, color: 'text.secondary' }}>声明中没有配置连接信息</Typography>
-        )}
+        <ConnectionValueEditor
+          label="端口"
+          field="port"
+          entry={info.connection.port}
+          exePath={exePath}
+          onSaved={onSaved}
+        />
+        <ConnectionValueEditor
+          label="钥匙"
+          field="key"
+          entry={info.connection.key}
+          exePath={exePath}
+          onSaved={onSaved}
+        />
       </Box>
     </Box>
   )
