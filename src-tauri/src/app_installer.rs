@@ -202,9 +202,19 @@ pub(crate) fn pick_app_install_dir(app: AppHandle) -> Result<Option<String>, Str
 #[tauri::command]
 pub(crate) fn inspect_installed_app(exe_path: String) -> Result<InstalledAppInfo, String> {
     let exe_path = PathBuf::from(exe_path.trim());
-    let installed = resolve_installed_app_from_exe(&exe_path)?
-        .ok_or_else(|| "无法定位已安装应用的 fw-app.json，拒绝注册".to_string())?;
-    installed_app_info(&installed)
+    resolve_installed_app_info(&exe_path)?
+        .ok_or_else(|| "无法定位已安装应用的 fw-app.json，拒绝注册".to_string())
+}
+
+/// 按可执行文件定位已安装应用的 fw-app.json，返回清单视图。
+/// 应用不在磁盘或清单不可用时返回 None。
+pub(crate) fn resolve_installed_app_info(
+    exe_path: &Path,
+) -> Result<Option<InstalledAppInfo>, String> {
+    let Some(installed) = resolve_installed_app_from_exe(exe_path)? else {
+        return Ok(None);
+    };
+    installed_app_info(&installed).map(Some)
 }
 
 #[tauri::command]
@@ -910,16 +920,7 @@ async fn install_extracted_app_package(
     let package_dir = crate::app_layout::app_package_dir(&app_container);
     let exe_rel = safe_relative_path_no_curdir(&package.manifest.package.windows_executable)?;
     let exe_path = package_dir.join(exe_rel);
-    let icon_exe_path = package.tmp_dir.join(safe_relative_path_no_curdir(
-        &package.manifest.package.windows_executable,
-    )?);
-    let record = build_registered_app_record(
-        &package.manifest,
-        &package.tmp_dir,
-        &exe_path,
-        &icon_exe_path,
-        existing.as_ref(),
-    )?;
+    let record = build_registered_app_record(&package.manifest, &exe_path, existing.as_ref());
 
     let created_container = prepare_app_container(&app_container)?;
     let tag = format!("app-package-{app_id}");
@@ -988,13 +989,13 @@ fn format_with_cleanup_error(message: String, cleanup: Option<String>) -> String
     }
 }
 
+/// 组装注册记录：只写入注册事实（id、path），并原样保留既有的用户配置。
+/// 清单展示字段由 app_registry 按“读时最新，写时迁移”在读写时统一处理。
 fn build_registered_app_record(
     manifest: &AppPackageManifest,
-    manifest_dir: &Path,
     registry_exe_path: &Path,
-    icon_exe_path: &Path,
     existing: Option<&Value>,
-) -> Result<Value, String> {
+) -> Value {
     let mut record = existing
         .and_then(Value::as_object)
         .cloned()
@@ -1003,51 +1004,11 @@ fn build_registered_app_record(
         "id".to_string(),
         Value::String(manifest.id.trim().to_string()),
     );
-    if !record.contains_key("name") {
-        record.insert(
-            "name".to_string(),
-            Value::String(manifest.name.trim().to_string()),
-        );
-    }
     record.insert(
         "path".to_string(),
         Value::String(registry_exe_path.to_string_lossy().to_string()),
     );
-    record.insert(
-        "version".to_string(),
-        Value::String(manifest.version.trim().to_string()),
-    );
-    record.insert(
-        "appKind".to_string(),
-        Value::String(manifest.app_type.as_str().to_string()),
-    );
-    if !record.contains_key("icon") {
-        record.insert(
-            "icon".to_string(),
-            Value::String(resolve_app_icon(manifest, manifest_dir, icon_exe_path)?),
-        );
-    }
-    if !record.contains_key("displayMode") {
-        record.insert(
-            "displayMode".to_string(),
-            Value::String(
-                manifest
-                    .display_mode
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|mode| !mode.is_empty())
-                    .unwrap_or("default")
-                    .to_string(),
-            ),
-        );
-    }
-    if !record.contains_key("commands") {
-        record.insert("commands".to_string(), Value::Array(Vec::new()));
-    }
-    if !record.contains_key("autoStart") {
-        record.insert("autoStart".to_string(), Value::Bool(false));
-    }
-    Ok(Value::Object(record))
+    Value::Object(record)
 }
 
 fn resolve_app_icon(

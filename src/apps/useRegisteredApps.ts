@@ -2,31 +2,6 @@ import { useState, useCallback } from 'react'
 import type { RegisteredApp, RegisteredAppUpdatePatch } from './types'
 import { loadRegistry, addApp, replaceApp, removeApp, updateApp } from './appRegistry'
 
-function applyRegisteredAppPatch(app: RegisteredApp, patch: RegisteredAppUpdatePatch): RegisteredApp {
-  const next: RegisteredApp = { ...app }
-  if (patch.name !== undefined) next.name = patch.name
-  if (patch.icon !== undefined) next.icon = patch.icon
-  if (patch.path !== undefined) next.path = patch.path
-  if (patch.version !== undefined) next.version = patch.version
-  if (patch.appKind !== undefined) next.appKind = patch.appKind
-  if (patch.displayMode !== undefined) next.displayMode = patch.displayMode
-  if (patch.hotkeyLaunchBehavior !== undefined) {
-    if (patch.hotkeyLaunchBehavior) next.hotkeyLaunchBehavior = patch.hotkeyLaunchBehavior
-    else delete next.hotkeyLaunchBehavior
-  }
-  if (patch.commands !== undefined) next.commands = patch.commands
-  if (patch.autoStart !== undefined) next.autoStart = patch.autoStart
-  if (patch.windowWidth !== undefined) next.windowWidth = patch.windowWidth
-  if (patch.windowHeight !== undefined) next.windowHeight = patch.windowHeight
-  if (patch.windowX !== undefined) next.windowX = patch.windowX
-  if (patch.windowY !== undefined) next.windowY = patch.windowY
-  if (patch.hotkey !== undefined) {
-    if (patch.hotkey) next.hotkey = patch.hotkey
-    else delete next.hotkey
-  }
-  return next
-}
-
 export function useRegisteredApps() {
   const [apps, setApps] = useState<RegisteredApp[]>([])
 
@@ -37,45 +12,23 @@ export function useRegisteredApps() {
 
   const add = useCallback(async (app: RegisteredApp) => {
     await addApp(app)
-    setApps(prev => {
-      const idx = prev.findIndex(a => a.id === app.id)
-      if (idx >= 0) {
-        const next = prev.slice()
-        next[idx] = app
-        return next
-      }
-      return [...prev, app]
-    })
-  }, [])
+    await load()
+  }, [load])
 
   const replace = useCallback(async (previousId: string, app: RegisteredApp) => {
     await replaceApp(previousId, app)
-    setApps(prev => {
-      const next = prev.filter(item => item.id !== app.id)
-      const idx = next.findIndex(item => item.id === previousId)
-      if (idx >= 0) {
-        next[idx] = app
-        return next
-      }
-      return [...next, app]
-    })
-  }, [])
+    await load()
+  }, [load])
 
   const remove = useCallback(async (id: string) => {
     await removeApp(id)
-    setApps(prev => prev.filter(a => a.id !== id))
-  }, [])
+    await load()
+  }, [load])
 
   const update = useCallback(async (id: string, patch: RegisteredAppUpdatePatch) => {
     await updateApp(id, patch)
-    setApps(prev => {
-      const idx = prev.findIndex(a => a.id === id)
-      if (idx < 0) return prev
-      const next = prev.slice()
-      next[idx] = applyRegisteredAppPatch(next[idx], patch)
-      return next
-    })
-  }, [])
+    await load()
+  }, [load])
 
   return { apps, load, add, replace, remove, update }
 }

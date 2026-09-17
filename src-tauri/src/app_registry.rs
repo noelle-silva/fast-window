@@ -9,6 +9,15 @@ use tauri_plugin_global_shortcut::Shortcut;
 const REGISTRY_KEY: &str = "registeredApps";
 const REGISTERED_APPS_CHANGED_EVENT: &str = "fast-window:registered-apps-changed";
 const COMMAND_ICON_DATA_URL_MAX_LEN: usize = 700 * 1024;
+const USER_CONFIG_KEYS: [&str; 7] = [
+    "hotkey",
+    "hotkeyLaunchBehavior",
+    "autoStart",
+    "windowX",
+    "windowY",
+    "windowWidth",
+    "windowHeight",
+];
 const HIDDEN_POSITION_THRESHOLD: i32 = -9_000;
 const MAX_ABS_POSITION: i32 = 100_000;
 const MIN_WINDOW_WIDTH: u32 = 200;
@@ -126,12 +135,262 @@ fn load_registry_array(app: &AppHandle) -> Result<Vec<Value>, String> {
     }
 }
 
-pub(crate) fn load_registered_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
+fn load_persisted_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     Ok(load_registry_array(app)?
         .into_iter()
         .map(without_app_runtime_declarations)
+        .collect())
+}
+
+fn record_path(value: &Value) -> Option<&str> {
+    value
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+}
+
+fn non_empty_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// 判断记录里的展示字段是「用户覆盖」还是「清单旧快照」：
+/// - 与当前清单一致 → 不是覆盖（读取走清单、写入剥离）
+/// - 记录没有版本快照（已被写时迁移过）→ 剩下的差异只能是用户编辑 → 覆盖
+/// - 记录版本与当前清单一致（清单自记录写入后未更新）→ 差异只能来自用户编辑 → 覆盖
+/// - 清单已更新过（版本不同）→ 视为旧快照，按「读时最新」原则剥离
+fn keep_user_override(record: &Value, manifest: &Value, key: &str) -> bool {
+    let Some(record_value) = non_empty_string(record, key) else {
+        return false;
+    };
+    let Some(manifest_value) = non_empty_string(manifest, key) else {
+        return true;
+    };
+    if record_value == manifest_value {
+        return false;
+    }
+    let (Some(record_version), Some(manifest_version)) = (
+        non_empty_string(record, "version"),
+        non_empty_string(manifest, "version"),
+    ) else {
+        return true;
+    };
+    record_version == manifest_version
+}
+
+/// 读取展示字段：用户覆盖优先，否则取清单最新值。
+fn display_field(record: &Value, manifest: &Value, key: &str) -> Option<Value> {
+    let source = if keep_user_override(record, manifest, key) {
+        record
+    } else {
+        manifest
+    };
+    non_empty_string(source, key).map(Value::String)
+}
+
+fn manifest_view_for_exe_path(exe_path: &str) -> Option<Value> {
+    let path = std::path::PathBuf::from(exe_path.trim());
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    match crate::app_installer::resolve_installed_app_info(&path) {
+        Ok(Some(info)) => match serde_json::to_value(info) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                eprintln!("[app-registry] failed to serialize installed app info: {error}");
+                None
+            }
+        },
+        Ok(None) => None,
+        Err(error) => {
+            eprintln!(
+                "[app-registry] failed to read installed app manifest at {}: {error}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// 命令列表是用户在注册面板里确认过的配置：记录为准，清单只在记录缺字段时补齐，
+/// 不覆盖用户编辑过的名称、命令 ID、图标与快捷键。
+fn merge_registered_app_commands(record: &Value, manifest: &Value) -> Value {
+    let Some(record_commands) = record.get("commands").and_then(Value::as_array) else {
+        return manifest
+            .get("commands")
+            .cloned()
+            .unwrap_or_else(|| Value::Array(Vec::new()));
+    };
+    let manifest_by_id = manifest
+        .get("commands")
+        .and_then(Value::as_array)
+        .map(|commands| {
+            commands
+                .iter()
+                .filter_map(|command| {
+                    let id = non_empty_string(command, "id")?;
+                    Some((id, command.clone()))
+                })
+                .collect::<HashMap<String, Value>>()
+        })
+        .unwrap_or_default();
+
+    let merged = record_commands
+        .iter()
+        .map(|command| {
+            let Some(command_id) = non_empty_string(command, "id") else {
+                return command.clone();
+            };
+            let Some(manifest_command) = manifest_by_id.get(command_id.as_str()) else {
+                return command.clone();
+            };
+            let mut item = command.as_object().cloned().unwrap_or_default();
+            if non_empty_string(command, "title").is_none() {
+                if let Some(title) = non_empty_string(manifest_command, "title") {
+                    item.insert("title".to_string(), Value::String(title));
+                }
+            }
+            if non_empty_string(command, "icon").is_none()
+                && non_empty_string(manifest_command, "icon").is_some()
+            {
+                if let Some(icon) = manifest_command.get("icon") {
+                    item.insert("icon".to_string(), icon.clone());
+                }
+            }
+            Value::Object(item)
+        })
+        .collect();
+    Value::Array(merged)
+}
+
+fn merge_app_view(record: &Value, manifest: &Value) -> Value {
+    let mut out = Map::new();
+    for key in ["id", "path"] {
+        if let Some(value) = record.get(key) {
+            out.insert(key.to_string(), value.clone());
+        }
+    }
+
+    let name = display_field(record, manifest, "name")
+        .unwrap_or_else(|| Value::String(String::new()));
+    out.insert("name".to_string(), name);
+
+    let icon = display_field(record, manifest, "icon")
+        .unwrap_or_else(|| Value::String(String::new()));
+    out.insert("icon".to_string(), icon);
+
+    if let Some(version) = non_empty_string(manifest, "version") {
+        out.insert("version".to_string(), Value::String(version));
+    }
+    if let Some(app_kind) = non_empty_string(manifest, "appKind") {
+        out.insert("appKind".to_string(), Value::String(app_kind));
+    }
+
+    let display_mode = display_field(record, manifest, "displayMode")
+        .unwrap_or_else(|| Value::String("default".to_string()));
+    out.insert("displayMode".to_string(), display_mode);
+    out.insert(
+        "commands".to_string(),
+        merge_registered_app_commands(record, manifest),
+    );
+
+    for key in USER_CONFIG_KEYS {
+        if let Some(value) = record.get(key) {
+            out.insert(key.to_string(), value.clone());
+        }
+    }
+    if !out.contains_key("autoStart") {
+        out.insert("autoStart".to_string(), Value::Bool(false));
+    }
+
+    Value::Object(out)
+}
+
+fn compose_registered_app_view(record: &Value) -> Value {
+    let manifest = record_path(record).and_then(manifest_view_for_exe_path);
+    match manifest {
+        Some(manifest) => merge_app_view(record, &manifest),
+        None => {
+            let mut out = record.as_object().cloned().unwrap_or_default();
+            if !out.contains_key("icon") {
+                out.insert("icon".to_string(), Value::String(String::new()));
+            }
+            if !out.contains_key("displayMode") {
+                out.insert("displayMode".to_string(), Value::String("default".to_string()));
+            }
+            if !out.contains_key("commands") {
+                out.insert("commands".to_string(), Value::Array(Vec::new()));
+            }
+            if !out.contains_key("autoStart") {
+                out.insert("autoStart".to_string(), Value::Bool(false));
+            }
+            Value::Object(out)
+        }
+    }
+}
+
+fn extract_persisted_app_record_with_manifest(
+    record: &Value,
+    manifest: Option<&Value>,
+) -> Result<Value, String> {
+    let id = app_id_from_value(record)
+        .ok_or_else(|| "appId 不能为空".to_string())?
+        .to_string();
+    if !crate::is_safe_id(&id) {
+        return Err("appId 不合法".to_string());
+    }
+
+    let mut out = Map::new();
+    out.insert("id".to_string(), Value::String(id));
+    out.insert(
+        "path".to_string(),
+        Value::String(record_path(record).unwrap_or("").to_string()),
+    );
+
+    for key in ["name", "icon", "displayMode"] {
+        let Some(value) = record.get(key) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        let keep = match manifest {
+            Some(manifest) => keep_user_override(record, manifest, key),
+            None => true,
+        };
+        if keep {
+            out.insert(key.to_string(), value.clone());
+        }
+    }
+
+    for key in USER_CONFIG_KEYS {
+        if let Some(value) = record.get(key) {
+            out.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(commands) = record.get("commands") {
+        out.insert("commands".to_string(), commands.clone());
+    }
+
+    Ok(Value::Object(out))
+}
+
+fn extract_persisted_app_record(record: &Value) -> Result<Value, String> {
+    let manifest = record_path(record).and_then(manifest_view_for_exe_path);
+    extract_persisted_app_record_with_manifest(record, manifest.as_ref())
+}
+
+pub(crate) fn load_registered_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
+    Ok(load_persisted_app_records(app)?
+        .iter()
+        .map(compose_registered_app_view)
         .collect())
 }
 
@@ -154,7 +413,7 @@ pub(crate) fn upsert_registered_app_record(
     app_record: Value,
 ) -> Result<(), String> {
     let id = validate_app_value(&app_record)?;
-    let mut registry = load_registered_app_records(app)?;
+    let mut registry = load_persisted_app_records(app)?;
     if let Some(existing) = registry
         .iter_mut()
         .find(|item| app_id_from_value(item) == Some(id.as_str()))
@@ -177,7 +436,7 @@ pub(crate) fn replace_registered_app_record(
     }
 
     let next_id = validate_app_value(&app_record)?;
-    let mut registry = load_registered_app_records(app)?;
+    let mut registry = load_persisted_app_records(app)?;
     let mut replaced = false;
     let mut next = Vec::with_capacity(registry.len());
 
@@ -208,14 +467,19 @@ fn save_registry_array(app: &AppHandle, items: Vec<Value>) -> Result<(), String>
     crate::write_json_value(&path, &Value::Array(items))
 }
 
+fn normalize_registry_records(registry: Vec<Value>) -> Result<Vec<Value>, String> {
+    registry
+        .iter()
+        .map(extract_persisted_app_record)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("注册应用配置不合法: {error}"))
+}
+
 fn save_registry_and_refresh_shortcuts(
     app: &AppHandle,
     registry: Vec<Value>,
 ) -> Result<(), String> {
-    let registry: Vec<Value> = registry
-        .into_iter()
-        .map(without_app_runtime_declarations)
-        .collect();
+    let registry = normalize_registry_records(registry)?;
     for item in &registry {
         validate_app_value(item)?;
     }
@@ -248,24 +512,7 @@ fn validate_app_value(value: &Value) -> Result<String, String> {
     if !crate::is_safe_id(id) {
         return Err("appId 不合法".to_string());
     }
-    validate_app_kind(value, id)?;
     Ok(id.to_string())
-}
-
-fn validate_app_kind(value: &Value, app_id: &str) -> Result<(), String> {
-    let Some(kind) = value.get("appKind") else {
-        return Ok(());
-    };
-    if kind.is_null() {
-        return Ok(());
-    }
-    let Some(kind) = kind.as_str().map(str::trim) else {
-        return Err(format!("{app_id} 的 appKind 必须是字符串"));
-    };
-    if matches!(kind, "desktop-app" | "service-app") {
-        return Ok(());
-    }
-    Err(format!("{app_id} 的 appKind 不合法: {kind}"))
 }
 
 fn app_hotkey_from_value(value: &Value) -> Option<&str> {
@@ -558,12 +805,7 @@ fn is_valid_host_shortcut_icon(icon: &str) -> bool {
 
 #[tauri::command]
 pub(crate) fn app_registry_load(app: AppHandle) -> Result<Vec<Value>, String> {
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(load_registry_array(&app)?
-        .into_iter()
-        .map(without_app_runtime_declarations)
-        .collect())
+    load_registered_app_records(&app)
 }
 
 #[tauri::command]
@@ -592,7 +834,7 @@ pub(crate) fn app_registry_remove(app: AppHandle, app_id: String) -> Result<(), 
         return Err("appId 不合法".to_string());
     }
 
-    let registry = load_registered_app_records(&app)?;
+    let registry = load_persisted_app_records(&app)?;
     let next: Vec<Value> = registry
         .into_iter()
         .filter(|item| app_id_from_value(item) != Some(id.as_str()))
@@ -611,7 +853,7 @@ pub(crate) fn app_registry_update(
         return Err("appId 不合法".to_string());
     }
 
-    let mut registry = load_registered_app_records(&app)?;
+    let mut registry = load_persisted_app_records(&app)?;
     let mut changed = false;
     for item in &mut registry {
         if app_id_from_value(item) != Some(id.as_str()) {
@@ -704,8 +946,14 @@ pub(crate) fn persist_app_window_bounds(
         return Ok(false);
     }
 
+    let normalized = normalize_registry_records(
+        registry
+            .as_array()
+            .cloned()
+            .unwrap_or_default(),
+    )?;
     let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
-    crate::write_json_value(&path, &registry)?;
+    crate::write_json_value(&path, &Value::Array(normalized))?;
 
     let _ = app.emit(
         REGISTERED_APPS_CHANGED_EVENT,
@@ -721,46 +969,311 @@ pub(crate) fn persist_app_window_bounds(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_app_value;
+    use super::{
+        extract_persisted_app_record_with_manifest, merge_app_view, validate_app_value,
+    };
+    use serde_json::{json, Value};
 
-    #[test]
-    fn accepts_desktop_and_service_app_kinds() {
-        assert!(validate_app_value(&serde_json::json!({
+    fn manifest(name: &str) -> Value {
+        json!({
             "id": "app-1",
+            "name": name,
+            "version": "2.0.0",
+            "path": "C:/apps/app-1/app.exe",
+            "icon": "data:image/svg+xml;base64,AAAA",
             "appKind": "desktop-app",
-        }))
-        .is_ok());
-        assert!(validate_app_value(&serde_json::json!({
-            "id": "app-1",
-            "appKind": "service-app",
-        }))
-        .is_ok());
+            "displayMode": "window",
+            "commands": [
+                { "id": "open", "title": "Open Latest" },
+                { "id": "extra", "title": "Extra" }
+            ]
+        })
     }
 
     #[test]
-    fn accepts_missing_app_kind_as_window() {
-        assert!(validate_app_value(&serde_json::json!({ "id": "app-1" })).is_ok());
-        assert!(validate_app_value(&serde_json::json!({
-            "id": "app-1",
-            "appKind": null,
-        }))
-        .is_ok());
+    fn accepts_valid_app_ids() {
+        assert!(validate_app_value(&json!({ "id": "app-1" })).is_ok());
+        assert!(validate_app_value(&json!({ "id": "app 1" })).is_err());
+        assert!(validate_app_value(&json!({})).is_err());
     }
 
     #[test]
-    fn rejects_invalid_app_kind() {
-        let error = validate_app_value(&serde_json::json!({
+    fn compose_view_prefers_manifest_and_keeps_user_config() {
+        let record = json!({
             "id": "app-1",
-            "appKind": "daemon",
-        }))
-        .unwrap_err();
-        assert!(error.contains("appKind 不合法"));
+            "path": "C:/apps/app-1/app.exe",
+            "hotkey": "Alt+A",
+            "autoStart": true,
+            "commands": [{ "id": "open", "hotkey": "Alt+O" }]
+        });
 
-        let error = validate_app_value(&serde_json::json!({
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        assert_eq!(view["name"], "App One");
+        assert_eq!(view["version"], "2.0.0");
+        assert_eq!(view["appKind"], "desktop-app");
+        assert_eq!(view["displayMode"], "window");
+        assert_eq!(view["hotkey"], "Alt+A");
+        assert_eq!(view["autoStart"], true);
+        let commands = view["commands"].as_array().unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0]["title"], "Open Latest");
+        assert_eq!(commands[0]["hotkey"], "Alt+O");
+    }
+
+    #[test]
+    fn compose_view_keeps_user_display_overrides() {
+        let record = json!({
             "id": "app-1",
-            "appKind": 1,
-        }))
-        .unwrap_err();
-        assert!(error.contains("appKind 必须是字符串"));
+            "path": "C:/apps/app-1/app.exe",
+            "name": "My Name",
+            "displayMode": "top"
+        });
+
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        assert_eq!(view["name"], "My Name");
+        assert_eq!(view["displayMode"], "top");
+    }
+
+    #[test]
+    fn compose_view_keeps_migrated_user_overrides_without_version_snapshot() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "name": "My Name"
+        });
+
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        assert_eq!(view["name"], "My Name");
+    }
+
+    #[test]
+    fn compose_view_updates_stale_snapshot_when_manifest_renamed() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "name": "Old Name",
+            "icon": "data:image/svg+xml;base64,OLD",
+            "displayMode": "top",
+            "version": "1.0.0"
+        });
+
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        assert_eq!(view["name"], "App One");
+        assert_eq!(view["icon"], "data:image/svg+xml;base64,AAAA");
+        assert_eq!(view["displayMode"], "window");
+    }
+
+    #[test]
+    fn compose_view_falls_back_to_manifest_commands_without_record_commands() {
+        let record = json!({ "id": "app-1", "path": "C:/apps/app-1/app.exe" });
+
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        let commands = view["commands"].as_array().unwrap();
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[1]["title"], "Extra");
+    }
+
+    #[test]
+    fn compose_view_keeps_user_edited_command_title_and_selection() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "commands": [{ "id": "open", "title": "用户改名" }]
+        });
+
+        let view = merge_app_view(&record, &manifest("App One"));
+
+        let commands = view["commands"].as_array().unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0]["id"], "open");
+        assert_eq!(commands[0]["title"], "用户改名");
+    }
+
+    #[test]
+    fn persisted_record_strips_manifest_snapshots_and_keeps_user_config() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "name": "App One",
+            "icon": "data:image/svg+xml;base64,AAAA",
+            "displayMode": "window",
+            "version": "2.0.0",
+            "appKind": "desktop-app",
+            "hotkey": "Alt+A",
+            "hotkeyLaunchBehavior": "runningOnly",
+            "autoStart": true,
+            "windowX": 10,
+            "windowY": 20,
+            "windowWidth": 800,
+            "windowHeight": 600,
+            "commands": [{ "id": "open", "title": "Open Latest", "hotkey": "Alt+O" }],
+            "availableCommands": []
+        });
+
+        let persisted =
+            extract_persisted_app_record_with_manifest(&record, Some(&manifest("App One")))
+                .unwrap();
+        let object = persisted.as_object().unwrap();
+
+        assert!(!object.contains_key("name"));
+        assert!(!object.contains_key("icon"));
+        assert!(!object.contains_key("displayMode"));
+        assert!(!object.contains_key("version"));
+        assert!(!object.contains_key("appKind"));
+        assert!(!object.contains_key("availableCommands"));
+        assert_eq!(persisted["hotkey"], "Alt+A");
+        assert_eq!(persisted["hotkeyLaunchBehavior"], "runningOnly");
+        assert_eq!(persisted["autoStart"], true);
+        assert_eq!(persisted["windowX"], 10);
+        assert_eq!(persisted["commands"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn persisted_record_keeps_user_overrides_different_from_manifest() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "name": "My Name",
+            "displayMode": "top",
+            "version": "2.0.0"
+        });
+
+        let persisted =
+            extract_persisted_app_record_with_manifest(&record, Some(&manifest("App One")))
+                .unwrap();
+
+        assert_eq!(persisted["name"], "My Name");
+        assert_eq!(persisted["displayMode"], "top");
+        assert!(persisted.get("version").is_none());
+    }
+
+    #[test]
+    fn persisted_record_strips_stale_snapshot_after_manifest_update() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/apps/app-1/app.exe",
+            "name": "Old Name",
+            "displayMode": "top",
+            "version": "1.0.0"
+        });
+
+        let persisted =
+            extract_persisted_app_record_with_manifest(&record, Some(&manifest("App One")))
+                .unwrap();
+        let object = persisted.as_object().unwrap();
+
+        assert!(!object.contains_key("name"));
+        assert!(!object.contains_key("displayMode"));
+    }
+
+    fn write_installed_test_app(root: &std::path::Path) -> std::path::PathBuf {
+        let package_dir = root.join("app-1").join("package");
+        std::fs::create_dir_all(&package_dir).expect("创建测试应用目录失败");
+        std::fs::write(
+            package_dir.join("fw-app.json"),
+            r#"{
+                "type": "desktop-app",
+                "id": "app-1",
+                "name": "Manifest Name",
+                "version": "3.1.4",
+                "package": { "windowsExecutable": "app-1.exe", "icon": "ICON" },
+                "displayMode": "window",
+                "commands": [{ "id": "open", "title": "Manifest Open" }]
+            }"#,
+        )
+        .expect("写入清单失败");
+        let exe_path = package_dir.join("app-1.exe");
+        std::fs::write(&exe_path, b"").expect("写入 exe 失败");
+        exe_path
+    }
+
+    #[test]
+    fn compose_view_reads_latest_manifest_from_exe_path() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-registry-compose-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let exe_path = write_installed_test_app(&root);
+
+        let record = json!({
+            "id": "app-1",
+            "path": exe_path.to_string_lossy(),
+            "hotkey": "Alt+A",
+            "commands": [{ "id": "open", "hotkey": "Alt+O" }]
+        });
+        let view = super::compose_registered_app_view(&record);
+
+        assert_eq!(view["name"], "Manifest Name");
+        assert_eq!(view["version"], "3.1.4");
+        assert_eq!(view["appKind"], "desktop-app");
+        assert_eq!(view["displayMode"], "window");
+        assert_eq!(view["hotkey"], "Alt+A");
+        assert_eq!(view["commands"][0]["title"], "Manifest Open");
+        assert_eq!(view["commands"][0]["hotkey"], "Alt+O");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn persisted_record_write_migrates_snapshot_fields_against_latest_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-registry-migrate-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let exe_path = write_installed_test_app(&root);
+
+        let legacy_record = json!({
+            "id": "app-1",
+            "path": exe_path.to_string_lossy(),
+            "name": "Manifest Name",
+            "icon": "ICON",
+            "version": "3.1.4",
+            "appKind": "desktop-app",
+            "displayMode": "window",
+            "hotkey": "Alt+A",
+            "autoStart": true,
+            "commands": [{ "id": "open", "title": "Manifest Open", "hotkey": "Alt+O" }]
+        });
+        let persisted = super::extract_persisted_app_record(&legacy_record).unwrap();
+
+        assert_eq!(persisted["id"], "app-1");
+        assert_eq!(persisted["hotkey"], "Alt+A");
+        assert_eq!(persisted["autoStart"], true);
+        assert_eq!(persisted["commands"][0]["hotkey"], "Alt+O");
+        assert!(persisted.get("name").is_none());
+        assert!(persisted.get("icon").is_none());
+        assert!(persisted.get("displayMode").is_none());
+        assert!(persisted.get("version").is_none());
+        assert!(persisted.get("appKind").is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn persisted_record_keeps_display_fields_when_manifest_unavailable() {
+        let record = json!({
+            "id": "app-1",
+            "path": "C:/missing/app.exe",
+            "name": "My Name",
+            "icon": "My Icon",
+            "displayMode": "top",
+            "version": "2.0.0",
+            "appKind": "desktop-app"
+        });
+
+        let persisted = extract_persisted_app_record_with_manifest(&record, None).unwrap();
+
+        assert_eq!(persisted["name"], "My Name");
+        assert_eq!(persisted["icon"], "My Icon");
+        assert_eq!(persisted["displayMode"], "top");
+        assert!(persisted.get("version").is_none());
+        assert!(persisted.get("appKind").is_none());
     }
 }
