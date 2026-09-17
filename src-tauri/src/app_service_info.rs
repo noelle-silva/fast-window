@@ -4,12 +4,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::app_installer::InstalledServiceApp;
-use crate::app_lifecycle::{
-    ServiceConnection, ServiceConnectionFile, ServiceConnectionFileFormat, ServiceConnectionValue,
-};
-
-const SERVICE_CONNECTION_VALUE_MAX_BYTES: u64 = 16 * 1024;
-const CONNECTION_VALUE_PENDING_REASON: &str = "尚未生成：启动服务后可用";
+use crate::app_service_profile::{self, PROFILE_PENDING_REASON};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,7 +88,7 @@ impl AppServiceConnectionValueInfo {
     }
 }
 
-/// 读取已安装应用的服务信息：桌面应用返回 appKind=desktop-app 信号，服务应用附带只读声明信息。
+/// 读取已安装应用的服务信息：桌面应用返回 appKind=desktop-app 信号，服务应用附带声明信息与固定画像。
 #[tauri::command]
 pub(crate) fn app_service_info(exe_path: String) -> Result<AppServiceInfo, String> {
     let raw = exe_path.trim();
@@ -108,12 +103,12 @@ fn build_app_service_info_for_exe(exe_path: &Path) -> Result<AppServiceInfo, Str
         return Ok(AppServiceInfo::desktop());
     };
 
-    Ok(build_service_info(&app))
+    build_service_info(&app)
 }
 
-fn build_service_info(app: &InstalledServiceApp) -> AppServiceInfo {
+fn build_service_info(app: &InstalledServiceApp) -> Result<AppServiceInfo, String> {
     let declaration = &app.declaration;
-    AppServiceInfo {
+    Ok(AppServiceInfo {
         app_kind: "service-app",
         start: Some(AppServiceStartInfo {
             executable: app.executable_relative.to_string_lossy().to_string(),
@@ -127,102 +122,20 @@ fn build_service_info(app: &InstalledServiceApp) -> AppServiceInfo {
         stop: Some(AppServiceStopInfo {
             kind: declaration.stop_type.clone(),
         }),
-        connection: build_connection_info(&app.manifest_dir, declaration.connection.as_ref()),
-    }
-}
-
-fn build_connection_info(
-    manifest_dir: &Path,
-    connection: Option<&ServiceConnection>,
-) -> Option<AppServiceConnectionInfo> {
-    let connection = connection?;
-    Some(AppServiceConnectionInfo {
-        port: resolve_connection_value(
-            connection.port.as_ref(),
-            manifest_dir,
-            "声明中没有配置端口",
-        ),
-        key: resolve_connection_value(connection.key.as_ref(), manifest_dir, "声明中没有配置钥匙"),
+        connection: Some(build_connection_info(&app.manifest_dir)?),
     })
 }
 
-fn resolve_connection_value(
-    entry: Option<&ServiceConnectionValue>,
-    manifest_dir: &Path,
-    missing_reason: &str,
-) -> AppServiceConnectionValueInfo {
-    let Some(entry) = entry else {
-        return AppServiceConnectionValueInfo::unavailable(missing_reason);
-    };
-
-    match entry {
-        ServiceConnectionValue::Value(value) => AppServiceConnectionValueInfo::available(value),
-        ServiceConnectionValue::File(file) => resolve_connection_file(file, manifest_dir),
-    }
-}
-
-fn resolve_connection_file(
-    file: &ServiceConnectionFile,
-    manifest_dir: &Path,
-) -> AppServiceConnectionValueInfo {
-    let path = manifest_dir.join(&file.path);
-    let metadata = match std::fs::metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return AppServiceConnectionValueInfo::unavailable(CONNECTION_VALUE_PENDING_REASON);
-        }
-        Err(e) => return AppServiceConnectionValueInfo::unavailable(format!("读取失败: {e}")),
-    };
-    if metadata.len() > SERVICE_CONNECTION_VALUE_MAX_BYTES {
-        return AppServiceConnectionValueInfo::unavailable("文件过大，拒绝读取");
-    }
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) => return AppServiceConnectionValueInfo::unavailable(format!("读取失败: {e}")),
-    };
-    match file.format {
-        ServiceConnectionFileFormat::Text => display_text_value(&text),
-        ServiceConnectionFileFormat::Json => {
-            display_json_field(&text, file.field.as_deref().unwrap_or_default())
-        }
-    }
-}
-
-fn display_text_value(text: &str) -> AppServiceConnectionValueInfo {
-    let value = text.trim();
-    if value.is_empty() {
-        AppServiceConnectionValueInfo::unavailable("文件内容为空")
-    } else {
-        AppServiceConnectionValueInfo::available(value)
-    }
-}
-
-fn display_json_field(text: &str, field: &str) -> AppServiceConnectionValueInfo {
-    let document: serde_json::Value = match serde_json::from_str(text) {
-        Ok(document) => document,
-        Err(e) => {
-            return AppServiceConnectionValueInfo::unavailable(format!("JSON 解析失败: {e}"));
-        }
-    };
-    let Some(object) = document.as_object() else {
-        return AppServiceConnectionValueInfo::unavailable("JSON 内容不是对象");
-    };
-    let Some(value) = object.get(field) else {
-        return AppServiceConnectionValueInfo::unavailable(format!("JSON 中缺少字段: {field}"));
-    };
-    match value {
-        serde_json::Value::String(value) => {
-            let value = value.trim();
-            if value.is_empty() {
-                AppServiceConnectionValueInfo::unavailable(format!("字段 {field} 内容为空"))
-            } else {
-                AppServiceConnectionValueInfo::available(value)
-            }
-        }
-        serde_json::Value::Number(value) => {
-            AppServiceConnectionValueInfo::available(value.to_string())
-        }
-        _ => AppServiceConnectionValueInfo::unavailable(format!("字段 {field} 类型不可展示")),
+fn build_connection_info(app_dir: &Path) -> Result<AppServiceConnectionInfo, String> {
+    match app_service_profile::read_profile(app_dir)? {
+        Some(profile) => Ok(AppServiceConnectionInfo {
+            port: AppServiceConnectionValueInfo::available(profile.port.to_string()),
+            key: AppServiceConnectionValueInfo::available(profile.key),
+        }),
+        None => Ok(AppServiceConnectionInfo {
+            port: AppServiceConnectionValueInfo::unavailable(PROFILE_PENDING_REASON),
+            key: AppServiceConnectionValueInfo::unavailable(PROFILE_PENDING_REASON),
+        }),
     }
 }
 
@@ -230,20 +143,14 @@ fn display_json_field(text: &str, field: &str) -> AppServiceConnectionValueInfo 
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{
-        app_service_info, build_app_service_info_for_exe, AppServiceInfo,
-        CONNECTION_VALUE_PENDING_REASON,
-    };
+    use super::{app_service_info, build_app_service_info_for_exe, AppServiceInfo};
+    use crate::app_service_profile::PROFILE_PENDING_REASON;
 
     const SERVICE_DECLARATION: &str = r#"{
         "start": {
             "args": ["--port", "8765"]
         },
         "ready": { "type": "log", "match": "is ready", "timeoutSeconds": 10 },
-        "connection": {
-            "port": { "type": "file", "path": "data/.meta/port.json", "format": "json", "field": "port" },
-            "key": { "type": "file", "path": "data/.meta/box.key", "format": "text" }
-        },
         "stop": { "type": "terminate" }
     }"#;
 
@@ -282,6 +189,17 @@ mod tests {
         write_package(root, &service_manifest(declaration))
     }
 
+    fn write_profile(exe_path: &Path, content: &str) {
+        let profile_path = exe_path
+            .parent()
+            .expect("可执行文件没有父目录")
+            .join("data")
+            .join("service-profile.json");
+        std::fs::create_dir_all(profile_path.parent().expect("画像文件没有父目录"))
+            .expect("创建画像目录失败");
+        std::fs::write(profile_path, content).expect("写入画像文件失败");
+    }
+
     fn connection_value<'a>(
         info: &'a AppServiceInfo,
         key: &str,
@@ -291,14 +209,6 @@ mod tests {
             "port" => &connection.port,
             _ => &connection.key,
         }
-    }
-
-    fn write_connection_file(exe_path: &Path, relative: &str, content: &str) {
-        let package_dir = exe_path.parent().expect("可执行文件没有父目录");
-        let path = package_dir.join(relative);
-        std::fs::create_dir_all(path.parent().expect("连接文件没有父目录"))
-            .expect("创建连接文件目录失败");
-        std::fs::write(path, content).expect("写入连接文件失败");
     }
 
     #[test]
@@ -352,36 +262,17 @@ mod tests {
     }
 
     #[test]
-    fn connection_literal_value_is_returned_verbatim() {
-        let root = test_root("literal");
-        let exe_path = write_service_package(
-            &root,
-            r#"{
-                "ready": { "type": "log", "match": "is ready" },
-                "connection": {
-                    "port": { "type": "value", "value": "http://127.0.0.1:8765" }
-                },
-                "stop": { "type": "terminate" }
-            }"#,
-        );
+    fn connection_reads_fixed_profile_values() {
+        let root = test_root("profile");
+        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
+        write_profile(&exe_path, r#"{ "port": 9000, "key": "  secret-key  " }"#);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
         let port = connection_value(&info, "port");
         assert!(port.available);
-        assert_eq!(port.value, "http://127.0.0.1:8765");
+        assert_eq!(port.value, "9000");
         assert!(port.reason.is_empty());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn connection_text_file_is_read_and_trimmed() {
-        let root = test_root("text-file");
-        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/box.key", "  secret-key\n");
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
 
         let key = connection_value(&info, "key");
         assert!(key.available);
@@ -392,40 +283,8 @@ mod tests {
     }
 
     #[test]
-    fn connection_json_file_reads_string_field() {
-        let root = test_root("json-string");
-        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": "8765" }"#);
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(port.available);
-        assert_eq!(port.value, "8765");
-        assert!(port.reason.is_empty());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn connection_json_file_reads_number_field() {
-        let root = test_root("json-number");
-        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": 9000 }"#);
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(port.available);
-        assert_eq!(port.value, "9000");
-        assert!(port.reason.is_empty());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn missing_connection_files_report_pending_reason() {
-        let root = test_root("missing-file");
+    fn missing_profile_reports_pending_reason() {
+        let root = test_root("missing-profile");
         let exe_path = write_service_package(&root, SERVICE_DECLARATION);
 
         let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
@@ -434,96 +293,26 @@ mod tests {
             let value = connection_value(&info, field);
             assert!(!value.available);
             assert!(value.value.is_empty());
-            assert_eq!(value.reason, CONNECTION_VALUE_PENDING_REASON);
+            assert_eq!(value.reason, PROFILE_PENDING_REASON);
         }
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn broken_connection_json_reports_unavailable_reason() {
-        let root = test_root("broken-json");
+    fn broken_profile_fails_fast() {
+        let root = test_root("broken-profile");
         let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": "#);
 
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(!port.available);
-        assert!(port.value.is_empty());
-        assert!(port.reason.starts_with("JSON 解析失败"), "{}", port.reason);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn missing_connection_json_field_reports_unavailable_reason() {
-        let root = test_root("missing-json-field");
-        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "other": 9000 }"#);
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(!port.available);
-        assert_eq!(port.reason, "JSON 中缺少字段: port");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn unsupported_connection_json_field_type_reports_unavailable_reason() {
-        let root = test_root("json-field-type");
-        let exe_path = write_service_package(&root, SERVICE_DECLARATION);
-        write_connection_file(&exe_path, "data/.meta/port.json", r#"{ "port": true }"#);
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(!port.available);
-        assert_eq!(port.reason, "字段 port 类型不可展示");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn missing_connection_sections_report_unavailable_reasons() {
-        let root = test_root("partial");
-        let exe_path = write_service_package(
-            &root,
-            r#"{
-                "ready": { "type": "log", "match": "is ready" },
-                "connection": {
-                    "key": { "type": "file", "path": "data/.meta/box.key" }
-                },
-                "stop": { "type": "terminate" }
-            }"#,
-        );
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        let port = connection_value(&info, "port");
-        assert!(!port.available);
-        assert_eq!(port.reason, "声明中没有配置端口");
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn missing_connection_section_leaves_connection_absent() {
-        let root = test_root("no-connection");
-        let exe_path = write_service_package(
-            &root,
-            r#"{
-                "ready": { "type": "log", "match": "is ready" },
-                "stop": { "type": "terminate" }
-            }"#,
-        );
-
-        let info = build_app_service_info_for_exe(&exe_path).expect("读取服务信息失败");
-
-        assert_eq!(info.app_kind, "service-app");
-        assert!(info.connection.is_none());
+        for (content, expected) in [
+            (r#"{ "port": "#, "启动配置画像无效"),
+            (r#"{ "port": 65536, "key": "abc" }"#, "端口"),
+            (r#"{ "port": 9000, "key": "  " }"#, "钥匙"),
+        ] {
+            write_profile(&exe_path, content);
+            let error = build_app_service_info_for_exe(&exe_path).unwrap_err();
+            assert!(error.contains(expected), "内容 {content}：{error}");
+        }
 
         let _ = std::fs::remove_dir_all(&root);
     }

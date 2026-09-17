@@ -1290,9 +1290,6 @@ mod tests {
                 "package": { "windowsExecutable": "eucli-box.exe" },
                 "service": {
                     "ready": { "type": "log", "match": "is ready" },
-                    "connection": {
-                        "port": { "type": "file", "path": "data/.meta/port.json", "format": "json", "field": "port" }
-                    },
                     "stop": { "type": "terminate" }
                 }
             }"#,
@@ -1306,7 +1303,6 @@ mod tests {
         assert_eq!(app.executable_relative, PathBuf::from("eucli-box.exe"));
         assert_eq!(app.executable_path, package_dir.join("eucli-box.exe"));
         assert_eq!(app.declaration.ready_match, "is ready");
-        assert!(app.declaration.connection.is_some());
 
         let _ = std::fs::remove_dir_all(&root);
     }

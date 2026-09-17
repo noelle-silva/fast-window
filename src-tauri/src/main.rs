@@ -23,6 +23,7 @@ mod app_lifecycle;
 mod app_registry;
 mod app_service_config;
 mod app_service_info;
+mod app_service_profile;
 mod app_shortcuts;
 mod browser_stack;
 mod capability_server;

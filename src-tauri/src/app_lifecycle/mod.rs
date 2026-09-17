@@ -10,7 +10,4 @@ pub(crate) use manager::{
     AppColdStartPolicy, AppLaunchOptions, AppLifecycleManager, RegisteredAppLaunchConfig,
 };
 pub(crate) use process_owner::{ManagedAppChild, ManagedAppCommand, ManagedAppPipe};
-pub(crate) use service_declaration::{
-    ServiceConnection, ServiceConnectionFile, ServiceConnectionFileFormat,
-    ServiceConnectionValue, ServiceDeclaration,
-};
+pub(crate) use service_declaration::ServiceDeclaration;
