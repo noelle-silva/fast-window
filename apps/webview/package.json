@@ -6,6 +6,7 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
+    "test:ui": "node --test --import ./scripts/register-layout-tests.mjs scripts/folder-grid-layout.test.mjs scripts/group-membership.test.mjs scripts/group-selection.test.mjs scripts/group-shortcut-navigation.test.mjs scripts/clipboard-text-target.test.mjs scripts/desktop-drag-state.test.mjs scripts/item-creation-target.test.mjs",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
     "build:exe": "pnpm build:ui && pnpm tauri build",
@@ -22,7 +23,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.6",
+    "@mui/material": "^7.3.6",
     "@tauri-apps/api": "^2.11.0",
+    "muuri": "0.9.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

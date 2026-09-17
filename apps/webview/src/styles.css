@@ -1,264 +1,26 @@
-﻿:root {
-  color: #111827;
-  background: #ffffff;
+﻿/* global reset（主窗口与浏览条共用） */
+:root {
+  color: #172033;
+  background: #F6F8FB;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
   overflow: hidden;
-  background: #ffffff;
+  background: #F6F8FB;
 }
 
-.webview-app,
-.webview-app * {
-  box-sizing: border-box;
-}
-
-.webview-app {
-  --topbar-height: 40px;
-  --text: #111827;
-  --text-muted: #6b7280;
-  --accent: #1976d2;
-  --danger: #d32f2f;
-  position: relative;
-  width: 100%;
-  min-height: 100vh;
-  color: var(--text);
-  background: #ffffff;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.webview-app button,
-.webview-app input {
-  font: inherit;
-}
-
-/* app chrome topbar */
-.reference-topbar {
-  position: absolute;
-  z-index: 10;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--topbar-height);
-  min-height: var(--topbar-height);
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text);
-  background: #ffffff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.reference-topbar-title {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 900;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reference-topbar-spacer {
-  flex: 1;
-  min-width: 12px;
-}
-
-.reference-icon-button,
-.reference-window-controls button {
-  appearance: none;
-  border: 0;
-  color: rgba(0, 0, 0, 0.72);
-  background: transparent;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.reference-icon-button:hover,
-.reference-window-controls button:hover,
-.reference-icon-button:focus-visible,
-.reference-window-controls button:focus-visible {
-  background: rgba(0, 0, 0, 0.04);
-  outline: none;
-}
-
-.reference-icon-button:focus-visible,
-.reference-window-controls button:focus-visible {
-  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.35);
-}
-
-.reference-window-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 4px;
-}
-
-.reference-window-controls .reference-close-button:hover,
-.reference-window-controls .reference-close-button:focus-visible {
-  color: #ffffff;
-  background: var(--danger);
-}
-
-/* settings page */
-.webview-page-settings {
-  width: 100%;
-  height: 100vh;
-  overflow: auto;
-  padding: 56px 20px 24px;
-  background: #f4f5f7;
-}
-
-.webview-settings {
-  width: min(760px, 100%);
-  margin: 0 auto;
-  padding: 4px 0 24px;
-}
-
-.webview-settings-title {
-  margin: 0;
-  color: #111827;
-  font-size: 20px;
-  font-weight: 850;
-}
-
-.webview-settings-hint {
-  max-width: 680px;
-  margin: 8px 0 18px;
-  color: #6b7280;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.webview-settings-row,
-.webview-settings-preset {
-  display: flex;
-  align-items: end;
-  gap: 10px;
-}
-
-.webview-settings-row {
-  margin-bottom: 14px;
-}
-
-.webview-settings-field {
-  min-width: 0;
-  display: grid;
-  flex: 1 1 0;
-  gap: 6px;
-  color: #6b7280;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.webview-settings-field input,
-.webview-settings-recorder {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  color: #111827;
-  background: #ffffff;
-  font-size: 13px;
-  outline: none;
-}
-
-.webview-settings-field input:focus,
-.webview-settings-recorder:focus-visible {
-  border-color: rgba(25, 118, 210, 0.6);
-  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.12);
-}
-
-.webview-settings-presets {
-  display: grid;
-  gap: 10px;
-}
-
-.webview-settings-preset {
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.webview-settings-recorder {
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.webview-settings-delete,
-.webview-settings-add,
-.webview-settings-save {
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.webview-settings-delete,
-.webview-settings-add {
-  border: 1px solid #e5e7eb;
-  color: #374151;
-  background: #ffffff;
-}
-
-.webview-settings-delete {
-  flex: 0 0 auto;
-  color: #b91c1c;
-}
-
-.webview-settings-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.webview-settings-save {
-  border: 1px solid #1976d2;
-  color: #ffffff;
-  background: #1976d2;
-}
-
-.webview-settings-delete:hover,
-.webview-settings-add:hover,
-.webview-settings-save:hover:not(:disabled) {
-  filter: brightness(0.96);
-}
-
-.webview-settings-ok,
-.webview-settings-err {
-  margin: 12px 0 0;
-  font-size: 12px;
-}
-
-.webview-settings-ok {
-  color: #2e7d32;
-}
-
-.webview-settings-err {
-  color: #b91c1c;
-}
+button,
+input,
+select,
+textarea { font: inherit; }
 
 /* browser-bar window */
 .browser-bar-root {
@@ -378,20 +140,4 @@ body {
   color: #6b7280;
   font-size: 10px;
   line-height: 1.1;
-}
-
-@media (max-width: 640px) {
-  .webview-page-settings {
-    padding: 52px 12px 18px;
-  }
-
-  .webview-settings-row,
-  .webview-settings-preset {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .webview-settings-delete {
-    width: 100%;
-  }
 }
