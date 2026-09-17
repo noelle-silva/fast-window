@@ -69,6 +69,19 @@ func (reg *runRegistry) remove(id string) {
 	delete(reg.runs, id)
 }
 
+// countByCommand 统计某条命令当前仍在运行的实例数。
+func (reg *runRegistry) countByCommand(commandID string) int {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	count := 0
+	for _, run := range reg.runs {
+		if run.commandID == commandID {
+			count++
+		}
+	}
+	return count
+}
+
 func (reg *runRegistry) snapshot() []map[string]any {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
@@ -104,6 +117,18 @@ func buildEmbeddedArgs(shell shellDef, scriptPath, workDir string) []string {
 		}
 		return []string{scriptPath}
 	}
+}
+
+// checkEmbeddedRunLimit 校验命令在内置空间的并发实例上限；上限为 0 表示不限制。
+func (svc *service) checkEmbeddedRunLimit(cmdItem command) error {
+	if cmdItem.MaxEmbeddedRuns <= 0 {
+		return nil
+	}
+	running := svc.runs.countByCommand(cmdItem.ID)
+	if running >= cmdItem.MaxEmbeddedRuns {
+		return fmt.Errorf("「%s」在内置空间已有 %d 个实例在运行，达到上限 %d", cmdItem.Name, running, cmdItem.MaxEmbeddedRuns)
+	}
+	return nil
 }
 
 // runEmbeddedCommand 以内置模式执行命令：不弹窗口，捕获输出经事件总线实时推送。

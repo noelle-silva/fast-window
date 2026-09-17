@@ -270,6 +270,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		CountdownSeconds: draft.CountdownSeconds,
 		RunMode:          draft.RunMode,
 		ProcessOwnership: draft.ProcessOwnership,
+		MaxEmbeddedRuns:  draft.MaxEmbeddedRuns,
 		CreatedAt:        nowText(),
 		UpdatedAt:        nowText(),
 	}
@@ -308,6 +309,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].CountdownSeconds = draft.CountdownSeconds
 		doc.Commands[index].RunMode = draft.RunMode
 		doc.Commands[index].ProcessOwnership = draft.ProcessOwnership
+		doc.Commands[index].MaxEmbeddedRuns = draft.MaxEmbeddedRuns
 		doc.Commands[index].UpdatedAt = nowText()
 		if err := svc.writeCommands(doc); err != nil {
 			return command{}, err

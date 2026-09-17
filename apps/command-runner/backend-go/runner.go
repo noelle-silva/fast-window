@@ -107,6 +107,9 @@ func (svc *service) runCommandByMode(id string) (map[string]any, error) {
 		return nil, fmt.Errorf("终端不可用: %s", plan.shell.name)
 	}
 	if plan.runMode == runModeEmbedded {
+		if err := svc.checkEmbeddedRunLimit(cmdItem); err != nil {
+			return nil, err
+		}
 		return svc.runEmbeddedCommand(cmdItem, target, plan)
 	}
 	return svc.runConsoleCommand(cmdItem, target, plan)

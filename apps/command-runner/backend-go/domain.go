@@ -31,6 +31,8 @@ const (
 	defaultCountdownSeconds = 10
 	minCountdownSeconds     = 1
 	maxCountdownSeconds     = 3600
+	minEmbeddedRunLimit     = 1
+	maxEmbeddedRunLimit     = 99
 	defaultProcessOwnership = ownershipDetached
 	defaultRunMode          = runModeConsole
 )
@@ -85,8 +87,10 @@ type command struct {
 	CountdownSeconds int    `json:"countdownSeconds"`
 	RunMode          string `json:"runMode"`
 	ProcessOwnership string `json:"processOwnership"`
-	CreatedAt        string `json:"createdAt"`
-	UpdatedAt        string `json:"updatedAt"`
+	// MaxEmbeddedRuns 是内置空间同时运行实例数上限；0 表示不限制。
+	MaxEmbeddedRuns int    `json:"maxEmbeddedRuns"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
 }
 
 type commandsDoc struct {
@@ -141,6 +145,7 @@ type commandDraft struct {
 	CountdownSeconds int    `json:"countdownSeconds"`
 	RunMode          string `json:"runMode"`
 	ProcessOwnership string `json:"processOwnership"`
+	MaxEmbeddedRuns  int    `json:"maxEmbeddedRuns"`
 }
 
 type metaDoc struct {
@@ -224,6 +229,10 @@ func (draft commandDraft) validate() error {
 	if draft.CountdownSeconds != 0 &&
 		(draft.CountdownSeconds < minCountdownSeconds || draft.CountdownSeconds > maxCountdownSeconds) {
 		return fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
+	}
+	if draft.MaxEmbeddedRuns != 0 &&
+		(draft.MaxEmbeddedRuns < minEmbeddedRunLimit || draft.MaxEmbeddedRuns > maxEmbeddedRunLimit) {
+		return fmt.Errorf("内置空间同时运行数量上限必须在 %d-%d 之间", minEmbeddedRunLimit, maxEmbeddedRunLimit)
 	}
 	return nil
 }
