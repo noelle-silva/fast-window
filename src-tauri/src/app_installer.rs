@@ -14,7 +14,7 @@ use tauri_plugin_global_shortcut::Shortcut;
 use tokio::io::AsyncWriteExt;
 
 use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager, ServiceDeclaration};
-use crate::install_fs::begin_replace_dir_from_tmp;
+use crate::install_fs::begin_overlay_dir_from_tmp;
 use crate::{
     app_apps_dir, ensure_writable_dir, is_https_url, normalize_zip_name, now_ms,
     open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, safe_relative_path, to_hex_lower,
@@ -923,8 +923,8 @@ async fn install_extracted_app_package(
 
     let created_container = prepare_app_container(&app_container)?;
     let tag = format!("app-package-{app_id}");
-    let replacement = match begin_replace_dir_from_tmp(&package_dir, &package.tmp_dir, &tag) {
-        Ok(replacement) => replacement,
+    let overlay = match begin_overlay_dir_from_tmp(&package_dir, &package.tmp_dir, &tag) {
+        Ok(overlay) => overlay,
         Err(error) => {
             cleanup_created_app_container(&app_container, created_container)?;
             return Err(format!("安装应用失败: {error}"));
@@ -940,7 +940,7 @@ async fn install_extracted_app_package(
     };
 
     if let Err(error) = registry_result {
-        let rollback = replacement.rollback().err();
+        let rollback = overlay.rollback().err();
         let cleanup = cleanup_created_app_container(&app_container, created_container).err();
         return Err(match rollback {
             Some(rollback_error) => format_with_cleanup_error(
@@ -950,7 +950,7 @@ async fn install_extracted_app_package(
             None => format_with_cleanup_error(format!("注册应用失败: {error}"), cleanup),
         });
     }
-    replacement.commit()?;
+    overlay.commit()?;
 
     Ok(AppStoreInstallResult {
         app_id,
