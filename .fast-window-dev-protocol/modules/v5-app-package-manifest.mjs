@@ -6,8 +6,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export const rootDir = path.resolve(__dirname, '..', '..')
-export const V5_APP_PACKAGE_MANIFEST_FILE = 'fw-app.package.json'
-export const V5_APP_PACKAGE_SCHEMA_VERSION = 2
+export const V5_APP_MANIFEST_FILE = 'fw-app.json'
+export const V5_APP_BUILD_CONFIG_FILE = 'fw-app.build.json'
 export const DEFAULT_V5_APP_PROFILE = 'release'
 export const V5_APP_PROFILE_IDS = ['release', 'dev']
 const RESERVED_STAGE_ENTRY_NAMES = new Set(['package', 'data'])
@@ -168,21 +168,22 @@ function validateProfileExecutableMappings(profiles, executable) {
   }
 }
 
-export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifestPath }) {
+export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }) {
   const manifest = assertPlainObject(raw, manifestPath)
   assertKnownKeys(manifest, manifestPath, [
-    'schemaVersion',
+    'type',
     'id',
     'name',
     'description',
     'versionSource',
-    'profiles',
     'package',
     'displayMode',
     'commands',
   ])
-  if (manifest.schemaVersion !== V5_APP_PACKAGE_SCHEMA_VERSION) {
-    throw new Error(`${manifestPath}.schemaVersion 必须为 ${V5_APP_PACKAGE_SCHEMA_VERSION}`)
+
+  const type = requiredString(manifest.type, 'type', 24)
+  if (type !== 'desktop-app') {
+    throw new Error(`${manifestPath}.type 必须为 desktop-app，本地打包链路不支持: ${type}`)
   }
 
   const id = requiredString(manifest.id, 'id', 80)
@@ -194,17 +195,15 @@ export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifes
   const executable = normalizeRel(requiredString(pkg.windowsExecutable, 'package.windowsExecutable', 240), 'package.windowsExecutable')
   assertNotReservedPackagePath(executable, 'package.windowsExecutable')
   if (!executable.toLowerCase().endsWith('.exe')) throw new Error('package.windowsExecutable 必须指向 .exe')
-  const profiles = validatePackageProfiles(manifest.profiles, 'profiles')
-  validateProfileExecutableMappings(profiles, executable)
 
   return {
     appDir,
     manifestPath,
+    type,
     id,
     name: requiredString(manifest.name, 'name', 120),
     description: requiredString(manifest.description, 'description', 500),
     versionSource: normalizeRel(requiredString(manifest.versionSource, 'versionSource', 240), 'versionSource'),
-    profiles,
     executable,
     icon: (() => {
       const icon = normalizeRel(requiredString(pkg.icon, 'package.icon', 240), 'package.icon')
@@ -216,17 +215,31 @@ export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifes
   }
 }
 
-export async function loadV5AppPackageConfig(appId) {
+export function normalizeV5AppBuildConfig(raw, { buildPath }) {
+  const config = assertPlainObject(raw, buildPath)
+  assertKnownKeys(config, buildPath, ['profiles'])
+  return { buildPath, profiles: validatePackageProfiles(config.profiles, 'profiles') }
+}
+
+async function readRequiredJson(filePath, label) {
+  try {
+    return await readJson(filePath)
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error(`缺少${label}: ${filePath}`)
+    throw error
+  }
+}
+
+export async function loadV5AppConfig(appId) {
   const id = String(appId || '').trim()
   if (!isSafeId(id)) throw new Error(`app id 不合法: ${id}`)
   const appDir = path.join(rootDir, 'apps', id)
-  const manifestPath = path.join(appDir, V5_APP_PACKAGE_MANIFEST_FILE)
-  let manifest = null
-  try {
-    manifest = await readJson(manifestPath)
-  } catch (error) {
-    if (error?.code === 'ENOENT') throw new Error(`缺少 v5 app 发布声明: ${manifestPath}`)
-    throw error
-  }
-  return normalizeV5AppPackageManifest(manifest, { appDir, expectedId: id, manifestPath })
+  const manifestPath = path.join(appDir, V5_APP_MANIFEST_FILE)
+  const buildPath = path.join(appDir, V5_APP_BUILD_CONFIG_FILE)
+  const manifest = await readRequiredJson(manifestPath, 'v5 app 应用清单')
+  const buildConfig = await readRequiredJson(buildPath, 'v5 app 构建配置')
+  const normalizedManifest = normalizeV5AppManifest(manifest, { appDir, expectedId: id, manifestPath })
+  const normalizedBuild = normalizeV5AppBuildConfig(buildConfig, { buildPath })
+  validateProfileExecutableMappings(normalizedBuild.profiles, normalizedManifest.executable)
+  return { ...normalizedManifest, ...normalizedBuild }
 }

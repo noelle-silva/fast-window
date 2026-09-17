@@ -1,0 +1,26 @@
+{
+  "type": "desktop-app",
+  "id": "command-runner",
+  "name": "Command Runner",
+  "description": "以仓库为单位管理和一键运行命令行命令",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "command-runner.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-command-runner",
+      "title": "打开 Command Runner"
+    },
+    {
+      "id": "new-repo",
+      "title": "注册新仓库"
+    },
+    {
+      "id": "open-settings",
+      "title": "打开 Command Runner 设置"
+    }
+  ]
+}

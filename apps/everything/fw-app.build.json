@@ -1,0 +1,60 @@
+{
+  "profiles": {
+    "release": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "tauri",
+          "build",
+          "--no-bundle"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        {
+          "from": "src-tauri/target/release/everything.exe",
+          "to": "everything.exe"
+        },
+        {
+          "from": "src-tauri/target/release/everything-backend.exe",
+          "to": "everything-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "vendor/everything/windows-x64",
+          "to": "vendor/everything/windows-x64"
+        }
+      ]
+    },
+    "dev": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "build:exe:dev"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        {
+          "from": "src-tauri/target/debug/everything.exe",
+          "to": "everything.exe"
+        },
+        {
+          "from": "src-tauri/target/debug/everything-backend.exe",
+          "to": "everything-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "vendor/everything/windows-x64",
+          "to": "vendor/everything/windows-x64"
+        }
+      ]
+    }
+  }
+}

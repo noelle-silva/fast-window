@@ -9,7 +9,7 @@ import {
   compareSemverStrict,
   isV5AppProfile,
   isSafeId,
-  loadV5AppPackageConfig,
+  loadV5AppConfig,
   normalizeRel,
   parseSemverStrict,
   readJson,
@@ -211,7 +211,7 @@ async function zipDir(parentDir, dirName, zipPath) {
 }
 
 export async function getV5AppConfig(appId) {
-  return loadV5AppPackageConfig(appId)
+  return loadV5AppConfig(appId)
 }
 
 export async function loadV5AppVersion(config) {
@@ -255,9 +255,10 @@ function validateCommands(commands) {
 
 function buildRuntimeManifest(config, version) {
   return {
-    type: 'desktop-app',
+    type: config.type,
     id: config.id,
     name: config.name,
+    description: config.description,
     version,
     package: {
       windowsExecutable: normalizeRel(config.executable, 'executable'),

@@ -1,0 +1,22 @@
+{
+  "type": "desktop-app",
+  "id": "ai-draw",
+  "name": "AI Draw",
+  "description": "AI 绘图 v5 应用，支持绘图供应商与设置入口",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "ai-draw-app.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-settings",
+      "title": "打开设置"
+    },
+    {
+      "id": "provider-settings",
+      "title": "绘图供应商设置"
+    }
+  ]
+}

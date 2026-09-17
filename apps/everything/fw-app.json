@@ -1,0 +1,26 @@
+{
+  "type": "desktop-app",
+  "id": "everything",
+  "name": "Everything",
+  "description": "Fast Window v5 Everything 搜索应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "everything.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-search",
+      "title": "打开 Everything 搜索"
+    },
+    {
+      "id": "focus-query",
+      "title": "聚焦搜索框"
+    },
+    {
+      "id": "show-setup",
+      "title": "打开 Everything 设置"
+    }
+  ]
+}

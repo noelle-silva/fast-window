@@ -1,0 +1,22 @@
+{
+  "type": "desktop-app",
+  "id": "quick-bar",
+  "name": "Quick Bar",
+  "description": "划词助手 - 选中文字后弹出快捷操作浮动工具栏",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "quick-bar.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-settings",
+      "title": "打开 Quick Bar 设置"
+    },
+    {
+      "id": "show-health",
+      "title": "查看健康状态"
+    }
+  ]
+}

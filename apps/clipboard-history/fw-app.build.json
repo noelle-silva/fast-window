@@ -1,0 +1,50 @@
+{
+  "profiles": {
+    "release": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "build:exe:no-bundle"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        {
+          "from": "src-tauri/target/release/clipboard-history-app.exe",
+          "to": "clipboard-history-app.exe"
+        },
+        {
+          "from": "src-tauri/target/release/clipboard-history-backend.exe",
+          "to": "clipboard-history-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        }
+      ]
+    },
+    "dev": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "build:exe:dev"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        {
+          "from": "src-tauri/target/debug/clipboard-history-app.exe",
+          "to": "clipboard-history-app.exe"
+        },
+        {
+          "from": "src-tauri/target/debug/clipboard-history-backend.exe",
+          "to": "clipboard-history-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        }
+      ]
+    }
+  }
+}

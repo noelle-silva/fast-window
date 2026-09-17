@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import {
   buildStoreCatalog,
   buildV5AppPackage,
+  getV5AppConfig,
   removeStoreApp,
   stageV5AppPackage,
   syncV5AppExecutable,
@@ -15,7 +16,7 @@ import {
   v5AppStagePackageDir,
 } from './lib/v5-app-packaging.mjs'
 import { scriptArgs } from './lib/v5-cli-args.mjs'
-import { normalizeV5AppPackageManifest } from './lib/v5-app-package-manifest.mjs'
+import { normalizeV5AppManifest, normalizeV5AppBuildConfig } from './lib/v5-app-package-manifest.mjs'
 import { TAURI_CONFIG_ENV } from './lib/tauri-build-env-policy.mjs'
 
 function run(command, args, cwd) {
@@ -57,6 +58,7 @@ async function createFakeApp() {
     root,
     config: {
       appDir,
+      type: 'desktop-app',
       id: 'fake-app',
       name: 'Fake App',
       description: 'Fake v5 app',
@@ -100,13 +102,21 @@ async function createEnvProbeApp(profile = 'release') {
   return { ...app, probePath }
 }
 
-async function writePackageManifest(appDir, overrides = {}) {
+async function writeAppManifests(appDir, overrides = {}) {
   const manifest = {
-    schemaVersion: 2,
+    type: 'desktop-app',
     id: overrides.id || path.basename(appDir),
     name: 'Fake App',
     description: 'Fake v5 app',
     versionSource: 'version.json',
+    package: {
+      windowsExecutable: overrides.windowsExecutable || 'fake.exe',
+      icon: overrides.icon || 'assets/icon.svg',
+    },
+    displayMode: 'default',
+    commands: [{ id: 'open', title: 'Open' }],
+  }
+  const buildConfig = {
     profiles: {
       release: {
         build: { command: 'node', args: ['-e', '0'] },
@@ -125,15 +135,10 @@ async function writePackageManifest(appDir, overrides = {}) {
         ],
       },
     },
-    package: {
-      windowsExecutable: overrides.windowsExecutable || 'fake.exe',
-      icon: overrides.icon || 'assets/icon.svg',
-    },
-    displayMode: 'default',
-    commands: [{ id: 'open', title: 'Open' }],
   }
-  await fs.writeFile(path.join(appDir, 'fw-app.package.json'), JSON.stringify(manifest, null, 2), 'utf8')
-  return manifest
+  await fs.writeFile(path.join(appDir, 'fw-app.json'), JSON.stringify(manifest, null, 2), 'utf8')
+  await fs.writeFile(path.join(appDir, 'fw-app.build.json'), JSON.stringify(buildConfig, null, 2), 'utf8')
+  return { manifest, buildConfig }
 }
 
 async function zipEntryNames(zipPath) {
@@ -332,7 +337,7 @@ test('store catalog rebuild rejects invalid host metadata', () => {
   )
 })
 
-test('manifest rejects reserved staging container paths inside package files', async () => {
+test('build config rejects reserved staging container paths inside package files', async () => {
   const { root } = await createFakeApp()
   try {
     const appDir = path.join(root, 'apps', 'reserved-app')
@@ -340,16 +345,14 @@ test('manifest rejects reserved staging container paths inside package files', a
     await fs.writeFile(path.join(appDir, 'build', 'fake.exe'), 'exe', 'utf8')
     await fs.writeFile(path.join(appDir, 'build', 'assets', 'icon.svg'), '<svg />', 'utf8')
     await fs.writeFile(path.join(appDir, 'version.json'), JSON.stringify({ version: '1.0.0' }), 'utf8')
-    const manifest = await writePackageManifest(appDir, {
+    const { buildConfig } = await writeAppManifests(appDir, {
       id: 'reserved-app',
       releaseFiles: [{ from: 'build/fake.exe', to: 'data/fake.exe' }],
     })
 
     assert.throws(
-      () => normalizeV5AppPackageManifest(manifest, {
-        appDir,
-        expectedId: 'reserved-app',
-        manifestPath: path.join(appDir, 'fw-app.package.json'),
+      () => normalizeV5AppBuildConfig(buildConfig, {
+        buildPath: path.join(appDir, 'fw-app.build.json'),
       }),
       /不允许写入 staging 容器保留目录/
     )
@@ -358,7 +361,7 @@ test('manifest rejects reserved staging container paths inside package files', a
   }
 })
 
-test('manifest rejects stageDir ending in reserved container entry', async () => {
+test('build config rejects stageDir ending in reserved container entry', async () => {
   const { root } = await createFakeApp()
   try {
     const appDir = path.join(root, 'apps', 'bad-stage-dir')
@@ -366,17 +369,70 @@ test('manifest rejects stageDir ending in reserved container entry', async () =>
     await fs.writeFile(path.join(appDir, 'build', 'fake.exe'), 'exe', 'utf8')
     await fs.writeFile(path.join(appDir, 'build', 'assets', 'icon.svg'), '<svg />', 'utf8')
     await fs.writeFile(path.join(appDir, 'version.json'), JSON.stringify({ version: '1.0.0' }), 'utf8')
-    const manifest = await writePackageManifest(appDir, { id: 'bad-stage-dir', releaseStageDir: 'dist-app/v5-windows/package' })
+    const { buildConfig } = await writeAppManifests(appDir, { id: 'bad-stage-dir', releaseStageDir: 'dist-app/v5-windows/package' })
 
     assert.throws(
-      () => normalizeV5AppPackageManifest(manifest, {
-        appDir,
-        expectedId: 'bad-stage-dir',
-        manifestPath: path.join(appDir, 'fw-app.package.json'),
+      () => normalizeV5AppBuildConfig(buildConfig, {
+        buildPath: path.join(appDir, 'fw-app.build.json'),
       }),
       /不能以保留目录 package 结尾/
     )
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+test('app manifest rejects service type in local packaging chain', async () => {
+  const { root } = await createFakeApp()
+  try {
+    const appDir = path.join(root, 'apps', 'service-app')
+    await fs.mkdir(appDir, { recursive: true })
+    await writeAppManifests(appDir, { id: 'service-app' })
+    const manifestPath = path.join(appDir, 'fw-app.json')
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
+    manifest.type = 'service-app'
+
+    assert.throws(
+      () => normalizeV5AppManifest(manifest, { appDir, expectedId: 'service-app', manifestPath }),
+      /type 必须为 desktop-app/
+    )
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('repository apps expose single-source fw-app.json plus fw-app.build.json', async () => {
+  const appsDir = path.join(process.cwd(), 'apps')
+  const entries = await fs.readdir(appsDir, { withFileTypes: true })
+  let checked = 0
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const appDir = path.join(appsDir, entry.name)
+    const manifestPath = path.join(appDir, 'fw-app.json')
+    if (!(await exists(manifestPath))) continue
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
+    const config = normalizeV5AppManifest(manifest, {
+      appDir,
+      expectedId: manifest.id,
+      manifestPath,
+    })
+    const buildConfig = normalizeV5AppBuildConfig(
+      JSON.parse(await fs.readFile(path.join(appDir, 'fw-app.build.json'), 'utf8')),
+      { buildPath: path.join(appDir, 'fw-app.build.json') },
+    )
+    assert.equal(config.type, 'desktop-app')
+    for (const profile of Object.values(buildConfig.profiles)) {
+      assert(profile.files.some(file => file.to === config.executable), `${entry.name} 缺少入口映射`)
+    }
+    assert.equal(await exists(path.join(appDir, 'fw-app.package.json')), false)
+    checked += 1
+  }
+  assert(checked >= 15, `仓库内新形态应用数量不足: ${checked}`)
+})
+
+test('getV5AppConfig loads a repository app by id', async () => {
+  const config = await getV5AppConfig('webview')
+  assert.equal(config.id, 'webview')
+  assert.equal(config.executable, 'webview.exe')
+  assert.equal(config.profiles.release.stageDir, 'dist-app/v5-windows')
 })

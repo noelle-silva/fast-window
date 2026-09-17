@@ -24,7 +24,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - Go 侧 `schemaVersion`、`dataVersion`、`_migrations.json`、`_meta.json` 骨架。
 - 前端加载态、错误态、数据目录选择、运行中 command 接收演示。
 - 标准构建脚本：`build:backend`、`build:resources`、`build:ui`、`build:exe:dev`、`build:exe`、`build:app`、`build:app:dev`、`build:app:exe`、`build:app:exe:dev`。
-- 标准 v5 App 包声明：`fw-app.package.json`，统一生成 `dist-app/v5-windows/` 本地 app 容器目录。
+- 标准 v5 App 单份声明：`fw-app.json`（身份、展示与运行声明）+ `fw-app.build.json`（构建规则），统一生成 `dist-app/v5-windows/` 本地 app 容器目录。
 - 标准版本脚本：`apps:version:check`、`apps:bump`、`apps:bump:dry`，所有 App 版本目标必须一致后才允许升版。
 
 ## 复制成新 App 时必须替换
@@ -43,7 +43,8 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 | Vite port | `1434` | 未占用端口 |
 | commands | `open-reference`、`show-health`、`edit-settings` | App 自己的命令 |
 | apps:bump 脚本 | `node ../../scripts/bump-v5-app-version.mjs` | 保持相同命令，由 cwd 自动识别 App ID |
-| fw-app.package.json | `v5-reference-app-go` 声明 | 替换 app id、名称、入口 exe、sidecar、图标和命令 |
+| fw-app.json | `v5-reference-app-go` 应用声明 | 替换 app id、名称、入口 exe、sidecar、图标和命令 |
+| fw-app.build.json | 构建规则 | 替换构建命令、staging 目录与文件映射 |
 
 ## 复制后保留不变的机制
 
@@ -94,9 +95,9 @@ apps/<app-id>/dist-app/v5-windows-dev/
 `package/` 必须等同于正式 zip 解压后的程序包根目录，至少包含：
 
 - `fw-app.json`
-- `fw-app.json.windowsExecutable` 指向的入口 exe
-- `fw-app.json.icon` 指向的图标文件或资源
-- 当前 profile 的 `profiles.<profile>.files` 声明的所有资源
+- `fw-app.json` 的 `package.windowsExecutable` 指向的入口 exe
+- `fw-app.json` 的 `package.icon` 指向的图标文件或资源
+- 当前 profile 的 `fw-app.build.json` 中 `profiles.<profile>.files` 声明的所有资源
 
 注册 release v5 App 时，应从 `apps/<app-id>/dist-app/v5-windows/package/` 里选择入口 exe；注册 dev v5 App 时，应从 `apps/<app-id>/dist-app/v5-windows-dev/package/` 里选择入口 exe。
 
@@ -164,7 +165,7 @@ pnpm apps:package:v5 -- --app <app-id>
 
 ```mermaid
 flowchart TD
-    A[fw-app.package.json] --> B[统一 staging 核心]
+    A[fw-app.json + fw-app.build.json] --> B[统一 staging 核心]
     B --> C[选择 profile]
     C --> P{profile}
     P -->|release| R[执行 profiles.release.build]
@@ -191,15 +192,16 @@ flowchart TD
 
 ### 约束
 
-- `build:app:exe` 要求对应 staging 容器 `package/` 里的 `fw-app.json` 与当前 `fw-app.package.json` 生成结果一致；不一致时必须先跑完整 `build:app` 或 `build:app:dev`。
+- `build:app:exe` 要求对应 staging 容器 `package/` 里的 `fw-app.json` 与当前 `fw-app.json` + `fw-app.build.json` 生成结果一致；不一致时必须先跑完整 `build:app` 或 `build:app:dev`。
 - `build:app:exe` / `build:app:exe:dev` 只同步 `package.windowsExecutable` 对应的文件，不同步资源和 manifest。
 - 如果 app 正在运行导致 Windows 锁定 exe，命令应失败；先停止 app，再重新执行。
-- 新 v5 App 必须提供 schema 2 的 `fw-app.package.json`，并接入 `build:app` / `build:app:dev` / `build:app:exe` / `build:app:exe:dev`。
+- 新 v5 App 必须提供单份 `fw-app.json`（身份、展示与运行声明）与 `fw-app.build.json`（构建规则），并接入 `build:app` / `build:app:dev` / `build:app:exe` / `build:app:exe:dev`。
 - 正式发布不得绕过 staging 容器；zip 必须从 `dist-app/v5-windows/package/` 复制生成，严禁包含 `dist-app/v5-windows/data/`。
 
 ### 新 App 接入清单
 
-- 在 `apps/<app-id>/fw-app.package.json` 声明 `profiles.release`、`profiles.dev`、`package.windowsExecutable`、`package.icon`、`commands`。
+- 在 `apps/<app-id>/fw-app.json` 声明 `package.windowsExecutable`、`package.icon`、`displayMode`、`commands`；应用身份与展示只在这份清单里维护。
+- 在 `apps/<app-id>/fw-app.build.json` 声明 `profiles.release`、`profiles.dev`（构建命令、staging 目录与文件映射）。
 - 在 `apps/<app-id>/package.json` 增加：
   - `"build:app": "node ../../scripts/stage-v5-app.mjs"`
   - `"build:app:dev": "node ../../scripts/stage-v5-app.mjs --profile dev"`

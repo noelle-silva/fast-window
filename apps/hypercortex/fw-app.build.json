@@ -1,0 +1,60 @@
+{
+  "profiles": {
+    "release": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "tauri",
+          "build",
+          "--no-bundle"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        {
+          "from": "src-tauri/target/release/hypercortex-app.exe",
+          "to": "hypercortex-app.exe"
+        },
+        {
+          "from": "src-tauri/target/release/hypercortex-backend.exe",
+          "to": "hypercortex-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "src-tauri/target/resources/bin",
+          "to": "bin"
+        }
+      ]
+    },
+    "dev": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "build:exe:dev"
+        ]
+      },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        {
+          "from": "src-tauri/target/debug/hypercortex-app.exe",
+          "to": "hypercortex-app.exe"
+        },
+        {
+          "from": "src-tauri/target/debug/hypercortex-backend.exe",
+          "to": "hypercortex-backend.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "src-tauri/target/resources/bin",
+          "to": "bin"
+        }
+      ]
+    }
+  }
+}

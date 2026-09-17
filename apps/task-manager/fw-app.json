@@ -1,0 +1,26 @@
+{
+  "type": "desktop-app",
+  "id": "task-manager",
+  "name": "Task Manager",
+  "description": "Fast Window v5 任务记录与管理应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "task-manager.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-tasks",
+      "title": "打开任务管理"
+    },
+    {
+      "id": "new-board",
+      "title": "新建任务分组"
+    },
+    {
+      "id": "new-task",
+      "title": "新建任务"
+    }
+  ]
+}

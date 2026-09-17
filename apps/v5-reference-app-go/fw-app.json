@@ -1,0 +1,26 @@
+{
+  "type": "desktop-app",
+  "id": "v5-reference-app-go",
+  "name": "v5 Reference App Go",
+  "description": "Fast Window v5 Go sidecar 模范应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "v5-reference-app-go.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-reference",
+      "title": "打开 v5 Go 模范 App"
+    },
+    {
+      "id": "show-health",
+      "title": "查看模范 App 健康状态"
+    },
+    {
+      "id": "edit-settings",
+      "title": "编辑模范 App 设置"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "profiles": {
+    "release": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "tauri",
+          "build",
+          "--no-bundle"
+        ]
+      },
+      "stageDir": "dist-app/quick-bar-windows",
+      "files": [
+        {
+          "from": "src-tauri/target/release/quick-bar.exe",
+          "to": "quick-bar.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "src-tauri/target/resources/selection-runtime",
+          "to": "selection-runtime"
+        }
+      ]
+    },
+    "dev": {
+      "build": {
+        "command": "pnpm",
+        "args": [
+          "build:exe:dev"
+        ]
+      },
+      "stageDir": "dist-app/quick-bar-windows-dev",
+      "files": [
+        {
+          "from": "src-tauri/target/debug/quick-bar.exe",
+          "to": "quick-bar.exe"
+        },
+        {
+          "from": "src-tauri/target/resources/assets",
+          "to": "assets"
+        },
+        {
+          "from": "src-tauri/target/resources/selection-runtime",
+          "to": "selection-runtime"
+        }
+      ]
+    }
+  }
+}

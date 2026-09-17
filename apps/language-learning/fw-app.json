@@ -1,0 +1,26 @@
+{
+  "type": "desktop-app",
+  "id": "language-learning",
+  "name": "Language Learning",
+  "description": "Fast Window v5 独立 App：语言学习",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "language-learning.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "open-language-learning",
+      "title": "打开 Language Learning"
+    },
+    {
+      "id": "show-health",
+      "title": "查看 Language Learning 健康状态"
+    },
+    {
+      "id": "edit-settings",
+      "title": "打开 Language Learning 设置"
+    }
+  ]
+}
