@@ -217,7 +217,7 @@ func (svc *service) pumpOutput(run *embeddedRun, cmd *exec.Cmd, stdout, stderr i
 				svc.emitEvent(map[string]any{
 					"name":   "run.output",
 					"runId":  run.id,
-					"text":   scanner.Text(),
+					"text":   sanitizeOutputLine(scanner.Text()),
 					"stream": stream,
 				})
 			}
