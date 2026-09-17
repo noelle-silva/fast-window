@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "webview",
   "name": "webview",
-  "description": "Fast Window v5 独立 App：书签管理 + 内嵌浏览栈（网页窗口 + 视频倍速）",
+  "description": "Fast Window v5 独立 App：收藏桌面（网址收藏 + 桌面图标 + 收纳夹）+ 内嵌浏览栈（网页窗口 + 视频倍速）",
   "versionSource": "src-tauri/tauri.conf.json",
   "profiles": {
     "release": {
@@ -30,8 +30,8 @@
   },
   "displayMode": "default",
   "commands": [
-    { "id": "open-webview", "title": "打开 webview 书签主页" },
-    { "id": "open-settings", "title": "编辑 webview 倍速设置" },
+    { "id": "open-webview", "title": "打开 webview 收藏桌面" },
+    { "id": "open-settings", "title": "打开 webview 设置" },
     { "id": "show-health", "title": "查看 webview 健康状态" }
   ]
 }
