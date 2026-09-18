@@ -142,13 +142,13 @@ export default function AppStoreView(props: Props) {
     }
   }, [])
 
-  const refreshLocalState = useCallback(async () => {
+  const refreshLocalState = useCallback(async (storeIds: readonly string[]) => {
     const [apps, pluginMeta, appsDir] = await Promise.all([
       loadRegistry(),
       loadLocalPluginMeta(),
       getAppsDir().catch(() => ''),
     ])
-    const localStoreApps = await loadLocalStoreApps(apps)
+    const localStoreApps = await loadLocalStoreApps(storeIds, apps)
     setLocalApps(localStoreApps)
     setLocalPlugins(pluginMeta)
     setDefaultAppsDir(appsDir)
@@ -166,7 +166,7 @@ export default function AppStoreView(props: Props) {
       const next = await fetchStoreCatalog(DEFAULT_APP_STORE_CATALOG_URL, 25_000, ac.signal)
       if (requestId !== requestSeqRef.current) return
       setCatalog(next)
-      await refreshLocalState()
+      await refreshLocalState(next.apps.map(item => item.id))
     } catch (e: any) {
       if (requestId !== requestSeqRef.current) return
       const msg = String(e?.message || e || '').trim()
@@ -233,7 +233,7 @@ export default function AppStoreView(props: Props) {
     try {
       if (current.kind === 'app') await doAppInstall(current.item, current.action)
       else await doPluginInstall(current.item, current.action)
-      await refreshLocalState()
+      await refreshLocalState((catalog?.apps ?? []).map(item => item.id))
       if (current.kind === 'app') window.dispatchEvent(new CustomEvent('fast-window:registered-apps-changed'))
     } catch (e: any) {
       setError(String(e?.message || e || '安装失败'))
