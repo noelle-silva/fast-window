@@ -9,8 +9,9 @@ export const DEFAULT_DOWNLOAD_BRANCH = 'main'
 export const V5_STORE_CATALOG_FILE = 'catalog.json'
 export const LEGACY_PLUGIN_INDEX_FILE = 'index.json'
 
-export async function loadDotEnvIfPresent() {
-  for (const filePath of [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')]) {
+// 把协议目录内的 .env.local / .env 读入进程环境；已存在的变量不被覆盖。
+export async function loadProtocolEnv(protocolDir) {
+  for (const filePath of [path.join(protocolDir, '.env.local'), path.join(protocolDir, '.env')]) {
     let raw = ''
     try {
       raw = await fs.readFile(filePath, 'utf8')
@@ -29,6 +30,10 @@ export async function loadDotEnvIfPresent() {
       process.env[key] = value
     }
   }
+}
+
+export async function loadDotEnvIfPresent() {
+  await loadProtocolEnv(rootDir)
 }
 
 export function pickGithubToken() {

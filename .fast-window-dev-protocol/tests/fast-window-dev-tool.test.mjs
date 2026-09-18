@@ -7,6 +7,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { packZipDirectory, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
+import { publishArtifactToStore } from '../modules/fast-window-dev-release.mjs'
+import { loadProtocolEnv } from '../modules/v5-download-store.mjs'
 
 const templateDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../app-template')
 const toolFileName = 'fast-window-dev-tool.mjs'
@@ -346,4 +348,92 @@ test('商店化拒绝桌面应用携带 service 段', t => {
   const run = runTool(protocolDir, 'package')
   assert.equal(run.code, 1)
   assert.match(run.receipt.error, /不允许携带 service 段/)
+})
+
+function createReleaseFixture() {
+  const appRoot = makeTempDir('fast-window-dev-release-app-')
+  const protocolDir = path.join(appRoot, '.fast-window-dev-protocol')
+  mkdirSync(protocolDir, { recursive: true })
+  writeFileSync(path.join(appRoot, 'release.json'), `${JSON.stringify({ version: '1.2.3' })}\n`, 'utf8')
+  writeFileSync(path.join(appRoot, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n', 'utf8')
+  writeFileSync(
+    path.join(protocolDir, 'fw-app.json'),
+    `${JSON.stringify({
+      type: 'desktop-app',
+      id: 'sample-app',
+      name: 'sample-app',
+      description: '样例应用',
+      versionSource: 'release.json',
+      package: { windowsExecutable: 'sample-app.exe', icon: 'icon.svg' },
+      displayMode: 'default',
+      commands: [],
+    })}\n`,
+    'utf8',
+  )
+  writeFileSync(path.join(protocolDir, '.env'), 'GITHUB_TOKEN=app-side-token-should-be-ignored\n', 'utf8')
+  const artifactPath = path.join(appRoot, 'sample-app-1.2.3-windows.zip')
+  writeFileSync(artifactPath, 'fake-zip-bytes', 'utf8')
+  return { appRoot, protocolDir, artifactPath }
+}
+
+async function withoutTokenEnv(run) {
+  const saved = new Map()
+  for (const key of ['GITHUB_TOKEN', 'FAST_WINDOW_GITHUB_TOKEN', 'GH_TOKEN']) {
+    saved.set(key, process.env[key])
+    delete process.env[key]
+  }
+  try {
+    return await run()
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test('发布凭据只读中央协议目录，应用目录 .env 不参与', async t => {
+  const fixture = createReleaseFixture()
+  const credentialsDir = makeTempDir('fast-window-dev-release-central-')
+  t.after(() => {
+    removeDir(fixture.appRoot)
+    removeDir(credentialsDir)
+  })
+
+  await withoutTokenEnv(async () => {
+    await assert.rejects(
+      () => publishArtifactToStore({
+        protocolDir: fixture.protocolDir,
+        credentialsDir,
+        artifactPath: fixture.artifactPath,
+      }),
+      /缺少发布凭据/,
+    )
+  })
+})
+
+test('发布模式缺少中央凭据目录时快速失败', async t => {
+  const fixture = createReleaseFixture()
+  t.after(() => removeDir(fixture.appRoot))
+
+  await assert.rejects(
+    () => publishArtifactToStore({ protocolDir: fixture.protocolDir, artifactPath: fixture.artifactPath }),
+    /缺少发布凭据目录/,
+  )
+})
+
+test('协议目录环境装载器按传入目录读取 .env', async t => {
+  const dir = makeTempDir('fast-window-dev-env-')
+  const key = 'FAST_WINDOW_DEV_TEST_TOKEN'
+  const saved = process.env[key]
+  t.after(() => {
+    removeDir(dir)
+    if (saved === undefined) delete process.env[key]
+    else process.env[key] = saved
+  })
+  delete process.env[key]
+  writeFileSync(path.join(dir, '.env'), `${key}=test-token-value\n`, 'utf8')
+
+  await loadProtocolEnv(dir)
+  assert.equal(process.env[key], 'test-token-value')
 })

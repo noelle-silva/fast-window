@@ -14,6 +14,9 @@ const contractVersion = 1
 const releaseMode = 'release'
 const usageLine = '用法：node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> <动作代号> [release]'
 
+// 中央协议目录：调度工具所在目录，也是发布模式唯一的凭据来源。
+const toolDir = path.dirname(fileURLToPath(import.meta.url))
+
 function isSafeSegment(value) {
   return value !== '' && value !== '.' && value !== '..' && !/[\\/]/.test(value)
 }
@@ -131,7 +134,7 @@ async function main() {
     if (artifactPath === '') {
       throw new Error(`动作 ${action} 没有可发布的成品`)
     }
-    const published = await publishArtifactToStore({ protocolDir: dir, artifactPath })
+    const published = await publishArtifactToStore({ protocolDir: dir, credentialsDir: toolDir, artifactPath })
     console.log(`fast-window-dev-tool: 已发布 ${published.appId} ${published.version}`)
     console.log(`fast-window-dev-tool: 发布地址 ${published.releaseUrl}`)
     console.log(`fast-window-dev-tool: 商店目录 ${published.catalogUrl}`)

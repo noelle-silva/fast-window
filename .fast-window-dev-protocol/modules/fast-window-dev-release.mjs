@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-import process from 'node:process'
 
 import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
 import { assertV5AppPublishVersionPolicy } from './v5-app-publishing.mjs'
@@ -12,6 +11,7 @@ import {
   V5_STORE_CATALOG_FILE,
   assertWritableToken,
   loadCatalogOrMigrateIndex,
+  loadProtocolEnv,
   pickGithubToken,
   writeRemoteJsonFile,
 } from './v5-download-store.mjs'
@@ -26,13 +26,17 @@ const iconMimeByExtension = new Map([
   ['.svg', 'image/svg+xml'],
 ])
 
-export async function publishArtifactToStore({ protocolDir, artifactPath }) {
+// 发布边界：manifest 读应用协议目录，凭据只读中央协议目录，应用侧不持有发布凭据。
+export async function publishArtifactToStore({ protocolDir, credentialsDir, artifactPath }) {
+  if (String(credentialsDir ?? '').trim() === '') {
+    throw new Error('缺少发布凭据目录：发布模式必须由中央工具传入主仓库协议目录路径')
+  }
   const root = path.dirname(path.resolve(protocolDir))
   const artifact = await artifactFacts(artifactPath)
   const manifest = manifestFacts(readManifest(protocolDir))
   const version = readVersion(root, manifest.versionSource)
   const icon = buildCatalogIcon(root, manifest.icon)
-  loadProtocolEnv(protocolDir)
+  loadProtocolEnv(credentialsDir)
 
   const options = {
     owner: DEFAULT_DOWNLOAD_OWNER,
@@ -42,7 +46,7 @@ export async function publishArtifactToStore({ protocolDir, artifactPath }) {
   }
   const authToken = pickGithubToken()
   if (!authToken) {
-    throw new Error('缺少发布凭据：请在协议目录的 .env 或环境变量中提供 GITHUB_TOKEN')
+    throw new Error('缺少发布凭据：请在中央协议目录 .fast-window-dev-protocol/.env 或环境变量中提供 GITHUB_TOKEN')
   }
   await assertWritableToken(options, authToken)
   const remote = await loadCatalogOrMigrateIndex(options, authToken, 'api')
@@ -204,34 +208,6 @@ async function artifactFacts(artifactPath) {
     fileName: path.basename(source),
     sizeBytes: info.size,
     sha256: await sha256FileHex(source),
-  }
-}
-
-function loadProtocolEnv(protocolDir) {
-  for (const name of ['.env.local', '.env']) {
-    const file = path.join(protocolDir, name)
-    if (!existsSync(file)) {
-      continue
-    }
-    for (const rawLine of readFileSync(file, 'utf8').split(/\r?\n/)) {
-      const line = rawLine.trim()
-      if (line === '' || line.startsWith('#')) {
-        continue
-      }
-      const index = line.indexOf('=')
-      if (index <= 0) {
-        continue
-      }
-      const key = line.slice(0, index).trim()
-      if (key === '' || process.env[key] !== undefined) {
-        continue
-      }
-      let value = line.slice(index + 1).trim()
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1)
-      }
-      process.env[key] = value
-    }
   }
 }
 
