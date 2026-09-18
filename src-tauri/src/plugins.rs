@@ -6,15 +6,10 @@ use base64::engine::general_purpose;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
 
 use crate::install_fs::replace_dir_from_tmp;
 use crate::{
-    app_data_dir, app_local_base_dir, app_plugins_dir, is_https_url, normalize_zip_name, now_ms,
-    open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, read_plugin_auto_update_prefs,
-    to_hex_lower, write_plugin_auto_update_prefs, PLUGIN_STORE_MAX_EXTRACT_BYTES,
-    PLUGIN_STORE_MAX_ZIP_BYTES,
+    app_data_dir, app_local_base_dir, app_plugins_dir, open_dir_in_file_manager,
 };
 
 #[cfg(debug_assertions)]
@@ -58,8 +53,6 @@ const PLUGIN_PACKAGE_MAX_FILES: usize = 512;
 const PLUGIN_PACKAGE_MAX_BYTES: usize = 120 * 1024 * 1024;
 
 struct StoreManifestSummary {
-    plugin_id: String,
-    version: String,
     main: String,
     background_main: Option<String>,
     local_icon: Option<PathBuf>,
@@ -332,8 +325,6 @@ fn validate_store_manifest(
     let local_icon = manifest_local_icon_path(&icon)?;
 
     Ok(StoreManifestSummary {
-        plugin_id,
-        version,
         main,
         background_main,
         local_icon,
@@ -348,7 +339,7 @@ fn is_dir_empty(dir: &Path) -> bool {
     }
 }
 
-// Release/MSI 不再随包预置任何插件（纯净宿主）。插件只通过商店安装到 plugins/ 目录。
+// Release/MSI 不再随包预置任何插件（纯净宿主）。插件只通过本地导入安装到 plugins/ 目录。
 
 #[tauri::command]
 pub(crate) async fn get_plugins_dir(app: tauri::AppHandle) -> String {
@@ -692,61 +683,6 @@ pub(crate) fn read_plugin_file_base64(
 }
 
 #[tauri::command]
-pub(crate) fn set_plugin_auto_update_enabled(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    enabled: bool,
-) -> Result<(), String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-
-    let plugin_dir = app_plugins_dir(&app).join(&plugin_id);
-    if !plugin_dir.is_dir() || !plugin_dir.join("manifest.json").is_file() {
-        return Err("插件不存在或缺少 manifest.json".to_string());
-    }
-
-    let mut prefs = read_plugin_auto_update_prefs(&app);
-    // 默认：false。只持久化 true（开启）即可，避免文件变大。
-    if enabled {
-        prefs.insert(plugin_id, true);
-    } else {
-        prefs.remove(&plugin_id);
-    }
-    write_plugin_auto_update_prefs(&app, &prefs)?;
-    Ok(())
-}
-
-#[tauri::command]
-pub(crate) fn get_plugins_auto_update_enabled(app: tauri::AppHandle) -> Vec<String> {
-    let prefs = read_plugin_auto_update_prefs(&app);
-    let ids = list_plugins(app.clone());
-    let mut out: Vec<String> = Vec::new();
-    for id in ids {
-        if prefs.get(&id).copied().unwrap_or(false) == true {
-            out.push(id);
-        }
-    }
-    out.sort();
-    out
-}
-
-// 兼容旧前端/旧命令名：过去用于“允许覆盖更新”，现在语义改为“自动更新”。
-#[tauri::command]
-pub(crate) fn set_plugin_allow_overwrite_on_update(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    enabled: bool,
-) -> Result<(), String> {
-    set_plugin_auto_update_enabled(app, plugin_id, enabled)
-}
-
-#[tauri::command]
-pub(crate) fn get_plugins_allow_overwrite_on_update(app: tauri::AppHandle) -> Vec<String> {
-    get_plugins_auto_update_enabled(app)
-}
-
-#[tauri::command]
 pub(crate) fn read_plugins_dir(
     app: tauri::AppHandle,
     rel_dir: String,
@@ -851,284 +787,4 @@ pub(crate) async fn install_plugin_files(
     }
     crate::plugin_uninstall::forget_dev_sync_uninstalled_plugin(&app, &plugin_id);
     Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PluginStoreInstallResult {
-    #[serde(rename = "pluginId")]
-    plugin_id: String,
-    version: String,
-}
-
-#[tauri::command]
-pub(crate) async fn plugin_store_install(
-    app: tauri::AppHandle,
-    url: String,
-    expected_sha256: String,
-    expected_id: String,
-    expected_version: String,
-    expected_requires: Vec<String>,
-) -> Result<PluginStoreInstallResult, String> {
-    let u = url.trim().to_string();
-    if u.is_empty() {
-        return Err("url 不能为空".to_string());
-    }
-    if !is_https_url(&u) {
-        return Err("url 必须以 https:// 开头".to_string());
-    }
-    let expected = parse_sha256_hex_32(&expected_sha256)?;
-
-    let expected_id = expected_id.trim().to_string();
-    if !is_safe_id(&expected_id) {
-        return Err("expectedId 不合法（仅允许字母/数字/_/-）".to_string());
-    }
-    let expected_version = expected_version.trim().to_string();
-    if expected_version.is_empty() {
-        return Err("expectedVersion 不能为空".to_string());
-    }
-    if expected_requires.len() > 256 {
-        return Err("expectedRequires 数量过多".to_string());
-    }
-    let mut expected_requires_set = BTreeSet::<String>::new();
-    for it in expected_requires {
-        let s = it.trim().to_string();
-        if s.is_empty() {
-            continue;
-        }
-        if !is_valid_manifest_capability(&s) {
-            return Err("expectedRequires 存在不合法能力声明".to_string());
-        }
-        expected_requires_set.insert(s);
-    }
-
-    let plugins_dir = app_plugins_dir(&app);
-    std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
-
-    // 用户空间优先：如果目标路径已存在但不是“已安装插件目录”，拒绝覆盖。
-    let dst_dir = plugins_dir.join(&expected_id);
-    if dst_dir.exists() {
-        if !dst_dir.is_dir() {
-            return Err("目标插件路径已存在但不是目录，拒绝覆盖".to_string());
-        }
-        if !dst_dir.join("manifest.json").is_file() {
-            return Err("目标插件目录已存在但缺少 manifest.json，拒绝覆盖".to_string());
-        }
-    }
-
-    let stamp = now_ms();
-    let rnd = rand_u32(stamp);
-    let tmp_zip = plugins_dir.join(format!(".tmp-download-{stamp}-{rnd:08x}.zip"));
-    if tmp_zip.exists() {
-        let _ = tokio::fs::remove_file(&tmp_zip).await;
-    }
-
-    let client = reqwest::Client::builder()
-        .user_agent(format!("fast-window/{}", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(15 * 60))
-        .build()
-        .map_err(|e| format!("创建 http client 失败: {e}"))?;
-
-    let resp = client
-        .get(&u)
-        .send()
-        .await
-        .map_err(|e| format!("下载失败: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("下载失败: HTTP {}", resp.status().as_u16()));
-    }
-
-    let mut total = 0usize;
-    let mut hasher = Sha256::new();
-    let mut f = tokio::fs::File::create(&tmp_zip)
-        .await
-        .map_err(|e| format!("创建临时文件失败: {e}"))?;
-
-    let mut r = resp;
-    let download_result: Result<(), String> = (async {
-        while let Some(chunk) = r
-            .chunk()
-            .await
-            .map_err(|e| format!("读取下载流失败: {e}"))?
-        {
-            total = total.saturating_add(chunk.len());
-            if total > PLUGIN_STORE_MAX_ZIP_BYTES {
-                return Err("压缩包过大（>50MB）".to_string());
-            }
-            hasher.update(&chunk);
-            f.write_all(&chunk)
-                .await
-                .map_err(|e| format!("写入临时文件失败: {e}"))?;
-        }
-        f.flush()
-            .await
-            .map_err(|e| format!("写入临时文件失败: {e}"))?;
-        Ok(())
-    })
-    .await;
-
-    if let Err(e) = download_result {
-        let _ = tokio::fs::remove_file(&tmp_zip).await;
-        return Err(e);
-    }
-
-    let actual = hasher.finalize();
-    if actual.as_slice() != expected.as_slice() {
-        let _ = tokio::fs::remove_file(&tmp_zip).await;
-        return Err(format!(
-            "sha256 校验失败：expected={}, got={}",
-            to_hex_lower(&expected),
-            to_hex_lower(actual.as_slice())
-        ));
-    }
-
-    let plugins_dir2 = plugins_dir.clone();
-    let zip_path2 = tmp_zip.clone();
-    let expected_id2 = expected_id.clone();
-    let expected_version2 = expected_version.clone();
-    let expected_requires2: BTreeSet<String> = expected_requires_set.clone();
-    let install_result: Result<PluginStoreInstallResult, String> =
-        match tokio::task::spawn_blocking(move || -> Result<PluginStoreInstallResult, String> {
-            use std::io::Read;
-            use zip::ZipArchive;
-
-            let file =
-                std::fs::File::open(&zip_path2).map_err(|e| format!("打开压缩包失败: {e}"))?;
-            let mut zip = ZipArchive::new(file).map_err(|e| format!("解析压缩包失败: {e}"))?;
-
-            let mut manifest_idx: Option<usize> = None;
-            let mut manifest_name = String::new();
-            for i in 0..zip.len() {
-                let zf = zip
-                    .by_index(i)
-                    .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
-                if zf.is_dir() {
-                    continue;
-                }
-                let name = normalize_zip_name(zf.name());
-                if name.ends_with("manifest.json") {
-                    if manifest_idx.is_some() {
-                        return Err("压缩包内存在多个 manifest.json，拒绝安装".to_string());
-                    }
-                    manifest_idx = Some(i);
-                    manifest_name = name;
-                }
-            }
-
-            let idx = manifest_idx.ok_or_else(|| "压缩包缺少 manifest.json".to_string())?;
-            let prefix = manifest_name
-                .strip_suffix("manifest.json")
-                .unwrap_or("")
-                .to_string();
-
-            let mut mf = zip
-                .by_index(idx)
-                .map_err(|e| format!("读取 manifest.json 失败: {e}"))?;
-            let mut manifest_text = String::new();
-            mf.read_to_string(&mut manifest_text)
-                .map_err(|e| format!("读取 manifest.json 失败: {e}"))?;
-            drop(mf);
-            let manifest: Value = serde_json::from_str(&manifest_text)
-                .map_err(|e| format!("manifest.json 解析失败: {e}"))?;
-
-            let manifest_summary = validate_store_manifest(
-                &manifest,
-                &expected_id2,
-                &expected_version2,
-                Some(&expected_requires2),
-                "manifest",
-            )?;
-            let plugin_id = manifest_summary.plugin_id.clone();
-            let version = manifest_summary.version.clone();
-
-            let tmp_dir = plugins_dir2.join(format!(".tmp-install-{plugin_id}-{stamp}"));
-            if tmp_dir.exists() {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-            }
-            std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
-
-            let mut extracted_bytes = 0usize;
-            let mut extracted_files = 0usize;
-
-            let extract_result = (|| -> Result<(), String> {
-                for i in 0..zip.len() {
-                    let mut zf = zip
-                        .by_index(i)
-                        .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
-                    let raw_name = normalize_zip_name(zf.name());
-                    if !raw_name.starts_with(&prefix) {
-                        continue;
-                    }
-                    let rel_raw = raw_name[prefix.len()..].to_string();
-                    if rel_raw.is_empty() {
-                        continue;
-                    }
-
-                    if zf.is_dir() {
-                        let rel = safe_relative_path_no_curdir(&rel_raw)?;
-                        let full = tmp_dir.join(rel);
-                        std::fs::create_dir_all(&full).map_err(|e| format!("创建目录失败: {e}"))?;
-                        continue;
-                    }
-
-                    extracted_files += 1;
-                    if extracted_files > PLUGIN_PACKAGE_MAX_FILES {
-                        return Err("文件数量过多（>512）".to_string());
-                    }
-
-                    let rel = safe_relative_path_no_curdir(&rel_raw)?;
-                    let full = tmp_dir.join(rel);
-                    if let Some(parent) = full.parent() {
-                        std::fs::create_dir_all(parent)
-                            .map_err(|e| format!("创建目录失败: {e}"))?;
-                    }
-
-                    let mut out =
-                        std::fs::File::create(&full).map_err(|e| format!("写入文件失败: {e}"))?;
-                    let copied = std::io::copy(&mut zf, &mut out)
-                        .map_err(|e| format!("解压失败: {e}"))?
-                        as usize;
-                    extracted_bytes = extracted_bytes.saturating_add(copied);
-                    if extracted_bytes > PLUGIN_STORE_MAX_EXTRACT_BYTES {
-                        return Err("解压后体积过大（>120MB）".to_string());
-                    }
-                }
-                Ok(())
-            })();
-
-            if let Err(e) = extract_result {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(e);
-            }
-
-            if let Err(e) = validate_installed_package(
-                &tmp_dir,
-                &expected_id2,
-                Some(&expected_version2),
-                Some(&expected_requires2),
-                "解压后的 manifest",
-            ) {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(e);
-            }
-
-            let dst = plugins_dir2.join(&plugin_id);
-            if let Err(e) = replace_dir_from_tmp(&dst, &tmp_dir, &format!("store-{plugin_id}")) {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(format!("安装插件失败: {e}"));
-            }
-
-            crate::plugin_uninstall::forget_dev_sync_uninstalled_plugin(&app, &plugin_id);
-
-            Ok(PluginStoreInstallResult { plugin_id, version })
-        })
-        .await
-        {
-            Ok(r) => r,
-            Err(_) => Err("安装插件失败: 后台任务异常退出".to_string()),
-        };
-
-    let _ = tokio::fs::remove_file(&tmp_zip).await;
-    install_result
 }

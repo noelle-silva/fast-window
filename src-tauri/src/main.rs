@@ -79,11 +79,9 @@ use crate::plugin_files::{
 };
 use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 use crate::plugins::{
-    get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
-    get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,
-    open_plugins_dir, plugin_dev_sync, plugin_store_install, read_plugin_file,
-    read_plugin_file_base64, read_plugins_dir, set_plugin_allow_overwrite_on_update,
-    set_plugin_auto_update_enabled,
+    get_data_dir, get_plugins_dir, install_plugin_files, list_plugins, open_data_dir,
+    open_data_root_dir, open_plugins_dir, plugin_dev_sync, read_plugin_file,
+    read_plugin_file_base64, read_plugins_dir,
 };
 use crate::sqlite_gateway::{
     plugin_sqlite_batch, plugin_sqlite_close, plugin_sqlite_execute, plugin_sqlite_query,
@@ -97,8 +95,7 @@ use crate::wallpaper::{
 use browser_stack::*;
 pub(crate) use config_store::{
     app_config_path, plugin_default_ref_images_dir, read_app_config_map,
-    read_plugin_auto_update_prefs, update_app_config_map, write_plugin_auto_update_prefs,
-    write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
+    update_app_config_map, write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
 };
 use host_primitives::emit_toast;
 use http_api::*;
@@ -114,7 +111,6 @@ pub(crate) use workspace::{
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
 const APP_CONFIG_FILE: &str = "app.json";
-const PLUGIN_AUTO_UPDATE_PREFS_FILE: &str = "plugins-auto-update.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
@@ -124,8 +120,6 @@ const BROWSER_WINDOW_BOUNDS_KEY: &str = "browserWindowBounds";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const PLUGIN_LIBRARY_DIRS_KEY: &str = "pluginLibraryDirs";
 const WEBVIEW_SETTINGS_KEY: &str = "webview";
-const PLUGIN_STORE_MAX_ZIP_BYTES: usize = 50 * 1024 * 1024; // 50MB
-const PLUGIN_STORE_MAX_EXTRACT_BYTES: usize = 120 * 1024 * 1024; // 120MB
 static HTTP_STREAM_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
@@ -2535,13 +2529,8 @@ fn main() {
         list_plugins,
         read_plugin_file,
         read_plugin_file_base64,
-        set_plugin_auto_update_enabled,
-        get_plugins_auto_update_enabled,
-        set_plugin_allow_overwrite_on_update,
-        get_plugins_allow_overwrite_on_update,
         read_plugins_dir,
         install_plugin_files,
-        plugin_store_install,
         plugin_uninstall::uninstall_plugin,
         app_installer::get_apps_dir,
         app_installer::open_apps_dir,

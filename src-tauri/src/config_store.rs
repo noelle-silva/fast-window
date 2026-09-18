@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
@@ -11,12 +10,6 @@ pub(crate) fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
 
 pub(crate) fn app_config_legacy_path(app: &tauri::AppHandle) -> PathBuf {
     crate::app_data_dir(app).join(crate::APP_CONFIG_FILE)
-}
-
-pub(crate) fn app_plugin_auto_update_prefs_path(app: &tauri::AppHandle) -> PathBuf {
-    crate::app_data_dir(app)
-        .join(crate::APP_STORAGE_ID)
-        .join(crate::PLUGIN_AUTO_UPDATE_PREFS_FILE)
 }
 
 fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
@@ -70,46 +63,6 @@ pub(crate) fn update_app_config_map<T>(
         write_app_config_map_unlocked(app, &map)?;
         Ok(result)
     })
-}
-
-pub(crate) fn read_plugin_auto_update_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
-    let p = app_plugin_auto_update_prefs_path(app);
-    let Some(map) = read_json_map_opt(&p) else {
-        return BTreeMap::new();
-    };
-
-    let mut out: BTreeMap<String, bool> = BTreeMap::new();
-    for (k, v) in map {
-        if !crate::is_safe_id(&k) {
-            continue;
-        }
-        if v.as_bool() == Some(true) {
-            out.insert(k, true);
-        }
-    }
-    out
-}
-
-pub(crate) fn write_plugin_auto_update_prefs(
-    app: &tauri::AppHandle,
-    prefs: &BTreeMap<String, bool>,
-) -> Result<(), String> {
-    let p = app_plugin_auto_update_prefs_path(app);
-    if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    }
-
-    let mut obj = Map::<String, Value>::new();
-    for (k, v) in prefs {
-        // 仅持久化 true（开启自动更新）。缺失/false 视为关闭。
-        if *v {
-            obj.insert(k.clone(), Value::Bool(true));
-        }
-    }
-    let out = serde_json::to_string_pretty(&Value::Object(obj))
-        .map_err(|e| format!("序列化自动更新配置失败: {e}"))?;
-    std::fs::write(&p, format!("{out}\n")).map_err(|e| format!("写入自动更新配置失败: {e}"))?;
-    Ok(())
 }
 
 pub(crate) fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {

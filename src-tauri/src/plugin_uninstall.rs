@@ -110,13 +110,6 @@ fn cleanup_uninstalled_plugin_metadata(
         warnings.push(format!("清理插件禁用记录失败: {e}"));
     }
 
-    let mut prefs = crate::read_plugin_auto_update_prefs(app);
-    if prefs.remove(plugin_id).is_some() {
-        if let Err(e) = crate::write_plugin_auto_update_prefs(app, &prefs) {
-            warnings.push(format!("清理自动更新记录失败: {e}"));
-        }
-    }
-
     if delete_data {
         if let Err(e) = remove_plugin_data_config(app, plugin_id) {
             warnings.push(format!("清理插件数据目录配置失败: {e}"));
