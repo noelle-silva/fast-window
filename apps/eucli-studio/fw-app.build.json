@@ -12,15 +12,15 @@
       "stageDir": "dist-app/v5-windows",
       "files": [
         {
-          "from": "src-tauri/target/release/ai-studio-app.exe",
-          "to": "ai-studio-app.exe"
+          "from": "src-tauri/target/release/eucli-studio-app.exe",
+          "to": "eucli-studio-app.exe"
         },
         {
-          "from": "src-tauri/target/release/ai-studio-backend.exe",
-          "to": "ai-studio-backend.exe"
+          "from": "src-tauri/binaries/eucli-studio-backend.exe",
+          "to": "eucli-studio-backend.exe"
         },
         {
-          "from": "src-tauri/target/resources/assets",
+          "from": "assets",
           "to": "assets"
         }
       ]
@@ -35,15 +35,15 @@
       "stageDir": "dist-app/v5-windows-dev",
       "files": [
         {
-          "from": "src-tauri/target/debug/ai-studio-app.exe",
-          "to": "ai-studio-app.exe"
+          "from": "src-tauri/target/debug/eucli-studio-app.exe",
+          "to": "eucli-studio-app.exe"
         },
         {
-          "from": "src-tauri/target/debug/ai-studio-backend.exe",
-          "to": "ai-studio-backend.exe"
+          "from": "src-tauri/binaries/eucli-studio-backend.exe",
+          "to": "eucli-studio-backend.exe"
         },
         {
-          "from": "src-tauri/target/resources/assets",
+          "from": "assets",
           "to": "assets"
         }
       ]

@@ -1,0 +1,30 @@
+{
+  "type": "desktop-app",
+  "id": "eucli-studio",
+  "name": "eucli-studio",
+  "description": "多供应商与角色系统的 v5 eucli-studio 应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "package": {
+    "windowsExecutable": "eucli-studio-app.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    {
+      "id": "new-chat",
+      "title": "新建对话"
+    },
+    {
+      "id": "open-studio",
+      "title": "打开 eucli-studio"
+    },
+    {
+      "id": "provider-settings",
+      "title": "模型提供商设置"
+    },
+    {
+      "id": "open-settings",
+      "title": "打开设置"
+    }
+  ]
+}

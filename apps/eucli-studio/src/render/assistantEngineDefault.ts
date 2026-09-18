@@ -12,20 +12,17 @@ import { enhanceMathCopyButtons } from './mathCopy'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
+type AssistantRenderOptions = {
+  stickersEnabled?: boolean
+  getStickerPath?: (category: string, name: string) => string
+  renderSafetyPolicy?: RenderSafetyPolicy
+}
 
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
   sanitizeHtml: (html: unknown, policy?: RenderSafetyPolicy) => string
   sanitizeSvg: (svg: unknown, policy?: RenderSafetyPolicy) => string
-  renderAssistantInto: (
-    el: unknown,
-    text: unknown,
-    options?: {
-      stickersEnabled?: boolean
-      getStickerPath?: (category: string, name: string) => string
-      renderSafetyPolicy?: RenderSafetyPolicy
-    },
-  ) => void
+  renderAssistantInto: (el: unknown, text: unknown, options?: AssistantRenderOptions) => void
 }
 
 export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilities): AssistantRenderEngine {
@@ -54,21 +51,14 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     return rendererPromise
   }
 
-  function renderAssistantInto(
-    el: unknown,
-    text: unknown,
-    options?: {
-      stickersEnabled?: boolean
-      getStickerPath?: (category: string, name: string) => string
-      renderSafetyPolicy?: RenderSafetyPolicy
-    },
-  ) {
-    if (!(el instanceof HTMLElement)) return
-    ensureRenderer().catch(() => {})
+  function normalizeRenderSafetyPolicy(options?: AssistantRenderOptions): RenderSafetyPolicy {
+    return options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
+  }
+
+  function renderAssistantTextHtml(text: unknown, options?: AssistantRenderOptions, placeholders?: Map<string, string>) {
     const raw = String(text || '')
     let html = ''
-    const renderSafetyPolicy: RenderSafetyPolicy =
-      options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
+    const renderSafetyPolicy = normalizeRenderSafetyPolicy(options)
 
     const noIndent = preprocessHtmlIndentation(raw)
     const pre = preprocessAssistantContent(noIndent, { stickersEnabled: !!options?.stickersEnabled })
@@ -107,9 +97,16 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
         return `<img class="fw-sticker" data-fw-img="1" data-ref-img="${esc(relPath)}"${sizeAttr} src="${REF_IMG_PLACEHOLDER}" alt="${esc(name || 'sticker')}" title="${esc(label)}" />`
       })
     }
+    if (placeholders?.size) {
+      safe = safe.replace(/<div(?=[^>]*\bclass="fw-tool-placeholder")(?=[^>]*\bdata-fw-tool-placeholder="([A-Za-z0-9_-]+)")[^>]*><\/div>/g, (match: string, token: string) => placeholders.get(token) || match)
+    }
 
-    el.innerHTML = safe
+    return safe
+  }
+
+  function enhanceAssistantDom(el: HTMLElement, renderSafetyPolicy: RenderSafetyPolicy) {
     enhanceCodeBlocks(el)
+    mermaidSupport.ensureMermaidBlockCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorAiFixHandlerOnce(el)
     markPreviewImages(el)
@@ -139,6 +136,14 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     }
 
     mermaidSupport.renderMermaidInto(el, renderSafetyPolicy).catch(() => {})
+  }
+
+  function renderAssistantInto(el: unknown, text: unknown, options?: AssistantRenderOptions) {
+    if (!(el instanceof HTMLElement)) return
+    ensureRenderer().catch(() => {})
+    const renderSafetyPolicy = normalizeRenderSafetyPolicy(options)
+    el.innerHTML = renderAssistantTextHtml(text, options)
+    enhanceAssistantDom(el, renderSafetyPolicy)
   }
 
   return {

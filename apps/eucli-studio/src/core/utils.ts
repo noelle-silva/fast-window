@@ -2,6 +2,17 @@ export function now() {
   return Date.now()
 }
 
+export function normalizeTimeMs(value: unknown, fallback: number = now()) {
+  if (typeof value === 'number' && isFinite(value) && value > 0) return value
+  const text = String(value ?? '').trim()
+  if (!text) return fallback
+  const numeric = Number(text)
+  if (isFinite(numeric) && numeric > 0) return numeric
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return fallback
+  const parsed = Date.parse(text)
+  return isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export function uid(prefix: string) {
   return `${prefix}_${now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
 }

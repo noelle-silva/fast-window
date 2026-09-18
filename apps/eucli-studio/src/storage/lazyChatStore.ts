@@ -1,13 +1,17 @@
 import { normalizeData } from '../domain/dataNormalizers'
-import { VERSION, STICKERS_KEY } from '../domain/constants'
+import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
+import { normalizeFavorites } from '../domain/favorites'
 import { chatMetaFromChat, chatMetasFromBox, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
+import { mergeChatFromStorage } from '../domain/chatStorageSync'
 import {
   splitChatKey,
   splitGroupChatKey,
   splitGroupKey,
   splitRoleKey,
 } from '../domain/storageKeys'
-import { loadProvidersFromStorage, loadSplitMetaSnapshot } from './splitIndexes'
+import { loadProvidersFromStorage } from './splitIndexes'
+import { normalizeStoredChat } from './normalizeStoredChat'
+import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 
 export type LazyChatKind = 'role' | 'group'
 
@@ -38,51 +42,64 @@ function chatKeyFor(kind: LazyChatKind, folder: string, chatId: string): string 
   return kind === 'group' ? splitGroupChatKey(folder, chatId) : splitChatKey(folder, chatId)
 }
 
-function normalizeLoadedChat(chat: any, kind: LazyChatKind) {
-  const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
-  const id = String(chat?.id || '').trim()
-  if (!id) return null
-  const data: any = {
-    version: VERSION,
-    settings: { providers: [{ id: '__lazy__', name: '__lazy__', baseUrl: 'http://', apiKey: '' }] },
-    favorites: { folders: [], chatRefsByFolderId: {} },
-    roles: [{ id: '__lazy_role__', name: '__lazy__', createdAt: 1, updatedAt: 1, modelRef: { providerId: '__lazy__', modelId: '' } }],
-    chatsByRole: {
-      __lazy_role__: {
-        activeChatId: id,
-        chats: [{ ...chat, title: String(chat?.title || '').trim() || fallbackTitle }],
-      },
-    },
-    groups: [],
-    chatsByGroup: {},
-    ui: {},
-  }
-  return normalizeData(data).chatsByRole.__lazy_role__.chats[0] || null
+function isMissingChatError(error: unknown) {
+  const message = String((error as any)?.message || error || '')
+  return message.includes('json file does not exist') || message.includes('会话不存在') || message.includes('session does not exist')
+}
+
+function removeMissingChatRef(box: any, chatId: string, kind: LazyChatKind) {
+  if (!box || !chatId) return
+  box.chats = Array.isArray(box.chats) ? box.chats.filter((c: any) => String(c?.id || '') !== chatId) : []
+  box.chatMetas = removeChatMeta(box.chatMetas, chatId, kind === 'group' ? '群聊' : '新聊天')
+  if (String(box.activeChatId || '') === chatId) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
 }
 
 export function createLazyChatStore(deps: {
   storage: LazyChatStorage
   getState: () => any
   loadSplitMeta: () => Promise<any>
+  getSplitMetaCache?: () => any
 }) {
-  const { storage, getState, loadSplitMeta } = deps
+  const { storage, getState, loadSplitMeta, getSplitMetaCache } = deps
+  const loadingChats = new Map<string, Promise<any>>()
+
+  function cachedSplitMetaFor(kind: LazyChatKind, targetId: string) {
+    const meta = typeof getSplitMetaCache === 'function' ? getSplitMetaCache() : null
+    if (!meta || typeof meta !== 'object') return null
+    return folderForTarget(meta, kind, targetId) ? meta : null
+  }
+
+  async function loadSplitMetaFor(kind: LazyChatKind, targetId: string) {
+    return cachedSplitMetaFor(kind, targetId) || (await loadSplitMeta())
+  }
+
+  function loadingChatKey(kind: LazyChatKind, targetId: string, chatId: string) {
+    return `${kind}:${targetId}:${chatId}`
+  }
 
   async function loadShell() {
-    const meta = await loadSplitMetaSnapshot(storage)
+    const meta = await loadSplitMeta()
     if (!meta) return null
 
     let stickers = null
     try {
-      stickers = await storage.get(STICKERS_KEY)
+      stickers = await loadStickerSettingsFromStorage(storage)
     } catch (_) {
       stickers = null
+    }
+
+    let favorites = null
+    try {
+      favorites = await storage.get(SESSION_FAVORITES_KEY)
+    } catch (_) {
+      favorites = null
     }
 
     const providers = await loadProvidersFromStorage(storage, meta)
     const d: any = {
       version: VERSION,
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
-      favorites: (meta as any).favorites,
+      favorites: normalizeFavorites(favorites),
       roles: [],
       chatsByRole: {},
       groups: [],
@@ -132,48 +149,63 @@ export function createLazyChatStore(deps: {
     const box = targetBox(state.data, kind, targetId)
     if (!box) return null
     const existing = box.chats.find((c: any) => String(c?.id || '') === chatId) || null
-    if (existing) return existing
+    if (existing && !existing.runtimePartial) return existing
 
-    const meta = await loadSplitMeta()
-    const folder = folderForTarget(meta, kind, targetId)
-    if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
-    const raw = await storage.get(chatKeyFor(kind, folder, chatId))
-    const chat = normalizeLoadedChat(raw, kind)
-    if (!chat) throw new Error('会话不存在')
+    const pendingKey = loadingChatKey(kind, targetId, chatId)
+    const pending = loadingChats.get(pendingKey)
+    if (pending) return pending
 
-    const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
-    if (index >= 0) box.chats[index] = chat
-    else box.chats.unshift(chat)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
-    return chat
+    const run = (async () => {
+      const meta = await loadSplitMetaFor(kind, targetId)
+      const folder = folderForTarget(meta, kind, targetId)
+      if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
+      let raw: any = null
+      try {
+        raw = await storage.get(chatKeyFor(kind, folder, chatId))
+      } catch (error) {
+        if (isMissingChatError(error)) {
+          removeMissingChatRef(box, chatId, kind)
+          return null
+        }
+        throw error
+      }
+      const chat = normalizeStoredChat(raw, kind)
+      if (!chat) {
+        removeMissingChatRef(box, chatId, kind)
+        return null
+      }
+
+      const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
+      const nextChat = mergeChatFromStorage(chat, index >= 0 ? box.chats[index] : null)
+      if (index >= 0) box.chats[index] = nextChat
+      else box.chats.unshift(nextChat)
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
+      return nextChat
+    })()
+    loadingChats.set(pendingKey, run)
+    try {
+      return await run
+    } finally {
+      loadingChats.delete(pendingKey)
+    }
   }
 
   async function loadChat(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {
     const targetId = String(targetIdRaw || '').trim()
     const chatId = String(chatIdRaw || '').trim()
     if (!targetId || !chatId) return null
-    const meta = await loadSplitMeta()
+    const meta = await loadSplitMetaFor(kind, targetId)
     const folder = folderForTarget(meta, kind, targetId)
     if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
     const raw = await storage.get(chatKeyFor(kind, folder, chatId))
-    return normalizeLoadedChat(raw, kind)
-  }
-
-  async function saveChat(kind: LazyChatKind, targetIdRaw: any, chatRaw: any) {
-    const targetId = String(targetIdRaw || '').trim()
-    const chatId = String(chatRaw?.id || '').trim()
-    if (!targetId || !chatId) return
-    const meta = await loadSplitMeta()
-    const folder = folderForTarget(meta, kind, targetId)
-    if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
-    await storage.set(chatKeyFor(kind, folder, chatId), chatRaw)
+    return normalizeStoredChat(raw, kind)
   }
 
   async function removeChat(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {
     const targetId = String(targetIdRaw || '').trim()
     const chatId = String(chatIdRaw || '').trim()
     if (!targetId || !chatId || typeof storage.remove !== 'function') return
-    const meta = await loadSplitMeta()
+    const meta = await loadSplitMetaFor(kind, targetId)
     const folder = folderForTarget(meta, kind, targetId)
     if (!folder) return
     await storage.remove(chatKeyFor(kind, folder, chatId))
@@ -185,10 +217,16 @@ export function createLazyChatStore(deps: {
     const kind = String(state.draft?.activeTargetKind || state.data?.ui?.activeTargetKind || '') === 'group' ? 'group' : 'role'
     const targetId = kind === 'group' ? String(state.draft?.activeGroupId || state.data?.ui?.activeGroupId || '') : String(state.draft?.activeRoleId || state.data?.ui?.activeRoleId || '')
     const box = targetBox(state.data, kind, targetId)
-    const chatId = String(box?.activeChatId || box?.chatMetas?.[0]?.id || '')
-    if (!chatId) return null
-    box.activeChatId = chatId
-    return ensureChatLoaded(kind, targetId, chatId)
+    const ids = [String(box?.activeChatId || ''), ...(Array.isArray(box?.chatMetas) ? box.chatMetas.map((m: any) => String(m?.id || '')) : [])]
+      .map((id) => id.trim())
+      .filter((id, index, list) => !!id && list.indexOf(id) === index)
+    for (const chatId of ids) {
+      box.activeChatId = chatId
+      const chat = await ensureChatLoaded(kind, targetId, chatId)
+      if (chat) return chat
+    }
+    box.activeChatId = ''
+    return null
   }
 
   function upsertLoadedChat(kind: LazyChatKind, targetIdRaw: any, chatRaw: any) {
@@ -200,10 +238,11 @@ export function createLazyChatStore(deps: {
     const box = targetBox(state.data, kind, targetId)
     if (!box) return null
     const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
-    if (index >= 0) box.chats[index] = chatRaw
-    else box.chats.unshift(chatRaw)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chatRaw, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
-    return chatRaw
+    const nextChat = mergeChatFromStorage(chatRaw, index >= 0 ? box.chats[index] : null)
+    if (index >= 0) box.chats[index] = nextChat
+    else box.chats.unshift(nextChat)
+    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
+    return nextChat
   }
 
   function removeLoadedChat(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {
@@ -222,7 +261,6 @@ export function createLazyChatStore(deps: {
   return {
     loadShell,
     loadChat,
-    saveChat,
     removeChat,
     ensureChatLoaded,
     ensureActiveChatLoaded,

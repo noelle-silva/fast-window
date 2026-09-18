@@ -3,10 +3,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createAiChatControllerV2 } from '../controller/createControllerV2'
 import type { AiChatController } from '../controller/types'
 import { createDirectCapabilitiesAdapter } from '../direct/createDirectCapabilitiesAdapter'
-import { createAiChatCapabilitiesFromHostApi } from '../gateway/capabilities'
+import { createAiChatCapabilitiesFromHostApi, type AiChatShowToast } from '../gateway/capabilities'
 import { AI_CHAT_DIRECT_PROTOCOL_VERSION } from '../protocol/aiChatProtocol'
-import { AI_STUDIO_APP_ID, AI_STUDIO_CONTROLLER_KEY } from '../runtime/aiStudioGlobals'
-import { createAiChatDirectGateway } from './aiChatDirectGateway'
+import { EUCLI_STUDIO_APP_ID, EUCLI_STUDIO_CONTROLLER_KEY } from '../runtime/eucliStudioGlobals'
+import { normalizeArtifactCandidateList, normalizeArtifactInstallationList, normalizeStudioBootstrap, type ArtifactCandidateList, type ArtifactInstallationList, type StudioBootstrap } from '../domain/release'
 
 type BackendEndpoint = {
   url: string
@@ -14,59 +14,68 @@ type BackendEndpoint = {
 }
 
 export type AiChatAppRuntime = {
-  controller: AiChatController
-  bootstrap: unknown
+  controller: AiChatController | null
+  bootstrap: StudioBootstrap
+  getEucliBoxConfig: () => Promise<EucliBoxConfig>
+  setEucliBoxConfig: (config: EucliBoxConfigInput) => Promise<EucliBoxConfig>
+  getBootstrap: () => Promise<StudioBootstrap>
+  listReleaseCandidates: (kind: string) => Promise<ArtifactCandidateList>
+  listArtifactInstallations: () => Promise<ArtifactInstallationList>
   dispose: () => void
 }
 
+export type EucliBoxConfig = {
+  eucliBoxUrl: string
+  eucliBoxKey?: string
+}
+
+export type EucliBoxConfigInput = {
+  eucliBoxUrl: string
+  eucliBoxKey?: string
+}
+
 export type AiChatAppHostOptions = {
-  showToast: (message: unknown) => void
+  showToast: AiChatShowToast
   onBack: () => Promise<void> | void
 }
 
 export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Promise<AiChatAppRuntime> {
-  const baseApi = createAiStudioHostApi(options)
+  const baseApi = createEucliStudioHostApi(options)
   const { api, directClient } = await createDirectCapabilitiesAdapter(baseApi)
-  let controllerToDispose: AiChatController | null = null
+  const bootstrap = normalizeStudioBootstrap(await directClient.invoke('studio.bootstrap'))
+  const created = bootstrap.businessAvailable
+    ? createAiChatControllerV2({ capabilities: createAiChatCapabilitiesFromHostApi(api, EUCLI_STUDIO_APP_ID) })
+    : null
+  const controller = created?.controller || null
 
-  try {
-    const capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
-    const aiGateway = createAiChatDirectGateway(directClient)
-    const created = createAiChatControllerV2({ capabilities, aiGateway })
-    const controller = created.controller
-    controllerToDispose = controller
-    const bootstrap = await directClient.invoke('studio.bootstrap').catch(() => null)
-
+  if (created && controller) {
     await created.init()
-    ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
+    ;(window as any)[EUCLI_STUDIO_CONTROLLER_KEY] = controller
+  }
 
-    return {
-      controller,
-      bootstrap,
-      dispose() {
-        try {
-          if ((window as any)[AI_STUDIO_CONTROLLER_KEY] === controller) {
-            delete (window as any)[AI_STUDIO_CONTROLLER_KEY]
-          }
-          controller.dispose()
-        } finally {
-          directClient.close()
+  return {
+    controller,
+    bootstrap,
+    getEucliBoxConfig: () => directClient.invoke<EucliBoxConfig>('eucli.config.get'),
+    setEucliBoxConfig: (config) => directClient.invoke<EucliBoxConfig>('eucli.config.set', config),
+    getBootstrap: async () => normalizeStudioBootstrap(await directClient.invoke('studio.bootstrap')),
+    listReleaseCandidates: async (kind: string) => normalizeArtifactCandidateList(await directClient.invoke('releaseCandidates.list', { kind })),
+    listArtifactInstallations: async () => normalizeArtifactInstallationList(await directClient.invoke('artifacts.installations')),
+    dispose() {
+      try {
+        if (controller && (window as any)[EUCLI_STUDIO_CONTROLLER_KEY] === controller) {
+          delete (window as any)[EUCLI_STUDIO_CONTROLLER_KEY]
         }
-      },
-    }
-  } catch (error) {
-    try {
-      controllerToDispose?.dispose()
-    } finally {
-      directClient.close()
-    }
-    throw error
+        controller?.dispose()
+      } finally {
+        directClient.close()
+      }
+    },
   }
 }
 
-function createAiStudioHostApi(options: AiChatAppHostOptions) {
-  return {
-    __meta: { runtime: 'ui', appId: AI_STUDIO_APP_ID },
+function createEucliStudioHostApi(options: AiChatAppHostOptions) {  return {
+    __meta: { runtime: 'ui', appId: EUCLI_STUDIO_APP_ID },
     background: {
       endpoint: createBackendEndpoint,
     },
@@ -161,6 +170,7 @@ async function writeText(text: unknown): Promise<void> {
   textarea.setAttribute('readonly', 'true')
   textarea.style.position = 'fixed'
   textarea.style.left = '-10000px'
+  textarea.style.top = '-10000px'
   document.body.appendChild(textarea)
   try {
     textarea.select()

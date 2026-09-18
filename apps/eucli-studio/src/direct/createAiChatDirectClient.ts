@@ -1,5 +1,6 @@
 import { AI_CHAT_DIRECT_PROTOCOL_VERSION, type AiChatDirectEvent } from '../protocol/aiChatProtocol'
 import type { AiChatDirectResponse } from '../protocol/aiChatProtocol'
+import { AiChatDirectError } from '../protocol/aiChatProtocolGuards'
 
 export type AiChatDirectClient = {
   invoke<T = unknown>(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<T>
@@ -210,7 +211,8 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
       this.pending.delete(response.id)
       if (item.timer) clearTimeout(item.timer)
       if (response.ok) item.resolve(response.result)
-      else item.reject(new Error(response.error?.message || '请求失败'))
+      else if (response.error) item.reject(new AiChatDirectError(response.error.code, response.error.message || '请求失败', response.error.details, response.error.system, response.error.cause, response.error.causes))
+      else item.reject(new AiChatDirectError('DIRECT_ERROR', '请求失败'))
       return
     }
 

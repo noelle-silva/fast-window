@@ -3,11 +3,10 @@ import {
   Avatar,
   Box,
   Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
+    Checkbox,
+    Dialog,
+    DialogActions,
+    DialogTitle,
   Divider,
   FormControl,
   FormControlLabel,
@@ -26,6 +25,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { GroupAvatarCropper } from '../components/avatar/GroupAvatarCropper'
+import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
 import { useEvent } from '../hooks/useEvent'
 
 function clampNum(n: number, min: number, max: number) {
@@ -134,8 +134,7 @@ export function GroupDialog(props: { open: boolean; controller: any; roles: any[
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2}>
+      <ScrollableDialogContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
             <TextField
               label="群组名"
@@ -308,8 +307,7 @@ export function GroupDialog(props: { open: boolean; controller: any; roles: any[
               </Typography>
             </Paper>
           )}
-        </Stack>
-      </DialogContent>
+      </ScrollableDialogContent>
       <DialogActions>
         <Button onClick={() => controller.actions.closeModal()}>取消</Button>
         <Button variant="contained" onClick={() => controller.actions.saveGroup?.()} disabled={!!avatarCropSrc}>

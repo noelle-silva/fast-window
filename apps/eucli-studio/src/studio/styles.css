@@ -38,10 +38,7 @@ textarea {
   display: flex;
   flex-direction: column;
   padding: 22px;
-  background:
-    radial-gradient(circle at 18% 8%, rgba(217, 163, 179, 0.38), transparent 32%),
-    radial-gradient(circle at 90% 12%, rgba(126, 152, 255, 0.22), transparent 28%),
-    linear-gradient(135deg, #f8f1f4 0%, #eef3ff 48%, #f5f7fb 100%);
+  background: #f5f7fb;
 }
 
 .bootFallbackTopbar {
@@ -114,25 +111,135 @@ textarea {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.eucliConfigCard {
+  width: min(620px, 100%);
+}
+
+.eucliConfigForm {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.eucliReleaseChecks {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(73, 82, 106, 0.06);
+}
+
+.releaseFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.releaseFacts > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(73, 82, 106, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.releaseFacts dt {
+  color: #697386;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.releaseFacts dd {
+  margin: 5px 0 0;
+  color: #1f2430;
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.releaseFacts dd[data-compatible="false"] {
+  color: #8d2635;
+}
+
+.releaseFacts dd[data-compatible="true"] {
+  color: #167047;
+}
+
+.eucliConfigLabel {
+  display: grid;
+  gap: 7px;
+  color: #394255;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.eucliConfigLabel input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(73, 82, 106, 0.16);
+  border-radius: 12px;
+  color: #1f2430;
+  background: rgba(255, 255, 255, 0.82);
+  outline: none;
+}
+
+.eucliConfigLabel input:focus {
+  border-color: rgba(84, 118, 255, 0.48);
+  box-shadow: 0 0 0 3px rgba(84, 118, 255, 0.12);
+}
+
+.eucliConfigForm button:disabled,
+.eucliConfigLabel input:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
 .toast {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
   z-index: 10000;
-  max-width: min(420px, calc(100vw - 36px));
+  max-width: min(520px, calc(100vw - 36px));
   padding: 12px 14px;
-  border: 1px solid rgba(73, 82, 106, 0.16);
+  border: 1px solid rgba(15, 23, 42, 0.24);
   border-radius: 16px;
-  color: #1f2937;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 18px 44px rgba(41, 51, 82, 0.18);
+  color: #f8fafc;
+  background: rgba(30, 41, 59, 0.94);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.24);
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.5;
+  text-align: center;
+  overflow-wrap: anywhere;
   backdrop-filter: blur(18px);
+}
+
+.toast[data-kind="success"] {
+  border-color: rgba(21, 128, 61, 0.34);
+  color: #ecfdf5;
+  background: rgba(22, 163, 74, 0.94);
+  box-shadow: 0 18px 44px rgba(21, 128, 61, 0.28);
+}
+
+.toast[data-kind="error"] {
+  border-color: rgba(185, 28, 28, 0.36);
+  color: #fff1f2;
+  background: rgba(220, 38, 38, 0.94);
+  box-shadow: 0 18px 44px rgba(185, 28, 28, 0.28);
 }
 
 @media (max-width: 720px) {
   .bootFallback {
     padding: 14px;
+  }
+
+  .toast {
+    bottom: 16px;
+  }
+
+  .releaseFacts {
+    grid-template-columns: 1fr;
   }
 }

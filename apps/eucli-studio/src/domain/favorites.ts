@@ -1,7 +1,8 @@
 import { now, uid } from '../core/utils'
 
 export function favoriteChatRefKey(targetKind: any, targetId: any, chatId: any) {
-  const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+  const kindText = String(targetKind || '').trim()
+  const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
   const tid = String(targetId || '').trim()
   const cid = String(chatId || '').trim()
   if (!tid || !cid) return ''
@@ -29,7 +30,8 @@ export function normalizeFavoriteFolder(input: any) {
 export function normalizeFavoriteChatRef(input: any) {
   const raw = input && typeof input === 'object' ? input : null
   if (!raw) return null
-  const targetKind = String((raw as any).targetKind || '').trim() === 'group' ? 'group' : 'role'
+  const kindText = String((raw as any).targetKind || '').trim()
+  const targetKind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
   const targetId = String((raw as any).targetId || '').trim()
   const chatId = String((raw as any).chatId || '').trim()
   if (!targetId || !chatId) return null

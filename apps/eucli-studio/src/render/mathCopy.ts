@@ -27,14 +27,19 @@ function ensureMathCopyHandlerOnce(root: unknown, capabilities: AiChatCapabiliti
         capabilities.clipboard.writeText ||
         (navigator?.clipboard && typeof navigator.clipboard.writeText === 'function' ? navigator.clipboard.writeText.bind(navigator.clipboard) : null)
 
+      if (typeof writeText !== 'function') {
+        capabilities.ui.showToast?.('未授权：clipboard.writeText', { kind: 'error' })
+        return
+      }
+
       Promise.resolve()
         .then(() => (writeText ? writeText(copyText) : null))
         .then(() => {
           try {
-            capabilities.ui.showToast?.('已复制公式')
+            capabilities.ui.showToast?.('已复制公式', { kind: 'success' })
           } catch (_) {}
         })
-        .catch(() => {})
+        .catch(() => capabilities.ui.showToast?.('复制公式失败', { kind: 'error' }))
     } catch (_) {}
   })
 }

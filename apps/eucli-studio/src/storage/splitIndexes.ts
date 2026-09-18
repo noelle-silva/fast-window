@@ -1,11 +1,13 @@
 import { now } from '../core/utils'
 import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
-import { normalizeChatMetas } from '../domain/chatMeta'
+import { chatMetaFromChat, chatMetaUpdatedAtMap, normalizeChatMetas, type ChatMeta } from '../domain/chatMeta'
 import { normalizeSplitMeta } from '../domain/dataNormalizers'
 import {
   splitChatsIndexKey,
+  splitChatKey,
   splitRoleChatIndexKey,
   splitGroupsIndexKey,
+  splitGroupChatKey,
   splitGroupChatIndexKey,
   splitProvidersIndexKey,
   splitProviderKey,
@@ -13,6 +15,7 @@ import {
 
 export type SplitStorageReader = {
   get: (key: string) => Promise<any>
+  set?: (key: string, value: any) => Promise<any>
 }
 
 function objectOrEmpty(value: any): Record<string, any> {
@@ -52,6 +55,54 @@ async function readObject(storage: SplitStorageReader, key: string): Promise<Rec
   }
 }
 
+function needsPreviewHydration(meta: ChatMeta) {
+  return !String(meta?.lastMessagePreview || '').trim()
+}
+
+async function normalizeStoredChatIndexMetas(
+  storage: SplitStorageReader,
+  indexKey: string,
+  chatKey: (chatId: string) => string,
+  idx: Record<string, any>,
+  fallbackTitle: string,
+) {
+  const metas = normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, fallbackTitle)
+  let updatedAt = Number(idx.updatedAt || 0)
+  let changed = false
+
+  for (let index = 0; index < metas.length; index++) {
+    const meta = metas[index]
+    if (!needsPreviewHydration(meta)) continue
+    const chat = await readObject(storage, chatKey(meta.id))
+    const hydrated = chatMetaFromChat(chat, fallbackTitle)
+    if (!hydrated || !String(hydrated.lastMessagePreview || '').trim()) continue
+    metas[index] = hydrated
+    changed = true
+  }
+
+  if (changed && typeof storage.set === 'function') {
+    updatedAt = now()
+    const chatIds = metas.map((meta) => meta.id).filter(Boolean)
+    const chatUpdatedAt = chatMetaUpdatedAtMap(metas)
+    const nextIndex = {
+      ...idx,
+      chatIds,
+      chatUpdatedAt,
+      chatMetas: metas,
+      updatedAt,
+    }
+    await storage.set(indexKey, nextIndex)
+    return { metas, chatIds, chatUpdatedAt, updatedAt }
+  }
+
+  return {
+    metas,
+    chatIds: stringList(idx.chatIds),
+    chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
+    updatedAt,
+  }
+}
+
 export async function loadProvidersFromStorage(storage: SplitStorageReader, metaOverride?: any): Promise<any[]> {
   const index = await readObject(storage, splitProvidersIndexKey())
   const providerOrder = stringList(index.providerOrder)
@@ -87,14 +138,16 @@ export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
   for (const roleId of roleOrder) {
     const folder = roleFolders[roleId]
     if (!folder) continue
-    const idx = await readObject(storage, splitRoleChatIndexKey(folder))
+    const indexKey = splitRoleChatIndexKey(folder)
+    const idx = await readObject(storage, indexKey)
+    const repaired = await normalizeStoredChatIndexMetas(storage, indexKey, (chatId) => splitChatKey(folder, chatId), idx, '新聊天')
     chatIndexByRole[roleId] = {
       activeChatId: String(idx.activeChatId || ''),
-      chatIds: stringList(idx.chatIds),
-      chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
-      chatMetas: normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, '新聊天'),
+      chatIds: repaired.chatIds,
+      chatUpdatedAt: repaired.chatUpdatedAt,
+      chatMetas: repaired.metas,
     }
-    updatedAt = maxUpdatedAt(updatedAt, idx.updatedAt)
+    updatedAt = maxUpdatedAt(updatedAt, repaired.updatedAt)
   }
 
   const groupsIndex = await readObject(storage, splitGroupsIndexKey())
@@ -106,14 +159,16 @@ export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
   for (const groupId of groupOrder) {
     const folder = groupFolders[groupId]
     if (!folder) continue
-    const idx = await readObject(storage, splitGroupChatIndexKey(folder))
+    const indexKey = splitGroupChatIndexKey(folder)
+    const idx = await readObject(storage, indexKey)
+    const repaired = await normalizeStoredChatIndexMetas(storage, indexKey, (chatId) => splitGroupChatKey(folder, chatId), idx, '群聊')
     chatIndexByGroup[groupId] = {
       activeChatId: String(idx.activeChatId || ''),
-      chatIds: stringList(idx.chatIds),
-      chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
-      chatMetas: normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, '群聊'),
+      chatIds: repaired.chatIds,
+      chatUpdatedAt: repaired.chatUpdatedAt,
+      chatMetas: repaired.metas,
     }
-    updatedAt = maxUpdatedAt(updatedAt, idx.updatedAt)
+    updatedAt = maxUpdatedAt(updatedAt, repaired.updatedAt)
   }
 
   const providersIndex = await readObject(storage, splitProvidersIndexKey())

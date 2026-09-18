@@ -1,6 +1,7 @@
 import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import CropSquareRoundedIcon from '@mui/icons-material/CropSquareRounded'
+import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import { Box, IconButton, Tooltip } from '@mui/material'
 
@@ -8,6 +9,7 @@ export type WindowControlActions = {
   minimize: () => Promise<void> | void
   toggleMaximize: () => Promise<void> | void
   closeToTray: () => Promise<void> | void
+  trueExit?: () => Promise<void> | void
 }
 
 type StandaloneWindowControlsProps = {
@@ -61,6 +63,27 @@ export function StandaloneWindowControls(props: StandaloneWindowControlsProps) {
           <CloseRoundedIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+      {actions.trueExit ? (
+        <Tooltip title="真正退出">
+          <IconButton
+            size="small"
+            aria-label="真正退出"
+            onClick={() => run(actions.trueExit!)}
+            sx={{
+              '&:hover': {
+                bgcolor: 'warning.main',
+                color: 'warning.contrastText',
+              },
+              '&:focus-visible': {
+                outline: '2px solid rgba(237,108,2,.35)',
+                outlineOffset: 2,
+              },
+            }}
+          >
+            <PowerSettingsNewRoundedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      ) : null}
     </Box>
   )
 }

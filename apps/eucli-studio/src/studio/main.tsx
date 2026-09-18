@@ -6,7 +6,7 @@ import './styles.css'
 const root = document.getElementById('root')
 
 if (!root) {
-  document.body.textContent = 'AI Studio root not found'
+  document.body.textContent = 'eucli-studio root not found'
 } else {
   createRoot(root).render(
     <React.StrictMode>

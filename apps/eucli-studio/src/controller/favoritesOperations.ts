@@ -1,17 +1,22 @@
 import { now, uid } from '../core/utils'
 import { favoriteChatRefKey, collectFavoriteFolderSubtreeIds } from '../domain/favorites'
 import { validateFavoriteFolderName } from '../domain/favoriteValidator'
+import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createFavoritesOperations(deps: {
   getState: () => any
   save: () => Promise<void>
   emit: () => void
-  showToast?: (msg: string) => void
+  showToast?: AiChatShowToast
   activeTargetKind: () => string
   activeRole: () => any
   activeGroup: () => any
 }) {
   const { getState, save, emit, showToast } = deps
+
+  function persistFavorites() {
+    save().catch((e: any) => showToast?.(String(e?.message || e || '保存收藏失败'), { kind: 'error' }))
+  }
 
   function ensureFavoritesBare() {
     const data = getState().data
@@ -54,7 +59,8 @@ export function createFavoritesOperations(deps: {
   function cleanupFavoriteRefsForTarget(targetKind: any, targetId: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
-    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const kindText = String(targetKind || '').trim()
+    const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
     const tid = String(targetId || '').trim()
     if (!tid) return
     for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
@@ -82,15 +88,15 @@ export function createFavoritesOperations(deps: {
     const fav = ensureFavoritesBare()
     if (!fav) return
     const v = validateFavoriteFolderName(name)
-    if (!v.ok) return showToast?.(v.error || '文件夹名无效')
+    if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
     const pid = String(parentId || '').trim()
-    if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return showToast?.('父文件夹不存在')
-    if (favoriteFolderNameExists(v.name)) return showToast?.('文件夹已存在')
+    if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return showToast?.('父文件夹不存在', { kind: 'error' })
+    if (favoriteFolderNameExists(v.name)) return showToast?.('文件夹已存在', { kind: 'error' })
     const t = now()
     const id = uid('favf')
     fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [id]: [] }
-    save().catch(() => {})
+    persistFavorites()
     emit()
     return id
   }
@@ -103,10 +109,10 @@ export function createFavoritesOperations(deps: {
     const folder = fav.folders.find((f: any) => String(f?.id || '') === fid) || null
     if (!folder) return
     const v = validateFavoriteFolderName(name)
-    if (!v.ok) return showToast?.(v.error || '文件夹名无效')
-    if (favoriteFolderNameExists(v.name, fid)) return showToast?.('文件夹已存在')
+    if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
+    if (favoriteFolderNameExists(v.name, fid)) return showToast?.('文件夹已存在', { kind: 'error' })
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '') === fid ? { ...f, name: v.name, updatedAt: now() } : f))
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 
@@ -121,9 +127,9 @@ export function createFavoritesOperations(deps: {
     const ownRefs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
     const targetIdRaw = String(targetFolderId || '').trim()
     const moveTargetId = parentId || targetIdRaw
-    if (!parentId && ownRefs.length && (!moveTargetId || moveTargetId === fid)) return showToast?.('请选择一个目标文件夹来承接内容')
+    if (!parentId && ownRefs.length && (!moveTargetId || moveTargetId === fid)) return showToast?.('请选择一个目标文件夹来承接内容', { kind: 'error' })
     if (moveTargetId && !fav.folders.some((f: any) => String(f?.id || '') === moveTargetId && String(f?.id || '') !== fid)) {
-      return showToast?.('目标文件夹不存在')
+      return showToast?.('目标文件夹不存在', { kind: 'error' })
     }
 
     fav.folders = fav.folders
@@ -146,7 +152,7 @@ export function createFavoritesOperations(deps: {
       delete nextRefs[fid]
     } catch (_) {}
     fav.chatRefsByFolderId = nextRefs
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 
@@ -163,7 +169,7 @@ export function createFavoritesOperations(deps: {
       } catch (_) {}
     }
     fav.chatRefsByFolderId = nextRefs
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 
@@ -174,7 +180,7 @@ export function createFavoritesOperations(deps: {
     if (!fid) return
     if (!fav.folders.some((f: any) => String(f?.id || '').trim() === fid)) return
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [fid]: [] }
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 
@@ -184,29 +190,30 @@ export function createFavoritesOperations(deps: {
     const fid = String(folderId || '').trim()
     if (!fid) return
     const folder = fav.folders.find((f: any) => String(f?.id || '').trim() === fid) || null
-    if (!folder) return showToast?.('文件夹不存在')
+    if (!folder) return showToast?.('文件夹不存在', { kind: 'error' })
 
     const pid = String(nextParentId || '').trim()
-    if (pid === fid) return showToast?.('不能移动到自己下面')
+    if (pid === fid) return showToast?.('不能移动到自己下面', { kind: 'error' })
     if (pid) {
       const parent = fav.folders.find((f: any) => String(f?.id || '').trim() === pid) || null
-      if (!parent) return showToast?.('目标文件夹不存在')
+      if (!parent) return showToast?.('目标文件夹不存在', { kind: 'error' })
       const subtree = new Set(collectFavoriteFolderSubtreeIds(fav.folders, fid))
-      if (subtree.has(pid)) return showToast?.('不能移动到自己的子文件夹下面')
+      if (subtree.has(pid)) return showToast?.('不能移动到自己的子文件夹下面', { kind: 'error' })
     }
 
     const curParentId = String(folder?.parentId || '').trim()
     if (curParentId === pid) return
 
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '').trim() === fid ? { ...f, parentId: pid, updatedAt: now() } : f))
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 
   function setChatFavoriteFolders(targetKind: any, targetId: any, chatId: any, folderIds: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
-    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const kindText = String(targetKind || '').trim()
+    const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
     const tid = String(targetId || '').trim()
     const cid = String(chatId || '').trim()
     const key = favoriteChatRefKey(kind, tid, cid)
@@ -225,7 +232,7 @@ export function createFavoritesOperations(deps: {
       if (validFolderIds.has(fid)) next.push({ targetKind: kind, targetId: tid, chatId: cid, addedAt })
       fav.chatRefsByFolderId[fid] = next
     }
-    save().catch(() => {})
+    persistFavorites()
     emit()
   }
 

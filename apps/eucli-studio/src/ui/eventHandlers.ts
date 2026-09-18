@@ -1,16 +1,17 @@
-// AI Studio UI 事件处理器
+// eucli-studio UI 事件处理器
 // 由 V2 controller 组装使用
 // 职责：click / wheel / mousedown / input / change / keydown / paste 事件委托与分发
 
 import { clamp } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
+import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createEventHandlers(deps: {
   getState: () => any
   actions: Record<string, any>
   emit: () => void
   render: () => void
-  showToast?: (msg: any) => void
+  showToast?: AiChatShowToast
   clipboard?: { writeText?: (text: string) => Promise<void>; writeImage?: (...args: any[]) => void; readText?: () => Promise<string> }
 }) {
   let mermaidDrag: any = null
@@ -99,15 +100,6 @@ export function createEventHandlers(deps: {
       return
     }
 
-    if (act === 'toggle-stream') {
-      const state = deps.getState()
-      if (!state.data) return
-      state.data.settings.streamEnabled = !state.data.settings.streamEnabled
-      deps.actions.save().catch(() => {})
-      deps.actions.renderTop()
-      return
-    }
-
     if (act === 'open-providers') return deps.actions.openProvidersEditor()
     if (act === 'new-role') return deps.actions.createRole()
     if (act === 'new-chat') return deps.actions.createChatForActiveTarget()
@@ -182,13 +174,7 @@ export function createEventHandlers(deps: {
     }
 
     if (act === 'confirm-delete') {
-      const state = deps.getState()
-      const rid = String(state.draft.deleteRoleId || '')
-      const pid = String(state.draft.deleteProviderId || '')
-      deps.actions.closeModal()
-      if (rid) deps.actions.deleteRole(rid)
-      if (pid) deps.actions.deleteProvider(pid)
-      deps.render()
+      void deps.actions.confirmDelete?.()
       return
     }
 
@@ -198,8 +184,8 @@ export function createEventHandlers(deps: {
       const m = chat?.messages?.find((x: any) => String(x?.id) === id)
       if (!m) return
       deps.clipboard?.writeText?.(String(m.content || '')).then(
-        () => deps.showToast?.('已复制'),
-        () => deps.showToast?.('复制失败'),
+        () => deps.showToast?.('已复制', { kind: 'success' }),
+        () => deps.showToast?.('复制失败', { kind: 'error' }),
       )
       return
     }
@@ -262,6 +248,10 @@ export function createEventHandlers(deps: {
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
     const state = deps.getState()
+    if (bind === 'input') {
+      deps.actions.setDraft?.('input', t.value)
+      return
+    }
     state.draft[bind] = t.value
   }
 
@@ -271,11 +261,15 @@ export function createEventHandlers(deps: {
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
     const state = deps.getState()
+    if (bind === 'input') {
+      deps.actions.setDraft?.('input', t.value)
+      return
+    }
     state.draft[bind] = t.value
 
     if (bind === 'roleProviderId') {
       const p = deps.actions.getProvider(String(state.draft.roleProviderId || ''))
-      const cachedItems = Array.isArray(p?.modelsCache?.items) ? p.modelsCache.items : []
+      const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
       state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
       state.draft.roleModelId = ''
       state.draft.roleCustomModelId = ''

@@ -1,4 +1,4 @@
-export type AiChatTargetKind = 'role' | 'group'
+export type AiChatTargetKind = 'role' | 'group' | 'workspace'
 
 export type AiChatRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
 
@@ -49,6 +49,7 @@ export type AiChatRunTarget = {
   kind: AiChatTargetKind
   roleId?: string
   groupId?: string
+  workspaceId?: string
   chatId: string
   branchId: string
   assistantMid: string

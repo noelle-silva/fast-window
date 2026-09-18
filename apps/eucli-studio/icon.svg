@@ -1,9 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI Chat">
-  <path
-    d="M20 12h24c8.284 0 15 6.716 15 15v3c0 8.284-6.716 15-15 15H31.5L22 55v-10h-2c-8.284 0-15-6.716-15-15v-3c0-8.284 6.716-15 15-15Z"
-    fill="#D9A3B3"
-  />
-  <circle cx="26" cy="29" r="3" fill="#FFFFFF" />
-  <circle cx="34" cy="29" r="3" fill="#FFFFFF" />
-  <circle cx="42" cy="29" r="3" fill="#FFFFFF" />
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="eucli-studio icon">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#g)"/>
+  <circle cx="64" cy="64" r="26" fill="#ffffff" fill-opacity="0.92"/>
+  <path d="M64 46 L78 72 H50 Z" fill="#7c3aed"/>
+  </svg>

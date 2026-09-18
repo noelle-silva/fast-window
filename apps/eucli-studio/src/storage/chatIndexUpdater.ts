@@ -1,9 +1,9 @@
 import { now } from '../core/utils'
 import { chatMetaFromChat, chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
-import { splitChatKey, splitGroupChatIndexKey, splitGroupChatKey, splitRoleChatIndexKey } from '../domain/storageKeys'
+import { splitChatKey, splitGroupChatIndexKey, splitGroupChatKey, splitRoleChatIndexKey, splitWorkspaceChatIndexKey, splitWorkspaceChatKey } from '../domain/storageKeys'
 import { loadSplitMetaSnapshot } from './splitIndexes'
 
-export type ChatIndexKind = 'role' | 'group'
+export type ChatIndexKind = 'role' | 'group' | 'workspace'
 
 export type ChatIndexPatch = {
   chat?: any
@@ -32,14 +32,18 @@ export async function updateStoredChatIndexEntry(
   const meta = metaOverride || (await loadSplitMetaSnapshot(storage))
   if (!meta || typeof meta !== 'object') return null
 
-  const folder = kind === 'group' ? String((meta as any).groupFolders?.[tid] || '').trim() : String(meta.roleFolders?.[tid] || '').trim()
+  const folder = kind === 'group'
+    ? String((meta as any).groupFolders?.[tid] || '').trim()
+    : kind === 'workspace'
+      ? String((meta as any).workspaceFolders?.[tid] || '').trim()
+      : String(meta.roleFolders?.[tid] || '').trim()
   if (!folder) return meta
 
-  const key = kind === 'group' ? splitGroupChatIndexKey(folder) : splitRoleChatIndexKey(folder)
+  const key = kind === 'group' ? splitGroupChatIndexKey(folder) : kind === 'workspace' ? splitWorkspaceChatIndexKey(folder) : splitRoleChatIndexKey(folder)
   const idx = await storage.get(key).catch(() => null)
   if (!idx || typeof idx !== 'object') return meta
 
-  const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
+  const fallbackTitle = kind === 'group' ? '群聊' : kind === 'workspace' ? '工作区会话' : '新聊天'
   let metas = chatMetasFromBox(idx, fallbackTitle)
   if (patch.remove) {
     metas = metas.filter((m: any) => String(m?.id || '') !== cid)
@@ -48,7 +52,7 @@ export async function updateStoredChatIndexEntry(
     const updatedAt = Number(patch.updatedAt || patch.chat?.updatedAt || current?.updatedAt || now())
     let chatForMeta = patch.chat
     if (!chatForMeta && patch.title == null) {
-      const chatKey = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
+      const chatKey = kind === 'group' ? splitGroupChatKey(folder, cid) : kind === 'workspace' ? splitWorkspaceChatKey(folder, cid) : splitChatKey(folder, cid)
       const rawChat = await storage.get(chatKey).catch(() => null)
       chatForMeta = rawChat && typeof rawChat === 'object' ? rawChat : null
     }

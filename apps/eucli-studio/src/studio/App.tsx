@@ -5,8 +5,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AiChatApp } from '../ui/App'
 import { StandaloneWindowControls, type WindowControlActions } from '../ui/components/StandaloneWindowControls'
 import type { AiChatController } from '../controller/types'
-import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
+import type { AiChatToastKind, AiChatToastOptions } from '../gateway/capabilities'
+import { EUCLI_STUDIO_CHAT_ROOT_ID } from '../runtime/eucliStudioGlobals'
 import { createAiChatAppRuntime, type AiChatAppRuntime } from './aiChatAppHost'
+import { useReleaseStore } from './useReleaseStore'
+import { compatibilityRangeText, type ReleaseCandidatesView, type StudioBootstrap } from '../domain/release'
+import { ReleaseCandidatesPanel } from '../ui/release/ReleaseCandidatesPanel'
 
 type DataDirStatus = {
   dataDir: string
@@ -20,6 +24,7 @@ type BootStatus = 'booting' | 'ready' | 'error'
 type ToastMessage = {
   id: number
   text: string
+  kind: AiChatToastKind
 }
 
 type FwLaunchInfo = {
@@ -28,12 +33,20 @@ type FwLaunchInfo = {
   mode: string
 }
 
-const TAURI_WINDOW = getCurrentWindow()
+function getTauriWindowSafe() {
+  try {
+    return getCurrentWindow()
+  } catch {
+    return null
+  }
+}
 
-const WINDOW_CONTROL_ACTIONS: WindowControlActions = {
-  minimize: () => TAURI_WINDOW.minimize(),
-  toggleMaximize: () => TAURI_WINDOW.toggleMaximize(),
-  closeToTray: () => invoke('hide_to_tray'),
+const TAURI_WINDOW = getTauriWindowSafe()
+
+const BASE_WINDOW_CONTROL_ACTIONS: WindowControlActions = {
+  minimize: () => TAURI_WINDOW?.minimize?.(),
+  toggleMaximize: () => TAURI_WINDOW?.toggleMaximize?.(),
+  closeToTray: () => TAURI_WINDOW ? invoke('hide_to_tray') : Promise.resolve(),
 }
 
 function commandLabel(command: string | null | undefined) {
@@ -44,10 +57,11 @@ function commandLabel(command: string | null | undefined) {
 
 const COMMAND_LABELS: Record<string, string> = {
   'new-chat': '新建对话',
-  'open-studio': '打开 AI Studio',
+  'open-studio': '打开 eucli-studio',
   'provider-settings': '模型提供商设置',
   'open-settings': '打开设置',
 }
+
 
 export function App() {
   const [dataDirStatus, setDataDirStatus] = React.useState<DataDirStatus | null>(null)
@@ -58,16 +72,20 @@ export function App() {
   const [controller, setController] = React.useState<AiChatController | null>(null)
   const [toast, setToast] = React.useState<ToastMessage | null>(null)
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>({ launched: false, standalone: true, mode: 'standalone' })
+  const [runtimeBootstrap, setRuntimeBootstrap] = React.useState<StudioBootstrap | null>(null)
   const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
   const runtimeVersionRef = React.useRef(0)
   const mountedRef = React.useRef(false)
   const toastSeqRef = React.useRef(0)
 
-  const showToast = React.useCallback((message: unknown) => {
+  const showToast = React.useCallback((message: unknown, options?: AiChatToastOptions) => {
     const text = String((message as any)?.message || message || '').trim()
     if (!text) return
-    setToast({ id: ++toastSeqRef.current, text })
+    const kind = options?.kind === 'success' || options?.kind === 'error' ? options.kind : 'info'
+    setToast({ id: ++toastSeqRef.current, text, kind })
   }, [])
+
+  const release = useReleaseStore(() => runtimeRef.current, showToast)
 
   const refreshDataDirStatus = React.useCallback(async (isCancelled: () => boolean = () => false) => {
     const status = await invoke<DataDirStatus>('data_dir_status').catch(error => ({
@@ -80,34 +98,28 @@ export function App() {
     return status
   }, [])
 
-  const connectBackend = React.useCallback(async (isCancelled: () => boolean = () => false) => {
-    if (isCancelled()) return null
+  const connectBackend = React.useCallback(async (isCancelled: () => boolean = () => false) => {    if (isCancelled()) return null
     const runtimeVersion = runtimeVersionRef.current + 1
     runtimeVersionRef.current = runtimeVersion
     runtimeRef.current?.dispose()
     runtimeRef.current = null
     setController(null)
+      setRuntimeBootstrap(null)
     if (isCancelled()) return null
-    try {
-      const runtime = await createAiChatAppRuntime({
-        showToast,
-        onBack: () => getCurrentWindow().hide(),
-      })
-      if (isCancelled() || runtimeVersionRef.current !== runtimeVersion) {
-        runtime.dispose()
-        return null
-      }
-      runtimeRef.current = runtime
-      setController(runtime.controller)
-      setBootStatus('ready')
-      setBootError('')
-      return runtime
-    } catch (error) {
-      if (isCancelled() || runtimeVersionRef.current !== runtimeVersion) {
-        return null
-      }
-      throw error
+    const runtime = await createAiChatAppRuntime({
+      showToast,
+      onBack: () => getCurrentWindow().hide(),
+    })
+    if (isCancelled() || runtimeVersionRef.current !== runtimeVersion) {
+      runtime.dispose()
+      return null
     }
+    runtimeRef.current = runtime
+    setController(runtime.controller)
+    setRuntimeBootstrap(runtime.bootstrap)
+    setBootStatus('ready')
+    setBootError('')
+    return runtime
   }, [showToast])
 
   const isAppUnmounted = React.useCallback(() => !mountedRef.current, [])
@@ -133,15 +145,15 @@ export function App() {
 
     if (command === 'open-studio') return
     if (command === 'new-chat') {
-      Promise.resolve(controller.actions.createChat?.()).catch(error => showToast(error))
+      Promise.resolve(controller.actions.createChat?.()).catch(error => showToast(error, { kind: 'error' }))
       return
     }
     if (command === 'provider-settings' || command === 'open-settings') {
-      Promise.resolve(controller.actions.openProviders?.()).catch(error => showToast(error))
+      Promise.resolve(controller.actions.openProviders?.()).catch(error => showToast(error, { kind: 'error' }))
       return
     }
 
-    showToast(`未知命令：${command}`)
+    showToast(`未知命令：${command}`, { kind: 'error' })
   }, [bootStatus, controller, pendingCommand, showToast])
 
   React.useEffect(() => {
@@ -172,7 +184,7 @@ export function App() {
       } catch (error: any) {
         if (disposed) return
         setBootStatus('error')
-        setBootError(String(error?.message || error || 'AI Studio 启动失败'))
+        setBootError(String(error?.message || error || 'eucli-studio 启动失败'))
         await refreshDataDirStatus(() => disposed)
         await invoke('app_ready').catch(() => {})
       }
@@ -219,37 +231,73 @@ export function App() {
     }
   }
 
+  const trueExit = React.useCallback(async () => {
+    if (!mountedRef.current) return
+    try {
+      await invoke('exit_app')
+    } catch (error: any) {
+      showToast(String(error?.message || error || '真正退出失败'), { kind: 'error' })
+    }
+  }, [showToast])
+
+  const windowControlActions = React.useMemo<WindowControlActions>(() => ({
+    ...BASE_WINDOW_CONTROL_ACTIONS,
+    trueExit,
+  }), [trueExit])
+
+  const runtimeBootstrapIssue = bootStatus === 'ready' && runtimeBootstrap && !runtimeBootstrap.businessAvailable
+    ? runtimeBootstrap.eucliBoxIssue
+    : ''
   const issue = bootError || dataDirStatus?.error || (dataDirStatus && !dataDirStatus.writable ? '数据目录不可写' : '')
+  const needsEucliBoxConnection = bootStatus === 'ready' && !!runtimeBootstrap && !runtimeBootstrap.businessAvailable
+  const canRenderChatApp = !!controller && bootStatus === 'ready' && runtimeBootstrap?.businessAvailable === true && !issue
 
   return (
     <div className="appShell">
-      {controller && bootStatus === 'ready' && !issue ? (
-        <div id={AI_STUDIO_CHAT_ROOT_ID} className="chatHost">
+      {canRenderChatApp ? (
+        <div id={EUCLI_STUDIO_CHAT_ROOT_ID} className="chatHost">
           <AiChatApp
             controller={controller}
+            bootstrap={runtimeBootstrap}
             dataDirectory={{
               status: dataDirStatus,
               busy: dataDirBusy,
               onPick: pickDataDir,
               onRefresh: refreshDataDirStatus,
             }}
-            windowControls={{
+             windowControls={{
               standalone: launchInfo.standalone,
-              actions: WINDOW_CONTROL_ACTIONS,
-            }}
-          />
+                actions: windowControlActions,
+             }}
+             releaseBusy={release.busy}
+             releaseView={release.view}
+             onReleaseRead={release.read}
+             onReleaseRefresh={release.refresh}
+            />
         </div>
+      ) : needsEucliBoxConnection ? (
+        <EucliBoxConfigScreen
+          standalone={launchInfo.standalone}
+          windowControlActions={windowControlActions}
+          issue={runtimeBootstrapIssue}
+          bootstrap={runtimeBootstrap}
+          releaseView={release.view}
+          releaseBusy={release.busy}
+          onReleaseRefresh={release.refresh}
+          onReleaseRead={release.read}
+          onApply={() => void connectMountedBackend()}
+        />
       ) : (
         <BootFallback
           status={bootStatus}
           issue={issue || ''}
           pendingCommand={commandLabel(pendingCommand)}
           standalone={launchInfo.standalone}
-          windowControlActions={WINDOW_CONTROL_ACTIONS}
+          windowControlActions={windowControlActions}
           onPickDataDir={pickDataDir}
         />
       )}
-      {toast ? <div className="toast" role="status" aria-live="polite">{toast.text}</div> : null}
+      {toast ? <div className="toast" data-kind={toast.kind} role={toast.kind === 'error' ? 'alert' : 'status'} aria-live={toast.kind === 'error' ? 'assertive' : 'polite'}>{toast.text}</div> : null}
     </div>
   )
 }
@@ -262,6 +310,102 @@ function normalizeLaunchInfo(raw: FwLaunchInfo): FwLaunchInfo {
   }
 }
 
+function EucliBoxConfigScreen(props: {
+  standalone: boolean
+  windowControlActions: WindowControlActions
+  issue: string
+  bootstrap: StudioBootstrap
+  releaseView: ReleaseCandidatesView
+  releaseBusy: boolean
+  onReleaseRefresh: (kind?: string) => Promise<void> | void
+  onReleaseRead: (kind: string) => Promise<void> | void
+  onApply: () => Promise<void> | void
+}) {
+  const { standalone, windowControlActions, issue, bootstrap, releaseView, releaseBusy, onReleaseRefresh, onApply } = props
+  const [url, setUrl] = React.useState('')
+  const [key, setKey] = React.useState('')
+  const [saving, setSaving] = React.useState(false)
+  const [configReady, setConfigReady] = React.useState(false)
+  const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
+
+  React.useEffect(() => {
+    let disposed = false
+    void createAiChatAppRuntime({
+      showToast: () => {},
+      onBack: () => getCurrentWindow().hide(),
+    }).then(runtime => {
+      if (disposed) {
+        runtime.dispose()
+        return
+      }
+      runtimeRef.current = runtime
+      runtime.getEucliBoxConfig().then(config => {
+        if (disposed) return
+        setUrl(config.eucliBoxUrl || '')
+        setKey(config.eucliBoxKey || '')
+        setConfigReady(true)
+      }).catch(() => setConfigReady(true))
+    })
+    return () => {
+      disposed = true
+      runtimeRef.current?.dispose()
+      runtimeRef.current = null
+    }
+  }, [])
+
+  const save = React.useCallback(async () => {
+    const runtime = runtimeRef.current
+    if (!runtime || saving) return
+    setSaving(true)
+    try {
+      await runtime.setEucliBoxConfig({ eucliBoxUrl: url.trim().replace(/\/+$/, ''), eucliBoxKey: key.trim() })
+      await onApply()
+    } finally {
+      setSaving(false)
+    }
+  }, [onApply, saving, url, key])
+
+  const onTopbarPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    if (target.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
+    void TAURI_WINDOW?.startDragging?.().catch(() => {})
+  }, [])
+
+  return (
+    <main className="bootFallback" role="main" aria-live="polite">
+      <header className="bootFallbackTopbar" onPointerDown={onTopbarPointerDown}>
+        <div className="bootFallbackBrand">eucli-studio</div>
+        {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
+      </header>
+      <section className="bootFallbackCard eucliConfigCard">
+        <div className="bootFallbackTitle">连接业务端</div>
+        <dl className="releaseFacts">
+          <div><dt>客户端版本</dt><dd>{bootstrap.clientVersion || '版本资料无效'}</dd></div>
+          <div><dt>所需本体范围</dt><dd>{compatibilityRangeText(bootstrap.clientEucliBoxCompatibility)}</dd></div>
+          {bootstrap.eucliBoxVersion ? <div><dt>业务端版本</dt><dd>{bootstrap.eucliBoxVersion}</dd></div> : null}
+        </dl>
+        <div className="eucliConfigForm">
+          <label className="eucliConfigLabel" htmlFor="eucliBoxUrl">业务端地址（网关）
+            <input id="eucliBoxUrl" type="text" placeholder="http://127.0.0.1:8765" value={url} disabled={!configReady} onChange={(e) => setUrl(e.target.value)} />
+          </label>
+          <label className="eucliConfigLabel" htmlFor="eucliBoxKey">访问 Key
+            <input id="eucliBoxKey" type="password" placeholder="业务端长期 Key" value={key} disabled={!configReady} onChange={(e) => setKey(e.target.value)} />
+          </label>
+          <button type="button" disabled={!configReady || saving || !url.trim()} onClick={save}>
+            {saving ? '连接中…' : '保存并连接'}
+          </button>
+        </div>
+        {issue ? <div className="bootFallbackIssue">{issue}</div> : null}
+        <div className="eucliReleaseChecks">
+          <ReleaseCandidatesPanel view={releaseView} busy={releaseBusy} onRefresh={() => onApply()} compact />
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function BootFallback(props: {
   status: BootStatus
   issue: string
@@ -271,19 +415,19 @@ function BootFallback(props: {
   onPickDataDir: () => void
 }) {
   const { status, issue, pendingCommand, standalone, windowControlActions, onPickDataDir } = props
-  const title = issue ? 'AI Studio 启动遇到问题' : 'AI Studio 正在启动'
+  const title = issue ? 'eucli-studio 启动遇到问题' : 'eucli-studio 正在启动'
   const onTopbarPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
     const target = event.target
     if (!(target instanceof HTMLElement)) return
     if (target.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
-    void TAURI_WINDOW.startDragging().catch(() => {})
+    void TAURI_WINDOW?.startDragging?.().catch(() => {})
   }, [])
 
   return (
     <main className="bootFallback" role={issue ? 'alert' : 'status'} aria-live="polite">
       <header className="bootFallbackTopbar" onPointerDown={onTopbarPointerDown}>
-        <div className="bootFallbackBrand">AI Studio</div>
+        <div className="bootFallbackBrand">eucli-studio</div>
         {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
       </header>
       <section className="bootFallbackCard">

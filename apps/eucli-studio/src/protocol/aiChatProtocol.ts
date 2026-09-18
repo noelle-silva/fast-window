@@ -1,7 +1,14 @@
+import type { ErrorPayload } from '../domain/errorPayload'
+
 export const AI_CHAT_DIRECT_PROTOCOL_VERSION = 2
 
 export const AI_CHAT_DIRECT_METHOD = {
   healthCheck: 'aiChat.healthCheck',
+  studioBootstrap: 'studio.bootstrap',
+  eucliConfigGet: 'eucli.config.get',
+  eucliConfigSet: 'eucli.config.set',
+  releaseCandidatesList: 'releaseCandidates.list',
+  artifactsInstallations: 'artifacts.installations',
   submitChatCompletion: 'aiChat.submitChatCompletion',
   submitManyChatCompletions: 'aiChat.submitManyChatCompletions',
   submitRawServiceRequest: 'aiChat.submitRawServiceRequest',
@@ -25,6 +32,7 @@ export const AI_CHAT_DIRECT_EVENT = {
   runProgress: 'aiChat.run.progress',
   runFinal: 'aiChat.run.final',
   chatUpdated: 'aiChat.chat.updated',
+  eucliBoxRunEvent: 'eucliBox.run.event',
 } as const
 
 export type AiChatDirectMethod = (typeof AI_CHAT_DIRECT_METHOD)[keyof typeof AI_CHAT_DIRECT_METHOD]
@@ -42,7 +50,7 @@ export type AiChatDirectResponse<T = unknown> = {
   type: 'response'
   ok: boolean
   result?: T
-  error?: { code?: string; message: string; details?: unknown }
+  error?: ErrorPayload
 }
 
 export type AiChatDirectEvent = {

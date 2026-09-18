@@ -122,7 +122,7 @@ export function GroupAvatarCropper(props: { controller: any; src: string }) {
 
   const applyCrop = useEvent(() => {
     const out = cropNow()
-    if (!out) return api?.ui?.showToast?.('裁剪失败')
+    if (!out) return api?.ui?.showToast?.('裁剪失败', { kind: 'error' })
     controller.actions.setDraft('groupAvatarImage', out)
     controller.actions.setDraft('groupAvatarImageCropSrc', '')
   })

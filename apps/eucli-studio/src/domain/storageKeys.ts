@@ -35,6 +35,10 @@ export function providerFolderName(provider: any) {
   return safeDirName(provider?.name || provider?.id, '供应商')
 }
 
+export function workspaceFolderName(workspace: any) {
+  return safeDirName(workspace?.name || workspace?.id, '工作区')
+}
+
 export function splitChatsIndexKey() {
   return 'chats/index'
 }
@@ -64,16 +68,32 @@ export function splitGroupsIndexKey() {
   return 'groups/index'
 }
 
+export function splitWorkspacesIndexKey() {
+  return 'workspaces/index'
+}
+
 export function splitGroupKey(folder: unknown) {
   return `groups/${String(folder || '')}/group`
+}
+
+export function splitWorkspaceKey(folder: unknown) {
+  return `workspaces/${String(folder || '')}/workspace`
 }
 
 export function splitGroupChatKey(folder: unknown, chatId: unknown) {
   return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
 }
 
+export function splitWorkspaceChatKey(folder: unknown, chatId: unknown) {
+  return `workspaces/${String(folder || '')}/sessions/${String(chatId || '')}`
+}
+
 export function splitGroupChatIndexKey(folder: unknown) {
   return `groups/${String(folder || '')}/chats/index`
+}
+
+export function splitWorkspaceChatIndexKey(folder: unknown) {
+  return `workspaces/${String(folder || '')}/sessions/index`
 }
 
 export function groupChatImageRelPath(folder: unknown, chatId: unknown, fileName: unknown) {

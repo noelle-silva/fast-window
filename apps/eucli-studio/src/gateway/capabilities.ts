@@ -1,4 +1,4 @@
-import type { AiChatNetAdapter, AiChatRuntimeStore } from '../engine'
+import type { AiChatNetAdapter, AiChatRuntimeStore } from '../engine/types'
 
 // ---- gateway interface types ----
 
@@ -24,8 +24,16 @@ export type AiChatFilesGateway = {
   images: AiChatImageFilesGateway
 }
 
+export type AiChatToastKind = 'info' | 'success' | 'error'
+
+export type AiChatToastOptions = {
+  kind?: AiChatToastKind
+}
+
+export type AiChatShowToast = (message: any, options?: AiChatToastOptions) => void
+
 export type AiChatUiGateway = {
-  showToast?: (message: any) => void
+  showToast?: AiChatShowToast
   startDragging?: () => Promise<void>
 }
 

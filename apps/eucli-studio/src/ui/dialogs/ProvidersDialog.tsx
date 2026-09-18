@@ -1,12 +1,12 @@
-import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Paper, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import StorageIcon from '@mui/icons-material/Storage'
-import { ApiKeyField } from '../components/fields/ApiKeyField'
+import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
 
-export function ProvidersDialog(props: { open: boolean; controller: any; providers: any[]; draft: any }) {
-  const { open, controller, providers, draft } = props
+export function ProvidersDialog(props: { open: boolean; controller: any; providers: any[]; draft: any; models: any }) {
+  const { open, controller, providers, draft, models } = props
   const editingId = String(draft?.editProviderId || '')
 
   return (
@@ -32,7 +32,7 @@ export function ProvidersDialog(props: { open: boolean; controller: any; provide
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Typography sx={{ fontWeight: 900 }}>{String(p?.name || '')}</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
-                    {String(p?.baseUrl || '')}
+                    {providerProtocolLabel(p?.protocol)} · {String(p?.baseUrl || '')}
                   </Typography>
                   <Button
                     size="small"
@@ -48,14 +48,7 @@ export function ProvidersDialog(props: { open: boolean; controller: any; provide
 
                 {isEditing ? (
                   <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-                    <TextField label="名称" value={String(draft?.providerName || '')} onChange={(e) => controller.actions.setDraft('providerName', e.target.value)} />
-                    <TextField
-                      label="Base URL"
-                      value={String(draft?.providerBaseUrl || '')}
-                      onChange={(e) => controller.actions.setDraft('providerBaseUrl', e.target.value)}
-                      placeholder="https://api.openai.com/v1"
-                    />
-                    <ApiKeyField value={String(draft?.providerApiKey || '')} onValueChange={(next) => controller.actions.setDraft('providerApiKey', next)} />
+                    <ProviderConfigEditor controller={controller} draft={draft} provider={p} models={models} />
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
                         保存
@@ -70,5 +63,12 @@ export function ProvidersDialog(props: { open: boolean; controller: any; provide
       </DialogContent>
     </Dialog>
   )
+}
+
+function providerProtocolLabel(protocol: unknown) {
+  const value = String(protocol || '').trim()
+  if (value === 'openai') return 'OpenAI 兼容'
+  if (value === 'anthropic') return 'Anthropic'
+  return '未选择协议'
 }
 

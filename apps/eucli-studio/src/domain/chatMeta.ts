@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
-import { isAssistantGenerating } from './assistantRunState'
+import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
+import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
 
 export type ChatMeta = {
   id: string
@@ -9,6 +10,8 @@ export type ChatMeta = {
   lastMessagePreview: string
   messageCount: number
   hasPending: boolean
+  runStatus: ChatSessionRunStatus
+  runStatusChangedAt: number
 }
 
 function normalizeWhitespace(value: unknown): string {
@@ -20,10 +23,84 @@ function clampPreview(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 80).trim()}...` : text
 }
 
+function toolStateText(value: unknown): string {
+  const state = String(value || '').trim()
+  if (state === 'requested') return '已请求'
+  if (state === 'needs_confirmation') return '等待确认'
+  if (state === 'approved') return '已同意'
+  if (state === 'rejected') return '已拒绝'
+  if (state === 'running') return '运行中'
+  if (state === 'completed') return '已完成'
+  if (state === 'error') return '失败'
+  if (state === 'denied') return '已拒绝'
+  if (state === 'cancelled') return '已取消'
+  return state
+}
+
+function toolResultStatusText(value: unknown): string {
+  const status = String(value || '').trim()
+  const lower = status.toLowerCase()
+  if (lower === 'success' || lower === 'completed' || lower === 'ok') return '成功'
+  if (lower === 'error' || lower === 'failed' || lower === 'failure') return '失败'
+  return status
+}
+
+function toolPartPreview(part: any): string {
+  if (!part || typeof part !== 'object') return ''
+  const result = (part as any).result && typeof (part as any).result === 'object' ? (part as any).result : null
+  const name = normalizeWhitespace((part as any).toolName || result?.toolName) || 'tool'
+  if (result) {
+    const status = toolResultStatusText(result.status)
+    return `工具返回：${name}${status ? `（${status}）` : ''}`
+  }
+  const state = toolStateText((part as any).state)
+  return `工具调用：${name}${state ? `（${state}）` : ''}`
+}
+
+function legacyToolResponsePreview(content: string): string {
+  if (!content.startsWith('<<<[TOOL_RESPONSE]>>>')) return ''
+  const resultTags = content.match(/<<\[RESULT-\d+\]>>/g) || []
+  const names = Array.from(content.matchAll(/tool_name:「start」([\s\S]*?)「end」/g))
+    .map((x) => normalizeWhitespace(x?.[1] || ''))
+    .filter(Boolean)
+  const statuses = Array.from(content.matchAll(/status:「start」([\s\S]*?)「end」/g))
+    .map((x) => toolResultStatusText(x?.[1] || ''))
+    .filter(Boolean)
+  const pairs = names.slice(0, 3).map((name, index) => {
+    const status = statuses[index] || ''
+    return status ? `${name}（${status}）` : name
+  })
+  const count = resultTags.length
+  if (count) return `工具返回：${count}项${pairs.length ? `：${pairs.join('，')}${count > 3 ? '...' : ''}` : ''}`
+  return pairs.length ? `工具返回：${pairs.join('，')}` : '工具返回结果'
+}
+
+function contentPreview(message: any): string {
+  const content = String(message?.content ?? '')
+  if (String(message?.type || '').trim() === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return clampPreview(`异步工具返回：${content}`)
+  const legacyToolPreview = legacyToolResponsePreview(content)
+  if (legacyToolPreview) return clampPreview(legacyToolPreview)
+  return clampPreview(content)
+}
+
+function partPreview(part: any): string {
+  if (!part || typeof part !== 'object') return ''
+  const type = String((part as any).type || '').trim()
+  if (type === 'text') return clampPreview((part as any).text)
+  if (type === 'tool') return clampPreview(toolPartPreview(part))
+  if (type === 'reasoning') return ''
+  return ''
+}
+
 function messagePreview(message: any): string {
   if (!message || typeof message !== 'object') return ''
-  const text = clampPreview(message.content)
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  const text = contentPreview(message)
   if (text) return text
+  for (const part of parts) {
+    const preview = partPreview(part)
+    if (preview) return preview
+  }
   const images = Array.isArray(message.images) ? message.images : []
   if (images.length) return '图片'
   const attachments = Array.isArray(message.attachments) ? message.attachments : []
@@ -39,6 +116,8 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
   const last = messages.length ? messages[messages.length - 1] : null
   const createdAt = Number(chat.createdAt || 0) || now()
   const updatedAt = Number(chat.updatedAt || 0) || createdAt
+  const runSummary = chatSessionRunSummaryFromChat(chat)
+  const hasPending = runSummary.status === 'running'
   return {
     id,
     title: normalizeWhitespace(chat.title) || fallbackTitle,
@@ -46,7 +125,9 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
     updatedAt,
     lastMessagePreview: messagePreview(last),
     messageCount: messages.length,
-    hasPending: messages.some((m: any) => isAssistantGenerating(m)),
+    hasPending,
+    runStatus: hasPending ? 'running' : runSummary.status,
+    runStatusChangedAt: Number(runSummary.changedAt || updatedAt || createdAt || 0),
   }
 }
 
@@ -56,6 +137,8 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
   if (!id) return null
   const createdAt = Number((obj as any).createdAt || 0) || Number(fallbackUpdatedAt || 0) || now()
   const updatedAt = Number((obj as any).updatedAt || 0) || Number(fallbackUpdatedAt || 0) || createdAt
+  const runStatus = normalizeChatSessionRunStatus((obj as any).runStatus || (obj as any).status)
+  const hasPending = runStatus === 'running'
   return {
     id,
     title: normalizeWhitespace((obj as any).title) || fallbackTitle,
@@ -63,7 +146,9 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
     updatedAt,
     lastMessagePreview: clampPreview((obj as any).lastMessagePreview || (obj as any).snippet || ''),
     messageCount: Math.max(0, Math.floor(Number((obj as any).messageCount || 0) || 0)),
-    hasPending: !!(obj as any).hasPending,
+    hasPending,
+    runStatus: hasPending ? 'running' : runStatus,
+    runStatusChangedAt: Number((obj as any).runStatusChangedAt || (obj as any).statusChangedAt || updatedAt || createdAt || 0) || updatedAt,
   }
 }
 
@@ -103,13 +188,17 @@ export function normalizeChatMetas(raw: any, chatIdsRaw: any, chatUpdatedAtRaw: 
 export function chatMetasFromBox(box: any, fallbackTitle = '新聊天'): ChatMeta[] {
   const metas = normalizeChatMetas(box?.chatMetas, box?.chatIds, box?.chatUpdatedAt, fallbackTitle)
   const out = metas.slice()
-  const seen = new Set(out.map((m) => m.id))
+  const indexById = new Map(out.map((m, index) => [m.id, index]))
   const chats = Array.isArray(box?.chats) ? box.chats : []
   for (const chat of chats) {
     const meta = chatMetaFromChat(chat, fallbackTitle)
-    if (!meta || seen.has(meta.id)) continue
-    seen.add(meta.id)
-    out.push(meta)
+    if (!meta) continue
+    const index = indexById.get(meta.id)
+    if (typeof index === 'number') out[index] = meta
+    else {
+      indexById.set(meta.id, out.length)
+      out.push(meta)
+    }
   }
   return out
 }

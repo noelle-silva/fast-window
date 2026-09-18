@@ -1,6 +1,7 @@
 export const VERSION = 7
 export const SPLIT_SCHEMA_VERSION = 1
 export const SPLIT_META_KEY = 'meta/index'
+export const SESSION_FAVORITES_KEY = 'sessions/favorites'
 export const STICKERS_KEY = 'stickers/index'
 
 export const MAX_DRAFT_IMAGES = 8
@@ -9,9 +10,13 @@ export const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024
 export const DEFAULT_ATTACH_MAX_FILE_MB = Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)
 export const MAX_ATTACH_MAX_FILE_MB = 2048
 export const DEFAULT_ATTACH_SEND_LIMIT_CHARS = 80_000
+export const DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES = 15
+export const CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN = 1
+export const CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX = 100
 export const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 export const NEW_ROLE_ID = '__new__'
 export const NEW_GROUP_ID = '__new_group__'
+export const NEW_WORKSPACE_ID = '__new_workspace__'
 export const GROUP_SPEAKER_USER_PREFIX = '用户'
 
 export const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。

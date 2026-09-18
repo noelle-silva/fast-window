@@ -1,9 +1,7 @@
 import { now, uid } from '../core/utils'
-import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, STICKERS_KEY } from '../domain/constants'
-import { chatMetaFromChat, chatMetaIds, chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
-import { normalizeData, defaultData } from '../domain/dataNormalizers'
+import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
+import { normalizeData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
-import { resolveAssistantMessageForMerge } from '../domain/assistantRunState'
 import {
   splitRoleKey,
   splitChatKey,
@@ -21,99 +19,49 @@ import {
 } from '../domain/storageKeys'
 import { loadProvidersFromStorage, loadSplitMetaSnapshot } from './splitIndexes'
 import { updateStoredChatIndexEntry, type ChatIndexKind } from './chatIndexUpdater'
+import { initializeStickerSettingsStorage, loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 
 let splitMetaCache: any = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
+let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
 
-function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
-  const local = localChat && typeof localChat === 'object' ? localChat : null
-  const stored = storedChat && typeof storedChat === 'object' ? storedChat : null
-  if (!local || !stored) return localChat
+function stringList(value: any): string[] {
+  return Array.isArray(value) ? value.map((item: any) => String(item || '').trim()).filter(Boolean) : []
+}
 
-  const out: any = { ...(local as any) }
-  const localMsgs: any[] = Array.isArray(local.messages) ? local.messages.slice() : []
-  const storedMsgs: any[] = Array.isArray((stored as any).messages) ? (stored as any).messages : []
-
-  const indexById = new Map<string, number>()
-  const rebuildIndex = () => {
-    indexById.clear()
-    for (let i = 0; i < localMsgs.length; i++) {
-      const id = String((localMsgs[i] as any)?.id || '').trim()
-      if (!id || indexById.has(id)) continue
-      indexById.set(id, i)
-    }
+function stringMap(value: any): Record<string, string> {
+  const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const out: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(src)) {
+    const k = String(key || '').trim()
+    const v = String(raw || '').trim()
+    if (k && v) out[k] = v
   }
-  rebuildIndex()
-
-  for (const sm of storedMsgs) {
-    const sid = String((sm as any)?.id || '').trim()
-    if (!sid || indexById.has(sid)) continue
-    const pm = String((sm as any)?.parentMid || '').trim()
-    if (pm && indexById.has(pm)) {
-      localMsgs.splice((indexById.get(pm) as number) + 1, 0, sm)
-    } else {
-      localMsgs.push(sm)
-    }
-    rebuildIndex()
-  }
-
-  for (const sm of storedMsgs) {
-    const sid = String((sm as any)?.id || '').trim()
-    if (!sid) continue
-    const i = indexById.get(sid)
-    if (typeof i !== 'number') continue
-    const lm = localMsgs[i]
-    if (!lm || typeof lm !== 'object') continue
-    localMsgs[i] = resolveAssistantMessageForMerge(lm, sm)
-  }
-
-  try {
-    const lb = out.branching && typeof out.branching === 'object' ? out.branching : null
-    const sb = (stored as any).branching && typeof (stored as any).branching === 'object' ? (stored as any).branching : null
-    if (lb && sb) {
-      const lList: any[] = Array.isArray((lb as any).branches) ? (lb as any).branches.slice() : []
-      const sList: any[] = Array.isArray((sb as any).branches) ? (sb as any).branches : []
-      const byId = new Map<string, any>()
-      for (const b of lList) {
-        const id = String(b?.id || '').trim()
-        if (id && !byId.has(id)) byId.set(id, b)
-      }
-      for (const b of sList) {
-        const id = String(b?.id || '').trim()
-        if (!id) continue
-        const cur = byId.get(id) || null
-        if (!cur) {
-          lList.push(b)
-          byId.set(id, b)
-          continue
-        }
-        const lu = Number(cur?.updatedAt || 0)
-        const su = Number(b?.updatedAt || 0)
-        if (su > lu) {
-          cur.headMid = String(b?.headMid || cur.headMid || '')
-          cur.updatedAt = su
-        } else if (!String(cur?.headMid || '').trim() && String(b?.headMid || '').trim()) {
-          cur.headMid = String(b?.headMid || '')
-        }
-        if (!String(cur?.forkFromMid || '').trim() && String(b?.forkFromMid || '').trim()) cur.forkFromMid = String(b?.forkFromMid || '')
-      }
-      out.branching = { ...(lb as any), ...(sb as any), branches: lList, activeBranchId: String((lb as any).activeBranchId || (sb as any).activeBranchId || '') }
-    } else if (!out.branching && sb) {
-      out.branching = sb
-    }
-  } catch (_) {}
-
-  out.messages = localMsgs
   return out
+}
+
+function uniqueFolder(baseRaw: string, used: Set<string>, id: string, prefix: string) {
+  const base = String(baseRaw || prefix).trim() || prefix
+  if (!used.has(base)) return base
+  const tail = id.slice(Math.max(0, id.length - 8)) || uid(prefix)
+  let folder = `${base}__${tail}`
+  let suffix = 2
+  while (used.has(folder)) folder = `${base}__${tail}_${suffix++}`
+  return folder
+}
+
+async function writeRequired(storage: { set: (key: string, value: any) => Promise<any> }, key: string, value: any) {
+  await storage.set(key, value)
+}
+
+async function removeRequired(storage: { remove: (key: string) => Promise<any> }, key: string) {
+  await storage.remove(key)
 }
 
 const noop = async () => {}
 
 export function createSplitStorage(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void>; remove: (k: string) => Promise<void> }
-  rtStorage?: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void>; remove: (k: string) => Promise<void> }
-  withChatWriteLock?: (kind: any, targetId: any, chatId: any, fn: () => Promise<any>) => Promise<any>
-  writeChatUpdatedNotice?: (targetKind: any, targetId: any, chatId: any, updatedAt: any) => Promise<void>
   syncRoleAvatarFile?: (folder: any, role: any) => Promise<void>
   syncGroupAvatarFile?: (folder: any, group: any) => Promise<void>
   getState?: () => any
@@ -122,17 +70,12 @@ export function createSplitStorage(deps: {
 }) {
   const {
     storage,
-    withChatWriteLock: _withChatWriteLock,
-    writeChatUpdatedNotice: _writeChatUpdatedNotice,
     syncRoleAvatarFile: _syncRoleAvatarFile = noop,
     syncGroupAvatarFile: _syncGroupAvatarFile = noop,
     getState,
     setState,
     onError,
   } = deps
-
-  const withChatWriteLock = _withChatWriteLock || ((_k, _tid, _cid, fn) => fn())
-  const writeChatUpdatedNotice = _writeChatUpdatedNotice || noop
 
   async function loadSplitMeta() {
     const meta = await loadSplitMetaSnapshot(storage)
@@ -175,62 +118,241 @@ export function createSplitStorage(deps: {
     await updateChatIndexEntry('group', gid, cid, { updatedAt: ua0 > 0 ? ua0 : now() })
   }
 
-  async function saveChatEntry(kind: ChatIndexKind, targetId: any, chat: any) {
-    const tid = String(targetId || '').trim()
-    const cid = String(chat?.id || '').trim()
-    if (!tid || !cid || !chat || typeof chat !== 'object') return
-    const meta = (await loadSplitMeta()) || splitMetaCache
-    const folder = kind === 'group' ? String((meta as any)?.groupFolders?.[tid] || '').trim() : String(meta?.roleFolders?.[tid] || '').trim()
-    if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
-    const key = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
-    await withChatWriteLock(kind, tid, cid, async () => {
-      const raw0 = await storage.get(key)
-      const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
-      const merged = mergeChatForConcurrentWrite(chat, stored)
-      await storage.set(key, merged)
-    })
-    await updateChatIndexEntry(kind, tid, cid, { chat })
-    await writeChatUpdatedNotice(kind, tid, cid, Number(chat.updatedAt || now()))
-  }
-
-  async function saveRoleChat(roleId: any, chat: any) {
-    await saveChatEntry('role', roleId, chat)
-  }
-
-  async function saveGroupChat(groupId: any, chat: any) {
-    await saveChatEntry('group', groupId, chat)
-  }
-
-  async function renameChatEntry(kind: ChatIndexKind, targetId: any, chatId: any, title: any) {
-    const tid = String(targetId || '').trim()
-    const cid = String(chatId || '').trim()
-    if (!tid || !cid) return
-    const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
-    let nextTitle = String(title ?? '').replace(/\s+/g, ' ').trim()
-    if (nextTitle.length > 80) nextTitle = nextTitle.slice(0, 80).trim()
-    nextTitle = nextTitle || fallbackTitle
-    await updateChatIndexEntry(kind, tid, cid, { title: nextTitle, updatedAt: now() })
-
-    const meta = (await loadSplitMeta()) || splitMetaCache
-    const folder = kind === 'group' ? String((meta as any)?.groupFolders?.[tid] || '').trim() : String(meta?.roleFolders?.[tid] || '').trim()
-    if (!folder) return
-    const key = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
-    await withChatWriteLock(kind, tid, cid, async () => {
-      const raw = await storage.get(key)
-      const chat = raw && typeof raw === 'object' ? raw : null
-      if (!chat) return
-      ;(chat as any).title = nextTitle
-      ;(chat as any).updatedAt = now()
-      await storage.set(key, chat)
+  async function setActiveRoleChatSelection(roleIdRaw: any, chatIdRaw: any) {
+    const roleId = String(roleIdRaw || '').trim()
+    const chatId = String(chatIdRaw || '').trim()
+    if (!roleId) return
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+      const folder = String(meta?.roleFolders?.[roleId] || '').trim()
+      if (!folder) throw new Error('角色不存在')
+      const key = splitRoleChatIndexKey(folder)
+      const idx0 = await storage.get(key).catch(() => null)
+      const idx = idx0 && typeof idx0 === 'object'
+        ? { ...idx0 }
+        : { schemaVersion: SPLIT_SCHEMA_VERSION, roleId, roleFolder: folder, chatIds: [], chatUpdatedAt: {}, chatMetas: [] }
+      ;(idx as any).activeChatId = chatId
+      ;(idx as any).updatedAt = now()
+      await storage.set(key, idx)
+      const chatIndexByRole = { ...(meta.chatIndexByRole || {}) }
+      chatIndexByRole[roleId] = { ...(chatIndexByRole[roleId] || {}), ...(idx as any) }
+      splitMetaCache = { ...meta, chatIndexByRole }
     })
   }
 
-  async function renameRoleChat(roleId: any, chatId: any, title: any) {
-    await renameChatEntry('role', roleId, chatId, title)
+  async function removeRoleChatEntry(roleIdRaw: any, chatIdRaw: any) {
+    const roleId = String(roleIdRaw || '').trim()
+    const chatId = String(chatIdRaw || '').trim()
+    if (!roleId || !chatId) return
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+      const nextMeta = await updateStoredChatIndexEntry(storage, 'role', roleId, chatId, { remove: true }, meta)
+      const folder = String(meta?.roleFolders?.[roleId] || '').trim()
+      if (folder) await storage.remove(splitChatKey(folder, chatId)).catch(() => {})
+      splitMetaCache = nextMeta || meta
+    })
   }
 
-  async function renameGroupChat(groupId: any, chatId: any, title: any) {
-    await renameChatEntry('group', groupId, chatId, title)
+  async function setActiveGroupChatSelection(groupIdRaw: any, chatIdRaw: any) {
+    const groupId = String(groupIdRaw || '').trim()
+    const chatId = String(chatIdRaw || '').trim()
+    if (!groupId) return
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+      const folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
+      if (!folder) throw new Error('群组不存在')
+      const key = splitGroupChatIndexKey(folder)
+      const idx0 = await storage.get(key).catch(() => null)
+      const idx = idx0 && typeof idx0 === 'object'
+        ? { ...idx0 }
+        : { schemaVersion: SPLIT_SCHEMA_VERSION, groupId, groupFolder: folder, activeChatId: '', chatIds: [], chatUpdatedAt: {}, chatMetas: [] }
+      ;(idx as any).activeChatId = chatId
+      ;(idx as any).updatedAt = now()
+      await storage.set(key, idx)
+      const chatIndexByGroup = { ...((meta as any).chatIndexByGroup || {}) }
+      chatIndexByGroup[groupId] = { ...(chatIndexByGroup[groupId] || {}), ...(idx as any) }
+      splitMetaCache = { ...meta, chatIndexByGroup }
+    })
+  }
+
+  async function removeGroupChatEntry(groupIdRaw: any, chatIdRaw: any) {
+    const groupId = String(groupIdRaw || '').trim()
+    const chatId = String(chatIdRaw || '').trim()
+    if (!groupId || !chatId) return
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+      const nextMeta = await updateStoredChatIndexEntry(storage, 'group', groupId, chatId, { remove: true }, meta)
+      const folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
+      if (folder) await storage.remove(splitGroupChatKey(folder, chatId)).catch(() => {})
+      splitMetaCache = nextMeta || meta
+    })
+  }
+
+  async function saveGroupEntity(group: any) {
+    const groupId = String(group?.id || '').trim()
+    if (!groupId || !group || typeof group !== 'object') throw new Error('群组无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const groupOrder = stringList((meta as any).groupOrder)
+      if (!groupOrder.includes(groupId)) groupOrder.unshift(groupId)
+
+      const groupFolders = stringMap((meta as any).groupFolders)
+      if (!groupFolders[groupId]) {
+        groupFolders[groupId] = uniqueFolder(groupFolderName(group), new Set(Object.values(groupFolders)), groupId, 'group')
+      }
+      const folder = groupFolders[groupId]
+
+      await writeRequired(storage, splitGroupKey(folder), group)
+      await _syncGroupAvatarFile(folder, group)
+      await writeRequired(storage, splitGroupsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), groupOrder, groupFolders })
+
+      splitMetaCache = { ...meta, groupOrder, groupFolders }
+    })
+  }
+
+  async function removeGroupEntity(groupIdRaw: any) {
+    const groupId = String(groupIdRaw || '').trim()
+    if (!groupId) throw new Error('群组无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const groupOrder = stringList((meta as any).groupOrder).filter((id) => id !== groupId)
+      const groupFolders = stringMap((meta as any).groupFolders)
+      const folder = groupFolders[groupId]
+      if (!folder) throw new Error('群组不存在')
+
+      const chatIndexByGroup = { ...((meta as any).chatIndexByGroup || {}) }
+      const oldIndex = chatIndexByGroup[groupId] || {}
+      delete chatIndexByGroup[groupId]
+      delete groupFolders[groupId]
+
+      await removeRequired(storage, splitGroupKey(folder))
+      await storage.remove(splitGroupChatIndexKey(folder)).catch(() => {})
+      for (const chatId of stringList(oldIndex.chatIds)) await storage.remove(splitGroupChatKey(folder, chatId)).catch(() => {})
+      await writeRequired(storage, splitGroupsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), groupOrder, groupFolders })
+
+      splitMetaCache = { ...meta, groupOrder, groupFolders, chatIndexByGroup }
+    })
+  }
+
+  async function saveRoleEntity(role: any) {
+    const roleId = String(role?.id || '').trim()
+    if (!roleId || !role || typeof role !== 'object') throw new Error('角色无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const roleOrder = stringList(meta.roleOrder)
+      if (!roleOrder.includes(roleId)) roleOrder.unshift(roleId)
+
+      const roleFolders = stringMap(meta.roleFolders)
+      if (!roleFolders[roleId]) {
+        roleFolders[roleId] = uniqueFolder(roleFolderName(role), new Set(Object.values(roleFolders)), roleId, 'role')
+      }
+      const folder = roleFolders[roleId]
+
+      await writeRequired(storage, splitRoleKey(folder), role)
+      await _syncRoleAvatarFile(folder, role)
+      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
+
+      splitMetaCache = { ...meta, roleOrder, roleFolders }
+    })
+  }
+
+  async function removeRoleEntity(roleIdRaw: any) {
+    const roleId = String(roleIdRaw || '').trim()
+    if (!roleId) throw new Error('角色无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const roleOrder = stringList(meta.roleOrder).filter((id) => id !== roleId)
+      const roleFolders = stringMap(meta.roleFolders)
+      const folder = roleFolders[roleId]
+      if (!folder) throw new Error('角色不存在')
+
+      const chatIndexByRole = { ...(meta.chatIndexByRole || {}) }
+      const oldIndex = chatIndexByRole[roleId] || {}
+      delete chatIndexByRole[roleId]
+      delete roleFolders[roleId]
+
+      await removeRequired(storage, splitRoleKey(folder))
+      await storage.remove(splitRoleChatIndexKey(folder)).catch(() => {})
+      for (const chatId of stringList(oldIndex.chatIds)) await storage.remove(splitChatKey(folder, chatId)).catch(() => {})
+      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
+
+      splitMetaCache = { ...meta, roleOrder, roleFolders, chatIndexByRole }
+    })
+  }
+
+  async function saveProviderEntity(provider: any) {
+    const providerId = String(provider?.id || '').trim()
+    if (!providerId || !provider || typeof provider !== 'object') throw new Error('供应商无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const providerOrder = stringList((meta as any).providerOrder)
+      if (!providerOrder.includes(providerId)) providerOrder.unshift(providerId)
+
+      const providerFolders = stringMap((meta as any).providerFolders)
+      if (!providerFolders[providerId]) {
+        providerFolders[providerId] = uniqueFolder(providerFolderName(provider), new Set(Object.values(providerFolders)), providerId, 'provider')
+      }
+
+      await writeRequired(storage, splitProvidersIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), providerOrder, providerFolders })
+      await writeRequired(storage, splitProviderKey(providerFolders[providerId]), provider)
+
+      splitMetaCache = { ...meta, providerOrder, providerFolders }
+    })
+  }
+
+  async function removeProviderEntity(providerIdRaw: any) {
+    const providerId = String(providerIdRaw || '').trim()
+    if (!providerId) throw new Error('供应商无效')
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+
+      const providerOrder = stringList((meta as any).providerOrder).filter((id) => id !== providerId)
+      const providerFolders = stringMap((meta as any).providerFolders)
+      const folder = providerFolders[providerId]
+      if (!folder) throw new Error('供应商不存在')
+      delete providerFolders[providerId]
+
+      await removeRequired(storage, splitProviderKey(folder))
+      await writeRequired(storage, splitProvidersIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), providerOrder, providerFolders })
+
+      splitMetaCache = { ...meta, providerOrder, providerFolders }
+    })
+  }
+
+  async function saveRoleOrder(roleIdsRaw: any) {
+    const roleIds = stringList(roleIdsRaw)
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) throw new Error('存储未初始化')
+      const roleFolders = stringMap(meta.roleFolders)
+      const known = new Set(Object.keys(roleFolders))
+      const filtered = roleIds.filter((id) => known.has(id))
+      const remaining = stringList(meta.roleOrder).filter((id) => !filtered.includes(id) && known.has(id))
+      const roleOrder = filtered.concat(remaining)
+      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
+      splitMetaCache = { ...meta, roleOrder, roleFolders }
+    })
   }
 
   async function loadSplitData() {
@@ -239,9 +361,16 @@ export function createSplitStorage(deps: {
 
     let stickers = null
     try {
-      stickers = await storage.get(STICKERS_KEY)
+      stickers = await loadStickerSettingsFromStorage(storage)
     } catch (_) {
       stickers = null
+    }
+
+    let favorites = null
+    try {
+      favorites = await storage.get(SESSION_FAVORITES_KEY)
+    } catch (_) {
+      favorites = null
     }
 
     const providers = await loadProvidersFromStorage(storage, meta)
@@ -249,7 +378,7 @@ export function createSplitStorage(deps: {
     const d = {
       version: VERSION,
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
-      favorites: normalizeFavorites((meta as any).favorites),
+      favorites: normalizeFavorites(favorites),
       roles: [] as any[],
       chatsByRole: {} as Record<string, any>,
       groups: [] as any[],
@@ -321,427 +450,41 @@ export function createSplitStorage(deps: {
   async function ensureSplitStoreReady() {
     const meta = (await loadSplitMeta()) || splitMetaCache
     if (meta) return
-    await saveSplitData(defaultData())
-  }
-
-  async function saveSplitData(d: any) {
-    if (!d || typeof d !== 'object') return
-    const roles = Array.isArray(d.roles) ? d.roles : []
-    const chatsByRole = d.chatsByRole && typeof d.chatsByRole === 'object' ? d.chatsByRole : {}
-    const groups = Array.isArray((d as any).groups) ? (d as any).groups : []
-    const chatsByGroup = (d as any).chatsByGroup && typeof (d as any).chatsByGroup === 'object' ? (d as any).chatsByGroup : {}
-
-    const old = splitMetaCache || (await loadSplitMeta())
-    const oldRoleFolders = old?.roleFolders && typeof old.roleFolders === 'object' ? old.roleFolders : {}
-    const oldChatIndexByRole = old?.chatIndexByRole && typeof old.chatIndexByRole === 'object' ? old.chatIndexByRole : {}
-    const oldGroupFolders = (old as any)?.groupFolders && typeof (old as any).groupFolders === 'object' ? (old as any).groupFolders : {}
-    const oldChatIndexByGroup =
-      (old as any)?.chatIndexByGroup && typeof (old as any).chatIndexByGroup === 'object' ? (old as any).chatIndexByGroup : {}
-    const oldProviderFolders = (old as any)?.providerFolders && typeof (old as any).providerFolders === 'object' ? (old as any).providerFolders : {}
-
-    const roleOrder = roles.map((r: any) => String(r?.id || '')).filter((x: any) => !!x)
-    const roleFolders: Record<string, string> = {}
-    const chatIndexByRole: Record<string, any> = {}
-
-    const groupOrder = groups.map((g: any) => String(g?.id || '')).filter((x: any) => !!x)
-    const groupFolders: Record<string, string> = {}
-    const chatIndexByGroup: Record<string, any> = {}
-    const providers = d.settings && typeof d.settings === 'object' && Array.isArray((d.settings as any).providers) ? (d.settings as any).providers : []
-    const providerOrder = providers.map((p: any) => String(p?.id || '')).filter((x: any) => !!x)
-    const providerFolders: Record<string, string> = {}
-
-    const usedFolders = new Set<string>()
-    for (const r of roles) {
-      const rid = String(r?.id || '')
-      if (!rid) continue
-      const base = roleFolderName(r)
-      let folder = String((oldRoleFolders as any)?.[rid] || '').trim() || base
-      if (usedFolders.has(folder)) {
-        const tail = rid.slice(Math.max(0, rid.length - 8)) || uid('r')
-        folder = `${base}__${tail}`
-      }
-      usedFolders.add(folder)
-      roleFolders[rid] = folder
-    }
-
-    const usedGroupFolders = new Set<string>()
-    for (const g of groups) {
-      const gid = String((g as any)?.id || '')
-      if (!gid) continue
-      const base = groupFolderName(g)
-      let folder = String((oldGroupFolders as any)?.[gid] || '').trim() || base
-      if (usedGroupFolders.has(folder)) {
-        const tail = gid.slice(Math.max(0, gid.length - 8)) || uid('g')
-        folder = `${base}__${tail}`
-      }
-      usedGroupFolders.add(folder)
-      ;(groupFolders as any)[gid] = folder
-    }
-
-    const usedProviderFolders = new Set<string>()
-    for (const p of providers) {
-      const pid = String(p?.id || '')
-      if (!pid) continue
-      const base = providerFolderName(p)
-      let folder = String((oldProviderFolders as any)?.[pid] || '').trim() || base
-      if (usedProviderFolders.has(folder)) {
-        const tail = pid.slice(Math.max(0, pid.length - 8)) || uid('p')
-        folder = `${base}__${tail}`
-      }
-      usedProviderFolders.add(folder)
-      providerFolders[pid] = folder
-    }
-
-    for (const r of roles) {
-      const rid = String(r?.id || '')
-      if (!rid) continue
-      const folder = String(roleFolders[rid] || '')
-      const box0 = chatsByRole[rid] && typeof chatsByRole[rid] === 'object' ? chatsByRole[rid] : { activeChatId: '', chats: [] }
-      const activeChatId = String(box0.activeChatId || '')
-      const chats = Array.isArray(box0.chats) ? box0.chats : []
-      let chatMetas = chatMetasFromBox(box0, '新聊天')
-      for (const c of chats) {
-        const cid = String(c?.id || '')
-        if (!cid) continue
-        chatMetas = upsertChatMeta(chatMetas, chatMetaFromChat(c, '新聊天'), '新聊天')
-      }
-      const chatIds = chatMetaIds(chatMetas)
-      const chatUpdatedAt: Record<string, number> = chatMetaUpdatedAtMap(chatMetas)
-      chatIndexByRole[rid] = { activeChatId, chatIds, chatUpdatedAt, chatMetas }
-
-      try {
-        await storage.set(splitRoleKey(folder), r)
-      } catch (_) {}
-
-      await _syncRoleAvatarFile(folder, r)
-
-      const oldFolder = String(oldRoleFolders?.[rid] || '')
-      const oldIdx = oldChatIndexByRole?.[rid]
-      const oldUpdated = oldIdx && typeof oldIdx === 'object' && oldIdx.chatUpdatedAt && typeof oldIdx.chatUpdatedAt === 'object' ? oldIdx.chatUpdatedAt : {}
-
-      for (const c of chats) {
-        const cid = String(c?.id || '')
-        if (!cid) continue
-        const newKey = splitChatKey(folder, cid)
-        const oldKey = oldFolder ? splitChatKey(oldFolder, cid) : ''
-        const updatedAt = Number(c?.updatedAt || 0)
-        const prev = Number(oldUpdated?.[cid] || 0)
-        const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
-        if (!needWrite) continue
-        try {
-          await withChatWriteLock('role', rid, cid, async () => {
-            const raw0 = await storage.get(newKey)
-            const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
-            const merged = mergeChatForConcurrentWrite(c, stored)
-            await storage.set(newKey, merged)
-          })
-        } catch (_) {}
-        if (oldKey && oldKey !== newKey) {
-          try {
-            await storage.remove(oldKey)
-          } catch (_) {}
-        }
-      }
-    }
-
-    for (const g of groups) {
-      const gid = String((g as any)?.id || '')
-      if (!gid) continue
-      const folder = String((groupFolders as any)[gid] || '')
-      const box0 = (chatsByGroup as any)[gid] && typeof (chatsByGroup as any)[gid] === 'object' ? (chatsByGroup as any)[gid] : { activeChatId: '', chats: [] }
-      const activeChatId = String((box0 as any).activeChatId || '')
-      const chats = Array.isArray((box0 as any).chats) ? (box0 as any).chats : []
-      let chatMetas = chatMetasFromBox(box0, '群聊')
-      for (const c of chats) {
-        const cid = String(c?.id || '')
-        if (!cid) continue
-        chatMetas = upsertChatMeta(chatMetas, chatMetaFromChat(c, '群聊'), '群聊')
-      }
-      const chatIds = chatMetaIds(chatMetas)
-      const chatUpdatedAt: any = chatMetaUpdatedAtMap(chatMetas)
-      ;(chatIndexByGroup as any)[gid] = { activeChatId, chatIds, chatUpdatedAt, chatMetas }
-
-      try {
-        await storage.set(splitGroupKey(folder), g)
-      } catch (_) {}
-
-      await _syncGroupAvatarFile(folder, g)
-
-      const oldFolder = String((oldGroupFolders as any)?.[gid] || '')
-      const oldIdx = (oldChatIndexByGroup as any)?.[gid]
-      const oldUpdated =
-        oldIdx && typeof oldIdx === 'object' && (oldIdx as any).chatUpdatedAt && typeof (oldIdx as any).chatUpdatedAt === 'object'
-          ? (oldIdx as any).chatUpdatedAt
-          : {}
-
-      for (const c of chats) {
-        const cid = String(c?.id || '')
-        if (!cid) continue
-        const newKey = splitGroupChatKey(folder, cid)
-        const oldKey = oldFolder ? splitGroupChatKey(oldFolder, cid) : ''
-        const updatedAt = Number(c?.updatedAt || 0)
-        const prev = Number((oldUpdated as any)?.[cid] || 0)
-        const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
-        if (!needWrite) continue
-        try {
-          await withChatWriteLock('group', gid, cid, async () => {
-            const raw0 = await storage.get(newKey)
-            const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
-            const merged = mergeChatForConcurrentWrite(c, stored)
-            await storage.set(newKey, merged)
-          })
-        } catch (_) {}
-        if (oldKey && oldKey !== newKey) {
-          try {
-            await storage.remove(oldKey)
-          } catch (_) {}
-        }
-      }
-    }
-
-    const settingsMeta = d.settings && typeof d.settings === 'object' ? { ...(d.settings as any) } : {}
-    try {
-      delete (settingsMeta as any).stickers
-      delete (settingsMeta as any).providers
-    } catch (_) {}
-
-    try {
-      const stickers = d.settings && typeof d.settings === 'object' ? (d.settings as any).stickers : null
-      await storage.set(STICKERS_KEY, stickers && typeof stickers === 'object' ? stickers : {})
-    } catch (_) {}
-
-    try {
-      await storage.set(splitChatsIndexKey(), {
-        schemaVersion: SPLIT_SCHEMA_VERSION,
-        updatedAt: now(),
-        roleOrder,
-        roleFolders,
-      })
-    } catch (_) {}
-
-    for (const rid of roleOrder) {
-      const folder = String(roleFolders[rid] || '')
-      if (!folder) continue
-      const idx = chatIndexByRole[rid]
-      try {
-        await storage.set(splitRoleChatIndexKey(folder), {
-          schemaVersion: SPLIT_SCHEMA_VERSION,
-          roleId: rid,
-          roleFolder: folder,
-          activeChatId: String(idx?.activeChatId || ''),
-          chatIds: Array.isArray(idx?.chatIds) ? idx.chatIds : [],
-          chatUpdatedAt: idx?.chatUpdatedAt && typeof idx.chatUpdatedAt === 'object' ? idx.chatUpdatedAt : {},
-          chatMetas: chatMetasFromBox(idx, '新聊天'),
-          updatedAt: now(),
-        })
-      } catch (_) {}
-    }
-
-    try {
-      await storage.set(splitGroupsIndexKey(), {
-        schemaVersion: SPLIT_SCHEMA_VERSION,
-        updatedAt: now(),
-        groupOrder,
-        groupFolders,
-      })
-    } catch (_) {}
-
-    for (const gid of groupOrder) {
-      const folder = String((groupFolders as any)[gid] || '')
-      if (!folder) continue
-      const idx = (chatIndexByGroup as any)[gid]
-      try {
-        await storage.set(splitGroupChatIndexKey(folder), {
-          schemaVersion: SPLIT_SCHEMA_VERSION,
-          groupId: gid,
-          groupFolder: folder,
-          activeChatId: String((idx as any)?.activeChatId || ''),
-          chatIds: Array.isArray((idx as any)?.chatIds) ? (idx as any).chatIds : [],
-          chatUpdatedAt: (idx as any)?.chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {},
-          chatMetas: chatMetasFromBox(idx, '群聊'),
-          updatedAt: now(),
-        })
-      } catch (_) {}
-    }
-
-    try {
-      await storage.set(splitProvidersIndexKey(), {
-        schemaVersion: SPLIT_SCHEMA_VERSION,
-        updatedAt: now(),
-        providerOrder,
-        providerFolders,
-      })
-    } catch (_) {}
-
-    for (const p of providers) {
-      const pid = String(p?.id || '')
-      if (!pid) continue
-      const folder = String(providerFolders[pid] || '')
-      if (!folder) continue
-      try {
-        await storage.set(splitProviderKey(folder), p)
-      } catch (_) {}
-    }
-
-    const meta = {
+    const updatedAt = now()
+    await initializeStickerSettingsStorage(storage)
+    await storage.set(SESSION_FAVORITES_KEY, { folders: [], chatRefsByFolderId: {} })
+    await writeRequired(storage, splitChatsIndexKey(), {
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      updatedAt,
+      roleOrder: [],
+      roleFolders: {},
+    })
+    await writeRequired(storage, splitGroupsIndexKey(), {
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      updatedAt,
+      groupOrder: [],
+      groupFolders: {},
+    })
+    await writeRequired(storage, splitProvidersIndexKey(), {
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      updatedAt,
+      providerOrder: [],
+      providerFolders: {},
+    })
+    await writeRequired(storage, SPLIT_META_KEY, {
       schemaVersion: SPLIT_SCHEMA_VERSION,
       dataVersion: VERSION,
-      updatedAt: now(),
-      ui: d.ui && typeof d.ui === 'object' ? d.ui : {},
-      settings: settingsMeta,
-      favorites: normalizeFavorites((d as any).favorites),
-    }
-
-    try {
-      await storage.set(SPLIT_META_KEY, meta)
-      splitMetaCache = {
-        ...meta,
-        roleOrder,
-        roleFolders,
-        chatIndexByRole,
-        groupOrder,
-        groupFolders,
-        chatIndexByGroup,
-        providerOrder,
-        providerFolders,
-      }
-    } catch (_) {}
-
-    if (old) {
-      const newRoleSet = new Set(roleOrder)
-      const newChatSetByRole: Record<string, Set<string>> = {}
-      for (const rid of roleOrder) {
-        const idx = chatIndexByRole?.[rid]
-        const ids = Array.isArray(idx?.chatIds) ? idx.chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
-        newChatSetByRole[rid] = new Set(ids)
-      }
-
-      const oldRoles = Array.isArray(old.roleOrder) ? old.roleOrder : []
-      for (const rid0 of oldRoles) {
-        const rid = String(rid0 || '')
-        if (!rid) continue
-        const oldFolder = String(oldRoleFolders?.[rid] || '')
-        if (!oldFolder) continue
-
-        if (!newRoleSet.has(rid)) {
-          try {
-            await storage.remove(splitRoleKey(oldFolder))
-          } catch (_) {}
-          const oldIdx = oldChatIndexByRole?.[rid]
-          const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
-          for (const cid0 of oldChatIds) {
-            const cid = String(cid0 || '')
-            if (!cid) continue
-            try {
-              await storage.remove(splitChatKey(oldFolder, cid))
-            } catch (_) {}
-          }
-          continue
-        }
-
-        const newFolder = String(roleFolders?.[rid] || '')
-        if (newFolder && newFolder !== oldFolder) {
-          try {
-            await storage.remove(splitRoleKey(oldFolder))
-          } catch (_) {}
-          const oldIdx = oldChatIndexByRole?.[rid]
-          const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
-          for (const cid0 of oldChatIds) {
-            const cid = String(cid0 || '')
-            if (!cid) continue
-            try {
-              await storage.remove(splitChatKey(oldFolder, cid))
-            } catch (_) {}
-          }
-          continue
-        }
-
-        const keep = newChatSetByRole[rid]
-        const oldIdx = oldChatIndexByRole?.[rid]
-        const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
-        for (const cid0 of oldChatIds) {
-          const cid = String(cid0 || '')
-          if (!cid) continue
-          if (keep && keep.has(cid)) continue
-          try {
-            await storage.remove(splitChatKey(oldFolder, cid))
-          } catch (_) {}
-        }
-      }
-
-      const newGroupSet = new Set(groupOrder)
-      const newChatSetByGroup: any = {}
-      for (const gid of groupOrder) {
-        const idx = (chatIndexByGroup as any)?.[gid]
-        const ids = Array.isArray((idx as any)?.chatIds) ? (idx as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
-        newChatSetByGroup[gid] = new Set(ids)
-      }
-
-      const oldGroups = Array.isArray((old as any).groupOrder) ? (old as any).groupOrder : []
-      for (const gid0 of oldGroups) {
-        const gid = String(gid0 || '')
-        if (!gid) continue
-        const oldFolder = String((oldGroupFolders as any)?.[gid] || '')
-        if (!oldFolder) continue
-
-        if (!newGroupSet.has(gid)) {
-          try {
-            await storage.remove(splitGroupKey(oldFolder))
-          } catch (_) {}
-          const oldIdx = (oldChatIndexByGroup as any)?.[gid]
-          const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
-          for (const cid0 of oldChatIds) {
-            const cid = String(cid0 || '')
-            if (!cid) continue
-            try {
-              await storage.remove(splitGroupChatKey(oldFolder, cid))
-            } catch (_) {}
-          }
-          continue
-        }
-
-        const newFolder = String((groupFolders as any)?.[gid] || '')
-        if (newFolder && newFolder !== oldFolder) {
-          try {
-            await storage.remove(splitGroupKey(oldFolder))
-          } catch (_) {}
-          const oldIdx = (oldChatIndexByGroup as any)?.[gid]
-          const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
-          for (const cid0 of oldChatIds) {
-            const cid = String(cid0 || '')
-            if (!cid) continue
-            try {
-              await storage.remove(splitGroupChatKey(oldFolder, cid))
-            } catch (_) {}
-          }
-          continue
-        }
-
-        const keep = newChatSetByGroup[gid]
-        const oldIdx = (oldChatIndexByGroup as any)?.[gid]
-        const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
-        for (const cid0 of oldChatIds) {
-          const cid = String(cid0 || '')
-          if (!cid) continue
-          if (keep && keep.has(cid)) continue
-          try {
-            await storage.remove(splitGroupChatKey(oldFolder, cid))
-          } catch (_) {}
-        }
-      }
-
-      const newProviderSet = new Set(providerOrder)
-      const oldProviders = Array.isArray((old as any).providerOrder) ? (old as any).providerOrder : []
-      for (const pid0 of oldProviders) {
-        const pid = String(pid0 || '')
-        if (!pid || newProviderSet.has(pid)) continue
-        const oldFolder = String((oldProviderFolders as any)?.[pid] || '')
-        if (!oldFolder) continue
-        try {
-          await storage.remove(splitProviderKey(oldFolder))
-        } catch (_) {}
-      }
-    }
+      updatedAt,
+      ui: {},
+      settings: {},
+      roleOrder: [],
+      roleFolders: {},
+      chatIndexByRole: {},
+      groupOrder: [],
+      groupFolders: {},
+      chatIndexByGroup: {},
+    })
+    splitMetaCache = await loadSplitMetaSnapshot(storage)
   }
 
   async function saveMetaOnly() {
@@ -750,7 +493,9 @@ export function createSplitStorage(deps: {
 
     state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
     ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
-    ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
+    ;(state.data.ui as any).activeWorkspaceId = String((state.draft as any)?.activeWorkspaceId || '')
+    const targetKind = String(state.draft?.activeTargetKind || '').trim()
+    ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
 
     const old = splitMetaCache || (await loadSplitMeta())
     if (!old) throw new Error('存储未初始化')
@@ -767,11 +512,23 @@ export function createSplitStorage(deps: {
       updatedAt: now(),
       ui: state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {},
       settings: settingsMeta,
-      favorites: normalizeFavorites((state.data as any).favorites),
     }
 
     await storage.set(SPLIT_META_KEY, meta)
     splitMetaCache = { ...old, ...meta }
+  }
+
+  async function saveFavoritesOnly() {
+    const state = getState?.()
+    if (!state?.data) return
+    const favorites = normalizeFavorites((state.data as any).favorites)
+    const run = () => storage.set(SESSION_FAVORITES_KEY, favorites)
+    const next = sessionFavoritesWriteChain.then(run, run)
+    sessionFavoritesWriteChain = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    await next
   }
 
   async function load() {
@@ -784,13 +541,16 @@ export function createSplitStorage(deps: {
       if (state) {
         state.draft.activeRoleId = String(split?.ui?.activeRoleId || '')
         state.draft.activeGroupId = String((split?.ui as any)?.activeGroupId || '')
-        state.draft.activeTargetKind = String((split?.ui as any)?.activeTargetKind || 'role') === 'group' ? 'group' : 'role'
+        ;(state.draft as any).activeWorkspaceId = String((split?.ui as any)?.activeWorkspaceId || '')
+        const targetKind = String((split?.ui as any)?.activeTargetKind || 'role').trim()
+        state.draft.activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
       }
     } catch (e: any) {
       setState?.(null)
       if (state) {
         state.draft.activeRoleId = ''
         state.draft.activeGroupId = ''
+        ;(state.draft as any).activeWorkspaceId = ''
         state.draft.activeTargetKind = 'role'
       }
       onError?.(String(e?.message || e || '加载失败'))
@@ -804,7 +564,9 @@ export function createSplitStorage(deps: {
     if (!state?.data) return
     state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
     ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
-    ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
+    ;(state.data.ui as any).activeWorkspaceId = String((state.draft as any)?.activeWorkspaceId || '')
+    const targetKind = String(state.draft?.activeTargetKind || '').trim()
+    ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
     await saveMetaOnly()
   }
 
@@ -814,15 +576,21 @@ export function createSplitStorage(deps: {
     touchChatUpdatedAt,
     loadSplitData,
     ensureSplitStoreReady,
-    saveSplitData,
-    saveRoleChat,
-    saveGroupChat,
-    renameRoleChat,
-    renameGroupChat,
+    saveRoleEntity,
+    removeRoleEntity,
+    saveGroupEntity,
+    removeGroupEntity,
+    saveProviderEntity,
+    removeProviderEntity,
+    setActiveRoleChatSelection,
+    removeRoleChatEntry,
+    setActiveGroupChatSelection,
+    removeGroupChatEntry,
+    saveRoleOrder,
     touchGroupChatUpdatedAt,
     saveMetaOnly,
+    saveFavoritesOnly,
     load,
     save,
-    writeChatUpdatedNotice,
   }
 }

@@ -188,7 +188,6 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
     setOffset(clampOffset(next, stageSize, imgSize, safeFit, nz))
     setZoom(nz)
     zoomRef.current = nz
-    controller.actions.imageSetScale(nz)
   })
 
   React.useLayoutEffect(() => {

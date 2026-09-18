@@ -1,7 +1,7 @@
-import { now, uid } from '../core/utils'
-import { createDefaultChatBranching } from '../domain/branching'
-import { chatMetaFromChat, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
+import { chatMetasFromBox } from '../domain/chatMeta'
 import { normalizeChatModelOverride } from '../domain/modelRefUtils'
+import { normalizeRoleToolPolicy } from '../domain/toolPolicy'
+import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 
 function ensureBoxShape(box: any, fallbackTitle: string) {
   if (!box || typeof box !== 'object') return { activeChatId: '', chatMetas: [], chats: [] }
@@ -58,10 +58,21 @@ export function createStateAccessors(deps: {
     return groups.find((g: any) => String(g?.id || '') === gid) || null
   }
 
+  function getWorkspaceById(workspaceId: any) {
+    const wid = String(workspaceId || '').trim()
+    if (!wid) return null
+    const s = getState()
+    const workspaces = (s.data as any)?.workspaces
+    if (!Array.isArray(workspaces)) return null
+    return workspaces.find((workspace: any) => String(workspace?.id || '') === wid) || null
+  }
+
   function activeTargetKind() {
     const s = getState()
     const k = String(s.draft?.activeTargetKind || s.data?.ui?.activeTargetKind || 'role').trim()
-    return k === 'group' ? 'group' : 'role'
+    if (k === 'group') return 'group'
+    if (k === 'workspace') return 'workspace'
+    return 'role'
   }
 
   function activeRole() {
@@ -76,6 +87,22 @@ export function createStateAccessors(deps: {
     return getGroupById(gid)
   }
 
+  function activeWorkspace() {
+    const s = getState()
+    const wid = String((s.draft as any)?.activeWorkspaceId || (s.data?.ui as any)?.activeWorkspaceId || '')
+    return getWorkspaceById(wid)
+  }
+
+  function activeWorkspaceRoleId() {
+    const s = getState()
+    return String(s.draft?.activeRoleId || s.data?.ui?.activeRoleId || '').trim()
+  }
+
+  function activeWorkspaceTargetId() {
+    const workspace = activeWorkspace()
+    return workspaceRoleTargetId((workspace as any)?.id, activeWorkspaceRoleId())
+  }
+
   function activeChatFromData() {
     const s = getState()
     if (!s.data) return null
@@ -84,6 +111,16 @@ export function createStateAccessors(deps: {
       const g = activeGroup()
       if (!g) return null
       const box = s.data.chatsByGroup?.[String(g.id)]
+      if (!box) return null
+      const activeChatId = String(box.activeChatId || '')
+      const chats = Array.isArray(box.chats) ? box.chats : []
+      return chats.find((c: any) => String(c?.id) === activeChatId) || null
+    }
+
+    if (kind === 'workspace') {
+      const targetId = activeWorkspaceTargetId()
+      if (!targetId) return null
+      const box = (s.data as any).chatsByWorkspace?.[targetId]
       if (!box) return null
       const activeChatId = String(box.activeChatId || '')
       const chats = Array.isArray(box.chats) ? box.chats : []
@@ -110,6 +147,15 @@ export function createStateAccessors(deps: {
       return activeChatFromData()
     }
 
+    if (kind === 'workspace') {
+      const workspace = activeWorkspace()
+      const wid = String((workspace as any)?.id || '')
+      const rid = activeWorkspaceRoleId()
+      const pending = (s as any).pendingWorkspaceChat
+      if (pending && String(pending.workspaceId || '') === wid && String(pending.roleId || '') === rid && pending.chat) return pending.chat
+      return activeChatFromData()
+    }
+
     const role = activeRole()
     const rid = String(role?.id || '')
     const pending = s.pendingChat
@@ -127,13 +173,22 @@ export function createStateAccessors(deps: {
     s.pendingGroupChat = null
   }
 
+  function clearPendingWorkspaceChat() {
+    const s = getState()
+    ;(s as any).pendingWorkspaceChat = null
+  }
+
   function ensureRoleDefaults(role: any) {
     const s = getState()
     if (!s.data) return
     const fallbackPid = String(s.data.settings.providers?.[0]?.id || '')
     if (!role.modelRef || typeof role.modelRef !== 'object') role.modelRef = { providerId: fallbackPid, modelId: '' }
-    if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
+    if (typeof role.modelRef.kind !== 'string') role.modelRef.kind = String(role.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
+    if (typeof role.modelRef.groupId !== 'string') role.modelRef.groupId = ''
+    if (String(role.modelRef.kind || '').trim() === 'model_group') role.modelRef.providerId = ''
+    else if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
     if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
+    role.toolPolicy = normalizeRoleToolPolicy(role.toolPolicy)
   }
 
   function ensureGroupsList() {
@@ -156,46 +211,30 @@ export function createStateAccessors(deps: {
     return box
   }
 
-  function ensureGroupChatsBox(groupId: any) {
+  function ensureWorkspaceChatsBoxBare(workspaceId: any, roleId?: any) {
     const s = getState()
     if (!s.data) return null
-    ensureGroupsList()
-    const gid = String(groupId || '').trim()
-    if (!gid) return null
-    if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chatMetas: [], chats: [] }
-    const box = ensureBoxShape(s.data.chatsByGroup[gid], '群聊')
-    box.activeChatId = String(box.activeChatId || '')
-    if (!box.chats.length && !box.chatMetas.length) {
-      const cid = uid('gc')
-      const t = now()
-      const chat = { id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
-      box.chats = [chat]
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
-      box.activeChatId = cid
-    }
-    if (!box.activeChatId || !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = firstChatIdInBox(box)
+    const wid = String(workspaceId || '').trim()
+    const rid = String(roleId || activeWorkspaceRoleId()).trim()
+    const targetId = workspaceRoleTargetId(wid, rid)
+    if (!wid || !rid || !targetId) return null
+    if (!(s.data as any).chatsByWorkspace || typeof (s.data as any).chatsByWorkspace !== 'object') (s.data as any).chatsByWorkspace = {}
+    if (!(s.data as any).chatsByWorkspace[targetId] || typeof (s.data as any).chatsByWorkspace[targetId] !== 'object') (s.data as any).chatsByWorkspace[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
+    const box = ensureBoxShape((s.data as any).chatsByWorkspace[targetId], '工作区会话')
+    box.workspaceId = wid
+    box.roleId = rid
+    box.targetId = targetId
+    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
+    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
     return box
   }
 
+  function ensureGroupChatsBox(groupId: any) {
+    return ensureGroupChatsBoxBare(groupId)
+  }
+
   function ensureChatsBox(roleId: any) {
-    const s = getState()
-    if (!s.data) return null
-    const rid = String(roleId || '')
-    if (!rid) return null
-    if (!s.data.chatsByRole || typeof s.data.chatsByRole !== 'object') s.data.chatsByRole = {}
-    if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chatMetas: [], chats: [] }
-    const box = ensureBoxShape(s.data.chatsByRole[rid], '新聊天')
-    box.activeChatId = String(box.activeChatId || '')
-    if (!box.chats.length && !box.chatMetas.length) {
-      const cid = uid('c')
-      const t = now()
-      const chat = { id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
-      box.chats = [chat]
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
-      box.activeChatId = cid
-    }
-    if (!box.activeChatId || !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = firstChatIdInBox(box)
-    return box
+    return ensureChatsBoxBare(roleId)
   }
 
   function ensureChatsBoxBare(roleId: any) {
@@ -209,32 +248,6 @@ export function createStateAccessors(deps: {
     if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
     if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
     return box
-  }
-
-  function createChatForRole(roleId: any) {
-    const rid = String(roleId || '')
-    const box = ensureChatsBoxBare(rid)
-    if (!box) return null
-    const cid = uid('c')
-    const t = now()
-    const chat = { id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
-    box.chats.unshift(chat)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
-    box.activeChatId = cid
-    return chat
-  }
-
-  function createChatForGroup(groupId: any) {
-    const gid = String(groupId || '').trim()
-    const box = ensureGroupChatsBox(gid)
-    if (!box) return null
-    const cid = uid('gc')
-    const t = now()
-    const chat = { id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
-    box.chats.unshift(chat)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
-    box.activeChatId = cid
-    return chat
   }
 
   function findChatByIds(roleId: any, chatId: any) {
@@ -259,14 +272,30 @@ export function createStateAccessors(deps: {
     return chats.find((c: any) => String(c?.id || '') === cid) || null
   }
 
+  function findWorkspaceChatByIds(workspaceId: any, chatId: any, roleId?: any) {
+    const s = getState()
+    if (!s.data) return null
+    const wid = String(workspaceId || '')
+    const rid = String(roleId || activeWorkspaceRoleId()).trim()
+    const cid = String(chatId || '')
+    const targetId = workspaceRoleTargetId(wid, rid)
+    if (!targetId || !cid) return null
+    const box = (s.data as any).chatsByWorkspace?.[targetId]
+    const chats = Array.isArray(box?.chats) ? box.chats : []
+    return chats.find((c: any) => String(c?.id || '') === cid) || null
+  }
+
   function pickChatModelRef(role: any, chat: any) {
     const override = normalizeChatModelOverride(chat)
     if (override) {
+      if (override.kind === 'model_group') return { kind: 'model_group', groupId: override.groupId, providerId: '', modelId: override.modelId, overridden: true }
       const provider = getProvider(override.providerId)
-      if (provider) return { providerId: override.providerId, modelId: override.modelId, overridden: true }
+      if (provider) return { kind: 'provider', groupId: '', providerId: override.providerId, modelId: override.modelId, overridden: true }
     }
 
     return {
+      kind: String(role?.modelRef?.kind || '').trim() === 'model_group' || String(role?.modelRef?.groupId || '').trim() ? 'model_group' : 'provider',
+      groupId: String(role?.modelRef?.groupId || '').trim(),
       providerId: String(role?.modelRef?.providerId || '').trim(),
       modelId: String(role?.modelRef?.modelId || '').trim(),
       overridden: false,
@@ -277,23 +306,26 @@ export function createStateAccessors(deps: {
     getProvider,
     getRoleById,
     getGroupById,
+    getWorkspaceById,
     activeTargetKind,
     activeRole,
     activeGroup,
+    activeWorkspace,
     activeChatFromData,
     activeChat,
     clearPendingChat,
     clearPendingGroupChat,
+    clearPendingWorkspaceChat,
     ensureRoleDefaults,
     ensureGroupsList,
     ensureGroupChatsBoxBare,
     ensureGroupChatsBox,
+    ensureWorkspaceChatsBoxBare,
     ensureChatsBox,
     ensureChatsBoxBare,
-    createChatForRole,
-    createChatForGroup,
     findChatByIds,
     findGroupChatByIds,
+    findWorkspaceChatByIds,
     pickChatModelRef,
   }
 }

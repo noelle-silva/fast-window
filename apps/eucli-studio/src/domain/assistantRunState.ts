@@ -24,6 +24,10 @@ export type AssistantRunSignal = {
   expiresAt?: number
 }
 
+export type AssistantMessageMergeOptions = {
+  storedChatStatus?: unknown
+}
+
 function normalizeRunStatus(value: unknown): AssistantRunStatus {
   const s = String(value || '').trim()
   if (s === 'queued' || s === 'running' || s === 'succeeded' || s === 'failed' || s === 'canceled') return s
@@ -39,6 +43,36 @@ function normalizeRunMode(value: unknown): AssistantRunMode {
 function finiteTime(value: unknown, fallback: number) {
   const n = Number(value)
   return isFinite(n) && n > 0 ? n : fallback
+}
+
+function isTerminalStoredChatStatus(value: unknown) {
+  const status = String(value || '').trim().toLowerCase()
+  return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'canceled'
+}
+
+function isTerminalToolPartState(value: unknown) {
+  const state = String(value || '').trim().toLowerCase()
+  return state === 'completed' || state === 'denied' || state === 'cancelled' || state === 'canceled' || state === 'error' || state === 'failed'
+}
+
+export function hasSettledAssistantToolParts(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  const parts = Array.isArray(m?.parts) ? m.parts.filter((part: any) => String(part?.type || '') === 'tool') : []
+  if (!parts.length) return false
+  let hasSettledPart = false
+  for (const part of parts) {
+    const settled = isTerminalToolPartState(part?.state) || !!(part?.result && typeof part.result === 'object')
+    if (!settled) return false
+    hasSettledPart = true
+  }
+  return hasSettledPart
+}
+
+function storedMessageSettlesActiveRun(stored: any, options?: AssistantMessageMergeOptions) {
+  if (isTerminalStoredChatStatus(options?.storedChatStatus)) return true
+  if (stored?.error && typeof stored.error === 'object') return true
+  return hasSettledAssistantToolParts(stored)
 }
 
 export function normalizeAssistantRunState(raw: unknown): AssistantRunState | null {
@@ -74,6 +108,47 @@ export function isAssistantGenerating(message: unknown) {
   const run = normalizeAssistantRunState(m.assistantRun)
   if (run) return isAssistantRunActive(run)
   return m.pending === true
+}
+
+export function isAssistantRunInterrupted(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  const run = normalizeAssistantRunState(m.assistantRun)
+  if (run && (run.status === 'failed' || run.status === 'canceled')) return true
+  return !!(m.error && typeof m.error === 'object')
+}
+
+export function hasAssistantVisibleOutput(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  const content = String(m.content ?? '').trim()
+  if (content && content !== ASSISTANT_RUNNING_CONTENT) return true
+  const parts = Array.isArray(m.parts) ? m.parts : []
+  return parts.some((part: any) => {
+    if (!part || typeof part !== 'object') return false
+    const type = String(part.type || '').trim()
+    if (type === 'text') return !!String(part.text || '').trim()
+    if (type === 'reasoning') return !!String(part.text || '').trim()
+    return type === 'tool'
+  })
+}
+
+function hasAssistantPrimaryOutput(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  const content = String(m.content ?? '').trim()
+  if (content && content !== ASSISTANT_RUNNING_CONTENT) return true
+  const parts = Array.isArray(m.parts) ? m.parts : []
+  return parts.some((part: any) => {
+    if (!part || typeof part !== 'object') return false
+    const type = String(part.type || '').trim()
+    if (type === 'text') return !!String(part.text || '').trim()
+    return type === 'tool'
+  })
+}
+
+export function isAssistantAwaitingFirstOutput(message: unknown) {
+  return isAssistantGenerating(message) && !hasAssistantPrimaryOutput(message)
 }
 
 export function assistantRunGenerationId(message: unknown) {
@@ -178,7 +253,7 @@ export function finishAssistantRun(message: any, content: unknown, status: Assis
   return changed
 }
 
-export function resolveAssistantMessageForMerge(localMessage: any, storedMessage: any) {
+export function resolveAssistantMessageForMerge(localMessage: any, storedMessage: any, options?: AssistantMessageMergeOptions) {
   const local = localMessage && typeof localMessage === 'object' ? localMessage : null
   const stored = storedMessage && typeof storedMessage === 'object' ? storedMessage : null
   if (!local || !stored) return localMessage
@@ -200,7 +275,9 @@ export function resolveAssistantMessageForMerge(localMessage: any, storedMessage
   }
 
   if (localActive && !storedActive) {
-    return localRun ? local : stored
+    if (!localRun) return stored
+    if (storedMessageSettlesActiveRun(stored, options)) return stored
+    return local
   }
   if (!localActive && storedActive) return local
 

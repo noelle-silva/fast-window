@@ -1,19 +1,47 @@
 import { now } from '../core/utils'
 import { chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
-import { splitGroupChatIndexKey } from '../domain/storageKeys'
+import { isStoredChatNewerThanCurrent, mergeChatFromStorage } from '../domain/chatStorageSync'
+import { splitGroupChatIndexKey, splitGroupChatKey } from '../domain/storageKeys'
+import { normalizeStoredChat } from './normalizeStoredChat'
 
 export function createGroupChatSync(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void> }
   getState: () => any
-  setState: (data: any) => void
   loadSplitMeta: () => Promise<any>
   getSplitMetaCache: () => any
   withSplitMetaWrite: <T>(fn: () => Promise<T>) => Promise<T>
+  hasActiveGroupRunInSession: (groupId: string, chatId: string) => boolean
 }) {
-  const { storage, getState, setState, loadSplitMeta, getSplitMetaCache, withSplitMetaWrite } = deps
+  const { storage, getState, loadSplitMeta, getSplitMetaCache, withSplitMetaWrite, hasActiveGroupRunInSession } = deps
 
   let uiLastMetaUpdatedAt = 0
   let uiChatSyncing = false
+
+  async function loadGroupFolderMeta(groupId: string) {
+    if (!groupId) return null
+    let meta = getSplitMetaCache()
+    let folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
+    if (meta && folder) return { meta, folder }
+
+    meta = await loadSplitMeta()
+    folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
+    return meta && folder ? { meta, folder } : null
+  }
+
+  async function loadGroupIndexMeta(groupId: string) {
+    const target = await loadGroupFolderMeta(groupId)
+    const meta = target?.meta
+    const folder = String(target?.folder || '').trim()
+    if (!meta || !folder) return null
+    const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
+    if (!idx || typeof idx !== 'object') return { meta, folder, updatedAt: Number((meta as any)?.updatedAt || 0) }
+    const updatedAt = Math.max(Number((meta as any)?.updatedAt || 0), Number((idx as any)?.updatedAt || 0))
+    return {
+      meta: { ...(meta as any), updatedAt, chatIndexByGroup: { ...((meta as any).chatIndexByGroup || {}), [groupId]: idx } },
+      folder,
+      updatedAt,
+    }
+  }
 
   async function touchGroupChatUpdatedAt(groupId: any, chatId: any, updatedAt: any) {
     const gid = String(groupId || '').trim()
@@ -22,9 +50,8 @@ export function createGroupChatSync(deps: {
     if (!gid || !cid) return
 
     await withSplitMetaWrite(async () => {
-      const meta = (await loadSplitMeta()) || getSplitMetaCache()
-      if (!meta) return
-      const folder = String((meta as any).groupFolders?.[gid] || '').trim()
+      const target = await loadGroupFolderMeta(gid)
+      const folder = String(target?.folder || '').trim()
       if (!folder) return
       const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
       if (!idx || typeof idx !== 'object') return
@@ -57,7 +84,8 @@ export function createGroupChatSync(deps: {
       const gid = String((state.draft as any).activeGroupId || (state.data?.ui as any)?.activeGroupId || '').trim()
       if (!gid) return
 
-      const meta = metaOverride || (await loadSplitMeta())
+      const activeMeta = metaOverride ? null : await loadGroupIndexMeta(gid)
+      const meta = metaOverride || activeMeta?.meta || (await loadSplitMeta())
       if (!meta || typeof meta !== 'object') return
 
       const updatedAt = Number((meta as any).updatedAt || 0)
@@ -95,8 +123,23 @@ export function createGroupChatSync(deps: {
         }
 
         const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
-        if (metaUpdatedAt && cid !== activeChatId) cur.updatedAt = metaUpdatedAt
+        if (metaUpdatedAt && cid !== activeChatId && isStoredChatNewerThanCurrent(metaUpdatedAt, cur.updatedAt)) cur.updatedAt = metaUpdatedAt
         nextChats.push(cur)
+      }
+
+      if (activeChatId) {
+        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[activeChatId] || 0)
+        const cur = curById.get(activeChatId) || null
+        const curUpdatedAt = Number(cur?.updatedAt || 0)
+        if (!hasActiveGroupRunInSession(gid, activeChatId) && isStoredChatNewerThanCurrent(metaUpdatedAt, curUpdatedAt)) {
+          const c0 = await storage.get(splitGroupChatKey(folder, activeChatId))
+          const c1 = c0 && typeof c0 === 'object' ? normalizeStoredChat(c0, 'group') : null
+          if (c1) {
+            const idx0 = nextChats.findIndex((c: any) => String(c?.id || '') === activeChatId)
+            if (idx0 >= 0) nextChats[idx0] = mergeChatFromStorage(c1, nextChats[idx0])
+            else nextChats.unshift(c1)
+          }
+        }
       }
 
       box.chats = nextChats

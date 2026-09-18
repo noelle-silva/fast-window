@@ -1,4 +1,4 @@
-import { now, uid, clamp, normImagePaths } from '../core/utils'
+import { now, uid, clamp, normalizeTimeMs } from '../core/utils'
 import {
   VERSION,
   SPLIT_SCHEMA_VERSION,
@@ -8,6 +8,10 @@ import {
   DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
   DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
+  DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES,
+  CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN,
+  CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX,
+  CHAT_BRANCHING_SCHEMA_VERSION,
 } from './constants'
 import {
   normalizeBranchId,
@@ -16,12 +20,15 @@ import {
   rebuildLinearBranchingMessages,
   fillMissingBranchIdsOnly,
 } from './branching'
-import { normalizeMessageAttachments, normalizeMessageGroup } from './message'
+import { hasExplicitMessageParentLinks, normalizeChatMessage } from './message'
 import { normalizeFavorites } from './favorites'
 import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
-import { normalizeChatModelOverride, normalizeMessageModelRef } from './modelRefUtils'
-import { normalizeAssistantRunState } from './assistantRunState'
+import { normalizeRoleToolPolicy } from './toolPolicy'
+import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
+import { normalizeSessionFacts } from './sessionFacts'
+import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
+import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
   const v = String(v0 || '').trim()
@@ -31,9 +38,70 @@ export function normalizeRenderSafetyPolicy(v0: unknown) {
 }
 
 export function normalizeMaxFileSizeMb(v: unknown) {
-  const n = Number(v)
-  if (!isFinite(n)) return DEFAULT_ATTACH_MAX_FILE_MB
-  return clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
+	const n = Number(v)
+	if (!isFinite(n)) return DEFAULT_ATTACH_MAX_FILE_MB
+	return clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
+}
+
+function normalizeAsyncToolTasks(raw: unknown) {
+  const list = Array.isArray(raw) ? raw : []
+  return list
+    .filter((task: any) => task && typeof task === 'object')
+    .map((task: any) => ({
+      ...task,
+      id: String(task?.id || '').trim(),
+      runId: String(task?.runId || '').trim(),
+      roleId: String(task?.roleId || '').trim(),
+      groupId: String(task?.groupId || '').trim(),
+      workspaceId: String(task?.workspaceId || '').trim(),
+      sessionId: String(task?.sessionId || '').trim(),
+      taskName: String(task?.taskName || task?.toolName || '').trim(),
+      toolName: String(task?.toolName || '').trim(),
+      status: String(task?.status || '').trim(),
+    }))
+    .filter((task: any) => !!task.id)
+}
+
+function normalizeAiServiceModelSelection(service: any, providers: any[]) {
+  const fallbackPid = String(providers?.[0]?.id || '')
+  const groupId = typeof service.groupId === 'string' ? String(service.groupId || '').trim() : ''
+  const kind = groupId || String(service.kind || '').trim() === 'model_group' ? 'model_group' : 'provider'
+  service.kind = kind
+  if (kind === 'model_group') {
+    service.groupId = groupId
+    service.providerId = ''
+  } else {
+    if (typeof service.providerId !== 'string') service.providerId = fallbackPid
+    if (!service.providerId || !providers.some((p: any) => String(p?.id || '') === String(service.providerId || ''))) service.providerId = fallbackPid
+    service.groupId = ''
+  }
+  if (typeof service.modelId !== 'string') service.modelId = ''
+  if (service.modelId === '__custom__') service.modelId = ''
+  service.customModelId = ''
+}
+
+function hasStoredBranching(raw: unknown) {
+  return !!raw && typeof raw === 'object' && Number((raw as any).schemaVersion || 0) === CHAT_BRANCHING_SCHEMA_VERSION
+}
+
+function normalizedBranchHeadMid(branchesRaw: unknown, activeBranchId: string, messages: any[], fallbackHeadMid: string, preserveCurrentHead: boolean) {
+  const branches = Array.isArray(branchesRaw) ? branchesRaw : []
+  const messageIds = new Set<string>()
+  const parentIds = new Set<string>()
+  for (const message of messages) {
+    const id = String(message?.id || '').trim()
+    if (id) messageIds.add(id)
+    const parentMid = String(message?.parentMid || message?.parentMessageId || '').trim()
+    if (parentMid) parentIds.add(parentMid)
+  }
+  const activeBranch = branches.find((branch: any) => String(branch?.id || '') === activeBranchId) || null
+  const currentHeadMid = String(activeBranch?.headMid || '').trim()
+  if (preserveCurrentHead && currentHeadMid && messageIds.has(currentHeadMid)) return currentHeadMid
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const id = String(messages[index]?.id || '').trim()
+    if (id && !parentIds.has(id)) return id
+  }
+  return String(fallbackHeadMid || '').trim()
 }
 
 export function normalizeSplitMeta(raw: any) {
@@ -48,6 +116,10 @@ export function normalizeSplitMeta(raw: any) {
   const groupFolders = (raw as any).groupFolders && typeof (raw as any).groupFolders === 'object' ? (raw as any).groupFolders : {}
   const chatIndexByGroup =
     (raw as any).chatIndexByGroup && typeof (raw as any).chatIndexByGroup === 'object' ? (raw as any).chatIndexByGroup : {}
+  const workspaceOrder = Array.isArray((raw as any).workspaceOrder) ? (raw as any).workspaceOrder.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+  const workspaceFolders = (raw as any).workspaceFolders && typeof (raw as any).workspaceFolders === 'object' ? (raw as any).workspaceFolders : {}
+  const chatIndexByWorkspace =
+    (raw as any).chatIndexByWorkspace && typeof (raw as any).chatIndexByWorkspace === 'object' ? (raw as any).chatIndexByWorkspace : {}
 
   return {
     schemaVersion: SPLIT_SCHEMA_VERSION,
@@ -55,107 +127,15 @@ export function normalizeSplitMeta(raw: any) {
     updatedAt: Number(raw.updatedAt || 0),
     ui: raw.ui && typeof raw.ui === 'object' ? raw.ui : {},
     settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : {},
-    favorites: normalizeFavorites((raw as any).favorites),
     roleOrder,
     roleFolders,
     chatIndexByRole,
     groupOrder,
     groupFolders,
     chatIndexByGroup,
-  }
-}
-
-export function defaultData() {
-  const providerName = '默认供应商（OpenAI 兼容）'
-  const pid = uid('p')
-  const rid = uid('r')
-  const cid = uid('c')
-  const t = now()
-  return {
-    version: VERSION,
-    settings: {
-      streamEnabled: true,
-      transparentChatBg: false,
-      chatBgOpacity: 0,
-      chatBgBlur: 0,
-      topbarOpacity: 100,
-      topbarBlur: 0,
-      composerOpacity: 86,
-      composerBlur: 10,
-      branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
-      renderSafetyPolicy: 'original',
-      userMessageCollapseEnabled: false,
-      userMessageCollapseLines: 8,
-      attachments: {
-        sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS,
-        maxFileSizeMbByKind: {
-          txt: DEFAULT_ATTACH_MAX_FILE_MB,
-          md: DEFAULT_ATTACH_MAX_FILE_MB,
-          pdf: DEFAULT_ATTACH_MAX_FILE_MB,
-          docx: DEFAULT_ATTACH_MAX_FILE_MB,
-          ppt: DEFAULT_ATTACH_MAX_FILE_MB,
-        },
-      },
-      stickers: {
-        enabled: false,
-        categories: [],
-        map: {},
-      },
-      aiServices: {
-        mermaidFix: {
-          enabled: false,
-          providerId: pid,
-          modelId: '',
-          customModelId: '',
-          systemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
-        },
-        chatTitleNaming: {
-          enabled: false,
-          providerId: pid,
-          modelId: '',
-          customModelId: '',
-          systemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
-        },
-        stickerNaming: {
-          enabled: false,
-          providerId: pid,
-          modelId: '',
-          customModelId: '',
-          systemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
-        },
-      },
-      providers: [
-        {
-          id: pid,
-          name: providerName,
-          baseUrl: 'https://api.openai.com/v1',
-          apiKey: '',
-          modelsCache: { items: [], fetchedAt: 0 },
-        },
-      ],
-    },
-    favorites: { folders: [], chatRefsByFolderId: {} },
-    roles: [
-      {
-        id: rid,
-        name: '默认角色',
-        avatar: '🤖',
-        systemPrompt: '你是一个严谨、简洁的助手。',
-        temperature: 0.7,
-        modelRef: { providerId: pid, modelId: '' },
-        createdAt: now(),
-        updatedAt: now(),
-      },
-    ],
-    chatsByRole: {
-      [rid]: {
-        activeChatId: cid,
-        chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
-      },
-    },
-    groups: [],
-    chatsByGroup: {},
-    ui: { activeTargetKind: 'role', activeRoleId: rid, activeGroupId: '' },
+    workspaceOrder,
+    workspaceFolders,
+    chatIndexByWorkspace,
   }
 }
 
@@ -166,7 +146,6 @@ export function normalizeData(raw: any) {
   const d = d0
 
   if (!d.settings || typeof d.settings !== 'object') d.settings = {}
-  if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
   if (typeof d.settings.transparentChatBg !== 'boolean') d.settings.transparentChatBg = false
   if (typeof d.settings.chatBgOpacity !== 'number' || !isFinite(d.settings.chatBgOpacity)) d.settings.chatBgOpacity = 0
   if (typeof d.settings.chatBgBlur !== 'number' || !isFinite(d.settings.chatBgBlur)) d.settings.chatBgBlur = 0
@@ -174,6 +153,7 @@ export function normalizeData(raw: any) {
   if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
   if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
   if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+  ;(d.settings as any)[COLOR_THEME_SETTING_KEY] = normalizeColorThemeSettings((d.settings as any)[COLOR_THEME_SETTING_KEY])
   if (!(d.settings as any).branchTree || typeof (d.settings as any).branchTree !== 'object') (d.settings as any).branchTree = { dir: 'lr' }
   const btree = (d.settings as any).branchTree
   const dir0 = String(btree?.dir || '').trim()
@@ -211,7 +191,7 @@ export function normalizeData(raw: any) {
   mb.pdf = normalizeMaxFileSizeMb(mb.pdf)
   mb.docx = normalizeMaxFileSizeMb(mb.docx)
   mb.ppt = normalizeMaxFileSizeMb(mb.ppt)
-  if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
+  if (!Array.isArray(d.settings.providers)) d.settings.providers = []
 
   if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
   const st = d.settings.stickers
@@ -258,30 +238,29 @@ export function normalizeData(raw: any) {
   if (!as.mermaidFix || typeof as.mermaidFix !== 'object') as.mermaidFix = {}
   const mm = as.mermaidFix
   if (typeof mm.enabled !== 'boolean') mm.enabled = false
-  const fallbackPid = String(d.settings.providers?.[0]?.id || '')
-  if (typeof mm.providerId !== 'string') mm.providerId = fallbackPid
-  if (!mm.providerId || !d.settings.providers.some((p: any) => String(p?.id || '') === String(mm.providerId || ''))) mm.providerId = fallbackPid
-  if (typeof mm.modelId !== 'string') mm.modelId = ''
-  if (typeof mm.customModelId !== 'string') mm.customModelId = ''
+  normalizeAiServiceModelSelection(mm, d.settings.providers)
   if (typeof mm.systemPrompt !== 'string') mm.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
 
   if (!as.chatTitleNaming || typeof as.chatTitleNaming !== 'object') as.chatTitleNaming = {}
   const ctn = as.chatTitleNaming as any
   if (typeof ctn.enabled !== 'boolean') ctn.enabled = false
-  if (typeof ctn.providerId !== 'string') ctn.providerId = fallbackPid
-  if (!ctn.providerId || !d.settings.providers.some((p: any) => String(p?.id || '') === String(ctn.providerId || ''))) ctn.providerId = fallbackPid
-  if (typeof ctn.modelId !== 'string') ctn.modelId = ''
-  if (typeof ctn.customModelId !== 'string') ctn.customModelId = ''
+  normalizeAiServiceModelSelection(ctn, d.settings.providers)
   if (typeof ctn.systemPrompt !== 'string') ctn.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
 
   if (!as.stickerNaming || typeof as.stickerNaming !== 'object') as.stickerNaming = {}
   const sn = as.stickerNaming as any
   if (typeof sn.enabled !== 'boolean') sn.enabled = false
-  if (typeof sn.providerId !== 'string') sn.providerId = fallbackPid
-  if (!sn.providerId || !d.settings.providers.some((p: any) => String(p?.id || '') === String(sn.providerId || ''))) sn.providerId = fallbackPid
-  if (typeof sn.modelId !== 'string') sn.modelId = ''
-  if (typeof sn.customModelId !== 'string') sn.customModelId = ''
+  normalizeAiServiceModelSelection(sn, d.settings.providers)
   if (typeof sn.systemPrompt !== 'string') sn.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
+
+  if (!as.contextCompression || typeof as.contextCompression !== 'object') as.contextCompression = {}
+  const cc = as.contextCompression as any
+  normalizeAiServiceModelSelection(cc, d.settings.providers)
+  cc.retainRecentMessages = clamp(
+    Math.round(Number(cc.retainRecentMessages || DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES)),
+    CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN,
+    CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX,
+  )
 
   for (const p of d.settings.providers) {
     if (!p || typeof p !== 'object') continue
@@ -289,6 +268,29 @@ export function normalizeData(raw: any) {
     if (typeof p.id !== 'string' || !p.id.trim()) p.id = String(p.name || '').trim() || uid('p')
     if (typeof p.baseUrl !== 'string' || !p.baseUrl.trim()) p.baseUrl = 'http://'
     if (typeof p.apiKey !== 'string') p.apiKey = ''
+    p.apiKeyStrategy = String(p.apiKeyStrategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential'
+    if (!Array.isArray(p.apiKeys)) p.apiKeys = []
+    p.apiKeys = p.apiKeys
+      .filter((key: any) => key && typeof key === 'object')
+      .map((key: any) => ({
+        id: String(key.id || uid('key')).trim(),
+        name: String(key.name || 'Key').trim(),
+        key: String(key.key || '').trim(),
+        enabled: typeof key.enabled === 'boolean' ? key.enabled : true,
+        weight: Math.max(1, Math.round(Number(key.weight || 1))),
+      }))
+    if (!p.apiKeys.length && p.apiKey) p.apiKeys = [{ id: 'legacy', name: '默认 Key', key: p.apiKey, enabled: true, weight: 1 }]
+    if (!Array.isArray(p.registeredModels)) p.registeredModels = []
+    p.registeredModels = p.registeredModels
+      .filter((model: any) => model && typeof model === 'object')
+      .map((model: any) => normalizeReasoningFields({
+        id: String(model.id || '').trim(),
+        name: String(model.name || model.id || '').trim(),
+        sourceModelId: String(model.sourceModelId || model.modelId || '').trim(),
+        supportsReasoning: !!model.supportsReasoning,
+        defaultReasoningEffort: normalizeReasoningEffort(model.defaultReasoningEffort),
+      }))
+      .filter((model: any) => model.id && model.sourceModelId)
     if (!p.modelsCache || typeof p.modelsCache !== 'object') p.modelsCache = { items: [], fetchedAt: 0 }
     if (!Array.isArray(p.modelsCache.items)) p.modelsCache.items = []
     p.modelsCache.fetchedAt = Number(p.modelsCache.fetchedAt || 0)
@@ -296,7 +298,7 @@ export function normalizeData(raw: any) {
 
   ;(d as any).favorites = normalizeFavorites((d as any).favorites)
 
-  if (!Array.isArray(d.roles) || d.roles.length === 0) d.roles = defaultData().roles
+  if (!Array.isArray(d.roles)) d.roles = []
 
   for (const r of d.roles) {
     if (!r || typeof r !== 'object') continue
@@ -308,10 +310,20 @@ export function normalizeData(raw: any) {
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
     if (typeof r.temperature !== 'number' || !isFinite(r.temperature)) r.temperature = 0.7
     if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
+    if (typeof r.modelRef.kind !== 'string') r.modelRef.kind = String(r.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
+    if (typeof r.modelRef.groupId !== 'string') r.modelRef.groupId = ''
     if (typeof r.modelRef.providerId !== 'string') r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
     if (typeof r.modelRef.modelId !== 'string') r.modelRef.modelId = ''
-    const pid = String(r.modelRef.providerId || '')
-    if (!d.settings.providers.some((p: any) => String(p?.id || '') === pid)) r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
+    const modelKind = String(r.modelRef.kind || '').trim() === 'model_group' ? 'model_group' : 'provider'
+    r.modelRef.kind = modelKind
+    if (modelKind === 'provider') {
+      const pid = String(r.modelRef.providerId || '')
+      if (!d.settings.providers.some((p: any) => String(p?.id || '') === pid)) r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
+      r.modelRef.groupId = ''
+    } else {
+      r.modelRef.providerId = ''
+    }
+    r.toolPolicy = normalizeRoleToolPolicy((r as any).toolPolicy)
     r.createdAt = Number(r.createdAt || now())
     r.updatedAt = Number(r.updatedAt || now())
   }
@@ -331,47 +343,27 @@ export function normalizeData(raw: any) {
         const cc = c
         const cid = String(cc.id || uid('c'))
         const title = typeof cc.title === 'string' && cc.title.trim() ? cc.title : '新聊天'
-        const createdAt = Number(cc.createdAt || now())
-        const updatedAt = Number(cc.updatedAt || createdAt || now())
+        const createdAt = normalizeTimeMs(cc.createdAt, now())
+        const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
         const messages = Array.isArray(cc.messages) ? cc.messages : []
+        const hasMessageTree = hasExplicitMessageParentLinks(messages)
         const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
+        const hasBranching = hasStoredBranching((cc as any).branching)
         const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
         const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
-        const modelOverride = normalizeChatModelOverride(cc)
-
         const out: any = {
           id: cid,
           title,
+          status: String((cc as any).status || '').trim(),
           createdAt,
           updatedAt,
           branching,
-          messages: messages
-            .filter((m: any) => m && typeof m === 'object')
-            .map((m: any) => {
-              const outMsg: any = {
-                id: String(m.id || uid('m')),
-                role: m.role === 'assistant' ? 'assistant' : 'user',
-                speakerRoleId: String((m as any).speakerRoleId || '').trim(),
-                content: String(m.content || ''),
-                images: normImagePaths(m.images),
-                attachments: normalizeMessageAttachments((m as any).attachments),
-                ...normalizeMessageGroup(m),
-                branchId: normalizeBranchId((m as any).branchId || activeBranchId),
-                parentMid: String((m as any).parentMid || '').trim(),
-                pending: !!m.pending,
-                streaming: !!m.streaming,
-                createdAt: Number(m.createdAt || now()),
-                modelRef: normalizeMessageModelRef(m),
-              }
-              const assistantRun = normalizeAssistantRunState((m as any).assistantRun)
-              if (assistantRun) outMsg.assistantRun = assistantRun
-              return outMsg
-            }),
+          messages: messages.filter((m: any) => m && typeof m === 'object').map((m: any) => normalizeChatMessage(m, { activeBranchId, toolMessagesAsAssistant: true })),
         }
+		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		Object.assign(out, normalizeSessionFacts(cc))
 
-        if (modelOverride) out.modelOverride = modelOverride
-
-        const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
         for (const b of branches0) {
           const id = normalizeBranchId((b as any)?.id)
@@ -379,9 +371,9 @@ export function normalizeData(raw: any) {
           if (idSet.size >= 2) break
         }
         let headMid = ''
-        if (idSet.size >= 2) {
+        if (idSet.size >= 2 || hasMessageTree) {
           fillMissingBranchIdsOnly(out.messages, activeBranchId)
-          headMid = out.messages.length ? String((out.messages[out.messages.length - 1] as any)?.id || '') : ''
+          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
         } else {
           headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
         }
@@ -396,14 +388,6 @@ export function normalizeData(raw: any) {
 
         return out
       })
-
-    if (!box.chats.length && !box.chatMetas.length) {
-      const cid = uid('c')
-      const t = now()
-      box.chats = [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
-      box.chatMetas = chatMetasFromBox(box, '新聊天')
-      box.activeChatId = cid
-    }
 
     const roleMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
     if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !roleMetaIds.includes(box.activeChatId))) {
@@ -481,46 +465,28 @@ export function normalizeData(raw: any) {
         const cc = c
         const cid = String(cc.id || uid('gc'))
         const title = typeof cc.title === 'string' && cc.title.trim() ? cc.title : '群聊'
-        const createdAt = Number(cc.createdAt || now())
-        const updatedAt = Number(cc.updatedAt || createdAt || now())
+        const createdAt = normalizeTimeMs(cc.createdAt, now())
+        const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
         const messages = Array.isArray(cc.messages) ? cc.messages : []
+        const hasMessageTree = hasExplicitMessageParentLinks(messages)
         const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
+        const hasBranching = hasStoredBranching((cc as any).branching)
         const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
         const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
-        const modelOverride = normalizeChatModelOverride(cc)
 
-        const out: any = {
-          id: cid,
-          title,
-          createdAt,
+		const out: any = {
+			id: cid,
+			title,
+			status: String((cc as any).status || '').trim(),
+			createdAt,
           updatedAt,
           branching,
-          messages: messages
-            .filter((m: any) => m && typeof m === 'object')
-            .map((m: any) => {
-              const outMsg: any = {
-                id: String(m.id || uid('m')),
-                role: m.role === 'assistant' ? 'assistant' : 'user',
-                speakerRoleId: String((m as any).speakerRoleId || '').trim(),
-                content: String(m.content || ''),
-                images: normImagePaths(m.images),
-                attachments: normalizeMessageAttachments((m as any).attachments),
-                ...normalizeMessageGroup(m),
-                branchId: normalizeBranchId((m as any).branchId || activeBranchId),
-                parentMid: String((m as any).parentMid || '').trim(),
-                pending: !!m.pending,
-                streaming: !!m.streaming,
-                createdAt: Number(m.createdAt || now()),
-              }
-              const assistantRun = normalizeAssistantRunState((m as any).assistantRun)
-              if (assistantRun) outMsg.assistantRun = assistantRun
-              return outMsg
-            }),
-        }
+			messages: messages.filter((m: any) => m && typeof m === 'object').map((m: any) => normalizeChatMessage(m, { activeBranchId, toolMessagesAsAssistant: false })),
+		}
+		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		Object.assign(out, normalizeSessionFacts(cc))
 
-        if (modelOverride) out.modelOverride = modelOverride
-
-        const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
         for (const b of branches0) {
           const id = normalizeBranchId((b as any)?.id)
@@ -528,9 +494,9 @@ export function normalizeData(raw: any) {
           if (idSet.size >= 2) break
         }
         let headMid = ''
-        if (idSet.size >= 2) {
+        if (idSet.size >= 2 || hasMessageTree) {
           fillMissingBranchIdsOnly(out.messages, activeBranchId)
-          headMid = out.messages.length ? String((out.messages[out.messages.length - 1] as any)?.id || '') : ''
+          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
         } else {
           headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
         }
@@ -546,21 +512,113 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    if (!box.chats.length && !box.chatMetas.length) {
-      const cid = uid('gc')
-      const t = now()
-      box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
-      box.chatMetas = chatMetasFromBox(box, '群聊')
-      box.activeChatId = cid
-    }
     const groupMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
     if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !groupMetaIds.includes(box.activeChatId))) {
       box.activeChatId = String(box.chats[0]?.id || groupMetaIds[0] || '')
     }
   }
 
+  if (!Array.isArray((d as any).workspaces)) (d as any).workspaces = []
+  ;(d as any).workspaces = (Array.isArray((d as any).workspaces) ? (d as any).workspaces : [])
+    .filter((workspace: any) => workspace && typeof workspace === 'object')
+    .map((workspace: any) => {
+      const id = String(workspace.id || uid('w'))
+      const name = typeof workspace.name === 'string' && workspace.name.trim() ? String(workspace.name || '').trim() : '未命名工作区'
+      const prompt = typeof workspace.prompt === 'string' ? String(workspace.prompt || '') : ''
+      const directories0 = Array.isArray(workspace.directories) ? workspace.directories : []
+      const directories = directories0
+        .filter((directory: any) => directory && typeof directory === 'object')
+        .map((directory: any) => ({
+          path: String(directory.path || '').trim(),
+          alias: String(directory.alias || '').trim(),
+          description: String(directory.description || '').trim(),
+        }))
+        .filter((directory: any) => !!directory.path)
+      return {
+        id,
+        name,
+        prompt,
+        directories,
+        createdAt: Number(workspace.createdAt || now()),
+        updatedAt: Number(workspace.updatedAt || now()),
+      }
+    })
+
+  if (!(d as any).chatsByWorkspace || typeof (d as any).chatsByWorkspace !== 'object') (d as any).chatsByWorkspace = {}
+  const workspaceIds = new Set<string>((d as any).workspaces.map((workspace: any) => String(workspace?.id || '').trim()).filter(Boolean))
+  const workspaceChatKeys = new Set<string>([...Object.keys((d as any).chatsByWorkspace), ...Array.from(workspaceIds)])
+  for (const targetId of workspaceChatKeys) {
+    const parsedTarget = parseWorkspaceRoleTargetId(targetId)
+    const workspaceId = parsedTarget.workspaceId || String(targetId || '').trim()
+    if (!workspaceId || !workspaceIds.has(workspaceId)) continue
+    if (!(d as any).chatsByWorkspace[targetId] || typeof (d as any).chatsByWorkspace[targetId] !== 'object') (d as any).chatsByWorkspace[targetId] = { activeChatId: '', chats: [] }
+    const box = (d as any).chatsByWorkspace[targetId]
+    if (!Array.isArray(box.chats)) box.chats = []
+    box.chatMetas = chatMetasFromBox(box, '工作区会话')
+    box.activeChatId = String(box.activeChatId || '')
+
+    box.chats = box.chats
+      .filter((chat: any) => chat && typeof chat === 'object')
+      .map((chat: any) => {
+        const cc = chat
+        const cid = String(cc.id || uid('wc'))
+        const title = typeof cc.title === 'string' && cc.title.trim() ? cc.title : '工作区会话'
+        const createdAt = normalizeTimeMs(cc.createdAt, now())
+        const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
+        const messages = Array.isArray(cc.messages) ? cc.messages : []
+        const hasMessageTree = hasExplicitMessageParentLinks(messages)
+        const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
+        const hasBranching = hasStoredBranching((cc as any).branching)
+        const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
+        const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
+		const out: any = {
+          id: cid,
+          roleId: String((cc as any).roleId || '').trim(),
+          workspaceId,
+          title,
+          status: String((cc as any).status || '').trim(),
+          createdAt,
+          updatedAt,
+          branching,
+          messages: messages.filter((message: any) => message && typeof message === 'object').map((message: any) => normalizeChatMessage(message, { activeBranchId, toolMessagesAsAssistant: true })),
+        }
+		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		Object.assign(out, normalizeSessionFacts(cc))
+
+		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+        const idSet = new Set<string>()
+        for (const b of branches0) {
+          const id = normalizeBranchId((b as any)?.id)
+          if (id) idSet.add(id)
+          if (idSet.size >= 2) break
+        }
+        let headMid = ''
+        if (idSet.size >= 2 || hasMessageTree) {
+          fillMissingBranchIdsOnly(out.messages, activeBranchId)
+          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
+        } else {
+          headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
+        }
+        try {
+          const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+          const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
+          if (b) {
+            b.headMid = headMid
+            b.updatedAt = updatedAt
+          }
+        } catch (_) {}
+
+        return out
+      })
+
+    const workspaceMetaIds = box.chatMetas.map((meta: any) => String(meta?.id || '')).filter(Boolean)
+    if (!box.activeChatId || (!box.chats.some((chat: any) => String(chat.id) === box.activeChatId) && !workspaceMetaIds.includes(box.activeChatId))) {
+      box.activeChatId = String(box.chats[0]?.id || workspaceMetaIds[0] || '')
+    }
+  }
+
   const targetKind0 = String((d.ui as any).activeTargetKind || '').trim()
-  const targetKind = targetKind0 === 'group' ? 'group' : 'role'
+  const targetKind = targetKind0 === 'group' ? 'group' : targetKind0 === 'workspace' ? 'workspace' : 'role'
   ;(d.ui as any).activeTargetKind = targetKind
 
   const activeRoleId = String(d.ui.activeRoleId || '')
@@ -569,8 +627,13 @@ export function normalizeData(raw: any) {
   const activeGroupId = String((d.ui as any).activeGroupId || '').trim()
   if (activeGroupId && !(d as any).groups.some((g: any) => String(g?.id || '') === activeGroupId)) (d.ui as any).activeGroupId = ''
 
+  const activeWorkspaceId = String((d.ui as any).activeWorkspaceId || '').trim()
+  if (activeWorkspaceId && !(d as any).workspaces.some((workspace: any) => String(workspace?.id || '') === activeWorkspaceId)) (d.ui as any).activeWorkspaceId = ''
+
   const hasGroups = !!((d as any).groups && (d as any).groups.length)
+  const hasWorkspaces = !!((d as any).workspaces && (d as any).workspaces.length)
   if (targetKind === 'group' && !hasGroups) (d.ui as any).activeTargetKind = 'role'
+  if (targetKind === 'workspace' && !hasWorkspaces) (d.ui as any).activeTargetKind = hasGroups ? 'group' : 'role'
 
   return d
 }

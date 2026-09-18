@@ -187,6 +187,149 @@ export function setChatBranchHeadMid(chat: any, branchId: string, headMid: strin
   b.updatedAt = Number((chat as any)?.updatedAt || now())
 }
 
+export function collectChatMessageIds(chat: any) {
+  const ids = new Set<string>()
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  for (const message of messages) {
+    const id = String(message?.id || '').trim()
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
+function chatMessageTree(chat: any) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const byId = new Map<string, any>()
+  const children = new Map<string, string[]>()
+  for (const message of messages) {
+    const id = String(message?.id || '').trim()
+    if (!id || byId.has(id)) continue
+    byId.set(id, message)
+  }
+  for (const message of messages) {
+    const id = String(message?.id || '').trim()
+    const parentMid = String((message as any)?.parentMid || '').trim()
+    if (!id || !parentMid || !byId.has(parentMid)) continue
+    const list = children.get(parentMid) || []
+    list.push(id)
+    children.set(parentMid, list)
+  }
+  return { messages, byId, children }
+}
+
+function messagePathContains(byId: Map<string, any>, headMid: any, targetMid: any) {
+  const target = String(targetMid || '').trim()
+  let cur = String(headMid || '').trim()
+  if (!target || !cur) return false
+  const seen = new Set<string>()
+  let guard = 0
+  while (cur && !seen.has(cur) && guard < 6000) {
+    guard++
+    if (cur === target) return true
+    seen.add(cur)
+    const message = byId.get(cur) || null
+    if (!message) return false
+    cur = String((message as any)?.parentMid || '').trim()
+  }
+  return false
+}
+
+function messageIsOnPathFrom(byId: Map<string, any>, messageMid: any, ancestorMid: any) {
+  const ancestor = String(ancestorMid || '').trim()
+  if (!ancestor) return true
+  return messagePathContains(byId, messageMid, ancestor)
+}
+
+function messageSortValue(message: any) {
+  const createdAt = Number(message?.createdAt || 0)
+  const updatedAt = Number(message?.updatedAt || 0)
+  return { createdAt: isFinite(createdAt) ? createdAt : 0, updatedAt: isFinite(updatedAt) ? updatedAt : 0, id: String(message?.id || '') }
+}
+
+export function findNewestNewLeafMessageId(chat: any, previousMessageIds: Set<string>, ancestorMessageId?: any, preferredMessageId?: any) {
+  const previous = previousMessageIds instanceof Set ? previousMessageIds : new Set<string>()
+  const { messages, byId, children } = chatMessageTree(chat)
+  const candidates = messages.filter((message: any) => {
+    const id = String(message?.id || '').trim()
+    if (!id || previous.has(id)) return false
+    return messageIsOnPathFrom(byId, id, ancestorMessageId)
+  })
+  if (!candidates.length) return ''
+
+  const leaves = candidates.filter((message: any) => {
+    const id = String(message?.id || '').trim()
+    return id && !(children.get(id) || []).length
+  })
+  const preferred = String(preferredMessageId || '').trim()
+  if (preferred && leaves.some((message: any) => String(message?.id || '').trim() === preferred)) return preferred
+
+  const pool = leaves.length ? leaves : candidates
+  pool.sort((left: any, right: any) => {
+    const l = messageSortValue(left)
+    const r = messageSortValue(right)
+    if (l.createdAt !== r.createdAt) return l.createdAt - r.createdAt
+    if (l.updatedAt !== r.updatedAt) return l.updatedAt - r.updatedAt
+    return l.id.localeCompare(r.id)
+  })
+  return String(pool[pool.length - 1]?.id || '').trim()
+}
+
+export function activateChatBranchByMessage(chat: any, messageId: any) {
+  const mid = String(messageId || '').trim()
+  if (!chat || !mid) return false
+  const { byId } = chatMessageTree(chat)
+  const message = byId.get(mid) || null
+  if (!message) return false
+
+  const branching = ensureChatBranching(chat)
+  if (!branching) return false
+  const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+  if (!branches.length) return false
+
+  const messageBranchId = normalizeBranchId((message as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
+  const containingBranches = branches.filter((branch: any) => messagePathContains(byId, branch?.headMid, mid))
+  const picked =
+    containingBranches.find((branch: any) => normalizeBranchId(branch?.id) === messageBranchId) ||
+    containingBranches.sort((left: any, right: any) => {
+      const l = messageSortValue(byId.get(String(left?.headMid || '').trim()) || left)
+      const r = messageSortValue(byId.get(String(right?.headMid || '').trim()) || right)
+      if (l.createdAt !== r.createdAt) return r.createdAt - l.createdAt
+      if (l.updatedAt !== r.updatedAt) return r.updatedAt - l.updatedAt
+      return r.id.localeCompare(l.id)
+    })[0]
+  if (!picked) return false
+
+  ;(branching as any).activeBranchId = normalizeBranchId(picked.id)
+  ;(chat as any).branching = branching
+  return true
+}
+
+export function preserveLocalBranchSelection(nextChat: any, currentChat: any) {
+  const next = nextChat && typeof nextChat === 'object' ? nextChat : null
+  const current = currentChat && typeof currentChat === 'object' ? currentChat : null
+  const currentBranching = current?.branching && typeof current.branching === 'object' ? current.branching : null
+  const nextBranching = next?.branching && typeof next.branching === 'object' ? next.branching : null
+  if (!next || !currentBranching || !nextBranching) return nextChat
+
+  const activeBranchId = String(currentBranching.activeBranchId || '').trim()
+  if (!activeBranchId) return nextChat
+
+  const nextBranches = Array.isArray(nextBranching.branches) ? nextBranching.branches : []
+  const currentBranches = Array.isArray(currentBranching.branches) ? currentBranching.branches : []
+  const existsInNext = nextBranches.some((branch: any) => String(branch?.id || '').trim() === activeBranchId)
+  if (!existsInNext) return nextChat
+
+  const currentBranch = currentBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
+  const nextBranch = nextBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
+  if (nextBranch && currentBranch && !String(nextBranch?.headMid || '').trim() && String(currentBranch?.headMid || '').trim()) {
+    nextBranch.headMid = String(currentBranch.headMid || '')
+  }
+
+  nextBranching.activeBranchId = activeBranchId
+  next.branching = nextBranching
+  return next
+}
+
 export function genUniqueBranchId(branching: any) {
   const branches = Array.isArray(branching?.branches) ? branching.branches : []
   const used = new Set<string>(branches.map((b: any) => normalizeBranchId(b?.id)))

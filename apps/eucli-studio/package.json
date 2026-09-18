@@ -1,7 +1,7 @@
 {
-  "name": "@fast-window/app-ai-studio",
+  "name": "@fast-window/app-eucli-studio",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.9",
   "type": "module",
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
@@ -9,17 +9,21 @@
     "build:exe": "pnpm build:ui && pnpm tauri build",
     "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
-    "build:app": "node ../../scripts/stage-v5-app.mjs",
-    "build:app:dev": "node ../../scripts/stage-v5-app.mjs --profile dev",
-    "build:app:exe": "node ../../scripts/sync-v5-app-exe.mjs",
-    "build:app:exe:dev": "node ../../scripts/sync-v5-app-exe.mjs --profile dev",
-    "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --check",
-    "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --dry-run",
-    "apps:bump": "node ../../scripts/bump-v5-app-version.mjs",
-    "apps:release:dry": "node ../../scripts/release-v5-app.mjs --dry-run",
-    "apps:release": "node ../../scripts/release-v5-app.mjs",
+    "build:app": "node scripts/stage-app.mjs",
+    "build:app:dev": "node scripts/stage-app.mjs --profile dev",
+    "build:app:exe": "node scripts/sync-app-exe.mjs",
+    "build:app:exe:dev": "node scripts/sync-app-exe.mjs --profile dev",
+    "build:app:package": "node scripts/package-app.mjs",
+    "apps:version:check": "node scripts/bump-app-version.mjs --check",
+    "apps:bump:dry": "node scripts/bump-app-version.mjs --dry-run",
+    "apps:bump": "node scripts/bump-app-version.mjs",
     "dev": "vite --host 127.0.0.1 --port 1431",
-    "tauri": "tauri"
+    "dev:app": "pnpm build:backend && pnpm build:resources && pnpm tauri dev",
+    "tauri": "tauri",
+    "test": "pnpm test:build && pnpm test:unit",
+    "test:build": "node --test \"scripts/tests/**/*.test.mjs\"",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -47,6 +51,7 @@
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
     "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^3.2.7"
   }
 }
