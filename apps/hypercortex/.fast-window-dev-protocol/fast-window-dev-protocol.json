@@ -1,0 +1,30 @@
+{
+  "$comment": "HyperCortex 应用协议字典：只承载应用自己的开发动作与成品产出。协议工具在本目录内执行动作，命令的工作目录即本协议目录；成品由工具商店化后落在本目录 dist/。发布由中央工具的 release 模式以主仓库凭据完成，应用不持有发布逻辑与凭据。",
+  "runner": "node",
+  "actions": {
+    "helloworld": "echo helloworld",
+    "build-ui": "pnpm -C .. run build:ui",
+    "build-exe": "pnpm -C .. run build:exe",
+    "build-exe-dev": "pnpm -C .. run build:exe:dev",
+    "stage": "node ../scripts/stage-app.mjs",
+    "stage-dev": "node ../scripts/stage-app.mjs --profile dev",
+    "sync-exe": "node ../scripts/sync-app-exe.mjs",
+    "sync-exe-dev": "node ../scripts/sync-app-exe.mjs --profile dev",
+    "package": {
+      "command": "node ../scripts/package-app.mjs",
+      "artifact": {
+        "path": "zipPath",
+        "name": "zipName",
+        "sha256": "sha256"
+      },
+      "storePackage": true
+    },
+    "version-check": "node ../scripts/bump-app-version.mjs --check",
+    "version-dry": "node ../scripts/bump-app-version.mjs --dry-run",
+    "version-patch": "node ../scripts/bump-app-version.mjs --patch",
+    "version-minor": "node ../scripts/bump-app-version.mjs --minor",
+    "version-major": "node ../scripts/bump-app-version.mjs --major",
+    "dev": "pnpm -C .. run dev",
+    "test": "pnpm -C .. run test"
+  }
+}
