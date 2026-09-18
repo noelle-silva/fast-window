@@ -36,13 +36,15 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
   const manifest = manifestFacts(readManifest(protocolDir))
   const version = readVersion(root, manifest.versionSource)
   const icon = buildCatalogIcon(root, manifest.icon)
-  loadProtocolEnv(credentialsDir)
+  await loadProtocolEnv(credentialsDir)
 
   const options = {
     owner: DEFAULT_DOWNLOAD_OWNER,
     repo: DEFAULT_DOWNLOAD_REPO,
     branch: DEFAULT_DOWNLOAD_BRANCH,
     force: false,
+    appId: manifest.id,
+    message: 'Update catalog.json',
   }
   const authToken = pickGithubToken()
   if (!authToken) {
