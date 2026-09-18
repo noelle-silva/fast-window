@@ -23,9 +23,9 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - 前端 direct client 对外方法必须可安全传递：`request`、`close` 等公开 API 应使用函数属性或闭包对象，不能依赖会在 props/回调传递中丢失的 `this`。
 - Go 侧 `schemaVersion`、`dataVersion`、`_migrations.json`、`_meta.json` 骨架。
 - 前端加载态、错误态、数据目录选择、运行中 command 接收演示。
-- 标准构建脚本：`build:backend`、`build:resources`、`build:ui`、`build:exe:dev`、`build:exe`、`build:app`、`build:app:dev`、`build:app:exe`、`build:app:exe:dev`。
-- 标准 v5 App 单份声明：`fw-app.json`（身份、展示与运行声明）+ `fw-app.build.json`（构建规则），统一生成 `dist-app/v5-windows/` 本地 app 容器目录。
-- 标准版本脚本：`apps:version:check`、`apps:bump`、`apps:bump:dry`，所有 App 版本目标必须一致后才允许升版。
+- 应用协议目录与自治构建链：`.fast-window-dev-protocol/`（协议字典、工具、清单）+ 应用内部 `scripts/`（装配、exe 同步、打包、版本）。
+- 标准 v5 App 单份声明：`fw-app.json`（身份、展示与运行声明，位于协议目录）+ `fw-app.build.json`（构建规则），统一生成 `dist-app/v5-windows/` 本地 app 容器目录。
+- 标准版本脚本：`apps:version:check`、`apps:bump`、`apps:bump:dry`（应用本地 CLI），所有 App 版本目标必须一致后才允许升版。
 
 ## 复制成新 App 时必须替换
 
@@ -42,7 +42,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 | settings file | `v5-reference-app-go-settings.json` | `<app-id>-settings.json` |
 | Vite port | `1434` | 未占用端口 |
 | commands | `open-reference`、`show-health`、`edit-settings` | App 自己的命令 |
-| apps:bump 脚本 | `node ../../scripts/bump-v5-app-version.mjs` | 保持相同命令，由 cwd 自动识别 App ID |
+| apps:bump 脚本 | `node scripts/bump-app-version.mjs`（应用本地） | 保持本地 CLI 形态，由 cwd 自动识别 App ID |
 | fw-app.json | `v5-reference-app-go` 应用声明 | 替换 app id、名称、入口 exe、sidecar、图标和命令 |
 | fw-app.build.json | 构建规则 | 替换构建命令、staging 目录与文件映射 |
 
@@ -116,18 +116,24 @@ apps/<app-id>/
 
 ### 命令职责
 
+应用内命令（在 `apps/<app-id>/` 执行，均由应用本地 CLI 实现）：
+
 | 命令 | 作用 | 输出/影响 |
 |---|---|---|
-| `pnpm build:exe` | 裸 Tauri exe 构建，保留给底层验证和旧习惯 | `src-tauri/target/release/` |
+| `pnpm build:exe` | 裸 Tauri exe 构建 | `src-tauri/target/release/` |
 | `pnpm build:app` | 完整生成本地 release app 容器 | 只替换 `dist-app/v5-windows/package/` |
 | `pnpm build:app:dev` | 完整生成本地 dev app 容器 | 只替换 `dist-app/v5-windows-dev/package/` |
 | `pnpm build:app:exe` | 只重建并同步入口 exe 到已存在的 package | 替换 `dist-app/v5-windows/package/<entry>.exe` |
-| `pnpm build:app:exe:dev` | 只重建并同步 dev 入口 exe 到已存在的 package | 替换 `dist-app/v5-windows-dev/package/<entry>.exe` |
-| `pnpm apps:stage:v5 -- --app <id>` | 根目录统一 release staging 入口 | 只替换 `apps/<id>/dist-app/v5-windows/package/` |
-| `pnpm apps:stage:v5:dev -- --app <id>` | 根目录统一 dev staging 入口 | 只替换 `apps/<id>/dist-app/v5-windows-dev/package/` |
-| `pnpm apps:sync-exe:v5 -- --app <id>` | 根目录统一入口 exe 同步 | 替换 `apps/<id>/dist-app/v5-windows/package/<entry>.exe` |
-| `pnpm apps:sync-exe:v5:dev -- --app <id>` | 根目录统一 dev 入口 exe 同步 | 替换 `apps/<id>/dist-app/v5-windows-dev/package/<entry>.exe` |
-| `pnpm apps:package:v5 -- --app <id>` | 从同一 staging 容器的 `package/` 生成正式 zip 和 catalog | `.tmp/dist-v5-apps/` |
+| `pnpm build:app:exe:dev` | 只重建并同步 dev 入口 exe | 替换 `dist-app/v5-windows-dev/package/<entry>.exe` |
+| `pnpm build:app:package` | 生成商店 zip（协议目录 `dist/`） | 商店包 zip |
+| `pnpm apps:version:check` / `pnpm apps:bump` | 版本校验 / 递增 | 五处版本文件 |
+
+协议动作（从主仓库执行）：
+
+| 命令 | 作用 |
+|---|---|
+| `node .fast-window-dev-protocol/fast-window-dev-tool.mjs <id> stage-dev` | 中央调度应用装配动作 |
+| `node .fast-window-dev-protocol/fast-window-dev-tool.mjs <id> package release` | 应用产出成品，中央执行发布（凭据读主仓库 `.env`） |
 
 ### 推荐工作流
 
@@ -155,39 +161,25 @@ pnpm --dir apps/<app-id> build:app:exe
 pnpm --dir apps/<app-id> build:app:exe:dev
 ```
 
-正式发布前生成 zip 和 catalog：
+正式发布（应用产出成品，中央执行发布；凭据读主仓库 `.fast-window-dev-protocol/.env`）：
 
 ```powershell
-pnpm apps:package:v5 -- --app <app-id>
+node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> package release
 ```
 
 ### 架构
 
-```mermaid
-flowchart TD
-    A[fw-app.json + fw-app.build.json] --> B[统一 staging 核心]
-    B --> C[选择 profile]
-    C --> P{profile}
-    P -->|release| R[执行 profiles.release.build]
-    P -->|dev| V[执行 profiles.dev.build]
-    R --> D[复制 profiles.release.files]
-    V --> M[复制 profiles.dev.files]
-    M --> E[生成 fw-app.json]
-    D --> E[生成 fw-app.json]
-    E --> F[校验对应 package 目录]
-
-    F --> G[build:app]
-    G --> H[本地注册 package 内入口 exe]
-
-    K --> N[宿主安装到 apps/app-id/package]
-    N --> O[宿主更新只替换 package]
-    O -.不触碰.-> Q[apps/app-id/data]
-
-    C --> I[build:app:exe]
-    I --> J[只替换 dist-app/v5-windows/package 入口 exe]
-
-    F --> K[apps:package:v5]
-    K --> L[只从 package 压 zip / sha256 / catalog]
+```text
+fw-app.json（协议目录） + fw-app.build.json
+        │
+        ▼
+应用内 staging 核心（scripts/lib）
+        │ 选择 profile → 执行构建命令 → 复制文件映射 → 生成运行清单
+        ▼
+dist-app/v5-windows[-dev]/package/    （本地注册容器，装配只替换 package/）
+        │
+        ▼
+应用内打包 CLI → 商店 zip（协议目录 dist/）→ 中央 release 模式发布
 ```
 
 ### 约束
@@ -195,20 +187,16 @@ flowchart TD
 - `build:app:exe` 要求对应 staging 容器 `package/` 里的 `fw-app.json` 与当前 `fw-app.json` + `fw-app.build.json` 生成结果一致；不一致时必须先跑完整 `build:app` 或 `build:app:dev`。
 - `build:app:exe` / `build:app:exe:dev` 只同步 `package.windowsExecutable` 对应的文件，不同步资源和 manifest。
 - 如果 app 正在运行导致 Windows 锁定 exe，命令应失败；先停止 app，再重新执行。
-- 新 v5 App 必须提供单份 `fw-app.json`（身份、展示与运行声明）与 `fw-app.build.json`（构建规则），并接入 `build:app` / `build:app:dev` / `build:app:exe` / `build:app:exe:dev`。
+- 新 v5 App 必须提供单份 `fw-app.json`（位于协议目录）与 `fw-app.build.json`（构建规则），并接入 `build:app` / `build:app:dev` / `build:app:exe` / `build:app:exe:dev`。
+- 应用侧不注册发布动作、不持有发布逻辑与凭据；发布由中央工具 release 模式完成。
 - 正式发布不得绕过 staging 容器；zip 必须从 `dist-app/v5-windows/package/` 复制生成，严禁包含 `dist-app/v5-windows/data/`。
 
 ### 新 App 接入清单
 
-- 在 `apps/<app-id>/fw-app.json` 声明 `package.windowsExecutable`、`package.icon`、`displayMode`、`commands`；应用身份与展示只在这份清单里维护。
-- 在 `apps/<app-id>/fw-app.build.json` 声明 `profiles.release`、`profiles.dev`（构建命令、staging 目录与文件映射）。
-- 在 `apps/<app-id>/package.json` 增加：
-  - `"build:app": "node ../../scripts/stage-v5-app.mjs"`
-  - `"build:app:dev": "node ../../scripts/stage-v5-app.mjs --profile dev"`
-  - `"build:app:exe": "node ../../scripts/sync-v5-app-exe.mjs"`
-  - `"build:app:exe:dev": "node ../../scripts/sync-v5-app-exe.mjs --profile dev"`
-- 确保每个 `profiles.<profile>.files` 中都有一条 `to` 等于 `package.windowsExecutable` 的入口 exe 映射。
-- 确保 `commands` 与 app 运行时上报的 available commands 保持一致。
+按应用协议体系接入（复制模板 + 收编构建链 + 注册动作），详见：
+
+- `.fast-window-dev-protocol/app-template/README.md`（接入步骤）
+- 参考实现：`apps/ai-draw/`
 
 ## 验收命令
 

@@ -1,6 +1,6 @@
 # Fast Window
 
-一个基于 **Tauri v2 + React + Vite** 的桌面小工具宿主，支持通过 `plugins/` 目录加载/打包内置插件。
+一个基于 **Tauri v2 + React + Vite** 的桌面宿主平台：管理并联动多个 v5 应用（桌面类 / 服务类），兼容内置插件体系。
 
 ## 插件商店（GitHub 分发）
 
@@ -129,13 +129,16 @@ pnpm tauri build
 
 ## v5 App 开发
 
-- v5 App 标准样板、构建链路、注册目录、快速同步 exe、正式打包：见 `apps/v5-reference-app-go/README.md`
+应用采用协议体系自治开发（应用内协议目录 + 内部构建链），平台统一调度与发布：
+
+- 协议体系总览：`.fast-window-dev-protocol/README.md`
+- 新应用接入指引：`.fast-window-dev-protocol/app-template/README.md`
+- 标准样板与命令说明：`apps/v5-reference-app-go/README.md`
 - 完整本地可注册目录：`apps/<app-id>/dist-app/v5-windows/`
-- 本地完整生成：`pnpm --dir apps/<app-id> build:app`
-- 本地 dev 版完整生成：`pnpm --dir apps/<app-id> build:app:dev`
-- 只替换已存在注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe`
-- 只替换已存在 dev 注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe:dev`
-- 正式打包：`pnpm apps:package:v5 -- --app <app-id>`
+- 本地完整生成：`pnpm --dir apps/<app-id> build:app` / `pnpm --dir apps/<app-id> build:app:dev`
+- 只替换已存在注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe` / `build:app:exe:dev`
+- 中央调度应用动作：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> <动作>`
+- 发布（应用产出成品，中央执行发布）：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> package release`
 
 ### 宿主快捷命令与 App 能力 API
 
