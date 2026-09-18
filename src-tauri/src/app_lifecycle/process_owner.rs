@@ -116,7 +116,7 @@ mod platform {
     use windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
         InitializeProcThreadAttributeList, ResumeThread, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+        WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
         EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
         PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES,
         STARTUPINFOEXW,
@@ -209,13 +209,19 @@ mod platform {
         };
 
         unsafe {
+            // 托管应用统一静默启动：宿主无控制台，创建控制台类子进程（如服务应用）
+            // 时若缺 CREATE_NO_WINDOW，系统会自动为其分配控制台窗口；应用日志经
+            // stdout/stderr 管道收集，不依赖控制台。
             CreateProcessW(
                 PCWSTR(app_name.as_ptr()),
                 Some(PWSTR(command_line.as_mut_ptr())),
                 None,
                 None,
                 true,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
+                EXTENDED_STARTUPINFO_PRESENT
+                    | CREATE_UNICODE_ENVIRONMENT
+                    | CREATE_NO_WINDOW
+                    | CREATE_SUSPENDED,
                 Some(env_ptr),
                 PCWSTR(current_dir.as_ptr()),
                 (&startup_info.StartupInfo as *const _) as *const _,
