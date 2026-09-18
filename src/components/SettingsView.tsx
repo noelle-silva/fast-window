@@ -185,7 +185,6 @@ type PluginManageItem = {
   version: string
   description: string
   icon?: string
-  autoUpdateEnabled: boolean
 }
 
 const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
@@ -416,15 +415,13 @@ export default function SettingsView(props: {
   async function loadPluginManage() {
     setPluginManageLoading(true)
     try {
-      const [ids, disabledRaw, autoUpdateIds, iconOverrides] = await Promise.all([
+      const [ids, disabledRaw, iconOverrides] = await Promise.all([
         invoke<string[]>('list_plugins').catch(() => [] as string[]),
         invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(() => null),
-        invoke<string[]>('get_plugins_auto_update_enabled').catch(() => [] as string[]),
         invoke<Record<string, string>>('get_plugin_icon_overrides').catch(() => ({} as Record<string, string>)),
       ])
       const disabledIds = normalizeStringList(disabledRaw)
       const uniqueDisabledIds = Array.from(new Set(disabledIds))
-      const autoUpdateSet = new Set(autoUpdateIds)
 
       const manifests = await Promise.all(ids.map(async (id): Promise<PluginManageItem | null> => {
         const pluginId = String(id || '').trim()
@@ -437,14 +434,12 @@ export default function SettingsView(props: {
           const description = typeof m?.description === 'string' ? m.description : ''
           const rawIcon = typeof m?.icon === 'string' ? m.icon.trim() : ''
           const resolvedIcon = iconOverrides[pluginId] || (await resolvePluginIcon(pluginId, rawIcon))
-          const autoUpdateEnabled = autoUpdateSet.has(pluginId)
           return {
             id: pluginId,
             name: name || pluginId,
             version: version || '-',
             description,
             icon: resolvedIcon || undefined,
-            autoUpdateEnabled,
           }
         } catch (e) {
           console.warn('[plugin-manage] failed to read manifest:', pluginId, e)
@@ -455,7 +450,6 @@ export default function SettingsView(props: {
             version: '-',
             description: '',
             icon: resolvedIcon || undefined,
-            autoUpdateEnabled: false,
           }
         }
       }))
@@ -483,54 +477,6 @@ export default function SettingsView(props: {
       setPluginManageDisabledIds(next)
       window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
       toast(disabled ? '插件已禁用' : '插件已启用')
-    } catch (e: any) {
-      toast(String(e?.message || e || '设置失败'))
-      await loadPluginManage()
-    } finally {
-      setPluginManageSavingId('')
-    }
-  }
-
-  async function setPluginAutoUpdateEnabled(pluginId: string, enabled: boolean) {
-    const id = String(pluginId || '').trim()
-    if (!id) return
-    if (pluginManageSavingId) return
-    setPluginManageSavingId(id)
-    try {
-      await invoke('set_plugin_auto_update_enabled', { pluginId: id, enabled })
-      setPluginManageList(prev =>
-        prev.map(p => (p.id === id ? { ...p, autoUpdateEnabled: enabled } : p)),
-      )
-      toast(enabled ? '已开启自动更新' : '已关闭自动更新')
-    } catch (e: any) {
-      toast(String(e?.message || e || '设置失败'))
-      await loadPluginManage()
-    } finally {
-      setPluginManageSavingId('')
-    }
-  }
-
-  async function enableAllAutoUpdates() {
-    if (pluginManageSavingId) return
-    if (pluginManageLoading) return
-    if (pluginManageList.length === 0) {
-      toast('未发现任何插件')
-      return
-    }
-
-    const pending = pluginManageList.filter(p => !p.autoUpdateEnabled).map(p => p.id)
-    if (pending.length === 0) {
-      toast('已全部开启自动更新')
-      return
-    }
-
-    setPluginManageSavingId('__bulk__')
-    try {
-      for (const pluginId of pending) {
-        await invoke('set_plugin_auto_update_enabled', { pluginId, enabled: true })
-      }
-      setPluginManageList(prev => prev.map(p => ({ ...p, autoUpdateEnabled: true })))
-      toast('已全部开启自动更新')
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
       await loadPluginManage()
@@ -1197,21 +1143,8 @@ export default function SettingsView(props: {
                 <Typography variant="caption" color="text.secondary">
                   禁用后插件不会出现在主页，也不会启动后台（如有）。
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  自动更新：启动时检查商店版本，有新版本会自动下载并安装（权限声明变化会跳过，需要手动更新确认）。
-                </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  sx={hostButtonSx}
-                  onClick={() => void enableAllAutoUpdates()}
-                  disabled={pluginManageLoading || !!pluginManageSavingId || pluginManageList.length === 0}
-                  aria-label="一键全部开启自动更新"
-                >
-                  全部开启自动更新
-                </Button>
                 <Button
                   size="small"
                   variant="text"
@@ -1280,19 +1213,6 @@ export default function SettingsView(props: {
                     </Box>
 
                     <Stack direction="column" spacing={0} sx={{ alignItems: 'flex-end' }}>
-                      <FormControlLabel
-                        sx={{ m: 0 }}
-                        control={
-                          <Switch
-                            size="small"
-                            checked={p.autoUpdateEnabled}
-                            disabled={busy || pluginManageLoading || !!pluginManageSavingId}
-                            onChange={e => void setPluginAutoUpdateEnabled(p.id, e.target.checked)}
-                            inputProps={{ 'aria-label': `自动更新 ${p.name}` }}
-                          />
-                        }
-                        label="自动更新"
-                      />
                       <FormControlLabel
                         sx={{ m: 0 }}
                         control={

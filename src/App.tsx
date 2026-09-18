@@ -132,11 +132,11 @@ function App() {
   const {
     plugins, allPlugins, setAllPlugins, pluginsDir,
     pluginRejected, browseLayout, loading, refreshingId,
-    allPluginsRef, autoUpdateStartedRef,
+    allPluginsRef,
     loadPlugins, reloadPlugins, refreshPlugin,
     persistPluginOrder, toggleBrowseLayout,
     changePluginIcon, resetPluginIcon, uninstallPlugin,
-    autoUpdatePlugins, loadBrowseLayout,
+    loadBrowseLayout,
   } = pluginCtx
 
   // Registered Apps (v5)
@@ -252,13 +252,6 @@ function App() {
     window.addEventListener(HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT, onSettingsChanged)
     return () => window.removeEventListener(HOST_AUTO_UPDATE_CHECK_SETTINGS_CHANGED_EVENT, onSettingsChanged)
   }, [])
-
-  useEffect(() => {
-    if (autoUpdateStartedRef.current) return
-    if (loading) return
-    autoUpdateStartedRef.current = true
-    void autoUpdatePlugins()
-  }, [loading, autoUpdatePlugins, autoUpdateStartedRef])
 
   // Wallpaper change listener
   useEffect(() => {

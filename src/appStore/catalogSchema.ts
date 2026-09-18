@@ -1,8 +1,6 @@
 import type { AppDisplayMode, RegisteredAppShortcut } from '../apps/types'
 import { parseSemverStrict } from './semver'
 import type {
-  LegacyPluginStoreEntry,
-  LegacyPluginStoreIconRef,
   HostUpdateEntry,
   StoreAppEntry,
   StoreCatalog,
@@ -74,19 +72,6 @@ function parseImageIcon(value: unknown, field: string): StoreImageIconRef {
     return { type, dataUrl }
   }
   throw new Error(`${field}.type must be url | data`)
-}
-
-function parseLegacyPluginIcon(value: unknown, field: string): LegacyPluginStoreIconRef | undefined {
-  if (value === undefined) return undefined
-  if (!isPlainObject(value)) throw new Error(`${field} must be an icon object`)
-  const type = text(value.type, `${field}.type`)
-  if (type === 'emoji') {
-    const emoji = text(value.value, `${field}.value`)
-    if (emoji.length > 8) throw new Error(`${field}.value is too long`)
-    return { type, value: emoji }
-  }
-  if (type === 'url' || type === 'data') return parseImageIcon(value, field)
-  throw new Error(`${field}.type is unsupported`)
 }
 
 function parseCommandIcon(value: unknown, field: string): string | undefined {
@@ -169,43 +154,13 @@ function parseAppEntry(value: unknown, index: number): StoreAppEntry {
   }
 }
 
-function parseRequires(value: unknown, field: string): string[] {
-  if (value === undefined) return []
-  if (!Array.isArray(value)) throw new Error(`${field} must be an array`)
-  const out: string[] = []
-  for (const [index, item] of value.entries()) {
-    const cap = text(item, `${field}[${index}]`)
-    if (cap.length > 256 || cap.includes('\n') || cap.includes('\r')) throw new Error(`${field}[${index}] is invalid`)
-    out.push(cap)
-  }
-  out.sort()
-  return out.filter((item, index) => index === 0 || item !== out[index - 1])
-}
-
-function parsePluginEntry(value: unknown, index: number): LegacyPluginStoreEntry {
-  const field = `plugins[${index}]`
-  if (!isPlainObject(value)) throw new Error(`${field} must be an object`)
-  return {
-    id: safeId(value.id, `${field}.id`),
-    name: text(value.name, `${field}.name`),
-    description: text(value.description, `${field}.description`),
-    version: semver(value.version, `${field}.version`),
-    icon: parseLegacyPluginIcon(value.icon, `${field}.icon`),
-    downloadUrl: httpsUrl(value.downloadUrl, `${field}.downloadUrl`),
-    sha256: sha256(value.sha256, `${field}.sha256`),
-    requires: parseRequires(value.requires, `${field}.requires`),
-  }
-}
-
 export function parseStoreCatalog(raw: unknown): StoreCatalog {
   if (!isPlainObject(raw)) throw new Error('store catalog must be an object')
   if (raw.catalogVersion !== 2) throw new Error('unsupported catalogVersion; expected 2')
   if (!Array.isArray(raw.apps)) throw new Error('catalog.apps must be an array')
-  if (!Array.isArray(raw.plugins)) throw new Error('catalog.plugins must be an array')
 
   const generatedAt = raw.generatedAt === undefined ? undefined : text(raw.generatedAt, 'generatedAt')
   const host = parseHostEntry(raw.host, 'host')
   const apps = raw.apps.map(parseAppEntry).sort((a, b) => a.name.localeCompare(b.name))
-  const plugins = raw.plugins.map(parsePluginEntry).sort((a, b) => a.name.localeCompare(b.name))
-  return { catalogVersion: 2, ...(generatedAt ? { generatedAt } : {}), ...(host ? { host } : {}), apps, plugins }
+  return { catalogVersion: 2, ...(generatedAt ? { generatedAt } : {}), ...(host ? { host } : {}), apps }
 }

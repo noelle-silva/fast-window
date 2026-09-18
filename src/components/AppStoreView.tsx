@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import {
   Alert,
   Avatar,
@@ -23,13 +22,11 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { DEFAULT_APP_STORE_CATALOG_URL } from '../constants'
 import { appStoreInstall, appStoreUpdate, getAppsDir, pickAppInstallDir } from '../appStore/appInstaller'
 import { fetchStoreCatalog } from '../appStore/catalogClient'
-import type { LegacyPluginStoreEntry, StoreAppEntry, StoreCatalog } from '../appStore/catalogTypes'
+import type { StoreAppEntry, StoreCatalog } from '../appStore/catalogTypes'
 import { isStoreImageIcon, storeIconToDisplay } from '../appStore/icon'
 import { loadLocalStoreApps, type LocalStoreApp } from '../appStore/localApps'
 import { cmpSemver, parseSemverStrict } from '../appStore/semver'
 import { loadRegistry } from '../apps/appRegistry'
-import { pluginStoreInstall } from '../plugins/pluginStore'
-import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import { hostToast } from '../host/hostPrimitives'
 import HostPageHeader from './HostPageHeader'
 import { hostButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
@@ -39,18 +36,9 @@ type Props = {
   onBack: () => void
 }
 
-type LocalPluginMeta = {
-  versions: Map<string, string>
-  icons: Map<string, string>
-}
+type ConfirmState = { item: StoreAppEntry; action: 'install' | 'update' }
 
-type ConfirmState =
-  | { kind: 'app'; item: StoreAppEntry; action: 'install' | 'update' }
-  | { kind: 'plugin'; item: LegacyPluginStoreEntry; action: 'install' | 'update' }
-
-type BusyState =
-  | { kind: 'app'; id: string; action: 'install' | 'update' }
-  | { kind: 'plugin'; id: string; action: 'install' | 'update' }
+type BusyState = { id: string; action: 'install' | 'update' }
 
 function toast(message: string) {
   void hostToast(message)
@@ -58,51 +46,6 @@ function toast(message: string) {
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
-}
-
-function isSafeRelPath(path: string): boolean {
-  if (!path) return false
-  if (path.startsWith('/') || path.startsWith('\\')) return false
-  const parts = path.split(/[\\/]+/g)
-  return parts.every(p => p !== '' && p !== '.' && p !== '..')
-}
-
-async function resolveLocalPluginIcon(pluginId: string, icon: unknown): Promise<string> {
-  const raw = typeof icon === 'string' ? icon.trim() : ''
-  if (!raw) return ''
-  if (isDataImageUrl(raw) || isHttpUrl(raw)) return raw
-
-  const path = resolveLocalPluginIconPath(raw)
-  const mime = path && isSafeRelPath(path) ? getPluginAssetMime(path) : ''
-  if (mime) {
-    try {
-      const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
-      return `data:${mime};base64,${b64}`
-    } catch {
-      return ''
-    }
-  }
-
-  return raw.length <= 8 ? raw : ''
-}
-
-async function loadLocalPluginMeta(): Promise<LocalPluginMeta> {
-  const versions = new Map<string, string>()
-  const icons = new Map<string, string>()
-  const ids = await invoke<string[]>('list_plugins').catch(() => [] as string[])
-  for (const id of ids) {
-    const pluginId = String(id || '').trim()
-    if (!pluginId) continue
-    try {
-      const manifestText = await invoke<string>('read_plugin_file', { pluginId, path: 'manifest.json' })
-      const m = JSON.parse(manifestText || '{}') as any
-      const version = typeof m?.version === 'string' ? m.version.trim() : ''
-      if (version) versions.set(pluginId, version)
-      const icon = await resolveLocalPluginIcon(pluginId, m?.icon)
-      if (icon) icons.set(pluginId, icon)
-    } catch {}
-  }
-  return { versions, icons }
 }
 
 function installedVersion(recordVersion: string | undefined): string {
@@ -127,7 +70,6 @@ export default function AppStoreView(props: Props) {
 
   const [catalog, setCatalog] = useState<StoreCatalog | null>(null)
   const [localApps, setLocalApps] = useState<Map<string, LocalStoreApp>>(new Map())
-  const [localPlugins, setLocalPlugins] = useState<LocalPluginMeta>({ versions: new Map(), icons: new Map() })
   const [defaultAppsDir, setDefaultAppsDir] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -143,14 +85,12 @@ export default function AppStoreView(props: Props) {
   }, [])
 
   const refreshLocalState = useCallback(async (storeIds: readonly string[]) => {
-    const [apps, pluginMeta, appsDir] = await Promise.all([
+    const [apps, appsDir] = await Promise.all([
       loadRegistry(),
-      loadLocalPluginMeta(),
       getAppsDir().catch(() => ''),
     ])
     const localStoreApps = await loadLocalStoreApps(storeIds, apps)
     setLocalApps(localStoreApps)
-    setLocalPlugins(pluginMeta)
     setDefaultAppsDir(appsDir)
   }, [])
 
@@ -187,7 +127,7 @@ export default function AppStoreView(props: Props) {
     if (action === 'install') {
       const installDir = await pickAppInstallDir()
       if (!installDir) return
-      setBusy({ kind: 'app', id: item.id, action })
+      setBusy({ id: item.id, action })
       const result = await appStoreInstall({
         url: asset.downloadUrl,
         expectedSha256: asset.sha256,
@@ -200,7 +140,7 @@ export default function AppStoreView(props: Props) {
       return
     }
 
-    setBusy({ kind: 'app', id: item.id, action })
+    setBusy({ id: item.id, action })
     const result = await appStoreUpdate({
       url: asset.downloadUrl,
       expectedSha256: asset.sha256,
@@ -211,30 +151,15 @@ export default function AppStoreView(props: Props) {
     toast(`已更新应用：${item.name}`)
   }
 
-  async function doPluginInstall(item: LegacyPluginStoreEntry, action: 'install' | 'update') {
-    setBusy({ kind: 'plugin', id: item.id, action })
-    const result = await pluginStoreInstall({
-      url: item.downloadUrl,
-      expectedSha256: item.sha256,
-      expectedId: item.id,
-      expectedVersion: item.version,
-      expectedRequires: item.requires || [],
-    })
-    window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
-    if (result.pluginId !== item.id) toast(`警告：安装的插件 ID 为 ${result.pluginId}，与商店条目 ${item.id} 不一致`)
-    toast(action === 'install' ? `已安装插件：${item.name}` : `已更新插件：${item.name}`)
-  }
-
   async function doConfirm() {
     if (!confirm || busy) return
     const current = confirm
     setConfirm(null)
     setError('')
     try {
-      if (current.kind === 'app') await doAppInstall(current.item, current.action)
-      else await doPluginInstall(current.item, current.action)
+      await doAppInstall(current.item, current.action)
       await refreshLocalState((catalog?.apps ?? []).map(item => item.id))
-      if (current.kind === 'app') window.dispatchEvent(new CustomEvent('fast-window:registered-apps-changed'))
+      window.dispatchEvent(new CustomEvent('fast-window:registered-apps-changed'))
     } catch (e: any) {
       setError(String(e?.message || e || '安装失败'))
     } finally {
@@ -263,25 +188,15 @@ export default function AppStoreView(props: Props) {
           {error ? <StoreError message={error} /> : null}
           {loading ? <StoreLoading /> : null}
           {!loading && catalog ? (
-            <>
-              <StoreAppSection
-                items={catalog.apps}
-                localApps={localApps}
-                busy={busy}
-                defaultAppsDir={defaultAppsDir}
-                panelSx={panelSx}
-                surfaceMode={hostAppearance.surfaceMode}
-                onAction={(item, action) => setConfirm({ kind: 'app', item, action })}
-              />
-              <LegacyPluginSection
-                items={catalog.plugins}
-                localPlugins={localPlugins}
-                busy={busy}
-                panelSx={panelSx}
-                surfaceMode={hostAppearance.surfaceMode}
-                onAction={(item, action) => setConfirm({ kind: 'plugin', item, action })}
-              />
-            </>
+            <StoreAppSection
+              items={catalog.apps}
+              localApps={localApps}
+              busy={busy}
+              defaultAppsDir={defaultAppsDir}
+              panelSx={panelSx}
+              surfaceMode={hostAppearance.surfaceMode}
+              onAction={(item, action) => setConfirm({ item, action })}
+            />
           ) : null}
         </Stack>
       </Box>
@@ -332,7 +247,7 @@ function StoreAppSection(props: {
             const compare = localVersion ? compareVersions(item.version, localVersion) : null
             const needsUpdate = !!local && (!localVersion || compare == null || compare > 0)
             const action: 'install' | 'update' | 'none' = !local ? 'install' : needsUpdate ? 'update' : 'none'
-            const busyThis = busy?.kind === 'app' && busy.id === item.id
+            const busyThis = busy?.id === item.id
             const icon = storeIconToDisplay(item.icon)
             const display = iconDisplay(icon, (item.name || item.id).slice(0, 1) || 'A')
             const versionText = !local
@@ -353,63 +268,6 @@ function StoreAppSection(props: {
                 action={action}
                 actionText={busyThis ? (action === 'install' ? '安装中' : '更新中') : (action === 'install' ? '安装' : '更新')}
                 doneText={local ? '已是最新' : '已安装'}
-                busy={busyThis}
-                disabled={!!busy}
-                surfaceMode={surfaceMode}
-                onAction={() => action !== 'none' && onAction(item, action)}
-              />
-            )
-          })}
-        </StoreGrid>
-      )}
-    </Box>
-  )
-}
-
-function LegacyPluginSection(props: {
-  items: LegacyPluginStoreEntry[]
-  localPlugins: LocalPluginMeta
-  busy: BusyState | null
-  panelSx: (theme: any) => any
-  surfaceMode: HostSurfaceMode
-  onAction: (item: LegacyPluginStoreEntry, action: 'install' | 'update') => void
-}) {
-  const { items, localPlugins, busy, panelSx, surfaceMode, onAction } = props
-  return (
-    <Box sx={panelSx}>
-      <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>Legacy v2 插件（{items.length}）</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
-        旧插件继续走 v2 iframe 插件安装器，与 v5 独立应用安装机制分离。
-      </Typography>
-      {items.length === 0 ? <EmptyText text="catalog.plugins 中未发现有效条目" /> : (
-        <StoreGrid>
-          {items.map(item => {
-            const localVersion = localPlugins.versions.get(item.id) || ''
-            const installed = !!localVersion
-            const compare = installed ? compareVersions(item.version, localVersion) : null
-            const needsUpdate = installed && (!localVersion || compare == null || compare > 0)
-            const action: 'install' | 'update' | 'none' = !installed ? 'install' : needsUpdate ? 'update' : 'none'
-            const busyThis = busy?.kind === 'plugin' && busy.id === item.id
-            const icon = storeIconToDisplay(item.icon) || localPlugins.icons.get(item.id) || ''
-            const display = iconDisplay(icon, (item.name || item.id).slice(0, 1) || 'P')
-            const versionText = !installed
-              ? item.version
-              : needsUpdate
-                ? `${localVersion || '未知'} → ${item.version}`
-                : localVersion
-            return (
-              <StoreListItem
-                key={item.id}
-                id={item.id}
-                name={item.name}
-                description={item.description}
-                versionText={versionText}
-                iconSrc={display.src}
-                iconText={display.text}
-                badge="v2 plugin"
-                action={action}
-                actionText={busyThis ? (action === 'install' ? '安装中' : '更新中') : (action === 'install' ? '安装' : '更新')}
-                doneText="已是最新"
                 busy={busyThis}
                 disabled={!!busy}
                 surfaceMode={surfaceMode}
@@ -502,8 +360,7 @@ function ConfirmDialog(props: {
   onConfirm: () => void
 }) {
   const { confirm, busy, onClose, onConfirm } = props
-  const isApp = confirm?.kind === 'app'
-  const title = confirm?.action === 'install' ? (isApp ? '安装 v5 应用' : '安装 legacy 插件') : (isApp ? '更新 v5 应用' : '更新 legacy 插件')
+  const title = confirm?.action === 'install' ? '安装 v5 应用' : '更新 v5 应用'
   const name = confirm?.item.name || ''
   const id = confirm?.item.id || ''
   const version = confirm?.item.version || ''
@@ -515,10 +372,10 @@ function ConfirmDialog(props: {
           <>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>{name}（{id}）</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>版本：{version}</Typography>
-            {isApp && confirm.action === 'install' ? (
+            {confirm.action === 'install' ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>下一步会弹出目录选择窗口，安装成功后自动注册到 v5 应用列表。</Typography>
             ) : null}
-            {isApp && confirm.action === 'update' ? (
+            {confirm.action === 'update' ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>更新会使用已注册应用的安装目录，并在替换文件前停止正在运行的应用。</Typography>
             ) : null}
           </>

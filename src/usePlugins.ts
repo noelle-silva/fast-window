@@ -3,15 +3,10 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Plugin, PluginBrowseLayout } from './constants'
 import {
   APP_STORAGE_ID, PLUGIN_ORDER_KEY, DISABLED_PLUGINS_KEY, PLUGIN_BROWSE_LAYOUT_KEY,
-  PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS,
-  DEFAULT_APP_STORE_CATALOG_URL, MAX_AUTO_UPDATE_PER_RUN,
 } from './constants'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
-import { pluginStoreInstall } from './plugins/pluginStore'
-import { fetchStoreCatalog } from './appStore/catalogClient'
-import { parseSemverStrict, cmpSemver } from './appStore/semver'
 import {
-  normalizeCapabilityList, normalizeDisabledPlugins, normalizeOrder, normalizeBrowseLayout,
+  normalizeDisabledPlugins, normalizeOrder, normalizeBrowseLayout,
   applyPluginOrder,
 } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
@@ -35,7 +30,6 @@ export function usePlugins(toast: ToastFn) {
   const [loading, setLoading] = useState(true)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const allPluginsRef = useRef<Plugin[]>([])
-  const autoUpdateStartedRef = useRef(false)
 
   const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
     setLoading(true)
@@ -204,83 +198,6 @@ export function usePlugins(toast: ToastFn) {
     return result
   }, [loadPlugins])
 
-  const autoUpdatePlugins = useCallback(async () => {
-    const enabledRaw = await invoke<string[]>('get_plugins_auto_update_enabled').catch(() => [] as string[])
-    const enabledIds = Array.from(new Set(enabledRaw.map(x => String(x || '').trim()).filter(Boolean)))
-    if (enabledIds.length === 0) return
-
-    const now = Date.now()
-    const lastRaw = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY }).catch(() => null)
-    const lastMs = typeof lastRaw === 'number' && Number.isFinite(lastRaw) ? lastRaw : 0
-    if (now - lastMs < PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS) return
-
-    let catalog: Awaited<ReturnType<typeof fetchStoreCatalog>> | null = null
-    try {
-      catalog = await fetchStoreCatalog(DEFAULT_APP_STORE_CATALOG_URL, 15_000)
-    } catch (e) {
-      console.warn('[auto-update] failed to load app store catalog:', e)
-      return
-    } finally {
-      void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, value: now }).catch(() => {})
-    }
-
-    if (!catalog) return
-    const remoteById = new Map(catalog.plugins.map(p => [p.id, p]))
-
-    let updated = 0
-    let skippedPermChanged = 0
-    let failed = 0
-
-    for (const pluginId of enabledIds) {
-      if (updated >= MAX_AUTO_UPDATE_PER_RUN) break
-      const remote = remoteById.get(pluginId)
-      if (!remote) continue
-
-      const localPlugin = allPluginsRef.current.find(p => p.id === pluginId) || null
-      const localManifest = localPlugin?.manifest
-      const localVersion = typeof localManifest?.version === 'string' ? localManifest.version.trim() : ''
-      const remoteVersion = remote.version
-
-      const localSemver = parseSemverStrict(localVersion)
-      const remoteSemver = parseSemverStrict(remoteVersion)
-      if (!localSemver || !remoteSemver) continue
-      if (cmpSemver(remoteSemver, localSemver) <= 0) continue
-
-      const localRequires = normalizeCapabilityList(localManifest?.requires)
-      const remoteRequires = normalizeCapabilityList(remote.requires)
-      if (JSON.stringify(localRequires) !== JSON.stringify(remoteRequires)) {
-        skippedPermChanged += 1
-        continue
-      }
-
-      try {
-        await pluginStoreInstall({
-          url: remote.downloadUrl,
-          expectedSha256: remote.sha256,
-          expectedId: remote.id,
-          expectedVersion: remote.version,
-          expectedRequires: remoteRequires,
-        })
-        updated += 1
-      } catch (e) {
-        failed += 1
-        console.warn('[auto-update] failed:', pluginId, e)
-      }
-    }
-
-    if (updated > 0) {
-      window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
-    }
-
-    const parts: string[] = []
-    if (updated > 0) parts.push(`已自动更新 ${updated} 个插件`)
-    if (skippedPermChanged > 0) parts.push(`${skippedPermChanged} 个插件因权限变化已跳过（请到商店手动更新确认）`)
-    if (failed > 0) parts.push(`${failed} 个插件更新失败`)
-    if (parts.length) {
-      toast(`自动更新：${parts.join('；')}`)
-    }
-  }, [toast])
-
   // Load browse layout preference
   const loadBrowseLayout = useCallback(async () => {
     try {
@@ -298,7 +215,6 @@ export function usePlugins(toast: ToastFn) {
     loading,
     refreshingId,
     allPluginsRef,
-    autoUpdateStartedRef,
     loadPlugins,
     reloadPlugins,
     refreshPlugin,
@@ -307,7 +223,6 @@ export function usePlugins(toast: ToastFn) {
     changePluginIcon,
     resetPluginIcon,
     uninstallPlugin,
-    autoUpdatePlugins,
     loadBrowseLayout,
   }
 }
