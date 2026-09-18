@@ -80,7 +80,7 @@ use crate::plugin_files::{
 use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 use crate::plugins::{
     get_data_dir, get_plugins_dir, install_plugin_files, list_plugins, open_data_dir,
-    open_data_root_dir, open_plugins_dir, plugin_dev_sync, read_plugin_file,
+    open_data_root_dir, open_plugins_dir, read_plugin_file,
     read_plugin_file_base64, read_plugins_dir,
 };
 use crate::sqlite_gateway::{
@@ -2513,7 +2513,6 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 fn main() {
     let builder = app::builder_base().invoke_handler(tauri::generate_handler![
         get_plugins_dir,
-        plugin_dev_sync,
         get_data_dir,
         get_wallpaper_settings,
         set_wallpaper_settings,

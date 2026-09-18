@@ -1,12 +1,8 @@
-#[cfg(debug_assertions)]
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-#[cfg(debug_assertions)]
-const DEV_SYNC_UNINSTALLED_PLUGINS_KEY: &str = "pluginDevSyncUninstalled";
 const PLUGIN_ORDER_KEY: &str = "pluginOrder";
 const DISABLED_PLUGINS_KEY: &str = "disabledPlugins";
 
@@ -192,60 +188,6 @@ fn remove_plugin_data(app: &tauri::AppHandle, plugin_id: &str) -> Vec<String> {
     warnings
 }
 
-#[cfg(debug_assertions)]
-pub(crate) fn dev_sync_uninstalled_plugin_ids(app: &tauri::AppHandle) -> BTreeSet<String> {
-    let Ok(vp) =
-        crate::storage_value_path(app, crate::APP_STORAGE_ID, DEV_SYNC_UNINSTALLED_PLUGINS_KEY)
-    else {
-        return BTreeSet::new();
-    };
-    if !vp.is_file() {
-        return BTreeSet::new();
-    }
-
-    let Ok(Value::Array(items)) = crate::read_json_value(&vp) else {
-        return BTreeSet::new();
-    };
-    items
-        .into_iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .filter(|id| crate::is_safe_id(id))
-        .collect()
-}
-
-#[cfg(debug_assertions)]
-fn write_dev_sync_uninstalled_plugin_ids(
-    app: &tauri::AppHandle,
-    ids: &BTreeSet<String>,
-) -> Result<(), String> {
-    let vp =
-        crate::storage_value_path(app, crate::APP_STORAGE_ID, DEV_SYNC_UNINSTALLED_PLUGINS_KEY)?;
-    let value = Value::Array(ids.iter().cloned().map(Value::String).collect());
-    crate::write_json_value(&vp, &value)
-}
-
-#[cfg(debug_assertions)]
-fn remember_dev_sync_uninstalled_plugin(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-) -> Result<(), String> {
-    let mut ids = dev_sync_uninstalled_plugin_ids(app);
-    ids.insert(plugin_id.to_string());
-    write_dev_sync_uninstalled_plugin_ids(app, &ids)
-}
-
-#[cfg(debug_assertions)]
-pub(crate) fn forget_dev_sync_uninstalled_plugin(app: &tauri::AppHandle, plugin_id: &str) {
-    let mut ids = dev_sync_uninstalled_plugin_ids(app);
-    if !ids.remove(plugin_id) {
-        return;
-    }
-    let _ = write_dev_sync_uninstalled_plugin_ids(app, &ids);
-}
-
-#[cfg(not(debug_assertions))]
-pub(crate) fn forget_dev_sync_uninstalled_plugin(_app: &tauri::AppHandle, _plugin_id: &str) {}
-
 #[tauri::command]
 pub(crate) fn uninstall_plugin(
     app: tauri::AppHandle,
@@ -256,9 +198,6 @@ pub(crate) fn uninstall_plugin(
     if !crate::is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-
-    #[cfg(debug_assertions)]
-    remember_dev_sync_uninstalled_plugin(&app, &plugin_id)?;
 
     let mut warnings = remove_plugin_dir(&app, &plugin_id)?;
     warnings.extend(cleanup_uninstalled_plugin_metadata(

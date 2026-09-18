@@ -34,9 +34,6 @@ export function usePlugins(toast: ToastFn) {
   const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
     setLoading(true)
     try {
-      await invoke('plugin_dev_sync').catch(error => {
-        console.warn('[plugin] dev sync failed:', error)
-      })
       const dir = await invoke<string>('get_plugins_dir')
       setPluginsDir(dir)
       console.log('Plugins directory:', dir)
@@ -90,9 +87,6 @@ export function usePlugins(toast: ToastFn) {
 
     setRefreshingId(plugin.id)
     try {
-      await invoke('plugin_dev_sync').catch(error => {
-        console.warn('[plugin] dev sync failed:', error)
-      })
       const dir = await invoke<string>('get_plugins_dir').catch(() => '')
       if (dir) setPluginsDir(dir)
 
