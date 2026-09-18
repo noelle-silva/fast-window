@@ -442,6 +442,7 @@ export async function buildV5AppPackage(config, opts) {
       stageDir: staged.stageDir,
       manifest: staged.manifest,
       catalogEntry: {
+        type: config.type,
         id: config.id,
         name: config.name,
         description: config.description,

@@ -57,6 +57,7 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
   const tag = `v${manifest.id}-${version}`
   const downloadUrl = `https://github.com/${options.owner}/${options.repo}/releases/download/${tag}/${artifact.fileName}`
   const catalogEntry = {
+    type: manifest.type,
     id: manifest.id,
     name: manifest.name,
     description: manifest.description,
@@ -147,6 +148,7 @@ function manifestFacts(manifest) {
     return { id: commandId, title }
   })
   return {
+    type,
     id,
     name,
     description,

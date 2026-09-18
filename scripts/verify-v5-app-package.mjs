@@ -191,6 +191,7 @@ async function validateCatalog(catalogPath, appId, manifest, zipPath, options = 
   if (entries.length !== 1) throw new Error(`catalog.apps 必须有且只能有一个 ${appId} 条目，实际数量: ${entries.length}`)
   const entry = entries[0]
   if (entry.version !== manifest.version) throw new Error(`catalog version 与 fw-app version 不一致: ${entry.version} != ${manifest.version}`)
+  if (entry.type !== manifest.type) throw new Error(`catalog 条目 type 与 fw-app 不一致: ${entry.type || '(empty)'} != ${manifest.type}`)
   if (!entry.platforms || typeof entry.platforms !== 'object') throw new Error('catalog app platforms 缺失')
   const win = entry.platforms.windows
   if (!win || typeof win !== 'object') throw new Error('catalog app platforms.windows 缺失')

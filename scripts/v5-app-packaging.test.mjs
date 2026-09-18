@@ -213,6 +213,7 @@ test('package zip is built from package only and excludes container data', async
     assert(entries.some(entry => entry.endsWith('/fw-app.json')))
     assert(entries.some(entry => entry.endsWith('/fake.exe')))
     assert(!entries.some(entry => entry.includes('/data/')))
+    assert.equal(result.catalogEntry.type, 'desktop-app')
     assert.equal(result.catalogEntry.icon.type, 'data')
     assert(result.catalogEntry.icon.dataUrl.startsWith('data:image/svg+xml;base64,'))
     assert.equal(await fs.readFile(dataFile, 'utf8'), 'do not ship')
@@ -299,6 +300,7 @@ test('store catalog rebuild preserves host metadata when upserting apps', () => 
     plugins: [{ id: 'z-plugin', name: 'Z Plugin' }, { id: 'a-plugin', name: 'A Plugin' }],
   }
   const next = upsertStoreApp(catalog, {
+    type: 'desktop-app',
     id: 'a-app',
     name: 'A App',
     description: 'new app',
@@ -310,6 +312,7 @@ test('store catalog rebuild preserves host metadata when upserting apps', () => 
   assert.deepEqual(next.host, host)
   assert.equal(next.generatedAt, '2026-05-02T00:00:00.000Z')
   assert.deepEqual(next.apps.map(app => app.id), ['a-app', 'z-app'])
+  assert.equal(next.apps.find(app => app.id === 'a-app')?.type, 'desktop-app')
   assert.deepEqual(next.plugins.map(plugin => plugin.id), ['a-plugin', 'z-plugin'])
 })
 
