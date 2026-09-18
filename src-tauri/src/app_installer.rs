@@ -20,6 +20,8 @@ use crate::{
     open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, safe_relative_path, to_hex_lower,
 };
 
+mod legacy;
+
 const FW_APP_MANIFEST: &str = "fw-app.json";
 const APP_PACKAGE_MAX_ZIP_BYTES: usize = 200 * 1024 * 1024;
 const APP_PACKAGE_MAX_EXTRACT_BYTES: usize = 500 * 1024 * 1024;
@@ -145,12 +147,20 @@ struct ExtractedAppPackage {
     manifest: AppPackageManifest,
 }
 
+/// 已安装清单的读取结果。旧形态来源走兼容校验（一次性迁移通道，见 legacy 模块）。
+struct InstalledManifest {
+    manifest: AppPackageManifest,
+    legacy: bool,
+}
+
 struct ResolvedInstalledApp {
     app_container: PathBuf,
     manifest_dir: PathBuf,
     executable_relative: PathBuf,
     exe_path: PathBuf,
     manifest: AppPackageManifest,
+    /// 旧形态来源（一次性迁移通道）：校验与图标解析走兼容降级。
+    legacy: bool,
 }
 
 struct RegisteredInstalledApp {
@@ -413,6 +423,19 @@ fn validate_manifest_against_self(
     Ok((id, version))
 }
 
+/// 已安装清单身份校验：当前形态走严格全量校验；旧形态只要求基础身份成立
+/// （一次性迁移通道，见 legacy 模块）。
+fn validate_installed_manifest_identity(
+    manifest: &AppPackageManifest,
+    legacy: bool,
+) -> Result<(String, String), String> {
+    if legacy {
+        legacy::validate_legacy_manifest_identity(manifest)
+    } else {
+        validate_manifest_against_self(manifest)
+    }
+}
+
 fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInstalledApp>, String> {
     if !exe_path.is_file() {
         return Err(format!("应用文件不存在: {}", exe_path.display()));
@@ -426,8 +449,14 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
     loop {
         let manifest_path = dir.join(FW_APP_MANIFEST);
         if manifest_path.is_file() {
-            let manifest = read_installed_manifest(&manifest_path)?;
-            validate_manifest_against_self(&manifest)?;
+            let InstalledManifest { manifest, legacy } =
+                read_installed_manifest(&manifest_path)?;
+            validate_installed_manifest_identity(&manifest, legacy)?;
+            if legacy {
+                legacy::validate_legacy_entry_file(&dir, &manifest)?;
+            } else {
+                validate_extracted_app(&dir, &manifest)?;
+            }
             let executable_relative =
                 safe_relative_path_no_curdir(&manifest.package.windows_executable)?;
             let declared_exe = dir.join(&executable_relative);
@@ -436,7 +465,6 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
                     "所选应用文件不是 fw-app.json 声明的 windowsExecutable，拒绝注册".to_string(),
                 );
             }
-            validate_extracted_app(&dir, &manifest)?;
             let app_container = crate::app_layout::app_container_dir_from_manifest_dir(&dir)?;
             return Ok(Some(ResolvedInstalledApp {
                 app_container,
@@ -444,6 +472,7 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
                 executable_relative,
                 exe_path: declared_exe,
                 manifest,
+                legacy,
             }));
         }
         if !dir.pop() {
@@ -472,17 +501,14 @@ pub(crate) fn resolve_installed_service_app(
 }
 
 fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppInfo, String> {
-    let (id, version) = validate_manifest_against_self(&installed.manifest)?;
+    let (id, version) =
+        validate_installed_manifest_identity(&installed.manifest, installed.legacy)?;
     Ok(InstalledAppInfo {
         id,
         name: installed.manifest.name.trim().to_string(),
         version,
         path: installed.exe_path.to_string_lossy().to_string(),
-        icon: resolve_app_icon(
-            &installed.manifest,
-            &installed.manifest_dir,
-            &installed.exe_path,
-        )?,
+        icon: resolve_installed_app_icon(installed)?,
         app_kind: installed.manifest.app_type.as_str().to_string(),
         display_mode: installed
             .manifest
@@ -539,7 +565,9 @@ fn find_registered_app_by_store_id(
     Ok(matches.pop())
 }
 
-fn read_installed_manifest(path: &Path) -> Result<AppPackageManifest, String> {
+/// 读取已安装清单：先按当前形态解析，失败时经旧形态兼容归一化
+/// （一次性迁移通道，见 legacy 模块）。
+fn read_installed_manifest(path: &Path) -> Result<InstalledManifest, String> {
     let metadata =
         std::fs::metadata(path).map_err(|e| format!("读取已安装 fw-app.json 失败: {e}"))?;
     if metadata.len() > APP_MANIFEST_MAX_BYTES {
@@ -547,7 +575,29 @@ fn read_installed_manifest(path: &Path) -> Result<AppPackageManifest, String> {
     }
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("读取已安装 fw-app.json 失败: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("已安装 fw-app.json 解析失败: {e}"))
+    match serde_json::from_str::<AppPackageManifest>(&text) {
+        Ok(manifest) => Ok(InstalledManifest {
+            manifest,
+            legacy: false,
+        }),
+        Err(current_error) => {
+            let manifest_dir = path
+                .parent()
+                .ok_or_else(|| "已安装 fw-app.json 没有父目录".to_string())?;
+            match legacy::parse_legacy_installed_manifest(&text, manifest_dir) {
+                legacy::LegacyParseOutcome::Manifest(manifest) => Ok(InstalledManifest {
+                    manifest: *manifest,
+                    legacy: true,
+                }),
+                legacy::LegacyParseOutcome::Broken(error) => {
+                    Err(format!("已安装 fw-app.json 解析失败（旧形态）: {error}"))
+                }
+                legacy::LegacyParseOutcome::NotLegacy => {
+                    Err(format!("已安装 fw-app.json 解析失败: {current_error}"))
+                }
+            }
+        }
+    }
 }
 
 async fn download_and_extract_app_package(
@@ -1011,6 +1061,22 @@ fn build_registered_app_record(
     Value::Object(record)
 }
 
+fn resolve_installed_app_icon(installed: &ResolvedInstalledApp) -> Result<String, String> {
+    match resolve_app_icon(
+        &installed.manifest,
+        &installed.manifest_dir,
+        &installed.exe_path,
+    ) {
+        Ok(icon) => Ok(icon),
+        Err(error) if installed.legacy => {
+            // 一次性迁移通道：历史包图标提取失败不阻断识别，界面按名称回退。
+            eprintln!("[app-installer] 旧形态应用图标解析失败，降级为空图标: {error}");
+            Ok(String::new())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn resolve_app_icon(
     manifest: &AppPackageManifest,
     app_root: &Path,
@@ -1289,6 +1355,271 @@ mod tests {
         let app = resolve_installed_service_app(&exe_path).expect("解析服务应用失败");
 
         assert!(app.is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 旧形态（一次性迁移通道）单测夹具：扁平清单 + demo-app.exe。
+    fn write_legacy_test_package(root: &Path, manifest: &str) -> (PathBuf, PathBuf) {
+        let package_dir = root.join("demo-app").join("package");
+        std::fs::create_dir_all(&package_dir).expect("创建测试目录失败");
+        std::fs::write(package_dir.join(FW_APP_MANIFEST), manifest).expect("写入清单失败");
+        let exe_path = package_dir.join("demo-app.exe");
+        std::fs::write(&exe_path, b"").expect("写入可执行文件失败");
+        (package_dir, exe_path)
+    }
+
+    #[test]
+    fn legacy_flat_manifest_is_rejected_by_install_validation() {
+        let error = serde_json::from_str::<AppPackageManifest>(
+            r#"{
+                "id": "demo-app",
+                "name": "demo-app",
+                "version": "0.1.0",
+                "windowsExecutable": "demo-app.exe"
+            }"#,
+        )
+        .err()
+        .expect("旧形态不属于安装校验的新形态")
+        .to_string();
+
+        assert!(error.contains("type"), "{error}");
+    }
+
+    #[test]
+    fn resolves_legacy_installed_app_info() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-info-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "0.1.0",
+                "windowsExecutable": "demo-app.exe",
+                "icon": "D",
+                "displayMode": "window",
+                "commands": [{ "id": "open", "title": "Open" }]
+            }"#,
+        );
+
+        let info = resolve_installed_app_info(&exe_path)
+            .expect("解析旧形态应用失败")
+            .expect("旧形态应用应被识别为已安装");
+
+        assert_eq!(info.id, "demo-app");
+        assert_eq!(info.name, "Demo App");
+        assert_eq!(info.version, "0.1.0");
+        assert_eq!(info.app_kind, "desktop-app");
+        assert_eq!(info.display_mode, "window");
+        assert_eq!(info.icon, "D");
+        assert_eq!(info.commands.len(), 1);
+        assert_eq!(info.path, exe_path.to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reads_current_manifest_without_legacy_channel() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-current-reader-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (package_dir, _exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "0.1.0",
+                "package": { "windowsExecutable": "demo-app.exe" }
+            }"#,
+        );
+
+        let installed =
+            read_installed_manifest(&package_dir.join(FW_APP_MANIFEST)).expect("读取清单失败");
+
+        assert!(!installed.legacy);
+        assert_eq!(installed.manifest.id, "demo-app");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolves_legacy_installed_service_app() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-service-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "windowsExecutable": "demo-app.exe",
+                "service": "fw-app.service.json"
+            }"#,
+        );
+        std::fs::write(
+            package_dir.join("fw-app.service.json"),
+            r#"{
+                "start": { "executable": "demo-app.exe" },
+                "ready": { "type": "log", "match": "is ready" },
+                "stop": { "type": "terminate" }
+            }"#,
+        )
+        .expect("写入服务声明失败");
+
+        let app = resolve_installed_service_app(&exe_path)
+            .expect("解析旧形态服务应用失败")
+            .expect("旧形态服务应用应解析出声明");
+
+        assert_eq!(app.declaration.ready_match, "is ready");
+        assert_eq!(app.executable_path, exe_path);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_service_manifest_without_declaration_is_still_installed() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-service-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "windowsExecutable": "demo-app.exe",
+                "service": "fw-app.service.json"
+            }"#,
+        );
+
+        let info = resolve_installed_app_info(&exe_path)
+            .expect("解析旧形态服务应用失败")
+            .expect("声明缺失时仍应识别为已安装");
+
+        assert_eq!(info.app_kind, "service-app");
+        assert!(resolve_installed_service_app(&exe_path)
+            .expect("定位服务应用失败")
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_legacy_installed_app_with_broken_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-broken-identity-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "v1.0",
+                "windowsExecutable": "demo-app.exe"
+            }"#,
+        );
+
+        let error = resolve_installed_app_info(&exe_path)
+            .err()
+            .expect("应拒绝旧形态应用");
+
+        assert!(error.contains("x.y.z"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_legacy_installed_app_when_declared_entry_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-entry-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "0.1.0",
+                "windowsExecutable": "other.exe"
+            }"#,
+        );
+
+        let error = resolve_installed_app_info(&exe_path)
+            .err()
+            .expect("应拒绝旧形态应用");
+
+        assert!(error.contains("应用入口文件不存在"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn locates_legacy_installed_app_from_registered_record() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-record-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "0.1.0",
+                "windowsExecutable": "demo-app.exe"
+            }"#,
+        );
+        let record = serde_json::json!({
+            "id": "demo-app",
+            "path": exe_path.to_string_lossy(),
+            "hotkey": "Alt+A"
+        });
+
+        let located =
+            registered_record_as_installed_app(record).expect("定位旧形态已注册应用失败");
+
+        assert_eq!(located.registry_id, "demo-app");
+        assert_eq!(located.installed.manifest.id, "demo-app");
+        assert!(located.installed.legacy);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn broken_legacy_manifest_reports_legacy_parse_error() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-legacy-broken-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_legacy_test_package(
+            &root,
+            r#"{ "windowsExecutable": "demo-app.exe", "id": "demo-app" }"#,
+        );
+
+        let error = resolve_installed_app_info(&exe_path)
+            .err()
+            .expect("应拒绝旧形态应用");
+
+        assert!(
+            error.starts_with("已安装 fw-app.json 解析失败（旧形态）"),
+            "{error}"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
