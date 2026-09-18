@@ -24,7 +24,7 @@ const createBreakawayFromJobFlag uint32 = 0x01000000
 //   - attached（挂载在 App 进程树下）：启动后立即挂上 KILL_ON_JOB_CLOSE Job，
 //     与 sidecar 同生共死——sidecar 退出（含被杀）时 Job 关闭，整棵进程树被系统回收。
 //
-// 命令环境一律使用 freshEnv()（操作系统原始环境块），不携带任何 App 私有污染。
+// 命令环境一律使用 freshEnv()（当前会话环境过滤 App 私有污染），与外部终端一致。
 func (svc *service) launchInNewConsole(cmd command, repo repo, plan runPlan) error {
 	scriptPath, err := svc.writeScriptFile(cmd, plan.shell)
 	if err != nil {
@@ -45,7 +45,7 @@ func (svc *service) launchInNewConsole(cmd command, repo repo, plan runPlan) err
 	}
 	wrapperCmd := exec.Command("cmd.exe", flag, wrapperPath)
 	// wrapper 脚本内已内联全部路径字面量（不再读 CR_* 环境变量），
-	// cmd.exe 直接拿操作系统原始环境块，命令进程环境绝对纯净。
+	// cmd.exe 直接拿当前会话净化环境，命令进程与外部终端一致。
 	wrapperCmd.Env = freshEnv()
 	// NoInheritHandles 必须为 true：后端自身 stdout 被宿主接管为管道，
 	// 若不显式断开继承，cmd 会把全部输出（含 banner 与提示符）写进管道，

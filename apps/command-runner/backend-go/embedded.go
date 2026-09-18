@@ -171,7 +171,7 @@ func (svc *service) startEmbeddedProcess(cmdItem command, target repo, plan runP
 
 	cmd := exec.Command(plan.shell.exePath, buildEmbeddedArgs(plan.shell, scriptPath, target.Path)...)
 	cmd.Dir = target.Path
-	// 内置空间环境同样绝对纯净：使用操作系统原始环境块，不携带任何 App 私有污染。
+	// 内置空间环境同样使用当前会话净化环境，不携带任何 App 私有污染。
 	cmd.Env = freshEnv()
 	hideEmbeddedProcess(cmd)
 

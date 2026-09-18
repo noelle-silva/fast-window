@@ -58,7 +58,7 @@ func TestEmbeddedRunPristineEnv(t *testing.T) {
 	joined := strings.Join(output, "\n")
 	fmt.Printf("=== embedded env dump (first 60 lines) ===\n%s\n", truncate(joined, 60))
 
-	for _, forbidden := range []string{"FW_APP_", "CR_", "ELECTRON_"} {
+	for _, forbidden := range []string{"FW_", "CR_", "ELECTRON_"} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("embedded env leaked %s pollution:\n%s", forbidden, truncate(joined, 30))
 		}
