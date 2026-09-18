@@ -1,4 +1,4 @@
-import type { AppDisplayMode, RegisteredAppShortcut } from '../apps/types'
+import type { AppDisplayMode, AppKind, RegisteredAppShortcut } from '../apps/types'
 
 export type StoreImageIconRef =
   | { type: 'url'; url: string }
@@ -24,6 +24,7 @@ export interface HostUpdateEntry {
 }
 
 export interface StoreAppEntry {
+  type: AppKind
   id: string
   name: string
   description: string

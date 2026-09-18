@@ -169,6 +169,7 @@ export default function AppStoreView(props: Props) {
 
   const hostAppearance = useHostAppearance()
   const panelSx = hostSurfaceSx(hostAppearance.surfaceMode)
+  const { desktop: desktopApps, service: serviceApps } = splitAppsByType(catalog?.apps ?? [])
 
   return (
     <Box sx={hostPageRootSx}>
@@ -188,15 +189,32 @@ export default function AppStoreView(props: Props) {
           {error ? <StoreError message={error} /> : null}
           {loading ? <StoreLoading /> : null}
           {!loading && catalog ? (
-            <StoreAppSection
-              items={catalog.apps}
-              localApps={localApps}
-              busy={busy}
-              defaultAppsDir={defaultAppsDir}
-              panelSx={panelSx}
-              surfaceMode={hostAppearance.surfaceMode}
-              onAction={(item, action) => setConfirm({ item, action })}
-            />
+            <>
+              <StoreAppSection
+                title="桌面应用"
+                badge="桌面"
+                note={`初次安装会选择安装目录，默认位置：${defaultAppsDir || 'apps'}；已注册应用会直接更新。`}
+                emptyText="暂无桌面应用"
+                items={desktopApps}
+                localApps={localApps}
+                busy={busy}
+                panelSx={panelSx}
+                surfaceMode={hostAppearance.surfaceMode}
+                onAction={(item, action) => setConfirm({ item, action })}
+              />
+              {serviceApps.length > 0 ? (
+                <StoreAppSection
+                  title="服务应用"
+                  badge="服务"
+                  items={serviceApps}
+                  localApps={localApps}
+                  busy={busy}
+                  panelSx={panelSx}
+                  surfaceMode={hostAppearance.surfaceMode}
+                  onAction={(item, action) => setConfirm({ item, action })}
+                />
+              ) : null}
+            </>
           ) : null}
         </Stack>
       </Box>
@@ -224,22 +242,27 @@ function StoreLoading() {
 }
 
 function StoreAppSection(props: {
+  title: string
+  badge: string
+  note?: string
+  emptyText?: string
   items: StoreAppEntry[]
   localApps: Map<string, LocalStoreApp>
   busy: BusyState | null
-  defaultAppsDir: string
   panelSx: (theme: any) => any
   surfaceMode: HostSurfaceMode
   onAction: (item: StoreAppEntry, action: 'install' | 'update') => void
 }) {
-  const { items, localApps, busy, defaultAppsDir, panelSx, surfaceMode, onAction } = props
+  const { title, badge, note, emptyText, items, localApps, busy, panelSx, surfaceMode, onAction } = props
   return (
     <Box sx={panelSx}>
-      <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>v5 应用（{items.length}）</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
-        初次安装会选择安装目录，默认位置：{defaultAppsDir || 'apps'}；已注册应用会直接更新。
-      </Typography>
-      {items.length === 0 ? <EmptyText text="catalog.apps 中未发现有效条目" /> : (
+      <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>{title}（{items.length}）</Typography>
+      {note ? (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
+          {note}
+        </Typography>
+      ) : null}
+      {items.length === 0 ? (emptyText ? <EmptyText text={emptyText} /> : null) : (
         <StoreGrid>
           {items.map(item => {
             const local = localApps.get(item.id)
@@ -264,7 +287,7 @@ function StoreAppSection(props: {
                 versionText={versionText}
                 iconSrc={display.src}
                 iconText={display.text}
-                badge="v5 app"
+                badge={badge}
                 action={action}
                 actionText={busyThis ? (action === 'install' ? '安装中' : '更新中') : (action === 'install' ? '安装' : '更新')}
                 doneText={local ? '已是最新' : '已安装'}
@@ -347,6 +370,16 @@ function StoreListItem(props: {
       />
     </ListItem>
   )
+}
+
+function splitAppsByType(apps: StoreAppEntry[]): { desktop: StoreAppEntry[]; service: StoreAppEntry[] } {
+  const desktop: StoreAppEntry[] = []
+  const service: StoreAppEntry[] = []
+  for (const item of apps) {
+    if (item.type === 'service-app') service.push(item)
+    else desktop.push(item)
+  }
+  return { desktop, service }
 }
 
 function EmptyText({ text }: { text: string }) {

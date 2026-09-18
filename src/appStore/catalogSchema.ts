@@ -1,4 +1,4 @@
-import type { AppDisplayMode, RegisteredAppShortcut } from '../apps/types'
+import type { AppDisplayMode, AppKind, RegisteredAppShortcut } from '../apps/types'
 import { parseSemverStrict } from './semver'
 import type {
   HostUpdateEntry,
@@ -54,6 +54,14 @@ function optionalDisplayMode(value: unknown, field: string): AppDisplayMode | un
   if (value === undefined) return undefined
   if (value === 'default' || value === 'window' || value === 'top') return value
   throw new Error(`${field} must be default | window | top`)
+}
+
+function appKind(value: unknown, field: string): AppKind {
+  // 历史条目没有 type 字段，按桌面应用兼容处理。
+  if (value === undefined) return 'desktop-app'
+  const kind = text(value, field)
+  if (kind === 'desktop-app' || kind === 'service-app') return kind
+  throw new Error(`${field} must be desktop-app | service-app`)
 }
 
 function optionalSizeBytes(value: unknown, field: string): number | undefined {
@@ -141,6 +149,7 @@ function parseAppEntry(value: unknown, index: number): StoreAppEntry {
   if (!isPlainObject(value)) throw new Error(`${field} must be an object`)
   if (!isPlainObject(value.platforms)) throw new Error(`${field}.platforms must be an object`)
   return {
+    type: appKind(value.type, `${field}.type`),
     id: safeId(value.id, `${field}.id`),
     name: text(value.name, `${field}.name`),
     description: text(value.description, `${field}.description`),
