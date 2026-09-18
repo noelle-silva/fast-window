@@ -13,7 +13,12 @@
       "icons/icon.png",
       "icons/icon.ico",
       "icons/icon.icns"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "template": "./wix/main.wxs"
+      }
+    }
   },
   "build": {
     "beforeDevCommand": "npm run dev",
