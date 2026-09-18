@@ -116,7 +116,7 @@ pnpm run plugins:publish:download -- --all
 - `requires`：能力申请列表（**必填**；未声明的能力调用会被宿主拒绝）
 - `ui.type`：目前仅支持 `iframe`（**必填**；沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
 - `ui.keepAlive`：是否保活 UI（可选；默认 `false`）。开启后返回主界面时不卸载 iframe，再次打开可秒开并保留状态（代价是占用内存/可能继续跑定时器）。
-- （已废弃）`allowOverwriteOnUpdate`：旧版用于记录“允许随包覆盖更新”的宿主偏好；新版不再读取/写入该字段（偏好由宿主独立配置文件保存，见下文“目录与数据”）。当前宿主的相关偏好是“插件自动更新”。
+- （已废弃）`allowOverwriteOnUpdate`：旧版用于记录“允许随包覆盖更新”的宿主偏好；新版不再读取/写入该字段（偏好由宿主独立配置文件保存，见下文“目录与数据”）。
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
   - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
@@ -291,11 +291,10 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
-- 正式版（release/MSI）：宿主不再随包预置任何插件；插件通过商店下载到 `<数据根>/plugins/`。
+- 正式版（release/MSI）：宿主不再随包预置任何插件；插件通过本地导入安装到 `<数据根>/plugins/`。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
-- 插件自动更新偏好（宿主侧）：`data/__app/plugins-auto-update.json`（JSON 对象：`{ "<pluginId>": true }`；默认关闭；开启后宿主启动时会检查商店是否有新版本，有则自动下载并安装；若插件 `requires` 变化则跳过，需要手动更新确认）。
 - 插件存储：推荐使用 Tauri 官方 store 插件（`plugin:store|*`）落盘 JSON（插件侧常用路径：`plugins/<pluginId>.json`；宿主实际落盘：`data/<pluginId>/<pluginId>.json`）。
 - 插件文件（宿主网关，`plugin_files_*`）：
   - 插件通过 `tauri:plugin_files_*` 读写文件；请求里带 `scope` 与相对路径。
