@@ -408,8 +408,20 @@ test('repository apps expose single-source fw-app.json plus fw-app.build.json', 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const appDir = path.join(appsDir, entry.name)
-    const manifestPath = path.join(appDir, 'fw-app.json')
-    if (!(await exists(manifestPath))) continue
+    const buildPath = path.join(appDir, 'fw-app.build.json')
+    if (!(await exists(buildPath))) continue
+    const manifestCandidates = [
+      path.join(appDir, 'fw-app.json'),
+      path.join(appDir, '.fast-window-dev-protocol', 'fw-app.json'),
+    ]
+    let manifestPath = ''
+    for (const candidate of manifestCandidates) {
+      if (await exists(candidate)) {
+        manifestPath = candidate
+        break
+      }
+    }
+    if (manifestPath === '') continue
     const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
     const config = normalizeV5AppManifest(manifest, {
       appDir,
@@ -417,8 +429,8 @@ test('repository apps expose single-source fw-app.json plus fw-app.build.json', 
       manifestPath,
     })
     const buildConfig = normalizeV5AppBuildConfig(
-      JSON.parse(await fs.readFile(path.join(appDir, 'fw-app.build.json'), 'utf8')),
-      { buildPath: path.join(appDir, 'fw-app.build.json') },
+      JSON.parse(await fs.readFile(buildPath, 'utf8')),
+      { buildPath },
     )
     assert.equal(config.type, 'desktop-app')
     for (const profile of Object.values(buildConfig.profiles)) {
