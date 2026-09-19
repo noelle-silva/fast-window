@@ -12,7 +12,7 @@ pub const ASSETS_DIR: &str = "assets";
 pub const ICON_ASSETS_DIR: &str = "icons";
 pub const WALLPAPER_ASSETS_DIR: &str = "wallpapers";
 
-const SUPPORTED_IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "ico", "svg"];
+pub const SUPPORTED_IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "ico", "svg"];
 const MAX_ICON_ASSET_BYTES: usize = 12 * 1024 * 1024;
 const MAX_DATA_URL_CHARS: usize = 24 * 1024 * 1024;
 

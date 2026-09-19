@@ -77,6 +77,17 @@ async fn pick_data_dir(
 }
 
 #[tauri::command]
+fn pick_image_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择图片")
+            .add_filter("图片", &collections::assets::SUPPORTED_IMAGE_EXTS)
+            .pick_file()
+    })?
+    .map(|path| path.display().to_string()))
+}
+
+#[tauri::command]
 async fn restart_backend(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
@@ -145,6 +156,7 @@ fn main() {
             backend_endpoint,
             data_dir_status,
             pick_data_dir,
+            pick_image_path,
             restart_backend,
             hide_to_tray,
             app_ready,
