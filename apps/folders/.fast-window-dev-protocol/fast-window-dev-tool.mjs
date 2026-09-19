@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -111,16 +112,13 @@ function parseActions(raw) {
 
 function parseActionDefinition(name, value) {
   if (typeof value === 'string') {
-    return { command: value, artifact: {}, storePackage: false }
+    return { command: value, artifact: {}, store: disabledStorePackage() }
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`解析协议文件失败：动作 ${name} 必须是命令字符串或对象`)
   }
   if (value.command !== undefined && typeof value.command !== 'string') {
     throw new Error(`解析协议文件失败：动作 ${name} 的 command 必须是字符串`)
-  }
-  if (value.storePackage !== undefined && typeof value.storePackage !== 'boolean') {
-    throw new Error(`解析协议文件失败：动作 ${name} 的 storePackage 必须是布尔值`)
   }
   const artifact = {}
   if (value.artifact !== undefined && value.artifact !== null) {
@@ -134,7 +132,39 @@ function parseActionDefinition(name, value) {
       artifact[field] = sourcePath
     }
   }
-  return { command: value.command ?? '', artifact, storePackage: value.storePackage === true }
+  return { command: value.command ?? '', artifact, store: parseStorePackage(name, value.storePackage) }
+}
+
+function disabledStorePackage() {
+  return { enabled: false, form: 'archive', outDir: storePackageDirName }
+}
+
+// storePackage 声明三种形态：true（默认压缩包 + 产出区 dist）、false/缺省（不加工）、
+// 对象 { form, outDir }（形态可选压缩包/散装，落点可自定义相对或绝对路径）。
+function parseStorePackage(name, value) {
+  if (value === undefined || value === null || value === false) {
+    return disabledStorePackage()
+  }
+  if (value === true) {
+    return { enabled: true, form: 'archive', outDir: storePackageDirName }
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`解析协议文件失败：动作 ${name} 的 storePackage 必须是布尔值或对象`)
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'form' && key !== 'outDir') {
+      throw new Error(`解析协议文件失败：动作 ${name} 的 storePackage 不支持的字段 ${key}`)
+    }
+  }
+  const form = value.form === undefined ? 'archive' : String(value.form).trim()
+  if (form !== 'archive' && form !== 'exploded') {
+    throw new Error(`解析协议文件失败：动作 ${name} 的 storePackage.form 必须是 archive 或 exploded`)
+  }
+  const outDir = value.outDir === undefined ? storePackageDirName : String(value.outDir).trim()
+  if (outDir === '') {
+    throw new Error(`解析协议文件失败：动作 ${name} 的 storePackage.outDir 不能为空`)
+  }
+  return { enabled: true, form, outDir }
 }
 
 async function executeAction(args) {
@@ -169,9 +199,9 @@ async function executeAction(args) {
     return failureReceipt(action, error)
   }
 
-  if (definition.storePackage && exitCode === 0) {
+  if (definition.store.enabled && exitCode === 0) {
     try {
-      artifact = buildStorePackage(toolDir, artifact)
+      artifact = buildStorePackage(toolDir, artifact, definition.store)
     } catch (error) {
       return failureReceipt(action, error)
     }
@@ -278,10 +308,19 @@ function valueAtPath(root, dotted) {
   return current
 }
 
-// buildStorePackage 把基础成品包加工成商店包：解包后写入商店清单与图标，再重打包到协议目录的产出区。
+// 商店包内图标落点：图标统一改放包内 assets 目录、只保留文件名（商店形态唯一规则）。
+function storeIconPackagePath(iconRelative) {
+  return path.posix.join(storeIconDirName, path.posix.basename(String(iconRelative)))
+}
+
+// buildStorePackage 把基础成品包加工成商店包：解包后写入商店清单与图标，再按形态落到产出区。
 // 商店清单由协议目录内手写的 fw-app.json 转换而来：补具体版本、图标改包内基准，其余字段原样内联。
-function buildStorePackage(protocolDir, artifact) {
+// 形态与落点来自动作声明：archive 打成压缩包（默认），exploded 散装铺进落点目录（覆盖同名文件、
+// 保留目录内其他内容）；相对落点按协议目录解析，绝对落点原样使用。
+function buildStorePackage(protocolDir, artifact, store = {}) {
   const dir = path.resolve(protocolDir)
+  const form = store.form === 'exploded' ? 'exploded' : 'archive'
+  const outDir = path.resolve(dir, String(store.outDir ?? storePackageDirName))
   const sourcePathValue = typeof artifact.path === 'string' ? artifact.path.trim() : ''
   if (sourcePathValue === '') {
     throw new Error('商店化需要成品路径：命令输出没有提供 artifact.path')
@@ -306,12 +345,15 @@ function buildStorePackage(protocolDir, artifact) {
   const tempDir = mkdtempSync(path.join(tmpdir(), 'fast-window-dev-store-'))
   try {
     unpackZip(sourcePath, tempDir)
-    const iconTarget = path.posix.join(storeIconDirName, path.posix.basename(iconRelative))
+    const iconTarget = storeIconPackagePath(iconRelative)
     copyFileInto(path.join(tempDir, iconTarget), iconSource)
     writeStoreManifest(tempDir, manifest, { version, executable, icon: iconTarget })
-    const distDir = path.join(dir, storePackageDirName)
-    mkdirSync(distDir, { recursive: true })
-    const targetPath = path.join(distDir, path.basename(sourcePath))
+    if (form === 'exploded') {
+      overlayCopyTree(tempDir, outDir)
+      return { path: outDir, name: path.basename(outDir) }
+    }
+    mkdirSync(outDir, { recursive: true })
+    const targetPath = path.join(outDir, path.basename(sourcePath))
     packZipDirectory(tempDir, targetPath)
     return {
       path: targetPath,
@@ -320,6 +362,29 @@ function buildStorePackage(protocolDir, artifact) {
     }
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
+  }
+}
+
+function overlayCopyTree(sourceDir, targetDir) {
+  if (existsSync(targetDir) && !statSync(targetDir).isDirectory()) {
+    throw new Error(`散装商店包落点不是目录：${targetDir}`)
+  }
+  mkdirSync(targetDir, { recursive: true })
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const source = path.join(sourceDir, entry.name)
+    const target = path.join(targetDir, entry.name)
+    if (entry.isDirectory()) {
+      overlayCopyTree(source, target)
+      continue
+    }
+    if (!entry.isFile()) {
+      continue
+    }
+    try {
+      copyFileSync(source, target)
+    } catch (error) {
+      throw new Error(`写入散装商店包失败：${target}（${error.message}）`)
+    }
   }
 }
 
@@ -719,4 +784,4 @@ if (isDirectRun) {
   await main()
 }
 
-export { buildStorePackage, packZipDirectory, unpackZip }
+export { buildStorePackage, packZipDirectory, storeIconPackagePath, unpackZip }
