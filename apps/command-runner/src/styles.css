@@ -561,6 +561,80 @@ body {
   background: #f3f4f6;
 }
 
+.cr-placeholder-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.cr-placeholder-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cr-placeholder-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cr-placeholder-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  background: #f3f4f6;
+}
+
+.cr-placeholder-item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.cr-placeholder-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cr-placeholder-value-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cr-placeholder-select {
+  display: grid;
+  gap: 8px;
+}
+
+.cr-placeholder-select-row {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.cr-placeholder-ref {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #1976d2;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  justify-self: start;
+}
+
+.cr-quick-run-confirm-placeholders {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+}
+
 .cr-quick-run-failure-list {
   display: grid;
   gap: 6px;

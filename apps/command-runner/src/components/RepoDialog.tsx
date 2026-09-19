@@ -7,7 +7,8 @@ import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
 import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
 import { RunModeSelect } from './RunModeSelect'
-import type { AppSettings, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
+import { PlaceholderEditor } from './PlaceholderEditor'
+import type { AppSettings, CommandRunMode, Placeholder, ProcessOwnership, Repo, RepoDraft, ShellInfo } from '../types'
 
 type RepoDialogProps = {
   title: string
@@ -17,7 +18,7 @@ type RepoDialogProps = {
   settings: AppSettings | null
   disabled?: boolean
   submitting?: boolean
-  onSubmit: (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => Promise<void> | void
+  onSubmit: (draft: RepoDraft) => Promise<void> | void
   onClose: () => void
 }
 
@@ -42,6 +43,7 @@ export function RepoDialog({
   const [countdownSeconds, setCountdownSeconds] = React.useState(initial?.countdownSeconds ?? defaultCountdownSeconds)
   const [runMode, setRunMode] = React.useState<CommandRunMode | ''>(initial?.runMode ?? '')
   const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
+  const [placeholders, setPlaceholders] = React.useState<Placeholder[]>(initial?.placeholders ?? [])
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && path.trim().length > 0 && !disabled && !submitting
 
@@ -59,11 +61,11 @@ export function RepoDialog({
     if (!canSave) return
     setError(null)
     try {
-      await onSubmit({ name: name.trim(), path: path.trim(), shellId, closeMode, countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0, runMode, processOwnership })
+      await onSubmit({ name: name.trim(), path: path.trim(), closeMode, countdownSeconds: closeMode === 'countdown' ? countdownSeconds : 0, runMode, processOwnership, placeholders })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存仓库失败'))
     }
-  }, [canSave, name, path, shellId, closeMode, countdownSeconds, runMode, processOwnership, onSubmit])
+  }, [canSave, name, path, closeMode, countdownSeconds, runMode, processOwnership, placeholders, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -123,6 +125,12 @@ export function RepoDialog({
         />
         <RunModeSelect value={runMode} onChange={setRunMode} includeInherit inheritLabel="跟随全局默认运行模式" effectiveValue={(settings?.defaultRunMode || 'console') as CommandRunMode | ''} label="默认运行模式" disabled={disabled || submitting} />
         <ProcessOwnershipSelect value={processOwnership} onChange={setProcessOwnership} includeInherit inheritLabel="跟随全局默认进程归属" effectiveValue={(settings?.defaultProcessOwnership || 'detached') as ProcessOwnership} label="外部窗口进程归属" disabled={disabled || submitting} />
+        <PlaceholderEditor
+          value={placeholders}
+          disabled={disabled || submitting}
+          hint="仓库级占位符在本仓库的所有命令里都可直接引用；同仓库内不允许与命令级占位符重名。"
+          onChange={setPlaceholders}
+        />
         {error ? <Box component="p" sx={{ margin: 0, color: 'error.main', fontSize: 12 }}>{error}</Box> : null}
         <Box className="cr-form-actions">
           <Button type="button" disabled={submitting} onClick={onClose}>取消</Button>

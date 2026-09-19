@@ -5,7 +5,8 @@ import { CloseModeSelect } from './CloseModeSelect'
 import { ShellSelect } from './ShellSelect'
 import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
 import { RunModeSelect } from './RunModeSelect'
-import type { AppSettings, CommandDraft, CommandItem, CommandRunMode, ProcessOwnership, Repo, ShellInfo } from '../types'
+import { PlaceholderEditor } from './PlaceholderEditor'
+import type { AppSettings, CommandDraft, CommandItem, CommandRunMode, Placeholder, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type CommandDialogProps = {
   repo: Repo
@@ -33,6 +34,7 @@ const EMPTY_DRAFT: CommandDraft = {
   runMode: '',
   processOwnership: '',
   maxEmbeddedRuns: 0,
+  placeholders: [],
 }
 
 export function CommandDialog({
@@ -59,6 +61,7 @@ export function CommandDialog({
   const [processOwnership, setProcessOwnership] = React.useState<ProcessOwnership>(initial?.processOwnership ?? '')
   const [limitEmbeddedRuns, setLimitEmbeddedRuns] = React.useState((initial?.maxEmbeddedRuns ?? 0) > 0)
   const [maxEmbeddedRuns, setMaxEmbeddedRuns] = React.useState(initial && initial.maxEmbeddedRuns > 0 ? initial.maxEmbeddedRuns : 1)
+  const [placeholders, setPlaceholders] = React.useState<Placeholder[]>(initial?.placeholders ?? [])
   const [error, setError] = React.useState<string | null>(null)
   const canSave = name.trim().length > 0 && script.trim().length > 0 && !disabled && !submitting
 
@@ -86,11 +89,12 @@ export function CommandDialog({
         runMode,
         processOwnership,
         maxEmbeddedRuns: limitEmbeddedRuns ? maxEmbeddedRuns : 0,
+        placeholders,
       })
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, limitEmbeddedRuns, maxEmbeddedRuns, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, limitEmbeddedRuns, maxEmbeddedRuns, placeholders, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -140,6 +144,14 @@ export function CommandDialog({
           fullWidth
           multiline
           minRows={2}
+        />
+        <PlaceholderEditor
+          value={placeholders}
+          disabled={disabled || submitting}
+          hint={(repo.placeholders ?? []).length > 0
+            ? `仓库级占位符（本仓库通用，可直接引用）：${repo.placeholders.map(item => `{{${item.name}}}`).join('、')}`
+            : '占位符只属于这条命令；同仓库内不允许与仓库级或其它命令的占位符重名。'}
+          onChange={setPlaceholders}
         />
         <FormControlLabel
           control={<Switch checked={confirmBeforeRun} disabled={disabled || submitting} onChange={event => setConfirmBeforeRun(event.target.checked)} />}

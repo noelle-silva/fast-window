@@ -8,9 +8,12 @@ import type {
   CommandRunMode,
   DirectClient,
   ProcessOwnership,
+  PlaceholderSelection,
   QuickRun,
+  QuickRunPlaceholderSelection,
   QuickRunRunResult,
   Repo,
+  RepoDraft,
   ShellInfo,
 } from './types'
 
@@ -28,8 +31,8 @@ type CommandRunnerData = {
 }
 
 type CommandRunnerActions = {
-  createRepo: (name: string, path: string, closeMode: string, countdownSeconds: number, runMode: CommandRunMode | '', processOwnership: ProcessOwnership) => Promise<void>
-  updateRepo: (id: string, name: string, path: string, closeMode: string, countdownSeconds: number, runMode: CommandRunMode | '', processOwnership: ProcessOwnership) => Promise<void>
+  createRepo: (draft: RepoDraft) => Promise<void>
+  updateRepo: (id: string, draft: RepoDraft) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
   reorderRepos: (orderedIds: string[]) => Promise<void>
   createCommand: (draft: CommandDraft) => Promise<void>
@@ -39,12 +42,12 @@ type CommandRunnerActions = {
   renameFolder: (folderId: string, name: string) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   moveNode: (nodeId: string, targetFolderId: string, index: number) => Promise<void>
-  runCommand: (id: string) => Promise<void>
-  restartRun: (runId: string, commandId: string) => Promise<{ runId?: string }>
+  runCommand: (id: string, placeholderValues?: PlaceholderSelection) => Promise<void>
+  restartRun: (runId: string, commandId: string, placeholderValues?: PlaceholderSelection) => Promise<{ runId?: string }>
   createQuickRun: (name: string, commandIds: string[]) => Promise<void>
   updateQuickRun: (id: string, name: string, commandIds: string[]) => Promise<void>
   deleteQuickRun: (id: string) => Promise<void>
-  runQuickRun: (id: string) => Promise<QuickRunRunResult>
+  runQuickRun: (id: string, placeholderValues?: QuickRunPlaceholderSelection) => Promise<QuickRunRunResult>
   saveSettings: (draft: SettingsDraft) => Promise<void>
   addCustomShell: (name: string, exePath: string, argsTemplate: string) => Promise<void>
   removeCustomShell: (id: string) => Promise<void>
@@ -161,8 +164,8 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
     }
 
     return {
-      createRepo: (name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.create', { name, path, closeMode, countdownSeconds, runMode, processOwnership }),
-      updateRepo: (id, name, path, closeMode, countdownSeconds, runMode, processOwnership) => mutate('commandRunner.repos.update', { id, name, path, closeMode, countdownSeconds, runMode, processOwnership }),
+      createRepo: draft => mutate('commandRunner.repos.create', draft),
+      updateRepo: (id, draft) => mutate('commandRunner.repos.update', { id, draft }),
       deleteRepo: id => mutate('commandRunner.repos.delete', { id }),
       reorderRepos: orderedIds => mutateOrder(
         () => client.request('commandRunner.repos.reorder', { orderedIds }),
@@ -180,15 +183,16 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
           ? { ...current, nodes: moveCollectionNode(current.nodes, nodeId, targetFolderId, index) }
           : current),
       ),
-      runCommand: id => mutate('commandRunner.commands.run', { id }),
+      // 占位符取值只作用于本次运行，服务端不写回命令定义。
+      runCommand: (id, placeholderValues) => mutate('commandRunner.commands.run', { id, placeholderValues }),
       // 重启不改变持久数据：旧实例结束与新实例启动均经运行事件流体现，不触发刷新；
       // 返回新实例标识，供内置空间让新实例接管旧实例的显示位置。
-      restartRun: (runId, commandId) => client.request<{ runId?: string }>('commandRunner.runs.restart', { runId, commandId }),
+      restartRun: (runId, commandId, placeholderValues) => client.request<{ runId?: string }>('commandRunner.runs.restart', { runId, commandId, placeholderValues }),
       createQuickRun: (name, commandIds) => mutate('commandRunner.quickRuns.create', { name, commandIds }),
       updateQuickRun: (id, name, commandIds) => mutate('commandRunner.quickRuns.update', { id, name, commandIds }),
       deleteQuickRun: id => mutate('commandRunner.quickRuns.delete', { id }),
       // 运行不改变数据，直接返回启动结果供界面反馈，不触发刷新。
-      runQuickRun: id => client.request<QuickRunRunResult>('commandRunner.quickRuns.run', { id }),
+      runQuickRun: (id, placeholderValues) => client.request<QuickRunRunResult>('commandRunner.quickRuns.run', { id, placeholderValues }),
       saveSettings: draft => mutate('commandRunner.settings.save', draft),
       addCustomShell: (name, exePath, argsTemplate) =>
         mutate('commandRunner.shells.custom.add', { name, exePath, argsTemplate }),

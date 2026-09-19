@@ -42,6 +42,13 @@ export type ShellInfo = {
   argsTemplate?: string
 }
 
+// Placeholder 是命令脚本中可引用的占位符：名称 + 预先定义的候选值。
+// 运行时由弹窗从候选值中选定，替换脚本里的 {{名称}} 引用。
+export type Placeholder = {
+  name: string
+  values: string[]
+}
+
 export type Repo = {
   id: string
   name: string
@@ -51,7 +58,26 @@ export type Repo = {
   countdownSeconds: number
   runMode: CommandRunMode | ''
   processOwnership: ProcessOwnership
+  // 仓库级占位符：作用域覆盖该仓库全部命令。
+  placeholders: Placeholder[]
   createdAt: string
+}
+
+// PlaceholderSelection 是一次运行的占位符取值：占位符名称 -> 选定值。
+export type PlaceholderSelection = Record<string, string>
+
+// QuickRunPlaceholderSelection 是快捷运行的占位符取值：命令 id -> 该命令的占位符取值。
+export type QuickRunPlaceholderSelection = Record<string, PlaceholderSelection>
+
+// RepoDraft 是仓库创建/更新的提交草案。
+export type RepoDraft = {
+  name: string
+  path: string
+  closeMode: string
+  countdownSeconds: number
+  runMode: CommandRunMode | ''
+  processOwnership: ProcessOwnership
+  placeholders: Placeholder[]
 }
 
 export type CloseMode = 'keep-open' | 'countdown' | 'close-immediately'
@@ -75,6 +101,8 @@ export type CommandItem = {
   processOwnership: ProcessOwnership
   // 内置空间同时运行实例数上限；0 表示不限制。
   maxEmbeddedRuns: number
+  // 命令级占位符：作用域仅限这条命令。
+  placeholders: Placeholder[]
   createdAt: string
   updatedAt: string
 }
@@ -92,6 +120,7 @@ export type CommandDraft = {
   runMode: CommandRunMode | ''
   processOwnership: ProcessOwnership
   maxEmbeddedRuns: number
+  placeholders: Placeholder[]
 }
 
 export type RunEvent = {

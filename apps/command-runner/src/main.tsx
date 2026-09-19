@@ -28,18 +28,20 @@ import { selectRepoCollections } from './collectionsTree'
 import { useFolderNavigation } from './folderNavigation'
 import { useExecutionSpace } from './executionSpace'
 import { commandRunnerTheme } from './theme'
+import { hasCommandPlaceholders } from './placeholders'
 import type {
   CollectionNode,
   CommandDraft,
   CommandItem,
-  CommandRunMode,
   DataDirStatus,
   DirectClient,
   FwLaunchInfo,
-  ProcessOwnership,
+  PlaceholderSelection,
   QuickRun,
+  QuickRunPlaceholderSelection,
   QuickRunRunResult,
   Repo,
+  RepoDraft,
 } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
 import './styles.css'
@@ -308,17 +310,17 @@ function App() {
     }
   }, [controlsDisabled])
 
-  const submitRepoCreate = React.useCallback(async (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => {
+  const submitRepoCreate = React.useCallback(async (draft: RepoDraft) => {
     await wrap(async () => {
-      await actions.createRepo(draft.name, draft.path, draft.closeMode, draft.countdownSeconds, draft.runMode, draft.processOwnership)
+      await actions.createRepo(draft)
     }, '仓库已注册')
   }, [actions.createRepo, wrap])
 
-  const submitRepoEdit = React.useCallback(async (draft: { name: string; path: string; shellId: string; closeMode: string; countdownSeconds: number; runMode: CommandRunMode | ''; processOwnership: ProcessOwnership }) => {
+  const submitRepoEdit = React.useCallback(async (draft: RepoDraft) => {
     const repo = dialog.kind === 'repo-edit' ? dialog.repo : null
     if (!repo) return
     await wrap(async () => {
-      await actions.updateRepo(repo.id, draft.name, draft.path, draft.closeMode, draft.countdownSeconds, draft.runMode, draft.processOwnership)
+      await actions.updateRepo(repo.id, draft)
     }, '仓库已更新')
   }, [actions.updateRepo, dialog, wrap])
 
@@ -400,10 +402,10 @@ function App() {
     }
   }, [actions.removeCustomShell, controlsDisabled])
 
-  const runCommand = React.useCallback(async (command: CommandItem) => {
+  const runCommand = React.useCallback(async (command: CommandItem, placeholderValues?: PlaceholderSelection) => {
     if (controlsDisabled) return
     try {
-      await actions.runCommand(command.id)
+      await actions.runCommand(command.id, placeholderValues)
       setSnack(`「${command.name}」已在独立窗口启动`)
     } catch (e) {
       // 失败向上抛：确认弹窗内展示错误并恢复按钮；直跑路径由 Snackbar 呈现。
@@ -411,21 +413,23 @@ function App() {
     }
   }, [actions.runCommand, controlsDisabled])
 
+  // requestRunCommand 决定启动前是否需要弹窗：开启二次确认、或脚本里存在已注册占位符。
   const requestRunCommand = React.useCallback((command: CommandItem) => {
-    if (command.confirmBeforeRun) {
+    const repo = repos.find(item => item.id === command.repoId) ?? null
+    if (command.confirmBeforeRun || hasCommandPlaceholders(command, repo)) {
       setDialog({ kind: 'confirm-run', command })
       return
     }
     void runCommand(command).catch(e => setSnack(errorMessage(e, '运行命令失败')))
-  }, [runCommand])
+  }, [repos, runCommand])
 
   // performRestartRun 重启一个运行实例：后端确认旧实例彻底结束后才启动新实例；
   // 新实例接管旧卡片在侧边栏中的位置，旧卡片随之退场。
-  const performRestartRun = React.useCallback(async (command: CommandItem, runId: string) => {
+  const performRestartRun = React.useCallback(async (command: CommandItem, runId: string, placeholderValues?: PlaceholderSelection) => {
     setRestartingRunIds(current => new Set(current).add(runId))
     try {
       const anchorIndex = executionSpace.entryIndex(runId)
-      const result = await actions.restartRun(runId, command.id)
+      const result = await actions.restartRun(runId, command.id, placeholderValues)
       executionSpace.handOffEntry(runId, result.runId, anchorIndex)
     } finally {
       setRestartingRunIds(current => {
@@ -442,12 +446,13 @@ function App() {
       setSnack('该命令已被删除，无法重新运行')
       return
     }
-    if (command.confirmBeforeRun) {
+    const repo = repos.find(item => item.id === command.repoId) ?? null
+    if (command.confirmBeforeRun || hasCommandPlaceholders(command, repo)) {
       setDialog({ kind: 'confirm-run', command, restartRunId: runId })
       return
     }
     void performRestartRun(command, runId).catch(e => setSnack(errorMessage(e, '重新运行失败')))
-  }, [commands, performRestartRun])
+  }, [commands, repos, performRestartRun])
 
   const submitQuickRunCreate = React.useCallback(async (name: string, commandIds: string[]) => {
     await wrap(async () => {
@@ -470,8 +475,8 @@ function App() {
   }, [actions.deleteQuickRun, wrap])
 
   // executeQuickRun 启动整组命令并统一反馈：全部成功轻提示；存在失败弹结果窗列出明细。
-  const executeQuickRun = React.useCallback(async (quickRun: QuickRun) => {
-    const result = await actions.runQuickRun(quickRun.id)
+  const executeQuickRun = React.useCallback(async (quickRun: QuickRun, placeholderValues?: QuickRunPlaceholderSelection) => {
+    const result = await actions.runQuickRun(quickRun.id, placeholderValues)
     if (result.failures.length > 0) {
       setDialog({ kind: 'quick-run-result', quickRunName: quickRun.name, result })
     } else {
@@ -480,15 +485,21 @@ function App() {
     }
   }, [actions.runQuickRun])
 
+  // requestQuickRun 决定批量启动前是否需要弹窗：组内存在开启二次确认、或带已注册占位符的命令。
   const requestQuickRun = React.useCallback((quickRun: QuickRun) => {
     const commandById = new Map(commands.map(command => [command.id, command]))
-    const needsConfirm = quickRun.commandIds.some(id => commandById.get(id)?.confirmBeforeRun)
+    const repoById = new Map(repos.map(repo => [repo.id, repo]))
+    const needsConfirm = quickRun.commandIds.some(id => {
+      const command = commandById.get(id)
+      if (!command) return false
+      return command.confirmBeforeRun || hasCommandPlaceholders(command, repoById.get(command.repoId) ?? null)
+    })
     if (needsConfirm) {
       setDialog({ kind: 'quick-run-confirm', quickRun })
       return
     }
     void executeQuickRun(quickRun).catch(e => setSnack(errorMessage(e, '启动快捷运行失败')))
-  }, [commands, executeQuickRun])
+  }, [commands, repos, executeQuickRun])
 
   return (
     <ThemeProvider theme={commandRunnerTheme}>
@@ -763,9 +774,9 @@ function App() {
             shells={shells}
             disabled={controlsDisabled}
             variant={dialog.restartRunId ? 'restart' : 'run'}
-            onConfirm={() => dialog.restartRunId
-              ? performRestartRun(dialog.command, dialog.restartRunId)
-              : runCommand(dialog.command)}
+            onConfirm={placeholderValues => dialog.restartRunId
+              ? performRestartRun(dialog.command, dialog.restartRunId, placeholderValues)
+              : runCommand(dialog.command, placeholderValues)}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}
@@ -814,7 +825,7 @@ function App() {
             commands={commands}
             repos={repos}
             disabled={controlsDisabled}
-            onConfirm={() => executeQuickRun(dialog.quickRun)}
+            onConfirm={placeholderValues => executeQuickRun(dialog.quickRun, placeholderValues)}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}
