@@ -7,6 +7,7 @@ const __dirname = path.dirname(__filename)
 
 export const rootDir = path.resolve(__dirname, '..', '..')
 export const V5_APP_MANIFEST_FILE = 'fw-app.json'
+export const V5_APP_PROTOCOL_DIR = '.fast-window-dev-protocol'
 export const V5_APP_BUILD_CONFIG_FILE = 'fw-app.build.json'
 export const DEFAULT_V5_APP_PROFILE = 'release'
 export const V5_APP_PROFILE_IDS = ['release', 'dev']
@@ -234,7 +235,7 @@ export async function loadV5AppConfig(appId) {
   const id = String(appId || '').trim()
   if (!isSafeId(id)) throw new Error(`app id 不合法: ${id}`)
   const appDir = path.join(rootDir, 'apps', id)
-  const manifestPath = path.join(appDir, V5_APP_MANIFEST_FILE)
+  const manifestPath = path.join(appDir, V5_APP_PROTOCOL_DIR, V5_APP_MANIFEST_FILE)
   const buildPath = path.join(appDir, V5_APP_BUILD_CONFIG_FILE)
   const manifest = await readRequiredJson(manifestPath, 'v5 app 应用清单')
   const buildConfig = await readRequiredJson(buildPath, 'v5 app 构建配置')
