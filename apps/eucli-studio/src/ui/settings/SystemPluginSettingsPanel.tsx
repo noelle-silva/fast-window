@@ -4,7 +4,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
 import { lifecycleTypeLabel, pluginStatusLabel, systemPluginLocatorId, type SystemPluginDetail } from '../../domain/systemPlugin'
-import { compatibilityRangeText, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
+import { compatibilityRangeText, artifactStatusLabels, isArtifactBusy, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
 import { cloneConfigObject, ConfigFieldsForm, removeConfigValueAtPath, setConfigValueAtPath } from './ConfigFieldsForm'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -15,8 +15,6 @@ type SystemPluginSettingsPanelProps = {
   loading: boolean
   systemPlugins: any
   releaseView: ReleaseCandidatesView | null
-  releaseBusy: boolean
-  onReleaseRead: (kind?: string) => Promise<void> | void
   onReleaseRefresh: (kind?: string) => Promise<void> | void
 }
 
@@ -25,7 +23,7 @@ function text(value: unknown) {
 }
 
 export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps) {
-  const { controller, loading, systemPlugins, releaseView, releaseBusy, onReleaseRead, onReleaseRefresh } = props
+  const { controller, loading, systemPlugins, releaseView, onReleaseRefresh } = props
   const busy = loading || !!systemPlugins?.loading || !!systemPlugins?.detailLoading || !!systemPlugins?.saving
   const selectedPlugin = systemPlugins?.selectedPlugin as SystemPluginDetail | null
   const unavailable = selectedPlugin?.status !== 'active'
@@ -39,12 +37,30 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
     if (!pluginId) return
     if (action === 'install') await controller.actions.installSystemPlugin?.(pluginId)
     else await controller.actions.updateSystemPlugin?.(pluginId)
-    await Promise.resolve(onReleaseRefresh?.('plugin')).catch(() => {})
+  })
+
+  const handleStoreCancel = useEvent(async (artifact: ReleaseArtifactIdentity) => {
+    const pluginId = String(artifact?.id || '').trim()
+    if (!pluginId) return
+    await controller.actions.cancelSystemPluginInstall?.(pluginId)
+  })
+
+  const handleStoreSync = useEvent(async () => {
+    await controller.actions.syncSystemPluginInstallStates?.()
   })
 
   React.useEffect(() => {
     controller.actions.refreshSystemPlugins?.(false)
+    controller.actions.syncSystemPluginInstallStates?.()
   }, [controller])
+
+  // 安装任务终态时静默对齐商店清单；监听器仅在面板打开期间注册。
+  React.useEffect(() => {
+    controller.actions.setSystemPluginInstallTerminalListener?.(() => {
+      void Promise.resolve(onReleaseRefresh?.('plugin')).catch(() => {})
+    })
+    return () => controller.actions.setSystemPluginInstallTerminalListener?.(null)
+  }, [controller, onReleaseRefresh])
 
   React.useEffect(() => {
     const plugin = selectedPlugin || null
@@ -78,7 +94,6 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         {systemPlugins?.error ? <Typography variant="body2" color="error">{String(systemPlugins.error || '')}</Typography> : null}
         {systemPlugins?.detailError ? <Typography variant="body2" color="error">{String(systemPlugins.detailError || '')}</Typography> : null}
         {systemPlugins?.saveError ? <Typography variant="body2" color="error">{String(systemPlugins.saveError || '')}</Typography> : null}
-        {systemPlugins?.installError ? <Typography variant="body2" color="error">{String(systemPlugins.installError || '')}</Typography> : null}
         {localError ? <Typography variant="body2" color="error">{localError}</Typography> : null}
 
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems="flex-start">
@@ -108,7 +123,7 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
                     <Typography variant="caption" color="text.secondary">版本：{selectedPlugin.version || '无效'}；适用本体：{compatibilityRangeText(selectedPlugin.eucliBoxCompatibility)}</Typography>
                     <Typography variant="caption" color="text.secondary">类型：{lifecycleTypeLabel(selectedPlugin.lifecycleType)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>
                     {selectedPlugin.statusMessage ? <Typography variant="caption" color="error">{selectedPlugin.statusMessage}</Typography> : null}
-                    <PluginInstallStatusLine state={systemPlugins?.installState} pluginId={text(selectedPlugin.id)} />
+                    <PluginInstallStatusLine state={systemPlugins?.installStates?.[text(selectedPlugin.id)]} pluginId={text(selectedPlugin.id)} />
                   </Stack>
                 </SettingsSection>
 
@@ -154,10 +169,10 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         kind="plugin"
         title="系统插件商店"
         releaseView={releaseView}
-        installState={systemPlugins?.installState}
-        actionBusy={systemPlugins?.installLoading === true || releaseBusy === true}
+        installStates={systemPlugins?.installStates || {}}
         onAction={handleStoreAction}
-        onRead={(kind) => onReleaseRead?.(kind)}
+        onCancel={handleStoreCancel}
+        onSync={handleStoreSync}
         onRefresh={(kind) => onReleaseRefresh?.(kind)}
         getInstallSource={() => controller.actions.getInstallSource?.()}
         setInstallSource={(kind) => controller.actions.setInstallSource?.(kind)}
@@ -174,14 +189,20 @@ function PluginInstallStatusLine(props: { state: any; pluginId: string }) {
   const code = String(error.code || '')
   const message = String(error.message || '')
   const phase = String(error.phase || '')
-  const busy = status === 'downloading' || status === 'verifying' || status === 'preparing' || status === 'switching' || status === 'starting' || status === 'checking_release' || status === 'checking_activity' || status === 'restoring'
-  if (busy) {
-    return <Typography variant="caption" color="info.main">正在处理安装/更新：{status}</Typography>
+  if (isArtifactBusy(state)) {
+    const label = artifactStatusLabels[status] || status
+    const total = Number(state.progress?.totalBytes || 0)
+    const received = Number(state.progress?.receivedBytes || 0)
+    const percent = status === 'downloading' && total > 0 ? ` ${Math.max(0, Math.min(100, Math.round((received / total) * 100)))}%` : ''
+    return <Typography variant="caption" color="info.main">正在处理安装/更新：{label}{percent}</Typography>
+  }
+  if (status === 'cancelled') {
+    return <Typography variant="caption" color="text.secondary">上次操作已取消</Typography>
   }
   if (status === 'blocked' && code) {
     return <Typography variant="caption" color="warning.main">操作被阻止（{code}）：{message || '请稍后重试'}</Typography>
   }
-  if (status === 'failed' && code) {
+  if (code) {
     return <Typography variant="caption" color="error">上次操作失败（{code}@{phase || '未知阶段'}）：{message || '未知原因'}</Typography>
   }
   return null

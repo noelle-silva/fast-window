@@ -271,7 +271,6 @@ export function App() {
              }}
              releaseBusy={release.busy}
              releaseView={release.view}
-             onReleaseRead={release.read}
              onReleaseRefresh={release.refresh}
             />
         </div>
@@ -284,7 +283,6 @@ export function App() {
           releaseView={release.view}
           releaseBusy={release.busy}
           onReleaseRefresh={release.refresh}
-          onReleaseRead={release.read}
           onApply={() => void connectMountedBackend()}
         />
       ) : (
@@ -318,7 +316,6 @@ function EucliBoxConfigScreen(props: {
   releaseView: ReleaseCandidatesView
   releaseBusy: boolean
   onReleaseRefresh: (kind?: string) => Promise<void> | void
-  onReleaseRead: (kind: string) => Promise<void> | void
   onApply: () => Promise<void> | void
 }) {
   const { standalone, windowControlActions, issue, bootstrap, releaseView, releaseBusy, onReleaseRefresh, onApply } = props

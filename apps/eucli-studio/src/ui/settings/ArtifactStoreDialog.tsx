@@ -1,11 +1,12 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, LinearProgress, Stack, Typography } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import StorefrontIcon from '@mui/icons-material/Storefront'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DownloadIcon from '@mui/icons-material/Download'
 import UpdateIcon from '@mui/icons-material/Update'
-import { artifactStatusLabels, compatibilityRangeText, type ArtifactReleaseCandidate, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
+import CancelIcon from '@mui/icons-material/Cancel'
+import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, isArtifactCancelable, type ArtifactInstallState, type ArtifactReleaseCandidate, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
 import { SettingsPill } from './SettingsSurfaces'
 
 type StoreSourceKind = 'official' | 'local'
@@ -16,24 +17,24 @@ type ArtifactStoreDialogProps = {
   kind: 'tool' | 'plugin'
   title: string
   releaseView?: ReleaseCandidatesView | null
-  installState: any
-  actionBusy: boolean
+  installStates: Record<string, ArtifactInstallState>
   onAction: (artifact: ReleaseArtifactIdentity, action: 'install' | 'update') => Promise<void> | void
-  onRead: (kind: string) => Promise<void> | void
+  onCancel: (artifact: ReleaseArtifactIdentity) => Promise<void> | void
+  onSync: () => Promise<void> | void
   onRefresh: (kind?: string) => Promise<void> | void
   getInstallSource?: () => Promise<string | null>
   setInstallSource?: (kind: StoreSourceKind) => Promise<{ ok: boolean; error?: string }>
 }
 
 export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
-  const { open, onClose, kind, title, releaseView, installState, actionBusy, onAction, onRead, onRefresh, getInstallSource, setInstallSource } = props
+  const { open, onClose, kind, title, releaseView, installStates, onAction, onCancel, onSync, onRefresh, getInstallSource, setInstallSource } = props
   const [refreshing, setRefreshing] = React.useState(false)
   const [sourceKind, setSourceKind] = React.useState<StoreSourceKind>('official')
   const [pendingSource, setPendingSource] = React.useState<StoreSourceKind | null>(null)
   const [sourceError, setSourceError] = React.useState('')
   // 回调统一经引用读取最新值：父级重渲染不会更换副作用依赖，打开读取只触发一次。
-  const callbacksRef = React.useRef({ onRead, onRefresh, getInstallSource })
-  callbacksRef.current = { onRead, onRefresh, getInstallSource }
+  const callbacksRef = React.useRef({ onSync, onRefresh, getInstallSource })
+  callbacksRef.current = { onSync, onRefresh, getInstallSource }
 
   const sourceCandidates = releaseView?.sourceCandidates?.[sourceKind] || []
   const items = sourceCandidates
@@ -41,16 +42,22 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
     .sort((a, b) => String(a.artifact?.id || '').localeCompare(String(b.artifact?.id || '')))
   const busy = pendingSource !== null || refreshing
 
-  // 打开弹窗时读取当前来源：已有新鲜缓存不重复读取；没有缓存才按分类读取一次。
+  // 打开弹窗时：恢复进行中任务事实，并强制刷新当前分类清单，保证已装状态最新。
   React.useEffect(() => {
     if (!open) return
     let cancelled = false
     setSourceError('')
+    void Promise.resolve(callbacksRef.current.onSync?.()).catch(() => {})
     Promise.resolve(callbacksRef.current.getInstallSource?.())
       .then((source) => {
         if (cancelled || (source !== 'official' && source !== 'local')) return
         setSourceKind(source)
-        void Promise.resolve(callbacksRef.current.onRead(kind)).catch(() => {})
+        setRefreshing(true)
+        void Promise.resolve(callbacksRef.current.onRefresh(kind))
+          .catch(() => {})
+          .finally(() => {
+            if (!cancelled) setRefreshing(false)
+          })
       })
       .catch(() => {})
     return () => {
@@ -82,7 +89,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
       setSourceKind(next)
       // 该来源该分类已有缓存则直接展示；没有才发起读取（读取端点自带新鲜度判定）。
       if (!hasSourceKind(releaseView, next, kind)) {
-        await Promise.resolve(callbacksRef.current.onRead(kind)).catch(() => {})
+        await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
       }
     } finally {
       setPendingSource(null)
@@ -118,25 +125,35 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
       </DialogTitle>
       <DialogContent sx={{ bgcolor: 'grey.50' }}>
         <Stack spacing={1}>
-          <Typography variant="caption" color="text.secondary">
-            当前商店源：{sourceKind === 'local' ? '本地源（programs/local-store 货架）' : '官方源（线上正式发行）'}
-          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary">
+              当前商店源：{sourceKind === 'local' ? '本地源（programs/local-store 货架）' : '官方源（线上正式发行）'}
+            </Typography>
+            {refreshing ? <CircularProgress size={12} /> : null}
+          </Stack>
           {sourceError ? (
             <Typography variant="caption" color="error">
               {sourceError}
             </Typography>
           ) : null}
-          {busy ? (
+          {items.length ? (
+            items.map((result) => (
+              <StoreItem
+                key={`${result.artifact.kind}:${result.artifact.id}`}
+                result={result}
+                installState={installStates[String(result.artifact?.id || '')] || null}
+                onAction={onAction}
+                onCancel={onCancel}
+                sourceKind={sourceKind}
+              />
+            ))
+          ) : busy ? (
             <Stack spacing={1} alignItems="center" sx={{ p: 3 }}>
               <CircularProgress size={22} />
               <Typography variant="body2" color="text.secondary">
                 {pendingSource ? `正在切换到${pendingSource === 'local' ? '本地源' : '官方源'}…` : '正在获取商店清单…'}
               </Typography>
             </Stack>
-          ) : items.length ? (
-            items.map((result) => (
-              <StoreItem key={`${result.artifact.kind}:${result.artifact.id}`} result={result} installState={installState} actionBusy={actionBusy} onAction={onAction} sourceKind={sourceKind} />
-            ))
           ) : (
             <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
               {`当前没有可显示的${itemTitle(kind)}。请先刷新商店清单。`}
@@ -146,7 +163,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
       </DialogContent>
       <DialogActions>
         <Typography variant="caption" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
-          安装或更新由业务端在后台完成，客户端只发起一次动作。
+          安装或更新由业务端后台完成：可同时进行多条任务，离开页面或关闭客户端都不会中断。
         </Typography>
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
@@ -154,8 +171,14 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
   )
 }
 
-function StoreItem(props: { result: ArtifactReleaseCandidate; installState: any; actionBusy: boolean; onAction: (artifact: ReleaseArtifactIdentity, action: 'install' | 'update') => Promise<void> | void; sourceKind: StoreSourceKind }) {
-  const { result, installState, actionBusy, onAction, sourceKind } = props
+function StoreItem(props: {
+  result: ArtifactReleaseCandidate
+  installState: ArtifactInstallState | null
+  onAction: (artifact: ReleaseArtifactIdentity, action: 'install' | 'update') => Promise<void> | void
+  onCancel: (artifact: ReleaseArtifactIdentity) => Promise<void> | void
+  sourceKind: StoreSourceKind
+}) {
+  const { result, installState, onAction, onCancel, sourceKind } = props
   const artifact = result.artifact
   const id = String(artifact?.id || '')
   const compatibility = result.compatibility
@@ -163,10 +186,23 @@ function StoreItem(props: { result: ArtifactReleaseCandidate; installState: any;
   const installed = result.installed === true
   const canInstall = !installed && !failed && !!result.latestVersion
   const canUpdate = installed && result.updateAvailable === true && !failed
-  const stateForItem = installState && typeof installState === 'object' && String(installState.artifact?.id || '') === id ? installState : null
-  const stateStatus = String(stateForItem?.status || '')
-  const stateError = stateForItem?.error && typeof stateForItem.error === 'object' ? stateForItem.error : {}
-  const busy = actionBusy || stateStatus === 'downloading' || stateStatus === 'verifying' || stateStatus === 'preparing' || stateStatus === 'switching' || stateStatus === 'starting' || stateStatus === 'restoring'
+  const state = installState && String(installState.artifact?.id || '') === id ? installState : null
+  const busy = isArtifactBusy(state)
+  const cancelable = isArtifactCancelable(state)
+  const [cancelling, setCancelling] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!busy) setCancelling(false)
+  }, [busy])
+
+  const cancel = async () => {
+    setCancelling(true)
+    try {
+      await Promise.resolve(onCancel(artifact)).catch(() => {})
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   return (
     <Box sx={{ p: 1.35, borderRadius: 2, bgcolor: 'background.paper' }}>
@@ -187,7 +223,12 @@ function StoreItem(props: { result: ArtifactReleaseCandidate; installState: any;
                 {busy ? '处理中…' : '更新'}
               </Button>
             ) : null}
-            {installed && !canUpdate && !failed ? <SettingsPill>已是最新版</SettingsPill> : null}
+            {cancelable ? (
+              <Button size="small" variant="outlined" color="warning" startIcon={<CancelIcon />} disabled={cancelling} onClick={() => void cancel()}>
+                {cancelling ? '取消中…' : '取消'}
+              </Button>
+            ) : null}
+            {installed && !canUpdate && !failed && !busy ? <SettingsPill>已是最新版</SettingsPill> : null}
           </Stack>
         </Stack>
         <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
@@ -213,9 +254,12 @@ function StoreItem(props: { result: ArtifactReleaseCandidate; installState: any;
             {result.failureReason}
           </Typography>
         ) : null}
-        {stateForItem && String(stateError.code || '') ? (
-          <Typography variant="caption" color={stateStatus === 'blocked' ? 'warning.main' : 'error'} sx={{ overflowWrap: 'anywhere' }}>
-            上次操作：{String(stateError.code || '')}@{String(stateError.phase || '未知阶段')}：{String(stateError.message || '未知原因')}
+        {state && !busy && state.status === 'cancelled' ? (
+          <Typography variant="caption" color="text.secondary">上次操作已取消。</Typography>
+        ) : null}
+        {state && String(state.error?.code || '') ? (
+          <Typography variant="caption" color={state.status === 'blocked' ? 'warning.main' : 'error'} sx={{ overflowWrap: 'anywhere' }}>
+            上次操作：{String(state.error.code || '')}@{String(state.error.phase || '未知阶段')}：{String(state.error.message || '未知原因')}
           </Typography>
         ) : null}
         {result.releaseNotes ? (
@@ -223,14 +267,55 @@ function StoreItem(props: { result: ArtifactReleaseCandidate; installState: any;
             {result.releaseNotes}
           </Typography>
         ) : null}
-        {busy ? (
-          <Typography variant="caption" color="info.main">
-            处理中：{artifactStatusLabels[stateStatus] || stateStatus}
-          </Typography>
-        ) : null}
+        {busy && state ? <InstallProgress state={state} /> : null}
       </Stack>
     </Box>
   )
+}
+
+// InstallProgress 展示运行中的任务：下载阶段给确定进度条与百分比，其余阶段给阶段推进。
+function InstallProgress(props: { state: ArtifactInstallState }) {
+  const { state } = props
+  const total = Number(state.progress?.totalBytes || 0)
+  const received = Number(state.progress?.receivedBytes || 0)
+  const label = artifactStatusLabels[String(state.status || '')] || String(state.status || '')
+  if (String(state.status || '') === 'downloading' && total > 0) {
+    const percent = Math.max(0, Math.min(100, Math.round((received / total) * 100)))
+    return (
+      <Stack spacing={0.4} sx={{ pt: 0.25 }}>
+        <LinearProgress variant="determinate" value={percent} />
+        <Typography variant="caption" color="info.main">
+          {label} {percent}%（{formatBytes(received)} / {formatBytes(total)}）
+        </Typography>
+      </Stack>
+    )
+  }
+  return (
+    <Stack spacing={0.4} sx={{ pt: 0.25 }}>
+      <LinearProgress />
+      <Typography variant="caption" color="info.main">
+        {label}{state.phase ? `（${phaseLabel(state.phase)}）` : ''}
+      </Typography>
+    </Stack>
+  )
+}
+
+function phaseLabel(phase: string) {
+  switch (phase) {
+    case 'candidate': return '检查发行'
+    case 'compatibility': return '适用判断'
+    case 'activity': return '检查活动'
+    case 'download': return '下载'
+    case 'manifest': return '核对清单'
+    case 'archive': return '解包'
+    case 'package': return '包内核对'
+    case 'prepare': return '准备版本'
+    case 'probe': return '启动探测'
+    case 'switch': return '切换版本'
+    case 'restore': return '恢复版本'
+    case 'refresh': return '刷新状态'
+    default: return phase
+  }
 }
 
 function itemTitle(kind: string) {

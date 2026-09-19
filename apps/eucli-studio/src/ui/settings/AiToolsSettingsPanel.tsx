@@ -22,15 +22,13 @@ import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from
 import { ToolPromptDescriptionSection } from './ToolPromptDescriptionSection'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { plainObject, stringField } from './schemaFieldValues'
-import { compatibilityRangeText, type CompatibilityStatus, type EucliBoxCompatibility, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
+import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, type CompatibilityStatus, type EucliBoxCompatibility, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
 
 type AiToolsSettingsPanelProps = {
   controller: any
   loading: boolean
   tools: any
   releaseView: ReleaseCandidatesView | null
-  releaseBusy: boolean
-  onReleaseRead: (kind?: string) => Promise<void> | void
   onReleaseRefresh: (kind?: string) => Promise<void> | void
 }
 
@@ -48,20 +46,38 @@ type ToolSummary = {
 }
 
 export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
-  const { controller, loading, tools, releaseView, releaseBusy, onReleaseRead, onReleaseRefresh } = props
+  const { controller, loading, tools, releaseView, onReleaseRefresh } = props
   const [filter, setFilter] = React.useState('')
   const [storeOpen, setStoreOpen] = React.useState(false)
 
   React.useEffect(() => {
     controller.actions.refreshTools?.(false)
+    controller.actions.syncToolInstallStates?.()
   }, [controller])
+
+  // 安装任务终态时静默对齐商店清单；监听器仅在面板打开期间注册。
+  React.useEffect(() => {
+    controller.actions.setToolInstallTerminalListener?.(() => {
+      void Promise.resolve(onReleaseRefresh?.('tool')).catch(() => {})
+    })
+    return () => controller.actions.setToolInstallTerminalListener?.(null)
+  }, [controller, onReleaseRefresh])
 
   const handleStoreAction = useEvent(async (artifact: ReleaseArtifactIdentity, action: 'install' | 'update') => {
     const toolId = String(artifact?.id || '').trim()
     if (!toolId) return
     if (action === 'install') await controller.actions.installTool?.(toolId)
     else await controller.actions.updateTool?.(toolId)
-    await Promise.resolve(onReleaseRefresh?.('tool')).catch(() => {})
+  })
+
+  const handleStoreCancel = useEvent(async (artifact: ReleaseArtifactIdentity) => {
+    const toolId = String(artifact?.id || '').trim()
+    if (!toolId) return
+    await controller.actions.cancelToolInstall?.(toolId)
+  })
+
+  const handleStoreSync = useEvent(async () => {
+    await controller.actions.syncToolInstallStates?.()
   })
 
   const items = toolItems(tools)
@@ -115,7 +131,7 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
 
           <Stack spacing={1.25}>
             {filtered.length ? (
-              filtered.map((tool) => <ToolCard key={toolId(tool)} controller={controller} tool={tool} loading={loading} installState={tools?.installState} />)
+              filtered.map((tool) => <ToolCard key={toolId(tool)} controller={controller} tool={tool} loading={loading} installStates={tools?.installStates} />)
             ) : (
               <SettingsSection tone="muted" sx={{ p: 3, textAlign: 'center' }}>
                 <Typography sx={{ fontWeight: 900 }}>{tools?.loading ? '工具列表加载中…' : '暂无可显示工具'}</Typography>
@@ -128,12 +144,6 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
         </Stack>
       </SettingsSurface>
 
-      {tools?.installError ? (
-        <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-          {String(tools.installError || '')}
-        </Typography>
-      ) : null}
-
       <ToolConfigDialog controller={controller} tools={tools} />
 
       <ArtifactStoreDialog
@@ -142,10 +152,10 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
         kind="tool"
         title="AI 工具商店"
         releaseView={releaseView}
-        installState={tools?.installState}
-        actionBusy={tools?.installLoading === true || releaseBusy === true}
+        installStates={tools?.installStates || {}}
         onAction={handleStoreAction}
-        onRead={(kind) => onReleaseRead?.(kind)}
+        onCancel={handleStoreCancel}
+        onSync={handleStoreSync}
         onRefresh={(kind) => onReleaseRefresh?.(kind)}
         getInstallSource={() => controller.actions.getInstallSource?.()}
         setInstallSource={(kind) => controller.actions.setInstallSource?.(kind)}
@@ -185,12 +195,12 @@ function ToolBusyPromptDialog(props: { controller: any; tools: any }) {
   )
 }
 
-function ToolCard(props: { controller: any; tool: ToolSummary; loading: boolean; installState: any }) {  const { controller, tool, loading, installState } = props
+function ToolCard(props: { controller: any; tool: ToolSummary; loading: boolean; installStates: any }) {  const { controller, tool, loading, installStates } = props
   const id = toolId(tool)
   const name = toolName(tool)
   const description = toolDescription(tool)
   const unavailable = String(tool.status || '').trim() !== 'active'
-  const stateForTool = installState && typeof installState === 'object' && String(installState.artifact?.id || '') === id ? installState : null
+  const stateForTool = installStates && typeof installStates === 'object' ? installStates[id] || null : null
   return (
     <SettingsListItem tone={unavailable ? 'danger' : 'default'}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
@@ -228,14 +238,24 @@ function InstallStatusLine(props: { state: any }) {
   const code = String(error.code || '')
   const message = String(error.message || '')
   const phase = String(error.phase || '')
-  const busy = status === 'downloading' || status === 'verifying' || status === 'preparing' || status === 'switching' || status === 'starting' || status === 'checking_release' || status === 'checking_activity' || status === 'restoring'
+  const busy = isArtifactBusy(state)
   if (busy) {
-    return <Typography variant="caption" color="info.main" sx={{ display: 'block' }}>正在处理安装/更新：{status}</Typography>
+    const label = artifactStatusLabels[status] || status
+    const total = Number(state.progress?.totalBytes || 0)
+    const received = Number(state.progress?.receivedBytes || 0)
+    const percent = status === 'downloading' && total > 0 ? ` ${Math.max(0, Math.min(100, Math.round((received / total) * 100)))}%` : ''
+    return <Typography variant="caption" color="info.main" sx={{ display: 'block' }}>正在处理安装/更新：{label}{percent}</Typography>
+  }
+  if (status === 'cancelled') {
+    return <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>上次操作已取消</Typography>
   }
   if (status === 'blocked' && code) {
     return <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>操作被阻止（{code}）：{message || '请稍后重试'}</Typography>
   }
   if (status === 'failed' && code) {
+    return <Typography variant="caption" color="error" sx={{ display: 'block' }}>上次操作失败（{code}@{phase || '未知阶段'}）：{message || '未知原因'}</Typography>
+  }
+  if (code) {
     return <Typography variant="caption" color="error" sx={{ display: 'block' }}>上次操作失败（{code}@{phase || '未知阶段'}）：{message || '未知原因'}</Typography>
   }
   return null

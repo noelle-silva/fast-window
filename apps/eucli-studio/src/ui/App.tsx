@@ -67,8 +67,8 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   return Math.ceil(gap) <= thresholdPx
 }
 
-export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; windowControls?: AiChatWindowControls; releaseBusy: boolean; releaseView: ReleaseCandidatesView | null; onReleaseRead: (kind?: string) => Promise<void> | void; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
-  const { controller, bootstrap, dataDirectory, windowControls, releaseBusy, releaseView, onReleaseRead, onReleaseRefresh } = props
+export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; windowControls?: AiChatWindowControls; releaseBusy: boolean; releaseView: ReleaseCandidatesView | null; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
+  const { controller, bootstrap, dataDirectory, windowControls, releaseBusy, releaseView, onReleaseRefresh } = props
   const s = useAiChatState(controller)
   const data = s.data
   const colorThemePreset = resolveColorThemePreset(data?.settings?.colorTheme)
@@ -1297,7 +1297,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             bootstrap={bootstrap}
             releaseBusy={releaseBusy}
             releaseView={releaseView}
-            onReleaseRead={onReleaseRead}
             onReleaseRefresh={onReleaseRefresh}
             accessSettings={(s as any)?.accessSettings}
             hookPrompts={hookPrompts}

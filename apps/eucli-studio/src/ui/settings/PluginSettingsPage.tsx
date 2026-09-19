@@ -60,7 +60,6 @@ export function PluginSettingsPage(props: {
   bootstrap?: StudioBootstrap
   releaseBusy: boolean
   releaseView: ReleaseCandidatesView | null
-  onReleaseRead: (kind?: string) => Promise<void> | void
   onReleaseRefresh: (kind?: string) => Promise<void> | void
   accessSettings?: any
   hookPrompts: any
@@ -74,7 +73,7 @@ export function PluginSettingsPage(props: {
   onTabChange: (tab: SettingsTab) => void
   dataDirectory?: AiChatDataDirectory
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseBusy, releaseView, onReleaseRead, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseBusy, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory } = props
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
 
   React.useEffect(() => {
@@ -665,7 +664,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'tools') {
-    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} releaseView={releaseView} releaseBusy={releaseBusy} onReleaseRead={onReleaseRead} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
   }
 
   if (tab === 'hookPrompts') {
@@ -677,7 +676,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'systemPlugins') {
-    return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseView} releaseBusy={releaseBusy} onReleaseRead={onReleaseRead} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
   }
 
   if (tab === 'eb') {
