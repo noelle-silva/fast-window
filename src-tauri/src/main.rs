@@ -24,6 +24,7 @@ mod app_service_config;
 mod app_service_info;
 mod app_service_profile;
 mod app_shortcuts;
+mod app_store_tasks;
 mod browser_stack;
 mod capability_server;
 mod clipboard;
@@ -2535,8 +2536,10 @@ fn main() {
         app_installer::pick_app_install_dir,
         app_installer::inspect_installed_app,
         app_installer::inspect_local_store_app,
-        app_installer::app_store_install,
-        app_installer::app_store_update,
+        app_store_tasks::app_store_task_start,
+        app_store_tasks::app_store_task_cancel,
+        app_store_tasks::app_store_task_list,
+        app_store_tasks::app_store_task_dismiss,
         app_service_info::app_service_info,
         app_service_config::app_service_config_save,
         host_updater::host_update_download_msi,

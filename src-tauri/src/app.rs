@@ -11,6 +11,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use crate::app_autostart::schedule_registered_app_auto_start;
 use crate::app_lifecycle::AppLifecycleManager;
 use crate::app_shortcuts::{refresh_registered_app_shortcuts, RegisteredAppShortcutState};
+use crate::app_store_tasks::StoreTaskManager;
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
     browser_stack_is_closing, browser_stack_is_focused, browser_stack_is_pinned,
@@ -137,6 +138,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(Arc::new(ProcessManagerState::default()));
             app.manage(Arc::new(AppLifecycleManager::default()));
+            app.manage(Arc::new(StoreTaskManager::default()));
             app.manage(Arc::new(HostLifecycleState::default()));
             app.manage(RegisteredAppShortcutState::default());
             app.manage(BrowserWindowState::default());

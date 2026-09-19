@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use tauri::AppHandle;
 use tauri_plugin_global_shortcut::Shortcut;
 use tokio::io::AsyncWriteExt;
 
-use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager, ServiceDeclaration};
+use crate::app_lifecycle::ServiceDeclaration;
 use crate::install_fs::begin_overlay_dir_from_tmp;
 use crate::{
     app_apps_dir, ensure_writable_dir, is_https_url, normalize_zip_name, now_ms,
@@ -105,20 +106,61 @@ struct AppPackageCommand {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppStoreInstallRequest {
-    url: String,
-    expected_sha256: String,
-    expected_id: String,
-    expected_version: String,
-    install_dir: String,
+    pub(crate) url: String,
+    pub(crate) expected_sha256: String,
+    pub(crate) expected_id: String,
+    pub(crate) expected_version: String,
+    pub(crate) install_dir: String,
 }
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppStoreUpdateRequest {
-    url: String,
-    expected_sha256: String,
-    expected_id: String,
-    expected_version: String,
+    pub(crate) url: String,
+    pub(crate) expected_sha256: String,
+    pub(crate) expected_id: String,
+    pub(crate) expected_version: String,
+}
+
+/// 应用包传输观察器：把「进度上报」与「取消信号」作为同一传输过程的伴生事实，
+/// 统一提供给下载与解压原语，避免各步骤各自定义回调与取消检查。
+#[derive(Clone)]
+pub(crate) struct PackageTaskObserver {
+    cancel: Arc<AtomicBool>,
+    on_progress: Arc<dyn Fn(u64, Option<u64>) + Send + Sync>,
+}
+
+impl PackageTaskObserver {
+    pub(crate) fn new(
+        cancel: Arc<AtomicBool>,
+        on_progress: Arc<dyn Fn(u64, Option<u64>) + Send + Sync>,
+    ) -> Self {
+        Self { cancel, on_progress }
+    }
+
+    pub(crate) fn canceled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    fn progress(&self, done: u64, total: Option<u64>) {
+        (self.on_progress)(done, total);
+    }
+}
+
+pub(crate) const TASK_CANCELED_MESSAGE: &str = "已取消";
+
+/// 安装目标准备结果：请求已归一化，安装容器已通过占用校验。
+pub(crate) struct PreparedInstall {
+    pub(crate) req: AppStoreInstallRequest,
+    pub(crate) app_container: PathBuf,
+}
+
+/// 更新目标准备结果：来自已注册应用的登记事实。
+pub(crate) struct PreparedUpdate {
+    pub(crate) install_req: AppStoreInstallRequest,
+    pub(crate) app_container: PathBuf,
+    pub(crate) registry_id: String,
+    pub(crate) existing_record: Value,
 }
 
 #[derive(Clone, Serialize)]
@@ -142,7 +184,7 @@ pub(crate) struct InstalledAppInfo {
     commands: Vec<AppPackageCommand>,
 }
 
-struct ExtractedAppPackage {
+pub(crate) struct ExtractedAppPackage {
     tmp_dir: PathBuf,
     manifest: AppPackageManifest,
 }
@@ -238,13 +280,13 @@ pub(crate) fn inspect_local_store_app(
     installed_app_info(&installed).map(Some)
 }
 
-#[tauri::command]
-pub(crate) async fn app_store_install(
-    app: AppHandle,
+/// 安装前置准备：归一化请求、拒绝已注册应用、确认安装容器可用。
+pub(crate) fn prepare_install_target(
+    app: &AppHandle,
     req: AppStoreInstallRequest,
-) -> Result<AppStoreInstallResult, String> {
+) -> Result<PreparedInstall, String> {
     let req = normalize_install_request(req)?;
-    if find_registered_app_by_store_id(&app, &req.expected_id)?.is_some() {
+    if find_registered_app_by_store_id(app, &req.expected_id)?.is_some() {
         return Err("应用已注册，请使用更新操作".to_string());
     }
     let install_root = PathBuf::from(req.install_dir.trim());
@@ -253,18 +295,16 @@ pub(crate) async fn app_store_install(
     let app_container = crate::app_layout::app_container_dir(&install_root, &req.expected_id);
     validate_install_target_available(&app_container)?;
 
-    let package = download_and_extract_app_package(&req).await?;
-    install_extracted_app_package(&app, package, app_container, None).await
+    Ok(PreparedInstall { req, app_container })
 }
 
-#[tauri::command]
-pub(crate) async fn app_store_update(
-    app: AppHandle,
-    state: tauri::State<'_, Arc<AppLifecycleManager>>,
+/// 更新前置准备：归一化请求、定位已注册应用的安装容器与登记记录。
+pub(crate) fn prepare_update_target(
+    app: &AppHandle,
     req: AppStoreUpdateRequest,
-) -> Result<AppStoreInstallResult, String> {
+) -> Result<PreparedUpdate, String> {
     let req = normalize_update_request(req)?;
-    let existing = find_registered_app_by_store_id(&app, &req.expected_id)?
+    let existing = find_registered_app_by_store_id(app, &req.expected_id)?
         .ok_or_else(|| format!("注册应用不存在: {}", req.expected_id))?;
     let app_container = existing.installed.app_container.clone();
     if !app_container.is_dir() {
@@ -282,9 +322,12 @@ pub(crate) async fn app_store_update(
             .to_string_lossy()
             .to_string(),
     };
-    let package = download_and_extract_app_package(&install_req).await?;
-    let _ = stop_registered_app_for_update(state.inner(), &existing.registry_id).await?;
-    install_extracted_app_package(&app, package, app_container, Some(existing.record)).await
+    Ok(PreparedUpdate {
+        install_req,
+        app_container,
+        registry_id: existing.registry_id,
+        existing_record: existing.record,
+    })
 }
 
 fn normalize_install_request(
@@ -600,31 +643,13 @@ fn read_installed_manifest(path: &Path) -> Result<InstalledManifest, String> {
     }
 }
 
-async fn download_and_extract_app_package(
+/// 下载应用压缩包到临时文件并完成 sha256 校验；取消或失败时清理临时文件。
+pub(crate) async fn download_app_package(
     req: &AppStoreInstallRequest,
-) -> Result<ExtractedAppPackage, String> {
+    observer: &PackageTaskObserver,
+) -> Result<PathBuf, String> {
     let apps_dir = PathBuf::from(req.install_dir.trim());
     ensure_writable_dir(&apps_dir)?;
-    let tmp_zip = download_zip_to_temp(&apps_dir, req).await?;
-
-    let apps_dir2 = apps_dir.clone();
-    let tmp_zip2 = tmp_zip.clone();
-    let expected_id = req.expected_id.clone();
-    let expected_version = req.expected_version.clone();
-    let extracted = tokio::task::spawn_blocking(move || {
-        extract_and_validate_zip(&apps_dir2, &tmp_zip2, &expected_id, &expected_version)
-    })
-    .await
-    .map_err(|_| "安装应用失败: 后台任务异常退出".to_string())?;
-
-    let _ = tokio::fs::remove_file(&tmp_zip).await;
-    extracted
-}
-
-async fn download_zip_to_temp(
-    apps_dir: &Path,
-    req: &AppStoreInstallRequest,
-) -> Result<PathBuf, String> {
     let expected = parse_sha256_hex_32(&req.expected_sha256)?;
     let stamp = now_ms();
     let rnd = rand_u32(stamp);
@@ -647,8 +672,9 @@ async fn download_zip_to_temp(
     if !resp.status().is_success() {
         return Err(format!("下载失败: HTTP {}", resp.status().as_u16()));
     }
+    let total_bytes = resp.content_length();
 
-    let mut total = 0usize;
+    let mut downloaded = 0u64;
     let mut hasher = Sha256::new();
     let mut f = tokio::fs::File::create(&tmp_zip)
         .await
@@ -660,14 +686,18 @@ async fn download_zip_to_temp(
             .await
             .map_err(|e| format!("读取下载流失败: {e}"))?
         {
-            total = total.saturating_add(chunk.len());
-            if total > APP_PACKAGE_MAX_ZIP_BYTES {
+            if observer.canceled() {
+                return Err(TASK_CANCELED_MESSAGE.to_string());
+            }
+            downloaded = downloaded.saturating_add(chunk.len() as u64);
+            if downloaded > APP_PACKAGE_MAX_ZIP_BYTES as u64 {
                 return Err("应用压缩包过大（>200MB）".to_string());
             }
             hasher.update(&chunk);
             f.write_all(&chunk)
                 .await
                 .map_err(|e| format!("写入临时文件失败: {e}"))?;
+            observer.progress(downloaded, total_bytes);
         }
         f.flush()
             .await
@@ -691,14 +721,17 @@ async fn download_zip_to_temp(
         ));
     }
 
+    observer.progress(downloaded, total_bytes.or(Some(downloaded)));
     Ok(tmp_zip)
 }
 
-fn extract_and_validate_zip(
+/// 解压并校验应用包；取消或失败时清理临时目录。
+pub(crate) fn extract_app_package(
     apps_dir: &Path,
     zip_path: &Path,
     expected_id: &str,
     expected_version: &str,
+    observer: &PackageTaskObserver,
 ) -> Result<ExtractedAppPackage, String> {
     let file = std::fs::File::open(zip_path).map_err(|e| format!("打开压缩包失败: {e}"))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("解析压缩包失败: {e}"))?;
@@ -712,6 +745,9 @@ fn extract_and_validate_zip(
     let manifest = read_manifest_at(&mut zip, manifest_idx)?;
     validate_package_manifest(&manifest, expected_id, expected_version)?;
 
+    let total_entries = count_extractable_entries(&mut zip, &prefix);
+    observer.progress(0, Some(total_entries as u64));
+
     let stamp = now_ms();
     let tmp_dir = apps_dir.join(format!(".tmp-app-install-{expected_id}-{stamp}"));
     if tmp_dir.exists() {
@@ -719,13 +755,35 @@ fn extract_and_validate_zip(
     }
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
 
-    if let Err(e) = extract_zip_tree(&mut zip, &prefix, &tmp_dir) {
+    if let Err(e) = extract_zip_tree(&mut zip, &prefix, &tmp_dir, observer, total_entries) {
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Err(e);
     }
 
-    validate_extracted_app(&tmp_dir, &manifest)?;
+    if let Err(e) = validate_extracted_app(&tmp_dir, &manifest) {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(e);
+    }
     Ok(ExtractedAppPackage { tmp_dir, manifest })
+}
+
+/// 统计将实际解压的文件条目数（不含目录），作为解压进度的分母。
+fn count_extractable_entries(zip: &mut zip::ZipArchive<std::fs::File>, prefix: &str) -> usize {
+    let mut count = 0usize;
+    for i in 0..zip.len() {
+        let Ok(zf) = zip.by_index(i) else {
+            continue;
+        };
+        if zf.is_dir() {
+            continue;
+        }
+        let name = normalize_zip_name(zf.name());
+        if !name.starts_with(prefix) || name[prefix.len()..].is_empty() {
+            continue;
+        }
+        count += 1;
+    }
+    count
 }
 
 fn find_fw_app_manifest(
@@ -884,10 +942,15 @@ fn extract_zip_tree(
     zip: &mut zip::ZipArchive<std::fs::File>,
     prefix: &str,
     tmp_dir: &Path,
+    observer: &PackageTaskObserver,
+    total_entries: usize,
 ) -> Result<(), String> {
     let mut extracted_bytes = 0usize;
     let mut extracted_files = 0usize;
     for i in 0..zip.len() {
+        if observer.canceled() {
+            return Err(TASK_CANCELED_MESSAGE.to_string());
+        }
         let mut zf = zip
             .by_index(i)
             .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
@@ -923,6 +986,7 @@ fn extract_zip_tree(
         if extracted_bytes > APP_PACKAGE_MAX_EXTRACT_BYTES {
             return Err("解压后体积过大（>500MB）".to_string());
         }
+        observer.progress(extracted_files as u64, Some(total_entries as u64));
     }
     Ok(())
 }
@@ -960,7 +1024,7 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
     Ok(())
 }
 
-async fn install_extracted_app_package(
+pub(crate) async fn install_extracted_app_package(
     app: &AppHandle,
     package: ExtractedAppPackage,
     app_container: PathBuf,
