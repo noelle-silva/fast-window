@@ -16,11 +16,11 @@
           "to": "eucli-studio-app.exe"
         },
         {
-          "from": "src-tauri/binaries/eucli-studio-backend.exe",
+          "from": "src-tauri/target/release/eucli-studio-backend.exe",
           "to": "eucli-studio-backend.exe"
         },
         {
-          "from": "assets",
+          "from": "src-tauri/target/resources/assets",
           "to": "assets"
         }
       ]
@@ -39,11 +39,11 @@
           "to": "eucli-studio-app.exe"
         },
         {
-          "from": "src-tauri/binaries/eucli-studio-backend.exe",
+          "from": "src-tauri/target/debug/eucli-studio-backend.exe",
           "to": "eucli-studio-backend.exe"
         },
         {
-          "from": "assets",
+          "from": "src-tauri/target/resources/assets",
           "to": "assets"
         }
       ]

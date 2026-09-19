@@ -1,10 +1,15 @@
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)))
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const appDir = path.resolve(__dirname, '..')
 
-mkdirSync(join(root, 'assets'), { recursive: true })
-mkdirSync(join(root, 'src-tauri', 'binaries'), { recursive: true })
+async function copyAssets(target) {
+  await fs.rm(path.join(target, 'assets'), { recursive: true, force: true })
+  await fs.mkdir(target, { recursive: true })
+  await fs.cp(path.join(appDir, 'assets'), path.join(target, 'assets'), { recursive: true })
+}
 
-console.log('[eucli-studio] resources ready')
+await copyAssets(path.join(appDir, 'src-tauri', 'target', 'debug'))
+await copyAssets(path.join(appDir, 'src-tauri', 'target', 'resources'))

@@ -18,7 +18,7 @@
         "height": 680,
         "decorations": false,
         "resizable": true,
-        "visible": true,
+        "visible": false,
         "skipTaskbar": false
       }
     ],
@@ -29,6 +29,9 @@
   "bundle": {
     "active": false,
     "targets": "all",
+    "externalBin": [
+      "binaries/eucli-studio-backend"
+    ],
     "resources": {
       "../assets/": "assets"
     },

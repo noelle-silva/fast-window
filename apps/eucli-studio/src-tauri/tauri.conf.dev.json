@@ -4,7 +4,7 @@
   "version": "0.1.9",
   "identifier": "com.fastwindow.euclistudio.dev",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
     "devUrl": "http://127.0.0.1:1431",
     "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../dist"
@@ -18,7 +18,7 @@
         "height": 680,
         "decorations": false,
         "resizable": true,
-        "visible": true,
+        "visible": false,
         "skipTaskbar": false
       }
     ],
@@ -29,6 +29,9 @@
   "bundle": {
     "active": false,
     "targets": "all",
+    "externalBin": [
+      "binaries/eucli-studio-backend"
+    ],
     "resources": {
       "../assets/": "assets"
     },

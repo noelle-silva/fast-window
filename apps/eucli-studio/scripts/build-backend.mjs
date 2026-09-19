@@ -1,41 +1,68 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import process from 'node:process'
+import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const backendDir = join(root, 'backend-go')
-const outputDir = join(root, 'src-tauri', 'binaries')
-const extension = process.platform === 'win32' ? '.exe' : ''
-const outputName = `eucli-studio-backend${extension}`
-const outputPath = join(outputDir, outputName)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const appDir = path.resolve(__dirname, '..')
+const backendDir = path.join(appDir, 'backend-go')
+const tauriDir = path.join(appDir, 'src-tauri')
+const binariesDir = path.join(tauriDir, 'binaries')
+const debugDir = path.join(tauriDir, 'target', 'debug')
 
-mkdirSync(outputDir, { recursive: true })
-removeLegacyTimestampBuilds(outputDir)
+function run(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { cwd: appDir, ...options }, (error, stdout, stderr) => {
+      if (stdout) process.stdout.write(stdout)
+      if (stderr) process.stderr.write(stderr)
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+}
 
-const result = spawnSync('go', ['build', '-trimpath', '-o', outputPath, '.'], {
-  cwd: backendDir,
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
+async function hostTuple() {
+  const chunks = []
+  await new Promise((resolve, reject) => {
+    execFile('rustc', ['--print', 'host-tuple'], (error, stdout, stderr) => {
+      if (stderr) process.stderr.write(stderr)
+      if (error) reject(error)
+      else {
+        chunks.push(stdout)
+        resolve()
+      }
+    })
+  })
+  const tuple = chunks.join('').trim()
+  if (!tuple) throw new Error('Failed to resolve Rust host tuple')
+  return tuple
+}
+
+function sidecarName(tuple) {
+  return process.platform === 'win32'
+    ? `eucli-studio-backend-${tuple}.exe`
+    : `eucli-studio-backend-${tuple}`
+}
+
+function devSidecarName() {
+  return process.platform === 'win32'
+    ? 'eucli-studio-backend.exe'
+    : 'eucli-studio-backend'
+}
+
+async function main() {
+  const tuple = await hostTuple()
+  const output = path.join(binariesDir, sidecarName(tuple))
+  const devOutput = path.join(debugDir, devSidecarName())
+  await fs.mkdir(binariesDir, { recursive: true })
+  await fs.mkdir(debugDir, { recursive: true })
+  await run('go', ['mod', 'download'], { cwd: backendDir })
+  await run('go', ['build', '-trimpath', '-ldflags', '-s -w', '-o', output, '.'], { cwd: backendDir })
+  await fs.copyFile(output, devOutput)
+}
+
+main().catch(error => {
+  process.stderr.write(`[eucli-studio-backend] ${String(error?.message || error)}\n`)
+  process.exit(1)
 })
-
-if (result.status !== 0) {
-  console.error('[eucli-studio] backend build failed. Close any running eucli-studio window and retry if the exe is locked.')
-  process.exit(result.status || 1)
-}
-
-console.log(`[eucli-studio] backend built: ${outputPath}`)
-
-function removeLegacyTimestampBuilds(dir) {
-  const prefix = 'eucli-studio-backend-'
-  for (const name of readdirSync(dir)) {
-    if (!name.startsWith(prefix)) continue
-    if (extension && !name.endsWith(extension)) continue
-    const filePath = join(dir, name)
-    try {
-      rmSync(filePath, { force: true })
-    } catch {
-      throw new Error(`[eucli-studio] remove locked legacy backend first: ${filePath}`)
-    }
-  }
-}
