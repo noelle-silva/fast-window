@@ -141,7 +141,6 @@ import {
 } from './utils'
 
 const appWindow = getCurrentWindow()
-const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
 
 function reorderWallpaperDeckCategories(categories: CategoryWallpaperEntry[], categoryOrder: CollectionViewCategoryId[]): CategoryWallpaperEntry[] {
@@ -231,7 +230,7 @@ export function App() {
     try {
       setWallpaperDeck(await nextClient.request<DesktopWallpaperDeck>('collections.desktop.wallpaper.deck'))
     } catch (e) {
-      setError(errorMessage(e, '加载壁纸预设失败'))
+      showToast(errorMessage(e, '加载壁纸预设失败'), 'error')
     }
   }, [client])
 
@@ -257,7 +256,7 @@ export function App() {
   const loadCategory = React.useCallback(async (categoryId: CollectionViewCategoryId, nextClient = client, preferredGroupId?: string) => {
     if (!nextClient) return null
     cancelWebIconDiscovery()
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
       setDoc(nextDoc)
@@ -271,7 +270,7 @@ export function App() {
       void refreshWallpaperDeck(nextClient)
       return nextDoc
     } catch (e) {
-      setError(errorMessage(e, '切换类别失败'))
+      showToast(errorMessage(e, '切换类别失败'), 'error')
       return null
     } finally { setBusy(false) }
   }, [client, groupIdByCategory, refreshWallpaperDeck, updateWallpaperDeckCategory])
@@ -281,7 +280,7 @@ export function App() {
     setGroupId(resolvedGroupId)
     setGroupIdByCategory(current => {
       const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
-      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
       return nextSelections
     })
   }, [activeCategoryId, doc, saveUIState, uiStateFromSelection])
@@ -290,7 +289,7 @@ export function App() {
     setGroupId(resolvedGroupId)
     setGroupIdByCategory(current => {
       const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
-      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
       return nextSelections
     })
   }, [activeCategoryId, saveUIState, uiStateFromSelection])
@@ -305,7 +304,7 @@ export function App() {
       const resolvedTargetGroupId = resolveGroupSelection(nextDoc, nextSelections[categoryId] ?? '')
       const savedSelections = rememberGroupSelection(nextSelections, categoryId, resolvedTargetGroupId)
       setGroupIdByCategory(savedSelections)
-      void saveUIState(uiStateFromSelection(categoryId, savedSelections)).catch(e => setError(errorMessage(e, '保存上次分类失败')))
+      void saveUIState(uiStateFromSelection(categoryId, savedSelections)).catch(e => showToast(errorMessage(e, '保存上次分类失败'), 'error'))
     })
   }, [activeCategoryId, client, groupId, groupIdByCategory, loadCategory, saveUIState, uiStateFromSelection])
 
@@ -396,18 +395,12 @@ export function App() {
     if (!settingsOpen) setIconLayoutDraft(null)
   }, [settingsOpen])
   React.useEffect(() => {
-    if (!error) return
-    if (phase === 'data-error') return
-    const timer = window.setTimeout(() => setError(null), ERROR_AUTO_HIDE_MS)
-    return () => window.clearTimeout(timer)
-  }, [error, phase])
-  React.useEffect(() => {
     const resolvedGroupId = resolveGroupSelection(doc, groupId)
     if (resolvedGroupId === groupId) return
     setGroupId(resolvedGroupId)
     setGroupIdByCategory(current => {
       const nextSelections = rememberGroupSelection(current, activeCategoryId, resolvedGroupId)
-      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+      void saveUIState(uiStateFromSelection(activeCategoryId, nextSelections)).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
       return nextSelections
     })
   }, [activeCategoryId, doc, groupId, saveUIState, uiStateFromSelection])
@@ -418,9 +411,9 @@ export function App() {
         const dataUrl = await clipboardImageDataUrlFromPasteEvent(event)
         if (!dataUrl) return
         event.preventDefault()
-        setBusy(true); setError(null)
+        setBusy(true)
         try { await importIconDataUrl(dataUrl, '剪贴板图片') }
-        catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+        catch (e) { showToast(errorMessage(e, '粘贴剪贴板图片失败'), 'error') }
         finally { setBusy(false) }
       })()
     }
@@ -479,7 +472,7 @@ export function App() {
       setEditing(itemTemplate(activeCategory.id, target.groupId, target.containerId))
       setForm(createEmptyItemForm(target.groupId))
     } catch (e) {
-      setError(errorMessage(e, '请先创建分组，再添加收藏项'))
+      showToast(errorMessage(e, '请先创建分组，再添加收藏项'), 'error')
     }
   }
 
@@ -490,7 +483,7 @@ export function App() {
 
   function openAddContainer() {
     if (isAllView) return
-    if (!resolveGroupSelection(doc, groupId)) { setError('请先创建分组，再添加收纳夹'); return }
+    if (!resolveGroupSelection(doc, groupId)) { showToast('请先创建分组，再添加收纳夹', 'error'); return }
     setEditingContainer(null)
     setContainerForm({ ...EMPTY_CONTAINER_FORM })
     setContainerEditorOpen(true)
@@ -508,18 +501,18 @@ export function App() {
     if (!client || !editing || !activeCategory) return
     const targetValue = form.target.trim()
     const targetError = activeCategory.validateTarget(targetValue)
-    if (targetError) { setError(targetError); return }
+    if (targetError) { showToast(targetError, 'error'); return }
     const name = (form.name.trim() || deriveNameFromTarget(targetValue)).trim()
-    if (!name) { setError('名称不能为空'); return }
+    if (!name) { showToast('名称不能为空', 'error'); return }
     cancelWebIconDiscovery()
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       let targetGroupId = groupIdForPage(form.groupId)
       const newGroupName = form.newGroupName.trim()
       if (editing.containerId) {
-        if (newGroupName) { setError('收纳夹内项目跟随收纳夹分组，不能新建分组'); return }
+        if (newGroupName) { showToast('收纳夹内项目跟随收纳夹分组，不能新建分组', 'error'); return }
         try { assertItemCreationTarget(doc, { groupId: targetGroupId, containerId: editing.containerId }) }
-        catch (e) { setError(errorMessage(e, '收纳夹内项目必须属于收纳夹所在分组')); return }
+        catch (e) { showToast(errorMessage(e, '收纳夹内项目必须属于收纳夹所在分组'), 'error'); return }
       }
       let targetDoc = doc
       if (newGroupName) {
@@ -529,7 +522,7 @@ export function App() {
         targetDoc = afterGroupAdd
         targetGroupId = newGroupId
       }
-      if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
+      if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { showToast('请选择有效分类', 'error'); return }
       assertItemCreationTarget(targetDoc, { groupId: targetGroupId, containerId: editing.containerId })
       const now = Date.now()
       const nowText = new Date(now).toISOString()
@@ -545,7 +538,7 @@ export function App() {
       const nextDoc = await client.request<CategoryWorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', requestParams({ item: payload }))
       setDoc(nextDoc); setEditing(null)
       if (newGroupName) selectResolvedGroup(targetGroupId)
-    } catch (e) { setError(errorMessage(e, `保存${activeCategory.singularLabel}失败`)) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, `保存${activeCategory.singularLabel}失败`), 'error') } finally { setBusy(false) }
   }
 
   async function createItemFromClipboardText(text: string) {
@@ -556,7 +549,7 @@ export function App() {
       return
     }
 
-    setBusy(true); setError(null); setContextMenu(null)
+    setBusy(true); setContextMenu(null)
     try {
       const resolved = parsed.kind === 'path'
         ? resolvedClipboardTargetFromPathInspection(await invoke<ClipboardPathInspection>('inspect_path_target', { path: parsed.target }))
@@ -651,49 +644,49 @@ export function App() {
 
   async function removeItem(item: CollectionItem) {
     if (!client || !activeCategory) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.remove', requestParams({ id: item.id }))); setConfirm(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, `删除${activeCategory.singularLabel}失败`)) }
+    catch (e) { showToast(errorMessage(e, `删除${activeCategory.singularLabel}失败`), 'error') }
     finally { setBusy(false) }
   }
 
   async function openItem(item: CollectionItem) {
     if (!client) return
-    setBusy(true); setError(null); setContextMenu(null)
+    setBusy(true); setContextMenu(null)
     const sourceCategoryId = sourceCategoryIdForItem(item)
     const itemCategory = categoryDefinition(sourceCategoryId)
     try { await client.request('collections.items.open', requestParams({ categoryId: sourceCategoryId, id: sourceItemIdForItem(item) })) }
-    catch (e) { setError(errorMessage(e, itemCategory.openError)) }
+    catch (e) { showToast(errorMessage(e, itemCategory.openError), 'error') }
     finally { setBusy(false) }
   }
 
   async function moveItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || isAllView || item.groupId === targetGroupId) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.move-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '移动到分类失败')) }
+    catch (e) { showToast(errorMessage(e, '移动到分类失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function copyItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || isAllView || item.groupId === targetGroupId) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.copy-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '复制到分类失败')) }
+    catch (e) { showToast(errorMessage(e, '复制到分类失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function saveItemContainer(ids: string[], containerId: string) {
     if (!client || isAllView || !ids.length) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.container.save', requestParams({ ids, containerId }))); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '移动到收纳夹失败')) }
+    catch (e) { showToast(errorMessage(e, '移动到收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<CollectionItem['layout']>) {
     if (!client || isAllView) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.containers.create-from-items', requestParams({ sourceItemId, targetItemId, layout }))
       setDoc(nextDoc)
@@ -701,14 +694,13 @@ export function App() {
       const nextContainer = movedItem?.containerId ? nextDoc.containers.find(container => container.id === movedItem.containerId) : null
       setContainerDropViewState(null)
       if (nextContainer) setContainerView(nextContainer)
-    } catch (e) { setError(errorMessage(e, '自动创建收纳夹失败')) }
+    } catch (e) { showToast(errorMessage(e, '自动创建收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function placeContainerItems(containerId: string, movedId: string | null, placements: ContainerGridPlacement[]) {
     if (!client || !placements.length) return
     const previousDoc = doc
-    setError(null)
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
@@ -726,7 +718,7 @@ export function App() {
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
-      setError(errorMessage(e, '保存收纳夹布局失败'))
+      showToast(errorMessage(e, '保存收纳夹布局失败'), 'error')
     }
   }
 
@@ -757,7 +749,6 @@ export function App() {
   async function saveDesktopLayouts(patches: DesktopGridLayoutPatch[]) {
     if (!client || patches.length === 0) return
     const previousDoc = doc
-    setError(null)
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
@@ -774,7 +765,7 @@ export function App() {
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
-      setError(errorMessage(e, '保存桌面布局失败'))
+      showToast(errorMessage(e, '保存桌面布局失败'), 'error')
     }
   }
 
@@ -782,12 +773,11 @@ export function App() {
     if (!client || patches.length === 0) return
     const previousDoc = doc
     const previousContainerView = containerView
-    setError(null)
     let optimisticDoc: CategoryWorkspaceView
     try {
       optimisticDoc = applyContainerItemDesktopExtractionView(doc, containerId, itemId, patches)
     } catch (e) {
-      setError(errorMessage(e, '移出到桌面失败'))
+      showToast(errorMessage(e, '移出到桌面失败'), 'error')
       return
     }
     setContainerDropViewState(null)
@@ -799,7 +789,7 @@ export function App() {
     } catch (e) {
       setDoc(previousDoc)
       setContainerView(previousContainerView)
-      setError(errorMessage(e, '移出到桌面失败'))
+      showToast(errorMessage(e, '移出到桌面失败'), 'error')
     }
   }
 
@@ -931,14 +921,14 @@ export function App() {
     const surface = resolveContainerDropSurface(containerId, openContainer, Boolean(containerGrid))
     if (surface === 'icon') return { kind: 'icon' }
     if (!containerGrid) {
-      setError('收纳夹投放区域尚未就绪，请重新拖入')
+      showToast('收纳夹投放区域尚未就绪，请重新拖入', 'error')
       return { kind: 'invalid' }
     }
     const dropLayout = containerGrid.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY)
     if (!dropLayout) return { kind: 'invalid' }
     const placements = containerGrid.placementsForDrop(movedItemId, dropLayout)
     if (!placements.some(placement => placement.id === movedItemId)) {
-      setError('收纳夹投放布局缺少当前拖拽图标')
+      showToast('收纳夹投放布局缺少当前拖拽图标', 'error')
       return { kind: 'invalid' }
     }
     return { kind: 'grid', placements }
@@ -959,7 +949,7 @@ export function App() {
   function handleContainerItemDragStart(event: ContainerItemDragEvent) {
     if (!containerView) return
     if (event.item.containerId !== containerView.id) {
-      setError(`收藏项不在当前收纳夹中：${event.item.name}`)
+      showToast(`收藏项不在当前收纳夹中：${event.item.name}`, 'error')
       return
     }
     setContainerDropViewState(null)
@@ -1006,7 +996,7 @@ export function App() {
     }
     const projection = desktopGridApiRef.current?.projectExternalItemDrag(toDesktopExternalDrag(event), desktopDragRef.current, activeDropContainer())
     if (!projection) {
-      setError('桌面投放位置不可用，请重新拖出')
+      showToast('桌面投放位置不可用，请重新拖出', 'error')
       setContainerExtractDragState(null)
       setContainerDropViewState(null)
       setDesktopDragState(null)
@@ -1042,7 +1032,7 @@ export function App() {
       return { handled: true, clearReleaseLayouts: true }
     }
     if (!projection.patches.length) {
-      setError('桌面投放布局缺少拖出图标，请重新拖出')
+      showToast('桌面投放布局缺少拖出图标，请重新拖出', 'error')
       setContainerExtractDragState(null)
       setContainerDropViewState(null)
       setDesktopDragState(null)
@@ -1073,47 +1063,47 @@ export function App() {
   async function saveGroup() {
     if (!client || isAllView) return
     const name = groupForm.name.trim()
-    if (!name) { setError('分组名称不能为空'); return }
+    if (!name) { showToast('分组名称不能为空', 'error'); return }
     const id = groupForm.id || createGroupID()
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const method = groupForm.id ? 'collections.groups.update' : 'collections.groups.add'
       setDoc(await client.request<CategoryWorkspaceView>(method, requestParams({ group: { id, name } })))
       setGroupEditorOpen(false)
-    } catch (e) { setError(errorMessage(e, '保存分组失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存分组失败'), 'error') } finally { setBusy(false) }
   }
 
   async function removeGroup(group: CollectionGroup) {
     if (!client || isAllView) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.remove', requestParams({ id: group.id }))
       setDoc(nextDoc); setConfirm(null); setGroupEditorOpen(false)
       if (groupId === group.id) selectResolvedGroup(resolveGroupSelection(nextDoc, ''))
-    } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '删除分组失败'), 'error') } finally { setBusy(false) }
   }
 
   async function saveGroupOrder(groupOrder: string[]) {
     if (!client || isAllView) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.order.save', requestParams({ groupOrder }))
       setDoc(nextDoc)
       selectResolvedGroup(resolveGroupSelection(nextDoc, groupId))
-    } catch (e) { setError(errorMessage(e, '保存分组顺序失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存分组顺序失败'), 'error') } finally { setBusy(false) }
   }
 
   async function saveContainer() {
     if (!client || isAllView) return
     const name = containerForm.name.trim()
-    if (!name) { setError('收纳夹名称不能为空'); return }
-    setBusy(true); setError(null)
+    if (!name) { showToast('收纳夹名称不能为空', 'error'); return }
+    setBusy(true)
     try {
       const id = editingContainer?.id || createID()
       const now = Date.now()
       const nowText = new Date(now).toISOString()
       const targetGroupId = editingContainer?.groupId || resolveGroupSelection(doc, groupId)
-      if (!targetGroupId) { setError('请先创建分组，再添加收纳夹'); return }
+      if (!targetGroupId) { showToast('请先创建分组，再添加收纳夹', 'error'); return }
       const payload: CollectionContainer = {
         id,
         name,
@@ -1127,7 +1117,7 @@ export function App() {
       }
       const nextDoc = await client.request<CategoryWorkspaceView>(editingContainer ? 'collections.containers.update' : 'collections.containers.add', requestParams({ container: payload }))
       setDoc(nextDoc); setContainerEditorOpen(false); setEditingContainer(null)
-    } catch (e) { setError(errorMessage(e, '保存收纳夹失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存收纳夹失败'), 'error') } finally { setBusy(false) }
   }
 
   async function renameContainer(container: CollectionContainer, name: string) {
@@ -1135,7 +1125,7 @@ export function App() {
     const nextName = name.trim()
     if (!nextName) throw new Error('收纳夹名称不能为空')
     if (nextName === container.name) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const now = Date.now()
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.containers.update', requestParams({ container: {
@@ -1149,16 +1139,16 @@ export function App() {
       setContainerDropViewState(containerDropViewRef.current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : containerDropViewRef.current)
     } catch (e) {
       const message = errorMessage(e, '重命名收纳夹失败')
-      setError(message)
+      showToast(message, 'error')
       throw new Error(message)
     } finally { setBusy(false) }
   }
 
   async function removeContainer(container: CollectionContainer) {
     if (!client || isAllView) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.containers.remove', requestParams({ id: container.id }))); setConfirm(null); setContainerView(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '删除收纳夹失败')) }
+    catch (e) { showToast(errorMessage(e, '删除收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1203,11 +1193,11 @@ export function App() {
 
   async function pasteFormIconImage() {
     if (!client || !editing) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const dataUrl = await clipboardImageDataUrlFromClipboard()
       await importIconDataUrl(dataUrl, '剪贴板图片')
-    } catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+    } catch (e) { showToast(errorMessage(e, '粘贴剪贴板图片失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1215,8 +1205,8 @@ export function App() {
     if (!client || !editing || !activeCategory) return
     const target = form.target.trim()
     const targetError = activeCategory.validateTarget(target)
-    if (targetError) { setError(targetError); return }
-    setBusy(true); setError(null)
+    if (targetError) { showToast(targetError, 'error'); return }
+    setBusy(true)
     try {
       const dataUrl = await invoke<string>('system_icon_data_url', { path: target })
       const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
@@ -1228,7 +1218,7 @@ export function App() {
           candidates: upsertIconCandidate(current.icon.candidates, { id: systemIconCandidateIdForTarget(target), label: '系统图标', icon }),
         },
       }))
-    } catch (e) { setError(errorMessage(e, '获取系统图标失败')) }
+    } catch (e) { showToast(errorMessage(e, '获取系统图标失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1236,10 +1226,9 @@ export function App() {
     if (!client || !editing || !activeCategory) return
     const target = form.target.trim()
     const targetError = activeCategory.validateTarget(target)
-    if (targetError) { setError(targetError); return }
+    if (targetError) { showToast(targetError, 'error'); return }
     const session = webIconDiscovery.start()
     webIconAutoSelectRef.current = true
-    setError(null)
     try {
       const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target }, {
         signal: session.abortController.signal,
@@ -1276,7 +1265,7 @@ export function App() {
         return { ...current, icon: { ...current.icon, draftIcon: selectedCandidate.icon || null, draftCandidateId: selectedCandidate.id, draftDataUrl: selectedCandidate.dataUrl, candidates } }
       })
     } catch (e) {
-      if (webIconDiscovery.isCurrent(session)) setError(errorMessage(e, '获取网页图标失败'))
+      if (webIconDiscovery.isCurrent(session)) showToast(errorMessage(e, '获取网页图标失败'), 'error')
     }
     finally {
       if (webIconDiscovery.finish(session)) webIconAutoSelectRef.current = false
@@ -1285,7 +1274,7 @@ export function App() {
 
   async function pickFormIconImage() {
     if (!client || !editing) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
@@ -1298,19 +1287,19 @@ export function App() {
           candidates: upsertIconCandidate(current.icon.candidates, { id: importedIconCandidateId(asset.id), label: '导入图片', icon }),
         },
       }))
-    } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
+    } catch (e) { showToast(errorMessage(e, '导入图标图片失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function saveDesktopWallpaper(wallpaper: DesktopWallpaperState | null) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper }))
       setDoc(nextDoc)
       updateWallpaperDeckCategory(nextDoc)
     }
-    catch (e) { setError(errorMessage(e, '保存壁纸失败')) }
+    catch (e) { showToast(errorMessage(e, '保存壁纸失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1335,37 +1324,37 @@ export function App() {
 
   async function saveDesktopIconLayout(iconLayout: DesktopIconLayout) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.icon-layout.save', requestParams({ iconLayout: normalizeDesktopIconLayout(iconLayout) }))
       setDoc(nextDoc)
       setIconLayoutDraft(nextDoc.desktop.iconLayout)
     }
-    catch (e) { setIconLayoutDraft(null); setError(errorMessage(e, '保存图标布局失败')) }
+    catch (e) { setIconLayoutDraft(null); showToast(errorMessage(e, '保存图标布局失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function saveCategoryOrder(categoryOrder: CollectionViewCategoryId[]) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { categoryOrder })
       setDoc(nextDoc)
       setWallpaperDeck(current => current ? { ...current, schemaVersion: nextDoc.schemaVersion, dataVersion: nextDoc.dataVersion, categories: reorderWallpaperDeckCategories(current.categories, nextDoc.categoryOrder) } : wallpaperDeckFromWorkspace(nextDoc))
     }
-    catch (e) { setError(errorMessage(e, '保存分类顺序失败')) }
+    catch (e) { showToast(errorMessage(e, '保存分类顺序失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function openAllViewSelector() {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const candidates = await client.request<AllViewItemCandidate[]>('collections.all-view.candidates')
       setAllViewCandidates(candidates)
       setAllViewSelection(Object.fromEntries(doc.items.map(item => [allViewSelectionKey(sourceCategoryIdForItem(item), sourceItemIdForItem(item)), true])))
       setAllViewSelectorOpen(true)
-    } catch (e) { setError(errorMessage(e, '加载可选图标失败')) }
+    } catch (e) { showToast(errorMessage(e, '加载可选图标失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1374,11 +1363,11 @@ export function App() {
     const items = allViewCandidates
       .filter(candidate => allViewSelection[allViewSelectionKey(candidate.categoryId, candidate.item.id)])
       .map(candidate => ({ categoryId: candidate.categoryId, itemId: candidate.item.id }))
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       setDoc(await client.request<CategoryWorkspaceView>('collections.all-view.selection.save', { items }))
       setAllViewSelectorOpen(false)
-    } catch (e) { setError(errorMessage(e, '保存全部图标选择失败')) }
+    } catch (e) { showToast(errorMessage(e, '保存全部图标选择失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1388,15 +1377,15 @@ export function App() {
     const items = doc.items
       .filter(current => allViewSelectionKey(sourceCategoryIdForItem(current), sourceItemIdForItem(current)) !== sourceKey)
       .map(current => ({ categoryId: sourceCategoryIdForItem(current), itemId: sourceItemIdForItem(current) }))
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.all-view.selection.save', { items })); setConfirm(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '从全部中移除图标失败')) }
+    catch (e) { showToast(errorMessage(e, '从全部中移除图标失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function pickWallpaperImage() {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
@@ -1406,7 +1395,7 @@ export function App() {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper: { activeId: preset.id, presets } }))
       setDoc(nextDoc)
       updateWallpaperDeckCategory(nextDoc)
-    } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
+    } catch (e) { showToast(errorMessage(e, '导入壁纸失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1421,11 +1410,10 @@ export function App() {
     if (!activeCategory) return
     const pickCommand = activeCategory.pickCommand
     if (!pickCommand) return
-    setError(null)
     try {
       const target = await invoke<string | null>(pickCommand)
       if (target) setForm(current => ({ ...current, target, name: current.name || deriveNameFromTarget(target) }))
-    } catch (e) { setError(errorMessage(e, activeCategory.pickError)) }
+    } catch (e) { showToast(errorMessage(e, activeCategory.pickError), 'error') }
   }
 
   const allDesktopEntries = React.useMemo(() => isAllView ? buildAllDesktopGridEntries(doc) : buildDesktopGridEntries(doc, groupId), [doc, groupId, isAllView])
@@ -1504,8 +1492,6 @@ export function App() {
       />
 
       <DesktopDragHint containerExtractDrag={containerExtractDrag} drag={desktopDrag} />
-
-      {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
       <Snackbar
         key={toast?.key}
