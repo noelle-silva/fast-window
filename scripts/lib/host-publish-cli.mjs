@@ -1,7 +1,6 @@
 import path from 'node:path'
 import process from 'node:process'
-import { scriptArgs } from './v5-cli-args.mjs'
-import { rootDir } from './v5-app-packaging.mjs'
+import { rootDir, scriptArgs } from './host-support.mjs'
 import { defaultHostPublishOptions, publishHostMsi } from './host-publishing.mjs'
 import { consumeHostVersionArg, hostVersionUsageLines } from './host-versioning.mjs'
 import { hostPublishTokenUsageLines } from './host-publish-tokens.mjs'

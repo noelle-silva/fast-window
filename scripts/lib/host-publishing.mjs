@@ -8,9 +8,10 @@ import {
   loadCatalogOrMigrateIndex,
   loadDotEnvIfPresent,
   writeRemoteJsonFile,
-} from './v5-download-store.mjs'
-import { buildStoreCatalog, compareSemverStrict, parseSemverStrict, rootDir, run, sha256FileHex } from './v5-app-packaging.mjs'
-import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
+} from './host-store-remote.mjs'
+import { buildStoreCatalog } from './host-catalog.mjs'
+import { compareSemverStrict, parseSemverStrict, rootDir, run, sha256FileHex } from './host-support.mjs'
+import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './host-release-assets.mjs'
 import { managedHostTauriBuildEnv } from './host-tauri-build-policy.mjs'
 import { resolveHostPublishTokens } from './host-publish-tokens.mjs'
 import {

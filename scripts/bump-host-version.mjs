@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { scriptArgs } from './lib/v5-cli-args.mjs'
+import { scriptArgs } from './lib/host-support.mjs'
 import {
   applyHostVersionPlan,
   consumeHostVersionArg,

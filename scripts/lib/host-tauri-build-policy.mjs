@@ -1,15 +1,33 @@
-import {
-  HOST_PROFILE_DEV,
-  HOST_PROFILE_ENV,
-  HOST_PROFILE_RELEASE,
-  HOST_VITE_PROFILE_ENV,
-  TAURI_CONFIG_ENV,
-  assertNoExternalTauriConfig,
-  hostDevProfileEnv,
-  hostReleaseProfileEnv,
-} from './tauri-build-env-policy.mjs'
+export const TAURI_CONFIG_ENV = 'TAURI_CONFIG'
+export const HOST_PROFILE_ENV = 'FAST_WINDOW_HOST_PROFILE'
+export const HOST_VITE_PROFILE_ENV = 'VITE_FAST_WINDOW_HOST_PROFILE'
+export const HOST_PROFILE_DEV = 'dev'
+export const HOST_PROFILE_RELEASE = 'release'
 
-export { HOST_PROFILE_DEV, HOST_PROFILE_ENV, HOST_PROFILE_RELEASE, HOST_VITE_PROFILE_ENV, TAURI_CONFIG_ENV, hostDevProfileEnv, hostReleaseProfileEnv }
+export function withHostProfileEnv(env = process.env, profile) {
+  return {
+    ...env,
+    [HOST_PROFILE_ENV]: profile,
+    [HOST_VITE_PROFILE_ENV]: profile,
+  }
+}
+
+export function hostDevProfileEnv(env = process.env) {
+  return withHostProfileEnv(env, HOST_PROFILE_DEV)
+}
+
+export function hostReleaseProfileEnv(env = process.env) {
+  return withHostProfileEnv(env, HOST_PROFILE_RELEASE)
+}
+
+export function assertNoExternalTauriConfig(env, context) {
+  const tauriConfig = String(env?.[TAURI_CONFIG_ENV] || '').trim()
+  if (!tauriConfig) return
+  throw new Error([
+    `${context} 不允许携带 ${TAURI_CONFIG_ENV}。`,
+    '原因：TAURI_CONFIG 会覆盖 tauri.conf.json，可能把 dev productName/identifier 写进发布包。',
+  ].join('\n'))
+}
 
 export const HOST_TAURI_BUILD_CHANNEL_ENV = 'FAST_WINDOW_HOST_TAURI_BUILD_CHANNEL'
 export const HOST_TAURI_BUILD_CHANNEL_MANAGED = 'managed-host-msi'

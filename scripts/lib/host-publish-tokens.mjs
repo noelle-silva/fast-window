@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { githubJson, repoApiBase } from './v5-download-store.mjs'
+import { githubJson, repoApiBase } from './host-store-remote.mjs'
 
 export const HOST_RELEASE_TOKEN_ENV = 'FAST_WINDOW_HOST_RELEASE_GITHUB_TOKEN'
 export const DISTRIBUTION_TOKEN_ENV = 'FAST_WINDOW_GITHUB_TOKEN'

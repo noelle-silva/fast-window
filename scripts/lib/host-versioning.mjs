@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { compareSemverStrict, parseSemverStrict, readJson, rootDir } from './v5-app-packaging.mjs'
+import { compareSemverStrict, parseSemverStrict, readJson, rootDir } from './host-support.mjs'
 
 const HOST_VERSION_FILES = [
   'package.json',
