@@ -24,6 +24,9 @@ func run() error {
 		return errors.New("eucli-studio backend missing FW_APP_SESSION_TOKEN")
 	}
 	dataDir := strings.TrimSpace(os.Getenv("FW_APP_DATA_DIR"))
+	if err := ensureDataContract(dataDir); err != nil {
+		return err
+	}
 	release, err := loadClientRelease(os.Getenv(clientReleaseEnvironment))
 	if err != nil {
 		return err
