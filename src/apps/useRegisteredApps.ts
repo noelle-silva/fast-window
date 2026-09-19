@@ -8,6 +8,7 @@ export function useRegisteredApps() {
   const load = useCallback(async () => {
     const list = await loadRegistry()
     setApps(list)
+    return list
   }, [])
 
   const add = useCallback(async (app: RegisteredApp) => {

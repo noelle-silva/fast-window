@@ -50,6 +50,7 @@ import {
 import type { AppRegistrationEditRequest, AppStatus, RegisteredApp, RegisteredAppCapabilitySelection, RegisteredAppShortcut } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper } from './useWallpaper'
+import { useHostHomeRefresh } from './host/useHostHomeRefresh'
 import { useSearch } from './useSearch'
 import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
@@ -259,27 +260,39 @@ function App() {
     }
   }, [loadRegisteredApps])
 
-  const refreshRegisteredAppStatuses = useCallback(async () => {
-    if (!registeredApps.length) {
+  const refreshRegisteredAppStatuses = useCallback(async (apps: RegisteredApp[]) => {
+    if (!apps.length) {
       setRegisteredAppStatuses({})
       return
     }
     try {
-      const result = await getAppStatuses(registeredApps.map(app => app.id))
+      const result = await getAppStatuses(apps.map(app => app.id))
       setRegisteredAppStatuses(result)
     } catch (error) {
       console.warn('[app] main list status refresh failed:', error)
     }
-  }, [registeredApps])
+  }, [])
+
+  const refreshCurrentAppStatuses = useCallback(
+    () => refreshRegisteredAppStatuses(registeredApps),
+    [refreshRegisteredAppStatuses, registeredApps],
+  )
 
   useEffect(() => {
-    void refreshRegisteredAppStatuses()
+    void refreshCurrentAppStatuses()
     if (!registeredApps.length) return
     const timer = window.setInterval(() => {
-      void refreshRegisteredAppStatuses()
+      void refreshCurrentAppStatuses()
     }, 5_000)
     return () => window.clearInterval(timer)
-  }, [registeredApps.length, refreshRegisteredAppStatuses])
+  }, [refreshCurrentAppStatuses, registeredApps.length])
+
+  const { refreshHome, refreshingHome } = useHostHomeRefresh({
+    reloadPlugins: loadPlugins,
+    reloadRegisteredApps: loadRegisteredApps,
+    refreshRegisteredAppStatuses,
+    notify: showToast,
+  })
 
   // Disabled plugin check
   useEffect(() => {
@@ -395,9 +408,9 @@ function App() {
       console.warn('[app] shortcut activation failed:', error)
       showToast(String(error?.message || error || '打开快捷入口失败'))
     } finally {
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+      window.setTimeout(() => void refreshCurrentAppStatuses(), 500)
     }
-  }, [refreshRegisteredAppStatuses, showToast])
+  }, [refreshCurrentAppStatuses, showToast])
 
   const activateRegisteredAppCapability = useCallback(async (app: RegisteredApp, capability: RegisteredAppCapabilitySelection) => {
     try {
@@ -408,9 +421,9 @@ function App() {
       console.warn('[app] capability activation failed:', error)
       showToast(String(error?.message || error || '能力调用失败'))
     } finally {
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+      window.setTimeout(() => void refreshCurrentAppStatuses(), 500)
     }
-  }, [query, refreshRegisteredAppStatuses, showToast])
+  }, [query, refreshCurrentAppStatuses, showToast])
 
   const launchRegisteredApp = useCallback(async (app: RegisteredApp) => {
     try {
@@ -423,9 +436,9 @@ function App() {
         showToast(String(error?.message || error || '启动应用失败'))
       }
     } finally {
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+      window.setTimeout(() => void refreshCurrentAppStatuses(), 500)
     }
-  }, [refreshRegisteredAppStatuses, showToast])
+  }, [refreshCurrentAppStatuses, showToast])
 
   const activateListItem = useCallback((plugin: Plugin) => {
     const selection = parseRegisteredAppListItemId(plugin.id)
@@ -636,24 +649,24 @@ function App() {
       const result = await stopRegisteredApp(app, stopAppConfirm.mode)
       showToast(appStopToastMessage(app.name, result, stopAppConfirm.mode))
       setStopAppConfirm(null)
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
+      window.setTimeout(() => void refreshCurrentAppStatuses(), 300)
     } catch (error: any) {
       showToast(String(error?.message || error || '停止应用失败'))
     } finally {
       setStoppingAppId(null)
     }
-  }, [refreshRegisteredAppStatuses, showToast, stopAppConfirm?.app, stopAppConfirm?.mode])
+  }, [refreshCurrentAppStatuses, showToast, stopAppConfirm?.app, stopAppConfirm?.mode])
 
   const restartRegisteredAppFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
       const launchOptions = await launchOptionsForApp(app)
       await restartApp(app, 'show', launchOptions)
       showToast(`已重启：${app.name}`)
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+      window.setTimeout(() => void refreshCurrentAppStatuses(), 500)
     } catch (error: any) {
       showToast(String(error?.message || error || '重启应用失败'))
     }
-  }, [refreshRegisteredAppStatuses, showToast])
+  }, [refreshCurrentAppStatuses, showToast])
 
   const openRegisteredAppFolderFromMenu = useCallback(async (app: RegisteredApp) => {
     try {
@@ -1004,7 +1017,7 @@ function App() {
         <ImportPluginDialog
           open={importOpen}
           onClose={() => setImportOpen(false)}
-          onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
+          onInstalled={() => { showToast('插件已导入'); void loadPlugins() }}
         />
         <PluginUninstallDialog
           state={pluginUninstall}
@@ -1044,8 +1057,8 @@ function App() {
             onNextWallpaper={canSwitchWallpaper ? () => cycleWallpaper(1) : undefined}
             wallpaperSwitchDisabled={wallpaperSwitching}
             onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
-            onReloadPlugins={reorderMode ? undefined : reloadPlugins}
-            reloadDisabled={loading}
+            onRefresh={reorderMode ? undefined : refreshHome}
+            refreshDisabled={refreshingHome || loading}
             browseLayout={browseLayout}
             onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
             onStartReorder={reorderMode ? undefined : startReorder}
@@ -1208,7 +1221,7 @@ function App() {
       <ImportPluginDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
+        onInstalled={() => { showToast('插件已导入'); void loadPlugins() }}
       />
       <PluginUninstallDialog
         state={pluginUninstall}

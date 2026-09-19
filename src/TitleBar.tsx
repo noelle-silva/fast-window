@@ -32,8 +32,8 @@ export interface TitleBarProps {
   onCapabilityRegistry?: () => void
   onImportPlugin?: () => void
   onSettings?: () => void
-  onReloadPlugins?: () => void
-  reloadDisabled?: boolean
+  onRefresh?: () => void
+  refreshDisabled?: boolean
   reorderMode?: boolean
   onStartReorder?: () => void
   onSaveReorder?: () => void
@@ -59,8 +59,8 @@ export default function TitleBar(props: TitleBarProps) {
     onCapabilityRegistry,
     onImportPlugin,
     onSettings,
-    onReloadPlugins,
-    reloadDisabled,
+    onRefresh,
+    refreshDisabled,
     reorderMode,
     onStartReorder,
     onSaveReorder,
@@ -136,8 +136,8 @@ export default function TitleBar(props: TitleBarProps) {
                   <FileUploadRoundedIcon fontSize="small" />
                 </IconButton>
               ) : null}
-              {onReloadPlugins ? (
-                <IconButton aria-label="刷新插件" size="small" onClick={onReloadPlugins} disabled={reloadDisabled}>
+              {onRefresh ? (
+                <IconButton aria-label="刷新" size="small" onClick={onRefresh} disabled={refreshDisabled}>
                   <RefreshRoundedIcon fontSize="small" />
                 </IconButton>
               ) : null}
