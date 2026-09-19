@@ -578,32 +578,44 @@ body {
   gap: 8px;
 }
 
-.cr-placeholder-item {
+.cr-placeholder-block {
   padding: 10px 12px;
   border-radius: 10px;
   display: grid;
-  gap: 8px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: start;
   background: #f3f4f6;
 }
 
-.cr-placeholder-item-head {
+.cr-placeholder-name-cell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px;
+  align-items: center;
+}
+
+.cr-placeholder-values-cell {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.cr-placeholder-value-row {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 4px;
   align-items: center;
 }
 
-.cr-placeholder-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+.cr-placeholder-add-value {
+  justify-self: start;
 }
 
-.cr-placeholder-value-add {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.cr-placeholder-add-row {
+  padding-left: 12px;
 }
 
 .cr-placeholder-select {
