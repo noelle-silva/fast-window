@@ -16,7 +16,6 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod app;
 mod app_autostart;
 mod app_capabilities;
-mod app_dev_actions;
 mod app_installer;
 mod app_layout;
 mod app_lifecycle;
@@ -2563,7 +2562,6 @@ fn main() {
         app_lifecycle::manager::app_status,
         app_lifecycle::manager::app_status_many,
         app_lifecycle::manager::app_icon_data_url,
-        app_dev_actions::app_dev_run_terminal_command,
         host_dev_actions::host_dev_run_terminal_command,
         app_registry::app_registry_load,
         app_registry::app_registry_save,

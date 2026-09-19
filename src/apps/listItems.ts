@@ -1,6 +1,5 @@
 import type { ComponentType } from 'react'
 import type { Plugin, PluginIconBadge } from '../constants'
-import { appDevCommandIsRunning, type AppDevCommandRuns } from './appDevCommandState'
 import type { AppStatus, RegisteredApp, RegisteredAppCapabilitySelection } from './types'
 
 const REGISTERED_APP_ITEM_PREFIX = 'app:'
@@ -76,7 +75,6 @@ export function registeredAppFromListItem(apps: RegisteredApp[], itemId: string)
 export function buildRegisteredAppListItems(
   apps: RegisteredApp[],
   statuses: Record<string, AppStatus>,
-  devCommandRuns: AppDevCommandRuns = {},
   capabilitySelections: RegisteredAppCapabilitySelection[] = [],
 ): Plugin[] {
   return apps.flatMap(app => {
@@ -92,7 +90,6 @@ export function buildRegisteredAppListItems(
       appStatus: {
         type: 'registered-app',
         running: statuses[app.id]?.running === true,
-        devCommandRunning: appDevCommandIsRunning(devCommandRuns, app.id),
       },
     }
 
@@ -108,7 +105,6 @@ export function buildRegisteredAppListItems(
       appStatus: {
         type: 'registered-app',
         running: statuses[app.id]?.running === true,
-        devCommandRunning: appDevCommandIsRunning(devCommandRuns, app.id),
       },
     }))
 
@@ -126,7 +122,6 @@ export function buildRegisteredAppListItems(
         appStatus: {
           type: 'registered-app',
           running: statuses[app.id]?.running === true,
-          devCommandRunning: appDevCommandIsRunning(devCommandRuns, app.id),
         },
       }))
 

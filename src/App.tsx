@@ -28,13 +28,6 @@ import PluginUninstallDialog, { type PluginUninstallDialogState } from './Plugin
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
-import {
-  appDevCommandIsRunning,
-  beginAppDevCommandRun,
-  finishAppDevCommandRun,
-  type AppDevCommandRuns,
-} from './apps/appDevCommandState'
-import { releaseV5App, stageV5AppDev, type AppReleaseBump } from './apps/appDevActions'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, openAppFolder, restartApp, type AppLaunchOptions } from './apps/appLauncher'
 import { activateAppCapability } from './apps/appCapabilityActivation'
@@ -61,20 +54,11 @@ import { useSearch } from './useSearch'
 import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
-import { IS_HOST_DEV_PROFILE } from './hostProfile'
 import { movePluginById } from './utils'
 import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 import { HostAppearanceProvider, useHostAppearanceValue } from './components/hostAppearance'
 
 type HostPageId = 'settings' | 'store' | 'appBackground' | 'capabilityRegistry'
-
-type AppTerminalMenuCommand = {
-  id: string
-  label: string
-  startedToast: (appName: string) => string
-  completedToast: (appName: string) => string
-  run: (appId: string) => Promise<unknown>
-}
 
 type IconContextMenuHandlers = {
   chooseImage: () => void
@@ -100,12 +84,6 @@ function buildIconContextMenuAction(handlers: IconContextMenuHandlers): ContextM
     ],
   }
 }
-
-const APP_RELEASE_BUMP_COMMANDS: Array<{ bump: AppReleaseBump; label: string }> = [
-  { bump: 'patch', label: 'Release Patch' },
-  { bump: 'minor', label: 'Release Minor' },
-  { bump: 'major', label: 'Release Major' },
-]
 
 const QUICK_BAR_APP_ID = 'quick-bar'
 
@@ -151,15 +129,14 @@ function App() {
     remove: removeAppCapabilitySelection,
   } = appCapabilitySelectionsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
-  const [appDevCommandRuns, setAppDevCommandRuns] = useState<AppDevCommandRuns>({})
   const [appVersion, setAppVersion] = useState('')
   const [hostUpdatePromptDismissed, setHostUpdatePromptDismissed] = useState(false)
   const hostAutoUpdateCheckStartedRef = useRef(false)
   const { state: hostUpdateState, check: checkHostUpdate } = useHostUpdateCheck(appVersion)
 
   const registeredAppPlugins: Plugin[] = useMemo(() => {
-    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses, appDevCommandRuns, appCapabilitySelections)
-  }, [appCapabilitySelections, appDevCommandRuns, registeredApps, registeredAppStatuses])
+    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses, appCapabilitySelections)
+  }, [appCapabilitySelections, registeredApps, registeredAppStatuses])
 
   const homeItems: Plugin[] = useMemo(() => {
     return [...registeredAppPlugins, ...plugins]
@@ -455,10 +432,6 @@ function App() {
     if (selection.type === 'appShortcut') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
-        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
-          showToast(`开发命令运行中，暂不打开：${app.name}`)
-          return
-        }
         const shortcut = app.commands.find(command => command.id === selection.shortcutId)
         if (!shortcut) {
           showToast(`快捷入口不存在：${selection.shortcutId}`)
@@ -473,10 +446,6 @@ function App() {
     if (selection.type === 'appCapability') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
-        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
-          showToast(`开发命令运行中，暂不调用：${app.name}`)
-          return
-        }
         const capability = appCapabilitySelections.find(item => item.appId === selection.appId && item.capabilityId === selection.capabilityId)
         if (!capability) {
           showToast(`能力不存在：${selection.capabilityId}`)
@@ -491,17 +460,13 @@ function App() {
     if (selection.type === 'app') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
-        if (appDevCommandIsRunning(appDevCommandRuns, app.id)) {
-          showToast(`开发命令运行中，暂不打开：${app.name}`)
-          return
-        }
         void launchRegisteredApp(app)
       }
       return
     }
     setActiveHostPage(null)
     setActivePlugin(plugin)
-  }, [activateRegisteredAppCapability, activateRegisteredAppShortcut, appCapabilitySelections, appDevCommandRuns, launchRegisteredApp, registeredApps, refreshRegisteredAppStatuses, showToast])
+  }, [activateRegisteredAppCapability, activateRegisteredAppShortcut, appCapabilitySelections, launchRegisteredApp, registeredApps, refreshRegisteredAppStatuses, showToast])
 
   const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
     return registeredAppFromListItem(registeredApps, plugin.id)
@@ -698,42 +663,6 @@ function App() {
     }
   }, [showToast])
 
-  const runRegisteredAppTerminalCommandFromMenu = useCallback(async (app: RegisteredApp, command: AppTerminalMenuCommand) => {
-    setAppDevCommandRuns(runs => beginAppDevCommandRun(runs, app.id))
-    showToast(command.startedToast(app.name))
-    try {
-      await command.run(app.id)
-      showToast(command.completedToast(app.name))
-      await loadRegisteredApps()
-      window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
-    } catch (error: any) {
-      showToast(String(error?.message || error || `${command.label} 失败`))
-    } finally {
-      setAppDevCommandRuns(runs => finishAppDevCommandRun(runs, app.id))
-    }
-  }, [loadRegisteredApps, refreshRegisteredAppStatuses, showToast])
-
-  const stageRegisteredAppDevFromMenu = useCallback(async (app: RegisteredApp) => {
-    await runRegisteredAppTerminalCommandFromMenu(app, {
-      id: 'stage-v5-app-dev',
-      label: 'Stage Dev 包',
-      startedToast: appName => `开始 stage dev：${appName}`,
-      completedToast: appName => `已完成 stage dev：${appName}`,
-      run: appId => stageV5AppDev(appId),
-    })
-  }, [runRegisteredAppTerminalCommandFromMenu])
-
-  const releaseRegisteredAppFromMenu = useCallback(async (app: RegisteredApp, bump: AppReleaseBump) => {
-    const label = APP_RELEASE_BUMP_COMMANDS.find(command => command.bump === bump)?.label ?? `Release ${bump}`
-    await runRegisteredAppTerminalCommandFromMenu(app, {
-      id: `release-v5-app-${bump}`,
-      label,
-      startedToast: appName => `开始 ${label}：${appName}`,
-      completedToast: appName => `已完成 ${label}：${appName}`,
-      run: appId => releaseV5App(appId, bump),
-    })
-  }, [runRegisteredAppTerminalCommandFromMenu])
-
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return []
@@ -782,36 +711,9 @@ function App() {
           },
         ]
         : []
-      const isAppDevCommandRunning = appDevCommandIsRunning(appDevCommandRuns, app.id)
-      const appDevActions: ContextMenuAction[] = IS_HOST_DEV_PROFILE
-        ? [
-          {
-            id: 'app-dev-actions',
-            label: '开发',
-            children: [
-              {
-                id: 'stage-v5-app-dev',
-                label: 'Stage Dev 包',
-                onSelect: () => void stageRegisteredAppDevFromMenu(app),
-              },
-            ],
-          },
-          {
-            id: 'app-release-actions',
-            label: '发布',
-            children: APP_RELEASE_BUMP_COMMANDS.map(command => ({
-              id: `release-v5-app-${command.bump}`,
-              label: command.label,
-              onSelect: () => void releaseRegisteredAppFromMenu(app, command.bump),
-            })),
-          },
-        ]
-        : []
-
       return [
-        { id: 'restart-app', label: '重启', disabled: isAppDevCommandRunning, onSelect: () => void restartRegisteredAppFromMenu(app) },
+        { id: 'restart-app', label: '重启', onSelect: () => void restartRegisteredAppFromMenu(app) },
         { id: 'open-app-folder', label: '打开 App 文件夹', onSelect: () => void openRegisteredAppFolderFromMenu(app) },
-        ...appDevActions,
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
@@ -836,7 +738,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appCapabilitySelections, appDevCommandRuns, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, releaseRegisteredAppFromMenu, removeRegisteredAppCapabilityFromMenu, removeRegisteredAppShortcutFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, stageRegisteredAppDevFromMenu, uninstallingPluginId])
+  }, [appCapabilitySelections, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, removeRegisteredAppCapabilityFromMenu, removeRegisteredAppShortcutFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
