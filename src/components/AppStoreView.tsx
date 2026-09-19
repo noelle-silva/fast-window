@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  LinearProgress,
   List,
   ListItem,
   ListItemAvatar,
@@ -19,17 +20,20 @@ import {
   Typography,
 } from '@mui/material'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import { DEFAULT_APP_STORE_CATALOG_URL } from '../constants'
-import { appStoreInstall, appStoreUpdate, getAppsDir, pickAppInstallDir } from '../appStore/appInstaller'
+import { getAppsDir, pickAppInstallDir } from '../appStore/appInstaller'
 import { fetchStoreCatalog } from '../appStore/catalogClient'
 import type { StoreAppEntry, StoreCatalog } from '../appStore/catalogTypes'
 import { isStoreImageIcon, storeIconToDisplay } from '../appStore/icon'
 import { loadLocalStoreApps, type LocalStoreApp } from '../appStore/localApps'
 import { cmpSemver, parseSemverStrict } from '../appStore/semver'
+import { cancelStoreTask, dismissStoreTask, startStoreTask, type StoreTaskSnapshot } from '../appStore/storeTasks'
+import { useStoreTasks, type StoreTasksMap } from '../appStore/useStoreTasks'
 import { loadRegistry } from '../apps/appRegistry'
 import { hostToast } from '../host/hostPrimitives'
 import HostPageHeader from './HostPageHeader'
-import { hostButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
+import { hostButtonSx, hostDangerButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
 import { useHostAppearance, type HostSurfaceMode } from './hostAppearance'
 
 type Props = {
@@ -37,8 +41,6 @@ type Props = {
 }
 
 type ConfirmState = { item: StoreAppEntry; action: 'install' | 'update' }
-
-type BusyState = { id: string; action: 'install' | 'update' }
 
 function toast(message: string) {
   void hostToast(message)
@@ -65,6 +67,25 @@ function iconDisplay(icon: string, fallback: string): { src: string; text: strin
   return { src: '', text: icon || fallback }
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
+}
+
+function taskPhaseLabel(task: StoreTaskSnapshot): string {
+  if (task.cancelRequested) return '正在取消…'
+  if (task.phase === 'downloading') return '下载中'
+  if (task.phase === 'extracting') return '解压中'
+  return task.action === 'update' ? '正在应用更新' : '正在安装'
+}
+
 export default function AppStoreView(props: Props) {
   const { onBack } = props
 
@@ -74,7 +95,6 @@ export default function AppStoreView(props: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
-  const [busy, setBusy] = useState<BusyState | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const requestSeqRef = useRef(0)
 
@@ -93,6 +113,13 @@ export default function AppStoreView(props: Props) {
     setLocalApps(localStoreApps)
     setDefaultAppsDir(appsDir)
   }, [])
+
+  const onTaskFinished = useCallback((task: StoreTaskSnapshot) => {
+    if (task.status !== 'succeeded') return
+    void refreshLocalState((catalog?.apps ?? []).map(item => item.id))
+  }, [catalog, refreshLocalState])
+
+  const tasks = useStoreTasks(onTaskFinished)
 
   const refresh = useCallback(async () => {
     const requestId = ++requestSeqRef.current
@@ -122,48 +149,46 @@ export default function AppStoreView(props: Props) {
     void refresh()
   }, [refresh])
 
-  async function doAppInstall(item: StoreAppEntry, action: 'install' | 'update') {
-    const asset = item.platforms.windows
-    if (action === 'install') {
-      const installDir = await pickAppInstallDir()
-      if (!installDir) return
-      setBusy({ id: item.id, action })
-      const result = await appStoreInstall({
-        url: asset.downloadUrl,
-        expectedSha256: asset.sha256,
-        expectedId: item.id,
-        expectedVersion: item.version,
-        installDir,
-      })
-      if (result.appId !== item.id) toast(`警告：安装的应用 ID 为 ${result.appId}，与商店条目 ${item.id} 不一致`)
-      toast(`已安装应用：${item.name}`)
-      return
+  const handleCancel = useCallback(async (appId: string) => {
+    try {
+      await cancelStoreTask(appId)
+    } catch (e: any) {
+      toast(String(e?.message || e || '取消失败'))
     }
+  }, [])
 
-    setBusy({ id: item.id, action })
-    const result = await appStoreUpdate({
-      url: asset.downloadUrl,
-      expectedSha256: asset.sha256,
-      expectedId: item.id,
-      expectedVersion: item.version,
-    })
-    if (result.appId !== item.id) toast(`警告：更新的应用 ID 为 ${result.appId}，与商店条目 ${item.id} 不一致`)
-    toast(`已更新应用：${item.name}`)
-  }
+  const handleDismiss = useCallback(async (appId: string) => {
+    try {
+      await dismissStoreTask(appId)
+    } catch (e: any) {
+      toast(String(e?.message || e || '清除失败'))
+    }
+  }, [])
 
   async function doConfirm() {
-    if (!confirm || busy) return
+    if (!confirm) return
     const current = confirm
     setConfirm(null)
     setError('')
+    const item = current.item
     try {
-      await doAppInstall(current.item, current.action)
-      await refreshLocalState((catalog?.apps ?? []).map(item => item.id))
-      window.dispatchEvent(new CustomEvent('fast-window:registered-apps-changed'))
+      let installDir: string | undefined
+      if (current.action === 'install') {
+        const picked = await pickAppInstallDir()
+        if (!picked) return
+        installDir = picked
+      }
+      await startStoreTask({
+        action: current.action,
+        url: item.platforms.windows.downloadUrl,
+        expectedSha256: item.platforms.windows.sha256,
+        expectedId: item.id,
+        expectedVersion: item.version,
+        appName: item.name,
+        installDir,
+      })
     } catch (e: any) {
-      setError(String(e?.message || e || '安装失败'))
-    } finally {
-      setBusy(null)
+      setError(String(e?.message || e || '启动任务失败'))
     }
   }
 
@@ -197,10 +222,12 @@ export default function AppStoreView(props: Props) {
                 emptyText="暂无桌面应用"
                 items={desktopApps}
                 localApps={localApps}
-                busy={busy}
+                tasks={tasks}
                 panelSx={panelSx}
                 surfaceMode={hostAppearance.surfaceMode}
                 onAction={(item, action) => setConfirm({ item, action })}
+                onCancel={(appId) => void handleCancel(appId)}
+                onDismiss={(appId) => void handleDismiss(appId)}
               />
               {serviceApps.length > 0 ? (
                 <StoreAppSection
@@ -208,10 +235,12 @@ export default function AppStoreView(props: Props) {
                   badge="服务"
                   items={serviceApps}
                   localApps={localApps}
-                  busy={busy}
+                  tasks={tasks}
                   panelSx={panelSx}
                   surfaceMode={hostAppearance.surfaceMode}
                   onAction={(item, action) => setConfirm({ item, action })}
+                  onCancel={(appId) => void handleCancel(appId)}
+                  onDismiss={(appId) => void handleDismiss(appId)}
                 />
               ) : null}
             </>
@@ -219,7 +248,7 @@ export default function AppStoreView(props: Props) {
         </Stack>
       </Box>
 
-      <ConfirmDialog confirm={confirm} busy={!!busy} onClose={() => setConfirm(null)} onConfirm={() => void doConfirm()} />
+      <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} onConfirm={() => void doConfirm()} />
     </Box>
   )
 }
@@ -248,12 +277,14 @@ function StoreAppSection(props: {
   emptyText?: string
   items: StoreAppEntry[]
   localApps: Map<string, LocalStoreApp>
-  busy: BusyState | null
+  tasks: StoreTasksMap
   panelSx: (theme: any) => any
   surfaceMode: HostSurfaceMode
   onAction: (item: StoreAppEntry, action: 'install' | 'update') => void
+  onCancel: (appId: string) => void
+  onDismiss: (appId: string) => void
 }) {
-  const { title, badge, note, emptyText, items, localApps, busy, panelSx, surfaceMode, onAction } = props
+  const { title, badge, note, emptyText, items, localApps, tasks, panelSx, surfaceMode, onAction, onCancel, onDismiss } = props
   return (
     <Box sx={panelSx}>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>{title}（{items.length}）</Typography>
@@ -270,7 +301,6 @@ function StoreAppSection(props: {
             const compare = localVersion ? compareVersions(item.version, localVersion) : null
             const needsUpdate = !!local && (!localVersion || compare == null || compare > 0)
             const action: 'install' | 'update' | 'none' = !local ? 'install' : needsUpdate ? 'update' : 'none'
-            const busyThis = busy?.id === item.id
             const icon = storeIconToDisplay(item.icon)
             const display = iconDisplay(icon, (item.name || item.id).slice(0, 1) || 'A')
             const versionText = !local
@@ -289,12 +319,12 @@ function StoreAppSection(props: {
                 iconText={display.text}
                 badge={badge}
                 action={action}
-                actionText={busyThis ? (action === 'install' ? '安装中' : '更新中') : (action === 'install' ? '安装' : '更新')}
                 doneText={local ? '已是最新' : '已安装'}
-                busy={busyThis}
-                disabled={!!busy}
+                task={tasks.get(item.id)}
                 surfaceMode={surfaceMode}
                 onAction={() => action !== 'none' && onAction(item, action)}
+                onCancel={() => onCancel(item.id)}
+                onDismiss={() => onDismiss(item.id)}
               />
             )
           })}
@@ -321,22 +351,29 @@ function StoreListItem(props: {
   iconText: string
   badge: string
   action: 'install' | 'update' | 'none'
-  actionText: string
   doneText: string
-  busy: boolean
-  disabled: boolean
+  task?: StoreTaskSnapshot
   surfaceMode: HostSurfaceMode
   onAction: () => void
+  onCancel: () => void
+  onDismiss: () => void
 }) {
-  const { id, name, description, versionText, iconSrc, iconText, badge, action, actionText, doneText, busy, disabled, surfaceMode, onAction } = props
+  const { id, name, description, versionText, iconSrc, iconText, badge, action, doneText, task, surfaceMode, onAction, onCancel, onDismiss } = props
+  const running = task?.status === 'running'
+  const cancelBlocked = !!task && (task.cancelRequested || task.phase === 'applying')
+
   return (
     <ListItem
       disableGutters
-      secondaryAction={action === 'none' ? (
+      secondaryAction={running ? (
+        <Button variant="text" size="small" onClick={onCancel} disabled={cancelBlocked} sx={hostDangerButtonSx}>
+          {task?.cancelRequested ? '取消中' : '取消'}
+        </Button>
+      ) : action === 'none' ? (
         <Chip size="small" label={doneText} sx={hostSoftChipSx} />
       ) : (
-        <Button variant="contained" size="small" onClick={onAction} disabled={disabled} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined} sx={hostButtonSx}>
-          {actionText}
+        <Button variant="contained" size="small" onClick={onAction} sx={hostButtonSx}>
+          {action === 'install' ? '安装' : '更新'}
         </Button>
       )}
       sx={theme => ({
@@ -365,11 +402,70 @@ function StoreListItem(props: {
           <Box sx={{ mt: 0.5, pr: 10 }}>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>版本：{versionText}</Typography>
             {description ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{description}</Typography> : null}
+            {task ? <StoreTaskLine task={task} onDismiss={onDismiss} /> : null}
           </Box>
         )}
       />
     </ListItem>
   )
+}
+
+function StoreTaskLine({ task, onDismiss }: { task: StoreTaskSnapshot; onDismiss: () => void }) {
+  if (task.status === 'running') {
+    const done = task.progress?.done ?? 0
+    const total = task.progress?.total
+    const determinate = typeof total === 'number' && total > 0
+    const percent = determinate ? Math.min(100, Math.round((done / total) * 100)) : null
+    return (
+      <Box sx={{ mt: 0.75, maxWidth: 420 }}>
+        <LinearProgress
+          variant={determinate ? 'determinate' : 'indeterminate'}
+          value={percent ?? undefined}
+          sx={{ height: 6, borderRadius: 3 }}
+        />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mt: 0.5 }}>
+          <Typography variant="caption" color="text.secondary" noWrap>{taskPhaseLabel(task)}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {taskProgressDetail(task, percent)}
+          </Typography>
+        </Box>
+      </Box>
+    )
+  }
+
+  const resultText = task.status === 'succeeded'
+    ? '已完成'
+    : task.status === 'canceled'
+      ? '已取消'
+      : `失败：${task.error || '未知错误'}`
+  return (
+    <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'flex-start', gap: 0.25 }}>
+      <Typography
+        variant="caption"
+        color={task.status === 'failed' ? 'error' : 'text.secondary'}
+        sx={{ wordBreak: 'break-word' }}
+      >
+        {resultText}
+      </Typography>
+      <IconButton aria-label="清除任务结果" size="small" onClick={onDismiss} sx={{ p: 0.25 }}>
+        <CloseRoundedIcon sx={{ fontSize: 14 }} />
+      </IconButton>
+    </Box>
+  )
+}
+
+function taskProgressDetail(task: StoreTaskSnapshot, percent: number | null): string {
+  if (task.cancelRequested) return ''
+  const done = task.progress?.done ?? 0
+  const total = task.progress?.total
+  if (task.phase === 'downloading') {
+    if (typeof total === 'number' && total > 0) return `${formatBytes(done)} / ${formatBytes(total)} · ${percent}%`
+    return formatBytes(done)
+  }
+  if (task.phase === 'extracting' && typeof total === 'number' && total > 0) {
+    return `${done} / ${total} 个文件 · ${percent}%`
+  }
+  return ''
 }
 
 function splitAppsByType(apps: StoreAppEntry[]): { desktop: StoreAppEntry[]; service: StoreAppEntry[] } {
@@ -388,11 +484,10 @@ function EmptyText({ text }: { text: string }) {
 
 function ConfirmDialog(props: {
   confirm: ConfirmState | null
-  busy: boolean
   onClose: () => void
   onConfirm: () => void
 }) {
-  const { confirm, busy, onClose, onConfirm } = props
+  const { confirm, onClose, onConfirm } = props
   const title = confirm?.action === 'install' ? '安装 v5 应用' : '更新 v5 应用'
   const name = confirm?.item.name || ''
   const id = confirm?.item.id || ''
@@ -415,8 +510,8 @@ function ConfirmDialog(props: {
         ) : null}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy}>取消</Button>
-        <Button variant="contained" onClick={onConfirm} disabled={!confirm || busy}>确认</Button>
+        <Button onClick={onClose}>取消</Button>
+        <Button variant="contained" onClick={onConfirm} disabled={!confirm}>确认</Button>
       </DialogActions>
     </Dialog>
   )
