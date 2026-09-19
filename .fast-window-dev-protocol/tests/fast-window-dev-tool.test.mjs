@@ -200,9 +200,8 @@ test('协议文件缺 runner 声明之外的坏形态快速失败', t => {
   assert.match(run.receipt.error, /解析协议文件失败/)
 })
 
-test('storePackage 把基础成品包加工成可安装商店包', t => {
+function createStoreFixture() {
   const root = makeTempDir('fast-window-dev-store-root-')
-  t.after(() => removeDir(root))
   const protocolDir = path.join(root, '.fast-window-dev-protocol')
   mkdirSync(path.join(protocolDir, 'assets'), { recursive: true })
   writeFileSync(path.join(root, 'release.json'), `${JSON.stringify({ version: '2.3.4' })}\n`, 'utf8')
@@ -241,40 +240,41 @@ test('storePackage 把基础成品包加工成可安装商店包', t => {
 
   cpSync(path.join(templateDir, toolFileName), path.join(protocolDir, toolFileName))
   writeFileSync(
-    path.join(protocolDir, protocolFileName),
-    `${JSON.stringify(
-      {
-        runner: 'node',
-        actions: {
-          package: {
-            command: 'node fixture.mjs',
-            artifact: { path: 'ArchivePath', name: 'Manifest.archive.name' },
-            storePackage: true,
-          },
-        },
-      },
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  )
-  writeFileSync(
     path.join(protocolDir, 'fixture-output.json'),
     JSON.stringify({ ArchivePath: baseZip, Manifest: { archive: { name: path.basename(baseZip) } } }),
     'utf8',
   )
   writeFileSync(path.join(protocolDir, 'fixture.mjs'), fixtureSource(0), 'utf8')
+  return { root, protocolDir, baseZip }
+}
 
-  const run = runTool(protocolDir, 'package')
+function writeStoreAction(protocolDir, storePackage, artifact = { path: 'ArchivePath', name: 'Manifest.archive.name' }) {
+  writeFileSync(
+    path.join(protocolDir, protocolFileName),
+    `${JSON.stringify(
+      { runner: 'node', actions: { package: { command: 'node fixture.mjs', artifact, storePackage } } },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  )
+}
+
+test('storePackage 布尔形态把基础成品包加工成可安装商店包', t => {
+  const fixture = createStoreFixture()
+  t.after(() => removeDir(fixture.root))
+  writeStoreAction(fixture.protocolDir, true)
+
+  const run = runTool(fixture.protocolDir, 'package')
   assert.equal(run.code, 0, run.stderr)
   assert.equal(run.receipt.status, 'succeeded')
-  assert.equal(run.receipt.data.result.ArchivePath, baseZip)
+  assert.equal(run.receipt.data.result.ArchivePath, fixture.baseZip)
   const artifact = run.receipt.data.artifact
-  assert.equal(artifact.name, path.basename(baseZip))
-  assert.equal(artifact.path, path.join(protocolDir, 'dist', path.basename(baseZip)))
+  assert.equal(artifact.name, path.basename(fixture.baseZip))
+  assert.equal(artifact.path, path.join(fixture.protocolDir, 'dist', path.basename(fixture.baseZip)))
   assert.match(artifact.sha256, /^[0-9a-f]{64}$/)
 
-  const inspectDir = path.join(root, 'inspect')
+  const inspectDir = path.join(fixture.root, 'inspect')
   extractZip(artifact.path, inspectDir)
   const manifest = JSON.parse(readFileSync(path.join(inspectDir, 'fw-app.json'), 'utf8'))
   assert.equal(manifest.type, 'service-app')
@@ -293,6 +293,70 @@ test('storePackage 把基础成品包加工成可安装商店包', t => {
   assert.equal(existsSync(path.join(inspectDir, 'sample-app.exe')), true)
   assert.equal(existsSync(path.join(inspectDir, 'README.md')), true)
   assert.match(readFileSync(path.join(inspectDir, 'assets', 'icon.svg'), 'utf8'), /<svg/)
+})
+
+test('storePackage 相对落点把压缩包落到自定义目录', t => {
+  const fixture = createStoreFixture()
+  t.after(() => removeDir(fixture.root))
+  writeStoreAction(fixture.protocolDir, { outDir: 'out/pkgs' })
+
+  const run = runTool(fixture.protocolDir, 'package')
+  assert.equal(run.code, 0, run.stderr)
+  const artifact = run.receipt.data.artifact
+  assert.equal(artifact.path, path.join(fixture.protocolDir, 'out', 'pkgs', path.basename(fixture.baseZip)))
+  assert.equal(existsSync(artifact.path), true)
+  assert.match(artifact.sha256, /^[0-9a-f]{64}$/)
+  assert.equal(existsSync(path.join(fixture.protocolDir, 'dist')), false)
+})
+
+test('storePackage 绝对落点原样使用', t => {
+  const fixture = createStoreFixture()
+  t.after(() => removeDir(fixture.root))
+  const absoluteOut = path.join(fixture.root, 'absolute-out')
+  writeStoreAction(fixture.protocolDir, { outDir: absoluteOut })
+
+  const run = runTool(fixture.protocolDir, 'package')
+  assert.equal(run.code, 0, run.stderr)
+  assert.equal(run.receipt.data.artifact.path, path.join(absoluteOut, path.basename(fixture.baseZip)))
+  assert.equal(existsSync(run.receipt.data.artifact.path), true)
+})
+
+test('storePackage 散装形态铺进落点并保留目录内其他内容', t => {
+  const fixture = createStoreFixture()
+  t.after(() => removeDir(fixture.root))
+  const instanceDir = path.join(fixture.root, 'instance')
+  mkdirSync(path.join(instanceDir, 'data'), { recursive: true })
+  writeFileSync(path.join(instanceDir, 'data', 'keep.txt'), 'keep', 'utf8')
+  writeFileSync(path.join(instanceDir, 'sample-app.exe'), 'old-exe', 'utf8')
+  writeStoreAction(fixture.protocolDir, { form: 'exploded', outDir: '../instance' })
+
+  const run = runTool(fixture.protocolDir, 'package')
+  assert.equal(run.code, 0, run.stderr)
+  assert.deepEqual(run.receipt.data.artifact, { path: instanceDir, name: 'instance' })
+  assert.equal(readFileSync(path.join(instanceDir, 'sample-app.exe'), 'utf8'), 'fake-exe')
+  assert.equal(readFileSync(path.join(instanceDir, 'data', 'keep.txt'), 'utf8'), 'keep')
+  const manifest = JSON.parse(readFileSync(path.join(instanceDir, 'fw-app.json'), 'utf8'))
+  assert.equal(manifest.version, '2.3.4')
+  assert.equal(manifest.package.icon, 'assets/icon.svg')
+  assert.match(readFileSync(path.join(instanceDir, 'assets', 'icon.svg'), 'utf8'), /<svg/)
+  assert.equal(existsSync(path.join(instanceDir, 'README.md')), true)
+  assert.equal(existsSync(path.join(fixture.protocolDir, 'dist')), false)
+})
+
+test('storePackage 坏形态与未知字段快速失败', t => {
+  for (const [storePackage, message] of [
+    [{ form: 'zip' }, /storePackage\.form/],
+    [{ form: 'archive', extra: true }, /不支持的字段/],
+    [{ outDir: '   ' }, /outDir/],
+  ]) {
+    const fixture = createStoreFixture()
+    writeStoreAction(fixture.protocolDir, storePackage)
+    const run = runTool(fixture.protocolDir, 'package')
+    removeDir(fixture.root)
+    assert.equal(run.code, 1)
+    assert.equal(run.receipt.status, 'failed')
+    assert.match(run.receipt.error, message)
+  }
 })
 
 test('storePackage 缺少成品路径时报失败回执', t => {

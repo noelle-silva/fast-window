@@ -25,12 +25,18 @@
        "command": "node ../scripts/package-app.mjs",
        "artifact": { "path": "zipPath", "name": "zipName", "sha256": "sha256" },
        "storePackage": true
+     },
+     "stage-instance": {
+       "command": "node ../scripts/package-app.mjs",
+       "artifact": { "path": "zipPath" },
+       "storePackage": { "form": "exploded", "outDir": "../.dev-workspace/instance" }
      }
    }
    ```
 
    - 纯命令字符串：只执行命令。
    - 对象形态：执行命令后按 `artifact` 从命令 JSON 输出提取成品；`storePackage` 为真时自动把成品商店化。
+   - `storePackage` 三种声明：`true`（压缩包产出到默认产出区 `dist`）；`false`/缺省（不加工）；对象 `{ form, outDir }`——`form` 取 `archive`（压缩包，默认）或 `exploded`（散装铺进落点目录，覆盖同名文件、保留目录内其他内容），`outDir` 是产出落点（相对协议目录或绝对路径，默认 `dist`）。
 5. **脚本指向**：应用 `package.json` 的构建/版本脚本全部指向应用内部 CLI；应用加入独立依赖锚点与锁（不属于 monorepo workspace）。
 6. **边界**：应用侧不注册任何发布动作、不持有发布逻辑与凭据。
 

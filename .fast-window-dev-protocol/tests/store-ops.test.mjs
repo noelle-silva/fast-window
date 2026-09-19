@@ -25,30 +25,33 @@ async function createVerifyFixture(options = {}) {
   const protocolDir = path.join(root, '.fast-window-dev-protocol')
   await fs.mkdir(protocolDir, { recursive: true })
   await fs.writeFile(path.join(root, 'release.json'), JSON.stringify({ version: '1.2.3' }), 'utf8')
-  await fs.mkdir(path.join(root, 'assets'), { recursive: true })
-  await fs.writeFile(path.join(root, 'assets', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8')
-  await fs.writeFile(path.join(protocolDir, 'fw-app.json'), `${JSON.stringify(sourceManifest, null, 2)}\n`, 'utf8')
+  const sourceIconPath = options.sourceIconPath ?? 'assets/icon.svg'
+  await fs.mkdir(path.dirname(path.join(root, sourceIconPath)), { recursive: true })
+  await fs.writeFile(path.join(root, sourceIconPath), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8')
+  const manifest = { ...sourceManifest, ...options.sourceOverrides }
+  await fs.writeFile(path.join(protocolDir, 'fw-app.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
   const packageDir = path.join(root, 'package-src')
   await fs.mkdir(path.join(packageDir, 'assets'), { recursive: true })
   if (!options.omitExe) await fs.writeFile(path.join(packageDir, 'sample-app.exe'), 'fake-exe', 'utf8')
   if (!options.omitIcon) await fs.writeFile(path.join(packageDir, 'assets', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8')
   const packagedManifest = {
-    type: sourceManifest.type,
-    id: sourceManifest.id,
-    name: sourceManifest.name,
-    description: sourceManifest.description,
+    type: manifest.type,
+    id: manifest.id,
+    name: manifest.name,
+    description: manifest.description,
     version: '1.2.3',
-    package: { ...sourceManifest.package },
-    displayMode: sourceManifest.displayMode,
-    commands: sourceManifest.commands,
+    package: { ...manifest.package },
+    displayMode: manifest.displayMode,
+    commands: manifest.commands,
     ...options.packagedOverrides,
   }
+  if (options.omitPackagedCommands) delete packagedManifest.commands
   await fs.writeFile(path.join(packageDir, 'fw-app.json'), `${JSON.stringify(packagedManifest, null, 2)}\n`, 'utf8')
 
   const distDir = path.join(protocolDir, 'dist')
   await fs.mkdir(distDir, { recursive: true })
-  const zipPath = path.join(distDir, 'sample-app-1.2.3-windows.zip')
+  const zipPath = path.join(distDir, options.zipName ?? 'sample-app-1.2.3-windows.zip')
   packZipDirectory(packageDir, zipPath)
   return { root, protocolDir, zipPath }
 }
@@ -73,6 +76,93 @@ test('独立校验通过结构完整的商店包并输出摘要', async t => {
     'no-reserved-data-dir',
   ])
   assert.equal(result.catalog, null)
+})
+
+test('独立校验语义归一：包内未携带快捷指令等同空列表', async t => {
+  const fixture = await createVerifyFixture({ sourceOverrides: { commands: [] }, omitPackagedCommands: true })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  const result = await verifyAppArtifact({ protocolDir: fixture.protocolDir })
+  assert.equal(result.appId, 'sample-app')
+})
+
+test('独立校验默认定位产出区成品，不按命名猜测', async t => {
+  const fixture = await createVerifyFixture({ zipName: 'sample-app_1.2.3_windows-x64.zip' })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  const result = await verifyAppArtifact({ protocolDir: fixture.protocolDir })
+  assert.equal(result.artifact.fileName, 'sample-app_1.2.3_windows-x64.zip')
+})
+
+test('独立校验在多个成品中选取最新修改的一个', async t => {
+  const fixture = await createVerifyFixture()
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+  const staleZip = path.join(fixture.protocolDir, 'dist', 'sample-app-0.9.9-windows.zip')
+  await fs.copyFile(fixture.zipPath, staleZip)
+  const past = new Date(Date.now() - 60_000)
+  await fs.utimes(staleZip, past, past)
+
+  const result = await verifyAppArtifact({ protocolDir: fixture.protocolDir })
+  assert.equal(result.artifact.fileName, 'sample-app-1.2.3-windows.zip')
+})
+
+test('独立校验显式指定成品优先于默认定位', async t => {
+  const fixture = await createVerifyFixture({ zipName: 'sample-app_1.2.3_windows-x64.zip' })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  const result = await verifyAppArtifact({ protocolDir: fixture.protocolDir, artifactPath: fixture.zipPath })
+  assert.equal(result.artifact.fileName, 'sample-app_1.2.3_windows-x64.zip')
+
+  await assert.rejects(
+    () => verifyAppArtifact({ protocolDir: fixture.protocolDir, artifactPath: path.join(fixture.root, 'missing.zip') }),
+    /成品文件不存在/,
+  )
+})
+
+test('独立校验拒绝包内服务声明与源不一致', async t => {
+  const fixture = await createVerifyFixture({
+    packagedOverrides: { service: { ready: { type: 'log', match: 'is ready' }, stop: { type: 'terminate' } } },
+  })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  await assert.rejects(
+    () => verifyAppArtifact({ protocolDir: fixture.protocolDir }),
+    /清单 service 与源清单不一致/,
+  )
+})
+
+test('独立校验按包内基准认图标落点', async t => {
+  const fixture = await createVerifyFixture({
+    sourceIconPath: '.fast-window-dev-protocol/assets/icon.svg',
+    sourceOverrides: {
+      package: { windowsExecutable: 'sample-app.exe', icon: '.fast-window-dev-protocol/assets/icon.svg' },
+    },
+    packagedOverrides: {
+      package: { windowsExecutable: 'sample-app.exe', icon: 'assets/icon.svg' },
+    },
+  })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  const result = await verifyAppArtifact({ protocolDir: fixture.protocolDir })
+  assert.equal(result.checks.find(check => check.name === 'icon').detail, 'assets/icon.svg')
+})
+
+test('独立校验拒绝未按包内基准改写的图标路径', async t => {
+  const fixture = await createVerifyFixture({
+    sourceIconPath: '.fast-window-dev-protocol/assets/icon.svg',
+    sourceOverrides: {
+      package: { windowsExecutable: 'sample-app.exe', icon: '.fast-window-dev-protocol/assets/icon.svg' },
+    },
+    packagedOverrides: {
+      package: { windowsExecutable: 'sample-app.exe', icon: '.fast-window-dev-protocol/assets/icon.svg' },
+    },
+  })
+  t.after(() => fs.rm(fixture.root, { recursive: true, force: true }))
+
+  await assert.rejects(
+    () => verifyAppArtifact({ protocolDir: fixture.protocolDir }),
+    /清单 icon 与源清单不一致/,
+  )
 })
 
 test('独立校验拒绝被篡改的包内清单', async t => {

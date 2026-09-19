@@ -1,5 +1,5 @@
 {
-  "$comment": "fast-window-dev 应用协议字典模板：把 app-template 目录里的 fast-window-dev-tool.mjs 与本文件复制到 apps/<应用id>/.fast-window-dev-protocol/ 后，只改本文件即可自治。runner 是中央调度工具启动本工具的命令（保持 node）。actions 的键是动作代号，值可以是命令字符串，也可以是 { command, artifact, storePackage } 对象：artifact 是「回执字段 → 命令 JSON 输出的点号路径」，用来把产物信息写进回执；storePackage 为 true 时，命令成功后自动把产物加工成商店包。",
+  "$comment": "fast-window-dev 应用协议字典模板：把 app-template 目录里的 fast-window-dev-tool.mjs 与本文件复制到 apps/<应用id>/.fast-window-dev-protocol/ 后，只改本文件即可自治。runner 是中央调度工具启动本工具的命令（保持 node）。actions 的键是动作代号，值可以是命令字符串，也可以是 { command, artifact, storePackage } 对象：artifact 是「回执字段 → 命令 JSON 输出的点号路径」，用来把产物信息写进回执；storePackage 为 true 时按压缩包产出到默认产出区 dist，也可写 { form, outDir }——form 取 archive（压缩包，默认）或 exploded（散装铺进落点目录，覆盖同名文件、保留目录内其他内容），outDir 是产出落点（相对协议目录或绝对路径，默认 dist）。",
   "runner": "node",
   "actions": {
     "helloworld": "echo helloworld"

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { unpackZip } from '../app-template/fast-window-dev-tool.mjs'
+import { storeIconPackagePath, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
 import {
   artifactFacts,
   manifestFacts,
@@ -28,15 +28,34 @@ function assertSameJson(actual, expected, label) {
   }
 }
 
-function comparePackagedManifest(packaged, manifest, version) {
+// 快捷指令按语义归一：未携带等同空列表；两侧都以裁剪后的字段参与比对。
+function normalizePackagedCommands(value) {
+  if (value === undefined || value === null) {
+    return []
+  }
+  if (!Array.isArray(value)) {
+    return value
+  }
+  return value.map(item => ({
+    id: String(item?.id ?? '').trim(),
+    title: String(item?.title ?? '').trim(),
+  }))
+}
+
+function comparePackagedManifest(packaged, manifest, version, sourceService) {
   assertSameJson(packaged?.type, manifest.type, '清单 type')
   assertSameJson(packaged?.id, manifest.id, '清单 id')
   assertSameJson(packaged?.name, manifest.name, '清单 name')
   assertSameJson(packaged?.description, manifest.description, '清单 description')
   assertSameJson(packaged?.displayMode, manifest.displayMode, '清单 displayMode')
-  assertSameJson(packaged?.commands, manifest.commands, '清单 commands')
+  assertSameJson(normalizePackagedCommands(packaged?.commands), manifest.commands, '清单 commands')
+  assertSameJson(packaged?.service, sourceService, '清单 service')
   assertSameJson(packaged?.package?.windowsExecutable, manifest.executable, '清单 windowsExecutable')
-  assertSameJson(packaged?.package?.icon, manifest.icon, '清单 icon')
+  assertSameJson(
+    packaged?.package?.icon,
+    storeIconPackagePath(normalizeRelativePath(manifest.icon, 'package.icon')),
+    '清单 icon',
+  )
   assertSameJson(String(packaged?.version ?? '').trim(), version, '包内版本')
 }
 
@@ -55,16 +74,42 @@ function compareCatalogEntry(catalog, manifest, version, sha256) {
   }
 }
 
+// 默认成品定位：协议目录产出区里最新修改的成品文件，不按命名规则猜测。
+async function latestArtifactInOutDir(protocolDir) {
+  const outDir = path.join(protocolDir, 'dist')
+  let entries
+  try {
+    entries = await fs.readdir(outDir, { withFileTypes: true })
+  } catch {
+    throw new Error(`协议目录产出区不可读：${outDir}（可用 --zip 指定成品）`)
+  }
+  const files = []
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith('.')) {
+      continue
+    }
+    const filePath = path.join(outDir, entry.name)
+    const info = await fs.stat(filePath)
+    files.push({ path: filePath, name: entry.name, modified: info.mtimeMs })
+  }
+  if (files.length === 0) {
+    throw new Error(`协议目录产出区没有成品文件：${outDir}（可用 --zip 指定成品）`)
+  }
+  files.sort((left, right) => (right.modified - left.modified) || left.name.localeCompare(right.name))
+  return files[0].path
+}
+
 // 校验边界：只读应用协议目录成品与源清单；可选与本地商店目录文件比对，不访问远程。
 export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath }) {
   const root = path.dirname(path.resolve(protocolDir))
-  const manifest = manifestFacts(readManifest(protocolDir))
+  const sourceManifest = readManifest(protocolDir)
+  const manifest = manifestFacts(sourceManifest)
   const version = readVersion(root, manifest.versionSource)
 
   const explicit = String(artifactPath ?? '').trim()
   const zipPath = explicit !== ''
     ? path.resolve(explicit)
-    : path.join(protocolDir, 'dist', `${manifest.id}-${version}-windows.zip`)
+    : await latestArtifactInOutDir(protocolDir)
   const artifact = await artifactFacts(zipPath)
 
   const checks = []
@@ -82,10 +127,10 @@ export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath
     } catch (error) {
       throw new Error(`解析商店包内 fw-app.json 失败：${error.message}`)
     }
-    comparePackagedManifest(packaged, manifest, version)
+    comparePackagedManifest(packaged, manifest, version, sourceManifest.service)
     checks.push({ name: 'packaged-manifest', ok: true })
 
-    const iconRel = normalizeRelativePath(manifest.icon, 'package.icon')
+    const iconRel = normalizeRelativePath(packaged?.package?.icon, 'package.icon')
     if (!(await pathExists(path.join(tempDir, iconRel)))) {
       throw new Error(`商店包缺少图标：${iconRel}`)
     }
