@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="eucli-studio icon">
-  <defs>
-    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#06b6d4"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#g)"/>
-  <circle cx="64" cy="64" r="26" fill="#ffffff" fill-opacity="0.92"/>
-  <path d="M64 46 L78 72 H50 Z" fill="#7c3aed"/>
-  </svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="eucli-studio">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#A9BFDE" />
+  <path d="M31 16L35 29L48 33L35 37L31 50L27 37L14 33L27 29Z" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round" />
+  <path d="M47 11L48.5 15.5L53 17L48.5 18.5L47 23L45.5 18.5L41 17L45.5 15.5Z" fill="#fff" />
+</svg>
