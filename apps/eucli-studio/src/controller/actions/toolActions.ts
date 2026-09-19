@@ -13,13 +13,15 @@ export function createToolActions(deps: {
   setToolPromptDescriptionDraft: (value: any) => any
   resetToolPromptDescriptionDraftToDefault: () => any
   saveSelectedToolConfig: () => any
-  loadToolInstallState: (toolId: any) => any
   installTool: (toolId: any) => any
   updateTool: (toolId: any) => any
+  cancelToolInstall: (toolId: any) => any
+  syncToolInstallStates: () => any
+  setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => any
   getInstallSource: () => any
   setInstallSource: (kind: 'official' | 'local') => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, loadToolInstallState, installTool, updateTool, getInstallSource, setInstallSource } = deps
+  const { state, emit, refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
@@ -30,9 +32,11 @@ export function createToolActions(deps: {
     setToolPromptDescriptionDraft: (value: any) => setToolPromptDescriptionDraft(value),
     resetToolPromptDescriptionDraftToDefault: () => resetToolPromptDescriptionDraftToDefault(),
     saveSelectedToolConfig: () => saveSelectedToolConfig(),
-    loadToolInstallState: (toolId: any) => loadToolInstallState(toolId),
     installTool: (toolId: any) => installTool(toolId),
     updateTool: (toolId: any) => updateTool(toolId),
+    cancelToolInstall: (toolId: any) => cancelToolInstall(toolId),
+    syncToolInstallStates: () => syncToolInstallStates(),
+    setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),
     getInstallSource: () => getInstallSource(),
     setInstallSource: (kind: 'official' | 'local') => setInstallSource(kind),
     openRoleToolWhitelist: () => {

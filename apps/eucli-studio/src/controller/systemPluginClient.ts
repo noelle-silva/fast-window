@@ -37,17 +37,17 @@ export async function createPlaceholderFromSystemPluginInterface(netRequest: EbN
   return normalizePlaceholderLibrary(response?.body)
 }
 
-export async function loadSystemPluginInstallState(netRequest: EbNetRequest, pluginId: string): Promise<ArtifactInstallState> {
-  const response = await netRequest({ method: 'GET', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install-state`, timeoutMs: 15000 })
-  return normalizeArtifactInstallState(response?.body)
-}
-
 export async function installSystemPlugin(netRequest: EbNetRequest, pluginId: string): Promise<ArtifactInstallState> {
-  const response = await netRequest({ method: 'POST', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install`, body: {}, timeoutMs: 180000 })
+  const response = await netRequest({ method: 'POST', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install`, body: {}, timeoutMs: 60000 })
   return normalizeArtifactInstallState(response?.body)
 }
 
 export async function updateSystemPlugin(netRequest: EbNetRequest, pluginId: string): Promise<ArtifactInstallState> {
-  const response = await netRequest({ method: 'POST', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/update`, body: {}, timeoutMs: 180000 })
+  const response = await netRequest({ method: 'POST', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/update`, body: {}, timeoutMs: 60000 })
+  return normalizeArtifactInstallState(response?.body)
+}
+
+export async function cancelSystemPlugin(netRequest: EbNetRequest, pluginId: string): Promise<ArtifactInstallState> {
+  const response = await netRequest({ method: 'POST', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/cancel`, body: {}, timeoutMs: 30000 })
   return normalizeArtifactInstallState(response?.body)
 }

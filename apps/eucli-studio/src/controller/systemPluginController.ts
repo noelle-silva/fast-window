@@ -1,7 +1,11 @@
-import { createPlaceholderFromSystemPluginInterface, installSystemPlugin as installSystemPluginClient, loadAvailableSystemPluginPlaceholderInterfaces, loadSystemPlugin, loadSystemPluginInstallState as loadSystemPluginInstallStateClient, loadSystemPlugins, saveSystemPluginUserConfig, updateSystemPlugin as updateSystemPluginClient } from './systemPluginClient'
+import { cancelSystemPlugin, createPlaceholderFromSystemPluginInterface, installSystemPlugin as installSystemPluginClient, loadAvailableSystemPluginPlaceholderInterfaces, loadSystemPlugin, loadSystemPlugins, saveSystemPluginUserConfig, updateSystemPlugin as updateSystemPluginClient } from './systemPluginClient'
 import { loadPlaceholderProblems } from './placeholderClient'
 import { systemPluginLocatorId } from '../domain/systemPlugin'
+import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
+import { createArtifactInstallTracker, type ArtifactInstallStateMap } from './artifactInstallTracker'
 import type { AiChatShowToast } from '../gateway/capabilities'
+
+type InstallTerminalListener = (id: string, state: ArtifactInstallState) => void
 
 export function createSystemPluginController(deps: {
   getState: () => any
@@ -11,6 +15,61 @@ export function createSystemPluginController(deps: {
   refreshPlaceholderLibrary: (force?: boolean) => Promise<any>
 }) {
   const { getState, getNetRequest, emit, showToast, refreshPlaceholderLibrary } = deps
+  let installTerminalListener: InstallTerminalListener | null = null
+
+  function requireNetRequest() {
+    const netRequest = getNetRequest()
+    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    return netRequest
+  }
+
+  function installStates(): ArtifactInstallStateMap {
+    const state = getState()
+    const box = state.systemPlugins && typeof state.systemPlugins === 'object' ? state.systemPlugins : {}
+    return box.installStates && typeof box.installStates === 'object' ? box.installStates : {}
+  }
+
+  function applyInstallState(pluginId: string, state: ArtifactInstallState) {
+    const current = getState()
+    current.systemPlugins = { ...current.systemPlugins, installStates: { ...installStates(), [pluginId]: state } }
+    emit()
+  }
+
+  const installTracker = createArtifactInstallTracker({
+    loadState: async (pluginId) => {
+      const netRequest = requireNetRequest()
+      const response = await netRequest({ method: 'GET', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install-state`, timeoutMs: 15000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      return normalizeArtifactInstallState(response?.body)
+    },
+    cancel: async (pluginId) => {
+      const netRequest = requireNetRequest()
+      const state = await cancelSystemPlugin(netRequest, pluginId)
+      return state
+    },
+    loadOperations: async () => {
+      const netRequest = requireNetRequest()
+      const response = await netRequest({ method: 'GET', path: '/api/artifact-operations', timeoutMs: 15000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      return normalizeArtifactInstallStateList(response?.body).filter((state) => String(state.artifact?.kind || '') === 'plugin')
+    },
+    getStates: installStates,
+    setStates: (states) => {
+      const state = getState()
+      state.systemPlugins = { ...state.systemPlugins, installStates: states }
+      emit()
+    },
+    onTerminal: (pluginId, state) => {
+      void refreshSystemPlugins(false).catch(() => null)
+      if (state.status === 'failed') {
+        showToast?.(`「${pluginId}」安装或更新失败：${state.error.message || '未知原因'}`, { kind: 'error' })
+      }
+      installTerminalListener?.(pluginId, state)
+      emit()
+    },
+  })
 
   async function refreshSystemPlugins(force?: boolean) {
     const state = getState()
@@ -85,8 +144,7 @@ export function createSystemPluginController(deps: {
   }
 
   async function refreshAvailableSystemPluginPlaceholderInterfaces() {
-    const netRequest = getNetRequest()
-    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    const netRequest = requireNetRequest()
     const interfaces = await loadAvailableSystemPluginPlaceholderInterfaces(netRequest)
     const state = getState()
     state.systemPlugins = { ...state.systemPlugins, availableInterfaces: interfaces }
@@ -94,63 +152,57 @@ export function createSystemPluginController(deps: {
     return interfaces
   }
 
-  async function loadSystemPluginInstallState(pluginIdRaw: any) {
+  function installSystemPluginAction(pluginIdRaw: any) {
+    return startSystemPluginOperation(pluginIdRaw, 'install')
+  }
+
+  function updateSystemPluginAction(pluginIdRaw: any) {
+    return startSystemPluginOperation(pluginIdRaw, 'update')
+  }
+
+  // startSystemPluginOperation 发起安装或更新：请求立即返回运行态并交给任务跟踪。
+  async function startSystemPluginOperation(pluginIdRaw: any, action: 'install' | 'update') {
     const pluginId = String(pluginIdRaw || '').trim()
     if (!pluginId) return null
-    const state = getState()
-    const netRequest = getNetRequest()
-    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
-    state.systemPlugins = { ...state.systemPlugins, installLoading: true, installError: '' }
-    emit()
     try {
-      const installState = await loadSystemPluginInstallStateClient(netRequest, pluginId)
-      state.systemPlugins = { ...state.systemPlugins, installLoading: false, installError: '', installState }
-      emit()
-      return installState
-    } catch (e: any) {
-      const message = String(e?.message || e || '插件安装状态加载失败')
-      state.systemPlugins = { ...state.systemPlugins, installLoading: false, installError: message }
-      emit()
-      return null
-    }
-  }
-
-  async function installSystemPluginAction(pluginIdRaw: any) {
-    return runSystemPluginOperation(pluginIdRaw, 'install')
-  }
-
-  async function updateSystemPluginAction(pluginIdRaw: any) {
-    return runSystemPluginOperation(pluginIdRaw, 'update')
-  }
-
-  async function runSystemPluginOperation(pluginIdRaw: any, action: 'install' | 'update') {
-    const pluginId = String(pluginIdRaw || '').trim()
-    if (!pluginId) return null
-    const state = getState()
-    const netRequest = getNetRequest()
-    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
-    state.systemPlugins = { ...state.systemPlugins, installLoading: true, installError: '' }
-    emit()
-    try {
-      const installState = action === 'install'
+      const netRequest = requireNetRequest()
+      const state = action === 'install'
         ? await installSystemPluginClient(netRequest, pluginId)
         : await updateSystemPluginClient(netRequest, pluginId)
-      state.systemPlugins = { ...state.systemPlugins, installLoading: false, installError: '', installState }
-      emit()
+      applyInstallState(pluginId, state)
+      if (isArtifactBusy(state)) {
+        installTracker.track(pluginId)
+        return state
+      }
       await refreshSystemPlugins(true).catch(() => null)
-      return installState
+      return state
     } catch (e: any) {
       const message = String(e?.message || e || (action === 'install' ? '插件安装失败' : '插件更新失败'))
-      state.systemPlugins = { ...state.systemPlugins, installLoading: false, installError: message }
       showToast?.(message, { kind: 'error' })
-      emit()
       return null
+    } finally {
+      emit()
     }
+  }
+
+  // cancelSystemPluginInstall 取消正在进行的安装或更新；终态由任务跟踪写回。
+  function cancelSystemPluginInstall(pluginIdRaw: any) {
+    const pluginId = String(pluginIdRaw || '').trim()
+    if (!pluginId) return Promise.resolve(null)
+    return installTracker.cancel(pluginId)
+  }
+
+  // syncSystemPluginInstallStates 批量恢复安装任务事实；面板或商店打开时调用。
+  function syncSystemPluginInstallStates() {
+    return installTracker.sync()
+  }
+
+  function setInstallTerminalListener(listener: InstallTerminalListener | null) {
+    installTerminalListener = typeof listener === 'function' ? listener : null
   }
 
   async function createPlaceholderFromSystemPlugin(pluginId: any, interfaceId: any) {
-    const netRequest = getNetRequest()
-    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    const netRequest = requireNetRequest()
     const library = await createPlaceholderFromSystemPluginInterface(netRequest, String(pluginId || ''), String(interfaceId || ''))
     const problems = await loadPlaceholderProblems(netRequest).catch(() => [])
     const state = getState()
@@ -161,14 +213,21 @@ export function createSystemPluginController(deps: {
     return library
   }
 
+  function dispose() {
+    installTracker.dispose()
+  }
+
   return {
     refreshSystemPlugins,
     openSystemPlugin,
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,
-    loadSystemPluginInstallState,
     installSystemPluginAction,
     updateSystemPluginAction,
+    cancelSystemPluginInstall,
+    syncSystemPluginInstallStates,
+    setInstallTerminalListener,
     createPlaceholderFromSystemPlugin,
+    dispose,
   }
 }

@@ -1,6 +1,10 @@
 import { now } from '../core/utils'
 import type { AiChatShowToast } from '../gateway/capabilities'
-import { normalizeArtifactInstallState, normalizeCompatibilityStatus, normalizeEucliBoxCompatibility, type ArtifactInstallState } from '../domain/release'
+import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
+import { createArtifactInstallTracker, type ArtifactInstallStateMap } from './artifactInstallTracker'
+import { normalizeCompatibilityStatus, normalizeEucliBoxCompatibility } from '../domain/release'
+
+type InstallTerminalListener = (id: string, state: ArtifactInstallState) => void
 
 export function createToolCatalog(deps: {
   getState: () => any
@@ -8,6 +12,8 @@ export function createToolCatalog(deps: {
   emit: () => void
   showToast?: AiChatShowToast
 }) {
+  let installTerminalListener: InstallTerminalListener | null = null
+
   function currentCatalog() {
     const state = deps.getState()
     if (!state.tools || typeof state.tools !== 'object') state.tools = defaultToolCatalogState()
@@ -18,6 +24,49 @@ export function createToolCatalog(deps: {
     const { state, catalog } = currentCatalog()
     state.tools = { ...defaultToolCatalogState(), ...catalog, ...patch }
   }
+
+  function installStates(): ArtifactInstallStateMap {
+    const { catalog } = currentCatalog()
+    return catalog.installStates && typeof catalog.installStates === 'object' ? catalog.installStates : {}
+  }
+
+  function applyInstallState(toolId: string, state: ArtifactInstallState) {
+    patchCatalog({ installStates: { ...installStates(), [toolId]: state } })
+  }
+
+  const installTracker = createArtifactInstallTracker({
+    loadState: async (toolId) => {
+      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}/install-state`, timeoutMs: 15000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      return normalizeArtifactInstallState(response?.body)
+    },
+    cancel: async (toolId) => {
+      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/cancel`, body: {}, timeoutMs: 30000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      return normalizeArtifactInstallState(response?.body)
+    },
+    loadOperations: async () => {
+      const response = await deps.netRequest({ method: 'GET', path: '/api/artifact-operations', timeoutMs: 15000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      return normalizeArtifactInstallStateList(response?.body).filter((state) => String(state.artifact?.kind || '') === 'tool')
+    },
+    getStates: installStates,
+    setStates: (states) => {
+      patchCatalog({ installStates: states })
+      deps.emit()
+    },
+    onTerminal: (toolId, state) => {
+      void refreshTools(true).catch(() => {})
+      if (state.status === 'failed') {
+        deps.showToast?.(`「${toolId}」安装或更新失败：${state.error.message || '未知原因'}`, { kind: 'error' })
+      }
+      installTerminalListener?.(toolId, state)
+      deps.emit()
+    },
+  })
 
   async function refreshTools(force = false) {
     const { state, catalog } = currentCatalog()
@@ -130,33 +179,58 @@ export function createToolCatalog(deps: {
     }
   }
 
-  async function loadToolInstallState(toolIdRaw: any) {
+  function installTool(toolIdRaw: any) {
+    return startToolOperation(toolIdRaw, 'install')
+  }
+
+  function updateTool(toolIdRaw: any) {
+    return startToolOperation(toolIdRaw, 'update')
+  }
+
+  // startToolOperation 发起安装或更新：请求立即返回运行态并交给任务跟踪；
+  // 同步返回的阻止事实按工具占用交互处理。
+  async function startToolOperation(toolIdRaw: any, action: 'install' | 'update') {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
-    patchCatalog({ installLoading: true, installError: '' })
-    deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}/install-state`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/${action}`, body: {}, timeoutMs: 60000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const state = normalizeArtifactInstallState(response?.body)
-      patchCatalog({ installLoading: false, installError: '', installState: state })
+      applyInstallState(toolId, state)
+      if (isArtifactBusy(state)) {
+        installTracker.track(toolId)
+        return state
+      }
+      if (action === 'update' && state.status === 'blocked' && (state.error.code === 'TOOL_ACTIVE' || state.error.code === 'ARTIFACT_UPDATE_IN_PROGRESS')) {
+        askBusyReplacement(toolId, action)
+        return state
+      }
+      await refreshTools(true).catch(() => {})
       return state
     } catch (e: any) {
-      const error = String(e?.message || e || '工具安装状态加载失败')
-      patchCatalog({ installLoading: false, installError: error })
+      const error = String(e?.message || e || (action === 'install' ? '工具安装失败' : '工具更新失败'))
+      deps.showToast?.(error, { kind: 'error' })
       return null
     } finally {
       deps.emit()
     }
   }
 
-  async function installTool(toolIdRaw: any) {
-    return runToolOperation(toolIdRaw, 'install')
+  // cancelToolInstall 取消正在进行的安装或更新；终态由任务跟踪写回。
+  function cancelToolInstall(toolIdRaw: any) {
+    const toolId = String(toolIdRaw || '').trim()
+    if (!toolId) return Promise.resolve(null)
+    return installTracker.cancel(toolId)
   }
 
-  async function updateTool(toolIdRaw: any) {
-    return runToolOperation(toolIdRaw, 'update')
+  // syncToolInstallStates 批量恢复安装任务事实；面板或商店打开时调用。
+  function syncToolInstallStates() {
+    return installTracker.sync()
+  }
+
+  function setInstallTerminalListener(listener: InstallTerminalListener | null) {
+    installTerminalListener = typeof listener === 'function' ? listener : null
   }
 
   async function stopTool(toolIdRaw: any) {
@@ -189,47 +263,21 @@ export function createToolCatalog(deps: {
     deps.emit()
     try {
       await stopTool(toolId)
-      await runToolOperation(toolId, action)
+      await startToolOperation(toolId, action)
     } catch (e: any) {
       const error = String(e?.message || e || '停止工具失败')
-      patchCatalog({ stopping: false })
       deps.showToast?.(error, { kind: 'error' })
-      deps.emit()
     } finally {
       patchCatalog({ stopping: false })
       deps.emit()
     }
   }
 
-  async function runToolOperation(toolIdRaw: any, action: 'install' | 'update') {
-    const toolId = String(toolIdRaw || '').trim()
-    if (!toolId) return null
-    patchCatalog({ installLoading: true, installError: '' })
-    deps.emit()
-    try {
-      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/${action}`, body: {}, timeoutMs: 180000 })
-      const status = Number(response?.status || 0)
-      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
-      const state = normalizeArtifactInstallState(response?.body)
-      if (action === 'update' && state.status === 'blocked' && (state.error.code === 'TOOL_ACTIVE' || state.error.code === 'ARTIFACT_UPDATE_IN_PROGRESS')) {
-        patchCatalog({ installLoading: false, installError: '' })
-        askBusyReplacement(toolId, action)
-        return state
-      }
-      patchCatalog({ installLoading: false, installError: '', installState: state })
-      await refreshTools(true)
-      return state
-    } catch (e: any) {
-      const error = String(e?.message || e || (action === 'install' ? '工具安装失败' : '工具更新失败'))
-      patchCatalog({ installLoading: false, installError: error })
-      deps.showToast?.(error, { kind: 'error' })
-      return null
-    } finally {
-      deps.emit()
-    }
+  function dispose() {
+    installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, loadToolInstallState, installTool, updateTool, stopTool, confirmStopAndContinue, dismissBusyPrompt }
+  return { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {
@@ -246,9 +294,7 @@ function defaultToolCatalogState() {
     promptDescriptionDraft: '',
     saving: false,
     saveError: '',
-    installLoading: false,
-    installError: '',
-    installState: null as ArtifactInstallState | null,
+    installStates: {} as ArtifactInstallStateMap,
     busyPrompt: null as { toolId: string; action: 'install' | 'update' } | null,
     stopping: false,
   }

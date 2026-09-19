@@ -10,12 +10,14 @@ export function createLibraryActions(deps: {
   saveSystemPluginConfig: (pluginId: any, config: any) => Promise<any>
   refreshAvailableSystemPluginPlaceholderInterfaces: () => Promise<any>
   createPlaceholderFromSystemPlugin: (pluginId: any, interfaceId: any) => Promise<any>
-  loadSystemPluginInstallState: (pluginId: any) => Promise<any>
   installSystemPluginAction: (pluginId: any) => Promise<any>
   updateSystemPluginAction: (pluginId: any) => Promise<any>
+  cancelSystemPluginInstall: (pluginId: any) => Promise<any>
+  syncSystemPluginInstallStates: () => Promise<any>
+  setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => void
   selectHookPromptForActiveChat: (mode: any, presetId: any) => Promise<any>
 }) {
-  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, loadSystemPluginInstallState, installSystemPluginAction, updateSystemPluginAction, selectHookPromptForActiveChat } = deps
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
 
   return {
     refreshHookPromptLibrary: (force: any) => refreshHookPromptLibrary(!!force),
@@ -29,9 +31,11 @@ export function createLibraryActions(deps: {
     saveSystemPluginConfig: (pluginId: any, config: any) => saveSystemPluginConfig(pluginId, config),
     refreshAvailableSystemPluginPlaceholderInterfaces: () => refreshAvailableSystemPluginPlaceholderInterfaces(),
     createPlaceholderFromSystemPlugin: (pluginId: any, interfaceId: any) => createPlaceholderFromSystemPlugin(pluginId, interfaceId),
-    loadSystemPluginInstallState: (pluginId: any) => loadSystemPluginInstallState(pluginId),
     installSystemPlugin: (pluginId: any) => installSystemPluginAction(pluginId),
     updateSystemPlugin: (pluginId: any) => updateSystemPluginAction(pluginId),
+    cancelSystemPluginInstall: (pluginId: any) => cancelSystemPluginInstall(pluginId),
+    syncSystemPluginInstallStates: () => syncSystemPluginInstallStates(),
+    setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setSystemPluginInstallTerminalListener(listener),
     selectHookPromptForActiveChat: (mode: any, presetId: any) => selectHookPromptForActiveChat(mode, presetId),
   }
 }
