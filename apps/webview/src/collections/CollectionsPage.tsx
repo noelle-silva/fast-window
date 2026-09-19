@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Alert, Box, Snackbar } from '@mui/material'
+import { Box } from '@mui/material'
 import { URL_CATEGORY } from './categoryRegistry'
 import { parseClipboardTextTarget } from './clipboardTextTarget'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
@@ -15,6 +15,7 @@ import { ItemDialog } from './ItemDialog'
 import { MainTopbar } from './MainTopbar'
 import { SettingsDialog } from './SettingsDialog'
 import { StatusNotice } from './StatusNotice'
+import { useToast } from './toast'
 import { createCollectionsClient } from './collectionsClient'
 import { iconAppearanceCandidateFromWebIcon, importedIconCandidateId, upsertIconCandidate, upsertIconCandidates } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
@@ -74,14 +75,12 @@ import {
   itemTemplate,
 } from './utils'
 
-const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
-
-type ToastState = { key: number; message: string; severity: 'success' | 'info' | 'warning' | 'error' } | null
 
 export type CollectionsPageHandle = { openSettings(): void }
 
 export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(function CollectionsPage(_props, ref) {
+  const { showToast } = useToast()
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
@@ -89,7 +88,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [toast, setToast] = React.useState<ToastState>(null)
   const [search, setSearch] = React.useState('')
   const [groupId, setGroupId] = React.useState(DEFAULT_GROUP_ID)
   const [editing, setEditing] = React.useState<CollectionItem | null>(null)
@@ -118,10 +116,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const hoverOpenTargetIdRef = React.useRef<string | null>(null)
 
   React.useImperativeHandle(ref, () => ({ openSettings: () => setSettingsOpen(true) }), [])
-
-  const showToast = React.useCallback((message: string, severity: NonNullable<ToastState>['severity'] = 'info') => {
-    setToast({ key: Date.now(), message, severity })
-  }, [])
 
   const cancelWebIconDiscovery = React.useCallback(() => {
     webIconAutoSelectRef.current = false
@@ -168,16 +162,10 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     if (!settingsOpen) setIconLayoutDraft(null)
   }, [settingsOpen])
   React.useEffect(() => {
-    if (!error) return
-    if (phase === 'data-error') return
-    const timer = window.setTimeout(() => setError(null), ERROR_AUTO_HIDE_MS)
-    return () => window.clearTimeout(timer)
-  }, [error, phase])
-  React.useEffect(() => {
     const resolvedGroupId = resolveGroupSelection(doc, groupId)
     if (resolvedGroupId === groupId) return
     setGroupId(resolvedGroupId)
-    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
   }, [client, doc, groupId])
   React.useEffect(() => {
     if (!editing || !client) return
@@ -186,9 +174,9 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         const dataUrl = await clipboardImageDataUrlFromPasteEvent(event)
         if (!dataUrl) return
         event.preventDefault()
-        setBusy(true); setError(null)
+        setBusy(true)
         try { await importIconDataUrl(dataUrl, '剪贴板图片') }
-        catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+        catch (e) { showToast(errorMessage(e, '粘贴剪贴板图片失败'), 'error') }
         finally { setBusy(false) }
       })()
     }
@@ -248,7 +236,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setEditing(itemTemplate(target.groupId, target.containerId))
       setForm(createEmptyItemForm(target.groupId))
     } catch (e) {
-      setError(errorMessage(e, '请先创建分组，再添加收藏项'))
+      showToast(errorMessage(e, '请先创建分组，再添加收藏项'), 'error')
     }
   }
 
@@ -258,7 +246,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   }
 
   function openAddContainer() {
-    if (!resolveGroupSelection(doc, groupId)) { setError('请先创建分组，再添加收纳夹'); return }
+    if (!resolveGroupSelection(doc, groupId)) { showToast('请先创建分组，再添加收纳夹', 'error'); return }
     setEditingContainer(null)
     setContainerForm({ ...EMPTY_CONTAINER_FORM })
     setContainerEditorOpen(true)
@@ -276,18 +264,18 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     const category = URL_CATEGORY
     const targetValue = form.target.trim()
     const targetError = category.validateTarget(targetValue)
-    if (targetError) { setError(targetError); return }
+    if (targetError) { showToast(targetError, 'error'); return }
     const name = (form.name.trim() || deriveNameFromTarget(targetValue)).trim()
-    if (!name) { setError('名称不能为空'); return }
+    if (!name) { showToast('名称不能为空', 'error'); return }
     cancelWebIconDiscovery()
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       let targetGroupId = groupIdForPage(form.groupId)
       const newGroupName = form.newGroupName.trim()
       if (editing.containerId) {
-        if (newGroupName) { setError('收纳夹内项目跟随收纳夹分组，不能新建分组'); return }
+        if (newGroupName) { showToast('收纳夹内项目跟随收纳夹分组，不能新建分组', 'error'); return }
         try { assertItemCreationTarget(doc, { groupId: targetGroupId, containerId: editing.containerId }) }
-        catch (e) { setError(errorMessage(e, '收纳夹内项目必须属于收纳夹所在分组')); return }
+        catch (e) { showToast(errorMessage(e, '收纳夹内项目必须属于收纳夹所在分组'), 'error'); return }
       }
       let targetDoc = doc
       if (newGroupName) {
@@ -297,7 +285,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         targetDoc = afterGroupAdd
         targetGroupId = newGroupId
       }
-      if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分组'); return }
+      if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { showToast('请选择有效分组', 'error'); return }
       assertItemCreationTarget(targetDoc, { groupId: targetGroupId, containerId: editing.containerId })
       const now = Date.now()
       const nowText = new Date(now).toISOString()
@@ -319,7 +307,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       const nextDoc = await client.request<WorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', { item: payload })
       setDoc(nextDoc); setEditing(null)
       if (newGroupName) selectResolvedGroup(targetGroupId)
-    } catch (e) { setError(errorMessage(e, `保存${category.singularLabel}失败`)) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, `保存${category.singularLabel}失败`), 'error') } finally { setBusy(false) }
   }
 
   async function createItemFromClipboardText(text: string) {
@@ -329,7 +317,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       showToast('不支持此粘贴内容：仅支持 http/https 网址', 'warning')
       return
     }
-    setBusy(true); setError(null); setContextMenu(null)
+    setBusy(true); setContextMenu(null)
     try {
       const targetGroupId = resolveGroupSelection(doc, groupId)
       if (!targetGroupId) throw new Error('请先创建分组，再粘贴创建图标')
@@ -372,47 +360,47 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
 
   async function removeItem(item: CollectionItem) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.items.remove', { id: item.id })); setConfirm(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, `删除${URL_CATEGORY.singularLabel}失败`)) }
+    catch (e) { showToast(errorMessage(e, `删除${URL_CATEGORY.singularLabel}失败`), 'error') }
     finally { setBusy(false) }
   }
 
   async function openItem(item: CollectionItem) {
     if (!client) return
-    setBusy(true); setError(null); setContextMenu(null)
+    setBusy(true); setContextMenu(null)
     try { await client.request('collections.items.open', { id: item.id }) }
-    catch (e) { setError(errorMessage(e, URL_CATEGORY.openError)) }
+    catch (e) { showToast(errorMessage(e, URL_CATEGORY.openError), 'error') }
     finally { setBusy(false) }
   }
 
   async function moveItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || item.groupId === targetGroupId) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.items.move-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '移动到分组失败')) }
+    catch (e) { showToast(errorMessage(e, '移动到分组失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function copyItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || item.groupId === targetGroupId) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.items.copy-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '复制到分组失败')) }
+    catch (e) { showToast(errorMessage(e, '复制到分组失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function saveItemContainer(ids: string[], containerId: string) {
     if (!client || !ids.length) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.items.container.save', { ids, containerId })); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '移动到收纳夹失败')) }
+    catch (e) { showToast(errorMessage(e, '移动到收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<CollectionItem['layout']>) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<WorkspaceView>('collections.containers.create-from-items', { sourceItemId, targetItemId, layout })
       setDoc(nextDoc)
@@ -420,14 +408,13 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       const nextContainer = movedItem?.containerId ? nextDoc.containers.find(container => container.id === movedItem.containerId) : null
       setContainerDropViewState(null)
       if (nextContainer) setContainerView(nextContainer)
-    } catch (e) { setError(errorMessage(e, '自动创建收纳夹失败')) }
+    } catch (e) { showToast(errorMessage(e, '自动创建收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function placeContainerItems(containerId: string, movedId: string | null, placements: ContainerGridPlacement[]) {
     if (!client || !placements.length) return
     const previousDoc = doc
-    setError(null)
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
@@ -445,7 +432,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
-      setError(errorMessage(e, '保存收纳夹布局失败'))
+      showToast(errorMessage(e, '保存收纳夹布局失败'), 'error')
     }
   }
 
@@ -476,7 +463,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   async function saveDesktopLayouts(patches: DesktopGridLayoutPatch[]) {
     if (!client || patches.length === 0) return
     const previousDoc = doc
-    setError(null)
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
@@ -493,7 +479,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
-      setError(errorMessage(e, '保存桌面布局失败'))
+      showToast(errorMessage(e, '保存桌面布局失败'), 'error')
     }
   }
 
@@ -501,12 +487,11 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     if (!client || patches.length === 0) return
     const previousDoc = doc
     const previousContainerView = containerView
-    setError(null)
     let optimisticDoc: WorkspaceView
     try {
       optimisticDoc = applyContainerItemDesktopExtractionView(doc, containerId, itemId, patches)
     } catch (e) {
-      setError(errorMessage(e, '移出到桌面失败'))
+      showToast(errorMessage(e, '移出到桌面失败'), 'error')
       return
     }
     setContainerDropViewState(null)
@@ -518,7 +503,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     } catch (e) {
       setDoc(previousDoc)
       setContainerView(previousContainerView)
-      setError(errorMessage(e, '移出到桌面失败'))
+      showToast(errorMessage(e, '移出到桌面失败'), 'error')
     }
   }
 
@@ -655,14 +640,14 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     const surface = resolveContainerDropSurface(containerId, openContainer, Boolean(containerGrid))
     if (surface === 'icon') return { kind: 'icon' }
     if (!containerGrid) {
-      setError('收纳夹投放区域尚未就绪，请重新拖入')
+      showToast('收纳夹投放区域尚未就绪，请重新拖入', 'error')
       return { kind: 'invalid' }
     }
     const dropLayout = containerGrid.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY)
     if (!dropLayout) return { kind: 'invalid' }
     const placements = containerGrid.placementsForDrop(movedItemId, dropLayout)
     if (!placements.some(placement => placement.id === movedItemId)) {
-      setError('收纳夹投放布局缺少当前拖拽图标')
+      showToast('收纳夹投放布局缺少当前拖拽图标', 'error')
       return { kind: 'invalid' }
     }
     return { kind: 'grid', placements }
@@ -703,7 +688,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function handleContainerItemDragStart(event: ContainerItemDragEventLike) {
     if (!containerView) return
     if (event.item.containerId !== containerView.id) {
-      setError(`收藏项不在当前收纳夹中：${event.item.name}`)
+      showToast(`收藏项不在当前收纳夹中：${event.item.name}`, 'error')
       return
     }
     setContainerDropViewState(null)
@@ -750,7 +735,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     }
     const projection = desktopGridApiRef.current?.projectExternalItemDrag(toDesktopExternalDrag(event), desktopDragRef.current, activeDropContainer())
     if (!projection) {
-      setError('桌面投放位置不可用，请重新拖出')
+      showToast('桌面投放位置不可用，请重新拖出', 'error')
       setContainerExtractDragState(null)
       setContainerDropViewState(null)
       setDesktopDragState(null)
@@ -786,7 +771,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       return { handled: true, clearReleaseLayouts: true }
     }
     if (!projection.patches.length) {
-      setError('桌面投放布局缺少拖出图标，请重新拖出')
+      showToast('桌面投放布局缺少拖出图标，请重新拖出', 'error')
       setContainerExtractDragState(null)
       setContainerDropViewState(null)
       setDesktopDragState(null)
@@ -813,47 +798,47 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   async function saveGroup() {
     if (!client) return
     const name = groupForm.name.trim()
-    if (!name) { setError('分组名称不能为空'); return }
+    if (!name) { showToast('分组名称不能为空', 'error'); return }
     const id = groupForm.id || createGroupID()
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const method = groupForm.id ? 'collections.groups.update' : 'collections.groups.add'
       setDoc(await client.request<WorkspaceView>(method, { group: { id, name } }))
       setGroupEditorOpen(false)
-    } catch (e) { setError(errorMessage(e, '保存分组失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存分组失败'), 'error') } finally { setBusy(false) }
   }
 
   async function removeGroup(group: CollectionGroup) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<WorkspaceView>('collections.groups.remove', { id: group.id })
       setDoc(nextDoc); setConfirm(null); setGroupEditorOpen(false)
       if (groupId === group.id) selectResolvedGroup(resolveGroupSelection(nextDoc, ''))
-    } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '删除分组失败'), 'error') } finally { setBusy(false) }
   }
 
   async function saveGroupOrder(groupOrder: string[]) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<WorkspaceView>('collections.groups.order.save', { groupOrder })
       setDoc(nextDoc)
       selectResolvedGroup(resolveGroupSelection(nextDoc, groupId))
-    } catch (e) { setError(errorMessage(e, '保存分组顺序失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存分组顺序失败'), 'error') } finally { setBusy(false) }
   }
 
   async function saveContainer() {
     if (!client) return
     const name = containerForm.name.trim()
-    if (!name) { setError('收纳夹名称不能为空'); return }
-    setBusy(true); setError(null)
+    if (!name) { showToast('收纳夹名称不能为空', 'error'); return }
+    setBusy(true)
     try {
       const id = editingContainer?.id || createID()
       const now = Date.now()
       const nowText = new Date(now).toISOString()
       const targetGroupId = editingContainer?.groupId || resolveGroupSelection(doc, groupId)
-      if (!targetGroupId) { setError('请先创建分组，再添加收纳夹'); return }
+      if (!targetGroupId) { showToast('请先创建分组，再添加收纳夹', 'error'); return }
       const payload: CollectionContainer = {
         id,
         name,
@@ -867,7 +852,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       }
       const nextDoc = await client.request<WorkspaceView>(editingContainer ? 'collections.containers.update' : 'collections.containers.add', { container: payload })
       setDoc(nextDoc); setContainerEditorOpen(false); setEditingContainer(null)
-    } catch (e) { setError(errorMessage(e, '保存收纳夹失败')) } finally { setBusy(false) }
+    } catch (e) { showToast(errorMessage(e, '保存收纳夹失败'), 'error') } finally { setBusy(false) }
   }
 
   async function renameContainer(container: CollectionContainer, name: string) {
@@ -875,7 +860,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     const nextName = name.trim()
     if (!nextName) throw new Error('收纳夹名称不能为空')
     if (nextName === container.name) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const now = Date.now()
       const nextDoc = await client.request<WorkspaceView>('collections.containers.update', { container: {
@@ -889,16 +874,16 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setContainerDropViewState(containerDropViewRef.current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : containerDropViewRef.current)
     } catch (e) {
       const message = errorMessage(e, '重命名收纳夹失败')
-      setError(message)
+      showToast(message, 'error')
       throw new Error(message)
     } finally { setBusy(false) }
   }
 
   async function removeContainer(container: CollectionContainer) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.containers.remove', { id: container.id })); setConfirm(null); setContainerView(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '删除收纳夹失败')) }
+    catch (e) { showToast(errorMessage(e, '删除收纳夹失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -943,11 +928,11 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
 
   async function pasteFormIconImage() {
     if (!client || !editing) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const dataUrl = await clipboardImageDataUrlFromClipboard()
       await importIconDataUrl(dataUrl, '剪贴板图片')
-    } catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+    } catch (e) { showToast(errorMessage(e, '粘贴剪贴板图片失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -955,10 +940,9 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     if (!client || !editing) return
     const target = form.target.trim()
     const targetError = URL_CATEGORY.validateTarget(target)
-    if (targetError) { setError(targetError); return }
+    if (targetError) { showToast(targetError, 'error'); return }
     const session = webIconDiscovery.start()
     webIconAutoSelectRef.current = true
-    setError(null)
     try {
       const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target }, {
         signal: session.abortController.signal,
@@ -995,7 +979,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         return { ...current, icon: { ...current.icon, draftIcon: selectedCandidate.icon || null, draftCandidateId: selectedCandidate.id, draftDataUrl: selectedCandidate.dataUrl, candidates } }
       })
     } catch (e) {
-      if (webIconDiscovery.isCurrent(session)) setError(errorMessage(e, '获取网页图标失败'))
+      if (webIconDiscovery.isCurrent(session)) showToast(errorMessage(e, '获取网页图标失败'), 'error')
     }
     finally {
       if (webIconDiscovery.finish(session)) webIconAutoSelectRef.current = false
@@ -1004,7 +988,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
 
   async function pickFormIconImage() {
     if (!client || !editing) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
@@ -1017,15 +1001,15 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           candidates: upsertIconCandidate(current.icon.candidates, { id: importedIconCandidateId(asset.id), label: '导入图片', icon }),
         },
       }))
-    } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
+    } catch (e) { showToast(errorMessage(e, '导入图标图片失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function saveDesktopWallpaper(wallpaper: import('./types').DesktopWallpaper | null) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try { setDoc(await client.request<WorkspaceView>('collections.desktop.wallpaper.save', { wallpaper })) }
-    catch (e) { setError(errorMessage(e, '保存壁纸失败')) }
+    catch (e) { showToast(errorMessage(e, '保存壁纸失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1050,19 +1034,19 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
 
   async function saveDesktopIconLayout(iconLayout: DesktopIconLayout) {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const nextDoc = await client.request<WorkspaceView>('collections.desktop.icon-layout.save', { iconLayout: normalizeDesktopIconLayout(iconLayout) })
       setDoc(nextDoc)
       setIconLayoutDraft(nextDoc.desktop.iconLayout)
     }
-    catch (e) { setIconLayoutDraft(null); setError(errorMessage(e, '保存图标布局失败')) }
+    catch (e) { setIconLayoutDraft(null); showToast(errorMessage(e, '保存图标布局失败'), 'error') }
     finally { setBusy(false) }
   }
 
   async function pickWallpaperImage() {
     if (!client) return
-    setBusy(true); setError(null)
+    setBusy(true)
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
@@ -1070,7 +1054,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       const preset = createDesktopWallpaperPreset({ id: createID(), name: deriveNameFromTarget(sourcePath), assetId: asset.id })
       const presets = [...(doc.desktop.wallpaper?.presets || []), preset]
       setDoc(await client.request<WorkspaceView>('collections.desktop.wallpaper.save', { wallpaper: { activeId: preset.id, presets } }))
-    } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
+    } catch (e) { showToast(errorMessage(e, '导入壁纸失败'), 'error') }
     finally { setBusy(false) }
   }
 
@@ -1084,12 +1068,12 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function selectGroup(nextGroupId: string) {
     const resolvedGroupId = resolveGroupSelection(doc, nextGroupId)
     setGroupId(resolvedGroupId)
-    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
   }
 
   function selectResolvedGroup(resolvedGroupId: string) {
     setGroupId(resolvedGroupId)
-    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => setError(errorMessage(e, '保存上次分组失败')))
+    void client?.request('collections.ui-state.save', { uiState: { groupId: resolvedGroupId } }).catch(e => showToast(errorMessage(e, '保存上次分组失败'), 'error'))
   }
 
   const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc, groupId), [doc, groupId])
@@ -1164,18 +1148,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         />
 
         <DesktopDragHint containerExtractDrag={containerExtractDrag} drag={desktopDrag} />
-
-        {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
-
-        <Snackbar
-          key={toast?.key}
-          open={Boolean(toast)}
-          autoHideDuration={3600}
-          onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null) }}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          {toast ? <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: 3, boxShadow: '0 18px 42px rgba(15, 23, 42, 0.22)' }}>{toast.message}</Alert> : undefined}
-        </Snackbar>
 
         <CollectionContextMenu
           busy={busy}

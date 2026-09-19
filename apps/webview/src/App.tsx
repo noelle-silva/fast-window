@@ -2,6 +2,7 @@ import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { CollectionsPage, type CollectionsPageHandle } from './collections/CollectionsPage'
+import { ToastProvider } from './collections/toast'
 
 export default function MainApp() {
   const collectionsRef = React.useRef<CollectionsPageHandle>(null)
@@ -31,5 +32,9 @@ export default function MainApp() {
     }
   }, [])
 
-  return <CollectionsPage ref={collectionsRef} />
+  return (
+    <ToastProvider>
+      <CollectionsPage ref={collectionsRef} />
+    </ToastProvider>
+  )
 }

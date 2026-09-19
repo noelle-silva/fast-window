@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import {
-  Alert,
   Box,
   Button,
   Chip,
@@ -15,6 +14,7 @@ import {
   alpha,
 } from '@mui/material'
 import { buildShortcutFromEvent } from '../keyboard'
+import { useToast } from './toast'
 import { MAX_VIDEO_RATE, type WebviewSettings } from '../webviewSettings'
 
 function formatRate(rate: number): string {
@@ -32,10 +32,9 @@ function emptySettings(): WebviewSettings {
 }
 
 export function VideoSpeedSection() {
+  const { showToast } = useToast()
   const [settings, setSettings] = useState<WebviewSettings | null>(null)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [recordingIndex, setRecordingIndex] = useState<number | null>(null)
   const recordingRef = useRef(false)
 
@@ -88,14 +87,12 @@ export function VideoSpeedSection() {
   const save = async () => {
     if (!settings) return
     setSaving(true)
-    setError(null)
-    setMessage(null)
     try {
       const saved = await invoke<WebviewSettings>('set_webview_settings', { settings })
       setSettings(saved)
-      setMessage('已保存并同步到浏览窗口')
+      showToast('已保存并同步到浏览窗口', 'success')
     } catch (e) {
-      setError(String((e as { message?: string })?.message || e || '保存失败'))
+      showToast(String((e as { message?: string })?.message || e || '保存失败'), 'error')
     } finally {
       setSaving(false)
     }
@@ -224,12 +221,9 @@ export function VideoSpeedSection() {
             )}
 
             <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
-              {message ? <Typography variant="body2" color="success.main" sx={{ flex: 1 }}>{message}</Typography> : null}
-              <Box sx={{ flex: message ? 0 : 1 }} />
               <Button startIcon={<AddRoundedIcon />} onClick={addPreset} disabled={saving}>添加预设</Button>
               <Button variant="contained" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</Button>
             </Stack>
-            {error ? <Alert severity="error">{error}</Alert> : null}
           </>
         ) : (
           <Typography color="text.secondary">加载中…</Typography>
