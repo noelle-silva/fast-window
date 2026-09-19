@@ -91,11 +91,14 @@ func resolveProcessOwnership(commandLevel, repoLevel, globalLevel string) string
 }
 
 // runCommandByMode 按命令配置的运行模式分流执行。
-func (svc *service) runCommandByMode(id string) (map[string]any, error) {
+// placeholderValues 是本次运行的占位符取值（名称 -> 值），只作用于本次执行，
+// 不写回命令定义；未提供取值的引用原样保留。
+func (svc *service) runCommandByMode(id string, placeholderValues map[string]string) (map[string]any, error) {
 	cmdItem, target, err := svc.locateCommand(id)
 	if err != nil {
 		return nil, err
 	}
+	cmdItem.Script = applyPlaceholderValues(cmdItem.Script, placeholderValues)
 	if info, err := os.Stat(target.Path); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("仓库目录不存在: %s", target.Path)
 	}

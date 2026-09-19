@@ -65,30 +65,34 @@ func reorderByID[T any](items []T, orderedIDs []string, idOf func(T) string, inS
 	return result, nil
 }
 
-func (svc *service) createRepo(name, path, closeMode string, countdownSeconds int, runMode, processOwnership string) (repo, error) {
-	name = strings.TrimSpace(name)
-	path = strings.TrimSpace(path)
+func (svc *service) createRepo(draft repoDraft) (repo, error) {
+	name := strings.TrimSpace(draft.Name)
+	path := strings.TrimSpace(draft.Path)
 	if name == "" {
 		return repo{}, fmt.Errorf("仓库名称不能为空")
 	}
 	if path == "" {
 		return repo{}, fmt.Errorf("仓库路径不能为空")
 	}
-	if closeMode != "" && !validCloseMode(closeMode) {
-		return repo{}, fmt.Errorf("未知关闭策略: %s", closeMode)
+	if draft.CloseMode != "" && !validCloseMode(draft.CloseMode) {
+		return repo{}, fmt.Errorf("未知关闭策略: %s", draft.CloseMode)
 	}
-	if countdownSeconds != 0 &&
-		(countdownSeconds < minCountdownSeconds || countdownSeconds > maxCountdownSeconds) {
+	if draft.CountdownSeconds != 0 &&
+		(draft.CountdownSeconds < minCountdownSeconds || draft.CountdownSeconds > maxCountdownSeconds) {
 		return repo{}, fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
 	}
-	if runMode != "" && !validRunMode(runMode) {
-		return repo{}, fmt.Errorf("未知运行模式: %s", runMode)
+	if draft.RunMode != "" && !validRunMode(draft.RunMode) {
+		return repo{}, fmt.Errorf("未知运行模式: %s", draft.RunMode)
 	}
-	if !validProcessOwnership(processOwnership) {
-		return repo{}, fmt.Errorf("未知进程归属: %s", processOwnership)
+	if !validProcessOwnership(draft.ProcessOwnership) {
+		return repo{}, fmt.Errorf("未知进程归属: %s", draft.ProcessOwnership)
 	}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return repo{}, fmt.Errorf("仓库目录不存在: %s", path)
+	}
+	placeholders, err := normalizePlaceholders(draft.Placeholders)
+	if err != nil {
+		return repo{}, err
 	}
 
 	doc, err := svc.loadRepos()
@@ -105,10 +109,11 @@ func (svc *service) createRepo(name, path, closeMode string, countdownSeconds in
 		Name:             name,
 		Path:             path,
 		ShellID:          "",
-		CloseMode:        closeMode,
-		CountdownSeconds: countdownSeconds,
-		RunMode:          runMode,
-		ProcessOwnership: processOwnership,
+		CloseMode:        draft.CloseMode,
+		CountdownSeconds: draft.CountdownSeconds,
+		RunMode:          draft.RunMode,
+		ProcessOwnership: draft.ProcessOwnership,
+		Placeholders:     placeholders,
 		CreatedAt:        nowText(),
 	}
 	doc.Repos = append(doc.Repos, item)
@@ -121,30 +126,34 @@ func (svc *service) createRepo(name, path, closeMode string, countdownSeconds in
 	return item, nil
 }
 
-func (svc *service) updateRepo(id, name, path, closeMode string, countdownSeconds int, runMode, processOwnership string) (repo, error) {
-	name = strings.TrimSpace(name)
-	path = strings.TrimSpace(path)
+func (svc *service) updateRepo(id string, draft repoDraft) (repo, error) {
+	name := strings.TrimSpace(draft.Name)
+	path := strings.TrimSpace(draft.Path)
 	if name == "" {
 		return repo{}, fmt.Errorf("仓库名称不能为空")
 	}
 	if path == "" {
 		return repo{}, fmt.Errorf("仓库路径不能为空")
 	}
-	if closeMode != "" && !validCloseMode(closeMode) {
-		return repo{}, fmt.Errorf("未知关闭策略: %s", closeMode)
+	if draft.CloseMode != "" && !validCloseMode(draft.CloseMode) {
+		return repo{}, fmt.Errorf("未知关闭策略: %s", draft.CloseMode)
 	}
-	if countdownSeconds != 0 &&
-		(countdownSeconds < minCountdownSeconds || countdownSeconds > maxCountdownSeconds) {
+	if draft.CountdownSeconds != 0 &&
+		(draft.CountdownSeconds < minCountdownSeconds || draft.CountdownSeconds > maxCountdownSeconds) {
 		return repo{}, fmt.Errorf("倒计时秒数必须在 %d-%d 之间", minCountdownSeconds, maxCountdownSeconds)
 	}
-	if runMode != "" && !validRunMode(runMode) {
-		return repo{}, fmt.Errorf("未知运行模式: %s", runMode)
+	if draft.RunMode != "" && !validRunMode(draft.RunMode) {
+		return repo{}, fmt.Errorf("未知运行模式: %s", draft.RunMode)
 	}
-	if !validProcessOwnership(processOwnership) {
-		return repo{}, fmt.Errorf("未知进程归属: %s", processOwnership)
+	if !validProcessOwnership(draft.ProcessOwnership) {
+		return repo{}, fmt.Errorf("未知进程归属: %s", draft.ProcessOwnership)
 	}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return repo{}, fmt.Errorf("仓库目录不存在: %s", path)
+	}
+	placeholders, err := normalizePlaceholders(draft.Placeholders)
+	if err != nil {
+		return repo{}, err
 	}
 
 	doc, err := svc.loadRepos()
@@ -160,12 +169,20 @@ func (svc *service) updateRepo(id, name, path, closeMode string, countdownSecond
 				return repo{}, fmt.Errorf("该仓库已注册: %s", other.Name)
 			}
 		}
+		occupied, err := svc.repoLevelPlaceholderOccupancy(id)
+		if err != nil {
+			return repo{}, err
+		}
+		if err := ensurePlaceholderNamesFree(placeholders, occupied); err != nil {
+			return repo{}, err
+		}
 		doc.Repos[index].Name = name
 		doc.Repos[index].Path = path
-		doc.Repos[index].CloseMode = closeMode
-		doc.Repos[index].CountdownSeconds = countdownSeconds
-		doc.Repos[index].RunMode = runMode
-		doc.Repos[index].ProcessOwnership = processOwnership
+		doc.Repos[index].CloseMode = draft.CloseMode
+		doc.Repos[index].CountdownSeconds = draft.CountdownSeconds
+		doc.Repos[index].RunMode = draft.RunMode
+		doc.Repos[index].ProcessOwnership = draft.ProcessOwnership
+		doc.Repos[index].Placeholders = placeholders
 		if err := svc.writeRepos(doc); err != nil {
 			return repo{}, err
 		}
@@ -238,19 +255,32 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 	if err := draft.validate(); err != nil {
 		return command{}, err
 	}
+	placeholders, err := normalizePlaceholders(draft.Placeholders)
+	if err != nil {
+		return command{}, err
+	}
 	reposDoc, err := svc.loadRepos()
 	if err != nil {
 		return command{}, err
 	}
-	exists := false
+	var target repo
+	found := false
 	for _, item := range reposDoc.Repos {
 		if item.ID == draft.RepoID {
-			exists = true
+			target = item
+			found = true
 			break
 		}
 	}
-	if !exists {
+	if !found {
 		return command{}, fmt.Errorf("仓库不存在: %s", draft.RepoID)
+	}
+	occupied, err := svc.commandPlaceholderOccupancy(target, "")
+	if err != nil {
+		return command{}, err
+	}
+	if err := ensurePlaceholderNamesFree(placeholders, occupied); err != nil {
+		return command{}, err
 	}
 
 	doc, err := svc.loadCommands()
@@ -271,6 +301,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		RunMode:          draft.RunMode,
 		ProcessOwnership: draft.ProcessOwnership,
 		MaxEmbeddedRuns:  draft.MaxEmbeddedRuns,
+		Placeholders:     placeholders,
 		CreatedAt:        nowText(),
 		UpdatedAt:        nowText(),
 	}
@@ -288,6 +319,10 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 	if err := draft.validate(); err != nil {
 		return command{}, err
 	}
+	placeholders, err := normalizePlaceholders(draft.Placeholders)
+	if err != nil {
+		return command{}, err
+	}
 	doc, err := svc.loadCommands()
 	if err != nil {
 		return command{}, err
@@ -298,6 +333,17 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		}
 		if existing.RepoID != draft.RepoID {
 			return command{}, fmt.Errorf("命令不能更换所属仓库")
+		}
+		target, err := svc.findRepo(existing.RepoID)
+		if err != nil {
+			return command{}, err
+		}
+		occupied, err := svc.commandPlaceholderOccupancy(target, id)
+		if err != nil {
+			return command{}, err
+		}
+		if err := ensurePlaceholderNamesFree(placeholders, occupied); err != nil {
+			return command{}, err
 		}
 		doc.Commands[index].Name = strings.TrimSpace(draft.Name)
 		doc.Commands[index].Script = draft.Script
@@ -310,6 +356,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].RunMode = draft.RunMode
 		doc.Commands[index].ProcessOwnership = draft.ProcessOwnership
 		doc.Commands[index].MaxEmbeddedRuns = draft.MaxEmbeddedRuns
+		doc.Commands[index].Placeholders = placeholders
 		doc.Commands[index].UpdatedAt = nowText()
 		if err := svc.writeCommands(doc); err != nil {
 			return command{}, err
@@ -317,6 +364,20 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		return doc.Commands[index], nil
 	}
 	return command{}, fmt.Errorf("未找到命令: %s", id)
+}
+
+// findRepo 按 id 查找仓库实体，供命令的占位符作用域校验等场景使用。
+func (svc *service) findRepo(id string) (repo, error) {
+	doc, err := svc.loadRepos()
+	if err != nil {
+		return repo{}, err
+	}
+	for _, item := range doc.Repos {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return repo{}, fmt.Errorf("未找到仓库: %s", id)
 }
 
 func (svc *service) deleteCommand(id string) error {

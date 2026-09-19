@@ -57,15 +57,27 @@ type customShell struct {
 }
 
 type repo struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Path             string `json:"path"`
-	ShellID          string `json:"shellId"`
-	CloseMode        string `json:"closeMode"`
-	CountdownSeconds int    `json:"countdownSeconds"`
-	RunMode          string `json:"runMode"`
-	ProcessOwnership string `json:"processOwnership"`
-	CreatedAt        string `json:"createdAt"`
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Path             string        `json:"path"`
+	ShellID          string        `json:"shellId"`
+	CloseMode        string        `json:"closeMode"`
+	CountdownSeconds int           `json:"countdownSeconds"`
+	RunMode          string        `json:"runMode"`
+	ProcessOwnership string        `json:"processOwnership"`
+	Placeholders     []placeholder `json:"placeholders"`
+	CreatedAt        string        `json:"createdAt"`
+}
+
+// repoDraft 是仓库创建/更新的提交草案；占位符为仓库级，作用域覆盖该仓库全部命令。
+type repoDraft struct {
+	Name             string        `json:"name"`
+	Path             string        `json:"path"`
+	CloseMode        string        `json:"closeMode"`
+	CountdownSeconds int           `json:"countdownSeconds"`
+	RunMode          string        `json:"runMode"`
+	ProcessOwnership string        `json:"processOwnership"`
+	Placeholders     []placeholder `json:"placeholders"`
 }
 
 type reposDoc struct {
@@ -88,9 +100,10 @@ type command struct {
 	RunMode          string `json:"runMode"`
 	ProcessOwnership string `json:"processOwnership"`
 	// MaxEmbeddedRuns 是内置空间同时运行实例数上限；0 表示不限制。
-	MaxEmbeddedRuns int    `json:"maxEmbeddedRuns"`
-	CreatedAt       string `json:"createdAt"`
-	UpdatedAt       string `json:"updatedAt"`
+	MaxEmbeddedRuns int           `json:"maxEmbeddedRuns"`
+	Placeholders    []placeholder `json:"placeholders"`
+	CreatedAt       string        `json:"createdAt"`
+	UpdatedAt       string        `json:"updatedAt"`
 }
 
 type commandsDoc struct {
@@ -134,18 +147,19 @@ type quickRunsDoc struct {
 }
 
 type commandDraft struct {
-	RepoID           string `json:"repoId"`
-	Name             string `json:"name"`
-	Script           string `json:"script"`
-	Note             string `json:"note"`
-	ConfirmBeforeRun bool   `json:"confirmBeforeRun"`
-	NotifyOnComplete bool   `json:"notifyOnComplete"`
-	ShellID          string `json:"shellId"`
-	CloseMode        string `json:"closeMode"`
-	CountdownSeconds int    `json:"countdownSeconds"`
-	RunMode          string `json:"runMode"`
-	ProcessOwnership string `json:"processOwnership"`
-	MaxEmbeddedRuns  int    `json:"maxEmbeddedRuns"`
+	RepoID           string        `json:"repoId"`
+	Name             string        `json:"name"`
+	Script           string        `json:"script"`
+	Note             string        `json:"note"`
+	ConfirmBeforeRun bool          `json:"confirmBeforeRun"`
+	NotifyOnComplete bool          `json:"notifyOnComplete"`
+	ShellID          string        `json:"shellId"`
+	CloseMode        string        `json:"closeMode"`
+	CountdownSeconds int           `json:"countdownSeconds"`
+	RunMode          string        `json:"runMode"`
+	ProcessOwnership string        `json:"processOwnership"`
+	MaxEmbeddedRuns  int           `json:"maxEmbeddedRuns"`
+	Placeholders     []placeholder `json:"placeholders"`
 }
 
 type metaDoc struct {

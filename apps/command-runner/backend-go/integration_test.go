@@ -15,7 +15,7 @@ func TestEmbeddedRunPristineEnv(t *testing.T) {
 	}
 	svc := newTestService(t)
 
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestEmbeddedRunPristineEnv(t *testing.T) {
 		}
 	}
 
-	if _, err := svc.runCommandByMode(command.ID); err != nil {
+	if _, err := svc.runCommandByMode(command.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 

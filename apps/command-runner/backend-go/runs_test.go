@@ -66,7 +66,7 @@ func TestRestartRunReplacesRunningInstance(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestRestartRunReplacesRunningInstance(t *testing.T) {
 	collector := &runEventCollector{}
 	svc.bus.observer = collector.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestRestartRunReplacesRunningInstance(t *testing.T) {
 	}
 	collector.waitFor(t, "run.started:"+firstRunID)
 
-	result, err := svc.restartRun(firstRunID, cmd.ID)
+	result, err := svc.restartRun(firstRunID, cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRestartRunEndedInstanceStartsFresh(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRestartRunEndedInstanceStartsFresh(t *testing.T) {
 	collector := &runEventCollector{}
 	svc.bus.observer = collector.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestRestartRunEndedInstanceStartsFresh(t *testing.T) {
 		t.Fatal("run should be unregistered after ending")
 	}
 
-	result, err := svc.restartRun(firstRunID, cmd.ID)
+	result, err := svc.restartRun(firstRunID, cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestRestartRunRejectsMismatchedCommand(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,14 +162,14 @@ func TestRestartRunRejectsMismatchedCommand(t *testing.T) {
 	collector := &runEventCollector{}
 	svc.bus.observer = collector.record
 
-	first, err := svc.runCommandByMode(cmdA.ID)
+	first, err := svc.runCommandByMode(cmdA.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstRunID, _ := first["runId"].(string)
 	collector.waitFor(t, "run.started:"+firstRunID)
 
-	if _, err := svc.restartRun(firstRunID, cmdB.ID); err == nil {
+	if _, err := svc.restartRun(firstRunID, cmdB.ID, nil); err == nil {
 		t.Fatal("expected mismatch error")
 	}
 	if _, ok := svc.runs.get(firstRunID); !ok {
@@ -185,13 +185,13 @@ func TestRestartRunRejectsMismatchedCommand(t *testing.T) {
 func TestRestartRunValidation(t *testing.T) {
 	svc := newTestService(t)
 
-	if _, err := svc.restartRun("", ""); err == nil {
+	if _, err := svc.restartRun("", "", nil); err == nil {
 		t.Fatal("expected error for empty runId")
 	}
-	if _, err := svc.restartRun("run-ghost", ""); err == nil {
+	if _, err := svc.restartRun("run-ghost", "", nil); err == nil {
 		t.Fatal("expected error when command cannot be located")
 	}
-	if _, err := svc.restartRun("run-ghost", "cmd-ghost"); err == nil {
+	if _, err := svc.restartRun("run-ghost", "cmd-ghost", nil); err == nil {
 		t.Fatal("expected error for unknown command")
 	}
 }
@@ -202,7 +202,7 @@ func TestEmbeddedRunLimitRejectsExceedingStart(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestEmbeddedRunLimitRejectsExceedingStart(t *testing.T) {
 	collector := &runEventCollector{}
 	svc.bus.observer = collector.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestEmbeddedRunLimitRejectsExceedingStart(t *testing.T) {
 	}
 	collector.waitFor(t, "run.started:"+firstRunID)
 
-	if _, err := svc.runCommandByMode(cmd.ID); err == nil {
+	if _, err := svc.runCommandByMode(cmd.ID, nil); err == nil {
 		t.Fatal("expected limit error for second start")
 	}
 	if running := svc.runs.countByCommand(cmd.ID); running != 1 {
@@ -244,7 +244,7 @@ func TestEmbeddedRunLimitRejectsExceedingStart(t *testing.T) {
 	}
 	collector.waitFor(t, "run.ended:"+firstRunID)
 
-	again, err := svc.runCommandByMode(cmd.ID)
+	again, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatalf("start after release failed: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestEmbeddedRunLimitZeroMeansUnlimited(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,11 +274,11 @@ func TestEmbeddedRunLimitZeroMeansUnlimited(t *testing.T) {
 	collector := &runEventCollector{}
 	svc.bus.observer = collector.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.runCommandByMode(cmd.ID)
+	second, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatalf("second start should be allowed without limit: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestEmbeddedRunLimitZeroMeansUnlimited(t *testing.T) {
 // TestCommandEmbeddedRunLimitValidation 验证并发上限字段取值范围：0 不限、1-99 有效、越界拒绝。
 func TestCommandEmbeddedRunLimitValidation(t *testing.T) {
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,6 +193,11 @@ func (svc *service) loadRepos() (reposDoc, error) {
 	if doc.Repos == nil {
 		doc.Repos = []repo{}
 	}
+	for index := range doc.Repos {
+		if doc.Repos[index].Placeholders == nil {
+			doc.Repos[index].Placeholders = []placeholder{}
+		}
+	}
 	return doc, nil
 }
 
@@ -201,6 +206,11 @@ func (svc *service) writeRepos(doc reposDoc) error {
 	doc.DataVersion = dataVersion
 	if doc.Repos == nil {
 		doc.Repos = []repo{}
+	}
+	for index := range doc.Repos {
+		if doc.Repos[index].Placeholders == nil {
+			doc.Repos[index].Placeholders = []placeholder{}
+		}
 	}
 	return writeJSON(svc.reposPath(), doc)
 }
@@ -213,6 +223,11 @@ func (svc *service) loadCommands() (commandsDoc, error) {
 	if doc.Commands == nil {
 		doc.Commands = []command{}
 	}
+	for index := range doc.Commands {
+		if doc.Commands[index].Placeholders == nil {
+			doc.Commands[index].Placeholders = []placeholder{}
+		}
+	}
 	return doc, nil
 }
 
@@ -221,6 +236,11 @@ func (svc *service) writeCommands(doc commandsDoc) error {
 	doc.DataVersion = dataVersion
 	if doc.Commands == nil {
 		doc.Commands = []command{}
+	}
+	for index := range doc.Commands {
+		if doc.Commands[index].Placeholders == nil {
+			doc.Commands[index].Placeholders = []placeholder{}
+		}
 	}
 	return writeJSON(svc.commandsPath(), doc)
 }

@@ -271,7 +271,8 @@ func (svc *service) stopRun(id string) error {
 // restartRun 重启一个运行实例：先确保旧实例彻底结束，再按命令配置启动新实例。
 // runId 仍在运行时先请求停止并等待结束信号；停止失败或等待超时均不启动新实例。
 // runId 已结束（不在注册表）时直接启动 commandId。
-func (svc *service) restartRun(runID, commandID string) (map[string]any, error) {
+// placeholderValues 是本次重启运行的占位符取值，与首次运行一致由界面重新选择。
+func (svc *service) restartRun(runID, commandID string, placeholderValues map[string]string) (map[string]any, error) {
 	runID = strings.TrimSpace(runID)
 	commandID = strings.TrimSpace(commandID)
 	if runID == "" {
@@ -299,7 +300,7 @@ func (svc *service) restartRun(runID, commandID string) (map[string]any, error) 
 		return nil, fmt.Errorf("无法定位要重新运行的命令: %s", runID)
 	}
 
-	return svc.runCommandByMode(commandID)
+	return svc.runCommandByMode(commandID, placeholderValues)
 }
 
 // locateCommand 查找命令与其所属仓库。

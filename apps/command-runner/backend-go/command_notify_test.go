@@ -68,7 +68,7 @@ func newEmbeddedNotifyCommand(t *testing.T, svc *service, repoID, name, script s
 // TestCommandNotifyFieldRoundTrip 验证通知开关字段的创建/更新往返。
 func TestCommandNotifyFieldRoundTrip(t *testing.T) {
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestEmbeddedRunNotifiesOnCompletion(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestEmbeddedRunNotifiesOnCompletion(t *testing.T) {
 	capture := &notifyCapture{}
 	svc.notify = capture.record
 
-	if _, err := svc.runCommandByMode(cmd.ID); err != nil {
+	if _, err := svc.runCommandByMode(cmd.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	capture.waitFor(t, "「quick」运行完成|demo · 退出码 0")
@@ -126,7 +126,7 @@ func TestEmbeddedRunNotifiesFailure(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestEmbeddedRunNotifiesFailure(t *testing.T) {
 	capture := &notifyCapture{}
 	svc.notify = capture.record
 
-	if _, err := svc.runCommandByMode(cmd.ID); err != nil {
+	if _, err := svc.runCommandByMode(cmd.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	capture.waitFor(t, "「bad」运行失败|demo · 退出码 3")
@@ -147,7 +147,7 @@ func TestStoppedRunDoesNotNotify(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestStoppedRunDoesNotNotify(t *testing.T) {
 	capture := &notifyCapture{}
 	svc.notify = capture.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestRunWithoutNotifyFlagDoesNotNotify(t *testing.T) {
 		t.Skip("integration test skipped in short mode")
 	}
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestRunWithoutNotifyFlagDoesNotNotify(t *testing.T) {
 	capture := &notifyCapture{}
 	svc.notify = capture.record
 
-	first, err := svc.runCommandByMode(cmd.ID)
+	first, err := svc.runCommandByMode(cmd.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

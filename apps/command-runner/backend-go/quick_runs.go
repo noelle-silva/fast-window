@@ -123,7 +123,8 @@ func (svc *service) deleteQuickRun(id string) error {
 
 // runQuickRun 按引用顺序启动条目内的全部命令，单条失败不中断其余命令。
 // 每条命令的启动完全复用既有单命令运行分流（外部窗口 / 内置空间）。
-func (svc *service) runQuickRun(id string) (map[string]any, error) {
+// placeholderValues 按命令 id 分组提供本次运行的占位符取值。
+func (svc *service) runQuickRun(id string, placeholderValues map[string]map[string]string) (map[string]any, error) {
 	doc, err := svc.loadQuickRuns()
 	if err != nil {
 		return nil, err
@@ -163,7 +164,7 @@ func (svc *service) runQuickRun(id string) (map[string]any, error) {
 	started := make([]map[string]any, 0, len(target.CommandIDs))
 	failures := make([]map[string]any, 0)
 	for _, commandID := range target.CommandIDs {
-		result, runErr := svc.runCommandByMode(commandID)
+		result, runErr := svc.runCommandByMode(commandID, placeholderValues[commandID])
 		if runErr != nil {
 			failures = append(failures, map[string]any{
 				"commandId":   commandID,

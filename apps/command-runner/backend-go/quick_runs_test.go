@@ -29,11 +29,11 @@ func quickRunItems(t *testing.T, svc *service) []quickRun {
 func TestQuickRunCRUD(t *testing.T) {
 	svc := newTestService(t)
 
-	repoA, err := svc.createRepo("A", mkTestDir(t, svc, "a"), "", 0, "", "")
+	repoA, err := svc.createRepo(repoDraft{Name: "A", Path: mkTestDir(t, svc, "a")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoB, err := svc.createRepo("B", mkTestDir(t, svc, "b"), "", 0, "", "")
+	repoB, err := svc.createRepo(repoDraft{Name: "B", Path: mkTestDir(t, svc, "b")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,11 +108,11 @@ func TestQuickRunCRUD(t *testing.T) {
 func TestQuickRunReferenceCleanup(t *testing.T) {
 	svc := newTestService(t)
 
-	repoA, err := svc.createRepo("A", mkTestDir(t, svc, "a"), "", 0, "", "")
+	repoA, err := svc.createRepo(repoDraft{Name: "A", Path: mkTestDir(t, svc, "a")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoB, err := svc.createRepo("B", mkTestDir(t, svc, "b"), "", 0, "", "")
+	repoB, err := svc.createRepo(repoDraft{Name: "B", Path: mkTestDir(t, svc, "b")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestQuickRunReferenceCleanup(t *testing.T) {
 func TestEnsureQuickRuns(t *testing.T) {
 	svc := newTestService(t)
 
-	repo, err := svc.createRepo("A", mkTestDir(t, svc, "a"), "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "A", Path: mkTestDir(t, svc, "a")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestEnsureQuickRuns(t *testing.T) {
 func TestRunQuickRunValidation(t *testing.T) {
 	svc := newTestService(t)
 
-	if _, err := svc.runQuickRun("quickrun-ghost"); err == nil {
+	if _, err := svc.runQuickRun("quickrun-ghost", nil); err == nil {
 		t.Fatal("expected error for unknown quick run")
 	}
 
@@ -224,7 +224,7 @@ func TestRunQuickRunValidation(t *testing.T) {
 	if err := svc.writeQuickRuns(doc); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.runQuickRun("quickrun-empty"); err == nil {
+	if _, err := svc.runQuickRun("quickrun-empty", nil); err == nil {
 		t.Fatal("expected error for empty quick run")
 	}
 }
@@ -236,7 +236,7 @@ func TestRunQuickRunEmbedded(t *testing.T) {
 	}
 	svc := newTestService(t)
 
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestRunQuickRunEmbedded(t *testing.T) {
 	}
 
 	// cmdC 所在仓库目录被移除：启动时失败，验证不阻塞其他命令
-	repoMissing, err := svc.createRepo("missing", mkTestDir(t, svc, "missing"), "", 0, "", "")
+	repoMissing, err := svc.createRepo(repoDraft{Name: "missing", Path: mkTestDir(t, svc, "missing")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestRunQuickRunEmbedded(t *testing.T) {
 		}
 	}
 
-	result, err := svc.runQuickRun(item.ID)
+	result, err := svc.runQuickRun(item.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

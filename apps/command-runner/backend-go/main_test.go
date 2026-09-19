@@ -44,7 +44,7 @@ func TestServiceCreatesDataFiles(t *testing.T) {
 func TestRepoAndCommandRoundTrip(t *testing.T) {
 	svc := newTestService(t)
 
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestRepoAndCommandRoundTrip(t *testing.T) {
 func TestCreateRepoRejectsMissingDir(t *testing.T) {
 	svc := newTestService(t)
 	missing := filepath.Join(svc.dataDir, "not-exist")
-	if _, err := svc.createRepo("missing", missing, "", 0, "", ""); err == nil {
+	if _, err := svc.createRepo(repoDraft{Name: "missing", Path: missing}); err == nil {
 		t.Fatal("expected error for missing directory")
 	}
 }
@@ -156,7 +156,7 @@ func TestCustomShellAddRemove(t *testing.T) {
 
 func TestBuildWrapperScript(t *testing.T) {
 	svc := newTestService(t)
-	repo, err := svc.createRepo("demo", svc.dataDir, "", 0, "", "")
+	repo, err := svc.createRepo(repoDraft{Name: "demo", Path: svc.dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,15 +335,15 @@ func TestReorderRepos(t *testing.T) {
 		return dir
 	}
 
-	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
+	repoA, err := svc.createRepo(repoDraft{Name: "A", Path: mkRepoDir("a")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoB, err := svc.createRepo("B", mkRepoDir("b"), "", 0, "", "")
+	repoB, err := svc.createRepo(repoDraft{Name: "B", Path: mkRepoDir("b")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoC, err := svc.createRepo("C", mkRepoDir("c"), "", 0, "", "")
+	repoC, err := svc.createRepo(repoDraft{Name: "C", Path: mkRepoDir("c")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,11 +401,11 @@ func TestCollectionsTree(t *testing.T) {
 		return dir
 	}
 
-	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
+	repoA, err := svc.createRepo(repoDraft{Name: "A", Path: mkRepoDir("a")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoB, err := svc.createRepo("B", mkRepoDir("b"), "", 0, "", "")
+	repoB, err := svc.createRepo(repoDraft{Name: "B", Path: mkRepoDir("b")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,7 +525,7 @@ func TestCollectionsEnsure(t *testing.T) {
 		return dir
 	}
 
-	repoA, err := svc.createRepo("A", mkRepoDir("a"), "", 0, "", "")
+	repoA, err := svc.createRepo(repoDraft{Name: "A", Path: mkRepoDir("a")})
 	if err != nil {
 		t.Fatal(err)
 	}

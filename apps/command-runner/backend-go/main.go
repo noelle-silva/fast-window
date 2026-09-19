@@ -194,33 +194,21 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.listRepos()
 
 	case "commandRunner.repos.create":
-		var payload struct {
-			Name             string `json:"name"`
-			Path             string `json:"path"`
-			CloseMode        string `json:"closeMode"`
-			CountdownSeconds int    `json:"countdownSeconds"`
-			RunMode          string `json:"runMode"`
-			ProcessOwnership string `json:"processOwnership"`
-		}
-		if err := json.Unmarshal(params, &payload); err != nil {
+		var draft repoDraft
+		if err := json.Unmarshal(params, &draft); err != nil {
 			return nil, fmt.Errorf("invalid repo payload: %w", err)
 		}
-		return svc.createRepo(payload.Name, payload.Path, payload.CloseMode, payload.CountdownSeconds, payload.RunMode, payload.ProcessOwnership)
+		return svc.createRepo(draft)
 
 	case "commandRunner.repos.update":
 		var payload struct {
-			ID               string `json:"id"`
-			Name             string `json:"name"`
-			Path             string `json:"path"`
-			CloseMode        string `json:"closeMode"`
-			CountdownSeconds int    `json:"countdownSeconds"`
-			RunMode          string `json:"runMode"`
-			ProcessOwnership string `json:"processOwnership"`
+			ID    string    `json:"id"`
+			Draft repoDraft `json:"draft"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid repo payload: %w", err)
 		}
-		return svc.updateRepo(payload.ID, payload.Name, payload.Path, payload.CloseMode, payload.CountdownSeconds, payload.RunMode, payload.ProcessOwnership)
+		return svc.updateRepo(payload.ID, payload.Draft)
 
 	case "commandRunner.repos.delete":
 		var payload struct {
@@ -325,12 +313,13 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "commandRunner.commands.run":
 		var payload struct {
-			ID string `json:"id"`
+			ID                string            `json:"id"`
+			PlaceholderValues map[string]string `json:"placeholderValues"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid command payload: %w", err)
 		}
-		return svc.runCommandByMode(payload.ID)
+		return svc.runCommandByMode(payload.ID, payload.PlaceholderValues)
 
 	case "commandRunner.quickRuns.list":
 		return svc.listQuickRuns()
@@ -367,12 +356,13 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "commandRunner.quickRuns.run":
 		var payload struct {
-			ID string `json:"id"`
+			ID                string                       `json:"id"`
+			PlaceholderValues map[string]map[string]string `json:"placeholderValues"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid quick run payload: %w", err)
 		}
-		return svc.runQuickRun(payload.ID)
+		return svc.runQuickRun(payload.ID, payload.PlaceholderValues)
 
 	case "commandRunner.runs.stop":
 		var payload struct {
@@ -385,13 +375,14 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	case "commandRunner.runs.restart":
 		var payload struct {
-			RunID     string `json:"runId"`
-			CommandID string `json:"commandId"`
+			RunID             string            `json:"runId"`
+			CommandID         string            `json:"commandId"`
+			PlaceholderValues map[string]string `json:"placeholderValues"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid restart payload: %w", err)
 		}
-		return svc.restartRun(payload.RunID, payload.CommandID)
+		return svc.restartRun(payload.RunID, payload.CommandID, payload.PlaceholderValues)
 
 	case "commandRunner.runs.list":
 		return map[string]any{"runs": svc.runs.snapshot()}, nil
