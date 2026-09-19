@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   composeReleaseCandidatesView,
   emptyReleaseCache,
+  isArtifactBusy,
+  isArtifactCancelable,
   isReleaseCacheFresh,
+  normalizeArtifactInstallStateList,
   releaseKindsToLoad,
   RELEASE_CACHE_FRESHNESS_MS,
   writeReleaseCache,
+  type ArtifactInstallState,
   type ArtifactReleaseCandidate,
 } from './release'
 
@@ -27,6 +31,55 @@ function candidate(kind: string, id: string, version: string): ArtifactReleaseCa
     failureReason: '',
   }
 }
+
+describe('artifact install state guards', () => {
+  function installState(status: string, phase = ''): ArtifactInstallState {
+    return {
+      operationId: 'op',
+      artifact: { kind: 'tool', id: 'demo' },
+      installed: false,
+      currentVersion: '',
+      targetVersion: '',
+      status,
+      phase,
+      progress: { receivedBytes: 0, totalBytes: 0 },
+      error: { code: '', phase: '', message: '' },
+    }
+  }
+
+  it('treats running statuses as busy and terminal statuses as not busy', () => {
+    for (const status of ['checking_release', 'downloading', 'verifying', 'preparing', 'switching', 'starting', 'restoring', 'checking_activity']) {
+      expect(isArtifactBusy(installState(status))).toBe(true)
+    }
+    for (const status of ['active', 'failed', 'blocked', 'cancelled', 'not_installed', 'unavailable', '']) {
+      expect(isArtifactBusy(installState(status))).toBe(false)
+    }
+    expect(isArtifactBusy(null)).toBe(false)
+  })
+
+  it('allows cancelling only before the switch phase', () => {
+    expect(isArtifactCancelable(installState('downloading', 'download'))).toBe(true)
+    expect(isArtifactCancelable(installState('preparing', 'prepare'))).toBe(true)
+    expect(isArtifactCancelable(installState('starting', 'probe'))).toBe(true)
+    expect(isArtifactCancelable(installState('switching', 'switch'))).toBe(false)
+    expect(isArtifactCancelable(installState('restoring', 'restore'))).toBe(false)
+    expect(isArtifactCancelable(installState('failed', 'download'))).toBe(false)
+  })
+
+  it('normalizes a batch operation list', () => {
+    const list = normalizeArtifactInstallStateList({
+      operations: [
+        { artifact: { kind: 'tool', id: 'a' }, status: 'downloading', progress: { receivedBytes: 5, totalBytes: 10 } },
+        { artifact: { kind: 'plugin', id: 'b' }, status: 'cancelled' },
+      ],
+    })
+    expect(list).toHaveLength(2)
+    expect(list[0].artifact.id).toBe('a')
+    expect(list[0].progress.receivedBytes).toBe(5)
+    expect(list[1].status).toBe('cancelled')
+    expect(normalizeArtifactInstallStateList(null)).toEqual([])
+  })
+})
 
 describe('release cache', () => {
   it('writes one source-kind cell without touching other cells', () => {

@@ -111,7 +111,42 @@ export const artifactStatusLabels: Record<string, string> = {
   unavailable: '不适用',
   failed: '失败',
   blocked: '被阻止',
+  cancelled: '已取消',
   restoring: '恢复中',
+}
+
+// ARTIFACT_BUSY_STATUSES 是安装/更新任务仍在推进的状态集合；终态不在此列。
+const ARTIFACT_BUSY_STATUSES = new Set([
+  'checking_release',
+  'checking_activity',
+  'downloading',
+  'verifying',
+  'preparing',
+  'starting',
+  'switching',
+  'restoring',
+])
+
+// ARTIFACT_CANCELABLE_PHASES 与业务端约定一致：切换前阶段与探测阶段可取消。
+const ARTIFACT_CANCELABLE_PHASES = new Set([
+  'candidate',
+  'compatibility',
+  'activity',
+  'download',
+  'manifest',
+  'archive',
+  'package',
+  'prepare',
+  'probe',
+])
+
+export function isArtifactBusy(state: ArtifactInstallState | null | undefined): boolean {
+  return !!state && ARTIFACT_BUSY_STATUSES.has(String(state.status || ''))
+}
+
+export function isArtifactCancelable(state: ArtifactInstallState | null | undefined): boolean {
+  if (!state) return false
+  return isArtifactBusy(state) && ARTIFACT_CANCELABLE_PHASES.has(String(state.phase || ''))
 }
 
 export function normalizeArtifactInstallState(value: unknown): ArtifactInstallState {
@@ -134,6 +169,12 @@ export function normalizeArtifactInstallState(value: unknown): ArtifactInstallSt
       message: text((source as any).error?.message),
     },
   }
+}
+
+// normalizeArtifactInstallStateList 解析批量操作状态：每一项与单条安装状态同构。
+export function normalizeArtifactInstallStateList(value: unknown): ArtifactInstallState[] {
+  const source = objectValue(value)
+  return Array.isArray(source.operations) ? source.operations.map(normalizeArtifactInstallState) : []
 }
 
 export function normalizeArtifactActivityState(value: unknown): ArtifactActivityState {
