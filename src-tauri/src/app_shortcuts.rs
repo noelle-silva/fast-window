@@ -230,6 +230,16 @@ fn restore_bindings(
 }
 
 pub(crate) fn refresh_registered_app_shortcuts(app: &AppHandle) -> Result<(), String> {
+    let records = crate::app_registry::load_registered_app_records(app)?;
+    refresh_registered_app_shortcuts_for_records(app, &records)
+}
+
+/// 按给定登记记录重建应用快捷键（不读盘）。
+/// 供注册表保存流程在同一临界区内复用刚刚落盘的记录，避免重复读与锁嵌套。
+pub(crate) fn refresh_registered_app_shortcuts_for_records(
+    app: &AppHandle,
+    records: &[serde_json::Value],
+) -> Result<(), String> {
     let state = app.state::<RegisteredAppShortcutState>();
     if state
         .paused
@@ -241,8 +251,7 @@ pub(crate) fn refresh_registered_app_shortcuts(app: &AppHandle) -> Result<(), St
         return Ok(());
     }
 
-    let records = crate::app_registry::load_registered_app_records(app)?;
-    let targets = shortcut_targets_from_records(&records)?;
+    let targets = shortcut_targets_from_records(records)?;
     let previous = unregister_current(app, &state);
     let mut next = Vec::new();
     let mut errors = Vec::new();

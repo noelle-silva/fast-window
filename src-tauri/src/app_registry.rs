@@ -135,9 +135,15 @@ fn load_registry_array(app: &AppHandle) -> Result<Vec<Value>, String> {
     }
 }
 
+/// 读取持久化登记记录（未装配展示字段）。调用方不必持锁。
 fn load_persisted_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    load_persisted_app_records_locked(app)
+}
+
+/// 读取持久化登记记录（未装配展示字段）。调用方必须已持有宿主存储锁。
+fn load_persisted_app_records_locked(app: &AppHandle) -> Result<Vec<Value>, String> {
     Ok(load_registry_array(app)?
         .into_iter()
         .map(without_app_runtime_declarations)
@@ -413,7 +419,10 @@ pub(crate) fn upsert_registered_app_record(
     app_record: Value,
 ) -> Result<(), String> {
     let id = validate_app_value(&app_record)?;
-    let mut registry = load_persisted_app_records(app)?;
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut registry = load_persisted_app_records_locked(app)?;
     if let Some(existing) = registry
         .iter_mut()
         .find(|item| app_id_from_value(item) == Some(id.as_str()))
@@ -422,7 +431,7 @@ pub(crate) fn upsert_registered_app_record(
     } else {
         registry.push(app_record);
     }
-    save_registry_and_refresh_shortcuts(app, registry)
+    save_registry_and_refresh_shortcuts_locked(app, registry)
 }
 
 pub(crate) fn replace_registered_app_record(
@@ -436,7 +445,10 @@ pub(crate) fn replace_registered_app_record(
     }
 
     let next_id = validate_app_value(&app_record)?;
-    let mut registry = load_persisted_app_records(app)?;
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut registry = load_persisted_app_records_locked(app)?;
     let mut replaced = false;
     let mut next = Vec::with_capacity(registry.len());
 
@@ -459,12 +471,12 @@ pub(crate) fn replace_registered_app_record(
         next.push(app_record);
     }
 
-    save_registry_and_refresh_shortcuts(app, next)
+    save_registry_and_refresh_shortcuts_locked(app, next)
 }
 
-fn save_registry_array(app: &AppHandle, items: Vec<Value>) -> Result<(), String> {
+fn save_registry_array(app: &AppHandle, items: &[Value]) -> Result<(), String> {
     let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
-    crate::write_json_value(&path, &Value::Array(items))
+    crate::write_json_value(&path, &Value::Array(items.to_vec()))
 }
 
 fn normalize_registry_records(registry: Vec<Value>) -> Result<Vec<Value>, String> {
@@ -475,7 +487,19 @@ fn normalize_registry_records(registry: Vec<Value>) -> Result<Vec<Value>, String
         .map_err(|error| format!("注册应用配置不合法: {error}"))
 }
 
+/// 保存注册表并刷新快捷键。调用方不必持锁，本函数负责整体互斥。
 fn save_registry_and_refresh_shortcuts(
+    app: &AppHandle,
+    registry: Vec<Value>,
+) -> Result<(), String> {
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    save_registry_and_refresh_shortcuts_locked(app, registry)
+}
+
+/// 保存注册表并刷新快捷键。
+/// 调用方必须已持有宿主存储锁：保证「读-改-写」在并发下不互相覆盖。
+fn save_registry_and_refresh_shortcuts_locked(
     app: &AppHandle,
     registry: Vec<Value>,
 ) -> Result<(), String> {
@@ -488,13 +512,9 @@ fn save_registry_and_refresh_shortcuts(
     validate_app_hotkey_launch_behaviors(&registry)?;
     crate::app_shortcuts::validate_registered_app_shortcuts_available(app, &registry)?;
 
-    {
-        let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        save_registry_array(app, registry)?;
-    }
+    save_registry_array(app, &registry)?;
 
-    crate::app_shortcuts::refresh_registered_app_shortcuts(app)?;
+    crate::app_shortcuts::refresh_registered_app_shortcuts_for_records(app, &registry)?;
     emit_registry_changed(app);
     Ok(())
 }
@@ -834,12 +854,15 @@ pub(crate) fn app_registry_remove(app: AppHandle, app_id: String) -> Result<(), 
         return Err("appId 不合法".to_string());
     }
 
-    let registry = load_persisted_app_records(&app)?;
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let registry = load_persisted_app_records_locked(&app)?;
     let next: Vec<Value> = registry
         .into_iter()
         .filter(|item| app_id_from_value(item) != Some(id.as_str()))
         .collect();
-    save_registry_and_refresh_shortcuts(&app, next)
+    save_registry_and_refresh_shortcuts_locked(&app, next)
 }
 
 #[tauri::command]
@@ -853,7 +876,10 @@ pub(crate) fn app_registry_update(
         return Err("appId 不合法".to_string());
     }
 
-    let mut registry = load_persisted_app_records(&app)?;
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut registry = load_persisted_app_records_locked(&app)?;
     let mut changed = false;
     for item in &mut registry {
         if app_id_from_value(item) != Some(id.as_str()) {
@@ -876,7 +902,7 @@ pub(crate) fn app_registry_update(
         break;
     }
     if changed {
-        save_registry_and_refresh_shortcuts(&app, registry)?;
+        save_registry_and_refresh_shortcuts_locked(&app, registry)?;
     }
     Ok(())
 }
