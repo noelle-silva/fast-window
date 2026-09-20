@@ -37,6 +37,8 @@ impl ShutdownState {
         if self.shutting_down.swap(true, Ordering::AcqRel) {
             return;
         }
+        // 退出期间浏览栈窗口销毁不再触发页面收敛逻辑。
+        crate::browser_stack::browser_stack_set_closing(&app, true);
         if let Some(window) = app.get_webview_window("main") {
             report_current_window_bounds(&window, &self.window);
         }

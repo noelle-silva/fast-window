@@ -117,7 +117,7 @@ pub fn remove(data_dir: &Path, raw_id: &str) -> Result<WorkspaceView, String> {
     })
 }
 
-/// 打开条目：交给内嵌浏览栈。
+/// 打开条目：交给内嵌浏览栈（新建独立页面）。
 pub async fn open(
     app: &tauri::AppHandle,
     data_dir: &Path,
@@ -130,7 +130,23 @@ pub async fn open(
         .iter()
         .find(|item| item.id == id)
         .ok_or_else(|| format!("item not found: {id}"))?;
-    crate::browser_commands::open_browser_window_impl(app.clone(), item.target.url.clone()).await?;
+
+    let icon = item
+        .icon
+        .as_ref()
+        .map(|icon| crate::browser_stack::BrowserPageIcon {
+            kind: icon.kind.clone(),
+            color: icon.color.clone(),
+            asset_id: icon.asset_id.clone(),
+        });
+
+    crate::browser_commands::open_browser_window_impl(
+        app.clone(),
+        item.target.url.clone(),
+        item.name.clone(),
+        icon,
+    )
+    .await?;
     Ok(json!({ "ok": true, "target": item.target }))
 }
 
