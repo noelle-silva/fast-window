@@ -47,6 +47,15 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
     setDraft('providerRegisteredModels', [...registeredModels, { id, name: id, sourceModelId }])
   }
 
+  const selectRegisteredModelSource = (index: number, sourceModelId: string) => {
+    if (!sourceModelId) {
+      updateRegisteredModel(index, { sourceModelId })
+      return
+    }
+    const siblings = registeredModels.filter((_item: any, idx: number) => idx !== index)
+    updateRegisteredModel(index, { sourceModelId, id: uniqueModelId(sourceModelId, siblings), name: sourceModelId })
+  }
+
   const removeRegisteredModel = (index: number) => {
     setDraft('providerRegisteredModels', registeredModels.filter((_item: any, idx: number) => idx !== index))
   }
@@ -122,7 +131,7 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                 <TextField size="small" label="显示名称" value={String(item?.name || '')} onChange={(e) => updateRegisteredModel(index, { name: e.target.value })} sx={{ flex: 1 }} />
                 <FormControl size="small" sx={{ flex: 1, minWidth: 180 }}>
                   <InputLabel>映射原始模型</InputLabel>
-                  <Select label="映射原始模型" value={String(item?.sourceModelId || '')} onChange={(e) => updateRegisteredModel(index, { sourceModelId: e.target.value })}>
+                  <Select label="映射原始模型" value={String(item?.sourceModelId || '')} onChange={(e) => selectRegisteredModelSource(index, e.target.value)}>
                     <MenuItem value=""><em>请选择模型</em></MenuItem>
                     {rawModels.map((id: string) => <MenuItem key={id} value={id}>{id}</MenuItem>)}
                   </Select>
