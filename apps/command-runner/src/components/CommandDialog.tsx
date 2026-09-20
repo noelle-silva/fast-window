@@ -6,6 +6,7 @@ import { ShellSelect } from './ShellSelect'
 import { ProcessOwnershipSelect } from './ProcessOwnershipSelect'
 import { RunModeSelect } from './RunModeSelect'
 import { PlaceholderEditor } from './PlaceholderEditor'
+import { RepoPlaceholderReference } from './RepoPlaceholderReference'
 import type { AppSettings, CommandDraft, CommandItem, CommandRunMode, Placeholder, ProcessOwnership, Repo, ShellInfo } from '../types'
 
 type CommandDialogProps = {
@@ -148,11 +149,9 @@ export function CommandDialog({
         <PlaceholderEditor
           value={placeholders}
           disabled={disabled || submitting}
-          hint={(repo.placeholders ?? []).length > 0
-            ? `仓库级占位符（本仓库通用，可直接引用）：${repo.placeholders.map(item => `{{${item.name}}}`).join('、')}`
-            : '占位符只属于这条命令；同仓库内不允许与仓库级或其它命令的占位符重名。'}
           onChange={setPlaceholders}
         />
+        <RepoPlaceholderReference placeholders={repo.placeholders ?? []} disabled={disabled || submitting} />
         <FormControlLabel
           control={<Switch checked={confirmBeforeRun} disabled={disabled || submitting} onChange={event => setConfirmBeforeRun(event.target.checked)} />}
           label="运行前需要二次确认"

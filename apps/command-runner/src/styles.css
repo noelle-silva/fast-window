@@ -618,6 +618,28 @@ body {
   padding-left: 12px;
 }
 
+.cr-repo-placeholder-reference {
+  display: grid;
+  gap: 8px;
+}
+
+.cr-repo-placeholder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cr-repo-placeholder-cell {
+  min-width: 0;
+  padding: 6px 8px 6px 10px;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  background: #f3f4f6;
+}
+
 .cr-placeholder-select {
   display: grid;
   gap: 8px;
