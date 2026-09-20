@@ -84,7 +84,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     colors: {
       canvas: '#eaf2f7',
       paper: '#fffaf3',
-      paperMuted: '#e8f1ed',
+      paperMuted: '#ffffff',
       paperStrong: '#f7fbff',
       appBackground: '#eaf4ff',
       topbar: '#f8fbff',
