@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Collapse, IconButton, Paper, Stack, Typography } from '@mui/material'
+import { Box, Collapse, Paper, Stack, Typography } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
@@ -57,18 +57,29 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
         overflow: 'hidden',
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ px: 1.1, py: 0.85 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={0.75}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={expanded ? '收起思考过程' : '展开思考过程'}
+        onClick={toggleExpanded}
+        onKeyDown={(e) => {
+          const k = String((e as any)?.key || '')
+          if (k === 'Enter' || k === ' ') {
+            e.preventDefault()
+            toggleExpanded()
+          }
+        }}
+        sx={{ px: 1.1, py: 0.85, cursor: 'pointer', userSelect: 'none' }}
+      >
         <Typography variant="caption" sx={{ fontWeight: 900, color: 'rgba(15, 23, 42, .72)', letterSpacing: '.04em' }}>
           思考过程
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <IconButton
-          size="small"
-          aria-label={expanded ? '收起思考过程' : '展开思考过程'}
-          onClick={toggleExpanded}
-        >
-          {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
-        </IconButton>
+        {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
       </Stack>
       <Collapse in={expanded} timeout={160} unmountOnExit>
         <Box sx={{ px: 1.1, pb: 1.05, pt: 0.1 }}>
