@@ -344,6 +344,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
               ? activeRole
               : null
         const roleName = String((speakerRole as any)?.name || (activeTargetKind === 'group' ? 'AI' : activeRole?.name || 'AI'))
+        // 头像与名字用于区分发言人，只有群聊存在多个发言人时才需要显示
+        const showSpeakerIdentity = activeTargetKind === 'group'
         const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
         const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
         const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
@@ -417,13 +419,17 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
                 {isUser ? null : (
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                    <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
-                      {roleAvatarEmoji}
-                    </Avatar>
+                    {showSpeakerIdentity ? (
+                      <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
+                        {roleAvatarEmoji}
+                      </Avatar>
+                    ) : null}
                     <Stack spacing={0} sx={{ minWidth: 0 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
-                        {roleName}
-                      </Typography>
+                      {showSpeakerIdentity ? (
+                        <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
+                          {roleName}
+                        </Typography>
+                      ) : null}
                       {roleModelText ? (
                         <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0, lineHeight: 1.2 }} noWrap>
                           {roleModelText}
