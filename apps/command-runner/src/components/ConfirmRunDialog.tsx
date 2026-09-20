@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material'
 import { DialogShell } from './DialogShell'
 import { closeModeLabel, resolveCloseMode, resolveCountdownSeconds, resolveShellInfo } from '../shellResolve'
-import { resolveCommandPlaceholders } from '../placeholders'
+import { placeholderReference, resolveCommandPlaceholders } from '../placeholders'
 import type { AppSettings, CommandItem, PlaceholderSelection, Repo, ShellInfo } from '../types'
 
 type ConfirmRunDialogProps = {
@@ -82,7 +82,7 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
             <Typography component="h3" sx={{ fontSize: 13, fontWeight: 900 }}>本次运行的占位符取值</Typography>
             {placeholders.map(item => (
               <Box key={item.name} className="cr-placeholder-select-row">
-                <Box component="code" className="cr-placeholder-ref">{`{{${item.name}}}`}</Box>
+                <Box component="code" className="cr-placeholder-ref">{placeholderReference(item.name)}</Box>
                 <TextField
                   select
                   size="small"

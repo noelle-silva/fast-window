@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Alert, Box, Button, Chip, MenuItem, TextField, Typography } from '@mui/material'
 import { DialogShell } from './DialogShell'
-import { resolveCommandPlaceholders } from '../placeholders'
+import { placeholderReference, resolveCommandPlaceholders } from '../placeholders'
 import type { CommandItem, QuickRun, QuickRunPlaceholderSelection, Repo } from '../types'
 
 type QuickRunConfirmDialogProps = {
@@ -86,7 +86,7 @@ export function QuickRunConfirmDialog({
                 <Box className="cr-quick-run-confirm-placeholders">
                   {row.placeholders.map(item => (
                     <Box key={item.name} className="cr-placeholder-select-row">
-                      <Box component="code" className="cr-placeholder-ref">{`{{${item.name}}}`}</Box>
+                      <Box component="code" className="cr-placeholder-ref">{placeholderReference(item.name)}</Box>
                       <TextField
                         select
                         size="small"

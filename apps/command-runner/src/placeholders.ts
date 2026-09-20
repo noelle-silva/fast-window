@@ -4,6 +4,11 @@ import type { CommandItem, Placeholder, Repo } from './types'
 // 引用须与注册名精确一致（含空格、大小写），与后端替换规则保持一致。
 const PLACEHOLDER_REFERENCE_PATTERN = /\{\{([^{}]+)\}\}/g
 
+// placeholderReference 构造占位符在脚本中的引用文本。
+export function placeholderReference(name: string): string {
+  return `{{${name}}}`
+}
+
 // extractPlaceholderNames 按出现顺序提取脚本中的占位符引用名称（去重）。
 export function extractPlaceholderNames(script: string): string[] {
   const names: string[] = []

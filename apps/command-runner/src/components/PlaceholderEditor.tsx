@@ -5,6 +5,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { Box, Button, IconButton, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
+import { useCopyFeedback } from '../clipboard'
+import { placeholderReference } from '../placeholders'
 import type { Placeholder } from '../types'
 
 type PlaceholderEditorProps = {
@@ -26,9 +28,9 @@ type PlaceholderTarget =
 export function PlaceholderEditor({ value, disabled = false, hint, onChange }: PlaceholderEditorProps) {
   const [menu, setMenu] = React.useState<{ target: PlaceholderTarget; anchor: HTMLElement } | null>(null)
   const [pendingDelete, setPendingDelete] = React.useState<PlaceholderTarget | null>(null)
-  const [copiedIndex, setCopiedIndex] = React.useState<number | null>(null)
   const [focusRequest, setFocusRequest] = React.useState<{ placeholder: number; value: number } | null>(null)
   const valueInputRefs = React.useRef(new Map<string, HTMLInputElement>())
+  const { copiedKey, copy } = useCopyFeedback()
 
   const patchPlaceholder = React.useCallback((index: number, patch: Partial<Placeholder>) => {
     onChange(value.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
@@ -70,15 +72,6 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
     setFocusRequest(null)
   }, [focusRequest, value])
 
-  const copyReference = React.useCallback(async (item: Placeholder, index: number) => {
-    const copied = await copyTextToClipboard(`{{${item.name}}}`)
-    if (!copied) return
-    setCopiedIndex(index)
-    window.setTimeout(() => {
-      setCopiedIndex(current => (current === index ? null : current))
-    }, 1500)
-  }, [])
-
   const confirmDelete = React.useCallback(() => {
     if (!pendingDelete) return
     if (pendingDelete.kind === 'block') removePlaceholder(pendingDelete.placeholder)
@@ -106,15 +99,15 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
                   fullWidth
                   onChange={event => patchPlaceholder(index, { name: event.target.value })}
                 />
-                <Tooltip title={copiedIndex === index ? '已复制' : '复制引用'}>
+                <Tooltip title={copiedKey === `placeholder-${index}` ? '已复制' : '复制引用'}>
                   <span>
                     <IconButton
                       size="small"
                       disabled={disabled || item.name.trim().length === 0}
                       aria-label="复制占位符引用"
-                      onClick={() => void copyReference(item, index)}
+                      onClick={() => void copy(`placeholder-${index}`, placeholderReference(item.name))}
                     >
-                      {copiedIndex === index ? <CheckIcon fontSize="small" color="success" /> : <ContentCopyIcon fontSize="small" />}
+                      {copiedKey === `placeholder-${index}` ? <CheckIcon fontSize="small" color="success" /> : <ContentCopyIcon fontSize="small" />}
                     </IconButton>
                   </span>
                 </Tooltip>
@@ -206,32 +199,4 @@ function deleteMessage(value: Placeholder[], target: PlaceholderTarget): string 
   }
   const current = (item?.values[target.value] ?? '').trim()
   return `将从占位符「${name}」中删除候选值「${current || '（空值）'}」。`
-}
-
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  if (!text) return false
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // 继续尝试旧式复制通路
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.setAttribute('readonly', '')
-    textarea.style.position = 'fixed'
-    textarea.style.left = '-9999px'
-    textarea.style.top = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    textarea.setSelectionRange(0, textarea.value.length)
-    const ok = document.execCommand('copy')
-    textarea.remove()
-    return ok
-  } catch {
-    return false
-  }
 }
