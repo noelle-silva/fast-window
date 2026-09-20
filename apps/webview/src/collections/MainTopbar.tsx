@@ -9,6 +9,7 @@ import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import WebAssetRoundedIcon from '@mui/icons-material/WebAssetRounded'
 import WindowRoundedIcon from '@mui/icons-material/WindowRounded'
 import {
   Box,
@@ -34,6 +35,7 @@ const appWindow = getCurrentWindow()
 
 export function MainTopbar(props: {
   busy: boolean
+  browserPageCount: number
   doc: WorkspaceView
   groupId: string
   launchInfo: FwLaunchInfo
@@ -45,6 +47,7 @@ export function MainTopbar(props: {
   onGroupChange(groupId: string): void
   onOpenGroupEditor(): void
   onOpenSettings(): void
+  onReturnToBrowser(): void
   onSearchChange(search: string): void
 }) {
   const statusColor = props.phase === 'failed' ? 'error' : 'warning'
@@ -98,6 +101,9 @@ export function MainTopbar(props: {
           >
             {groupActionLabel}
           </Button>
+          {props.browserPageCount > 0 ? (
+            <Button variant="text" startIcon={<WebAssetRoundedIcon />} onClick={props.onReturnToBrowser}>返回网页</Button>
+          ) : null}
         </Stack>
       </Stack>
       <WindowControlsDock standalone={props.launchInfo.standalone} />

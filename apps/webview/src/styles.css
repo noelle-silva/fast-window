@@ -23,31 +23,48 @@ select,
 textarea { font: inherit; }
 
 /* browser-bar window */
+/* 顶部栏窗口：页面底层透明，仅条与下拉面板有底色（轮廓交给 Windows 圆角裁剪） */
+html.browser-bar-shell,
+body.browser-bar-shell {
+  background: transparent;
+}
+
 .browser-bar-root {
   position: relative;
   width: 100%;
   height: 100vh;
   min-width: 320px;
   display: flex;
-  align-items: center;
-  padding: 0 6px;
+  flex-direction: column;
   overflow: hidden;
   color: rgba(0, 0, 0, 0.72);
-  background: #ffffff;
-  border-radius: 16px 16px 0 0;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
   -webkit-app-region: drag;
 }
 
+.browser-bar-row {
+  position: relative;
+  z-index: 6;
+  flex: 0 0 40px;
+  height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0 6px;
+  background: #ffffff;
+  border-radius: 16px 16px 0 0;
+}
+
 .browser-bar-controls {
-  position: absolute;
-  left: 6px;
+  grid-column: 1;
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: 2px;
-  max-width: calc(100% - 12px);
+  min-width: 0;
+  z-index: 10;
   -webkit-app-region: no-drag;
 }
 
@@ -89,18 +106,154 @@ textarea { font: inherit; }
   display: block;
 }
 
-.browser-bar-title {
-  width: 100%;
+/* 当前页面切换按钮（居中，右侧跟回主窗口按钮） */
+.browser-bar-switcher {
+  grid-column: 2;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  max-width: min(48vw, 420px);
+  -webkit-app-region: no-drag;
+}
+
+.browser-bar-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
   padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.browser-bar-switcher-btn:hover,
+.browser-bar-switcher-btn:focus-visible {
+  outline: none;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.browser-bar-switcher-name {
+  max-width: 220px;
   overflow: hidden;
-  color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
-  text-align: center;
   white-space: nowrap;
   text-overflow: ellipsis;
-  pointer-events: none;
+}
+
+/* 页面下拉面板（窗口临时增高呈现；面板限宽居中，面板外区域点击收起） */
+.browser-bar-page-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  -webkit-app-region: no-drag;
+}
+
+.browser-bar-page-panel {
+  position: relative;
+  z-index: 6;
+  flex: 1 1 auto;
+  align-self: center;
+  width: min(360px, calc(100% - 24px));
+  min-height: 0;
+  padding: 4px 6px 6px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 0 0 12px 12px;
+  -webkit-app-region: no-drag;
+}
+
+.browser-bar-page-item {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.browser-bar-page-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.browser-bar-page-item-active {
+  background: rgba(25, 118, 210, 0.1);
+}
+
+.browser-bar-page-item-active .browser-bar-page-name {
+  color: #1976d2;
+  font-weight: 700;
+}
+
+.browser-bar-page-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-bar-page-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.browser-bar-page-close {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.browser-bar-page-close:hover,
+.browser-bar-page-close:focus-visible {
+  outline: none;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.browser-bar-page-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.browser-bar-page-icon-color {
+  border-radius: 999px;
+}
+
+.browser-bar-page-icon-fallback {
+  color: #6b7280;
 }
 
 .browser-bar-speed-menu {

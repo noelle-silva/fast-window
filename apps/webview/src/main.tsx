@@ -14,8 +14,14 @@ if (!root) {
 }
 
 const currentWindow = WebviewWindow.getCurrent()
+const isBrowserBar = currentWindow.label === 'browser_bar'
 
-createRoot(root).render(currentWindow.label === 'browser_bar' ? (
+if (isBrowserBar) {
+  document.documentElement.classList.add('browser-bar-shell')
+  document.body.classList.add('browser-bar-shell')
+}
+
+createRoot(root).render(isBrowserBar ? (
   <BrowserBarApp />
 ) : (
   <ThemeProvider theme={foldersTheme}>

@@ -1,4 +1,5 @@
-import { Channel, convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
+import { dataDirAssetUrl } from '../assetUrl'
 import type { DataDirStatus, DirectClient, RequestOptions } from './types'
 
 type ProgressFrame = { event?: string; payload?: unknown }
@@ -44,8 +45,7 @@ class CollectionsDirectClient implements DirectClient {
 
   assetUrl = (assetId: string): string => {
     if (!this.dataDir) throw new Error('数据目录尚未就绪')
-    const relative = `assets/${assetId}`.split('/').join('\\')
-    return convertFileSrc(`${this.dataDir}\\${relative}`)
+    return dataDirAssetUrl(this.dataDir, assetId)
   }
 
   close = () => {

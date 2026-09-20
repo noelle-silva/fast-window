@@ -1,6 +1,8 @@
 import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { Box } from '@mui/material'
+import { BROWSER_PAGES_UPDATED_EVENT, type BrowserPagesPayload } from '../browserPages'
 import { URL_CATEGORY } from './categoryRegistry'
 import { parseClipboardTextTarget } from './clipboardTextTarget'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
@@ -82,6 +84,7 @@ export type CollectionsPageHandle = { openSettings(): void }
 export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(function CollectionsPage(_props, ref) {
   const { showToast } = useToast()
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
+  const [browserPageCount, setBrowserPageCount] = React.useState(0)
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [doc, setDoc] = React.useState<WorkspaceView>(DEFAULT_WORKSPACE_VIEW)
@@ -158,6 +161,29 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   }, [])
 
   React.useEffect(() => () => client?.close(), [client])
+  React.useEffect(() => {
+    let unlisten: (() => void) | null = null
+    let cancelled = false
+    const apply = (payload: BrowserPagesPayload | null | undefined) => {
+      const list = Array.isArray(payload?.pages) ? payload.pages : []
+      setBrowserPageCount(list.length)
+    }
+    void invoke<BrowserPagesPayload>('browser_stack_pages')
+      .then(payload => {
+        if (!cancelled) apply(payload)
+      })
+      .catch(() => {})
+    void listen<BrowserPagesPayload>(BROWSER_PAGES_UPDATED_EVENT, event => apply(event.payload))
+      .then(nextUnlisten => {
+        if (cancelled) nextUnlisten()
+        else unlisten = nextUnlisten
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [])
   React.useEffect(() => {
     if (!settingsOpen) setIconLayoutDraft(null)
   }, [settingsOpen])
@@ -1101,6 +1127,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       <Box sx={{ position: 'relative', zIndex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <MainTopbar
           busy={busy}
+          browserPageCount={browserPageCount}
           doc={doc}
           groupId={groupId}
           launchInfo={launchInfo}
@@ -1112,6 +1139,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onGroupChange={selectGroup}
           onOpenGroupEditor={() => openGroupEditor(selectedGroup)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onReturnToBrowser={() => { void invoke('browser_stack_show_active').catch(() => {}) }}
           onSearchChange={setSearch}
         />
 

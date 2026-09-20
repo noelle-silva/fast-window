@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { dataDirAssetUrl } from './assetUrl'
+import {
+  BROWSER_PAGES_UPDATED_EVENT,
+  type BrowserPageIcon,
+  type BrowserPageInfo,
+  type BrowserPagesPayload,
+} from './browserPages'
 import { buildShortcutFromEvent, isEditableTarget } from './keyboard'
 import { WEBVIEW_SETTINGS_UPDATED_EVENT, type WebviewSettings, type WebviewVideoSpeedPreset } from './webviewSettings'
 
@@ -10,6 +17,10 @@ type SpeedCycleItem = {
   label: string
   rate: number
 }
+
+const PAGE_ITEM_HEIGHT = 36
+const PAGE_MENU_PADDING = 12
+const PAGE_MENU_MAX_VISIBLE = 8
 
 function Icon({ d, size = 18 }: { d: string; size?: number }) {
   return (
@@ -37,7 +48,26 @@ const ICON_PATH = {
     'M14.71 6.71a.9959.9959 0 0 0-1.41 0L8.71 11.3c-.39.39-.39 1.02 0 1.41l4.59 4.59c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L10.83 12l3.88-3.88c.38-.39.38-1.03 0-1.41z',
   chevronRight:
     'M9.29 6.71c-.39.39-.39 1.02 0 1.41L13.17 12l-3.88 3.88c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0L15.41 12 9.7 6.71c-.38-.38-1.02-.38-1.41 0z',
+  chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
+  home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+  globe:
+    'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z',
 } as const
+
+function PageMark({ icon, dataDir }: { icon?: BrowserPageIcon | null; dataDir: string | null }) {
+  const kind = String(icon?.kind || '')
+  if (kind === 'image' && icon?.assetId && dataDir) {
+    return <img className="browser-bar-page-icon" src={dataDirAssetUrl(dataDir, icon.assetId)} alt="" />
+  }
+  if (kind === 'color' && icon?.color) {
+    return <span className="browser-bar-page-icon browser-bar-page-icon-color" style={{ background: icon.color }} />
+  }
+  return (
+    <span className="browser-bar-page-icon browser-bar-page-icon-fallback">
+      <Icon d={ICON_PATH.globe} size={14} />
+    </span>
+  )
+}
 
 export default function BrowserBarApp() {
   const [busy, setBusy] = useState(false)
@@ -46,8 +76,15 @@ export default function BrowserBarApp() {
   const [currentRate, setCurrentRate] = useState<number>(1)
   const [speedOpen, setSpeedOpen] = useState(false)
   const [speedIndex, setSpeedIndex] = useState<number>(0)
+  const [pages, setPages] = useState<BrowserPageInfo[]>([])
+  const [activeLabel, setActiveLabel] = useState<string | null>(null)
+  const [pageMenuOpen, setPageMenuOpen] = useState(false)
+  const [dataDir, setDataDir] = useState<string | null>(null)
   const currentRateRef = useRef(1)
   const defaultRateRef = useRef(1)
+  const activeLabelRef = useRef<string | null>(null)
+  const pageRateRestoredRef = useRef(false)
+  const switcherButtonRef = useRef<HTMLButtonElement | null>(null)
   const toggleRef = useRef<{ activeKey: string | null; prevRate: number | null }>({ activeKey: null, prevRate: null })
 
   useEffect(() => {
@@ -61,6 +98,66 @@ export default function BrowserBarApp() {
   }, [currentRate])
 
   useEffect(() => {
+    let cancelled = false
+    void invoke<{ dataDir?: string }>('data_dir_status')
+      .then(status => {
+        if (!cancelled) setDataDir(status?.dataDir ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const applyPayload = useCallback((payload: BrowserPagesPayload | null | undefined, forceRate = false) => {
+    const nextPages = Array.isArray(payload?.pages) ? payload.pages : []
+    const nextActive = payload?.activeLabel ?? null
+    setPages(nextPages)
+    setActiveLabel(nextActive)
+    // 切换页面或强制刷新时，用该页记录还原倍速显示；同页事件不打断正在进行的调整。
+    if (forceRate || activeLabelRef.current !== nextActive) {
+      activeLabelRef.current = nextActive
+      const active = nextPages.find(page => page.label === nextActive)
+      if (active && Number.isFinite(active.rate)) {
+        setCurrentRate(active.rate as number)
+        pageRateRestoredRef.current = true
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+    let cancelled = false
+
+    void invoke<BrowserPagesPayload>('browser_stack_pages')
+      .then(payload => {
+        if (!cancelled) applyPayload(payload)
+      })
+      .catch(() => {})
+    void listen<BrowserPagesPayload>(BROWSER_PAGES_UPDATED_EVENT, event => applyPayload(event.payload))
+      .then(nextUnlisten => {
+        if (cancelled) nextUnlisten()
+        else unlisten = nextUnlisten
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [applyPayload])
+
+  useEffect(() => {
+    if (!activeLabelRef.current) return
+    void invoke('browser_stack_set_active_rate', { rate: currentRate }).catch(() => {})
+  }, [currentRate])
+
+  useEffect(() => {
+    toggleRef.current.activeKey = null
+    toggleRef.current.prevRate = null
+  }, [activeLabel])
+
+  useEffect(() => {
     let unlisten: UnlistenFn | null = null
 
     void (async () => {
@@ -69,7 +166,8 @@ export default function BrowserBarApp() {
         setWebview(wv)
         const dr = Number.isFinite(wv.video.defaultRate) ? wv.video.defaultRate : 1
         defaultRateRef.current = dr
-        setCurrentRate(dr)
+        // 页面记录的倍速优先（bar 重建等场景下不被默认值覆盖）。
+        if (!pageRateRestoredRef.current) setCurrentRate(dr)
       }
 
       unlisten = await listen<WebviewSettings>(WEBVIEW_SETTINGS_UPDATED_EVENT, event => {
@@ -79,11 +177,10 @@ export default function BrowserBarApp() {
         toggleRef.current.activeKey = null
         toggleRef.current.prevRate = null
         defaultRateRef.current = Number.isFinite(payload.video.defaultRate) ? payload.video.defaultRate : 1
-        setCurrentRate(prev => {
-          const max = Number.isFinite(payload.video.maxRate) ? payload.video.maxRate : 16
-          const next = Math.min(Math.max(prev, 0.25), Math.min(16, Math.max(0.25, max)))
-          return Number.isFinite(next) ? next : 1
-        })
+        // 设置变更后页面已按各自记录恢复速率，以页面记录为准刷新显示。
+        void invoke<BrowserPagesPayload>('browser_stack_pages')
+          .then(pagePayload => applyPayload(pagePayload, true))
+          .catch(() => {})
       })
     })()
 
@@ -174,6 +271,15 @@ export default function BrowserBarApp() {
     [busy],
   )
 
+  const runBarCommand = useCallback(
+    (cmd: string) => {
+      setPageMenuOpen(false)
+      setSpeedOpen(false)
+      void call(cmd)
+    },
+    [call],
+  )
+
   const togglePinned = useCallback(async () => {
     if (busy) return
     try {
@@ -193,109 +299,238 @@ export default function BrowserBarApp() {
     setSpeedIndex(idx >= 0 ? idx : 0)
   }, [speedOpen, findSpeedIndex])
 
+  const activePage = useMemo(
+    () => pages.find(page => page.label === activeLabel) ?? null,
+    [pages, activeLabel],
+  )
+
+  const panelHeightFor = useCallback((count: number) => {
+    const visible = Math.max(1, Math.min(count, PAGE_MENU_MAX_VISIBLE))
+    return visible * PAGE_ITEM_HEIGHT + PAGE_MENU_PADDING
+  }, [])
+
+  // 面板开合的唯一驱动：状态变化 → 通知 Rust 调整顶部栏窗口高度。
+  useEffect(() => {
+    const open = pageMenuOpen && pages.length > 0
+    const panelHeight = open ? panelHeightFor(pages.length) : 0
+    void invoke('browser_stack_set_bar_panel', { open, panelHeight }).catch(() => {})
+  }, [pageMenuOpen, pages.length, panelHeightFor])
+
+  useEffect(() => {
+    const onBlur = () => setPageMenuOpen(false)
+    window.addEventListener('blur', onBlur)
+    return () => window.removeEventListener('blur', onBlur)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (pageMenuOpen) {
+        event.preventDefault()
+        setPageMenuOpen(false)
+        switcherButtonRef.current?.focus()
+      }
+      setSpeedOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pageMenuOpen])
+
+  const refreshPages = useCallback(() => {
+    void invoke<BrowserPagesPayload>('browser_stack_pages').then(applyPayload).catch(() => {})
+  }, [applyPayload])
+
+  const togglePageMenu = useCallback(() => {
+    if (pageMenuOpen) {
+      setPageMenuOpen(false)
+      return
+    }
+    setSpeedOpen(false)
+    void invoke<BrowserPagesPayload>('browser_stack_pages')
+      .then(payload => {
+        applyPayload(payload)
+        setPageMenuOpen(true)
+      })
+      .catch(() => setPageMenuOpen(true))
+  }, [pageMenuOpen, applyPayload])
+
+  const activatePage = useCallback(
+    (label: string) => {
+      setPageMenuOpen(false)
+      void invoke('browser_stack_activate_page', { label }).catch(refreshPages)
+    },
+    [refreshPages],
+  )
+
+  const closePage = useCallback(
+    (label: string, event: ReactMouseEvent) => {
+      event.stopPropagation()
+      void invoke('browser_stack_close_page', { label }).catch(refreshPages)
+    },
+    [refreshPages],
+  )
+
   return (
     <div
       className="browser-bar-root"
-      data-tauri-drag-region="true"
       onPointerDown={e => {
         if (e.button !== 0) return
         void getCurrentWindow().startDragging().catch(() => {})
       }}
     >
-      <div className="browser-bar-controls" onPointerDown={e => e.stopPropagation()}>
-        <button type="button" className="browser-bar-btn" aria-label="关闭浏览" title="关闭浏览" onClick={() => call('close_browser_window')}>
-          <Icon d={ICON_PATH.close} />
-        </button>
-        <button type="button" className="browser-bar-btn" aria-label="隐藏浏览" title="隐藏浏览" onClick={() => call('hide_browser_stack')}>
-          <Icon d={ICON_PATH.remove} />
-        </button>
-        <button type="button" className="browser-bar-btn" aria-label="全屏切换" title="全屏切换" onClick={() => call('browser_stack_toggle_fullscreen')}>
-          <Icon d={ICON_PATH.fullscreen} />
-        </button>
-        <button
-          type="button"
-          className={`browser-bar-btn${pinned ? ' browser-bar-btn-active' : ''}`}
-          aria-label={pinned ? '取消图钉' : '图钉置顶'}
-          title={pinned ? '取消图钉' : '图钉置顶'}
-          onClick={() => void togglePinned()}
-        >
-          <Icon d={pinned ? ICON_PATH.pinFilled : ICON_PATH.pinOutlined} />
-        </button>
-        <button type="button" className="browser-bar-btn" aria-label="后退" title="后退" onClick={() => call('browser_go_back')}>
-          <Icon d={ICON_PATH.back} />
-        </button>
-        <button type="button" className="browser-bar-btn" aria-label="前进" title="前进" onClick={() => call('browser_go_forward')}>
-          <Icon d={ICON_PATH.forward} />
-        </button>
-        <button type="button" className="browser-bar-btn" aria-label="刷新" title="刷新" onClick={() => call('browser_reload')}>
-          <Icon d={ICON_PATH.refresh} />
-        </button>
-        <button
-          type="button"
-          className="browser-bar-btn"
-          aria-label={`倍速 ${speedLabel}`}
-          title={`倍速 ${speedLabel}`}
-          onClick={() => setSpeedOpen(v => !v)}
-          disabled={!webview}
-        >
-          <Icon d={ICON_PATH.speed} />
-        </button>
+      <div className="browser-bar-row">
+        <div className="browser-bar-controls" onPointerDown={e => e.stopPropagation()}>
+          <button type="button" className="browser-bar-btn" aria-label="关闭浏览" title="关闭浏览" onClick={() => runBarCommand('close_browser_window')}>
+            <Icon d={ICON_PATH.close} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="隐藏浏览" title="隐藏浏览" onClick={() => runBarCommand('hide_browser_stack')}>
+            <Icon d={ICON_PATH.remove} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="全屏切换" title="全屏切换" onClick={() => runBarCommand('browser_stack_toggle_fullscreen')}>
+            <Icon d={ICON_PATH.fullscreen} />
+          </button>
+          <button
+            type="button"
+            className={`browser-bar-btn${pinned ? ' browser-bar-btn-active' : ''}`}
+            aria-label={pinned ? '取消图钉' : '图钉置顶'}
+            title={pinned ? '取消图钉' : '图钉置顶'}
+            onClick={() => { setPageMenuOpen(false); setSpeedOpen(false); void togglePinned() }}
+          >
+            <Icon d={pinned ? ICON_PATH.pinFilled : ICON_PATH.pinOutlined} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="后退" title="后退" onClick={() => runBarCommand('browser_go_back')}>
+            <Icon d={ICON_PATH.back} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="前进" title="前进" onClick={() => runBarCommand('browser_go_forward')}>
+            <Icon d={ICON_PATH.forward} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="刷新" title="刷新" onClick={() => runBarCommand('browser_reload')}>
+            <Icon d={ICON_PATH.refresh} />
+          </button>
+          <button
+            type="button"
+            className="browser-bar-btn"
+            aria-label={`倍速 ${speedLabel}`}
+            title={`倍速 ${speedLabel}`}
+            onClick={() => {
+              if (!speedOpen) setPageMenuOpen(false)
+              setSpeedOpen(v => !v)
+            }}
+            disabled={!webview}
+          >
+            <Icon d={ICON_PATH.speed} />
+          </button>
 
-        {speedOpen ? (
-          <div className="browser-bar-speed-menu" onPointerDown={e => e.stopPropagation()}>
-            <button
-              type="button"
-              className="browser-bar-btn"
-              aria-label="上一个倍速预设"
-              title="上一个倍速预设"
-              disabled={!speedItems.length}
-              onClick={() => {
-                if (!speedItems.length) return
-                const next = (speedIndex - 1 + speedItems.length) % speedItems.length
-                setSpeedIndex(next)
-                toggleRef.current.activeKey = null
-                toggleRef.current.prevRate = null
-                const item = speedItems[next]
-                void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
-                setCurrentRate(item.rate)
-              }}
-            >
-              <Icon d={ICON_PATH.chevronLeft} />
-            </button>
+          {speedOpen ? (
+            <div className="browser-bar-speed-menu" onPointerDown={e => e.stopPropagation()}>
+              <button
+                type="button"
+                className="browser-bar-btn"
+                aria-label="上一个倍速预设"
+                title="上一个倍速预设"
+                disabled={!speedItems.length}
+                onClick={() => {
+                  if (!speedItems.length) return
+                  const next = (speedIndex - 1 + speedItems.length) % speedItems.length
+                  setSpeedIndex(next)
+                  toggleRef.current.activeKey = null
+                  toggleRef.current.prevRate = null
+                  const item = speedItems[next]
+                  void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
+                  setCurrentRate(item.rate)
+                }}
+              >
+                <Icon d={ICON_PATH.chevronLeft} />
+              </button>
 
-            <div className="browser-bar-speed-label">
-              <div className="browser-bar-speed-label-main">{speedItems[speedIndex]?.label || `当前：${speedLabel}`}</div>
-              <div className="browser-bar-speed-label-sub">{speedItems.length ? `${speedIndex + 1}/${speedItems.length}` : '-'}</div>
+              <div className="browser-bar-speed-label">
+                <div className="browser-bar-speed-label-main">{speedItems[speedIndex]?.label || `当前：${speedLabel}`}</div>
+                <div className="browser-bar-speed-label-sub">{speedItems.length ? `${speedIndex + 1}/${speedItems.length}` : '-'}</div>
+              </div>
+
+              <button
+                type="button"
+                className="browser-bar-btn"
+                aria-label="下一个倍速预设"
+                title="下一个倍速预设"
+                disabled={!speedItems.length}
+                onClick={() => {
+                  if (!speedItems.length) return
+                  const next = (speedIndex + 1) % speedItems.length
+                  setSpeedIndex(next)
+                  toggleRef.current.activeKey = null
+                  toggleRef.current.prevRate = null
+                  const item = speedItems[next]
+                  void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
+                  setCurrentRate(item.rate)
+                }}
+              >
+                <Icon d={ICON_PATH.chevronRight} />
+              </button>
+
+              <button type="button" className="browser-bar-btn" aria-label="关闭倍速菜单" title="关闭倍速菜单" onClick={() => setSpeedOpen(false)}>
+                <Icon d={ICON_PATH.close} />
+              </button>
             </div>
+          ) : null}
+        </div>
 
-            <button
-              type="button"
-              className="browser-bar-btn"
-              aria-label="下一个倍速预设"
-              title="下一个倍速预设"
-              disabled={!speedItems.length}
-              onClick={() => {
-                if (!speedItems.length) return
-                const next = (speedIndex + 1) % speedItems.length
-                setSpeedIndex(next)
-                toggleRef.current.activeKey = null
-                toggleRef.current.prevRate = null
-                const item = speedItems[next]
-                void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
-                setCurrentRate(item.rate)
-              }}
-            >
-              <Icon d={ICON_PATH.chevronRight} />
-            </button>
-
-            <button type="button" className="browser-bar-btn" aria-label="关闭倍速菜单" title="关闭倍速菜单" onClick={() => setSpeedOpen(false)}>
-              <Icon d={ICON_PATH.close} />
-            </button>
-          </div>
-        ) : null}
+        <div className="browser-bar-switcher" onPointerDown={e => e.stopPropagation()}>
+          <button
+            type="button"
+            ref={switcherButtonRef}
+            className="browser-bar-switcher-btn"
+            aria-label="切换页面"
+            aria-haspopup="menu"
+            aria-expanded={pageMenuOpen}
+            title={activePage?.name || '页面列表'}
+            onClick={togglePageMenu}
+          >
+            <PageMark icon={activePage?.icon} dataDir={dataDir} />
+            <span className="browser-bar-switcher-name">{activePage?.name || 'webview'}</span>
+            <Icon d={ICON_PATH.chevronDown} size={16} />
+          </button>
+          <button
+            type="button"
+            className="browser-bar-btn"
+            aria-label="回主窗口"
+            title="回主窗口"
+            onClick={() => runBarCommand('browser_stack_return_to_main')}
+          >
+            <Icon d={ICON_PATH.home} />
+          </button>
+        </div>
       </div>
 
-      <div className="browser-bar-title">webview</div>
+      {pageMenuOpen ? (
+        <div className="browser-bar-page-backdrop" onPointerDown={e => { e.stopPropagation(); setPageMenuOpen(false) }} />
+      ) : null}
+
+      {pageMenuOpen ? (
+        <div className="browser-bar-page-panel" role="menu" aria-label="打开的页面" onPointerDown={e => e.stopPropagation()}>
+          {pages.map(page => (
+            <div
+              key={page.label}
+              role="none"
+              className={`browser-bar-page-item${page.label === activeLabel ? ' browser-bar-page-item-active' : ''}`}
+            >
+              <button type="button" className="browser-bar-page-main" role="menuitem" title={page.name} onClick={() => activatePage(page.label)}>
+                <PageMark icon={page.icon} dataDir={dataDir} />
+                <span className="browser-bar-page-name">{page.name}</span>
+              </button>
+              <button
+                type="button"
+                className="browser-bar-page-close"
+                aria-label={`关闭 ${page.name}`}
+                title="关闭页面"
+                onClick={event => closePage(page.label, event)}
+              >
+                <Icon d={ICON_PATH.close} size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
