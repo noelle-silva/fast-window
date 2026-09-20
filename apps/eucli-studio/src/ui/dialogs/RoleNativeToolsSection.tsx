@@ -21,7 +21,7 @@ export function RoleNativeToolsSection(props: RoleNativeToolsSectionProps) {
   const candidates = policy.tools.filter((toolName) => !selectedSet.has(toolName))
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5, width: { xs: '100%', md: 340 }, bgcolor: 'rgba(103,58,183,.045)' }}>
+    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5, width: '100%', bgcolor: 'rgba(103,58,183,.045)' }}>
       <Stack spacing={1.25} sx={{ height: '100%' }}>
         <Stack direction="row" spacing={1} alignItems="flex-start">
           <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(103,58,183,.12)', color: 'secondary.main', display: 'grid', placeItems: 'center' }}>

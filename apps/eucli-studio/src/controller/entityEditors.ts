@@ -216,6 +216,7 @@ export function createEntityEditors(deps: {
     state.draft.roleModelSource = 'provider'
     state.draft.roleProviderId = fallbackPid
     state.draft.roleModelGroupId = ''
+    state.draft.roleModelGroupModelId = ''
     state.draft.roleToolPolicy = emptyRoleToolPolicy()
     state.draft.roleToolWhitelistOpen = false
     state.draft.roleToolAddOpen = false
@@ -273,7 +274,8 @@ export function createEntityEditors(deps: {
     const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
     state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
 
-    state.draft.roleModelId = curModelId
+    state.draft.roleModelId = modelKind === 'provider' ? curModelId : ''
+    state.draft.roleModelGroupModelId = modelKind === 'model_group' ? curModelId : ''
     state.draft.roleCustomModelId = ''
 
     state.modal = 'role'
@@ -294,7 +296,7 @@ export function createEntityEditors(deps: {
     const modelSource = String(state.draft.roleModelSource || '').trim() === 'model_group' ? 'model_group' : 'provider'
     const providerId = modelSource === 'provider' ? String(state.draft.roleProviderId || '').trim() : ''
     const groupId = modelSource === 'model_group' ? String(state.draft.roleModelGroupId || '').trim() : ''
-    let modelId = String(state.draft.roleModelId || '').trim()
+    const modelId = modelSource === 'model_group' ? String(state.draft.roleModelGroupModelId || '').trim() : String(state.draft.roleModelId || '').trim()
 
     if (!sys) return showToast?.('请填写角色系统提示词', { kind: 'error' })
     if (modelSource === 'provider' && !providerId) return showToast?.('请选择角色供应商', { kind: 'error' })

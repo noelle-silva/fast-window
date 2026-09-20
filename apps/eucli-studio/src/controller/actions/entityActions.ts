@@ -156,21 +156,18 @@ export function createEntityActions(deps: {
     },
     roleModelSourceChanged: (source: any) => {
       state.draft.roleModelSource = String(source || '') === 'model_group' ? 'model_group' : 'provider'
-      state.draft.roleProviderId = ''
-      state.draft.roleModelGroupId = ''
-      state.draft.roleModelId = ''
-      state.draft.roleCustomModelId = ''
-      state.models = { loading: false, error: '', items: [] }
       emit()
     },
     roleModelGroupChanged: (groupId: any) => {
       state.draft.roleModelGroupId = String(groupId || '')
-      state.draft.roleModelId = ''
+      state.draft.roleModelGroupModelId = ''
       state.draft.roleCustomModelId = ''
       emit()
     },
     roleModelChanged: (modelId: any) => {
-      state.draft.roleModelId = String(modelId || '')
+      const mid = String(modelId || '')
+      if (String(state.draft.roleModelSource || '') === 'model_group') state.draft.roleModelGroupModelId = mid
+      else state.draft.roleModelId = mid
       emit()
     },
     pickRoleAvatarImage: () => pickRoleAvatarImage(),
