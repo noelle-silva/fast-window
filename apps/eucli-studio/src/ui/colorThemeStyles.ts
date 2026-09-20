@@ -152,7 +152,6 @@ export function createStudioMuiTheme(preset: ColorThemePreset) {
             color: 'var(--studio-text-primary)',
             background: 'var(--studio-paper)',
             boxShadow: 'var(--studio-shadow-strong)',
-            overflow: 'hidden',
             '& .MuiOutlinedInput-root': {
               borderRadius: 18,
               backgroundColor: 'var(--studio-field)',
