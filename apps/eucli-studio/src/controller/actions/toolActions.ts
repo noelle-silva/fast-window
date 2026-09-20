@@ -39,17 +39,6 @@ export function createToolActions(deps: {
     setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),
     getInstallSource: () => getInstallSource(),
     setInstallSource: (kind: 'official' | 'local') => setInstallSource(kind),
-    openRoleToolWhitelist: () => {
-      state.draft.roleToolWhitelistOpen = true
-      refreshTools(false).catch(() => {})
-      emit()
-    },
-    closeRoleToolWhitelist: () => {
-      state.draft.roleToolWhitelistOpen = false
-      state.draft.roleToolMenuName = ''
-      state.draft.roleToolPermissionName = ''
-      emit()
-    },
     openRoleToolAdd: () => {
       state.draft.roleToolAddOpen = true
       state.draft.roleToolSearch = ''
@@ -82,46 +71,16 @@ export function createToolActions(deps: {
       state.draft.roleToolAddSelected = []
       emit()
     },
-    openRoleToolMenu: (toolName: any) => {
-      state.draft.roleToolMenuName = String(toolName || '').trim()
-      emit()
-    },
-    closeRoleToolMenu: () => {
-      state.draft.roleToolMenuName = ''
-      emit()
-    },
-    openRoleToolPermission: (toolName: any) => {
-      state.draft.roleToolPermissionName = String(toolName || '').trim()
-      state.draft.roleToolMenuName = ''
-      emit()
-    },
-    closeRoleToolPermission: () => {
-      state.draft.roleToolPermissionName = ''
-      emit()
-    },
     setRoleToolRunMode: (toolName: any, mode: any) => {
       state.draft.roleToolPolicy = setToolRunMode(state.draft.roleToolPolicy, String(toolName || ''), mode)
-      state.draft.roleToolPermissionName = ''
       emit()
     },
     removeRoleTool: (toolName: any) => {
       state.draft.roleToolPolicy = removeToolFromPolicy(state.draft.roleToolPolicy, String(toolName || ''))
-      state.draft.roleToolMenuName = ''
-      state.draft.roleToolPermissionName = ''
-      emit()
-    },
-    openRoleNativeToolAdd: () => {
-      state.draft.roleNativeToolAddOpen = true
-      refreshTools(false).catch(() => {})
-      emit()
-    },
-    closeRoleNativeToolAdd: () => {
-      state.draft.roleNativeToolAddOpen = false
       emit()
     },
     addRoleNativeTool: (toolName: any) => {
       state.draft.roleToolPolicy = addNativeToolsToPolicy(state.draft.roleToolPolicy, [String(toolName || '')])
-      state.draft.roleNativeToolAddOpen = false
       emit()
     },
     removeRoleNativeTool: (toolName: any) => {

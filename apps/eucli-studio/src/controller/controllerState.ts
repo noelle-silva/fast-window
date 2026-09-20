@@ -51,13 +51,9 @@ export function createInitialControllerState() {
       roleTemperature: '0.7',
       roleHookPromptPresetId: '',
       roleToolPolicy: emptyRoleToolPolicy(),
-      roleToolWhitelistOpen: false,
       roleToolAddOpen: false,
       roleToolSearch: '',
       roleToolAddSelected: [] as string[],
-      roleToolMenuName: '',
-      roleToolPermissionName: '',
-      roleNativeToolAddOpen: false,
 
       editGroupId: '',
       groupName: '',

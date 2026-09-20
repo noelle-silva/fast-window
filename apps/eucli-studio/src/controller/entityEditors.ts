@@ -218,13 +218,9 @@ export function createEntityEditors(deps: {
     state.draft.roleModelGroupId = ''
     state.draft.roleModelGroupModelId = ''
     state.draft.roleToolPolicy = emptyRoleToolPolicy()
-    state.draft.roleToolWhitelistOpen = false
     state.draft.roleToolAddOpen = false
     state.draft.roleToolSearch = ''
     state.draft.roleToolAddSelected = []
-    state.draft.roleToolMenuName = ''
-    state.draft.roleToolPermissionName = ''
-    state.draft.roleNativeToolAddOpen = false
 
     const p = sa.getProvider(fallbackPid)
     const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
@@ -261,13 +257,9 @@ export function createEntityEditors(deps: {
     state.draft.roleProviderId = modelKind === 'provider' ? String(role.modelRef?.providerId || '') : ''
     state.draft.roleModelGroupId = modelKind === 'model_group' ? String(role.modelRef?.groupId || '') : ''
     state.draft.roleToolPolicy = normalizeRoleToolPolicy(role.toolPolicy)
-    state.draft.roleToolWhitelistOpen = false
     state.draft.roleToolAddOpen = false
     state.draft.roleToolSearch = ''
     state.draft.roleToolAddSelected = []
-    state.draft.roleToolMenuName = ''
-    state.draft.roleToolPermissionName = ''
-    state.draft.roleNativeToolAddOpen = false
     const curModelId = String(role.modelRef?.modelId || '').trim()
 
     const p = sa.getProvider(state.draft.roleProviderId)

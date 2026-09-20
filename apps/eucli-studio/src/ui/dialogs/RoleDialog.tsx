@@ -21,8 +21,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
-import { RoleNativeToolsSection } from './RoleNativeToolsSection'
-import { RoleToolWhitelistSection } from './RoleToolWhitelistSection'
+import { RoleToolsSection } from './RoleToolsSection'
 
 function RoleDialogSection(props: { title: string; children: React.ReactNode }) {
   return (
@@ -170,8 +169,7 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
           </RoleDialogSection>
 
           <RoleDialogSection title="工具">
-            <RoleNativeToolsSection controller={controller} draft={draft} tools={tools} />
-            <RoleToolWhitelistSection controller={controller} draft={draft} tools={tools} />
+            <RoleToolsSection controller={controller} draft={draft} tools={tools} />
           </RoleDialogSection>
 
           <RoleDialogSection title="默认 hook 提示词">
