@@ -6,7 +6,7 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
-    "test:ui": "node --test --import ./scripts/register-layout-tests.mjs scripts/folder-grid-layout.test.mjs scripts/group-membership.test.mjs scripts/group-selection.test.mjs scripts/group-shortcut-navigation.test.mjs scripts/clipboard-text-target.test.mjs scripts/desktop-drag-state.test.mjs scripts/item-creation-target.test.mjs",
+    "test:ui": "node --test --import ./scripts/register-layout-tests.mjs scripts/folder-grid-layout.test.mjs scripts/group-membership.test.mjs scripts/group-selection.test.mjs scripts/group-shortcut-navigation.test.mjs scripts/clipboard-text-target.test.mjs scripts/desktop-drag-state.test.mjs scripts/item-creation-target.test.mjs scripts/keyboard-shortcut.test.mjs",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
     "build:exe": "pnpm build:ui && pnpm tauri build",

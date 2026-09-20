@@ -69,7 +69,7 @@ export function VideoSpeedSection() {
         return
       }
       const shot = buildShortcutFromEvent(e)
-      if (!shot || !shot.includes('+')) return
+      if (!shot) return
       e.preventDefault()
       e.stopPropagation()
       const idx = recordingIndex
@@ -124,7 +124,7 @@ export function VideoSpeedSection() {
       <Stack spacing={1.75}>
         <Box>
           <Typography fontWeight={900}>视频倍速</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>生效于浏览窗口内网页视频；预设可绑定快捷键（如 control+KeyA），在网页内按快捷键切换/还原。</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>生效于浏览窗口内网页视频；预设可绑定单键（如 KeyQ）或组合键（如 control+KeyA），在网页内按快捷键切换/还原，输入框内不触发。</Typography>
         </Box>
         {settings ? (
           <>
