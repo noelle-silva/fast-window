@@ -40,6 +40,7 @@ import {
   CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN,
   CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX,
 } from '../../domain/constants'
+import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import type { ReleaseCandidatesView, StudioBootstrap } from '../../domain/release'
 
@@ -142,6 +143,7 @@ export function PluginSettingsPage(props: {
   })()
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
   const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
   const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
@@ -350,6 +352,33 @@ export function PluginSettingsPage(props: {
             用户消息超过该行数时默认折叠，可在消息中展开/收起。
           </Typography>
         </Box>
+
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              思考过程显示
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              AI 输出思考时思考过程的展开方式。
+            </Typography>
+          </Box>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+            <InputLabel id="fw-reasoning-display-mode">显示方式</InputLabel>
+            <Select
+              labelId="fw-reasoning-display-mode"
+              label="显示方式"
+              value={reasoningDisplayMode}
+              onChange={(e) => controller.actions.setReasoningDisplayMode?.(String(e.target.value || ''))}
+              disabled={loading}
+            >
+              {REASONING_DISPLAY_MODE_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
 
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">

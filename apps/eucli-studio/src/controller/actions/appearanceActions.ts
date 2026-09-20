@@ -7,6 +7,7 @@ import {
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
 import { CHAT_ATTACHMENT_KINDS, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, MAX_ATTACH_MAX_FILE_MB } from '../../domain/constants'
+import { normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createAppearanceActions(deps: {
@@ -160,6 +161,12 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
       if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setReasoningDisplayMode: (mode: any) => {
+      if (!state.data) return
+      state.data.settings.reasoningDisplayMode = normalizeReasoningDisplayMode(mode)
+      saveMeta().catch(() => {})
       emit()
     },
     setAttachmentsSendLimitChars: (chars: any, commit: any) => {

@@ -12,6 +12,7 @@ import { renderAssistantToolInvocationHtml, renderAssistantToolResultHtml } from
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
+import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
 import { ToolConfirmationCard } from './ToolConfirmationCard'
 
@@ -21,6 +22,7 @@ type AssistantMessageBlocksProps = {
   isGenerating: boolean
   text: string
   parts: any[]
+  reasoningDisplayMode: ReasoningDisplayMode
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
   disabled?: boolean
@@ -283,9 +285,12 @@ function ToolSessionCard(props: {
 }
 
 export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
-  const { controller, mid, isGenerating, text, parts, renderSafetyPolicyKey, chatRootRef, disabled } = props
+  const { controller, mid, isGenerating, text, parts, reasoningDisplayMode, renderSafetyPolicyKey, chatRootRef, disabled } = props
   const blocks = React.useMemo(() => planAssistantMessageBlocks(text, parts), [text, parts])
   const displayItems = React.useMemo(() => buildDisplayItems(blocks), [blocks])
+  // 最后一枚部分就是当前仍在输出的那一段；正文一旦出现，前面的思考都已输出完成。
+  const lastPart = React.useMemo(() => (parts.length ? parts[parts.length - 1] : null), [parts])
+  const answerStarted = !!String(text || '').trim()
   const [editing, setEditing] = React.useState<EditingBlock>({ id: '', text: '' })
   const [deleting, setDeleting] = React.useState<AssistantMessageBlock | null>(null)
   const [expandedToolSessions, setExpandedToolSessions] = React.useState<Set<string>>(() => new Set())
@@ -367,7 +372,19 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
           )
         }
         if (block.kind === 'reasoning') {
-          return <AssistantReasoningPanel key={block.id} controller={controller} mid={mid} isGenerating={isGenerating} text={String(block.part?.text || '')} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} />
+          const reasoningActive = isGenerating && block.part === lastPart && !answerStarted
+          return (
+            <AssistantReasoningPanel
+              key={block.id}
+              controller={controller}
+              mid={mid}
+              isActive={reasoningActive}
+              displayMode={reasoningDisplayMode}
+              text={String(block.part?.text || '')}
+              renderSafetyPolicyKey={renderSafetyPolicyKey}
+              chatRootRef={chatRootRef}
+            />
+          )
         }
         if (block.kind === 'tool_confirmation') {
           const info = readToolConfirmationInfo(block.part)

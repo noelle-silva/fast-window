@@ -44,6 +44,7 @@ import { sortChatListItemsForDisplay } from '../domain/chatListOrdering'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
+import { normalizeReasoningDisplayMode } from '../domain/reasoningDisplay'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -94,6 +95,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   })()
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
   const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
   const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
@@ -950,6 +952,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                   uiBusy={uiBusy}
                   userMessageCollapseEnabled={userMessageCollapseEnabled}
                   userMessageCollapseLines={userMessageCollapseLines}
+                  reasoningDisplayMode={reasoningDisplayMode}
                   stickersEnabled={stickersEnabled}
                   stickerMap={stickerMap}
                   renderSafetyPolicyKey={renderSafetyPolicy}

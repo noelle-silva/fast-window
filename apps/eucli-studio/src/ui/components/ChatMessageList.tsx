@@ -14,6 +14,7 @@ import { isAssistantAwaitingFirstOutput, isAssistantGenerating } from '../../dom
 import { activeRunCardForAssistantMessage, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
+import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { AssistantMessageBlocks } from './AssistantMessageBlocks'
 import { AssistantReplyPendingIndicator } from './AssistantReplyPendingIndicator'
@@ -39,6 +40,7 @@ type ChatMessageListProps = {
   uiBusy: boolean
   userMessageCollapseEnabled: boolean
   userMessageCollapseLines: number
+  reasoningDisplayMode: ReasoningDisplayMode
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -109,6 +111,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     uiBusy,
     userMessageCollapseEnabled,
     userMessageCollapseLines,
+    reasoningDisplayMode,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -532,6 +535,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                       parts={assistantParts}
                       mid={mid}
                       isGenerating={messageGenerating}
+                      reasoningDisplayMode={reasoningDisplayMode}
                       renderSafetyPolicyKey={renderSafetyPolicyKey}
                       chatRootRef={chatRootRef}
                       disabled={!canEdit}
@@ -548,6 +552,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                     parts={assistantParts}
                     mid={mid}
                     isGenerating={messageGenerating}
+                    reasoningDisplayMode={reasoningDisplayMode}
                     renderSafetyPolicyKey={renderSafetyPolicyKey}
                     chatRootRef={chatRootRef}
                     disabled={!canEdit}
