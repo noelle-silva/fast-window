@@ -634,11 +634,15 @@ pub(crate) fn browser_stack_show(app: &tauri::AppHandle) {
     if !browser_stack_exists(app) {
         return;
     }
+    // 显示浏览栈即接管会话：快捷键此后作用于浏览栈。
+    let state = app.state::<BrowserWindowState>();
+    if let Ok(mut g) = state.active.lock() {
+        *g = true;
+    }
     hide_main_window(app);
     browser_stack_set_suppress_hide(app, 800);
     browser_stack_restore_or_center_bar(app);
 
-    let state = app.state::<BrowserWindowState>();
     let fullscreen = state.fullscreen.lock().ok().map(|g| *g).unwrap_or(false);
     if fullscreen {
         let _ = browser_stack_apply_fullscreen(app, true);
@@ -689,8 +693,13 @@ pub(crate) fn browser_stack_hide(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn browser_stack_hide_to_main(app: &tauri::AppHandle) {
-    // “隐藏”只做 UI 切换：保留浏览栈窗口与页面状态，方便再次唤起继续用。
+    // 回主窗口：收起浏览栈但保留页面；会话交接给主窗口（快捷键此后作用于主窗口），
+    // 再次点击「返回网页」会重新接管会话。失焦收起与「隐藏」不改变会话归属。
     browser_stack_hide(app);
+    let state = app.state::<BrowserWindowState>();
+    if let Ok(mut g) = state.active.lock() {
+        *g = false;
+    }
     show_main_window(app);
 }
 
