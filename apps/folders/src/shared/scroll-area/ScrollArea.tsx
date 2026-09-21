@@ -37,6 +37,7 @@ export const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(func
   const viewportRef = React.useRef<HTMLDivElement | null>(null)
   const pointerInsideRef = React.useRef(false)
   const dragRef = React.useRef<DragState | null>(null)
+  const metricsFrameRef = React.useRef<number | null>(null)
   const [metrics, setMetrics] = React.useState<ScrollMetrics>({ scrollable: false, thumbHeight: 0, thumbTop: 0 })
   const [visible, setVisible] = React.useState(false)
   const [dragging, setDragging] = React.useState(false)
@@ -71,25 +72,37 @@ export const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(func
     })
   }, [])
 
+  const scheduleMetrics = React.useCallback(() => {
+    if (metricsFrameRef.current != null) return
+    metricsFrameRef.current = window.requestAnimationFrame(() => {
+      metricsFrameRef.current = null
+      updateMetrics()
+    })
+  }, [updateMetrics])
+
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return undefined
-    updateMetrics()
+    scheduleMetrics()
 
-    const resizeObserver = new ResizeObserver(updateMetrics)
+    const resizeObserver = new ResizeObserver(scheduleMetrics)
     resizeObserver.observe(viewport)
     if (viewport.firstElementChild) resizeObserver.observe(viewport.firstElementChild)
 
-    const mutationObserver = new MutationObserver(updateMetrics)
-    mutationObserver.observe(viewport, { attributes: true, childList: true, subtree: true })
-    window.addEventListener('resize', updateMetrics)
+    const mutationObserver = new MutationObserver(scheduleMetrics)
+    mutationObserver.observe(viewport, { childList: true, characterData: true, subtree: true })
+    window.addEventListener('resize', scheduleMetrics)
 
     return () => {
+      if (metricsFrameRef.current != null) {
+        window.cancelAnimationFrame(metricsFrameRef.current)
+        metricsFrameRef.current = null
+      }
       resizeObserver.disconnect()
       mutationObserver.disconnect()
-      window.removeEventListener('resize', updateMetrics)
+      window.removeEventListener('resize', scheduleMetrics)
     }
-  }, [children, updateMetrics])
+  }, [scheduleMetrics])
 
   const handlePointerEnter = () => {
     pointerInsideRef.current = true
