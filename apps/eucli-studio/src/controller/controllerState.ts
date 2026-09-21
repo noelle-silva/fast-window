@@ -19,7 +19,7 @@ export function createInitialControllerState() {
     modelGroups: defaultModelGroupsState(),
     hookPrompts: { loading: false, error: '', library: { presets: [] } as HookPromptLibrary },
     placeholders: { loading: false, error: '', library: { placeholders: [], folders: [] } as PlaceholderLibrary, preview: { text: '', problems: [] as any[] }, problems: [] as any[], dependencyTree: { name: '' } as any },
-    systemPlugins: { loading: false, error: '', items: [] as any[], selectedPluginId: '', selectedPlugin: null as any, detailLoading: false, detailError: '', saving: false, saveError: '', availableInterfaces: [] as any[], installStates: {} as Record<string, any> },
+    systemPlugins: { loading: false, error: '', items: [] as any[], selectedPluginId: '', selectedPlugin: null as any, detailLoading: false, detailError: '', saving: false, saveError: '', togglingId: '', availableInterfaces: [] as any[], installStates: {} as Record<string, any> },
     tools: { loading: false, error: '', items: [] as any[], fetchedAt: 0, detailLoading: false, detailError: '', selectedToolId: '', selectedTool: null as any, configDraft: {} as Record<string, any>, promptDescriptionDraft: '', saving: false, saveError: '', installStates: {} as Record<string, any> },
     modelRequestConfig: defaultModelRequestConfigState(),
     chatSettings: { savingByTarget: {} as Record<string, any> },

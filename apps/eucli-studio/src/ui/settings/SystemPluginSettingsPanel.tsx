@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Stack, Switch, TextField, Typography } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
@@ -104,10 +104,20 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
                 const locatorId = systemPluginLocatorId(plugin)
                 const selected = locatorId === text(systemPlugins?.selectedPluginId)
                 const pluginUnavailable = text(plugin.status) !== 'active'
+                const toggling = text(systemPlugins?.togglingId) === locatorId
                 return (
-                  <Button key={locatorId} variant={selected ? 'contained' : 'text'} color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'} onClick={() => controller.actions.openSystemPlugin?.(locatorId)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>
-                    <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
-                  </Button>
+                  <Stack key={locatorId} direction="row" spacing={0.5} alignItems="center">
+                    <Button variant={selected ? 'contained' : 'text'} color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'} onClick={() => controller.actions.openSystemPlugin?.(locatorId)} sx={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', textTransform: 'none' }}>
+                      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
+                    </Button>
+                    <Switch
+                      size="small"
+                      checked={plugin.enabled !== false}
+                      disabled={toggling || !locatorId}
+                      onChange={(event) => controller.actions.setSystemPluginEnabled?.(locatorId, event.target.checked)}
+                      inputProps={{ 'aria-label': `${String(plugin.name || locatorId)} 启用开关` }}
+                    />
+                  </Stack>
                 )
               }) : <Typography variant="body2" color="text.secondary">暂无已加载插件。</Typography>}
             </Stack>
@@ -118,7 +128,20 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
               <Stack spacing={1.25}>
                 <SettingsSection>
                   <Stack spacing={0.5}>
-                    <Typography sx={{ fontWeight: 900 }}>{selectedPlugin.name || selectedPlugin.id}</Typography>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography sx={{ fontWeight: 900 }}>{selectedPlugin.name || selectedPlugin.id}</Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Switch
+                          size="small"
+                          checked={selectedPlugin.enabled !== false}
+                          disabled={busy || text(systemPlugins?.togglingId) === systemPluginLocatorId(selectedPlugin)}
+                          onChange={(event) => controller.actions.setSystemPluginEnabled?.(systemPluginLocatorId(selectedPlugin), event.target.checked)}
+                          inputProps={{ 'aria-label': `${String(selectedPlugin.name || selectedPlugin.id)} 启用开关` }}
+                        />
+                        <Typography variant="body2" color="text.secondary">启用</Typography>
+                      </Stack>
+                    </Stack>
                     <Typography variant="body2" color="text.secondary">{selectedPlugin.description}</Typography>
                     <Typography variant="caption" color="text.secondary">版本：{selectedPlugin.version || '无效'}；适用本体：{compatibilityRangeText(selectedPlugin.eucliBoxCompatibility)}</Typography>
                     <Typography variant="caption" color="text.secondary">类型：{lifecycleTypeLabel(selectedPlugin.lifecycleType)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>

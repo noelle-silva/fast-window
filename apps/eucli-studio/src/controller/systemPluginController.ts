@@ -1,4 +1,4 @@
-import { cancelSystemPlugin, createPlaceholderFromSystemPluginInterface, installSystemPlugin as installSystemPluginClient, loadAvailableSystemPluginPlaceholderInterfaces, loadSystemPlugin, loadSystemPlugins, saveSystemPluginUserConfig, updateSystemPlugin as updateSystemPluginClient } from './systemPluginClient'
+import { cancelSystemPlugin, createPlaceholderFromSystemPluginInterface, disableSystemPlugin as disableSystemPluginClient, enableSystemPlugin as enableSystemPluginClient, installSystemPlugin as installSystemPluginClient, loadAvailableSystemPluginPlaceholderInterfaces, loadSystemPlugin, loadSystemPlugins, saveSystemPluginUserConfig, updateSystemPlugin as updateSystemPluginClient } from './systemPluginClient'
 import { loadPlaceholderProblems } from './placeholderClient'
 import { systemPluginLocatorId } from '../domain/systemPlugin'
 import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
@@ -152,6 +152,36 @@ export function createSystemPluginController(deps: {
     return interfaces
   }
 
+  // setSystemPluginEnabled 切换插件启停：停用会让插件全部能力面整体退出服役。
+  async function setSystemPluginEnabled(pluginIdRaw: any, enabled: boolean) {
+    const pluginId = String(pluginIdRaw || '').trim()
+    if (!pluginId) return null
+    const state = getState()
+    const netRequest = getNetRequest()
+    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    state.systemPlugins = { ...state.systemPlugins, togglingId: pluginId }
+    emit()
+    try {
+      const plugin = enabled ? await enableSystemPluginClient(netRequest, pluginId) : await disableSystemPluginClient(netRequest, pluginId)
+      const items = (Array.isArray(state.systemPlugins.items) ? state.systemPlugins.items : []).map((item: any) =>
+        systemPluginLocatorId(item) === pluginId ? { ...item, enabled: plugin.enabled !== false } : item,
+      )
+      const selectedPluginId = String(state.systemPlugins.selectedPluginId || '').trim()
+      const selectedPlugin = selectedPluginId === pluginId ? plugin : state.systemPlugins.selectedPlugin
+      state.systemPlugins = { ...state.systemPlugins, togglingId: '', items, selectedPlugin }
+      showToast?.(enabled ? '系统插件已启用' : '系统插件已停用', { kind: 'success' })
+      emit()
+      await refreshPlaceholderLibrary(true).catch(() => null)
+      return plugin
+    } catch (e: any) {
+      const message = String(e?.message || e || (enabled ? '启用系统插件失败' : '停用系统插件失败'))
+      state.systemPlugins = { ...state.systemPlugins, togglingId: '' }
+      showToast?.(message, { kind: 'error' })
+      emit()
+      throw e
+    }
+  }
+
   function installSystemPluginAction(pluginIdRaw: any) {
     return startSystemPluginOperation(pluginIdRaw, 'install')
   }
@@ -222,6 +252,7 @@ export function createSystemPluginController(deps: {
     openSystemPlugin,
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,
+    setSystemPluginEnabled,
     installSystemPluginAction,
     updateSystemPluginAction,
     cancelSystemPluginInstall,

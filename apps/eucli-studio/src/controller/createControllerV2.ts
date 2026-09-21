@@ -449,6 +449,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     syncSystemPluginInstallStates,
     setInstallTerminalListener: setSystemPluginInstallTerminalListener,
     createPlaceholderFromSystemPlugin,
+    setSystemPluginEnabled,
     dispose: disposeSystemPluginController,
   } = systemPluginController
 
@@ -955,6 +956,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,
     createPlaceholderFromSystemPlugin,
+    setSystemPluginEnabled,
     cancelSystemPluginInstall,
     syncSystemPluginInstallStates,
     setSystemPluginInstallTerminalListener,

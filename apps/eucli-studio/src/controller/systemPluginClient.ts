@@ -27,6 +27,16 @@ export async function saveSystemPluginUserConfig(netRequest: EbNetRequest, plugi
   return normalizeSystemPluginDetail(response?.body)
 }
 
+export async function enableSystemPlugin(netRequest: EbNetRequest, pluginId: string): Promise<SystemPluginDetail> {
+  const response = await netRequest({ method: 'PUT', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/enable`, body: {}, timeoutMs: 90000 })
+  return normalizeSystemPluginDetail(response?.body)
+}
+
+export async function disableSystemPlugin(netRequest: EbNetRequest, pluginId: string): Promise<SystemPluginDetail> {
+  const response = await netRequest({ method: 'PUT', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/disable`, body: {}, timeoutMs: 90000 })
+  return normalizeSystemPluginDetail(response?.body)
+}
+
 export async function loadAvailableSystemPluginPlaceholderInterfaces(netRequest: EbNetRequest): Promise<SystemPluginAvailablePlaceholderInterface[]> {
   const response = await netRequest({ method: 'GET', path: '/api/placeholders/plugin-interfaces', timeoutMs: 15000 })
   return normalizeAvailableSystemPluginPlaceholderInterfaces(response?.body)

@@ -24,6 +24,7 @@ export type SystemPluginSummary = {
   installPhase?: string
   operationId?: string
   active?: boolean
+  enabled: boolean
 }
 
 export type SystemPluginDetail = SystemPluginSummary & {
@@ -39,6 +40,7 @@ export type SystemPluginAvailablePlaceholderInterface = {
   interfaceId: string
   interfaceDescription: string
   placeholderName: string
+  disabled: boolean
 }
 
 export type SystemPluginUserConfig = {
@@ -78,6 +80,7 @@ export function normalizeSystemPluginSummary(raw: unknown): SystemPluginSummary 
     installPhase: text(box.installPhase),
     operationId: text(box.operationId),
     active: box.active === true,
+    enabled: box.enabled !== false,
   }
 }
 
@@ -107,7 +110,7 @@ export function normalizeAvailableSystemPluginPlaceholderInterfaces(raw: unknown
   const items = Array.isArray(raw) ? raw : []
   return items.map((rawItem) => {
     const box = rawItem && typeof rawItem === 'object' ? (rawItem as any) : {}
-    return { pluginId: text(box.pluginId), pluginName: text(box.pluginName), interfaceId: text(box.interfaceId), interfaceDescription: text(box.interfaceDescription), placeholderName: text(box.placeholderName) }
+    return { pluginId: text(box.pluginId), pluginName: text(box.pluginName), interfaceId: text(box.interfaceId), interfaceDescription: text(box.interfaceDescription), placeholderName: text(box.placeholderName), disabled: box.disabled === true }
   }).filter((item) => item.pluginId && item.interfaceId && item.placeholderName)
 }
 

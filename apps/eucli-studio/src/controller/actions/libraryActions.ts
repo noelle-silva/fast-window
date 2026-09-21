@@ -10,6 +10,7 @@ export function createLibraryActions(deps: {
   saveSystemPluginConfig: (pluginId: any, config: any) => Promise<any>
   refreshAvailableSystemPluginPlaceholderInterfaces: () => Promise<any>
   createPlaceholderFromSystemPlugin: (pluginId: any, interfaceId: any) => Promise<any>
+  setSystemPluginEnabled: (pluginId: any, enabled: boolean) => Promise<any>
   installSystemPluginAction: (pluginId: any) => Promise<any>
   updateSystemPluginAction: (pluginId: any) => Promise<any>
   cancelSystemPluginInstall: (pluginId: any) => Promise<any>
@@ -17,7 +18,7 @@ export function createLibraryActions(deps: {
   setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => void
   selectHookPromptForActiveChat: (mode: any, presetId: any) => Promise<any>
 }) {
-  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
 
   return {
     refreshHookPromptLibrary: (force: any) => refreshHookPromptLibrary(!!force),
@@ -31,6 +32,7 @@ export function createLibraryActions(deps: {
     saveSystemPluginConfig: (pluginId: any, config: any) => saveSystemPluginConfig(pluginId, config),
     refreshAvailableSystemPluginPlaceholderInterfaces: () => refreshAvailableSystemPluginPlaceholderInterfaces(),
     createPlaceholderFromSystemPlugin: (pluginId: any, interfaceId: any) => createPlaceholderFromSystemPlugin(pluginId, interfaceId),
+    setSystemPluginEnabled: (pluginId: any, enabled: boolean) => setSystemPluginEnabled(pluginId, !!enabled),
     installSystemPlugin: (pluginId: any) => installSystemPluginAction(pluginId),
     updateSystemPlugin: (pluginId: any) => updateSystemPluginAction(pluginId),
     cancelSystemPluginInstall: (pluginId: any) => cancelSystemPluginInstall(pluginId),

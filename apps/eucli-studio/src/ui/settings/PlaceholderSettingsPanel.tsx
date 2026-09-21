@@ -14,7 +14,8 @@ import {
   type PlaceholderItem,
   type PlaceholderLibrary,
 } from '../../domain/placeholder'
-import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { systemPluginLocatorId } from '../../domain/systemPlugin'
+import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type PlaceholderSettingsPanelProps = {
   controller: any
@@ -81,6 +82,24 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   React.useEffect(() => {
     controller.actions.refreshPlaceholderLibrary?.(false)
   }, [controller])
+
+  // 占位符界面需要知道来源插件是否已停用；插件列表为空时顺带补一次读取。
+  React.useEffect(() => {
+    controller.actions.refreshSystemPlugins?.(false)
+  }, [controller])
+
+  const pluginEnabledById = React.useMemo(() => {
+    const map = new Map<string, boolean>()
+    const items = Array.isArray(systemPlugins?.items) ? systemPlugins.items : []
+    for (const item of items) {
+      const id = systemPluginLocatorId(item)
+      if (id) map.set(id, item.enabled !== false)
+    }
+    return map
+  }, [systemPlugins?.items])
+
+  const sourcePluginDisabled = (item: PlaceholderItem) =>
+    item.source?.kind === 'system_plugin' && pluginEnabledById.get(String(item.source.pluginId || '')) === false
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -258,7 +277,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
               {filteredPlaceholders.length ? filteredPlaceholders.map(({ item, index }) => {
                 const selected = index === selectedIndex
                 const label = text(item.name) || `未命名占位符 ${index + 1}`
-                return <Button key={`${item.name}:${index}`} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>{label}</Button>
+                const disabledByPlugin = sourcePluginDisabled(item)
+                return <Button key={`${item.name}:${index}`} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Button>
               }) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
             </Stack>
           </SettingsSection>
@@ -270,6 +290,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                   item={selectedPlaceholder}
                   folders={draft.folders}
                   disabled={busy || saving}
+                  sourcePluginDisabled={sourcePluginDisabled(selectedPlaceholder)}
                   onRename={(nextName) => renameItem(selectedIndex, selectedPlaceholder.name, nextName)}
                   onUpdate={(patch) => replacePlaceholder(selectedIndex, (item) => ({ ...item, ...patch }))}
                   onDelete={() => deleteItem(selectedIndex, selectedPlaceholder.name)}
@@ -308,7 +329,10 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                 <SettingsListItem key={`${item.pluginId}:${item.interfaceId}`} sx={{ p: 1 }}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{String(item.placeholderName || '')}</Typography>
+                      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 900 }}>{String(item.placeholderName || '')}</Typography>
+                        {item.disabled ? <SettingsPill tone="danger">已停用</SettingsPill> : null}
+                      </Stack>
                       <Typography variant="caption" color="text.secondary">{String(item.pluginName || item.pluginId || '')} · {String(item.interfaceDescription || item.interfaceId || '')}</Typography>
                     </Box>
                     <Button size="small" variant="contained" onClick={() => createFromPlugin(String(item.pluginId || ''), String(item.interfaceId || ''))}>创建</Button>
@@ -330,12 +354,13 @@ function PlaceholderEditor(props: {
   item: PlaceholderItem
   folders: PlaceholderFolder[]
   disabled: boolean
+  sourcePluginDisabled: boolean
   onRename: (name: string) => void
   onUpdate: (patch: Partial<PlaceholderItem>) => void
   onDelete: () => void
   onToggleFolder: (folderId: string, checked: boolean) => void
 }) {
-  const { item, folders, disabled, onRename, onUpdate, onDelete, onToggleFolder } = props
+  const { item, folders, disabled, sourcePluginDisabled, onRename, onUpdate, onDelete, onToggleFolder } = props
   return (
     <SettingsSection>
       <Stack spacing={1}>
@@ -345,7 +370,13 @@ function PlaceholderEditor(props: {
         </Stack>
         <TextField size="small" label="备注" value={item.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} disabled={disabled} fullWidth />
         <TextField size="small" multiline minRows={5} label="值" value={item.value} onChange={(e) => onUpdate({ value: e.target.value })} disabled={disabled || item.source?.kind === 'system_plugin'} fullWidth />
-        {item.source?.kind === 'system_plugin' ? <Typography variant="caption" color="text.secondary">这个占位符的值由系统插件动态提供，保存的手写值不会参与解析。</Typography> : null}
+        {item.source?.kind === 'system_plugin' ? (
+          <Typography variant="caption" color={sourcePluginDisabled ? 'error' : 'text.secondary'}>
+            {sourcePluginDisabled
+              ? '所属插件已停用：解析时会跳过这个占位符并提示，启用插件后自动恢复。'
+              : '这个占位符的值由系统插件动态提供，保存的手写值不会参与解析。'}
+          </Typography>
+        ) : null}
         <Typography variant="caption" color="text.secondary">创建时间：{formatTime(item.createdAt)}</Typography>
         <Typography variant="body2" sx={{ fontWeight: 900 }}>所属收藏夹</Typography>
         {folders.length ? folders.map((folder) => {

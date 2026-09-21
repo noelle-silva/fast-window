@@ -127,5 +127,6 @@ export function placeholderProblemLabel(type: string) {
   if (type === 'cycle_reference') return '循环引用'
   if (type === 'duplicate_name') return '重复名称'
   if (type === 'plugin_failed') return '插件取值失败'
+  if (type === 'plugin_disabled') return '所属插件已停用'
   return type || '未知问题'
 }
