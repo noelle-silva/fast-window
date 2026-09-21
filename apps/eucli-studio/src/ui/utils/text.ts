@@ -1,3 +1,14 @@
+export function prettyJsonText(value: unknown) {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  try {
+    const text = JSON.stringify(value, null, 2)
+    return typeof text === 'string' ? text : String(value)
+  } catch {
+    return String(value)
+  }
+}
+
 export function snippetText(raw: any, maxLen = 26) {
   const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
   const s1 = s0.replace(/\r/g, '').trim()
