@@ -24,7 +24,7 @@ pub(crate) async fn open_browser_window(
     name: Option<String>,
     icon: Option<BrowserPageIcon>,
 ) -> Result<(), String> {
-    open_browser_window_impl(app, url, name.unwrap_or_default(), icon).await
+    open_browser_window_impl(app, url, name.unwrap_or_default(), icon, String::new()).await
 }
 
 pub(crate) async fn open_browser_window_impl(
@@ -32,6 +32,7 @@ pub(crate) async fn open_browser_window_impl(
     url: String,
     name: String,
     icon: Option<BrowserPageIcon>,
+    space_id: String,
 ) -> Result<(), String> {
     let mut u = url.trim().to_string();
     if u.chars().any(|c| c.is_whitespace()) {
@@ -113,7 +114,7 @@ pub(crate) async fn open_browser_window_impl(
         .unwrap_or(false);
 
     let label = next_page_label(&app);
-    let content = create_page_window(&app, &label, parsed, video_script)?;
+    let content = create_page_window(&app, &label, parsed, video_script, &space_id)?;
     browser_stack::attach_browser_stack_window_events(app.clone(), content.clone(), false);
 
     let Some(bar) = bar_window(&app) else {
@@ -187,15 +188,20 @@ fn resolve_new_page_bounds(
     (pos, size)
 }
 
-/// 所有浏览窗口统一使用本次会话固定的浏览器数据目录（登录态共享）。
-fn apply_browser_data_dir<'a>(
+/// 浏览窗口的数据空间：空标识 = 默认共享空间（会话固定目录）；非空 = 对应身份空间。
+fn apply_browser_space<'a>(
     app: &tauri::AppHandle,
     builder: tauri::WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle>,
-) -> tauri::WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
-    match app.state::<BrowserDataDir>().path() {
-        Some(dir) => builder.data_directory(dir.to_path_buf()),
-        None => builder,
+    space_id: &str,
+) -> Result<tauri::WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle>, String> {
+    if space_id.is_empty() {
+        return Ok(match app.state::<BrowserDataDir>().path() {
+            Some(dir) => builder.data_directory(dir.to_path_buf()),
+            None => builder,
+        });
     }
+    let dir = crate::browser_data::ensure_identity_dir(app, space_id)?;
+    Ok(builder.data_directory(dir))
 }
 
 fn create_browser_bar_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -215,7 +221,7 @@ fn create_browser_bar_window(app: &tauri::AppHandle) -> Result<(), String> {
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false);
-    let bar = apply_browser_data_dir(app, builder)
+    let bar = apply_browser_space(app, builder, "")?
         .build()
         .map_err(|e| format!("创建顶部栏窗口失败: {e}"))?;
 
@@ -228,6 +234,7 @@ fn create_page_window(
     label: &str,
     url: tauri::Url,
     video_script: String,
+    space_id: &str,
 ) -> Result<tauri::WebviewWindow, String> {
     let app_content_events = app.clone();
     let content_label = label.to_string();
@@ -257,7 +264,7 @@ fn create_page_window(
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false);
-    apply_browser_data_dir(app, builder)
+    apply_browser_space(app, builder, space_id)?
         .build()
         .map_err(|e| format!("创建浏览窗口失败: {e}"))
 }

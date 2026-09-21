@@ -101,6 +101,7 @@ pub fn build_doc_from_legacy_bookmarks(data_dir: &Path) -> Result<CollectionsDoc
             layout: None,
             container_layout: None,
             icon,
+            browser_space_id: String::new(),
         });
         page_order += 1;
     }

@@ -6,10 +6,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::collections::model::{
-    default_item_name, find_container, next_copy_item_id, next_page_order, normalize_group_id,
-    normalize_icon_option, now_ms, now_text, trim_max, validate_grid_layout, validate_target,
-    CollectionItem, CollectionTarget, DesktopIcon, GridLayout, Workspace, WorkspaceView,
-    MAX_ITEM_NAME_CHARS,
+    default_item_name, find_container, next_browser_space_id, next_copy_item_id,
+    next_identity_item_id, next_page_order, normalize_group_id, normalize_icon_option, now_ms,
+    now_text, trim_max, validate_grid_layout, validate_target, CollectionItem, CollectionTarget,
+    DesktopIcon, GridLayout, Workspace, WorkspaceView, MAX_ITEM_NAME_CHARS,
 };
 use crate::collections::store::{with_workspace, workspace_view};
 
@@ -55,6 +55,14 @@ pub struct IdPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AddIdentityPayload {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferPayload {
     pub id: String,
     pub group_id: String,
@@ -86,6 +94,8 @@ pub fn update(data_dir: &Path, input: ItemInput) -> Result<WorkspaceView, String
         let existing = doc.workspace.items[index].clone();
         item.created_at_ms = existing.created_at_ms;
         item.created_at = existing.created_at.clone();
+        // 浏览器空间标识随条目保留，编辑不改变身份。
+        item.browser_space_id = existing.browser_space_id.clone();
         if item.group_id == existing.group_id {
             item.page_order = existing.page_order;
             item.container_id = existing.container_id.clone();
@@ -104,7 +114,8 @@ pub fn update(data_dir: &Path, input: ItemInput) -> Result<WorkspaceView, String
 }
 
 pub fn remove(data_dir: &Path, raw_id: &str) -> Result<WorkspaceView, String> {
-    with_workspace(data_dir, |doc| {
+    let mut removed_space_id = String::new();
+    let view = with_workspace(data_dir, |doc| {
         let id = raw_id.trim().to_string();
         if id.is_empty() {
             return Err("item id is required".to_string());
@@ -112,9 +123,65 @@ pub fn remove(data_dir: &Path, raw_id: &str) -> Result<WorkspaceView, String> {
         let Some(index) = doc.workspace.items.iter().position(|item| item.id == id) else {
             return Err(format!("item not found: {id}"));
         };
-        doc.workspace.items.remove(index);
+        let removed = doc.workspace.items.remove(index);
+        removed_space_id = removed.browser_space_id;
+        Ok(())
+    })?;
+    // 同一身份空间可能被多个条目共享（如复制到分组）；仅当没有其他引用时才清理。
+    if !removed_space_id.is_empty()
+        && !view
+            .items
+            .iter()
+            .any(|item| item.browser_space_id == removed_space_id)
+    {
+        crate::browser_data::remove_identity_dir(data_dir, &removed_space_id);
+    }
+    Ok(view)
+}
+
+/// 新建多账号身份：复制源条目为独立浏览器空间的副本，落在同分组桌面。
+pub fn add_identity(data_dir: &Path, payload: AddIdentityPayload) -> Result<WorkspaceView, String> {
+    with_workspace(data_dir, |doc| {
+        let source_id = payload.id.trim();
+        if source_id.is_empty() {
+            return Err("item id is required".to_string());
+        }
+        let Some(source) = doc
+            .workspace
+            .items
+            .iter()
+            .find(|item| item.id == source_id)
+            .cloned()
+        else {
+            return Err(format!("item not found: {source_id}"));
+        };
+
+        let now = now_ms();
+        let now_string = now_text();
+        let mut identity = source;
+        identity.id = next_identity_item_id(&doc.workspace, now);
+        identity.browser_space_id = next_browser_space_id(&doc.workspace, now);
+        identity.name = identity_name(&payload.name, &identity.name);
+        identity.page_order = next_page_order(&doc.workspace, &identity.group_id);
+        identity.container_id.clear();
+        identity.container_layout = None;
+        identity.layout = None;
+        identity.created_at = now_string.clone();
+        identity.updated_at = now_string.clone();
+        identity.created_at_ms = now;
+        identity.updated_at_ms = now;
+        doc.workspace.items.push(identity);
         Ok(())
     })
+}
+
+fn identity_name(input: &str, source_name: &str) -> String {
+    let trimmed = input.trim();
+    if !trimmed.is_empty() {
+        return trim_max(trimmed, MAX_ITEM_NAME_CHARS);
+    }
+    let base = trim_max(source_name, MAX_ITEM_NAME_CHARS);
+    trim_max(&format!("{base} · 新身份"), MAX_ITEM_NAME_CHARS)
 }
 
 /// 打开条目：交给内嵌浏览栈（新建独立页面）。
@@ -145,6 +212,7 @@ pub async fn open(
         item.target.url.clone(),
         item.name.clone(),
         icon,
+        item.browser_space_id.clone(),
     )
     .await?;
     Ok(json!({ "ok": true, "target": item.target }))
@@ -339,5 +407,6 @@ fn normalize_item_input(
         layout,
         container_layout,
         icon: normalize_icon_option(input.icon)?,
+        browser_space_id: String::new(),
     })
 }

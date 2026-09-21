@@ -5,6 +5,8 @@ use tauri::Manager;
 use crate::data_dir;
 
 const BROWSER_DIR_NAME: &str = "browser";
+/// 多账号身份空间集合目录（位于数据目录下，与默认空间目录同级）。
+const IDENTITY_DIR_NAME: &str = "browser-profiles";
 /// WebView2 始终在 userDataFolder 内创建该子目录存放实际数据（含系统默认位置）。
 const WEBVIEW_DATA_DIR_NAME: &str = "EBWebView";
 const MIGRATION_STAGING_SUFFIX: &str = ".migrating";
@@ -38,9 +40,8 @@ pub(crate) fn prepare(app: &tauri::AppHandle) -> BrowserDataDir {
         return BrowserDataDir(None);
     }
 
-    let data_root = data_root(&user_data_folder);
-    repair_misplaced_layout(&user_data_folder, &data_root);
-    migrate_if_needed(app, &data_root);
+    repair_misplaced_layout(&user_data_folder, &data_root(&user_data_folder));
+    migrate_if_needed(app, &user_data_folder);
     BrowserDataDir(Some(user_data_folder))
 }
 
@@ -54,59 +55,172 @@ pub(crate) fn data_root(user_data_folder: &Path) -> PathBuf {
     user_data_folder.join(WEBVIEW_DATA_DIR_NAME)
 }
 
-fn migrate_if_needed(app: &tauri::AppHandle, target: &Path) {
-    // 用户切换数据目录留下的搬迁任务：以当前活跃数据为准，覆盖目标旧副本。
-    if let Some(source) = pending_source(app).map(normalize_source) {
-        if same_directory(&source, target) || is_nested(&source, target) {
-            log(&format!(
-                "搬迁来源与目标互相嵌套，跳过搬迁: {}",
-                source.display()
-            ));
-            clear_pending(app);
+/// 身份空间标识：小写字母、数字、`-`、`_`，长度受限（兼作目录名，防路径穿越）。
+pub(crate) fn is_safe_space_id(space_id: &str) -> bool {
+    !space_id.is_empty()
+        && space_id.len() <= 40
+        && space_id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// 身份空间 userDataFolder = `<数据目录>/browser-profiles/<空间标识>`。
+pub(crate) fn identity_dir(data_dir: &Path, space_id: &str) -> Result<PathBuf, String> {
+    if !is_safe_space_id(space_id) {
+        return Err(format!("非法浏览器空间标识: {space_id}"));
+    }
+    Ok(data_dir.join(IDENTITY_DIR_NAME).join(space_id))
+}
+
+/// 确保身份空间目录可用，返回其 userDataFolder。
+pub(crate) fn ensure_identity_dir(
+    app: &tauri::AppHandle,
+    space_id: &str,
+) -> Result<PathBuf, String> {
+    let dir = identity_dir(&data_dir::resolve_data_dir(app)?, space_id)?;
+    data_dir::ensure_writable_dir(&dir)?;
+    Ok(dir)
+}
+
+/// 删除条目的身份空间（尽力而为：失败仅记录，不影响条目删除结果）。
+pub(crate) fn remove_identity_dir(data_dir: &Path, space_id: &str) {
+    let dir = match identity_dir(data_dir, space_id) {
+        Ok(dir) => dir,
+        Err(error) => {
+            log(&format!("跳过身份空间清理: {error}"));
             return;
         }
-        match migrate(&source, target) {
-            Ok(()) => {
-                log(&format!(
-                    "浏览器数据已跟随数据目录搬迁: {} -> {}",
-                    source.display(),
-                    target.display()
-                ));
-                clear_pending(app);
-            }
-            Err(error) => {
-                log(&format!("浏览器数据搬迁失败，保留来源下次重试: {error}"));
-            }
-        }
+    };
+    if !dir.exists() {
+        return;
+    }
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => log(&format!("身份数据空间已清理: {}", dir.display())),
+        Err(error) => log(&format!(
+            "身份数据空间清理失败（残留不影响功能）: {} ({error})",
+            dir.display()
+        )),
+    }
+}
+
+fn migrate_if_needed(app: &tauri::AppHandle, user_data_folder: &Path) {
+    // 用户切换数据目录留下的搬迁任务：默认空间与身份空间整包跟随。
+    if let Some(pending) = pending_source(app) {
+        migrate_pending(app, &pending, user_data_folder);
         return;
     }
 
-    // 升级后的自动搬迁：仅当目标还没有数据时执行。
-    if !directory_is_empty(target) {
+    // 升级后的自动搬迁：仅当默认空间还没有数据时执行。
+    let data_root = data_root(user_data_folder);
+    if !directory_is_empty(&data_root) {
         return;
     }
     let Some(source) = legacy_browser_data_dir(app).filter(|path| path.is_dir()) else {
         return;
     };
-    if same_directory(&source, target) || is_nested(&source, target) {
+    if same_directory(&source, &data_root) || is_nested(&source, &data_root) {
         log(&format!(
             "迁移来源与目标互相嵌套，跳过搬迁: {}",
             source.display()
         ));
         return;
     }
-    match migrate(&source, target) {
+    match migrate(&source, &data_root) {
         Ok(()) => {
             log(&format!(
                 "浏览器数据已搬迁: {} -> {}",
                 source.display(),
-                target.display()
+                data_root.display()
             ));
         }
         Err(error) => {
             log(&format!("浏览器数据搬迁失败，保留来源下次重试: {error}"));
         }
     }
+}
+
+/// 用户切换数据目录的整包搬迁：默认空间目录与身份空间集分别覆盖到新数据目录。
+fn migrate_pending(app: &tauri::AppHandle, pending: &Path, target_user_data_folder: &Path) {
+    let Some(source_data_dir) = pending_data_dir(pending) else {
+        clear_pending(app);
+        return;
+    };
+    let Some(target_data_dir) = target_user_data_folder.parent().map(Path::to_path_buf) else {
+        clear_pending(app);
+        return;
+    };
+    let mut failed = false;
+
+    let source_user_data_folder = source_data_dir.join(BROWSER_DIR_NAME);
+    if source_user_data_folder.is_dir() {
+        repair_misplaced_layout(
+            &source_user_data_folder,
+            &data_root(&source_user_data_folder),
+        );
+        if same_directory(&source_user_data_folder, target_user_data_folder)
+            || is_nested(&source_user_data_folder, target_user_data_folder)
+        {
+            log(&format!(
+                "默认浏览器空间与目标互相嵌套，跳过搬迁: {}",
+                source_user_data_folder.display()
+            ));
+        } else {
+            match migrate(&source_user_data_folder, target_user_data_folder) {
+                Ok(()) => log(&format!(
+                    "默认浏览器空间已跟随搬迁: {} -> {}",
+                    source_user_data_folder.display(),
+                    target_user_data_folder.display()
+                )),
+                Err(error) => {
+                    log(&format!("默认浏览器空间搬迁失败: {error}"));
+                    failed = true;
+                }
+            }
+        }
+    }
+
+    let source_identities = source_data_dir.join(IDENTITY_DIR_NAME);
+    let target_identities = target_data_dir.join(IDENTITY_DIR_NAME);
+    if source_identities.is_dir() {
+        if same_directory(&source_identities, &target_identities)
+            || is_nested(&source_identities, &target_identities)
+        {
+            log(&format!(
+                "身份空间与目标互相嵌套，跳过搬迁: {}",
+                source_identities.display()
+            ));
+        } else {
+            match migrate(&source_identities, &target_identities) {
+                Ok(()) => log(&format!(
+                    "身份空间已跟随搬迁: {} -> {}",
+                    source_identities.display(),
+                    target_identities.display()
+                )),
+                Err(error) => {
+                    log(&format!("身份空间搬迁失败: {error}"));
+                    failed = true;
+                }
+            }
+        }
+    }
+
+    if failed {
+        log("浏览器数据搬迁未完成，保留来源下次启动重试");
+    } else {
+        clear_pending(app);
+    }
+}
+
+/// 待迁移记录 → 旧数据目录（兼容历史三种记录形态：数据目录 / userDataFolder / 数据根）。
+fn pending_data_dir(pending: &Path) -> Option<PathBuf> {
+    let name = pending.file_name()?.to_string_lossy();
+    if name == WEBVIEW_DATA_DIR_NAME {
+        return pending.parent()?.parent().map(Path::to_path_buf);
+    }
+    if name == BROWSER_DIR_NAME {
+        return pending.parent().map(Path::to_path_buf);
+    }
+    Some(pending.to_path_buf())
 }
 
 /// 修复 0.1.10 的错误布局：实际数据曾被搬到 userDataFolder 根下，
@@ -168,17 +282,7 @@ fn pending_source(app: &tauri::AppHandle) -> Option<PathBuf> {
     pending.is_dir().then_some(pending)
 }
 
-/// 历史版本可能把待迁移记录写成 userDataFolder（数据在其 EBWebView 子目录里）；
-/// 归一化为实际数据根，并顺带修复来源自身的错位布局。
-fn normalize_source(pending: PathBuf) -> PathBuf {
-    let nested_root = data_root(&pending);
-    if nested_root.is_dir() {
-        repair_misplaced_layout(&pending, &nested_root);
-        nested_root
-    } else {
-        pending
-    }
-}
+
 
 fn legacy_browser_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     let local_data_dir = app.path().local_data_dir().ok()?;
@@ -361,34 +465,17 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_legacy_pending_user_data_folder() {
-        let root = temp_dir("normalize-legacy");
-        let user_data_folder = root.join("old").join("browser");
-        std::fs::create_dir_all(user_data_folder.join("Default")).unwrap();
-        std::fs::write(user_data_folder.join("Default").join("Cookies"), b"old").unwrap();
-        std::fs::write(user_data_folder.join("Local State"), b"state").unwrap();
-        let nested = data_root(&user_data_folder);
-        std::fs::create_dir_all(nested.join("Default")).unwrap();
-        std::fs::write(nested.join("Default").join("Cookies"), b"new").unwrap();
+    fn pending_data_dir_accepts_all_recorded_forms() {
+        let root = temp_dir("pending-data-dir");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(data_dir.join("browser").join("EBWebView")).unwrap();
 
-        let source = normalize_source(user_data_folder.clone());
-
-        assert_eq!(source, nested);
-        assert_eq!(std::fs::read(source.join("Default").join("Cookies")).unwrap(), b"old");
-        assert!(!user_data_folder.join("Default").exists());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn normalizes_data_root_source_unchanged() {
-        let root = temp_dir("normalize-root");
-        let data_root_dir = root.join("old").join("browser").join("EBWebView");
-        std::fs::create_dir_all(&data_root_dir).unwrap();
-        std::fs::write(data_root_dir.join("Local State"), b"state").unwrap();
-
-        let source = normalize_source(data_root_dir.clone());
-
-        assert_eq!(source, data_root_dir);
+        assert_eq!(pending_data_dir(&data_dir).unwrap(), data_dir);
+        assert_eq!(pending_data_dir(&data_dir.join("browser")).unwrap(), data_dir);
+        assert_eq!(
+            pending_data_dir(&data_dir.join("browser").join("EBWebView")).unwrap(),
+            data_dir
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

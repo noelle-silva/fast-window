@@ -5,13 +5,15 @@
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const DATA_VERSION: u32 = 1;
+/// 数据版本 2：条目新增可选浏览器空间标识（同一网址多账号身份）。
+pub const DATA_VERSION: u32 = 2;
 
 pub const MAX_LAYOUT_COORD: i64 = 2000;
 pub const DEFAULT_GROUP_ID: &str = "default";
 pub const DEFAULT_GROUP_NAME: &str = "默认";
 pub const MAX_GROUP_NAME_CHARS: usize = 40;
 pub const MAX_ITEM_NAME_CHARS: usize = 80;
+pub const MAX_BROWSER_SPACE_ID_CHARS: usize = 40;
 pub const MAX_CONTAINER_NAME_CHARS: usize = 80;
 pub const MAX_WALLPAPER_NAME_CHARS: usize = 80;
 
@@ -96,6 +98,9 @@ pub struct CollectionItem {
     pub container_layout: Option<GridLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<DesktopIcon>,
+    /// 浏览器空间标识：空串 = 默认共享空间；非空 = 独立登录空间（网址多账号身份）。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub browser_space_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -568,16 +573,42 @@ pub fn renumber_page_order(workspace: &mut Workspace, group_id: &str) {
     }
 }
 
-/// 复制条目时生成不冲突的新 ID：`<毫秒>-copy-<n>`。
-pub fn next_copy_item_id(workspace: &Workspace, base_ms: i64) -> String {
+/// 新建多账号身份时生成不冲突的浏览器空间 ID：`space-<毫秒>`，冲突则递增毫秒。
+pub fn next_browser_space_id(workspace: &Workspace, base_ms: i64) -> String {
+    let mut ms = base_ms;
+    loop {
+        let candidate = format!("space-{ms}");
+        if !workspace
+            .items
+            .iter()
+            .any(|item| item.browser_space_id == candidate)
+        {
+            return candidate;
+        }
+        ms += 1;
+    }
+}
+
+/// 复制/派生条目时生成不冲突的新 ID：`<毫秒>-<用途>-<n>`。
+fn next_suffixed_item_id(workspace: &Workspace, base_ms: i64, suffix: &str) -> String {
     let mut n = 0;
     loop {
-        let candidate = format!("{base_ms}-copy-{n}");
+        let candidate = format!("{base_ms}-{suffix}-{n}");
         if !workspace.items.iter().any(|item| item.id == candidate) {
             return candidate;
         }
         n += 1;
     }
+}
+
+/// 复制条目到其它分组时的新 ID。
+pub fn next_copy_item_id(workspace: &Workspace, base_ms: i64) -> String {
+    next_suffixed_item_id(workspace, base_ms, "copy")
+}
+
+/// 新建多账号身份时的新 ID。
+pub fn next_identity_item_id(workspace: &Workspace, base_ms: i64) -> String {
+    next_suffixed_item_id(workspace, base_ms, "identity")
 }
 
 /// 新建收纳夹时的默认名称：`新建收纳夹（N）`，N 从 1 起找未占用的。
@@ -784,6 +815,15 @@ pub fn normalize_doc(doc: &mut CollectionsDoc) -> Result<(), String> {
         if let Some(icon) = item.icon.as_mut() {
             normalize_icon(icon).map_err(|e| format!("items[{index}]: {e}"))?;
         }
+        item.browser_space_id = item.browser_space_id.trim().to_string();
+        if !item.browser_space_id.is_empty()
+            && safe_id(&item.browser_space_id, MAX_BROWSER_SPACE_ID_CHARS) != item.browser_space_id
+        {
+            return Err(format!(
+                "items[{index}]: invalid browserSpaceId: {}",
+                item.browser_space_id
+            ));
+        }
     }
 
     // 桌面状态。
@@ -899,6 +939,7 @@ mod tests {
             created_at_ms: 0,
             updated_at_ms: 0,
             layout: None,
+            browser_space_id: String::new(),
             container_layout: None,
             icon: None,
         });

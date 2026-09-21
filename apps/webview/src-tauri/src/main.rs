@@ -66,11 +66,9 @@ async fn pick_data_dir(
     else {
         return Ok(None);
     };
-    let current_browser_data_dir = app
-        .state::<browser_data::BrowserDataDir>()
-        .path()
-        .map(browser_data::data_root);
-    data_dir::save_data_dir(&app, &path, current_browser_data_dir.as_deref())?;
+    // 记录切换前的数据目录作为整包搬迁来源（默认空间与身份空间一起跟随）。
+    let current_data_dir = data_dir::resolve_data_dir(&app).ok();
+    data_dir::save_data_dir(&app, &path, current_data_dir.as_deref())?;
     state.stop().await;
     state.clear_runtime_state();
     let state_inner = state.inner().clone();

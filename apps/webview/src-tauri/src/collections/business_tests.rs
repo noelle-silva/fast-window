@@ -361,3 +361,142 @@ fn ui_state_round_trip_and_validation() {
     assert_eq!(loaded.group_id, DEFAULT_GROUP_ID);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn add_identity_creates_independent_browser_space_item() {
+    let dir = temp_dir("identity");
+    let ids = seed_items(&dir, 1);
+    let source_id = ids[0].clone();
+
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: source_id.clone(),
+            name: String::new(),
+        },
+    )
+    .expect("add identity");
+
+    assert_eq!(view.items.len(), 2);
+    let source = view.items.iter().find(|item| item.id == source_id).expect("source");
+    let identity = view.items.iter().find(|item| item.id != source_id).expect("identity");
+    assert_eq!(identity.target.url, source.target.url);
+    assert_eq!(identity.group_id, source.group_id);
+    assert!(!identity.browser_space_id.is_empty());
+    assert_ne!(identity.browser_space_id, source.browser_space_id);
+    assert!(identity.container_id.is_empty());
+    assert!(identity.layout.is_none());
+    assert!(identity.name.ends_with("新身份"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_identity_accepts_custom_name() {
+    let dir = temp_dir("identity-name");
+    let ids = seed_items(&dir, 1);
+
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+
+    let identity = view.items.iter().find(|item| item.id != ids[0]).expect("identity");
+    assert_eq!(identity.name, "小号");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn remove_identity_keeps_space_while_another_item_shares_it() {
+    let dir = temp_dir("identity-shared-space");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+    let identity = view
+        .items
+        .iter()
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+    let space_dir = dir
+        .join("browser-profiles")
+        .join(&identity.browser_space_id);
+    std::fs::create_dir_all(space_dir.join("EBWebView")).expect("create space dir");
+
+    let groups_view = groups::add(
+        dir.as_path(),
+        groups::GroupInput {
+            id: String::new(),
+            name: "第二分组".to_string(),
+        },
+    )
+    .expect("add group");
+    let target_group = groups_view
+        .groups
+        .iter()
+        .find(|group| group.id != DEFAULT_GROUP_ID)
+        .expect("new group")
+        .id
+        .clone();
+    let copied = items::copy_to_group(
+        dir.as_path(),
+        items::TransferPayload {
+            id: identity.id.clone(),
+            group_id: target_group,
+        },
+    )
+    .expect("copy identity to group");
+    let shared = copied
+        .items
+        .iter()
+        .find(|item| item.id != ids[0] && item.id != identity.id)
+        .expect("copied identity")
+        .clone();
+    assert_eq!(shared.browser_space_id, identity.browser_space_id);
+
+    items::remove(dir.as_path(), &identity.id).expect("remove first copy");
+    assert!(space_dir.exists(), "空间目录应保留给仍在使用它的条目");
+
+    items::remove(dir.as_path(), &shared.id).expect("remove last copy");
+    assert!(!space_dir.exists(), "最后一个引用删除后应清理空间目录");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn remove_identity_clears_browser_space_directory() {
+    let dir = temp_dir("identity-remove");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+    let identity = view
+        .items
+        .iter()
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+    let space_dir = dir
+        .join("browser-profiles")
+        .join(&identity.browser_space_id);
+    std::fs::create_dir_all(space_dir.join("EBWebView")).expect("create space dir");
+    std::fs::write(space_dir.join("EBWebView").join("Local State"), b"x").expect("write");
+
+    items::remove(dir.as_path(), &identity.id).expect("remove identity");
+
+    assert!(!space_dir.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

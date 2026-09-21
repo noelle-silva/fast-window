@@ -92,6 +92,11 @@ pub async fn handle(
             let _guard = write_lock(app).await;
             to_value(items::remove(&data_dir, &payload.id)?)
         }
+        "collections.items.add-identity" => {
+            let payload: items::AddIdentityPayload = parse(params)?;
+            let _guard = write_lock(app).await;
+            to_value(items::add_identity(&data_dir, payload)?)
+        }
         "collections.items.open" => {
             let payload: items::IdPayload = parse(params)?;
             items::open(app, &data_dir, &payload.id).await

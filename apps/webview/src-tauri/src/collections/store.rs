@@ -36,7 +36,11 @@ pub fn workspace_view(data_dir: &Path) -> Result<WorkspaceView, String> {
 pub fn ensure_doc(data_dir: &Path) -> Result<CollectionsDoc, String> {
     let path = collections_file(data_dir);
     if path.is_file() {
-        return read_doc(&path);
+        let (mut doc, source_version) = read_doc_versioned(&path)?;
+        if source_version < DATA_VERSION {
+            save_doc(data_dir, &mut doc)?;
+        }
+        return Ok(doc);
     }
     let mut doc = if crate::collections::migration::legacy_bookmarks_present(data_dir) {
         crate::collections::migration::build_doc_from_legacy_bookmarks(data_dir)?
@@ -47,8 +51,9 @@ pub fn ensure_doc(data_dir: &Path) -> Result<CollectionsDoc, String> {
     Ok(doc)
 }
 
-/// 读取并校验数据文件；版本高于当前支持时拒绝。
-pub fn read_doc(path: &Path) -> Result<CollectionsDoc, String> {
+/// 读取并校验数据文件；版本高于当前支持时拒绝，历史版本就地迁移到当前版本。
+/// 返回（迁移到当前版本的文档，文件中的原始数据版本）。
+fn read_doc_versioned(path: &Path) -> Result<(CollectionsDoc, u32), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("读取收藏数据失败: {e}"))?;
     if text.trim().is_empty() {
         return Err("收藏数据文件为空".to_string());
@@ -61,14 +66,30 @@ pub fn read_doc(path: &Path) -> Result<CollectionsDoc, String> {
             doc.schema_version, doc.data_version, SCHEMA_VERSION, DATA_VERSION
         ));
     }
-    if doc.schema_version != SCHEMA_VERSION || doc.data_version != DATA_VERSION {
+    if doc.schema_version != SCHEMA_VERSION {
         return Err(format!(
             "收藏数据版本不受支持（schema {} / data {}），无法升级",
             doc.schema_version, doc.data_version
         ));
     }
+    let source_version = doc.data_version;
+    if source_version < DATA_VERSION {
+        migrate_data_version(&mut doc, source_version)?;
+    }
     normalize_doc(&mut doc)?;
-    Ok(doc)
+    Ok((doc, source_version))
+}
+
+/// 历史数据版本迁移：v1 → v2 仅更新版本号（新字段缺省为空，无结构变化）。
+fn migrate_data_version(doc: &mut CollectionsDoc, source_version: u32) -> Result<(), String> {
+    if source_version == 1 {
+        doc.data_version = DATA_VERSION;
+        return Ok(());
+    }
+    Err(format!(
+        "收藏数据版本不受支持（schema {} / data {}），无法升级",
+        doc.schema_version, source_version
+    ))
 }
 
 /// 归一化后原子写入（先写临时文件再替换）。
@@ -148,6 +169,7 @@ mod tests {
             layout: Some(GridLayout { x: 1, y: 2 }),
             container_layout: None,
             icon: None,
+            browser_space_id: String::new(),
         });
         save_doc(&dir, &mut doc).expect("save");
         let loaded = ensure_doc(&dir).expect("reload");
@@ -156,6 +178,41 @@ mod tests {
             loaded.workspace.items[0].layout,
             Some(GridLayout { x: 1, y: 2 })
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migrates_v1_document_to_current_version() {
+        let dir = temp_dir("migrate-v1");
+        let path = collections_file(&dir);
+        let payload = r#"{
+  "schemaVersion": 1,
+  "dataVersion": 1,
+  "workspace": {
+    "groups": [{ "id": "default", "name": "默认" }],
+    "items": [
+      {
+        "id": "1",
+        "name": "示例",
+        "target": { "kind": "url", "url": "https://example.com" },
+        "groupId": "default",
+        "pageOrder": 0
+      }
+    ],
+    "containers": [],
+    "desktop": { "iconLayout": { "rowGap": 0, "columnGap": 0, "iconScale": 0.75 } }
+  },
+  "uiState": { "groupId": "default" }
+}"#;
+        std::fs::write(&path, payload).expect("write v1");
+
+        let doc = ensure_doc(&dir).expect("migrate v1");
+
+        assert_eq!(doc.data_version, DATA_VERSION);
+        assert_eq!(doc.workspace.items.len(), 1);
+        assert_eq!(doc.workspace.items[0].browser_space_id, "");
+        let saved = std::fs::read_to_string(&path).expect("read saved");
+        assert!(saved.contains("\"dataVersion\": 2"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
