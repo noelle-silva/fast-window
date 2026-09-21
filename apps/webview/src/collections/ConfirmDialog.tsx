@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, Button, Checkbox, Dialog, DialogContent, FormControlLabel, Stack, Typography } from '@mui/material'
 import { URL_CATEGORY } from './categoryRegistry'
 import { groupContainerCount, groupItemCount } from './groupMembership'
+import { itemHasBrowserSpace } from './utils'
 import type { ConfirmState, WorkspaceView } from './types'
 
 export function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: WorkspaceView; onClose(): void; onConfirm(deleteBrowserSpace: boolean): void }) {
@@ -15,7 +16,7 @@ export function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc
   const groupCannotBeRemoved = props.confirm?.kind === 'group' && groupObjectCount > 0 && remainingGroups.length === 0
   const containerItemCount = props.confirm?.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.confirm?.id).length : 0
   const identityItem = props.confirm?.kind === 'item'
-    ? props.doc.items.find(item => item.id === props.confirm?.id && Boolean(item.browserSpaceId))
+    ? props.doc.items.find(item => item.id === props.confirm?.id && itemHasBrowserSpace(item))
     : undefined
   const message = props.confirm?.kind === 'group'
     ? groupCannotBeRemoved

@@ -30,6 +30,11 @@ export function itemFormFromItem(item: CollectionItem): CollectionItemFormState 
   return { name: item.name, target: itemTargetValue(item), groupId: item.groupId, newGroupName: '', icon: iconAppearanceStateForItem(item) }
 }
 
+/** 多账号身份的统一判定事实源：条目是否拥有独立登录空间。 */
+export function itemHasBrowserSpace(item: Pick<CollectionItem, 'browserSpaceId'>): boolean {
+  return Boolean(item.browserSpaceId)
+}
+
 export function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
 }

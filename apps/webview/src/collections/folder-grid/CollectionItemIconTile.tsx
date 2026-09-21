@@ -2,6 +2,7 @@ import * as React from 'react'
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded'
 import { Box, ButtonBase, IconButton, Stack, Typography } from '@mui/material'
 import { itemTargetValue } from '../categoryRegistry'
+import { itemHasBrowserSpace } from '../utils'
 import type { CollectionItem } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
@@ -98,7 +99,7 @@ export function CollectionItemIconTile(props: Props): React.ReactNode {
       >
         <DesktopIconVisual
           assetUrl={props.assetUrl}
-          badge={props.item.browserSpaceId ? <IdentityBadge size={badgeSize} /> : undefined}
+          badge={itemHasBrowserSpace(props.item) ? <IdentityBadge size={badgeSize} /> : undefined}
           className="desktop-grid-icon-surface"
           dragging={props.dragging}
           icon={props.item.icon}
