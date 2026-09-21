@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
-import { desktopWallpaperImageSx } from './desktopWallpaperImage'
 import { activeDesktopWallpaperPreset } from './desktopWallpaperPresets'
+import { useDesktopWallpaperSurfaces, type DesktopWallpaperSurfaceSlot } from './useDesktopWallpaperSurfaces'
 import type { CollectionViewCategoryId, DesktopWallpaperDeck as DesktopWallpaperDeckState } from './types'
 
 type Props = {
@@ -11,16 +11,31 @@ type Props = {
 }
 
 export function DesktopWallpaper(props: Props): React.ReactNode {
-  if (!props.assetUrl || !props.deck?.categories.length) return null
+  const [containerNode, setContainerNode] = React.useState<HTMLDivElement | null>(null)
+  const frame = useWallpaperFrameSize(containerNode)
 
-  const layers = props.deck.categories
-    .map(category => ({ categoryId: category.categoryId, preset: activeDesktopWallpaperPreset(category.wallpaper) }))
-    .filter((layer): layer is { categoryId: CollectionViewCategoryId; preset: NonNullable<typeof layer.preset> } => Boolean(layer.preset))
+  const slots = React.useMemo<DesktopWallpaperSurfaceSlot[]>(() => {
+    if (!props.assetUrl || !props.deck?.categories.length) return []
+    const resolveUrl = props.assetUrl
+    return props.deck.categories.flatMap(category => {
+      const preset = activeDesktopWallpaperPreset(category.wallpaper)
+      if (!preset) return []
+      return [{ categoryId: category.categoryId, url: resolveUrl(preset.assetId), view: preset.view }]
+    })
+  }, [props.assetUrl, props.deck])
 
-  if (!layers.length) return null
+  const { setSurfaceCanvas } = useDesktopWallpaperSurfaces({
+    slots,
+    frameWidth: frame.width,
+    frameHeight: frame.height,
+    pixelRatio: frame.pixelRatio,
+  })
+
+  if (!slots.length) return null
 
   return (
     <Box
+      ref={setContainerNode}
       aria-hidden="true"
       sx={{
         position: 'absolute',
@@ -30,28 +45,51 @@ export function DesktopWallpaper(props: Props): React.ReactNode {
         pointerEvents: 'none',
       }}
     >
-      {layers.map(layer => (
+      {slots.map(slot => (
         <Box
-          key={layer.categoryId}
-          component="img"
-          src={props.assetUrl?.(layer.preset.assetId)}
-          alt=""
-          draggable={false}
-          decoding="async"
-          loading="eager"
+          key={slot.categoryId}
+          component="canvas"
+          ref={setSurfaceCanvas(slot.categoryId)}
           sx={{
             position: 'absolute',
             inset: 0,
             width: '100%',
             height: '100%',
             display: 'block',
-            opacity: layer.categoryId === props.activeCategoryId ? 1 : 0,
+            opacity: slot.categoryId === props.activeCategoryId ? 1 : 0,
             transition: 'opacity 160ms ease',
-            willChange: 'opacity',
-            ...desktopWallpaperImageSx(layer.preset.view),
           }}
         />
       ))}
     </Box>
   )
+}
+
+function useWallpaperFrameSize(node: HTMLDivElement | null) {
+  const [frame, setFrame] = React.useState(() => ({ width: 0, height: 0, pixelRatio: currentPixelRatio() }))
+
+  React.useLayoutEffect(() => {
+    if (!node) return undefined
+
+    const update = () => {
+      const next = {
+        width: Math.max(0, node.clientWidth),
+        height: Math.max(0, node.clientHeight),
+        pixelRatio: currentPixelRatio(),
+      }
+      setFrame(current => current.width === next.width && current.height === next.height && current.pixelRatio === next.pixelRatio ? current : next)
+    }
+
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [node])
+
+  return frame
+}
+
+function currentPixelRatio(): number {
+  const ratio = Number(window.devicePixelRatio)
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
 }
