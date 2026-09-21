@@ -7,7 +7,9 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::Manager;
 
-use crate::collections::{assets, containers, desktop, groups, items, web_icons, workspace};
+use crate::collections::{
+    assets, containers, desktop, groups, identities, items, web_icons, workspace,
+};
 
 /// 文档写锁：串行化读-改-写，避免并发写互相覆盖。
 #[derive(Default, Clone)]
@@ -101,15 +103,17 @@ pub async fn handle(
             let _guard = write_lock(app).await;
             to_value(items::add_identity(&data_dir, payload)?)
         }
-        "collections.items.space-candidates" => {
-            let payload: items::SpaceCandidatesPayload = parse(params)?;
-            to_value(items::space_candidates(&data_dir, payload)?)
-        }
-        "collections.identity.orphans" => to_value(items::orphan_spaces(&data_dir)?),
-        "collections.identity.orphan.remove" => {
-            let payload: items::OrphanSpacePayload = parse(params)?;
+        "collections.identity.list" => to_value(identities::list(&data_dir)?),
+        "collections.identity.save" => {
+            let payload: identities::IdentitySavePayload = parse(params)?;
             let _guard = write_lock(app).await;
-            items::remove_orphan_space(app, &data_dir, payload)?;
+            identities::save(&data_dir, payload)?;
+            Ok(Value::Null)
+        }
+        "collections.identity.remove" => {
+            let payload: identities::IdentitySpacePayload = parse(params)?;
+            let _guard = write_lock(app).await;
+            identities::remove(app, &data_dir, payload)?;
             Ok(Value::Null)
         }
         "collections.items.open" => {

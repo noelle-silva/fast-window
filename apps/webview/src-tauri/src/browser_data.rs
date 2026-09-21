@@ -84,29 +84,30 @@ pub(crate) fn ensure_identity_dir(
     Ok(dir)
 }
 
-/// 身份空间元数据：来源展示信息。
+/// 身份空间元数据：来源展示信息（名称与描述独立于图标，创建时间供管理页展示）。
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct IdentityMeta {
     pub name: String,
     pub url: String,
+    /// 描述/备注；旧数据缺省为空。
+    #[serde(default)]
+    pub description: String,
+    /// 创建时间（毫秒）；旧数据缺省为 0，展示时回退目录创建时间。
+    #[serde(default)]
+    pub created_at_ms: i64,
 }
 
-/// 写入身份空间元数据（尽力而为，失败仅记录；路径非法返回错误）。
+/// 写入身份空间元数据（写入前确保目录存在）。
 pub(crate) fn write_identity_meta(
     data_dir: &Path,
     space_id: &str,
-    name: &str,
-    url: &str,
+    meta: &IdentityMeta,
 ) -> Result<(), String> {
     let dir = identity_dir(data_dir, space_id)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建身份空间目录失败: {e}"))?;
-    let meta = IdentityMeta {
-        name: name.trim().to_string(),
-        url: url.trim().to_string(),
-    };
     let payload =
-        serde_json::to_string_pretty(&meta).map_err(|e| format!("序列化身份元数据失败: {e}"))?;
+        serde_json::to_string_pretty(meta).map_err(|e| format!("序列化身份元数据失败: {e}"))?;
     std::fs::write(dir.join(IDENTITY_META_FILE), format!("{payload}\n"))
         .map_err(|e| format!("写入身份元数据失败: {e}"))
 }
@@ -116,6 +117,19 @@ pub(crate) fn read_identity_meta(data_dir: &Path, space_id: &str) -> Option<Iden
     let dir = identity_dir(data_dir, space_id).ok()?;
     let text = std::fs::read_to_string(dir.join(IDENTITY_META_FILE)).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// 身份空间目录创建时间（毫秒）；读取失败或系统不支持时返回 0。
+pub(crate) fn identity_dir_created_ms(data_dir: &Path, space_id: &str) -> i64 {
+    let Ok(dir) = identity_dir(data_dir, space_id) else {
+        return 0;
+    };
+    std::fs::metadata(dir)
+        .and_then(|meta| meta.created())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// 列举身份空间目录名（仅安全标识）。
@@ -136,32 +150,6 @@ pub(crate) fn list_identity_spaces(data_dir: &Path) -> Vec<String> {
     }
     spaces.sort();
     spaces
-}
-
-/// 身份空间目录占用字节数（递归；读取失败按 0 计）。
-pub(crate) fn identity_space_size(data_dir: &Path, space_id: &str) -> u64 {
-    let Ok(dir) = identity_dir(data_dir, space_id) else {
-        return 0;
-    };
-    dir_size_bytes(&dir)
-}
-
-fn dir_size_bytes(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    let mut total = 0_u64;
-    for entry in entries.flatten() {
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        if meta.is_dir() {
-            total = total.saturating_add(dir_size_bytes(&entry.path()));
-        } else {
-            total = total.saturating_add(meta.len());
-        }
-    }
-    total
 }
 
 /// 删除条目的身份空间（尽力而为：失败仅记录，不影响条目删除结果）。

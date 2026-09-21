@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::collections::model::{CollectionTarget, DEFAULT_GROUP_ID};
 use crate::collections::{
-    containers, desktop, groups, items,
+    containers, desktop, groups, identities, items,
 };
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -377,6 +377,8 @@ fn add_with_independent_browser_space_assigns_space_and_meta() {
         .expect("identity meta");
     assert_eq!(meta.name, "站点");
     assert_eq!(meta.url, "https://site.example");
+    assert!(meta.description.is_empty());
+    assert!(meta.created_at_ms > 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -516,8 +518,8 @@ fn remove_identity_keeps_space_while_another_item_shares_it() {
 }
 
 #[test]
-fn identity_meta_enables_orphan_detection_and_reuse_candidates() {
-    let dir = temp_dir("identity-orphan");
+fn identity_list_reports_usage_and_metadata() {
+    let dir = temp_dir("identity-list");
     let ids = seed_items(&dir, 1);
     let view = items::add_identity(
         dir.as_path(),
@@ -534,32 +536,209 @@ fn identity_meta_enables_orphan_detection_and_reuse_candidates() {
         .expect("identity")
         .clone();
 
-    let meta = crate::browser_data::read_identity_meta(dir.as_path(), &identity.browser_space_id)
-        .expect("identity meta");
-    assert_eq!(meta.name, "小号");
-    assert_eq!(meta.url, "https://site0.example");
+    let listed = identities::list(dir.as_path()).expect("list");
+    assert_eq!(listed.len(), 1);
+    let entry = &listed[0];
+    assert_eq!(entry.space_id, identity.browser_space_id);
+    assert_eq!(entry.name, "小号");
+    assert_eq!(entry.url, "https://site0.example");
+    assert!(entry.description.is_empty());
+    assert!(entry.created_at_ms > 0);
+    assert_eq!(entry.used_by.len(), 1);
+    assert_eq!(entry.used_by[0].id, identity.id);
+    assert_eq!(entry.used_by[0].name, "小号");
 
+    // 删除图标但保留登录数据：条目仍在列表，使用关系清空。
     items::remove(dir.as_path(), &identity.id, false).expect("remove keeping space");
-    let orphans = items::orphan_spaces(dir.as_path()).expect("orphans");
-    assert_eq!(orphans.len(), 1);
-    assert_eq!(orphans[0].space_id, identity.browser_space_id);
-    assert_eq!(orphans[0].name, "小号");
-    assert_eq!(orphans[0].url, "https://site0.example");
+    let listed = identities::list(dir.as_path()).expect("list after remove");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].space_id, identity.browser_space_id);
+    assert!(listed[0].used_by.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
 
-    let candidates = items::space_candidates(
+#[test]
+fn identity_name_is_independent_from_item_name() {
+    let dir = temp_dir("identity-name-independent");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
         dir.as_path(),
-        items::SpaceCandidatesPayload {
-            url: "https://site0.example".to_string(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
         },
     )
-    .expect("candidates");
-    assert_eq!(candidates.len(), 2);
-    assert_eq!(candidates[0].space_id, "");
-    let orphan_candidate = candidates
+    .expect("add identity");
+    let identity = view
+        .items
         .iter()
-        .find(|candidate| candidate.space_id == identity.browser_space_id)
-        .expect("orphan candidate");
-    assert!(orphan_candidate.orphan);
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+
+    // 改图标名：登录信息名称不受影响。
+    let mut rename = item_input("改名后的图标", "https://site0.example", DEFAULT_GROUP_ID);
+    rename.id = identity.id.clone();
+    items::update(dir.as_path(), rename).expect("rename item");
+    let meta =
+        crate::browser_data::read_identity_meta(dir.as_path(), &identity.browser_space_id)
+            .expect("identity meta");
+    assert_eq!(meta.name, "小号");
+
+    // 改登录信息名称与描述：图标名称不受影响。
+    identities::save(
+        dir.as_path(),
+        identities::IdentitySavePayload {
+            space_id: identity.browser_space_id.clone(),
+            name: "小号（工作）".to_string(),
+            description: "公司账号".to_string(),
+        },
+    )
+    .expect("save identity");
+    let stored = crate::collections::store::workspace_view(dir.as_path())
+        .expect("view")
+        .items
+        .iter()
+        .find(|item| item.id == identity.id)
+        .expect("item")
+        .clone();
+    assert_eq!(stored.name, "改名后的图标");
+    let listed = identities::list(dir.as_path()).expect("list");
+    assert_eq!(listed[0].name, "小号（工作）");
+    assert_eq!(listed[0].description, "公司账号");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn update_binding_space_seeds_meta_and_keeps_existing_name() {
+    let dir = temp_dir("identity-update-bind");
+    let ids = seed_items(&dir, 1);
+
+    // 共享条目切换为独立空间（新分配）：保存后应有种子元数据。
+    let mut to_independent = item_input("站点 0", "https://site0.example", DEFAULT_GROUP_ID);
+    to_independent.id = ids[0].clone();
+    to_independent.browser_space_id = Some(String::new());
+    to_independent.independent_browser_space = true;
+    let view = items::update(dir.as_path(), to_independent).expect("update to independent");
+    let updated = view
+        .items
+        .iter()
+        .find(|item| item.id == ids[0])
+        .expect("item")
+        .clone();
+    assert!(!updated.browser_space_id.is_empty());
+    let meta = crate::browser_data::read_identity_meta(dir.as_path(), &updated.browser_space_id)
+        .expect("seeded meta");
+    assert_eq!(meta.name, "站点 0");
+    assert!(meta.created_at_ms > 0);
+
+    // 绑定到已有登录信息：既有名称与描述不被覆盖。
+    let second = items::add(dir.as_path(), {
+        let mut input = item_input("第二站点", "https://site0.example", DEFAULT_GROUP_ID);
+        input.independent_browser_space = true;
+        input
+    })
+    .expect("add second independent");
+    let second_item = second.items.last().expect("item").clone();
+    identities::save(
+        dir.as_path(),
+        identities::IdentitySavePayload {
+            space_id: second_item.browser_space_id.clone(),
+            name: "保留名称".to_string(),
+            description: "保留描述".to_string(),
+        },
+    )
+    .expect("save identity");
+    let mut bind = item_input("站点 0", "https://site0.example", DEFAULT_GROUP_ID);
+    bind.id = ids[0].clone();
+    bind.browser_space_id = Some(second_item.browser_space_id.clone());
+    items::update(dir.as_path(), bind).expect("bind existing");
+    let meta = crate::browser_data::read_identity_meta(dir.as_path(), &second_item.browser_space_id)
+        .expect("identity meta");
+    assert_eq!(meta.name, "保留名称");
+    assert_eq!(meta.description, "保留描述");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn update_detach_to_shared_keeps_space_data_as_unused_identity() {
+    let dir = temp_dir("identity-detach");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+    let identity = view
+        .items
+        .iter()
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+    let space_dir = dir
+        .join("browser-profiles")
+        .join(&identity.browser_space_id);
+    std::fs::create_dir_all(space_dir.join("EBWebView")).expect("create space dir");
+
+    // 切回共享空间：显式空空间标识解绑，登录数据保留为未使用的登录信息。
+    let mut detach = item_input("小号", "https://site0.example", DEFAULT_GROUP_ID);
+    detach.id = identity.id.clone();
+    detach.browser_space_id = Some(String::new());
+    let view = items::update(dir.as_path(), detach).expect("detach to shared");
+    let updated = view
+        .items
+        .iter()
+        .find(|item| item.id == identity.id)
+        .expect("item")
+        .clone();
+    assert_eq!(updated.browser_space_id, "");
+    assert!(space_dir.exists(), "解绑后登录数据保留");
+
+    let listed = identities::list(dir.as_path()).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].space_id, identity.browser_space_id);
+    assert!(listed[0].used_by.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn identity_remove_clears_directory_while_icons_keep_reference() {
+    let dir = temp_dir("identity-remove-used");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+    let identity = view
+        .items
+        .iter()
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+    let space_dir = dir
+        .join("browser-profiles")
+        .join(&identity.browser_space_id);
+    std::fs::create_dir_all(space_dir.join("EBWebView")).expect("create space dir");
+
+    identities::remove_space(dir.as_path(), &identity.browser_space_id).expect("remove space");
+
+    assert!(!space_dir.exists());
+    let stored = crate::collections::store::workspace_view(dir.as_path())
+        .expect("view")
+        .items
+        .iter()
+        .find(|item| item.id == identity.id)
+        .expect("item")
+        .clone();
+    assert_eq!(stored.browser_space_id, identity.browser_space_id);
+    assert!(identities::list(dir.as_path()).expect("list").is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
