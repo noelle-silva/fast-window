@@ -1699,9 +1699,11 @@ function TopBar(props: {
       sx={{
         minHeight: 56,
         px: { xs: 1.25, sm: 1.5 },
-        display: 'flex',
+        display: 'grid',
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) auto minmax(0, 1fr)' },
         alignItems: 'center',
-        gap: 1.25,
+        columnGap: 1.25,
+        rowGap: 1,
         bgcolor: 'transparent',
         backdropFilter: 'none',
         WebkitBackdropFilter: 'none',
@@ -1709,154 +1711,76 @@ function TopBar(props: {
         boxShadow: 'none',
         userSelect: 'none',
         flexShrink: 0,
-        flexWrap: { xs: 'wrap', md: 'nowrap' },
         py: { xs: 1, md: 0.75 },
       }}
     >
-      <TopBarTools
-        activeCategoryId={props.activeCategoryId}
-        busy={props.busy}
-        canEdit={canEdit}
-        categories={props.categories}
-        doc={props.doc}
-        groupActionLabel={groupActionLabel}
-        groupId={props.groupId}
-        isAllView={isAllView}
-        phase={props.phase}
-        search={props.search}
-        selectedGroup={props.selectedGroup}
-        statusColor={statusColor}
-        statusText={statusText}
-        onAdd={props.onAdd}
-        onAddContainer={props.onAddContainer}
-        onCategoryChange={props.onCategoryChange}
-        onGroupChange={props.onGroupChange}
-        onOpenGroupEditor={props.onOpenGroupEditor}
-        onOpenAllViewSelector={props.onOpenAllViewSelector}
-        onOpenSettings={props.onOpenSettings}
-        onSearchChange={props.onSearchChange}
-      />
-      <WindowControlsDock standalone={props.launchInfo.standalone} />
-    </Paper>
-  )
-}
+      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap', rowGap: 1 }}>
+        <GroupFilterSelect doc={props.doc} groupId={props.groupId} disabled={isAllView} onGroupChange={props.onGroupChange} />
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={props.activeCategoryId}
+          onChange={(_, value: CollectionViewCategoryId | null) => { if (value) props.onCategoryChange(value) }}
+          aria-label="收藏类别"
+          sx={{
+            bgcolor: 'rgba(255,255,255,0.64)',
+            borderRadius: 3,
+            p: 0.35,
+            '& .MuiToggleButton-root': { border: 0, borderRadius: 2.5, px: 1.35, fontWeight: 900 },
+          }}
+        >
+          {props.categories.map(category => {
+            const CategoryIcon = category.icon
+            return <ToggleButton key={category.id} value={category.id} aria-label={category.label}><CategoryIcon fontSize="small" sx={{ mr: 0.6 }} />{category.label}</ToggleButton>
+          })}
+        </ToggleButtonGroup>
+        {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
+      </Stack>
 
-function TopBarTools(props: {
-  activeCategoryId: CollectionViewCategoryId
-  busy: boolean
-  canEdit: boolean
-  categories: ViewCategoryDefinition[]
-  doc: CategoryWorkspaceView
-  groupActionLabel: string
-  groupId: string
-  isAllView: boolean
-  phase: Phase
-  search: string
-  selectedGroup: CollectionGroup | undefined
-  statusColor: 'error' | 'warning'
-  statusText: string
-  onAdd(): void
-  onAddContainer(): void
-  onCategoryChange(categoryId: CollectionViewCategoryId): void
-  onGroupChange(groupId: string): void
-  onOpenGroupEditor(): void
-  onOpenAllViewSelector(): void
-  onOpenSettings(): void
-  onSearchChange(search: string): void
-}) {
-  return (
-    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: '1 1 auto', minWidth: 0, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
       <TextField
         value={props.search}
         onChange={event => props.onSearchChange(event.target.value)}
         placeholder="按名称或路径搜索"
         size="small"
-        sx={{ flex: { xs: '1 1 100%', sm: '0 1 130px' }, minWidth: { xs: '100%', sm: 110 }, maxWidth: { xs: '100%', sm: 130 } }}
+        sx={{ width: { xs: '100%', md: 200 }, justifySelf: { xs: 'stretch', md: 'center' } }}
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
       />
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={props.activeCategoryId}
-        onChange={(_, value: CollectionViewCategoryId | null) => { if (value) props.onCategoryChange(value) }}
-        aria-label="收藏类别"
-        sx={{
-          bgcolor: 'rgba(255,255,255,0.64)',
-          borderRadius: 3,
-          p: 0.35,
-          '& .MuiToggleButton-root': { border: 0, borderRadius: 2.5, px: 1.35, fontWeight: 900 },
-        }}
-      >
-        {props.categories.map(category => {
-          const CategoryIcon = category.icon
-          return <ToggleButton key={category.id} value={category.id} aria-label={category.label}><CategoryIcon fontSize="small" sx={{ mr: 0.6 }} />{category.label}</ToggleButton>
-        })}
-      </ToggleButtonGroup>
-      {props.isAllView ? null : <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />}
-      {props.phase !== 'ready' ? <Chip color={props.statusColor} size="small" label={props.statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
-      <TopBarActions
-        busy={props.busy}
-        canEdit={props.canEdit}
-        canCreateContainer={!props.isAllView && Boolean(props.selectedGroup)}
-        isAllView={props.isAllView}
-        groupActionLabel={props.groupActionLabel}
-        selectedGroup={props.selectedGroup}
-        onAdd={props.onAdd}
-        onAddContainer={props.onAddContainer}
-        onOpenAllViewSelector={props.onOpenAllViewSelector}
-        onOpenGroupEditor={props.onOpenGroupEditor}
-        onOpenSettings={props.onOpenSettings}
-      />
-    </Stack>
-  )
-}
 
-function TopBarActions(props: {
-  busy: boolean
-  canEdit: boolean
-  canCreateContainer: boolean
-  groupActionLabel: string
-  isAllView: boolean
-  selectedGroup: CollectionGroup | undefined
-  onAdd(): void
-  onAddContainer(): void
-  onOpenAllViewSelector(): void
-  onOpenGroupEditor(): void
-  onOpenSettings(): void
-}) {
-  return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: '0 0 auto' }}>
-      <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
-      {props.isAllView ? <Button variant="contained" startIcon={<AppsRoundedIcon />} onClick={props.onOpenAllViewSelector} disabled={!props.canEdit || props.busy}>选择图标</Button> : null}
-      {!props.isAllView ? <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!props.canEdit || props.busy}>新增</Button> : null}
-      {!props.isAllView ? <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy || !props.canCreateContainer}>收纳夹</Button> : null}
-      {!props.isAllView ? <Button
-        variant="text"
-        startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
-        onClick={props.onOpenGroupEditor}
-        disabled={!props.canEdit}
-        sx={{ minWidth: 108 }}
-      >
-        {props.groupActionLabel}
-      </Button> : null}
-    </Stack>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ justifySelf: { xs: 'stretch', md: 'end' }, flexWrap: 'wrap', rowGap: 1 }}>
+        {isAllView ? <Button variant="contained" startIcon={<AppsRoundedIcon />} onClick={props.onOpenAllViewSelector} disabled={!canEdit || props.busy}>选择图标</Button> : null}
+        {!isAllView ? <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button> : null}
+        {!isAllView ? <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!canEdit || props.busy || !props.selectedGroup}>收纳夹</Button> : null}
+        {!isAllView ? (
+          <Button
+            variant="text"
+            startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
+            onClick={props.onOpenGroupEditor}
+            disabled={!canEdit}
+            sx={{ minWidth: 108 }}
+          >
+            {groupActionLabel}
+          </Button>
+        ) : null}
+        <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
+        <WindowControlsDock standalone={props.launchInfo.standalone} />
+      </Stack>
+    </Paper>
   )
 }
 
 function WindowControlsDock(props: { standalone: boolean }) {
   if (!props.standalone) return null
   return (
-    <Box sx={{ ml: 'auto', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flex: '0 0 auto' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flex: '0 0 auto' }}>
       <WindowControls />
     </Box>
   )
 }
 
-function GroupFilterSelect(props: { doc: CategoryWorkspaceView; groupId: string; onGroupChange(groupId: string): void }) {
+function GroupFilterSelect(props: { disabled?: boolean; doc: CategoryWorkspaceView; groupId: string; onGroupChange(groupId: string): void }) {
   const [open, setOpen] = React.useState(false)
-
-  return (
-    <FormControl variant="filled" size="small" sx={{ width: { xs: 'calc(50% - 6px)', sm: 180 }, minWidth: 148 }}>
+  const control = (
+    <FormControl variant="filled" size="small" disabled={props.disabled} sx={{ width: { xs: 'calc(50% - 6px)', sm: 180 }, minWidth: 148 }}>
       <InputLabel id="folders-group-filter-label">分组</InputLabel>
       <Select
         variant="filled"
@@ -1879,6 +1803,14 @@ function GroupFilterSelect(props: { doc: CategoryWorkspaceView; groupId: string;
         {props.doc.groups.length ? props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>) : <MenuItem value="" disabled>暂无分组</MenuItem>}
       </Select>
     </FormControl>
+  )
+  if (!props.disabled) return control
+  return (
+    <Tooltip title="全部视图不支持分组筛选">
+      <Box component="span" sx={{ display: 'inline-flex' }}>
+        {control}
+      </Box>
+    </Tooltip>
   )
 }
 
