@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogContent, Stack, TextField, Typography } from '@mui/material'
 
-export function IdentityDialog(props: {
+export function IdentityCreateDialog(props: {
   busy: boolean
   open: boolean
   sourceName: string

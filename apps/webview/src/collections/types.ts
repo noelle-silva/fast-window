@@ -148,11 +148,20 @@ export type GroupFormState = { id: string; name: string }
 
 export type ContainerFormState = { id: string; name: string }
 
-export type ConfirmState = { kind: 'item' | 'group' | 'container'; id: string; label: string } | null
+export type ConfirmState = { kind: 'item' | 'group' | 'container' | 'identity'; id: string; label: string } | null
 
-export type SpaceCandidate = { spaceId: string; label: string; url: string; orphan: boolean }
+/** 使用某条独立空间登录信息的图标。 */
+export type IdentityUsage = { id: string; name: string }
 
-export type OrphanSpaceInfo = { spaceId: string; name: string; url: string; sizeBytes: number; modifiedMs: number }
+/** 一条独立空间登录信息（名称/描述独立于图标，使用关系由引用派生）。 */
+export type IdentityInfo = {
+  spaceId: string
+  name: string
+  url: string
+  description: string
+  createdAtMs: number
+  usedBy: IdentityUsage[]
+}
 
 export type DesktopGridEntry = {
   kind: DesktopEntryKind

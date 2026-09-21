@@ -13,12 +13,15 @@ import { ContainerDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { GroupDialog } from './GroupDialog'
-import { IdentityDialog } from './IdentityDialog'
+import { identityOptionsForUrl } from './identities'
+import { IdentityCreateDialog } from './IdentityCreateDialog'
+import { IdentityDetailDialog } from './IdentityDetailDialog'
 import { ItemDialog } from './ItemDialog'
 import { MainTopbar } from './MainTopbar'
 import { SettingsDialog } from './SettingsDialog'
 import { StatusNotice } from './StatusNotice'
 import { useToast } from './toast'
+import { useIdentityRegistry } from './useIdentityRegistry'
 import { createCollectionsClient } from './collectionsClient'
 import { iconAppearanceCandidateFromWebIcon, importedIconCandidateId, upsertIconCandidate, upsertIconCandidates } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
@@ -54,8 +57,6 @@ import type {
   CollectionsHealth,
   BlankContextMenuState,
   IconAppearanceCandidate,
-  OrphanSpaceInfo,
-  SpaceCandidate,
   FwLaunchInfo,
   GroupFormState,
   Phase,
@@ -77,6 +78,7 @@ import {
   errorMessage,
   isInteractiveTarget,
   itemFormFromItem,
+  itemHasBrowserSpace,
   itemTemplate,
 } from './utils'
 
@@ -90,6 +92,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [browserPageCount, setBrowserPageCount] = React.useState(0)
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
+  const { identities, refresh: refreshIdentities } = useIdentityRegistry(client)
   const [doc, setDoc] = React.useState<WorkspaceView>(DEFAULT_WORKSPACE_VIEW)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
@@ -112,11 +115,9 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [identityDialog, setIdentityDialog] = React.useState<{ source: CollectionItem } | null>(null)
   const [identityName, setIdentityName] = React.useState('')
+  const [identityEditorSpaceId, setIdentityEditorSpaceId] = React.useState<string | null>(null)
   const [itemSpace, setItemSpace] = React.useState('')
   const [itemIndependentSpace, setItemIndependentSpace] = React.useState(false)
-  const [spaceCandidates, setSpaceCandidates] = React.useState<SpaceCandidate[]>([])
-  const [orphanSpaces, setOrphanSpaces] = React.useState<OrphanSpaceInfo[] | null>(null)
-  const [orphanBusy, setOrphanBusy] = React.useState(false)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
   const [containerExtractDrag, setContainerExtractDrag] = React.useState<ContainerExtractDragState>(null)
@@ -222,7 +223,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   React.useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
       if (event.defaultPrevented || phase !== 'ready' || busy || !client) return
-      if (editing || settingsOpen || groupEditorOpen || containerEditorOpen || identityDialog || confirm || containerView || containerDropView || desktopDrag || containerExtractDrag) return
+      if (editing || settingsOpen || groupEditorOpen || containerEditorOpen || identityDialog || identityEditorSpaceId || confirm || containerView || containerDropView || desktopDrag || containerExtractDrag) return
       if (isInteractiveTarget(event.target)) return
       const text = event.clipboardData?.getData('text/plain') || ''
       if (!text.trim()) return
@@ -231,7 +232,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [busy, client, confirm, containerDropView, containerEditorOpen, containerExtractDrag, containerView, desktopDrag, doc, editing, groupEditorOpen, groupId, identityDialog, phase, settingsOpen])
+  }, [busy, client, confirm, containerDropView, containerEditorOpen, containerExtractDrag, containerView, desktopDrag, doc, editing, groupEditorOpen, groupId, identityDialog, identityEditorSpaceId, phase, settingsOpen])
   React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
@@ -250,7 +251,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function closeItemDialog() {
     cancelWebIconDiscovery()
     setEditing(null)
-    setSpaceCandidates([])
   }
 
   function updateItemForm(nextForm: CollectionItemFormState) {
@@ -274,7 +274,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setForm(createEmptyItemForm(target.groupId))
       setItemSpace('')
       setItemIndependentSpace(false)
-      setSpaceCandidates([])
     } catch (e) {
       showToast(errorMessage(e, '请先创建分组，再添加收藏项'), 'error')
     }
@@ -284,14 +283,11 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     cancelWebIconDiscovery()
     setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
     setItemSpace(item.browserSpaceId || '')
-    setItemIndependentSpace(false)
-    setSpaceCandidates([])
-    if (client) {
-      void client
-        .request<SpaceCandidate[]>('collections.items.space-candidates', { url: item.target.url })
-        .then(candidates => setSpaceCandidates(candidates))
-        .catch(() => setSpaceCandidates([]))
-    }
+    setItemIndependentSpace(itemHasBrowserSpace(item))
+  }
+
+  function openIdentityEditor(spaceId: string) {
+    setIdentityEditorSpaceId(spaceId)
   }
 
   function openAddIdentity(item: CollectionItem) {
@@ -311,8 +307,39 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setDoc(nextDoc)
       setIdentityDialog(null)
       setIdentityName('')
+      await refreshIdentities()
     } catch (e) {
       showToast(errorMessage(e, '创建账号身份失败'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveIdentityDetail(name: string, description: string) {
+    if (!client || !identityEditorSpaceId) return
+    setBusy(true)
+    try {
+      await client.request('collections.identity.save', { spaceId: identityEditorSpaceId, name, description })
+      setIdentityEditorSpaceId(null)
+      await refreshIdentities()
+      showToast('登录信息已保存', 'success')
+    } catch (e) {
+      showToast(errorMessage(e, '保存登录信息失败'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeIdentity(spaceId: string) {
+    if (!client) return
+    setBusy(true)
+    try {
+      await client.request('collections.identity.remove', { spaceId })
+      setConfirm(null)
+      await refreshIdentities()
+      showToast('登录信息已删除', 'success')
+    } catch (e) {
+      showToast(errorMessage(e, '删除登录信息失败'), 'error')
     } finally {
       setBusy(false)
     }
@@ -376,11 +403,13 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         updatedAtMs: now,
         layout: editing.layout,
         icon: draftIcon,
-        browserSpaceId: itemSpace,
+        // 共享空间一律显式清空空间标识（解绑）；独立空间按所选登录信息绑定或新建。
+        browserSpaceId: itemIndependentSpace ? itemSpace : '',
         independentBrowserSpace: itemIndependentSpace,
       }
       const nextDoc = await client.request<WorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', { item: payload })
-      setDoc(nextDoc); setEditing(null); setSpaceCandidates([])
+      setDoc(nextDoc); setEditing(null)
+      await refreshIdentities()
       if (newGroupName) selectResolvedGroup(targetGroupId)
     } catch (e) { showToast(errorMessage(e, `保存${category.singularLabel}失败`), 'error') } finally { setBusy(false) }
   }
@@ -439,25 +468,6 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     try { setDoc(await client.request<WorkspaceView>('collections.items.remove', { id: item.id, deleteBrowserSpace })); setConfirm(null); setContextMenu(null) }
     catch (e) { showToast(errorMessage(e, `删除${URL_CATEGORY.singularLabel}失败`), 'error') }
     finally { setBusy(false) }
-  }
-
-  async function detectOrphans() {
-    if (!client) return
-    setOrphanBusy(true)
-    try { setOrphanSpaces(await client.request<OrphanSpaceInfo[]>('collections.identity.orphans')) }
-    catch (e) { showToast(errorMessage(e, '检测孤立登录空间失败'), 'error') }
-    finally { setOrphanBusy(false) }
-  }
-
-  async function removeOrphanSpace(spaceId: string) {
-    if (!client) return
-    setOrphanBusy(true)
-    try {
-      await client.request('collections.identity.orphan.remove', { spaceId })
-      setOrphanSpaces(await client.request<OrphanSpaceInfo[]>('collections.identity.orphans'))
-      showToast('孤立登录空间已清理', 'success')
-    } catch (e) { showToast(errorMessage(e, '清理孤立登录空间失败'), 'error') }
-    finally { setOrphanBusy(false) }
   }
 
   async function openItem(item: CollectionItem) {
@@ -1285,10 +1295,11 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onSave={() => void saveItem()}
           onSelectIconCandidate={selectFormIconCandidate}
           onChangeIndependentSpace={setItemIndependentSpace}
-          onChangeSpace={setItemSpace}
+          onChangeIdentity={setItemSpace}
+          onEditIdentity={openIdentityEditor}
+          identityOptions={identityOptionsForUrl(identities, form.target, itemSpace)}
+          identityValue={itemSpace}
           independentSpace={itemIndependentSpace}
-          spaceCandidates={spaceCandidates}
-          spaceValue={itemSpace}
         />
 
         <GroupDialog
@@ -1305,7 +1316,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onSave={() => void saveGroup()}
         />
 
-        <IdentityDialog
+        <IdentityCreateDialog
           busy={busy}
           open={Boolean(identityDialog)}
           sourceName={identityDialog?.source.name || ''}
@@ -1315,22 +1326,31 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onSave={() => void saveIdentity()}
         />
 
+        <IdentityDetailDialog
+          busy={busy}
+          identity={identities.find(identity => identity.spaceId === identityEditorSpaceId) || null}
+          onClose={() => setIdentityEditorSpaceId(null)}
+          onSave={(name, description) => void saveIdentityDetail(name, description)}
+        />
+
         <SettingsDialog
           busy={busy}
           doc={doc}
+          identities={identities}
           open={settingsOpen}
-          orphanBusy={orphanBusy}
-          orphanSpaces={orphanSpaces}
           status={status}
           iconLayout={visibleIconLayout}
           assetUrl={client?.assetUrl}
           onClearWallpaper={() => void saveDesktopWallpaper(null)}
           onClose={() => setSettingsOpen(false)}
-          onDetectOrphans={() => void detectOrphans()}
+          onDeleteIdentity={spaceId => {
+            const identity = identities.find(current => current.spaceId === spaceId)
+            setConfirm({ kind: 'identity', id: spaceId, label: identity?.name || spaceId })
+          }}
+          onEditIdentity={openIdentityEditor}
           onPickDataDir={() => void pickDataDir()}
           onPickWallpaper={() => void pickWallpaperImage()}
           onPreviewIconLayout={layout => setIconLayoutDraft(normalizeDesktopIconLayout(layout))}
-          onRemoveOrphan={spaceId => void removeOrphanSpace(spaceId)}
           onRemoveWallpaperPreset={id => void removeDesktopWallpaperPreset(id)}
           onRestart={() => void connect()}
           onSaveIconLayout={layout => void saveDesktopIconLayout(layout)}
@@ -1405,6 +1425,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
             if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
             else if (confirm.kind === 'container' && container) void removeContainer(container)
             else if (confirm.kind === 'item' && item) void removeItem(item, deleteBrowserSpace)
+            else if (confirm.kind === 'identity') void removeIdentity(confirm.id)
             else setConfirm(null)
           }}
         />

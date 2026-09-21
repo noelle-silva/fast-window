@@ -1,4 +1,5 @@
 import * as React from 'react'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import {
   Box,
   Button,
@@ -6,6 +7,7 @@ import {
   DialogContent,
   FormControl,
   FormHelperText,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -13,11 +15,13 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { URL_CATEGORY } from './categoryRegistry'
 import { IconAppearancePanel } from './DesktopDialogs'
-import type { CollectionItem, CollectionItemFormState, DesktopIcon, IconAppearanceCandidate, SpaceCandidate, WebIconDiscoveryProgress, WorkspaceView } from './types'
+import { identityDisplayName } from './identities'
+import type { CollectionItem, CollectionItemFormState, DesktopIcon, IconAppearanceCandidate, IdentityInfo, WebIconDiscoveryProgress, WorkspaceView } from './types'
 
 export function ItemDialog(props: {
   assetUrl?(assetId: string): string
@@ -25,15 +29,16 @@ export function ItemDialog(props: {
   doc: WorkspaceView
   editing: CollectionItem | null
   form: CollectionItemFormState
+  identityOptions: IdentityInfo[]
+  identityValue: string
   independentSpace: boolean
-  spaceCandidates: SpaceCandidate[]
-  spaceValue: string
   webIconDiscovery: WebIconDiscoveryProgress
   onChangeIconDraft(icon: DesktopIcon | null): void
+  onChangeIdentity(spaceId: string): void
   onChangeIndependentSpace(value: boolean): void
-  onChangeSpace(value: string): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
+  onEditIdentity(spaceId: string): void
   onFetchWebIcons(): void
   onPasteIconImage(): void
   onPickIconImage(): void
@@ -44,7 +49,8 @@ export function ItemDialog(props: {
   const category = URL_CATEGORY
   const open = Boolean(props.editing)
   const targetContainer = props.editing?.containerId ? props.doc.containers.find(container => container.id === props.editing?.containerId) : null
-  const inheritableSpaces = props.spaceCandidates.filter(candidate => candidate.spaceId !== '')
+  const selectedIdentity = props.identityOptions.find(identity => identity.spaceId === props.identityValue)
+  const canEditIdentity = Boolean(props.identityValue) && Boolean(selectedIdentity)
 
   return (
     <Dialog open={open} onClose={props.onClose} fullWidth maxWidth="sm">
@@ -93,43 +99,55 @@ export function ItemDialog(props: {
               fullWidth
             />
           </Stack>
-          {!props.editing?.id ? (
-            <Box>
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                value={props.independentSpace ? 'independent' : 'shared'}
-                onChange={(_, value: 'shared' | 'independent' | null) => { if (value) props.onChangeIndependentSpace(value === 'independent') }}
-                aria-label="登录空间"
-              >
-                <ToggleButton value="shared">共享空间</ToggleButton>
-                <ToggleButton value="independent">独立空间</ToggleButton>
-              </ToggleButtonGroup>
-              <FormHelperText>
-                共享空间：与其它收藏共用登录状态；独立空间：拥有独立登录状态，可与其它账号同时登录。
-              </FormHelperText>
-            </Box>
-          ) : null}
-          {inheritableSpaces.length ? (
-            <FormControl variant="filled" fullWidth size="small">
-              <InputLabel id="item-dialog-space-label">登录身份</InputLabel>
-              <Select
-                variant="filled"
-                labelId="item-dialog-space-label"
-                label="登录身份"
-                value={props.spaceValue}
-                onChange={event => props.onChangeSpace(event.target.value)}
-              >
-                {props.spaceCandidates.map(candidate => (
-                  <MenuItem key={candidate.spaceId || 'default'} value={candidate.spaceId}>
-                    {candidate.spaceId === ''
-                      ? candidate.label
-                      : `${candidate.label}${candidate.orphan ? '（未绑定的登录数据）' : ''}`}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>该网址存在可继承的登录状态，选择后此图标将使用对应身份的登录数据。</FormHelperText>
-            </FormControl>
+          <Box>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={props.independentSpace ? 'independent' : 'shared'}
+              onChange={(_, value: 'shared' | 'independent' | null) => { if (value) props.onChangeIndependentSpace(value === 'independent') }}
+              aria-label="登录空间"
+            >
+              <ToggleButton value="shared">共享空间</ToggleButton>
+              <ToggleButton value="independent">独立空间</ToggleButton>
+            </ToggleButtonGroup>
+            <FormHelperText>
+              共享空间：与其它收藏共用登录状态；独立空间：拥有独立登录状态，可与其它账号同时登录。
+            </FormHelperText>
+          </Box>
+          {props.independentSpace ? (
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <FormControl variant="filled" fullWidth size="small">
+                <InputLabel id="item-dialog-identity-label">登录信息</InputLabel>
+                <Select
+                  variant="filled"
+                  labelId="item-dialog-identity-label"
+                  label="登录信息"
+                  value={props.identityValue}
+                  onChange={event => props.onChangeIdentity(event.target.value)}
+                >
+                  <MenuItem value="">新建一份全新的登录数据</MenuItem>
+                  {props.identityOptions.map(identity => (
+                    <MenuItem key={identity.spaceId} value={identity.spaceId}>
+                      {identity.usedBy.length ? identityDisplayName(identity) : `${identityDisplayName(identity)}（未使用）`}
+                    </MenuItem>
+                  ))}
+                  {props.identityValue && !selectedIdentity ? <MenuItem value={props.identityValue}>当前独立空间</MenuItem> : null}
+                </Select>
+                <FormHelperText>选择该网址已有的登录信息，或新建一份全新的独立登录数据。</FormHelperText>
+              </FormControl>
+              <Tooltip title="编辑登录信息名称与描述">
+                <span>
+                  <IconButton
+                    aria-label="编辑登录信息"
+                    disabled={!canEditIdentity}
+                    onClick={() => props.onEditIdentity(props.identityValue)}
+                    sx={{ mt: 0.25 }}
+                  >
+                    <EditRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
           ) : null}
           <IconAppearancePanel
             assetUrl={props.assetUrl}
