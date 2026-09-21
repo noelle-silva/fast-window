@@ -69,7 +69,7 @@ async fn pick_data_dir(
     let current_browser_data_dir = app
         .state::<browser_data::BrowserDataDir>()
         .path()
-        .map(std::path::Path::to_path_buf);
+        .map(browser_data::data_root);
     data_dir::save_data_dir(&app, &path, current_browser_data_dir.as_deref())?;
     state.stop().await;
     state.clear_runtime_state();
