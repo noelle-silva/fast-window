@@ -25,6 +25,16 @@ export function normalizeErrorPayload(input: unknown): ErrorPayload | null {
   return out
 }
 
+export function collectErrorOrigins(error: ErrorPayload): ErrorPayload[] {
+  const cause = error.cause || null
+  const causes = Array.isArray(error.causes) ? error.causes : []
+  if (!cause && !causes.length) return [error]
+  const out: ErrorPayload[] = []
+  if (cause) out.push(...collectErrorOrigins(cause))
+  for (const item of causes) out.push(...collectErrorOrigins(item))
+  return out
+}
+
 export function normalizeErrorPayloads(input: unknown): ErrorPayload[] {
   if (!Array.isArray(input)) return []
   const out: ErrorPayload[] = []
