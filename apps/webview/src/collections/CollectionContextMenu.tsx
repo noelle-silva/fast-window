@@ -8,6 +8,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
+import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded'
 import { Box, FormControl, InputLabel, ListItemIcon, ListItemText, Menu, MenuItem, Select } from '@mui/material'
 import type { BlankContextMenuState, CollectionContainer, CollectionGroup, CollectionItem, ContextMenuState, DesktopGridEntry, WorkspaceView } from './types'
 
@@ -33,6 +34,7 @@ type CollectionContextMenuProps = {
   doc: WorkspaceView
   groups: CollectionGroup[]
   menu: ContextMenuState
+  onAddIdentity(item: CollectionItem): void
   onClose(): void
   onCreateContainer(): void
   onCreateGroup(): void
@@ -95,6 +97,7 @@ export function CollectionContextMenu(props: CollectionContextMenuProps): React.
           doc={props.doc}
           entry={menu.entry}
           groups={props.groups}
+          onAddIdentity={item => runAndClose(() => props.onAddIdentity(item))}
           onCopyToGroup={(item, groupId) => runAndClose(() => props.onCopyToGroup(item, groupId))}
           onDelete={entry => runAndClose(() => props.onDelete(entry))}
           onEdit={item => runAndClose(() => props.onEdit(item))}
@@ -110,6 +113,7 @@ export function CollectionContextMenu(props: CollectionContextMenuProps): React.
           doc={props.doc}
           groups={props.groups}
           item={menu.item}
+          onAddIdentity={item => runAndClose(() => props.onAddIdentity(item))}
           onCopyToGroup={(item, groupId) => runAndClose(() => props.onCopyToGroup(item, groupId))}
           onDelete={item => runAndClose(() => props.onDelete(desktopEntryFromItem(item)))}
           onEdit={item => runAndClose(() => props.onEdit(item))}
@@ -169,6 +173,7 @@ function DesktopEntryMenuItems(props: {
   doc: WorkspaceView
   entry: DesktopGridEntry
   groups: CollectionGroup[]
+  onAddIdentity(item: CollectionItem): void
   onOpen(entry: DesktopGridEntry): void
   onEdit(item: CollectionItem): void
   onEditContainer(container: CollectionContainer): void
@@ -190,6 +195,10 @@ function DesktopEntryMenuItems(props: {
         <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
         <ListItemText>编辑</ListItemText>
       </MenuItem> : null}
+      {item ? <MenuItem onClick={() => props.onAddIdentity(item)} disabled={props.busy}>
+        <ListItemIcon><PersonAddRoundedIcon fontSize="small" /></ListItemIcon>
+        <ListItemText>新建账号身份</ListItemText>
+      </MenuItem> : null}
       {container ? <MenuItem onClick={() => props.onEditContainer(container)}>
         <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
         <ListItemText>编辑收纳夹</ListItemText>
@@ -210,6 +219,7 @@ function ContainerItemMenuItems(props: {
   doc: WorkspaceView
   groups: CollectionGroup[]
   item: CollectionItem
+  onAddIdentity(item: CollectionItem): void
   onOpen(item: CollectionItem): void
   onEdit(item: CollectionItem): void
   onCopyToGroup(item: CollectionItem, groupId: string): void
@@ -229,6 +239,10 @@ function ContainerItemMenuItems(props: {
       <MenuItem onClick={() => props.onEdit(props.item)}>
         <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
         <ListItemText>编辑</ListItemText>
+      </MenuItem>
+      <MenuItem onClick={() => props.onAddIdentity(props.item)} disabled={props.busy}>
+        <ListItemIcon><PersonAddRoundedIcon fontSize="small" /></ListItemIcon>
+        <ListItemText>新建账号身份</ListItemText>
       </MenuItem>
       <MenuItem onClick={() => props.onRemoveFromContainer(props.item)}>
         <ListItemIcon><LogoutRoundedIcon fontSize="small" /></ListItemIcon>

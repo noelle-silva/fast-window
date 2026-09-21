@@ -95,6 +95,8 @@ export type CollectionItem = {
   layout?: CollectionGridLayout
   containerLayout?: CollectionGridLayout
   icon?: DesktopIcon
+  // 浏览器空间标识：缺省 = 默认共享登录空间；存在 = 独立登录空间（网址多账号身份）。
+  browserSpaceId?: string
 }
 
 export type Workspace = {

@@ -13,6 +13,7 @@ import { ContainerDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { GroupDialog } from './GroupDialog'
+import { IdentityDialog } from './IdentityDialog'
 import { ItemDialog } from './ItemDialog'
 import { MainTopbar } from './MainTopbar'
 import { SettingsDialog } from './SettingsDialog'
@@ -107,6 +108,8 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [containerDropView, setContainerDropView] = React.useState<CollectionContainer | null>(null)
   const [iconLayoutDraft, setIconLayoutDraft] = React.useState<DesktopIconLayout | null>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
+  const [identityDialog, setIdentityDialog] = React.useState<{ source: CollectionItem } | null>(null)
+  const [identityName, setIdentityName] = React.useState('')
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
   const [containerExtractDrag, setContainerExtractDrag] = React.useState<ContainerExtractDragState>(null)
@@ -212,7 +215,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   React.useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
       if (event.defaultPrevented || phase !== 'ready' || busy || !client) return
-      if (editing || settingsOpen || groupEditorOpen || containerEditorOpen || confirm || containerView || containerDropView || desktopDrag || containerExtractDrag) return
+      if (editing || settingsOpen || groupEditorOpen || containerEditorOpen || identityDialog || confirm || containerView || containerDropView || desktopDrag || containerExtractDrag) return
       if (isInteractiveTarget(event.target)) return
       const text = event.clipboardData?.getData('text/plain') || ''
       if (!text.trim()) return
@@ -221,7 +224,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [busy, client, confirm, containerDropView, containerEditorOpen, containerExtractDrag, containerView, desktopDrag, doc, editing, groupEditorOpen, groupId, phase, settingsOpen])
+  }, [busy, client, confirm, containerDropView, containerEditorOpen, containerExtractDrag, containerView, desktopDrag, doc, editing, groupEditorOpen, groupId, identityDialog, phase, settingsOpen])
   React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
@@ -269,6 +272,30 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function openEdit(item: CollectionItem) {
     cancelWebIconDiscovery()
     setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
+  }
+
+  function openAddIdentity(item: CollectionItem) {
+    setContextMenu(null)
+    setIdentityDialog({ source: item })
+    setIdentityName('')
+  }
+
+  async function saveIdentity() {
+    if (!client || !identityDialog) return
+    setBusy(true)
+    try {
+      const nextDoc = await client.request<WorkspaceView>('collections.items.add-identity', {
+        id: identityDialog.source.id,
+        name: identityName.trim(),
+      })
+      setDoc(nextDoc)
+      setIdentityDialog(null)
+      setIdentityName('')
+    } catch (e) {
+      showToast(errorMessage(e, '创建账号身份失败'), 'error')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function openAddContainer() {
@@ -1184,6 +1211,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           menu={contextMenu}
           groups={doc.groups}
           doc={doc}
+          onAddIdentity={openAddIdentity}
           onClose={closeContextMenu}
           onCreateContainer={openAddContainer}
           onCreateGroup={() => openGroupEditor()}
@@ -1229,6 +1257,16 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onMoveGroup={groupOrder => void saveGroupOrder(groupOrder)}
           onNew={() => setGroupForm(EMPTY_GROUP_FORM)}
           onSave={() => void saveGroup()}
+        />
+
+        <IdentityDialog
+          busy={busy}
+          open={Boolean(identityDialog)}
+          sourceName={identityDialog?.source.name || ''}
+          name={identityName}
+          onChange={setIdentityName}
+          onClose={() => setIdentityDialog(null)}
+          onSave={() => void saveIdentity()}
         />
 
         <SettingsDialog
