@@ -134,6 +134,7 @@ body.browser-bar-shell {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  width: 240px;
   max-width: 100%;
   height: 28px;
   padding: 0 8px;
@@ -151,7 +152,9 @@ body.browser-bar-shell {
 }
 
 .browser-bar-switcher-name {
-  max-width: 220px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
   overflow: hidden;
   font-size: 12px;
   font-weight: 700;
