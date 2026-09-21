@@ -11,6 +11,8 @@ import {
   Select,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material'
 import { URL_CATEGORY } from './categoryRegistry'
@@ -23,10 +25,12 @@ export function ItemDialog(props: {
   doc: WorkspaceView
   editing: CollectionItem | null
   form: CollectionItemFormState
+  independentSpace: boolean
   spaceCandidates: SpaceCandidate[]
   spaceValue: string
   webIconDiscovery: WebIconDiscoveryProgress
   onChangeIconDraft(icon: DesktopIcon | null): void
+  onChangeIndependentSpace(value: boolean): void
   onChangeSpace(value: string): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
@@ -89,6 +93,23 @@ export function ItemDialog(props: {
               fullWidth
             />
           </Stack>
+          {!props.editing?.id ? (
+            <Box>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={props.independentSpace ? 'independent' : 'shared'}
+                onChange={(_, value: 'shared' | 'independent' | null) => { if (value) props.onChangeIndependentSpace(value === 'independent') }}
+                aria-label="登录空间"
+              >
+                <ToggleButton value="shared">共享空间</ToggleButton>
+                <ToggleButton value="independent">独立空间</ToggleButton>
+              </ToggleButtonGroup>
+              <FormHelperText>
+                共享空间：与其它收藏共用登录状态；独立空间：拥有独立登录状态，可与其它账号同时登录。
+              </FormHelperText>
+            </Box>
+          ) : null}
           {inheritableSpaces.length ? (
             <FormControl variant="filled" fullWidth size="small">
               <InputLabel id="item-dialog-space-label">登录身份</InputLabel>

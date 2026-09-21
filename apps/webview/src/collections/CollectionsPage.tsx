@@ -113,6 +113,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [identityDialog, setIdentityDialog] = React.useState<{ source: CollectionItem } | null>(null)
   const [identityName, setIdentityName] = React.useState('')
   const [itemSpace, setItemSpace] = React.useState('')
+  const [itemIndependentSpace, setItemIndependentSpace] = React.useState(false)
   const [spaceCandidates, setSpaceCandidates] = React.useState<SpaceCandidate[]>([])
   const [orphanSpaces, setOrphanSpaces] = React.useState<OrphanSpaceInfo[] | null>(null)
   const [orphanBusy, setOrphanBusy] = React.useState(false)
@@ -272,6 +273,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       setEditing(itemTemplate(target.groupId, target.containerId))
       setForm(createEmptyItemForm(target.groupId))
       setItemSpace('')
+      setItemIndependentSpace(false)
       setSpaceCandidates([])
     } catch (e) {
       showToast(errorMessage(e, '请先创建分组，再添加收藏项'), 'error')
@@ -282,6 +284,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     cancelWebIconDiscovery()
     setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
     setItemSpace(item.browserSpaceId || '')
+    setItemIndependentSpace(false)
     setSpaceCandidates([])
     if (client) {
       void client
@@ -374,6 +377,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         layout: editing.layout,
         icon: draftIcon,
         browserSpaceId: itemSpace,
+        independentBrowserSpace: itemIndependentSpace,
       }
       const nextDoc = await client.request<WorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', { item: payload })
       setDoc(nextDoc); setEditing(null); setSpaceCandidates([])
@@ -1280,7 +1284,9 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onResetIcon={() => updateFormIconDraft(null)}
           onSave={() => void saveItem()}
           onSelectIconCandidate={selectFormIconCandidate}
+          onChangeIndependentSpace={setItemIndependentSpace}
           onChangeSpace={setItemSpace}
+          independentSpace={itemIndependentSpace}
           spaceCandidates={spaceCandidates}
           spaceValue={itemSpace}
         />
