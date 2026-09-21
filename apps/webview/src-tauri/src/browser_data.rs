@@ -7,6 +7,8 @@ use crate::data_dir;
 const BROWSER_DIR_NAME: &str = "browser";
 /// 多账号身份空间集合目录（位于数据目录下，与默认空间目录同级）。
 const IDENTITY_DIR_NAME: &str = "browser-profiles";
+/// 身份空间元数据文件名（记录来源条目名与网址，供展示与继承匹配）。
+const IDENTITY_META_FILE: &str = "identity.json";
 /// WebView2 始终在 userDataFolder 内创建该子目录存放实际数据（含系统默认位置）。
 const WEBVIEW_DATA_DIR_NAME: &str = "EBWebView";
 const MIGRATION_STAGING_SUFFIX: &str = ".migrating";
@@ -80,6 +82,86 @@ pub(crate) fn ensure_identity_dir(
     let dir = identity_dir(&data_dir::resolve_data_dir(app)?, space_id)?;
     data_dir::ensure_writable_dir(&dir)?;
     Ok(dir)
+}
+
+/// 身份空间元数据：来源展示信息。
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IdentityMeta {
+    pub name: String,
+    pub url: String,
+}
+
+/// 写入身份空间元数据（尽力而为，失败仅记录；路径非法返回错误）。
+pub(crate) fn write_identity_meta(
+    data_dir: &Path,
+    space_id: &str,
+    name: &str,
+    url: &str,
+) -> Result<(), String> {
+    let dir = identity_dir(data_dir, space_id)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建身份空间目录失败: {e}"))?;
+    let meta = IdentityMeta {
+        name: name.trim().to_string(),
+        url: url.trim().to_string(),
+    };
+    let payload =
+        serde_json::to_string_pretty(&meta).map_err(|e| format!("序列化身份元数据失败: {e}"))?;
+    std::fs::write(dir.join(IDENTITY_META_FILE), format!("{payload}\n"))
+        .map_err(|e| format!("写入身份元数据失败: {e}"))
+}
+
+/// 读取身份空间元数据；文件缺失或损坏时返回 None。
+pub(crate) fn read_identity_meta(data_dir: &Path, space_id: &str) -> Option<IdentityMeta> {
+    let dir = identity_dir(data_dir, space_id).ok()?;
+    let text = std::fs::read_to_string(dir.join(IDENTITY_META_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// 列举身份空间目录名（仅安全标识）。
+pub(crate) fn list_identity_spaces(data_dir: &Path) -> Vec<String> {
+    let root = data_dir.join(IDENTITY_DIR_NAME);
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut spaces = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if is_safe_space_id(&name) {
+            spaces.push(name);
+        }
+    }
+    spaces.sort();
+    spaces
+}
+
+/// 身份空间目录占用字节数（递归；读取失败按 0 计）。
+pub(crate) fn identity_space_size(data_dir: &Path, space_id: &str) -> u64 {
+    let Ok(dir) = identity_dir(data_dir, space_id) else {
+        return 0;
+    };
+    dir_size_bytes(&dir)
+}
+
+fn dir_size_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut total = 0_u64;
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            total = total.saturating_add(dir_size_bytes(&entry.path()));
+        } else {
+            total = total.saturating_add(meta.len());
+        }
+    }
+    total
 }
 
 /// 删除条目的身份空间（尽力而为：失败仅记录，不影响条目删除结果）。

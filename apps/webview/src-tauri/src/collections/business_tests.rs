@@ -34,6 +34,7 @@ fn item_input(name: &str, url: &str, group_id: &str) -> items::ItemInput {
         layout: None,
         container_layout: None,
         icon: None,
+        browser_space_id: None,
     }
 }
 
@@ -463,11 +464,59 @@ fn remove_identity_keeps_space_while_another_item_shares_it() {
         .clone();
     assert_eq!(shared.browser_space_id, identity.browser_space_id);
 
-    items::remove(dir.as_path(), &identity.id).expect("remove first copy");
+    items::remove(dir.as_path(), &identity.id, true).expect("remove first copy");
     assert!(space_dir.exists(), "空间目录应保留给仍在使用它的条目");
 
-    items::remove(dir.as_path(), &shared.id).expect("remove last copy");
+    items::remove(dir.as_path(), &shared.id, true).expect("remove last copy");
     assert!(!space_dir.exists(), "最后一个引用删除后应清理空间目录");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn identity_meta_enables_orphan_detection_and_reuse_candidates() {
+    let dir = temp_dir("identity-orphan");
+    let ids = seed_items(&dir, 1);
+    let view = items::add_identity(
+        dir.as_path(),
+        items::AddIdentityPayload {
+            id: ids[0].clone(),
+            name: "小号".to_string(),
+        },
+    )
+    .expect("add identity");
+    let identity = view
+        .items
+        .iter()
+        .find(|item| item.id != ids[0])
+        .expect("identity")
+        .clone();
+
+    let meta = crate::browser_data::read_identity_meta(dir.as_path(), &identity.browser_space_id)
+        .expect("identity meta");
+    assert_eq!(meta.name, "小号");
+    assert_eq!(meta.url, "https://site0.example");
+
+    items::remove(dir.as_path(), &identity.id, false).expect("remove keeping space");
+    let orphans = items::orphan_spaces(dir.as_path()).expect("orphans");
+    assert_eq!(orphans.len(), 1);
+    assert_eq!(orphans[0].space_id, identity.browser_space_id);
+    assert_eq!(orphans[0].name, "小号");
+    assert_eq!(orphans[0].url, "https://site0.example");
+
+    let candidates = items::space_candidates(
+        dir.as_path(),
+        items::SpaceCandidatesPayload {
+            url: "https://site0.example".to_string(),
+        },
+    )
+    .expect("candidates");
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0].space_id, "");
+    let orphan_candidate = candidates
+        .iter()
+        .find(|candidate| candidate.space_id == identity.browser_space_id)
+        .expect("orphan candidate");
+    assert!(orphan_candidate.orphan);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -495,7 +544,7 @@ fn remove_identity_clears_browser_space_directory() {
     std::fs::create_dir_all(space_dir.join("EBWebView")).expect("create space dir");
     std::fs::write(space_dir.join("EBWebView").join("Local State"), b"x").expect("write");
 
-    items::remove(dir.as_path(), &identity.id).expect("remove identity");
+    items::remove(dir.as_path(), &identity.id, true).expect("remove identity");
 
     assert!(!space_dir.exists());
     let _ = std::fs::remove_dir_all(&dir);

@@ -138,6 +138,7 @@ pub(crate) async fn open_browser_window_impl(
             name: page_name,
             icon,
             rate: page_rate,
+            space_id: space_id.clone(),
         },
     );
     set_active_page(&app, Some(label));

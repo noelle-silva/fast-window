@@ -56,6 +56,9 @@ pub(crate) struct BrowserPage {
     pub(crate) icon: Option<BrowserPageIcon>,
     #[serde(default = "default_page_rate")]
     pub(crate) rate: f64,
+    /// 页面使用的登录空间标识（空 = 默认共享空间）。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(crate) space_id: String,
 }
 
 fn default_page_rate() -> f64 {

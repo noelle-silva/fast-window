@@ -88,14 +88,29 @@ pub async fn handle(
             to_value(items::update(&data_dir, payload.item)?)
         }
         "collections.items.remove" => {
-            let payload: items::IdPayload = parse(params)?;
+            let payload: items::RemoveItemPayload = parse(params)?;
             let _guard = write_lock(app).await;
-            to_value(items::remove(&data_dir, &payload.id)?)
+            to_value(items::remove(
+                &data_dir,
+                &payload.id,
+                payload.delete_browser_space,
+            )?)
         }
         "collections.items.add-identity" => {
             let payload: items::AddIdentityPayload = parse(params)?;
             let _guard = write_lock(app).await;
             to_value(items::add_identity(&data_dir, payload)?)
+        }
+        "collections.items.space-candidates" => {
+            let payload: items::SpaceCandidatesPayload = parse(params)?;
+            to_value(items::space_candidates(&data_dir, payload)?)
+        }
+        "collections.identity.orphans" => to_value(items::orphan_spaces(&data_dir)?),
+        "collections.identity.orphan.remove" => {
+            let payload: items::OrphanSpacePayload = parse(params)?;
+            let _guard = write_lock(app).await;
+            items::remove_orphan_space(app, &data_dir, payload)?;
+            Ok(Value::Null)
         }
         "collections.items.open" => {
             let payload: items::IdPayload = parse(params)?;
