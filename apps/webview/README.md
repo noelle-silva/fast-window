@@ -34,7 +34,10 @@ webview 是 Fast Window v5 应用体系中的**独立收藏桌面与浏览 App**
 - `assets/wallpapers/`：壁纸资产（同上）。
 - `bookmarks.json`、`bookmark-icons/`：旧书签数据与旧图标目录；升级完成后原样保留作为备份。
 - `app.json`：应用配置（`webview` 视频倍速设置、`browserWindowBounds` 浏览栈位置记忆）。
+- `browser/`：浏览器数据（网页登录状态、Cookie、会话、缓存）；主窗口、顶部栏与全部浏览页面共用这一份，跟随数据目录切换（重启生效）。
 - `webview-settings.json`：用户自选数据目录（App 配置目录内）。
+
+浏览器数据的历史位置为系统用户目录（`%LOCALAPPDATA%\com.fastwindow.webview\EBWebView`）：升级后的首次启动会自动一次性搬入 `browser/`（先复制完整、再就位、最后清空旧位置；任何一步失败都会保留旧位置并在下次启动重试，不会搬丢数据）。
 
 Go sidecar 骨架仍由模板机制接管（`settings.json`、`_meta.json`、`_migrations.json` 由其负责），收藏业务不经过 sidecar。
 
@@ -85,6 +88,8 @@ pnpm --dir apps/webview build:app
 - 双向往返：浏览栈"回主窗口"收起后页面保留；桌面顶部栏"返回网页"回到当前页面；全部关闭后该按钮隐藏。
 - 后台页面音视频继续播放；切换页面时窗口位置大小不跳动；倍速修改作用于当前页面并随切换显示各自速率。
 - 旧书签首次启动自动迁移进桌面（名称、网址、顺序、本地图标保留）；旧 `bookmarks.json` 与 `bookmark-icons/` 仍在。
+- 浏览器数据归拢：打开网页后数据落在数据目录 `browser/`；系统用户目录不再产生 `EBWebView`（旧数据首次启动自动搬入，登录态保持）。
+- 多页面登录态互通；设置里切换数据目录并重启后，登录态跟随到新目录。
 - 数据目录不可写 / 数据版本过高时主窗口显示错误提示；可切换数据目录。
 - FW 启动行为（show/hide/toggle/close、bounds 上报、命令分发 open-webview/open-settings/show-health）与 v5 模板一致。
 - 重复启动转发到已有实例；dev/release 互不串实例。
