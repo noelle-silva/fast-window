@@ -5,6 +5,7 @@ mod app_layout;
 mod backend_lifecycle;
 mod backend_sidecar;
 mod browser_commands;
+mod browser_data;
 mod browser_stack;
 mod collections;
 mod control_server;
@@ -65,7 +66,11 @@ async fn pick_data_dir(
     else {
         return Ok(None);
     };
-    data_dir::save_data_dir(&app, &path)?;
+    let current_browser_data_dir = app
+        .state::<browser_data::BrowserDataDir>()
+        .path()
+        .map(std::path::Path::to_path_buf);
+    data_dir::save_data_dir(&app, &path, current_browser_data_dir.as_deref())?;
     state.stop().await;
     state.clear_runtime_state();
     let state_inner = state.inner().clone();
@@ -187,6 +192,12 @@ fn main() {
             browser_commands::window_start_dragging,
         ])
         .setup(move |app| {
+            // 浏览器数据目录必须在任何 WebView 创建之前定稿并完成旧数据搬迁。
+            let browser_data_dir = browser_data::prepare(&app.handle());
+            let main_data_dir = browser_data_dir.path().map(std::path::Path::to_path_buf);
+            app.manage(browser_data_dir);
+            fw_window::create_main_window(&app.handle(), main_data_dir.as_deref())?;
+
             let window = app
                 .get_webview_window("main")
                 .expect("main window not found");

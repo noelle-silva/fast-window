@@ -1,5 +1,6 @@
 use tauri::{Emitter, Manager};
 
+use crate::browser_data::BrowserDataDir;
 use crate::browser_stack::{
     self, active_content_window, apply_bottom_rounded_corners, apply_fullscreen_bounds,
     apply_top_rounded_corners, bar_window, browser_stack_apply_fullscreen, browser_stack_close,
@@ -186,8 +187,19 @@ fn resolve_new_page_bounds(
     (pos, size)
 }
 
+/// 所有浏览窗口统一使用本次会话固定的浏览器数据目录（登录态共享）。
+fn apply_browser_data_dir<'a>(
+    app: &tauri::AppHandle,
+    builder: tauri::WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle>,
+) -> tauri::WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
+    match app.state::<BrowserDataDir>().path() {
+        Some(dir) => builder.data_directory(dir.to_path_buf()),
+        None => builder,
+    }
+}
+
 fn create_browser_bar_window(app: &tauri::AppHandle) -> Result<(), String> {
-    let bar = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         app,
         BROWSER_BAR_WINDOW_LABEL,
         tauri::WebviewUrl::App("index.html".into()),
@@ -202,9 +214,10 @@ fn create_browser_bar_window(app: &tauri::AppHandle) -> Result<(), String> {
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
-    .visible(false)
-    .build()
-    .map_err(|e| format!("创建顶部栏窗口失败: {e}"))?;
+    .visible(false);
+    let bar = apply_browser_data_dir(app, builder)
+        .build()
+        .map_err(|e| format!("创建顶部栏窗口失败: {e}"))?;
 
     browser_stack::attach_browser_stack_window_events(app.clone(), bar, true);
     Ok(())
@@ -218,7 +231,7 @@ fn create_page_window(
 ) -> Result<tauri::WebviewWindow, String> {
     let app_content_events = app.clone();
     let content_label = label.to_string();
-    tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External(url))
+    let builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External(url))
         .title("webview")
         .initialization_script(video_script)
         .on_new_window(move |url, _features| {
@@ -243,7 +256,8 @@ fn create_page_window(
         .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .visible(false)
+        .visible(false);
+    apply_browser_data_dir(app, builder)
         .build()
         .map_err(|e| format!("创建浏览窗口失败: {e}"))
 }

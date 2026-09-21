@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -129,6 +130,27 @@ pub(crate) fn parse_fw_args() -> FwArgs {
     }
 
     fw
+}
+
+/// 用配置里的 main 窗口定义创建主窗口，并统一附加浏览器数据目录。
+pub(crate) fn create_main_window(
+    app: &tauri::AppHandle,
+    data_directory: Option<&Path>,
+) -> Result<WebviewWindow, String> {
+    let window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .cloned()
+        .ok_or_else(|| "配置中缺少 main 窗口".to_string())?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)
+        .map_err(|e| format!("构建主窗口失败: {e}"))?;
+    if let Some(data_directory) = data_directory {
+        builder = builder.data_directory(data_directory.to_path_buf());
+    }
+    builder.build().map_err(|e| format!("创建主窗口失败: {e}"))
 }
 
 pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWindowState) {

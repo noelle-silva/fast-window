@@ -20,6 +20,9 @@ pub(crate) struct DataDirStatus {
 #[serde(rename_all = "camelCase")]
 struct ReferenceSettings {
     data_dir: Option<String>,
+    /// 用户切换数据目录后，记录本次会话浏览器数据所在位置；下次启动完成搬迁后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_browser_data_dir: Option<String>,
 }
 
 pub(crate) fn default_data_dir() -> Result<PathBuf, String> {
@@ -61,19 +64,34 @@ pub(crate) fn data_dir_status(
     })
 }
 
-pub(crate) fn save_data_dir(app: &tauri::AppHandle, data_dir: &Path) -> Result<(), String> {
+pub(crate) fn save_data_dir(
+    app: &tauri::AppHandle,
+    data_dir: &Path,
+    pending_browser_data_dir: Option<&Path>,
+) -> Result<(), String> {
     ensure_writable_dir(data_dir)?;
     let settings = ReferenceSettings {
         data_dir: Some(data_dir.display().to_string()),
+        pending_browser_data_dir: pending_browser_data_dir
+            .map(|path| path.display().to_string()),
     };
-    let config_path = settings_path(app)?;
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
+    write_settings(app, &settings)
+}
+
+pub(crate) fn pending_browser_data_dir(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    Ok(load_settings(app)?
+        .pending_browser_data_dir
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty()))
+}
+
+pub(crate) fn clear_pending_browser_data_dir(app: &tauri::AppHandle) -> Result<(), String> {
+    let mut settings = load_settings(app)?;
+    if settings.pending_browser_data_dir.is_none() {
+        return Ok(());
     }
-    let payload =
-        serde_json::to_string_pretty(&settings).map_err(|e| format!("序列化配置失败: {e}"))?;
-    std::fs::write(config_path, format!("{payload}\n"))
-        .map_err(|e| format!("保存数据目录配置失败: {e}"))
+    settings.pending_browser_data_dir = None;
+    write_settings(app, &settings)
 }
 
 pub(crate) fn ensure_writable_dir(path: &Path) -> Result<(), String> {
@@ -93,6 +111,17 @@ fn load_settings(app: &tauri::AppHandle) -> Result<ReferenceSettings, String> {
     }
     let text = std::fs::read_to_string(&path).map_err(|e| format!("读取数据目录配置失败: {e}"))?;
     serde_json::from_str(&text).map_err(|e| format!("解析数据目录配置失败: {e}"))
+}
+
+fn write_settings(app: &tauri::AppHandle, settings: &ReferenceSettings) -> Result<(), String> {
+    let config_path = settings_path(app)?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
+    }
+    let payload =
+        serde_json::to_string_pretty(settings).map_err(|e| format!("序列化配置失败: {e}"))?;
+    std::fs::write(config_path, format!("{payload}\n"))
+        .map_err(|e| format!("保存数据目录配置失败: {e}"))
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
