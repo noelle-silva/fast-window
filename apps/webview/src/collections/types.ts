@@ -150,6 +150,10 @@ export type ContainerFormState = { id: string; name: string }
 
 export type ConfirmState = { kind: 'item' | 'group' | 'container'; id: string; label: string } | null
 
+export type SpaceCandidate = { spaceId: string; label: string; url: string; orphan: boolean }
+
+export type OrphanSpaceInfo = { spaceId: string; name: string; url: string; sizeBytes: number; modifiedMs: number }
+
 export type DesktopGridEntry = {
   kind: DesktopEntryKind
   id: string

@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import { URL_CATEGORY } from './categoryRegistry'
 import { IconAppearancePanel } from './DesktopDialogs'
-import type { CollectionItem, CollectionItemFormState, DesktopIcon, IconAppearanceCandidate, WebIconDiscoveryProgress, WorkspaceView } from './types'
+import type { CollectionItem, CollectionItemFormState, DesktopIcon, IconAppearanceCandidate, SpaceCandidate, WebIconDiscoveryProgress, WorkspaceView } from './types'
 
 export function ItemDialog(props: {
   assetUrl?(assetId: string): string
@@ -23,8 +23,11 @@ export function ItemDialog(props: {
   doc: WorkspaceView
   editing: CollectionItem | null
   form: CollectionItemFormState
+  spaceCandidates: SpaceCandidate[]
+  spaceValue: string
   webIconDiscovery: WebIconDiscoveryProgress
   onChangeIconDraft(icon: DesktopIcon | null): void
+  onChangeSpace(value: string): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
   onFetchWebIcons(): void
@@ -37,6 +40,7 @@ export function ItemDialog(props: {
   const category = URL_CATEGORY
   const open = Boolean(props.editing)
   const targetContainer = props.editing?.containerId ? props.doc.containers.find(container => container.id === props.editing?.containerId) : null
+  const inheritableSpaces = props.spaceCandidates.filter(candidate => candidate.spaceId !== '')
 
   return (
     <Dialog open={open} onClose={props.onClose} fullWidth maxWidth="sm">
@@ -85,6 +89,27 @@ export function ItemDialog(props: {
               fullWidth
             />
           </Stack>
+          {inheritableSpaces.length ? (
+            <FormControl variant="filled" fullWidth size="small">
+              <InputLabel id="item-dialog-space-label">登录身份</InputLabel>
+              <Select
+                variant="filled"
+                labelId="item-dialog-space-label"
+                label="登录身份"
+                value={props.spaceValue}
+                onChange={event => props.onChangeSpace(event.target.value)}
+              >
+                {props.spaceCandidates.map(candidate => (
+                  <MenuItem key={candidate.spaceId || 'default'} value={candidate.spaceId}>
+                    {candidate.spaceId === ''
+                      ? candidate.label
+                      : `${candidate.label}${candidate.orphan ? '（未绑定的登录数据）' : ''}`}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>该网址存在可继承的登录状态，选择后此图标将使用对应身份的登录数据。</FormHelperText>
+            </FormControl>
+          ) : null}
           <IconAppearancePanel
             assetUrl={props.assetUrl}
             busy={props.busy}

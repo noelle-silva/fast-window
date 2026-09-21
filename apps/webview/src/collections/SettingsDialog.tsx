@@ -1,4 +1,5 @@
 import * as React from 'react'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import SplitscreenRoundedIcon from '@mui/icons-material/SplitscreenRounded'
 import {
@@ -26,7 +27,7 @@ import {
   DESKTOP_ICON_SCALE_STEP,
   normalizeDesktopIconLayout,
 } from './folder-grid/iconLayout'
-import type { DataDirStatus, DesktopIconLayout, DesktopWallpaperView, WorkspaceView } from './types'
+import type { DataDirStatus, DesktopIconLayout, DesktopWallpaperView, OrphanSpaceInfo, WorkspaceView } from './types'
 
 export function SettingsDialog(props: {
   assetUrl?(assetId: string): string
@@ -34,11 +35,15 @@ export function SettingsDialog(props: {
   doc: WorkspaceView
   iconLayout: DesktopIconLayout
   open: boolean
+  orphanBusy: boolean
+  orphanSpaces: OrphanSpaceInfo[] | null
   status: DataDirStatus | null
   onClearWallpaper(): void
   onClose(): void
+  onDetectOrphans(): void
   onPickDataDir(): void
   onPickWallpaper(): void
+  onRemoveOrphan(spaceId: string): void
   onPreviewIconLayout(layout: DesktopIconLayout): void
   onRemoveWallpaperPreset(id: string): void
   onRestart(): void
@@ -158,6 +163,36 @@ export function SettingsDialog(props: {
             onSelectPreset={props.onSelectWallpaperPreset}
           />
           <VideoSpeedSection />
+          <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                <Box>
+                  <Typography fontWeight={900}>孤立登录空间</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                    检测没有图标使用的独立登录数据（例如删除身份时选择了保留），确认无用后可清理释放磁盘空间。
+                  </Typography>
+                </Box>
+                <Button onClick={props.onDetectOrphans} disabled={props.orphanBusy}>{props.orphanSpaces ? '重新检测' : '检测'}</Button>
+              </Stack>
+              {props.orphanSpaces ? (
+                props.orphanSpaces.length ? (
+                  <Stack spacing={1}>
+                    {props.orphanSpaces.map(space => (
+                      <Paper key={space.spaceId} elevation={0} sx={{ p: 1.25, borderRadius: 2.5, bgcolor: 'background.paper', display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography fontWeight={800} noWrap>{space.name || space.spaceId}</Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>{space.url || '来源未知'} · 占用 {formatBytes(space.sizeBytes)}</Typography>
+                        </Box>
+                        <Button size="small" color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => props.onRemoveOrphan(space.spaceId)} disabled={props.orphanBusy || props.busy}>删除</Button>
+                      </Paper>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">没有检测到孤立登录空间。</Typography>
+                )
+              ) : null}
+            </Stack>
+          </Paper>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
             <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
             <InfoBlock label="默认数据目录" value={props.status?.defaultDataDir || '读取中'} mono />
@@ -173,6 +208,18 @@ export function SettingsDialog(props: {
       </DialogContent>
     </Dialog>
   )
+}
+
+function formatBytes(value: number): string {
+  if (!value) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  return `${size >= 10 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`
 }
 
 function InfoBlock(props: { label: string; value: string; mono?: boolean }) {

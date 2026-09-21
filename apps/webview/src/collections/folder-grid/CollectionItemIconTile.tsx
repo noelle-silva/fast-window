@@ -1,4 +1,5 @@
 import * as React from 'react'
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded'
 import { Box, ButtonBase, IconButton, Stack, Typography } from '@mui/material'
 import { itemTargetValue } from '../categoryRegistry'
 import type { CollectionItem } from '../types'
@@ -30,6 +31,7 @@ export function CollectionItemIconTile(props: Props): React.ReactNode {
   const contentWidth = isDesktop ? props.metrics.contentWidth : Math.max(props.metrics.contentWidth, Math.round(props.metrics.itemWidth * 0.84))
   const iconSize = isDesktop ? props.metrics.iconSize : Math.max(props.metrics.iconSize, 76)
   const iconRadius = isDesktop ? props.metrics.iconRadius : Math.max(props.metrics.iconRadius, 22)
+  const badgeSize = Math.max(16, Math.round(iconSize * 0.26))
   const titleColor = isDesktop ? '#FFFFFF' : 'text.primary'
   const titleShadow = isDesktop ? DESKTOP_ICON_TITLE_SHADOW : 'none'
 
@@ -96,6 +98,7 @@ export function CollectionItemIconTile(props: Props): React.ReactNode {
       >
         <DesktopIconVisual
           assetUrl={props.assetUrl}
+          badge={props.item.browserSpaceId ? <IdentityBadge size={badgeSize} /> : undefined}
           className="desktop-grid-icon-surface"
           dragging={props.dragging}
           icon={props.item.icon}
@@ -154,6 +157,26 @@ export function CollectionItemIconTile(props: Props): React.ReactNode {
           {props.action.icon}
         </IconButton>
       ) : null}
+    </Box>
+  )
+}
+
+function IdentityBadge(props: { size: number }) {
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        width: props.size,
+        height: props.size,
+        borderRadius: '50%',
+        display: 'grid',
+        placeItems: 'center',
+        bgcolor: 'rgba(255, 255, 255, 0.95)',
+        color: '#2563EB',
+        boxShadow: '0 2px 6px rgba(15, 23, 42, 0.35)',
+      }}
+    >
+      <PersonRoundedIcon sx={{ fontSize: Math.round(props.size * 0.66) }} />
     </Box>
   )
 }

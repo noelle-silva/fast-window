@@ -54,6 +54,8 @@ import type {
   CollectionsHealth,
   BlankContextMenuState,
   IconAppearanceCandidate,
+  OrphanSpaceInfo,
+  SpaceCandidate,
   FwLaunchInfo,
   GroupFormState,
   Phase,
@@ -110,6 +112,10 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [identityDialog, setIdentityDialog] = React.useState<{ source: CollectionItem } | null>(null)
   const [identityName, setIdentityName] = React.useState('')
+  const [itemSpace, setItemSpace] = React.useState('')
+  const [spaceCandidates, setSpaceCandidates] = React.useState<SpaceCandidate[]>([])
+  const [orphanSpaces, setOrphanSpaces] = React.useState<OrphanSpaceInfo[] | null>(null)
+  const [orphanBusy, setOrphanBusy] = React.useState(false)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
   const [containerExtractDrag, setContainerExtractDrag] = React.useState<ContainerExtractDragState>(null)
@@ -243,6 +249,7 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function closeItemDialog() {
     cancelWebIconDiscovery()
     setEditing(null)
+    setSpaceCandidates([])
   }
 
   function updateItemForm(nextForm: CollectionItemFormState) {
@@ -264,6 +271,8 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
       const target = resolveTarget()
       setEditing(itemTemplate(target.groupId, target.containerId))
       setForm(createEmptyItemForm(target.groupId))
+      setItemSpace('')
+      setSpaceCandidates([])
     } catch (e) {
       showToast(errorMessage(e, '请先创建分组，再添加收藏项'), 'error')
     }
@@ -272,6 +281,14 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   function openEdit(item: CollectionItem) {
     cancelWebIconDiscovery()
     setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
+    setItemSpace(item.browserSpaceId || '')
+    setSpaceCandidates([])
+    if (client) {
+      void client
+        .request<SpaceCandidate[]>('collections.items.space-candidates', { url: item.target.url })
+        .then(candidates => setSpaceCandidates(candidates))
+        .catch(() => setSpaceCandidates([]))
+    }
   }
 
   function openAddIdentity(item: CollectionItem) {
@@ -356,9 +373,10 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
         updatedAtMs: now,
         layout: editing.layout,
         icon: draftIcon,
+        browserSpaceId: itemSpace,
       }
       const nextDoc = await client.request<WorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', { item: payload })
-      setDoc(nextDoc); setEditing(null)
+      setDoc(nextDoc); setEditing(null); setSpaceCandidates([])
       if (newGroupName) selectResolvedGroup(targetGroupId)
     } catch (e) { showToast(errorMessage(e, `保存${category.singularLabel}失败`), 'error') } finally { setBusy(false) }
   }
@@ -411,12 +429,31 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     return { kind: 'image', assetId: candidate.assetId }
   }
 
-  async function removeItem(item: CollectionItem) {
+  async function removeItem(item: CollectionItem, deleteBrowserSpace: boolean) {
     if (!client) return
     setBusy(true)
-    try { setDoc(await client.request<WorkspaceView>('collections.items.remove', { id: item.id })); setConfirm(null); setContextMenu(null) }
+    try { setDoc(await client.request<WorkspaceView>('collections.items.remove', { id: item.id, deleteBrowserSpace })); setConfirm(null); setContextMenu(null) }
     catch (e) { showToast(errorMessage(e, `删除${URL_CATEGORY.singularLabel}失败`), 'error') }
     finally { setBusy(false) }
+  }
+
+  async function detectOrphans() {
+    if (!client) return
+    setOrphanBusy(true)
+    try { setOrphanSpaces(await client.request<OrphanSpaceInfo[]>('collections.identity.orphans')) }
+    catch (e) { showToast(errorMessage(e, '检测孤立登录空间失败'), 'error') }
+    finally { setOrphanBusy(false) }
+  }
+
+  async function removeOrphanSpace(spaceId: string) {
+    if (!client) return
+    setOrphanBusy(true)
+    try {
+      await client.request('collections.identity.orphan.remove', { spaceId })
+      setOrphanSpaces(await client.request<OrphanSpaceInfo[]>('collections.identity.orphans'))
+      showToast('孤立登录空间已清理', 'success')
+    } catch (e) { showToast(errorMessage(e, '清理孤立登录空间失败'), 'error') }
+    finally { setOrphanBusy(false) }
   }
 
   async function openItem(item: CollectionItem) {
@@ -1243,6 +1280,9 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           onResetIcon={() => updateFormIconDraft(null)}
           onSave={() => void saveItem()}
           onSelectIconCandidate={selectFormIconCandidate}
+          onChangeSpace={setItemSpace}
+          spaceCandidates={spaceCandidates}
+          spaceValue={itemSpace}
         />
 
         <GroupDialog
@@ -1273,14 +1313,18 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           busy={busy}
           doc={doc}
           open={settingsOpen}
+          orphanBusy={orphanBusy}
+          orphanSpaces={orphanSpaces}
           status={status}
           iconLayout={visibleIconLayout}
           assetUrl={client?.assetUrl}
           onClearWallpaper={() => void saveDesktopWallpaper(null)}
           onClose={() => setSettingsOpen(false)}
+          onDetectOrphans={() => void detectOrphans()}
           onPickDataDir={() => void pickDataDir()}
           onPickWallpaper={() => void pickWallpaperImage()}
           onPreviewIconLayout={layout => setIconLayoutDraft(normalizeDesktopIconLayout(layout))}
+          onRemoveOrphan={spaceId => void removeOrphanSpace(spaceId)}
           onRemoveWallpaperPreset={id => void removeDesktopWallpaperPreset(id)}
           onRestart={() => void connect()}
           onSaveIconLayout={layout => void saveDesktopIconLayout(layout)}
@@ -1348,13 +1392,13 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
           confirm={confirm}
           doc={doc}
           onClose={() => setConfirm(null)}
-          onConfirm={() => {
+          onConfirm={deleteBrowserSpace => {
             if (!confirm) return
             const item = doc.items.find(current => current.id === confirm.id)
             const container = doc.containers.find(current => current.id === confirm.id)
             if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
             else if (confirm.kind === 'container' && container) void removeContainer(container)
-            else if (confirm.kind === 'item' && item) void removeItem(item)
+            else if (confirm.kind === 'item' && item) void removeItem(item, deleteBrowserSpace)
             else setConfirm(null)
           }}
         />

@@ -11,6 +11,7 @@ import {
 
 type Props = {
   assetUrl?(assetId: string): string
+  badge?: React.ReactNode
   className?: string
   dragging?: boolean
   glyphSize?: number
@@ -54,6 +55,11 @@ export function DesktopIconVisual(props: Props): React.ReactNode {
       ) : (
         <GlyphIcon sx={{ fontSize: glyphSize, filter: 'drop-shadow(0 3px 7px rgba(15, 23, 42, 0.22))' }} />
       )}
+      {props.badge ? (
+        <Box sx={{ position: 'absolute', right: Math.max(3, Math.round(size * 0.045)), bottom: Math.max(3, Math.round(size * 0.045)), lineHeight: 0 }}>
+          {props.badge}
+        </Box>
+      ) : null}
     </Box>
   )
 }
