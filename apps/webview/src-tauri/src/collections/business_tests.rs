@@ -381,6 +381,20 @@ fn add_with_independent_browser_space_assigns_space_and_meta() {
 }
 
 #[test]
+fn add_with_blank_space_id_and_flag_still_assigns_independent_space() {
+    // 前端新建时会一律携带 browserSpaceId（可能为空串）：空串不得吞掉独立空间意图。
+    let dir = temp_dir("add-independent-blank");
+    let mut input = item_input("站点", "https://site.example", DEFAULT_GROUP_ID);
+    input.browser_space_id = Some(String::new());
+    input.independent_browser_space = true;
+    let view = items::add(dir.as_path(), input).expect("add");
+    let item = view.items.last().expect("item").clone();
+    assert!(!item.browser_space_id.is_empty());
+    assert!(crate::browser_data::read_identity_meta(dir.as_path(), &item.browser_space_id).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn add_without_flag_uses_shared_space() {
     let dir = temp_dir("add-shared");
     let view = items::add(

@@ -598,13 +598,17 @@ fn normalize_item_input(
         }
     };
     let independent_browser_space = input.independent_browser_space;
-    let browser_space_id = match input.browser_space_id {
+    // 空值（未提供 / 空串 / 空白）统一视为"未指定空间"：由独立空间意图决定，
+    // 编辑解绑与新建共享都不会吞掉独立空间请求（事实源唯一）。
+    let browser_space_id = match input
+        .browser_space_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(value) => {
-            let value = value.trim().to_string();
-            if value.is_empty() {
-                String::new()
-            } else if crate::browser_data::is_safe_space_id(&value) {
-                value
+            if crate::browser_data::is_safe_space_id(value) {
+                value.to_string()
             } else {
                 return Err(format!("非法浏览器空间标识: {value}"));
             }
