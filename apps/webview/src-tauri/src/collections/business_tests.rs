@@ -35,6 +35,7 @@ fn item_input(name: &str, url: &str, group_id: &str) -> items::ItemInput {
         container_layout: None,
         icon: None,
         browser_space_id: None,
+        independent_browser_space: false,
     }
 }
 
@@ -360,6 +361,34 @@ fn ui_state_round_trip_and_validation() {
     assert!(invalid.is_err());
     let loaded = crate::collections::workspace::ui_state_get(dir.as_path()).expect("get ui state");
     assert_eq!(loaded.group_id, DEFAULT_GROUP_ID);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_with_independent_browser_space_assigns_space_and_meta() {
+    let dir = temp_dir("add-independent");
+    let mut input = item_input("站点", "https://site.example", DEFAULT_GROUP_ID);
+    input.independent_browser_space = true;
+    let view = items::add(dir.as_path(), input).expect("add");
+    let item = view.items.last().expect("item").clone();
+    assert!(!item.browser_space_id.is_empty());
+    assert!(crate::browser_data::is_safe_space_id(&item.browser_space_id));
+    let meta = crate::browser_data::read_identity_meta(dir.as_path(), &item.browser_space_id)
+        .expect("identity meta");
+    assert_eq!(meta.name, "站点");
+    assert_eq!(meta.url, "https://site.example");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_without_flag_uses_shared_space() {
+    let dir = temp_dir("add-shared");
+    let view = items::add(
+        dir.as_path(),
+        item_input("站点", "https://site.example", DEFAULT_GROUP_ID),
+    )
+    .expect("add");
+    assert_eq!(view.items.last().expect("item").browser_space_id, "");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

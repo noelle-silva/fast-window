@@ -49,6 +49,9 @@ pub struct ItemInput {
     /// 显式指定登录空间：None = 保持原值（编辑）/ 默认空间（新建）；Some("") = 解绑到默认空间。
     #[serde(default)]
     pub browser_space_id: Option<String>,
+    /// 新建时为条目分配独立登录空间（browserSpaceId 未显式给出时生效）。
+    #[serde(default)]
+    pub independent_browser_space: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,12 +127,28 @@ pub struct ContainerSavePayload {
 }
 
 pub fn add(data_dir: &Path, input: ItemInput) -> Result<WorkspaceView, String> {
-    with_workspace(data_dir, |doc| {
+    let mut created_space: Option<(String, String, String)> = None;
+    let view = with_workspace(data_dir, |doc| {
         let mut item = normalize_item_input(input, &doc.workspace, true)?;
         item.page_order = next_page_order(&doc.workspace, &item.group_id);
+        if !item.browser_space_id.is_empty() {
+            created_space = Some((
+                item.browser_space_id.clone(),
+                item.name.clone(),
+                item.target.url.clone(),
+            ));
+        }
         doc.workspace.items.push(item);
         Ok(())
-    })
+    })?;
+    if let Some((space_id, name, url)) = created_space {
+        if let Err(error) =
+            crate::browser_data::write_identity_meta(data_dir, &space_id, &name, &url)
+        {
+            eprintln!("[webview] 身份元数据写入失败: {error}");
+        }
+    }
+    Ok(view)
 }
 
 pub fn update(data_dir: &Path, input: ItemInput) -> Result<WorkspaceView, String> {
@@ -578,8 +597,8 @@ fn normalize_item_input(
             Some(layout)
         }
     };
+    let independent_browser_space = input.independent_browser_space;
     let browser_space_id = match input.browser_space_id {
-        None => String::new(),
         Some(value) => {
             let value = value.trim().to_string();
             if value.is_empty() {
@@ -590,6 +609,8 @@ fn normalize_item_input(
                 return Err(format!("非法浏览器空间标识: {value}"));
             }
         }
+        None if independent_browser_space => next_browser_space_id(workspace, now),
+        None => String::new(),
     };
 
     Ok(CollectionItem {
