@@ -12,9 +12,11 @@ import { renderAssistantToolInvocationHtml, renderAssistantToolResultHtml } from
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
+import { normalizeDurationMs } from '../../domain/messageTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
 import { ToolConfirmationCard } from './ToolConfirmationCard'
+import { formatDurationMs } from '../utils/time'
 
 type AssistantMessageBlocksProps = {
   controller: any
@@ -180,6 +182,8 @@ function ToolSessionCard(props: {
   const result = item.blocks.find((block) => block.kind === 'tool_result')?.part?.result
   const status = result && typeof result === 'object' ? String(result.status || '').trim() : ''
   const summary = [state, status].filter(Boolean).join(' · ')
+  // 执行耗时取自部件结果本身，结果块被工具声明隐藏时依然可见。
+  const durationText = formatDurationMs(first?.part?.result?.durationMs)
 
   return (
     <Paper
@@ -221,6 +225,11 @@ function ToolSessionCard(props: {
           </Typography>
         </Stack>
         <Box sx={{ flex: 1, minWidth: 8 }} />
+        {durationText ? (
+          <Typography variant="caption" sx={{ color: 'rgba(15,23,42,.5)', fontVariantNumeric: 'tabular-nums' }} noWrap>
+            {durationText}
+          </Typography>
+        ) : null}
         {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </Stack>
       <Collapse in={expanded} timeout={180} unmountOnExit>
@@ -381,6 +390,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
               isActive={reasoningActive}
               displayMode={reasoningDisplayMode}
               text={String(block.part?.text || '')}
+              durationMs={normalizeDurationMs(block.part?.durationMs)}
               renderSafetyPolicyKey={renderSafetyPolicyKey}
               chatRootRef={chatRootRef}
             />

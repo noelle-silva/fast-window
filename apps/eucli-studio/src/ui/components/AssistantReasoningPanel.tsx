@@ -4,6 +4,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
+import { formatDurationMs } from '../utils/time'
 
 type AssistantReasoningPanelProps = {
   controller: any
@@ -11,12 +12,13 @@ type AssistantReasoningPanelProps = {
   isActive: boolean
   displayMode: ReasoningDisplayMode
   text: string
+  durationMs: number
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
 }
 
 export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
-  const { controller, mid, isActive, displayMode, text, renderSafetyPolicyKey, chatRootRef } = props
+  const { controller, mid, isActive, displayMode, text, durationMs, renderSafetyPolicyKey, chatRootRef } = props
   const [expanded, setExpanded] = React.useState(() => isActive && displayMode !== 'never-expand')
   // 用户手动开合后，这一段思考的展开状态只跟用户走，自动行为不再覆盖。
   const [manuallyToggled, setManuallyToggled] = React.useState(false)
@@ -42,6 +44,8 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
     setManuallyToggled(true)
     setExpanded((value) => !value)
   }
+
+  const durationText = formatDurationMs(durationMs)
 
   if (!String(text || '').trim()) return null
 
@@ -79,6 +83,11 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
           思考过程
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {durationText ? (
+          <Typography variant="caption" sx={{ color: 'rgba(15, 23, 42, .5)', fontVariantNumeric: 'tabular-nums' }}>
+            {durationText}
+          </Typography>
+        ) : null}
         {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
       </Stack>
       <Collapse in={expanded} timeout={160} unmountOnExit>

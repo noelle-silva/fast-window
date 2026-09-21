@@ -13,12 +13,14 @@ import StorageIcon from '@mui/icons-material/Storage'
 import { isAssistantAwaitingFirstOutput, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
+import { resolveReplyDurationMs } from '../../domain/messageTiming'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { AssistantMessageBlocks } from './AssistantMessageBlocks'
 import { AssistantReplyPendingIndicator } from './AssistantReplyPendingIndicator'
 import { RefImageThumb, StickerText } from './MessageMedia'
+import { formatDurationMs } from '../utils/time'
 
 type MessageRole = 'user' | 'assistant'
 
@@ -352,7 +354,10 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
         const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
         const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
+        const replyDurationText = !isUser ? formatDurationMs(resolveReplyDurationMs(m)) : ''
         const time = controller.fmtTime(Number(m?.createdAt || 0))
+        // 耗时与时间移到操作按钮左侧：AI 消息显示「回复耗时 · 时间」，用户消息只显示时间。
+        const actionMetaText = (isUser ? [time] : [replyDurationText, time]).filter(Boolean).join(' · ')
         const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
         const rootAttachments = isUser && Array.isArray(m?.attachments) ? m.attachments : []
         const legacyAttMsgs = isUser ? groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || [] : []
@@ -419,8 +424,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                 boxShadow: 'none',
               }}
             >
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
-                {isUser ? null : (
+              {!isUser && (showSpeakerIdentity || !!roleModelText) ? (
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
                     {showSpeakerIdentity ? (
                       <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
@@ -440,12 +445,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                       ) : null}
                     </Stack>
                   </Stack>
-                )}
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {time}
-                </Typography>
-              </Stack>
+                </Stack>
+              ) : null}
 
               {imgPaths.length ? (
                 <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap' }}>
@@ -571,7 +572,12 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   </Button>
                 </Stack>
               ) : (
-                <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end" alignItems="center">
+                  {actionMetaText ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', mr: 0.25 }}>
+                      {actionMetaText}
+                    </Typography>
+                  ) : null}
                   {!isUser ? (
                     <>
                       <Tooltip title="上一个分支">

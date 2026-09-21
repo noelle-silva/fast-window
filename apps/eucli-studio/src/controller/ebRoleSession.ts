@@ -1,3 +1,5 @@
+import { normalizeDurationMs } from '../domain/messageTiming'
+
 type EbNetRequest = (req: any) => Promise<any>
 
 type RoleSessionInput = {
@@ -60,6 +62,7 @@ function serializeSessionMessagePartsForPatch(partsRaw: unknown) {
     const next: any = { id, type }
     if (type === 'text') {
       next.text = String(part.text ?? '')
+      assignDurationForPatch(next, part.durationMs)
     } else {
       next.raw = String(part.raw || '')
       next.callId = String(part.callId || '').trim()
@@ -106,8 +109,14 @@ function serializeToolResultForPatch(raw: unknown) {
     metadata: plainObjectCopy(result.metadata),
     error: String(result.error || '').trim(),
   }
+  assignDurationForPatch(out, result.durationMs)
   assignTimeForPatch(out, 'createdAt', result.createdAt)
   return out
+}
+
+function assignDurationForPatch(target: any, value: unknown) {
+  const duration = normalizeDurationMs(value)
+  if (duration > 0) target.durationMs = duration
 }
 
 function assignTimeForPatch(target: any, key: string, value: unknown) {

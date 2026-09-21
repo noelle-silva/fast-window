@@ -2,6 +2,7 @@ import { now, uid, clamp, normImagePaths, normalizeTimeMs } from '../core/utils'
 import { CHAT_ATTACHMENT_KINDS, CHAT_DEFAULT_BRANCH_ID, CHAT_MSG_GROUP_ROLES } from './constants'
 import { normalizeBranchId } from './branching'
 import { normalizeMessageModelRef } from './modelRefUtils'
+import { normalizeDurationMs } from './messageTiming'
 import { normalizeErrorPayload } from './errorPayload'
 
 export function normalizeMessageError(input: any) {
@@ -111,6 +112,7 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
     images: normImagePaths((m as any).images),
     attachments: normalizeMessageAttachments((m as any).attachments),
     tokenEstimate: normalizeMessageTokenEstimate((m as any).tokenEstimate),
+    modelDurationMs: normalizeDurationMs((m as any).modelDurationMs),
     ...normalizeMessageGroup(m),
     branchId: normalizeBranchId((m as any).branchId || options?.activeBranchId || CHAT_DEFAULT_BRANCH_ID),
     parentMid: normalizeMessageParentMid(m),
@@ -173,7 +175,7 @@ export function normalizeMessageParts(input: any) {
     if (type === 'text') {
       const text = String((raw as any).text || '')
       if (!text) continue
-      out.push({ id, type: 'text', text, createdAt: normalizeTimeMs((raw as any).createdAt, 0), updatedAt: normalizeTimeMs((raw as any).updatedAt, normalizeTimeMs((raw as any).createdAt, 0)) })
+      out.push({ id, type: 'text', text, durationMs: normalizeDurationMs((raw as any).durationMs), createdAt: normalizeTimeMs((raw as any).createdAt, 0), updatedAt: normalizeTimeMs((raw as any).updatedAt, normalizeTimeMs((raw as any).createdAt, 0)) })
       continue
     }
     if (type === 'reasoning') {
@@ -188,6 +190,7 @@ export function normalizeMessageParts(input: any) {
         source: String((raw as any).source || '').trim(),
         signature,
         data,
+        durationMs: normalizeDurationMs((raw as any).durationMs),
         createdAt: normalizeTimeMs((raw as any).createdAt, 0),
         updatedAt: normalizeTimeMs((raw as any).updatedAt, normalizeTimeMs((raw as any).createdAt, 0)),
       }
@@ -226,6 +229,7 @@ export function normalizeMessageParts(input: any) {
         content: String((result as any).content || ''),
         error: String((result as any).error || '').trim(),
         metadata: (result as any).metadata && typeof (result as any).metadata === 'object' && !Array.isArray((result as any).metadata) ? (result as any).metadata : {},
+        durationMs: normalizeDurationMs((result as any).durationMs),
         createdAt: normalizeTimeMs((result as any).createdAt, 0),
       }
     }
