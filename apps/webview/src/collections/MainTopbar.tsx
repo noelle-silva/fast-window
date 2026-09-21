@@ -63,9 +63,11 @@ export function MainTopbar(props: {
       sx={{
         minHeight: 56,
         px: { xs: 1.25, sm: 1.5 },
-        display: 'flex',
+        display: 'grid',
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) auto minmax(0, 1fr)' },
         alignItems: 'center',
-        gap: 1.25,
+        columnGap: 1.25,
+        rowGap: 1,
         bgcolor: 'transparent',
         backdropFilter: 'none',
         WebkitBackdropFilter: 'none',
@@ -73,40 +75,41 @@ export function MainTopbar(props: {
         boxShadow: 'none',
         userSelect: 'none',
         flexShrink: 0,
-        flexWrap: { xs: 'wrap', md: 'nowrap' },
         py: { xs: 1, md: 0.75 },
       }}
     >
-      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: '1 1 auto', minWidth: 0, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
-        <TextField
-          value={props.search}
-          onChange={event => props.onSearchChange(event.target.value)}
-          placeholder="按名称或网址搜索"
-          size="small"
-          sx={{ flex: { xs: '1 1 100%', sm: '0 1 150px' }, minWidth: { xs: '100%', sm: 120 }, maxWidth: { xs: '100%', sm: 150 } }}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
-        />
+      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
         <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
+        {props.browserPageCount > 0 ? (
+          <Button variant="text" startIcon={<WebAssetRoundedIcon />} onClick={props.onReturnToBrowser}>返回网页</Button>
+        ) : null}
         {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: '0 0 auto' }}>
-          <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
-          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
-          <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!canEdit || props.busy || !props.selectedGroup}>收纳夹</Button>
-          <Button
-            variant="text"
-            startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
-            onClick={props.onOpenGroupEditor}
-            disabled={!canEdit}
-            sx={{ minWidth: 108 }}
-          >
-            {groupActionLabel}
-          </Button>
-          {props.browserPageCount > 0 ? (
-            <Button variant="text" startIcon={<WebAssetRoundedIcon />} onClick={props.onReturnToBrowser}>返回网页</Button>
-          ) : null}
-        </Stack>
       </Stack>
-      <WindowControlsDock standalone={props.launchInfo.standalone} />
+
+      <TextField
+        value={props.search}
+        onChange={event => props.onSearchChange(event.target.value)}
+        placeholder="按名称或网址搜索"
+        size="small"
+        sx={{ width: { xs: '100%', md: 240 }, justifySelf: { xs: 'stretch', md: 'center' } }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
+      />
+
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ justifySelf: { xs: 'stretch', md: 'end' }, flexWrap: 'wrap', rowGap: 1 }}>
+        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
+        <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!canEdit || props.busy || !props.selectedGroup}>收纳夹</Button>
+        <Button
+          variant="text"
+          startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
+          onClick={props.onOpenGroupEditor}
+          disabled={!canEdit}
+          sx={{ minWidth: 108 }}
+        >
+          {groupActionLabel}
+        </Button>
+        <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
+        <WindowControlsDock standalone={props.launchInfo.standalone} />
+      </Stack>
     </Paper>
   )
 }
@@ -144,7 +147,7 @@ function GroupFilterSelect(props: { doc: WorkspaceView; groupId: string; onGroup
 function WindowControlsDock(props: { standalone: boolean }) {
   if (!props.standalone) return null
   return (
-    <Box sx={{ ml: 'auto', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flex: '0 0 auto' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flex: '0 0 auto' }}>
       <Stack direction="row" spacing={0.5} data-window-control>
         <Tooltip title="最小化"><IconButton aria-label="最小化" onClick={() => appWindow.minimize()}><HorizontalRuleRoundedIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="最大化或还原"><IconButton aria-label="最大化或还原" onClick={() => appWindow.toggleMaximize()}><WindowRoundedIcon fontSize="small" /></IconButton></Tooltip>
