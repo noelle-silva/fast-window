@@ -68,6 +68,18 @@ body.browser-bar-shell {
   -webkit-app-region: no-drag;
 }
 
+/* 右侧窗口控制组（刷新 / 置顶 / 全屏 / 隐藏 / 关闭） */
+.browser-bar-controls-right {
+  grid-column: 3;
+  justify-self: end;
+}
+
+/* 主页长按钮：与左侧功能键组（后退 / 前进 / 倍速）留出一段间隔 */
+.browser-bar-home-btn {
+  margin-right: 10px;
+  flex: 0 0 auto;
+}
+
 .browser-bar-btn {
   width: 28px;
   height: 28px;
@@ -106,7 +118,7 @@ body.browser-bar-shell {
   display: block;
 }
 
-/* 当前页面切换按钮（居中，右侧跟回主窗口按钮） */
+/* 当前页面切换按钮（居中，左右为上一个 / 下一个页面按钮） */
 .browser-bar-switcher {
   grid-column: 2;
   justify-self: center;

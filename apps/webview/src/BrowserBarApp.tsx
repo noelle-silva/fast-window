@@ -370,6 +370,19 @@ export default function BrowserBarApp() {
     [refreshPages],
   )
 
+  const switchPage = useCallback(
+    (delta: number) => {
+      if (pages.length < 2) return
+      const index = pages.findIndex(page => page.label === activeLabel)
+      if (index < 0) return
+      const next = pages[(index + delta + pages.length) % pages.length]
+      if (!next) return
+      setPageMenuOpen(false)
+      void invoke('browser_stack_activate_page', { label: next.label }).catch(refreshPages)
+    },
+    [activeLabel, pages, refreshPages],
+  )
+
   return (
     <div
       className="browser-bar-root"
@@ -380,32 +393,21 @@ export default function BrowserBarApp() {
     >
       <div className="browser-bar-row">
         <div className="browser-bar-controls" onPointerDown={e => e.stopPropagation()}>
-          <button type="button" className="browser-bar-btn" aria-label="关闭浏览" title="关闭浏览" onClick={() => runBarCommand('close_browser_window')}>
-            <Icon d={ICON_PATH.close} />
-          </button>
-          <button type="button" className="browser-bar-btn" aria-label="隐藏浏览" title="隐藏浏览" onClick={() => runBarCommand('hide_browser_stack')}>
-            <Icon d={ICON_PATH.remove} />
-          </button>
-          <button type="button" className="browser-bar-btn" aria-label="全屏切换" title="全屏切换" onClick={() => runBarCommand('browser_stack_toggle_fullscreen')}>
-            <Icon d={ICON_PATH.fullscreen} />
-          </button>
           <button
             type="button"
-            className={`browser-bar-btn${pinned ? ' browser-bar-btn-active' : ''}`}
-            aria-label={pinned ? '取消图钉' : '图钉置顶'}
-            title={pinned ? '取消图钉' : '图钉置顶'}
-            onClick={() => { setPageMenuOpen(false); setSpeedOpen(false); void togglePinned() }}
+            className="browser-bar-switcher-btn browser-bar-home-btn"
+            aria-label="回主窗口"
+            title="回主窗口"
+            onClick={() => runBarCommand('browser_stack_return_to_main')}
           >
-            <Icon d={pinned ? ICON_PATH.pinFilled : ICON_PATH.pinOutlined} />
+            <Icon d={ICON_PATH.home} size={16} />
+            <span className="browser-bar-switcher-name">主页</span>
           </button>
           <button type="button" className="browser-bar-btn" aria-label="后退" title="后退" onClick={() => runBarCommand('browser_go_back')}>
             <Icon d={ICON_PATH.back} />
           </button>
           <button type="button" className="browser-bar-btn" aria-label="前进" title="前进" onClick={() => runBarCommand('browser_go_forward')}>
             <Icon d={ICON_PATH.forward} />
-          </button>
-          <button type="button" className="browser-bar-btn" aria-label="刷新" title="刷新" onClick={() => runBarCommand('browser_reload')}>
-            <Icon d={ICON_PATH.refresh} />
           </button>
           <button
             type="button"
@@ -478,6 +480,16 @@ export default function BrowserBarApp() {
         <div className="browser-bar-switcher" onPointerDown={e => e.stopPropagation()}>
           <button
             type="button"
+            className="browser-bar-btn"
+            aria-label="上一个页面"
+            title="上一个页面"
+            disabled={pages.length < 2}
+            onClick={() => switchPage(-1)}
+          >
+            <Icon d={ICON_PATH.chevronLeft} />
+          </button>
+          <button
+            type="button"
             ref={switcherButtonRef}
             className="browser-bar-switcher-btn"
             aria-label="切换页面"
@@ -493,11 +505,36 @@ export default function BrowserBarApp() {
           <button
             type="button"
             className="browser-bar-btn"
-            aria-label="回主窗口"
-            title="回主窗口"
-            onClick={() => runBarCommand('browser_stack_return_to_main')}
+            aria-label="下一个页面"
+            title="下一个页面"
+            disabled={pages.length < 2}
+            onClick={() => switchPage(1)}
           >
-            <Icon d={ICON_PATH.home} />
+            <Icon d={ICON_PATH.chevronRight} />
+          </button>
+        </div>
+
+        <div className="browser-bar-controls browser-bar-controls-right" onPointerDown={e => e.stopPropagation()}>
+          <button type="button" className="browser-bar-btn" aria-label="刷新" title="刷新" onClick={() => runBarCommand('browser_reload')}>
+            <Icon d={ICON_PATH.refresh} />
+          </button>
+          <button
+            type="button"
+            className={`browser-bar-btn${pinned ? ' browser-bar-btn-active' : ''}`}
+            aria-label={pinned ? '取消图钉' : '图钉置顶'}
+            title={pinned ? '取消图钉' : '图钉置顶'}
+            onClick={() => { setPageMenuOpen(false); setSpeedOpen(false); void togglePinned() }}
+          >
+            <Icon d={pinned ? ICON_PATH.pinFilled : ICON_PATH.pinOutlined} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="全屏切换" title="全屏切换" onClick={() => runBarCommand('browser_stack_toggle_fullscreen')}>
+            <Icon d={ICON_PATH.fullscreen} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="隐藏浏览" title="隐藏浏览" onClick={() => runBarCommand('hide_browser_stack')}>
+            <Icon d={ICON_PATH.remove} />
+          </button>
+          <button type="button" className="browser-bar-btn" aria-label="关闭浏览" title="关闭浏览" onClick={() => runBarCommand('close_browser_window')}>
+            <Icon d={ICON_PATH.close} />
           </button>
         </div>
       </div>
