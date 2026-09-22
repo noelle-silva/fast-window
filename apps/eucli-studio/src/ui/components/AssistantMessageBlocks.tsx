@@ -13,10 +13,12 @@ import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
 import { normalizeDurationMs } from '../../domain/messageTiming'
+import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
 import { ToolConfirmationCard } from './ToolConfirmationCard'
 import { formatDurationMs } from '../utils/time'
+import { useLiveNowMs } from '../hooks/useLiveNowMs'
 
 type AssistantMessageBlocksProps = {
   controller: any
@@ -163,6 +165,22 @@ function writeClipboard(controller: any, text: string) {
     .catch(() => showToast(controller, '复制失败', { kind: 'error' }))
 }
 
+// ToolDurationText 是工具耗时读数：结果已落地时定格为内核测得的最终耗时，
+// 工具运行中则跟随节拍持续推进（含十分位）；每次节拍只重渲染这个读数节点。
+function ToolDurationText(props: { part: any }) {
+  const { part } = props
+  const result = part?.result && typeof part.result === 'object' ? part.result : null
+  const runAnchorMs = toolRunAnchorMs(part)
+  const liveNowMs = useLiveNowMs(runAnchorMs > 0)
+  const durationText = formatDurationMs(result ? result.durationMs : toolLiveElapsedMs(part, liveNowMs))
+  if (!durationText) return null
+  return (
+    <Typography variant="caption" sx={{ color: 'rgba(15,23,42,.5)', fontVariantNumeric: 'tabular-nums' }} noWrap>
+      {durationText}
+    </Typography>
+  )
+}
+
 function ToolSessionCard(props: {
   controller: any
   disabled?: boolean
@@ -177,13 +195,12 @@ function ToolSessionCard(props: {
 }) {
   const { controller, disabled, editing, item, mid, expanded, onToggle, onSetDeleting, onSetEditing, onSaveEdit } = props
   const first = item.blocks[0]
-  const name = String(first?.part?.toolName || 'tool')
-  const state = String(first?.part?.state || '').trim()
+  const part = first?.part
+  const name = String(part?.toolName || 'tool')
+  const state = String(part?.state || '').trim()
   const result = item.blocks.find((block) => block.kind === 'tool_result')?.part?.result
   const status = result && typeof result === 'object' ? String(result.status || '').trim() : ''
   const summary = [state, status].filter(Boolean).join(' · ')
-  // 执行耗时取自部件结果本身，结果块被工具声明隐藏时依然可见。
-  const durationText = formatDurationMs(first?.part?.result?.durationMs)
 
   return (
     <Paper
@@ -225,11 +242,7 @@ function ToolSessionCard(props: {
           </Typography>
         </Stack>
         <Box sx={{ flex: 1, minWidth: 8 }} />
-        {durationText ? (
-          <Typography variant="caption" sx={{ color: 'rgba(15,23,42,.5)', fontVariantNumeric: 'tabular-nums' }} noWrap>
-            {durationText}
-          </Typography>
-        ) : null}
+        <ToolDurationText part={part} />
         {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </Stack>
       <Collapse in={expanded} timeout={180} unmountOnExit>
