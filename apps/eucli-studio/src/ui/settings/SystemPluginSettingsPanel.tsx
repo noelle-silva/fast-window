@@ -8,6 +8,8 @@ import { compatibilityRangeText, artifactStatusLabels, isArtifactBusy, type Rele
 import { cloneConfigObject, ConfigFieldsForm, removeConfigValueAtPath, setConfigValueAtPath } from './ConfigFieldsForm'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { CustomScrollArea } from '../components/CustomScrollArea'
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
 
 type SystemPluginSettingsPanelProps = {
@@ -28,6 +30,7 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
   const selectedPlugin = systemPlugins?.selectedPlugin as SystemPluginDetail | null
   const unavailable = selectedPlugin?.status !== 'active'
   const [storeOpen, setStoreOpen] = React.useState(false)
+  const [pluginQuery, setPluginQuery] = React.useState('')
   const [nameOverrides, setNameOverrides] = React.useState<Record<string, string>>({})
   const [configDraft, setConfigDraft] = React.useState<Record<string, any>>({})
   const [localError, setLocalError] = React.useState('')
@@ -79,9 +82,15 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
     await controller.actions.saveSystemPluginConfig?.(selectedPlugin.id, { userConfig: configDraft, placeholderNameOverrides: nameOverrides })
   }
 
+  const pluginItems = Array.isArray(systemPlugins?.items) ? systemPlugins.items : []
+  const pluginQueryText = pluginQuery.trim().toLowerCase()
+  const visiblePlugins = pluginQueryText
+    ? pluginItems.filter((plugin: any) => systemPluginLocatorId(plugin).toLowerCase().includes(pluginQueryText))
+    : pluginItems
+
   return (
-    <SettingsSurface>
-      <Stack spacing={1.5}>
+    <SettingsSurface sx={{ height: '100%' }}>
+      <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 900 }}>系统插件管理</Typography>
@@ -96,93 +105,105 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         {systemPlugins?.saveError ? <Typography variant="body2" color="error">{String(systemPlugins.saveError || '')}</Typography> : null}
         {localError ? <Typography variant="body2" color="error">{localError}</Typography> : null}
 
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems="flex-start">
-          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: '100%', lg: 300 } }}>
-            <Stack spacing={1}>
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>插件列表</Typography>
-              {Array.isArray(systemPlugins?.items) && systemPlugins.items.length ? systemPlugins.items.map((plugin: any) => {
-                const locatorId = systemPluginLocatorId(plugin)
-                const selected = locatorId === text(systemPlugins?.selectedPluginId)
-                const pluginUnavailable = text(plugin.status) !== 'active'
-                const toggling = text(systemPlugins?.togglingId) === locatorId
-                return (
-                  <Stack key={locatorId} direction="row" spacing={0.5} alignItems="center">
-                    <Button variant={selected ? 'contained' : 'text'} color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'} onClick={() => controller.actions.openSystemPlugin?.(locatorId)} sx={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', textTransform: 'none' }}>
-                      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
-                    </Button>
-                    <Switch
-                      size="small"
-                      checked={plugin.enabled !== false}
-                      disabled={toggling || !locatorId}
-                      onChange={(event) => controller.actions.setSystemPluginEnabled?.(locatorId, event.target.checked)}
-                      inputProps={{ 'aria-label': `${String(plugin.name || locatorId)} 启用开关` }}
-                    />
-                  </Stack>
-                )
-              }) : <Typography variant="body2" color="text.secondary">暂无已加载插件。</Typography>}
+        <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 200, sm: 260, lg: 300 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
+              <TextField
+                size="small"
+                label="搜索插件 id"
+                value={pluginQuery}
+                onChange={(event) => setPluginQuery(event.target.value)}
+                fullWidth
+              />
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+                <Stack spacing={1}>
+                  {visiblePlugins.length ? visiblePlugins.map((plugin: any) => {
+                    const locatorId = systemPluginLocatorId(plugin)
+                    const selected = locatorId === text(systemPlugins?.selectedPluginId)
+                    const pluginUnavailable = text(plugin.status) !== 'active'
+                    const toggling = text(systemPlugins?.togglingId) === locatorId
+                    return (
+                      <Stack key={locatorId} direction="row" spacing={0.5} alignItems="center">
+                        <Button variant={selected ? 'contained' : 'text'} color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'} onClick={() => controller.actions.openSystemPlugin?.(locatorId)} sx={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', textTransform: 'none' }}>
+                          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
+                        </Button>
+                        <Switch
+                          size="small"
+                          checked={plugin.enabled !== false}
+                          disabled={toggling || !locatorId}
+                          onChange={(event) => controller.actions.setSystemPluginEnabled?.(locatorId, event.target.checked)}
+                          inputProps={{ 'aria-label': `${String(plugin.name || locatorId)} 启用开关` }}
+                        />
+                      </Stack>
+                    )
+                  }) : <Typography variant="body2" color="text.secondary">{pluginQueryText ? '没有匹配的插件。' : '暂无已加载插件。'}</Typography>}
+                </Stack>
+              </Box>
             </Stack>
           </SettingsSection>
 
-          <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-            {selectedPlugin ? (
-              <Stack spacing={1.25}>
-                <SettingsSection>
-                  <Stack spacing={0.5}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography sx={{ fontWeight: 900 }}>{selectedPlugin.name || selectedPlugin.id}</Typography>
-                      <Box sx={{ flex: 1 }} />
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Switch
-                          size="small"
-                          checked={selectedPlugin.enabled !== false}
-                          disabled={busy || text(systemPlugins?.togglingId) === systemPluginLocatorId(selectedPlugin)}
-                          onChange={(event) => controller.actions.setSystemPluginEnabled?.(systemPluginLocatorId(selectedPlugin), event.target.checked)}
-                          inputProps={{ 'aria-label': `${String(selectedPlugin.name || selectedPlugin.id)} 启用开关` }}
-                        />
-                        <Typography variant="body2" color="text.secondary">启用</Typography>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
+              {selectedPlugin ? (
+                <Stack spacing={1.25}>
+                  <SettingsSection>
+                    <Stack spacing={0.5}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography sx={{ fontWeight: 900 }}>{selectedPlugin.name || selectedPlugin.id}</Typography>
+                        <Box sx={{ flex: 1 }} />
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <Switch
+                            size="small"
+                            checked={selectedPlugin.enabled !== false}
+                            disabled={busy || text(systemPlugins?.togglingId) === systemPluginLocatorId(selectedPlugin)}
+                            onChange={(event) => controller.actions.setSystemPluginEnabled?.(systemPluginLocatorId(selectedPlugin), event.target.checked)}
+                            inputProps={{ 'aria-label': `${String(selectedPlugin.name || selectedPlugin.id)} 启用开关` }}
+                          />
+                          <Typography variant="body2" color="text.secondary">启用</Typography>
+                        </Stack>
                       </Stack>
+                      <Typography variant="body2" color="text.secondary">{selectedPlugin.description}</Typography>
+                      <Typography variant="caption" color="text.secondary">版本：{selectedPlugin.version || '无效'}；适用本体：{compatibilityRangeText(selectedPlugin.eucliBoxCompatibility)}</Typography>
+                      <Typography variant="caption" color="text.secondary">类型：{hostingLabel(selectedPlugin.hosting)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>
+                      {selectedPlugin.statusMessage ? <Typography variant="caption" color="error">{selectedPlugin.statusMessage}</Typography> : null}
+                      <PluginInstallStatusLine state={systemPlugins?.installStates?.[text(selectedPlugin.id)]} pluginId={text(selectedPlugin.id)} />
                     </Stack>
-                    <Typography variant="body2" color="text.secondary">{selectedPlugin.description}</Typography>
-                    <Typography variant="caption" color="text.secondary">版本：{selectedPlugin.version || '无效'}；适用本体：{compatibilityRangeText(selectedPlugin.eucliBoxCompatibility)}</Typography>
-                    <Typography variant="caption" color="text.secondary">类型：{hostingLabel(selectedPlugin.hosting)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>
-                    {selectedPlugin.statusMessage ? <Typography variant="caption" color="error">{selectedPlugin.statusMessage}</Typography> : null}
-                    <PluginInstallStatusLine state={systemPlugins?.installStates?.[text(selectedPlugin.id)]} pluginId={text(selectedPlugin.id)} />
-                  </Stack>
-                </SettingsSection>
+                  </SettingsSection>
 
-                <SettingsSection>
-                  <Stack spacing={1}>
-                    <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符接口</Typography>
-                    {selectedPlugin.placeholderInterfaces.length ? selectedPlugin.placeholderInterfaces.map((item) => (
-                      <Stack key={item.id} spacing={0.5}>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.description || item.id}</Typography>
-                        <TextField size="small" label={`占位符名（默认：${item.defaultName}）`} value={nameOverrides[item.id] ?? item.effectiveName ?? item.defaultName} onChange={(e) => setNameOverrides((current) => ({ ...current, [item.id]: e.target.value }))} disabled={busy || unavailable} fullWidth />
-                      </Stack>
-                    )) : <Typography variant="body2" color="text.secondary">这个插件没有声明占位符接口。</Typography>}
-                  </Stack>
-                </SettingsSection>
+                  <SettingsSection>
+                    <Stack spacing={1}>
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符接口</Typography>
+                      {selectedPlugin.placeholderInterfaces.length ? selectedPlugin.placeholderInterfaces.map((item) => (
+                        <Stack key={item.id} spacing={0.5}>
+                          <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.description || item.id}</Typography>
+                          <TextField size="small" label={`占位符名（默认：${item.defaultName}）`} value={nameOverrides[item.id] ?? item.effectiveName ?? item.defaultName} onChange={(e) => setNameOverrides((current) => ({ ...current, [item.id]: e.target.value }))} disabled={busy || unavailable} fullWidth />
+                        </Stack>
+                      )) : <Typography variant="body2" color="text.secondary">这个插件没有声明占位符接口。</Typography>}
+                    </Stack>
+                  </SettingsSection>
 
-                <SettingsSection>
-                  <Stack spacing={1}>
-                    <Typography variant="body2" sx={{ fontWeight: 900 }}>用户配置</Typography>
-                    <Box component="fieldset" disabled={unavailable} sx={{ p: 0, m: 0, minWidth: 0, border: 0 }}>
-                      <ConfigFieldsForm
-                        schema={selectedPlugin.configSchema}
-                        defaultConfig={selectedPlugin.defaultConfig}
-                        userConfig={selectedPlugin.userConfig}
-                        draftConfig={configDraft}
-                        emptyText="这个插件当前没有可编辑的用户配置字段。"
-                        onSetValue={(path, value) => setConfigDraft((current) => setConfigValueAtPath(current, path, value))}
-                        onRemoveValue={(path) => setConfigDraft((current) => removeConfigValueAtPath(current, path))}
-                      />
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">配置保存后会在下一次提示词解析时生效。</Typography>
-                  </Stack>
-                </SettingsSection>
-              </Stack>
-            ) : (
-              <SettingsSection sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">选择一个系统插件查看详情。</Typography></SettingsSection>
-            )}
+                  <SettingsSection>
+                    <Stack spacing={1}>
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>用户配置</Typography>
+                      <Box component="fieldset" disabled={unavailable} sx={{ p: 0, m: 0, minWidth: 0, border: 0 }}>
+                        <ConfigFieldsForm
+                          schema={selectedPlugin.configSchema}
+                          defaultConfig={selectedPlugin.defaultConfig}
+                          userConfig={selectedPlugin.userConfig}
+                          draftConfig={configDraft}
+                          emptyText="这个插件当前没有可编辑的用户配置字段。"
+                          onSetValue={(path, value) => setConfigDraft((current) => setConfigValueAtPath(current, path, value))}
+                          onRemoveValue={(path) => setConfigDraft((current) => removeConfigValueAtPath(current, path))}
+                        />
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">配置保存后会在下一次提示词解析时生效。</Typography>
+                    </Stack>
+                  </SettingsSection>
+                </Stack>
+              ) : (
+                <SettingsSection sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">选择一个系统插件查看详情。</Typography></SettingsSection>
+              )}
+            </CustomScrollArea>
           </Box>
         </Stack>
       </Stack>
