@@ -72,6 +72,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const [saving, setSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState('')
   const [pluginDialogOpen, setPluginDialogOpen] = React.useState(false)
+  const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false)
+  const [problemsDialogOpen, setProblemsDialogOpen] = React.useState(false)
 
   React.useEffect(() => {
     const next = cloneLibrary(sourceLibrary)
@@ -127,6 +129,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const hasEmptyName = draft.placeholders.some((item) => !text(item.name))
   const hasDuplicateName = Object.values(nameCounts).some((count) => count > 1)
   const canSave = !busy && !saving && !hasEmptyName && !hasDuplicateName
+  const problems = Array.isArray(placeholders?.problems) ? placeholders.problems : []
 
   const replacePlaceholder = (index: number, updater: (item: PlaceholderItem) => PlaceholderItem) => {
     setDraft((current) => ({ ...current, placeholders: current.placeholders.map((item, itemIndex) => (itemIndex === index ? updater(item) : item)) }))
@@ -230,6 +233,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
             <Typography variant="caption" color="text.secondary">使用 {`{{名字}}`} 在提示词里引用；替换只发生在发送给 AI 前。</Typography>
           </Box>
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshPlaceholderLibrary?.(true)} disabled={busy || saving}>{placeholders?.loading ? '刷新中…' : '刷新'}</Button>
+          <Button variant="text" onClick={() => setPreviewDialogOpen(true)}>解析预览</Button>
+          <Button variant="text" color={problems.length ? 'error' : 'inherit'} onClick={() => setProblemsDialogOpen(true)}>问题看板{problems.length ? `（${problems.length}）` : ''}</Button>
           <Button variant="text" onClick={openPluginDialog} disabled={busy || saving}>从插件接口创建占位符</Button>
           <Button startIcon={<AddIcon />} variant="text" onClick={createItem} disabled={busy || saving}>新建占位符</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={saveDraft} disabled={!canSave}>{saving ? '保存中…' : '保存'}</Button>
@@ -304,23 +309,33 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </Box>
         </Stack>
 
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="stretch">
-          <SettingsSection sx={{ flex: 1 }}>
-            <Stack spacing={1}>
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>解析预览</Typography>
+        <Dialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md">
+          <DialogTitle>解析预览</DialogTitle>
+          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
               <TextField size="small" multiline minRows={4} label="输入包含占位符的文本" value={previewText} onChange={(e) => setPreviewText(e.target.value)} fullWidth />
               <SettingsSection tone="muted" sx={{ p: 1, minHeight: 92, whiteSpace: 'pre-wrap' }}>{String(placeholders?.preview?.text || '')}</SettingsSection>
             </Stack>
-          </SettingsSection>
-          <SettingsSection sx={{ width: { xs: '100%', md: 320 } }}>
-            <Stack spacing={1}>
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>问题看板</Typography>
-              {Array.isArray(placeholders?.problems) && placeholders.problems.length ? placeholders.problems.map((problem: any, index: number) => (
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPreviewDialogOpen(false)}>关闭</Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={problemsDialogOpen} onClose={() => setProblemsDialogOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>问题看板</DialogTitle>
+          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+            <Stack spacing={1} sx={{ pt: 0.5 }}>
+              {problems.length ? problems.map((problem: any, index: number) => (
                 <Typography key={`${problem.name}:${problem.type}:${index}`} variant="body2" color="error">{String(problem.name || '')}：{placeholderProblemLabel(String(problem.type || ''))}</Typography>
               )) : <Typography variant="body2" color="text.secondary">当前未发现问题。</Typography>}
             </Stack>
-          </SettingsSection>
-        </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setProblemsDialogOpen(false)}>关闭</Button>
+          </DialogActions>
+        </Dialog>
+
         <Dialog open={pluginDialogOpen} onClose={() => setPluginDialogOpen(false)} fullWidth maxWidth="sm">
           <DialogTitle>从插件接口创建占位符</DialogTitle>
           <DialogContent sx={{ bgcolor: 'grey.50' }}>
