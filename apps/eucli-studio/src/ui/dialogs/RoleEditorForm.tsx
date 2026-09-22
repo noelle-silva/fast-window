@@ -73,6 +73,7 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
       <RoleDialogSection title="系统提示词">
         <RoleSystemPromptSection
           controller={controller}
+          roleName={String(draft?.roleName || '')}
           value={String(draft?.roleSystemPrompt || '')}
           onChange={(next) => controller.actions.setDraft('roleSystemPrompt', next)}
           preview={placeholders?.preview}

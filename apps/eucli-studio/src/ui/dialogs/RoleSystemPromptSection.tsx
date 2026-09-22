@@ -1,19 +1,25 @@
 import * as React from 'react'
 import { Button, Stack, TextField, Typography } from '@mui/material'
 import { placeholderProblemLabel, type PlaceholderProblem } from '../../domain/placeholder'
+import { svgMarkupToPngDataUrl } from '../../render/mermaidExport'
+import { renderMermaidSvg } from '../../render/mermaidRender'
+import { useEvent } from '../hooks/useEvent'
+import { buildPlaceholderDependencyDiagram } from '../settings/PlaceholderDependencyTreePanel'
 
 const PREVIEW_DEBOUNCE_MS = 240
 
 type RoleSystemPromptSectionProps = {
   controller: any
+  roleName: string
   value: string
   onChange: (next: string) => void
   preview?: { text?: string; problems?: PlaceholderProblem[] } | null
 }
 
 export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
-  const { controller, value, onChange, preview } = props
+  const { controller, roleName, value, onChange, preview } = props
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [treeBusy, setTreeBusy] = React.useState(false)
 
   React.useEffect(() => {
     if (!previewOpen) return
@@ -23,6 +29,31 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
     return () => window.clearTimeout(timer)
   }, [controller, previewOpen, value])
 
+  const openDependencyTree = useEvent(() => {
+    if (treeBusy) return
+    const rootLabel = String(roleName || '').trim() || '未命名角色'
+    setTreeBusy(true)
+    Promise.resolve()
+      .then(() => controller.actions.loadRolePlaceholderDependencyTree?.(rootLabel, value))
+      .then((tree: any) => {
+        const children = Array.isArray(tree?.children) ? tree.children : []
+        if (!children.length) {
+          controller.capabilities?.ui?.showToast?.('系统提示词里还没有引用占位符', { kind: 'info' })
+          return
+        }
+        const source = buildPlaceholderDependencyDiagram(tree, { rootLabel })
+        return renderMermaidSvg(source)
+          .then((svg) => svgMarkupToPngDataUrl(svg))
+          .then((dataUrl) => {
+            controller.actions.openImageItems?.([{ src: dataUrl, alt: `${rootLabel} 的占位符依赖树` }])
+          })
+      })
+      .catch((e: any) => {
+        controller.capabilities?.ui?.showToast?.(`生成依赖树失败：${String(e?.message || e || '未知错误')}`, { kind: 'error' })
+      })
+      .finally(() => setTreeBusy(false))
+  })
+
   const problems = Array.isArray(preview?.problems) ? preview.problems : []
 
   return (
@@ -31,6 +62,9 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }}>
           解析预览只展示占位符替换后的效果，不会改动保存的原文。
         </Typography>
+        <Button size="small" variant="outlined" onClick={openDependencyTree} disabled={treeBusy}>
+          {treeBusy ? '生成中…' : '依赖树'}
+        </Button>
         <Button size="small" variant={previewOpen ? 'contained' : 'outlined'} onClick={() => setPreviewOpen((open) => !open)}>
           {previewOpen ? '关闭预览' : '解析预览'}
         </Button>

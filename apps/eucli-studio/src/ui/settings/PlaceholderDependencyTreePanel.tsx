@@ -1,8 +1,7 @@
 import * as React from 'react'
 import { Box, Stack, Typography } from '@mui/material'
-import { uid } from '../../core/utils'
 import type { PlaceholderDependencyNode } from '../../domain/placeholder'
-import { sanitizeSvg } from '../../render/sanitize'
+import { renderMermaidSvg } from '../../render/mermaidRender'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection } from './SettingsSurfaces'
 
@@ -15,9 +14,13 @@ function escapeDiagramLabel(value: string) {
   return value.replace(/"/g, '#quot;').replace(/\s+/g, ' ').trim()
 }
 
-export function buildPlaceholderDependencyDiagram(tree: PlaceholderDependencyNode | null | undefined): string {
+export function buildPlaceholderDependencyDiagram(
+  tree: PlaceholderDependencyNode | null | undefined,
+  options?: { rootLabel?: string },
+): string {
   const root = tree && tree.name ? tree : null
   if (!root) return ''
+  const rootLabel = String(options?.rootLabel ?? '').trim()
   const lines = [
     '%%{init: {"flowchart": {"curve": "basis", "htmlLabels": false}} }%%',
     'flowchart LR',
@@ -29,7 +32,7 @@ export function buildPlaceholderDependencyDiagram(tree: PlaceholderDependencyNod
   const visit = (node: PlaceholderDependencyNode, parentId: string) => {
     const id = `n${counter}`
     counter += 1
-    const label = escapeDiagramLabel(nodeLabel(node))
+    const label = escapeDiagramLabel(parentId || !rootLabel ? nodeLabel(node) : rootLabel)
     lines.push(`  ${id}${parentId ? `("${label}")` : `(["${label}"])`}`)
     if (parentId) lines.push(`  ${parentId} --> ${id}`)
     if (node.cycle) lines.push(`  class ${id} cycleNode`)
@@ -55,36 +58,17 @@ export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDepende
       setFailed(false)
       return
     }
-    const mermaid = (window as any)?.mermaid
-    if (!mermaid || typeof mermaid.render !== 'function') {
-      setSvg('')
-      setFailed(true)
-      return
-    }
-    const run = async () => {
-      try {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'loose',
-          theme: 'default',
-          themeVariables: {
-            fontFamily:
-              'system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Roboto,Arial,sans-serif',
-          },
-          flowchart: { htmlLabels: false },
-        })
-        const rendered = await mermaid.render(uid('placeholder-dep'), source)
+    void renderMermaidSvg(source)
+      .then((next) => {
         if (cancelled) return
-        const next = sanitizeSvg(typeof rendered === 'string' ? rendered : rendered?.svg, 'original')
         setSvg(next)
-        setFailed(!next)
-      } catch {
+        setFailed(false)
+      })
+      .catch(() => {
         if (cancelled) return
         setSvg('')
         setFailed(true)
-      }
-    }
-    void run()
+      })
     return () => {
       cancelled = true
     }

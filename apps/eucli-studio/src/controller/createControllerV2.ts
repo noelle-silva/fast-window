@@ -432,7 +432,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree } = placeholderLibraryController
+  const { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree } = placeholderLibraryController
 
   const systemPluginController = createSystemPluginController({
     getState: () => state,
@@ -973,6 +973,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     persistPlaceholderLibrary,
     refreshPlaceholderPreview,
     refreshPlaceholderDependencyTree,
+    loadRolePlaceholderDependencyTree,
     refreshSystemPlugins,
     openSystemPlugin,
     saveSystemPluginConfig,

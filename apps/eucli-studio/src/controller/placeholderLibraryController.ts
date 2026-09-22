@@ -1,5 +1,5 @@
 import { loadPlaceholderDependencies, loadPlaceholderLibrary, loadPlaceholderProblems, previewPlaceholders, savePlaceholderLibrary } from './placeholderClient'
-import { normalizePlaceholderLibrary } from '../domain/placeholder'
+import { normalizePlaceholderLibrary, placeholderNamesInText, type PlaceholderDependencyNode } from '../domain/placeholder'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createPlaceholderLibraryController(deps: {
@@ -78,5 +78,14 @@ export function createPlaceholderLibraryController(deps: {
     return dependencyTree
   }
 
-  return { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree }
+  // 角色依赖树：以角色名称为根，把提示词里引用的占位符子树并成同一棵树。
+  async function loadRolePlaceholderDependencyTree(rootName: any, text: any): Promise<PlaceholderDependencyNode> {
+    const netRequest = getNetRequest()
+    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    const names = placeholderNamesInText(text)
+    const children = await Promise.all(names.map((name) => loadPlaceholderDependencies(netRequest, name)))
+    return { name: String(rootName ?? '').trim(), children }
+  }
+
+  return { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree }
 }

@@ -5,6 +5,7 @@ export function createLibraryActions(deps: {
   persistPlaceholderLibrary: (library: any) => Promise<any>
   refreshPlaceholderPreview: (value: any) => Promise<any>
   refreshPlaceholderDependencyTree: (name: any) => Promise<any>
+  loadRolePlaceholderDependencyTree: (rootName: any, text: any) => Promise<any>
   refreshSystemPlugins: (force?: boolean) => Promise<any>
   openSystemPlugin: (pluginId: any) => Promise<any>
   saveSystemPluginConfig: (pluginId: any, config: any) => Promise<any>
@@ -18,7 +19,7 @@ export function createLibraryActions(deps: {
   setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => void
   selectHookPromptForActiveChat: (mode: any, presetId: any) => Promise<any>
 }) {
-  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
 
   return {
     refreshHookPromptLibrary: (force: any) => refreshHookPromptLibrary(!!force),
@@ -27,6 +28,7 @@ export function createLibraryActions(deps: {
     savePlaceholderLibrary: (library: any) => persistPlaceholderLibrary(library),
     previewPlaceholders: (value: any) => refreshPlaceholderPreview(value),
     loadPlaceholderDependencies: (name: any) => refreshPlaceholderDependencyTree(name),
+    loadRolePlaceholderDependencyTree: (rootName: any, text: any) => loadRolePlaceholderDependencyTree(rootName, text),
     refreshSystemPlugins: (force: any) => refreshSystemPlugins(!!force),
     openSystemPlugin: (pluginId: any) => openSystemPlugin(pluginId),
     saveSystemPluginConfig: (pluginId: any, config: any) => saveSystemPluginConfig(pluginId, config),

@@ -101,3 +101,17 @@ export async function exportSvgElementToPngDataUrl(svgEl: SVGSVGElement) {
   const bitmap = getMermaidCopyBitmapSize(baseW, baseH)
   return rasterizeSvgToPngDataUrl(svgMarkup, bitmap.width, bitmap.height)
 }
+
+export function svgMarkupToPngDataUrl(svgMarkup: string) {
+  const raw = String(svgMarkup || '').trim()
+  if (!raw) throw new Error('图片内容为空')
+
+  const parsed = parseSvgSize(raw)
+  const baseW = Math.round(Number(parsed.w || 0))
+  const baseH = Math.round(Number(parsed.h || 0))
+  if (!(baseW > 0 && baseH > 0)) throw new Error('无法确定图片尺寸')
+
+  const normalized = normalizeSvgForExport(raw, baseW, baseH)
+  const bitmap = getMermaidCopyBitmapSize(baseW, baseH)
+  return rasterizeSvgToPngDataUrl(normalized, bitmap.width, bitmap.height)
+}

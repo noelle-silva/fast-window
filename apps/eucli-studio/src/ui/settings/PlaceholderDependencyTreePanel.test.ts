@@ -39,4 +39,17 @@ describe('buildPlaceholderDependencyDiagram', () => {
     const source = buildPlaceholderDependencyDiagram({ name: 'a"b' })
     expect(source).toContain('{{a#quot;b}}')
   })
+
+  it('自定义根标签时根节点不再包 {{}}，子节点保持占位符样式', () => {
+    const tree: PlaceholderDependencyNode = { name: '晶晶', children: [{ name: 'user' }] }
+    const source = buildPlaceholderDependencyDiagram(tree, { rootLabel: '晶晶' })
+    expect(source).toContain('n0(["晶晶"])')
+    expect(source).toContain('n1("{{user}}")')
+    expect(source).not.toContain('{{晶晶}}')
+  })
+
+  it('自定义根标签为空时回退为占位符样式', () => {
+    const source = buildPlaceholderDependencyDiagram({ name: 'user' }, { rootLabel: '   ' })
+    expect(source).toContain('n0(["{{user}}"])')
+  })
 })

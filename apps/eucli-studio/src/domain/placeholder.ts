@@ -39,8 +39,23 @@ export type PlaceholderDependencyNode = {
   children?: PlaceholderDependencyNode[]
 }
 
+const PLACEHOLDER_TOKEN_PATTERN = /\{\{([^{}]*)\}\}/g
+
 function text(value: unknown) {
   return String(value ?? '').trim()
+}
+
+export function placeholderNamesInText(value: unknown): string[] {
+  const raw = String(value ?? '')
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const match of raw.matchAll(PLACEHOLDER_TOKEN_PATTERN)) {
+    const name = String(match[1] ?? '').trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    names.push(name)
+  }
+  return names
 }
 
 export function normalizePlaceholderLibrary(raw: unknown): PlaceholderLibrary {
