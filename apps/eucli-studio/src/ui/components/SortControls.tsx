@@ -9,6 +9,7 @@ type SortModeButtonProps = {
   disabled?: boolean
   idleLabel?: string
   activeLabel?: string
+  iconOnly?: boolean
 }
 
 type SortHandleButtonProps = {
@@ -21,16 +22,38 @@ type SortHandleButtonProps = {
 }
 
 export function SortModeButton(props: SortModeButtonProps) {
-  const { enabled, onClick, disabled = false, idleLabel = '排序模式', activeLabel = '完成排序' } = props
+  const { enabled, onClick, disabled = false, idleLabel = '排序模式', activeLabel = '完成排序', iconOnly = false } = props
+  const label = enabled ? activeLabel : idleLabel
+  const icon = enabled ? <DoneRoundedIcon fontSize="small" /> : <DragIndicatorRoundedIcon fontSize="small" />
+
+  if (iconOnly) {
+    return (
+      <IconButton
+        size="small"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        title={label}
+        sx={{
+          flexShrink: 0,
+          color: enabled ? 'primary.main' : 'text.secondary',
+          bgcolor: enabled ? 'var(--studio-primary-soft)' : 'transparent',
+        }}
+      >
+        {icon}
+      </IconButton>
+    )
+  }
+
   return (
     <Button
       size="small"
       variant={enabled ? 'contained' : 'outlined'}
       onClick={onClick}
       disabled={disabled}
-      startIcon={enabled ? <DoneRoundedIcon fontSize="small" /> : <DragIndicatorRoundedIcon fontSize="small" />}
+      startIcon={icon}
     >
-      {enabled ? activeLabel : idleLabel}
+      {label}
     </Button>
   )
 }

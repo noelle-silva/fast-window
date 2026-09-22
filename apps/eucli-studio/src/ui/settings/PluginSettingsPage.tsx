@@ -19,7 +19,8 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
 import { TOPBAR_H } from '../appConstants'
-import { SettingsPageLayout, type SettingsTabValue } from './SettingsPageLayout'
+import { SettingsPageLayout } from './SettingsPageLayout'
+import type { SettingsTabValue } from './settingsNavigation'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
@@ -116,8 +117,16 @@ export function PluginSettingsPage(props: {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [treeHotkeyRecording, controller])
 
+  const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
+
   const wrapSettingsPanel = (children: React.ReactNode) => (
-    <SettingsPageLayout topbarHeight={TOPBAR_H} value={tab} onChange={onTabChange}>
+    <SettingsPageLayout
+      topbarHeight={TOPBAR_H}
+      value={tab}
+      onChange={onTabChange}
+      navOrder={settingsNavOrder}
+      onNavOrderChange={(order) => controller.actions.setSettingsNavOrder?.(order)}
+    >
       {children}
     </SettingsPageLayout>
   )

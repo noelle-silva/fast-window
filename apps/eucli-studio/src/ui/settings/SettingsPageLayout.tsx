@@ -1,40 +1,35 @@
 import * as React from 'react'
 import { Box, Button, Paper, Stack, Typography } from '@mui/material'
+import { moveListItemById } from '../../domain/listOrdering'
 import { CustomScrollArea } from '../components/CustomScrollArea'
-
-export type SettingsTabValue = 'appearance' | 'attachments' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access'
-
-type SettingsNavigationItem = {
-  value: SettingsTabValue
-  label: string
-}
-
-const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
-  { value: 'appearance', label: '外观' },
-  { value: 'attachments', label: '附件' },
-  { value: 'session', label: '会话设置' },
-  { value: 'data', label: '客户端数据' },
-  { value: 'groups', label: '群组管理' },
-  { value: 'roles', label: '角色管理' },
-  { value: 'workspaces', label: '工作区管理' },
-  { value: 'providers', label: '供应商管理' },
-  { value: 'modelGroups', label: '模型组' },
-  { value: 'services', label: 'AI 微服务' },
-  { value: 'eb', label: 'eucli-box连接设置' },
-  { value: 'access', label: 'eucli-box端口设置' },
-  { value: 'tools', label: 'AI 工具管理' },
-  { value: 'stickers', label: '表情包' },
-  { value: 'hookPrompts', label: 'hook 提示词' },
-  { value: 'placeholders', label: '占位符管理' },
-  { value: 'systemPlugins', label: '系统插件管理' },
-  { value: 'commandSystem', label: '命令系统管理' },
-]
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
+import { SortHandleButton, SortModeButton } from '../components/SortControls'
+import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition } from '../components/SortableDnd'
+import { mergeSettingsNavigationItems, type SettingsNavigationItem, type SettingsTabValue } from './settingsNavigation'
 
 const SETTINGS_PAGE_GAP = 12
 const SETTINGS_PAGE_VERTICAL_PADDING = 16
 const SETTINGS_SIDEBAR_WIDTH = { xs: 132, sm: 184, md: 220 }
 
-function SettingsNavigationSidebar(props: { value: SettingsTabValue; onChange: (value: SettingsTabValue) => void }) {
+function SettingsNavigationSidebar(props: {
+  value: SettingsTabValue
+  onChange: (value: SettingsTabValue) => void
+  items: SettingsNavigationItem[]
+  onReorder: (order: SettingsTabValue[]) => void
+}) {
+  const { value, onChange, items, onReorder } = props
+  const [sortMode, setSortMode] = React.useState(false)
+  const itemIds = React.useMemo(() => items.map((item) => item.value), [items])
+
+  const handleMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      const position = resolveSortMovePosition(itemIds, activeId, overId)
+      if (!position) return
+      onReorder(moveListItemById(itemIds, (id) => id, activeId, overId, position))
+    },
+    [itemIds, onReorder],
+  )
+
   return (
     <Paper
       component="nav"
@@ -54,30 +49,66 @@ function SettingsNavigationSidebar(props: { value: SettingsTabValue; onChange: (
       }}
     >
       <Stack spacing={0.75} sx={{ height: '100%', minHeight: 0 }}>
-        <Typography variant="body2" sx={{ px: 0.75, fontWeight: 900, whiteSpace: 'nowrap' }}>
-          设置分区
-        </Typography>
-        <CustomScrollArea hostSx={{ minHeight: 0, flex: 1 }} scrollSx={{ height: '100%' }}>
-          <Stack spacing={0.5}>
-            {SETTINGS_NAVIGATION_ITEMS.map((item) => (
-              <Button
-                key={item.value}
-                size="small"
-                variant={props.value === item.value ? 'contained' : 'text'}
-                onClick={() => props.onChange(item.value)}
-                sx={{ justifyContent: 'flex-start', minWidth: 0, px: 1, borderRadius: 1.5, whiteSpace: 'nowrap', textTransform: 'none' }}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </Stack>
-        </CustomScrollArea>
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ px: 0.75 }}>
+          <Typography variant="body2" sx={{ fontWeight: 900, whiteSpace: 'nowrap', flex: 1 }}>
+            设置分区
+          </Typography>
+          <SortModeButton
+            iconOnly
+            enabled={sortMode}
+            onClick={() => setSortMode((current) => !current)}
+            disabled={items.length <= 1}
+            idleLabel="进入拖拽排序"
+            activeLabel="完成拖拽排序"
+          />
+        </Stack>
+        <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+          <SortableRoot onMove={handleMove}>
+            <SortableSection items={itemIds}>
+              <Stack spacing={0.5}>
+                {items.map((item) => (
+                  <SortableItem key={item.value} id={item.value} disabled={!sortMode}>
+                    {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                      <Box ref={setNodeRef} style={style} sx={{ display: 'flex', alignItems: 'center', gap: 0.25, opacity: isDragging ? 0.5 : 1 }}>
+                        <SortHandleButton
+                          enabled={sortMode}
+                          label={`拖拽排序 ${item.label}`}
+                          handleRef={setHandleRef}
+                          handleProps={handleProps}
+                          isDragging={isDragging}
+                          sx={{ ml: -0.5 }}
+                        />
+                        <Button
+                          size="small"
+                          variant={value === item.value ? 'contained' : 'text'}
+                          onClick={() => onChange(item.value)}
+                          sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, px: 1, borderRadius: 1.5, whiteSpace: 'nowrap', textTransform: 'none' }}
+                        >
+                          {item.label}
+                        </Button>
+                      </Box>
+                    )}
+                  </SortableItem>
+                ))}
+              </Stack>
+            </SortableSection>
+          </SortableRoot>
+        </Box>
       </Stack>
     </Paper>
   )
 }
 
-export function SettingsPageLayout(props: { topbarHeight: number; value: SettingsTabValue; onChange: (value: SettingsTabValue) => void; children: React.ReactNode }) {
+export function SettingsPageLayout(props: {
+  topbarHeight: number
+  value: SettingsTabValue
+  onChange: (value: SettingsTabValue) => void
+  navOrder: unknown
+  onNavOrderChange: (order: SettingsTabValue[]) => void
+  children: React.ReactNode
+}) {
+  const items = React.useMemo(() => mergeSettingsNavigationItems(props.navOrder), [props.navOrder])
+
   return (
     <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', px: 2, pt: `calc(${props.topbarHeight}px + ${SETTINGS_PAGE_VERTICAL_PADDING}px)`, pb: 2, bgcolor: 'var(--studio-canvas)' }}>
       <Box
@@ -89,7 +120,7 @@ export function SettingsPageLayout(props: { topbarHeight: number; value: Setting
           height: `calc(100vh - ${props.topbarHeight}px - ${SETTINGS_PAGE_VERTICAL_PADDING * 2}px)`,
         }}
       >
-        <SettingsNavigationSidebar value={props.value} onChange={props.onChange} />
+        <SettingsNavigationSidebar value={props.value} onChange={props.onChange} items={items} onReorder={props.onNavOrderChange} />
         <CustomScrollArea hostSx={{ flex: 1, minWidth: 0, minHeight: 0 }} scrollSx={{ height: '100%' }}>{props.children}</CustomScrollArea>
       </Box>
     </Box>

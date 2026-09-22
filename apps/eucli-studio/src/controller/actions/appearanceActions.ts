@@ -151,6 +151,21 @@ export function createAppearanceActions(deps: {
       saveMeta().catch(() => {})
       emit()
     },
+    setSettingsNavOrder: (order: any) => {
+      if (!state.data || !Array.isArray(order)) return
+      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
+      const seen = new Set<string>()
+      const next: string[] = []
+      for (const raw of order) {
+        const value = String(raw || '').trim()
+        if (!value || seen.has(value)) continue
+        seen.add(value)
+        next.push(value)
+      }
+      ;(state.data.settings as any).settingsNavOrder = next
+      saveMeta().catch(() => {})
+      emit()
+    },
     toggleUserMessageCollapse: () => {
       if (!state.data) return
       state.data.settings.userMessageCollapseEnabled = !state.data.settings.userMessageCollapseEnabled
