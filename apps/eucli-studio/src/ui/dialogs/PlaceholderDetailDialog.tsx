@@ -20,11 +20,16 @@ export function PlaceholderDetailDialog(props: PlaceholderDetailDialogProps) {
   const { controller, placeholders, name, onClose } = props
   const target = text(name)
 
+  // 关闭动画期间沿用最后一次的名字：避免淡出的一瞬间内容变成空 / 未注册红字。
+  const [retained, setRetained] = React.useState('')
+  if (target && target !== retained) setRetained(target)
+  const shown = target || retained
+
   const item = React.useMemo<PlaceholderItem | null>(() => {
     const list = placeholders?.library?.placeholders
     if (!Array.isArray(list)) return null
-    return list.find((entry: PlaceholderItem) => text(entry?.name) === target) || null
-  }, [placeholders?.library, target])
+    return list.find((entry: PlaceholderItem) => text(entry?.name) === shown) || null
+  }, [placeholders?.library, shown])
 
   React.useEffect(() => {
     if (!target) return
@@ -36,7 +41,7 @@ export function PlaceholderDetailDialog(props: PlaceholderDetailDialogProps) {
     const writeText = capabilities?.clipboard?.writeText
     if (typeof writeText !== 'function') return capabilities?.ui?.showToast?.('未授权：clipboard.writeText', { kind: 'error' })
     Promise.resolve()
-      .then(() => writeText(`{{${target}}}`))
+      .then(() => writeText(`{{${shown}}}`))
       .then(() => capabilities?.ui?.showToast?.('已复制占位符', { kind: 'success' }))
       .catch(() => capabilities?.ui?.showToast?.('复制失败', { kind: 'error' }))
   }
@@ -45,7 +50,7 @@ export function PlaceholderDetailDialog(props: PlaceholderDetailDialogProps) {
 
   return (
     <Dialog open={!!target} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
-      <DialogTitle>{`{{${target}}}`}</DialogTitle>
+      <DialogTitle>{`{{${shown}}}`}</DialogTitle>
       <DialogContent>
         <Stack spacing={1.25} sx={{ pt: 1.5 }}>
           {item ? (
