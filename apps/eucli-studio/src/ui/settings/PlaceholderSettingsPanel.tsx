@@ -1,7 +1,9 @@
 import * as React from 'react'
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, InputLabel, Menu, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import {
@@ -74,6 +76,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const [pluginDialogOpen, setPluginDialogOpen] = React.useState(false)
   const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false)
   const [problemsDialogOpen, setProblemsDialogOpen] = React.useState(false)
+  const [folderMenuEl, setFolderMenuEl] = React.useState<HTMLElement | null>(null)
+  const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
 
   React.useEffect(() => {
     const next = cloneLibrary(sourceLibrary)
@@ -144,7 +148,15 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
       nextName = `新占位符 ${suffix}`
       suffix += 1
     }
-    setDraft((current) => ({ ...current, placeholders: current.placeholders.concat({ ...item, name: nextName }) }))
+    setDraft((current) => ({
+      ...current,
+      placeholders: current.placeholders.concat({ ...item, name: nextName }),
+      folders: selectedFolderId
+        ? current.folders.map((folder) => folder.id === selectedFolderId
+          ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
+          : folder)
+        : current.folders,
+    }))
     setSelectedIndex(draft.placeholders.length)
   }
 
@@ -246,39 +258,22 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
         {hasDuplicateName ? <Typography variant="body2" color="error">占位符名字必须全局唯一。</Typography> : null}
 
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems="flex-start">
-          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: '100%', lg: 270 } }}>
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900, flex: 1 }}>收藏夹</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={createFolder} disabled={busy || saving}>新建</Button>
-              </Stack>
-              <Button size="small" variant={!selectedFolderId ? 'contained' : 'text'} onClick={() => setSelectedFolderId('')} sx={{ justifyContent: 'flex-start' }}>全部占位符</Button>
-              {sortedFolders(draft.folders).map((folder) => (
-                <Button key={folder.id} size="small" variant={selectedFolderId === folder.id ? 'contained' : 'text'} onClick={() => setSelectedFolderId(folder.id)} sx={{ justifyContent: 'flex-start', pl: 1 + folderDepth(folder, draft.folders) * 2 }}>
-                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</Box>
-                </Button>
-              ))}
-              {selectedFolder ? (
-                <SettingsSection tone="default" sx={{ p: 1 }}>
-                  <Stack spacing={1}>
-                    <TextField size="small" label="收藏夹名称" value={selectedFolder.name} onChange={(e) => updateFolder(selectedFolder.id, { name: e.target.value })} disabled={busy || saving} />
-                    <FormControl size="small">
-                      <InputLabel>父级收藏夹</InputLabel>
-                      <Select label="父级收藏夹" value={selectedFolder.parentId || ''} onChange={(e) => updateFolder(selectedFolder.id, { parentId: String(e.target.value || '') })} disabled={busy || saving}>
-                        <MenuItem value="">无</MenuItem>
-                        {draft.folders.filter((folder) => folder.id !== selectedFolder.id).map((folder) => <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                    <Button color="error" size="small" startIcon={<DeleteOutlineIcon />} onClick={() => deleteFolder(selectedFolder.id)} disabled={busy || saving}>删除收藏夹</Button>
-                  </Stack>
-                </SettingsSection>
-              ) : null}
-            </Stack>
-          </SettingsSection>
-
           <SettingsSection tone="muted" sx={{ p: 1, width: { xs: '100%', lg: 300 } }}>
             <Stack spacing={1}>
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符列表</Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900, flexShrink: 0 }}>占位符列表</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FolderOutlinedIcon fontSize="small" />}
+                  endIcon={<ArrowDropDownIcon fontSize="small" />}
+                  onClick={(event) => setFolderMenuEl(event.currentTarget)}
+                  sx={{ justifyContent: 'flex-start', minWidth: 0, maxWidth: 170, textTransform: 'none' }}
+                >
+                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFolder ? selectedFolder.name : '全部占位符'}</Box>
+                </Button>
+              </Stack>
               {filteredPlaceholders.length ? filteredPlaceholders.map(({ item, index }) => {
                 const selected = index === selectedIndex
                 const label = text(item.name) || `未命名占位符 ${index + 1}`
@@ -308,6 +303,85 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
             )}
           </Box>
         </Stack>
+
+        <Menu anchorEl={folderMenuEl} open={!!folderMenuEl} onClose={() => setFolderMenuEl(null)}>
+          <MenuItem
+            selected={!selectedFolderId}
+            onClick={() => {
+              setSelectedFolderId('')
+              setFolderMenuEl(null)
+            }}
+          >
+            全部占位符
+          </MenuItem>
+          {sortedFolders(draft.folders).map((folder) => (
+            <MenuItem
+              key={folder.id}
+              selected={selectedFolderId === folder.id}
+              onClick={() => {
+                setSelectedFolderId(folder.id)
+                setFolderMenuEl(null)
+              }}
+              sx={{ pl: 2 + folderDepth(folder, draft.folders) * 2 }}
+            >
+              {folder.name}
+            </MenuItem>
+          ))}
+          <Divider />
+          <MenuItem
+            onClick={() => {
+              createFolder()
+              setFolderMenuEl(null)
+            }}
+          >
+            <AddIcon fontSize="small" sx={{ mr: 1 }} />
+            新建收藏夹
+          </MenuItem>
+          <MenuItem
+            disabled={!selectedFolder}
+            onClick={() => {
+              setFolderDialogOpen(true)
+              setFolderMenuEl(null)
+            }}
+          >
+            收藏夹设置…
+          </MenuItem>
+        </Menu>
+
+        <Dialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs">
+          <DialogTitle>收藏夹设置</DialogTitle>
+          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+            {selectedFolder ? (
+              <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+                <TextField size="small" label="收藏夹名称" value={selectedFolder.name} onChange={(e) => updateFolder(selectedFolder.id, { name: e.target.value })} disabled={busy || saving} fullWidth />
+                <FormControl size="small" fullWidth>
+                  <InputLabel>父级收藏夹</InputLabel>
+                  <Select label="父级收藏夹" value={selectedFolder.parentId || ''} onChange={(e) => updateFolder(selectedFolder.id, { parentId: String(e.target.value || '') })} disabled={busy || saving}>
+                    <MenuItem value="">无</MenuItem>
+                    {draft.folders.filter((folder) => folder.id !== selectedFolder.id).map((folder) => <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <Button
+                  color="error"
+                  size="small"
+                  startIcon={<DeleteOutlineIcon />}
+                  onClick={() => {
+                    deleteFolder(selectedFolder.id)
+                    setFolderDialogOpen(false)
+                  }}
+                  disabled={busy || saving}
+                >
+                  删除收藏夹
+                </Button>
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>请先在下拉栏里选择一个收藏夹。</Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setFolderDialogOpen(false)}>关闭</Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md">
           <DialogTitle>解析预览</DialogTitle>
