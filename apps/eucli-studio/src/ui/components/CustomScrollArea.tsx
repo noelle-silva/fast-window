@@ -23,6 +23,7 @@ export type CustomScrollAreaProps = {
   children: React.ReactNode
   hostSx?: SxProps<Theme>
   scrollSx?: SxProps<Theme>
+  contentSx?: SxProps<Theme>
   className?: string
   onClick?: React.MouseEventHandler<HTMLDivElement>
   onScrollPositionChange?: (el: HTMLDivElement) => void
@@ -34,7 +35,7 @@ function sxList(value?: SxProps<Theme>) {
 }
 
 export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAreaProps>(function CustomScrollArea(props, forwardedRef) {
-  const { children, hostSx, scrollSx, className, onClick, onScrollPositionChange } = props
+  const { children, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
@@ -164,7 +165,7 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
           ...sxList(scrollSx),
         ]}
       >
-        <Box ref={contentRef} sx={{ minWidth: 0 }}>
+        <Box ref={contentRef} sx={[{ minWidth: 0 }, ...sxList(contentSx)]}>
           {children}
         </Box>
       </Box>

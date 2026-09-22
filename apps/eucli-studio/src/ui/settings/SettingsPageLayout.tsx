@@ -122,7 +122,7 @@ export function SettingsPageLayout(props: {
         }}
       >
         <SettingsNavigationSidebar value={props.value} onChange={props.onChange} items={items} onReorder={props.onNavOrderChange} />
-        <CustomScrollArea hostSx={{ flex: 1, minWidth: 0, minHeight: 0 }} scrollSx={{ height: '100%' }}>{props.children}</CustomScrollArea>
+        <CustomScrollArea hostSx={{ flex: 1, minWidth: 0, minHeight: 0 }} scrollSx={{ height: '100%' }} contentSx={{ height: '100%' }}>{props.children}</CustomScrollArea>
       </Box>
     </Box>
   )
