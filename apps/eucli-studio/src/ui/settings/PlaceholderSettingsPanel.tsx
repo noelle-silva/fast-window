@@ -17,6 +17,8 @@ import {
   type PlaceholderLibrary,
 } from '../../domain/placeholder'
 import { systemPluginLocatorId } from '../../domain/systemPlugin'
+import { CustomScrollArea } from '../components/CustomScrollArea'
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type PlaceholderSettingsPanelProps = {
@@ -237,8 +239,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   }
 
   return (
-    <SettingsSurface>
-      <Stack spacing={1.5}>
+    <SettingsSurface sx={{ height: '100%' }}>
+      <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 900 }}>占位符管理</Typography>
@@ -257,50 +259,53 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
         {hasEmptyName ? <Typography variant="body2" color="error">占位符名字不能为空。</Typography> : null}
         {hasDuplicateName ? <Typography variant="body2" color="error">占位符名字必须全局唯一。</Typography> : null}
 
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems="flex-start">
-          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: '100%', lg: 300 } }}>
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900, flexShrink: 0 }}>占位符列表</Typography>
-                <Box sx={{ flex: 1 }} />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<FolderOutlinedIcon fontSize="small" />}
-                  endIcon={<ArrowDropDownIcon fontSize="small" />}
-                  onClick={(event) => setFolderMenuEl(event.currentTarget)}
-                  sx={{ justifyContent: 'flex-start', minWidth: 0, maxWidth: 170, textTransform: 'none' }}
-                >
-                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFolder ? selectedFolder.name : '全部占位符'}</Box>
-                </Button>
-              </Stack>
-              {filteredPlaceholders.length ? filteredPlaceholders.map(({ item, index }) => {
-                const selected = index === selectedIndex
-                const label = text(item.name) || `未命名占位符 ${index + 1}`
-                const disabledByPlugin = sourcePluginDisabled(item)
-                return <Button key={`${item.name}:${index}`} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Button>
-              }) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
+        <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 200, sm: 240, lg: 280 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符列表</Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<FolderOutlinedIcon fontSize="small" />}
+                endIcon={<ArrowDropDownIcon fontSize="small" />}
+                onClick={(event) => setFolderMenuEl(event.currentTarget)}
+                sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
+              >
+                <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFolder ? selectedFolder.name : '全部占位符'}</Box>
+              </Button>
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+                <Stack spacing={1}>
+                  {filteredPlaceholders.length ? filteredPlaceholders.map(({ item, index }) => {
+                    const selected = index === selectedIndex
+                    const label = text(item.name) || `未命名占位符 ${index + 1}`
+                    const disabledByPlugin = sourcePluginDisabled(item)
+                    return <Button key={`${item.name}:${index}`} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box></Button>
+                  }) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
+                </Stack>
+              </Box>
             </Stack>
           </SettingsSection>
 
-          <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-            {selectedPlaceholder ? (
-              <Stack spacing={1.25}>
-                <PlaceholderEditor
-                  item={selectedPlaceholder}
-                  folders={draft.folders}
-                  disabled={busy || saving}
-                  sourcePluginDisabled={sourcePluginDisabled(selectedPlaceholder)}
-                  onRename={(nextName) => renameItem(selectedIndex, selectedPlaceholder.name, nextName)}
-                  onUpdate={(patch) => replacePlaceholder(selectedIndex, (item) => ({ ...item, ...patch }))}
-                  onDelete={() => deleteItem(selectedIndex, selectedPlaceholder.name)}
-                  onToggleFolder={(folderId, checked) => toggleFolderMembership(folderId, selectedPlaceholder.name, checked)}
-                />
-                <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} />
-              </Stack>
-            ) : (
-              <SettingsSection sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">选择一个占位符，或新建后开始编辑。</Typography></SettingsSection>
-            )}
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
+              {selectedPlaceholder ? (
+                <Stack spacing={1.25}>
+                  <PlaceholderEditor
+                    item={selectedPlaceholder}
+                    folders={draft.folders}
+                    disabled={busy || saving}
+                    sourcePluginDisabled={sourcePluginDisabled(selectedPlaceholder)}
+                    onRename={(nextName) => renameItem(selectedIndex, selectedPlaceholder.name, nextName)}
+                    onUpdate={(patch) => replacePlaceholder(selectedIndex, (item) => ({ ...item, ...patch }))}
+                    onDelete={() => deleteItem(selectedIndex, selectedPlaceholder.name)}
+                    onToggleFolder={(folderId, checked) => toggleFolderMembership(folderId, selectedPlaceholder.name, checked)}
+                  />
+                  <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} />
+                </Stack>
+              ) : (
+                <SettingsSection sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">选择一个占位符，或新建后开始编辑。</Typography></SettingsSection>
+              )}
+            </CustomScrollArea>
           </Box>
         </Stack>
 
