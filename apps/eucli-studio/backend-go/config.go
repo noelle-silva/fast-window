@@ -33,6 +33,7 @@ type projectionConfig struct {
 
 type configStore struct {
 	path string
+	dir  string
 	mu   sync.Mutex
 }
 
@@ -44,7 +45,11 @@ func newConfigStore(dataDir string) (*configStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &configStore{path: filepath.Join(dir, configFileName)}, nil
+	return &configStore{path: filepath.Join(dir, configFileName), dir: dir}, nil
+}
+
+func (s *configStore) dataDir() string {
+	return s.dir
 }
 
 func (s *configStore) load() (clientConfig, error) {

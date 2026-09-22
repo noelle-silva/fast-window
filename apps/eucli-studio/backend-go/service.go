@@ -264,6 +264,9 @@ func (s *service) handleImageRead(ctx context.Context, params json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
+	if isWallpaperRelPath(req.Path) {
+		return readWallpaperFile(s.config.dataDir(), req.Path)
+	}
 	if strings.HasPrefix(filepath.ToSlash(req.Path), "stickers/") {
 		return s.eb.request(ctx, ebRequest{Method: "GET", Path: "/api/stickers/image", Query: mustJSON(map[string]any{"path": filepath.ToSlash(req.Path)})})
 	}
@@ -288,6 +291,15 @@ func (s *service) handleImageWrite(ctx context.Context, params json.RawMessage) 
 	req, err := imagePayload(params)
 	if err != nil {
 		return nil, err
+	}
+	if isWallpaperRelPath(req.Path) {
+		if req.DataURL == "" {
+			return nil, newError("BAD_REQUEST", "image data url is required")
+		}
+		if err := writeWallpaperFile(s.config.dataDir(), req.Path, req.DataURL); err != nil {
+			return nil, err
+		}
+		return map[string]any{"relPath": req.Path}, nil
 	}
 	roleID, err := s.projection.roleIDByAvatarPath(ctx, req.Path)
 	if err != nil {
@@ -318,6 +330,12 @@ func (s *service) handleImageDelete(ctx context.Context, params json.RawMessage)
 	req, err := imagePayload(params)
 	if err != nil {
 		return nil, err
+	}
+	if isWallpaperRelPath(req.Path) {
+		if err := removeWallpaperFile(s.config.dataDir(), req.Path); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
 	}
 	roleID, err := s.projection.roleIDByAvatarPath(ctx, req.Path)
 	if err != nil {
