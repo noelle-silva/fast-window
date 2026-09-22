@@ -6,12 +6,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   IconButton,
-  InputLabel,
   MenuItem,
   Popover,
-  Select,
   Stack,
   Switch,
   TextField,
@@ -24,7 +21,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ImageIcon from '@mui/icons-material/Image'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useEvent } from '../hooks/useEvent'
-import { SettingsListItem, SettingsSurface } from './SettingsSurfaces'
+import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { CustomScrollArea } from '../components/CustomScrollArea'
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { StickerInlineImage } from '../components/MessageMedia'
 
 export function StickersSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
@@ -147,11 +146,15 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
 
   return (
     <>
-      <SettingsSurface>
-        <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography sx={{ fontWeight: 900 }}>表情包</Typography>
-            <Box sx={{ flex: 1 }} />
+      <SettingsSurface sx={{ height: '100%' }}>
+        <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography sx={{ fontWeight: 900 }}>表情包</Typography>
+              <Typography variant="caption" color="text.secondary">
+                协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。
+              </Typography>
+            </Box>
             <Stack direction="row" alignItems="center" spacing={1}>
               <Switch size="small" checked={enabled} onChange={() => controller.actions.toggleStickersEnabled?.()} />
               <Typography variant="body2" color="text.secondary">
@@ -159,122 +162,123 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
               </Typography>
             </Stack>
           </Stack>
-          <Typography variant="caption" color="text.secondary">
-            协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。
-          </Typography>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <FormControl size="small" fullWidth>
-              <InputLabel id="sticker-cat-settings">分类</InputLabel>
-              <Select
-                labelId="sticker-cat-settings"
-                value={String(cat || '')}
-                label="分类"
-                onChange={(e) => setCat(String(e.target.value || ''))}
-                disabled={loading}
-              >
-                {categories.length ? (
-                  categories.map((c) => (
-                    <MenuItem key={c} value={c}>
-                      {c}
-                    </MenuItem>
-                  ))
-                ) : (
-                  <MenuItem value="">
-                    <em>暂无分类</em>
-                  </MenuItem>
-                )}
-              </Select>
-            </FormControl>
-
-            <Button
-              variant="text"
-              startIcon={<ContentCopyIcon />}
-              onClick={copyCategoryPrompt}
-              disabled={loading || !cat || typeof api?.clipboard?.writeText !== 'function'}
-              sx={{ whiteSpace: 'nowrap' }}
-            >
-              复制提示词
-            </Button>
-
-            <Tooltip title="分类操作">
-              <span>
-                <IconButton aria-label="分类操作" onClick={openCatMenu} disabled={loading} size="small">
-                  <MoreVertIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Stack>
-
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <Button startIcon={<ImageIcon />} variant="text" onClick={onPickStickerImages} disabled={loading || !cat}>
-              上传
-            </Button>
-            <Box sx={{ flex: 1 }} />
-            <TextField size="small" label="搜索表情名" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={loading || !cat} />
-          </Stack>
-
-          {!cat ? (
-            <Typography variant="body2" color="text.secondary">
-              先创建/选择一个分类。
-            </Typography>
-          ) : !names.length ? (
-            <Typography variant="body2" color="text.secondary">
-              这个分类还没有表情包。
-            </Typography>
-          ) : (
-            <Stack spacing={1}>
-              {names.slice(0, 300).map((name) => {
-                const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
-                const token = tokenFor(cat, name)
-                return (
-                  <SettingsListItem key={name}>
-                    <Stack direction="row" spacing={1.25} alignItems="center">
-                      {relPath ? <StickerInlineImage controller={controller} path={relPath} label={token} size={64} /> : null}
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography sx={{ fontWeight: 900 }} noWrap>
-                          {name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {token}
-                        </Typography>
-                      </Box>
+          <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+            <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 170, sm: 210, lg: 250 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="body2" sx={{ fontWeight: 900, flex: 1 }}>分类列表</Typography>
+                  <Tooltip title="分类操作">
+                    <span>
+                      <IconButton aria-label="分类操作" onClick={openCatMenu} disabled={loading} size="small">
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+                <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+                  <Stack spacing={1}>
+                    {categories.length ? categories.map((categoryName) => (
                       <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => controller.capabilities?.clipboard?.writeText?.(token)}
-                        disabled={!controller.capabilities?.clipboard?.writeText}
+                        key={categoryName}
+                        variant={categoryName === cat ? 'contained' : 'text'}
+                        color={categoryName === cat ? 'primary' : 'inherit'}
+                        onClick={() => setCat(categoryName)}
+                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
                       >
-                        复制 token
+                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{categoryName}</Box>
                       </Button>
-                      <Tooltip title={stickerNamingDisabledReason || '使用当前配置的 AI 服务为该表情包自动取名'}>
-                        <span>
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => {
-                              Promise.resolve()
-                                .then(() => controller.actions.aiGenerateStickerName?.(cat, name))
-                                .catch(() => {})
-                            }}
-                            disabled={loading || !stickerNamingReady}
-                          >
-                            AI 取名
-                          </Button>
-                        </span>
-                      </Tooltip>
-                      <Button size="small" variant="text" onClick={() => onOpenRename(name)} disabled={loading}>
-                        改名
+                    )) : <Typography variant="body2" color="text.secondary">暂无分类。</Typography>}
+                  </Stack>
+                </Box>
+              </Stack>
+            </SettingsSection>
+
+            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+              <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
+                {!cat ? (
+                  <SettingsSection sx={{ p: 2 }}>
+                    <Typography variant="body2" color="text.secondary">先创建/选择一个分类。</Typography>
+                  </SettingsSection>
+                ) : (
+                  <Stack spacing={1.5}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                      <Button
+                        variant="text"
+                        startIcon={<ContentCopyIcon />}
+                        onClick={copyCategoryPrompt}
+                        disabled={loading || typeof api?.clipboard?.writeText !== 'function'}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        复制提示词
                       </Button>
-                      <Button size="small" color="error" variant="text" onClick={() => controller.actions.deleteSticker?.(cat, name)}>
-                        删除
+                      <Button startIcon={<ImageIcon />} variant="text" onClick={onPickStickerImages} disabled={loading}>
+                        上传
                       </Button>
+                      <Box sx={{ flex: 1 }} />
+                      <TextField size="small" label="搜索表情名" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={loading} />
                     </Stack>
-                  </SettingsListItem>
-                )
-              })}
-            </Stack>
-          )}
+
+                    {!names.length ? (
+                      <Typography variant="body2" color="text.secondary">这个分类还没有表情包。</Typography>
+                    ) : (
+                      <Stack spacing={1}>
+                        {names.slice(0, 300).map((name) => {
+                          const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
+                          const token = tokenFor(cat, name)
+                          return (
+                            <SettingsListItem key={name}>
+                              <Stack direction="row" spacing={1.25} alignItems="center">
+                                {relPath ? <StickerInlineImage controller={controller} path={relPath} label={token} size={64} /> : null}
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography sx={{ fontWeight: 900 }} noWrap>
+                                    {name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" noWrap>
+                                    {token}
+                                  </Typography>
+                                </Box>
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  onClick={() => controller.capabilities?.clipboard?.writeText?.(token)}
+                                  disabled={!controller.capabilities?.clipboard?.writeText}
+                                >
+                                  复制 token
+                                </Button>
+                                <Tooltip title={stickerNamingDisabledReason || '使用当前配置的 AI 服务为该表情包自动取名'}>
+                                  <span>
+                                    <Button
+                                      size="small"
+                                      variant="text"
+                                      onClick={() => {
+                                        Promise.resolve()
+                                          .then(() => controller.actions.aiGenerateStickerName?.(cat, name))
+                                          .catch(() => {})
+                                      }}
+                                      disabled={loading || !stickerNamingReady}
+                                    >
+                                      AI 取名
+                                    </Button>
+                                  </span>
+                                </Tooltip>
+                                <Button size="small" variant="text" onClick={() => onOpenRename(name)} disabled={loading}>
+                                  改名
+                                </Button>
+                                <Button size="small" color="error" variant="text" onClick={() => controller.actions.deleteSticker?.(cat, name)}>
+                                  删除
+                                </Button>
+                              </Stack>
+                            </SettingsListItem>
+                          )
+                        })}
+                      </Stack>
+                    )}
+                  </Stack>
+                )}
+              </CustomScrollArea>
+            </Box>
+          </Stack>
         </Stack>
       </SettingsSurface>
 
