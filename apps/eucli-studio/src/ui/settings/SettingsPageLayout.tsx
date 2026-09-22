@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, Button, Paper, Stack, Typography } from '@mui/material'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 
-export type SettingsTabValue = 'appearance' | 'attachments' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'eb' | 'access'
+export type SettingsTabValue = 'appearance' | 'attachments' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access'
 
 type SettingsNavigationItem = {
   value: SettingsTabValue
@@ -12,20 +12,22 @@ type SettingsNavigationItem = {
 const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'appearance', label: '外观' },
   { value: 'attachments', label: '附件' },
-  { value: 'data', label: '数据' },
+  { value: 'session', label: '会话设置' },
+  { value: 'data', label: '客户端数据' },
   { value: 'groups', label: '群组管理' },
   { value: 'roles', label: '角色管理' },
   { value: 'workspaces', label: '工作区管理' },
   { value: 'providers', label: '供应商管理' },
   { value: 'modelGroups', label: '模型组' },
   { value: 'services', label: 'AI 微服务' },
-  { value: 'eb', label: 'e-b' },
-  { value: 'access', label: '业务端访问' },
-  { value: 'tools', label: 'AI 工具' },
+  { value: 'eb', label: 'eucli-box连接设置' },
+  { value: 'access', label: 'eucli-box端口设置' },
+  { value: 'tools', label: 'AI 工具管理' },
   { value: 'stickers', label: '表情包' },
   { value: 'hookPrompts', label: 'hook 提示词' },
   { value: 'placeholders', label: '占位符管理' },
   { value: 'systemPlugins', label: '系统插件管理' },
+  { value: 'commandSystem', label: '命令系统管理' },
 ]
 
 const SETTINGS_PAGE_GAP = 12
@@ -63,7 +65,7 @@ function SettingsNavigationSidebar(props: { value: SettingsTabValue; onChange: (
                 size="small"
                 variant={props.value === item.value ? 'contained' : 'text'}
                 onClick={() => props.onChange(item.value)}
-                sx={{ justifyContent: 'flex-start', minWidth: 0, px: 1, borderRadius: 1.5, whiteSpace: 'nowrap' }}
+                sx={{ justifyContent: 'flex-start', minWidth: 0, px: 1, borderRadius: 1.5, whiteSpace: 'nowrap', textTransform: 'none' }}
               >
                 {item.label}
               </Button>

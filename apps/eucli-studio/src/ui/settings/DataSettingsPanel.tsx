@@ -42,7 +42,7 @@ export function DataSettingsPanel(props: { dataDirectory?: AiChatDataDirectory; 
         <Stack spacing={1.5}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 900 }}>数据</Typography>
+              <Typography sx={{ fontWeight: 900 }}>客户端数据</Typography>
               <Typography variant="caption" color="text.secondary">
                 eucli-studio 的聊天、角色、图片和运行状态都会保存在这个目录里。
               </Typography>

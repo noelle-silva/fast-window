@@ -96,7 +96,7 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
                 <BuildIcon fontSize="small" />
               </Box>
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontWeight: 900 }}>AI 工具</Typography>
+                <Typography sx={{ fontWeight: 900 }}>AI 工具管理</Typography>
                 <Typography variant="body2" color="text.secondary">
                   从 e-b 工具目录加载工具，并编辑工具的用户配置。
                 </Typography>

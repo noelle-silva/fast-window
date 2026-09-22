@@ -269,7 +269,6 @@ export function App() {
               standalone: launchInfo.standalone,
                 actions: windowControlActions,
              }}
-             releaseBusy={release.busy}
              releaseView={release.view}
              onReleaseRefresh={release.refresh}
             />

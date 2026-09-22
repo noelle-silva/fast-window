@@ -23,6 +23,7 @@ import { SettingsPageLayout, type SettingsTabValue } from './SettingsPageLayout'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
+import { SessionSettingsPanel } from './SessionSettingsPanel'
 import { StickersSettingsPanel } from './StickersSettingsPanel'
 import { WorkspacesSettingsPanel } from './WorkspacesSettingsPanel'
 import { RolesSettingsPanel } from './RolesSettingsPanel'
@@ -59,7 +60,6 @@ export function PluginSettingsPage(props: {
   tools: any
   modelRequestConfig: any
   bootstrap?: StudioBootstrap
-  releaseBusy: boolean
   releaseView: ReleaseCandidatesView | null
   onReleaseRefresh: (kind?: string) => Promise<void> | void
   accessSettings?: any
@@ -74,7 +74,7 @@ export function PluginSettingsPage(props: {
   onTabChange: (tab: SettingsTab) => void
   dataDirectory?: AiChatDataDirectory
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseBusy, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory } = props
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
 
   React.useEffect(() => {
@@ -598,6 +598,10 @@ export function PluginSettingsPage(props: {
     )
   }
 
+  if (tab === 'session') {
+    return wrapSettingsPanel(<SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} />)
+  }
+
   if (tab === 'data') {
     return wrapSettingsPanel(<DataSettingsPanel dataDirectory={dataDirectory} loading={loading} />)
   }
@@ -708,8 +712,12 @@ export function PluginSettingsPage(props: {
     return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
   }
 
+  if (tab === 'commandSystem') {
+    return wrapSettingsPanel(null)
+  }
+
   if (tab === 'eb') {
-    return wrapSettingsPanel(<EbSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} bootstrap={bootstrap} releaseBusy={releaseBusy} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<EbSettingsPanel bootstrap={bootstrap} />)
   }
 
   if (tab === 'access') {
