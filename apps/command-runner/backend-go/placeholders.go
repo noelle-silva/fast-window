@@ -9,16 +9,28 @@ import (
 // placeholderRefPattern 匹配脚本中的占位符引用 {{名称}}；名称不含花括号。
 var placeholderRefPattern = regexp.MustCompile(`\{\{[^{}]+\}\}`)
 
-// placeholder 是一个占位符定义：名称 + 预先定义的候选值列表。
-// 命令脚本以 {{名称}} 引用；运行时由界面从候选值中为每个引用选定一个值。
+// 占位符的取值方式。
+const (
+	// placeholderValueModeSelect：注册时预定义候选值，运行时从候选值中选择。
+	placeholderValueModeSelect = "select"
+	// placeholderValueModeInput：运行时现场填写；候选值仅作为草稿保留。
+	placeholderValueModeInput = "input"
+)
+
+// placeholder 是一个占位符定义：名称 + 取值方式 + 候选值列表。
+// 命令脚本以 {{名称}} 引用；select 型运行时由界面从候选值中为每个引用选定一个值，
+// input 型运行时由界面现场填写（可留空，留空替换为空内容）。
 type placeholder struct {
-	Name   string   `json:"name"`
-	Values []string `json:"values"`
+	Name      string   `json:"name"`
+	ValueMode string   `json:"valueMode"`
+	Values    []string `json:"values"`
 }
 
 // normalizePlaceholders 校验并规范化一组占位符定义：
 //   - 名称去首尾空白后非空、不含花括号与换行，同组内不重名；
-//   - 候选值去首尾空白后非空、不含换行，同组内不重复，每个占位符至少保留一个。
+//   - 取值方式空值按默认的 select 处理（兼容旧数据），其余必须是已知取值方式；
+//   - select 型的候选值去首尾空白后非空、不含换行，同组内不重复，至少保留一个；
+//   - input 型的候选值仅作为切回 select 时的草稿，原样保留、不做校验。
 func normalizePlaceholders(list []placeholder) ([]placeholder, error) {
 	result := make([]placeholder, 0, len(list))
 	seenNames := make(map[string]bool, len(list))
@@ -38,34 +50,74 @@ func normalizePlaceholders(list []placeholder) ([]placeholder, error) {
 		}
 		seenNames[name] = true
 
+		valueMode, err := normalizePlaceholderValueMode(item.ValueMode)
+		if err != nil {
+			return nil, fmt.Errorf("占位符「%s」%s", name, err)
+		}
 		values := make([]string, 0, len(item.Values))
-		seenValues := make(map[string]bool, len(item.Values))
-		for _, raw := range item.Values {
-			value := strings.TrimSpace(raw)
-			if value == "" {
-				return nil, fmt.Errorf("占位符「%s」的候选值不能为空", name)
+		if valueMode == placeholderValueModeSelect {
+			values, err = normalizePlaceholderSelectValues(name, item.Values)
+			if err != nil {
+				return nil, err
 			}
-			if strings.ContainsAny(value, "\r\n") {
-				return nil, fmt.Errorf("占位符「%s」的候选值不能包含换行", name)
-			}
-			if seenValues[value] {
-				return nil, fmt.Errorf("占位符「%s」的候选值重复: %s", name, value)
-			}
-			seenValues[value] = true
-			values = append(values, value)
+		} else {
+			values = append(values, item.Values...)
 		}
-		if len(values) == 0 {
-			return nil, fmt.Errorf("占位符「%s」至少需要一个候选值", name)
-		}
-		result = append(result, placeholder{Name: name, Values: values})
+		result = append(result, placeholder{Name: name, ValueMode: valueMode, Values: values})
 	}
 	return result, nil
 }
 
-// applyPlaceholderValues 把脚本中的 {{名称}} 替换为本次运行选定的值。
+// normalizePlaceholderValueMode 校验取值方式，空值按默认的 select 处理（兼容旧数据）。
+func normalizePlaceholderValueMode(raw string) (string, error) {
+	switch raw {
+	case "":
+		return placeholderValueModeSelect, nil
+	case placeholderValueModeSelect, placeholderValueModeInput:
+		return raw, nil
+	default:
+		return "", fmt.Errorf("未知取值方式: %s", raw)
+	}
+}
+
+// normalizePlaceholderSelectValues 校验并规范化 select 型的候选值。
+func normalizePlaceholderSelectValues(name string, raw []string) ([]string, error) {
+	values := make([]string, 0, len(raw))
+	seenValues := make(map[string]bool, len(raw))
+	for _, item := range raw {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			return nil, fmt.Errorf("占位符「%s」的候选值不能为空", name)
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("占位符「%s」的候选值不能包含换行", name)
+		}
+		if seenValues[value] {
+			return nil, fmt.Errorf("占位符「%s」的候选值重复: %s", name, value)
+		}
+		seenValues[value] = true
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("占位符「%s」至少需要一个候选值", name)
+	}
+	return values, nil
+}
+
+// applyDefaultPlaceholderModes 为旧数据中未标记取值方式的占位符补上默认值（select），
+// 保证内存模型里的取值方式总是明确值；磁盘数据在下次保存时随之补齐。
+func applyDefaultPlaceholderModes(list []placeholder) {
+	for index := range list {
+		if list[index].ValueMode == "" {
+			list[index].ValueMode = placeholderValueModeSelect
+		}
+	}
+}
+
+// applyPlaceholderValues 把脚本中的 {{名称}} 替换为本次运行的取值。
 // 单遍扫描：每处引用只查表一次，替换结果不再参与匹配，
 // 因此候选值里即使出现引用形式也保持字面量、不受替换顺序影响。
-// 未提供取值（未注册或本次未参与选择）的引用原样保留，当作脚本的真实内容。
+// 未提供取值（未注册或本次未参与取值）的引用原样保留，当作脚本的真实内容。
 func applyPlaceholderValues(script string, values map[string]string) string {
 	if len(values) == 0 {
 		return script

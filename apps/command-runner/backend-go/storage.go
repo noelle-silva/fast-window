@@ -197,6 +197,7 @@ func (svc *service) loadRepos() (reposDoc, error) {
 		if doc.Repos[index].Placeholders == nil {
 			doc.Repos[index].Placeholders = []placeholder{}
 		}
+		applyDefaultPlaceholderModes(doc.Repos[index].Placeholders)
 	}
 	return doc, nil
 }
@@ -227,6 +228,7 @@ func (svc *service) loadCommands() (commandsDoc, error) {
 		if doc.Commands[index].Placeholders == nil {
 			doc.Commands[index].Placeholders = []placeholder{}
 		}
+		applyDefaultPlaceholderModes(doc.Commands[index].Placeholders)
 	}
 	return doc, nil
 }
