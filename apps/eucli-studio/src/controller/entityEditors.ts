@@ -200,9 +200,9 @@ export function createEntityEditors(deps: {
 
   // ===== Role CRUD =====
 
-  function openNewRoleEditor() {
+  function populateNewRoleDraft() {
     const state = getState()
-    if (!state.data) return
+    if (!state.data) return false
     const fallbackPid = String(state.data.settings.providers?.[0]?.id || '')
 
     state.draft.editRoleId = NEW_ROLE_ID
@@ -227,8 +227,13 @@ export function createEntityEditors(deps: {
     state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
     state.draft.roleModelId = ''
     state.draft.roleCustomModelId = ''
+    return true
+  }
 
-    state.modal = 'role'
+  function openNewRoleEditor() {
+    if (!populateNewRoleDraft()) return
+    ;(getState().draft as any).roleEditorInPlace = false
+    getState().modal = 'role'
     render()
   }
 
@@ -236,12 +241,31 @@ export function createEntityEditors(deps: {
     openNewRoleEditor()
   }
 
+  function openNewRoleEditorInPlace() {
+    if (!populateNewRoleDraft()) return
+    ;(getState().draft as any).roleEditorInPlace = true
+    render()
+  }
+
   function openRoleEditor(roleId: any) {
+    if (!populateRoleDraft(roleId)) return
+    ;(getState().draft as any).roleEditorInPlace = false
+    getState().modal = 'role'
+    render()
+  }
+
+  function openRoleEditorInPlace(roleId: any) {
+    if (!populateRoleDraft(roleId)) return
+    ;(getState().draft as any).roleEditorInPlace = true
+    render()
+  }
+
+  function populateRoleDraft(roleId: any) {
     const state = getState()
-    if (!state.data) return
+    if (!state.data) return false
     const rid = String(roleId || '')
     const role = state.data.roles.find((r: any) => String(r?.id) === rid)
-    if (!role) return
+    if (!role) return false
     sa.ensureRoleDefaults(role)
 
     state.draft.editRoleId = rid
@@ -269,9 +293,7 @@ export function createEntityEditors(deps: {
     state.draft.roleModelId = modelKind === 'provider' ? curModelId : ''
     state.draft.roleModelGroupModelId = modelKind === 'model_group' ? curModelId : ''
     state.draft.roleCustomModelId = ''
-
-    state.modal = 'role'
-    render()
+    return true
   }
 
   async function saveRoleEditor() {
@@ -1008,8 +1030,10 @@ export function createEntityEditors(deps: {
     pickGroupAvatarImage,
     clearGroupAvatarImage,
     openNewRoleEditor,
+    openNewRoleEditorInPlace,
     createRole,
     openRoleEditor,
+    openRoleEditorInPlace,
     saveRoleEditor,
     deleteRole,
     openNewGroupEditor,

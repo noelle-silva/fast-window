@@ -36,8 +36,8 @@ import { PlaceholderSettingsPanel } from './PlaceholderSettingsPanel'
 import { SystemPluginSettingsPanel } from './SystemPluginSettingsPanel'
 import { EbSettingsPanel } from './EbSettingsPanel'
 import { AccessSettingsPanel } from './AccessSettingsPanel'
-import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
-import { aiServiceModelSelection, aiServiceSourceSelectItems, aiServiceSourceValue, providerProtocolLabel } from './modelItemSelectors'
+import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
+import { aiServiceModelSelection, aiServiceSourceSelectItems, aiServiceSourceValue } from './modelItemSelectors'
 import {
   DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES,
   CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN,
@@ -700,7 +700,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'roles') {
-    return wrapSettingsPanel(<RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} activeRoleId={activeRoleId} />)
+    return wrapSettingsPanel(<RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} models={models} tools={tools} hookPrompts={hookPrompts} draft={draft} activeRoleId={activeRoleId} />)
   }
 
   if (tab === 'modelGroups') {
@@ -1135,62 +1135,7 @@ export function PluginSettingsPage(props: {
     )
   }
 
-  const editingId = String(draft?.editProviderId || '')
-
   return wrapSettingsPanel(
-      <SettingsSurface>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>
-          <Box sx={{ flex: 1 }} />
-          <Button startIcon={<AddIcon />} onClick={() => controller.actions.createProvider()} disabled={loading}>
-            新建供应商
-          </Button>
-        </Stack>
-        <Stack spacing={1.5}>
-          {providers.map((p: any) => {
-            const pid = String(p?.id || '')
-            const isEditing = pid && pid === editingId
-            return (
-              <SettingsListItem key={pid} tone={isEditing ? 'selected' : 'default'} sx={{ p: 1.5 }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography sx={{ fontWeight: 900 }} noWrap>
-                      {String(p?.name || '')}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap>
-                      {providerProtocolLabel(p?.protocol)} · {String(p?.baseUrl || '')}
-                    </Typography>
-                  </Box>
-
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => (isEditing ? controller.actions.closeProviderEditor() : controller.actions.openProviderEditor(pid))}
-                      disabled={!pid}
-                    >
-                      {isEditing ? '收起' : '编辑'}
-                    </Button>
-                    <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteProvider(pid)} disabled={!pid}>
-                      删除
-                    </Button>
-                  </Stack>
-                </Stack>
-
-                {isEditing ? (
-                  <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-                    <ProviderConfigEditor controller={controller} draft={draft} provider={p} loading={loading} models={models} />
-                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                      <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
-                        保存
-                      </Button>
-                    </Stack>
-                  </Stack>
-                ) : null}
-              </SettingsListItem>
-            )
-          })}
-        </Stack>
-      </SettingsSurface>,
+    <ProvidersSettingsPanel controller={controller} loading={loading} providers={providers} draft={draft} models={models} />,
   )
 }

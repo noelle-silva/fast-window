@@ -16,7 +16,9 @@ export function createEntityActions(deps: {
   createProvider: () => any
   deleteProvider: (providerId: string) => Promise<boolean>
   openRoleEditor: (roleId: string) => any
+  openRoleEditorInPlace: (roleId: string) => any
   createRole: () => any
+  createRoleInPlace: () => any
   saveRoleEditor: () => any
   deleteRole: (roleId: string) => Promise<boolean>
   openGroupEditor: (groupId: string) => any
@@ -42,7 +44,7 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, chatId: string) => any
 }) {
-  const { state, emit, saveMeta, showToast, getProvider, closeModal, saveRoleOrder, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, createRole, saveRoleEditor, deleteRole, openGroupEditor, createGroup, saveGroupEditor, deleteGroup, openWorkspaceEditor, openNewWorkspaceEditor, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emit, saveMeta, showToast, getProvider, closeModal, saveRoleOrder, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, createGroup, saveGroupEditor, deleteGroup, openWorkspaceEditor, openNewWorkspaceEditor, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
 
   return {
     closeModal: () => closeModal(),
@@ -76,7 +78,9 @@ export function createEntityActions(deps: {
       emit()
     },
     openRoleEditor: (roleId: any) => openRoleEditor(String(roleId || '')),
+    openRoleEditorInPlace: (roleId: any) => openRoleEditorInPlace(String(roleId || '')),
     createRole: () => createRole(),
+    createRoleInPlace: () => createRoleInPlace(),
     saveRole: () => saveRoleEditor(),
     openGroupEditor: (groupId: any) => openGroupEditor(String(groupId || '')),
     createGroup: () => createGroup(),
