@@ -6,6 +6,7 @@ export function createViewerActions(deps: {
   state: any
   emit: () => void
   showToast?: AiChatShowToast
+  closeModal: () => void
   activeChatFromData: () => any
   sanitizeSvg: (svg: any, renderSafetyPolicy?: any) => string
   currentRenderSafetyPolicy: () => string
@@ -14,7 +15,22 @@ export function createViewerActions(deps: {
   reloadRoleSession: (roleId: string, sessionId: string) => Promise<any>
   reloadWorkspaceSession: (workspaceId: string, sessionId: string, roleId?: string) => Promise<any>
 }) {
-  const { state, emit, showToast, activeChatFromData, sanitizeSvg, currentRenderSafetyPolicy, locateMessageInActiveChat, aiFixMermaidInMessage, reloadRoleSession, reloadWorkspaceSession } = deps
+  const { state, emit, showToast, closeModal, activeChatFromData, sanitizeSvg, currentRenderSafetyPolicy, locateMessageInActiveChat, aiFixMermaidInMessage, reloadRoleSession, reloadWorkspaceSession } = deps
+
+  // 打开图片查看器：记住来时的弹窗，关闭后原路返回。
+  function openImageItems(items: any[], index: number) {
+    const list = (Array.isArray(items) ? items : [])
+      .map((item) => ({ src: String(item?.src || '').trim(), alt: String(item?.alt || '图片') }))
+      .filter((item) => item.src)
+    if (!list.length) return false
+    state.imageViewer.items = list
+    state.imageViewer.index = clamp(index, 0, Math.max(0, list.length - 1))
+    state.imageViewer.scale = 1
+    state.imageViewer.returnModal = state.modal && state.modal !== 'image' ? String(state.modal) : ''
+    state.modal = 'image'
+    emit()
+    return true
+  }
 
   return {
     aiFixMermaid: (messageId: any, mermaidSrc: any, renderErrorMsg: any) => {
@@ -101,11 +117,18 @@ export function createViewerActions(deps: {
         if (typeof i === 'number' && i >= 0) idx = i
       }
 
-      state.imageViewer.items = items
-      state.imageViewer.index = clamp(idx, 0, Math.max(0, items.length - 1))
-      state.imageViewer.scale = 1
-      state.modal = 'image'
-      emit()
+      openImageItems(items, idx)
+    },
+    openImageItems: (items: any, index: any) => openImageItems(Array.isArray(items) ? items : [], Number(index || 0)),
+    closeImageViewer: () => {
+      const returnModal = String(state.imageViewer.returnModal || '')
+      state.imageViewer.returnModal = ''
+      if (returnModal) {
+        state.modal = returnModal
+        emit()
+        return
+      }
+      closeModal()
     },
     mermaidPrev: () => {
       const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0

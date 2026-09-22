@@ -277,13 +277,13 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
     const inside = iw > 0 && ih > 0 && localX >= x0 && localX <= x0 + iw && localY >= y0 && localY <= y0 + ih
     if (inside) return
 
-    controller.actions.closeModal()
+    controller.actions.closeImageViewer()
   })
 
   return (
     <Dialog
       open={open}
-      onClose={() => controller.actions.closeModal()}
+      onClose={() => controller.actions.closeImageViewer()}
       fullScreen
       PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}
     >

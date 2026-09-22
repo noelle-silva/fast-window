@@ -1035,6 +1035,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     state,
     emit,
     showToast: api.ui?.showToast,
+    closeModal,
     activeChatFromData,
     sanitizeSvg,
     currentRenderSafetyPolicy,
