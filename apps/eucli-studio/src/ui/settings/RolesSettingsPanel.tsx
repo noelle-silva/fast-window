@@ -22,12 +22,13 @@ type RolesSettingsPanelProps = {
   models: any
   tools: any
   hookPrompts: any
+  placeholders: any
   draft: any
   activeRoleId: string
 }
 
 export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
-  const { controller, loading, roles, providers, modelGroups, models, tools, hookPrompts, draft, activeRoleId } = props
+  const { controller, loading, roles, providers, modelGroups, models, tools, hookPrompts, placeholders, draft, activeRoleId } = props
   const [sortMode, setSortMode] = React.useState(false)
 
   const roleIds = React.useMemo(() => roles.map((role: any) => String(role?.id || '').trim()).filter(Boolean), [roles])
@@ -143,7 +144,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                     </Stack>
                   </SettingsSection>
 
-                  <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} />
+                  <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} />
                 </Stack>
               ) : (
                 <SettingsSection sx={{ p: 2 }}>

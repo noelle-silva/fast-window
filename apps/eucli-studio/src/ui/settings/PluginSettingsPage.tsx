@@ -643,7 +643,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'roles') {
-    return wrapSettingsPanel(<RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} models={models} tools={tools} hookPrompts={hookPrompts} draft={draft} activeRoleId={activeRoleId} />)
+    return wrapSettingsPanel(<RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} draft={draft} activeRoleId={activeRoleId} />)
   }
 
   if (tab === 'modelGroups') {

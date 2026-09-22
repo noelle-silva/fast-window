@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Avatar, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography } from '@mui/material'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
+import { PlaceholderSearchSection } from './PlaceholderSearchSection'
 import { RoleToolsSection } from './RoleToolsSection'
 
 function RoleDialogSection(props: { title: string; children: React.ReactNode }) {
@@ -14,8 +15,8 @@ function RoleDialogSection(props: { title: string; children: React.ReactNode }) 
   )
 }
 
-export function RoleEditorForm(props: { controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any }) {
-  const { controller, providers, modelGroups, draft, models, tools, hookPrompts } = props
+export function RoleEditorForm(props: { controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any }) {
+  const { controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders } = props
 
   const avatarEmoji = String(draft?.roleAvatar || '').trim() || '🙂'
   const avatarImage = String(draft?.roleAvatarImage || '').trim()
@@ -78,6 +79,10 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
           rows={20}
           placeholder="写入系统提示词…"
         />
+      </RoleDialogSection>
+
+      <RoleDialogSection title="占位符">
+        <PlaceholderSearchSection controller={controller} placeholders={placeholders} />
       </RoleDialogSection>
 
       <RoleDialogSection title="模型">
