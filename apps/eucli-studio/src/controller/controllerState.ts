@@ -13,7 +13,7 @@ export function createInitialControllerState() {
     activeSessionComposerDraftKey: '',
     modal: '',
     mermaid: { items: [] as any[], index: 0, scale: 1 },
-    imageViewer: { items: [] as any[], index: 0, scale: 1, returnModal: '' },
+    imageViewer: { items: [] as any[], index: 0, scale: 1 },
     sideTab: 'roles' as string,
     models: { loading: false, error: '', items: [] as any[] },
     modelGroups: defaultModelGroupsState(),
