@@ -3,7 +3,7 @@ import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import type { PlaceholderItem } from '../../domain/placeholder'
 import { CustomScrollArea } from '../components/CustomScrollArea'
-import { PlaceholderDetailDialog } from './PlaceholderDetailDialog'
+import { PlaceholderEditorDialog } from './PlaceholderEditorDialog'
 
 const MAX_RESULTS = 60
 
@@ -15,8 +15,8 @@ function placeholderToken(name: unknown) {
   return `{{${text(name)}}}`
 }
 
-export function PlaceholderSearchSection(props: { controller: any; placeholders?: any }) {
-  const { controller, placeholders } = props
+export function PlaceholderSearchSection(props: { controller: any; placeholders?: any; systemPlugins?: any }) {
+  const { controller, placeholders, systemPlugins } = props
   const [query, setQuery] = React.useState('')
   const [detailName, setDetailName] = React.useState('')
 
@@ -59,7 +59,7 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
       />
 
       {!keyword ? (
-        <Typography variant="caption" color="text.secondary">输入关键词后显示匹配的占位符，点击条目可查看详情与依赖。</Typography>
+        <Typography variant="caption" color="text.secondary">输入关键词后显示匹配的占位符，点击条目可编辑内容并保存。</Typography>
       ) : !matches.length ? (
         <Typography variant="body2" color="text.secondary">没有匹配的占位符。</Typography>
       ) : (
@@ -109,7 +109,7 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
         </Box>
       )}
 
-      <PlaceholderDetailDialog controller={controller} placeholders={placeholders} name={detailName} onClose={() => setDetailName('')} />
+      <PlaceholderEditorDialog controller={controller} placeholders={placeholders} systemPlugins={systemPlugins} name={detailName} onClose={() => setDetailName('')} />
     </Stack>
   )
 }

@@ -16,8 +16,8 @@ function RoleDialogSection(props: { title: string; children: React.ReactNode }) 
   )
 }
 
-export function RoleEditorForm(props: { controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any }) {
-  const { controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders } = props
+export function RoleEditorForm(props: { controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any; systemPlugins?: any }) {
+  const { controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders, systemPlugins } = props
 
   const avatarEmoji = String(draft?.roleAvatar || '').trim() || '🙂'
   const avatarImage = String(draft?.roleAvatarImage || '').trim()
@@ -77,11 +77,12 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
           value={String(draft?.roleSystemPrompt || '')}
           onChange={(next) => controller.actions.setDraft('roleSystemPrompt', next)}
           placeholders={placeholders}
+          systemPlugins={systemPlugins}
         />
       </RoleDialogSection>
 
       <RoleDialogSection title="占位符">
-        <PlaceholderSearchSection controller={controller} placeholders={placeholders} />
+        <PlaceholderSearchSection controller={controller} placeholders={placeholders} systemPlugins={systemPlugins} />
       </RoleDialogSection>
 
       <RoleDialogSection title="模型">

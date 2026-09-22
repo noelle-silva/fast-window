@@ -105,6 +105,16 @@ export function systemPluginLocatorId(plugin: Pick<SystemPluginSummary, 'id' | '
   return text(plugin.id) || text(plugin.sourceId)
 }
 
+export function systemPluginEnabledById(systemPlugins: { items?: unknown } | null | undefined): Map<string, boolean> {
+  const map = new Map<string, boolean>()
+  const items = Array.isArray(systemPlugins?.items) ? systemPlugins.items : []
+  for (const item of items as any[]) {
+    const id = systemPluginLocatorId(item)
+    if (id) map.set(id, item?.enabled !== false)
+  }
+  return map
+}
+
 export function normalizeSystemPluginDetail(raw: unknown): SystemPluginDetail {
   const box = raw && typeof raw === 'object' ? (raw as any) : {}
   const summary = normalizeSystemPluginSummary(box)

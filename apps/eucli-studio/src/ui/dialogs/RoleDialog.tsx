@@ -5,8 +5,8 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
 import { RoleEditorForm } from './RoleEditorForm'
 
-export function RoleDialog(props: { open: boolean; controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any }) {
-  const { open, controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders } = props
+export function RoleDialog(props: { open: boolean; controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any; systemPlugins?: any }) {
+  const { open, controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders, systemPlugins } = props
   const [moreMenuEl, setMoreMenuEl] = React.useState<HTMLElement | null>(null)
 
   const editRoleId = String(draft?.editRoleId || '')
@@ -16,7 +16,7 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
   return (
     <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
       <ScrollableDialogContent>
-        <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} />
+        <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
       </ScrollableDialogContent>
       <DialogActions sx={{ justifyContent: 'space-between' }}>
         {isNew ? (

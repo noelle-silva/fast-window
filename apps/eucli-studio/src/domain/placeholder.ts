@@ -145,3 +145,7 @@ export function placeholderProblemLabel(type: string) {
   if (type === 'plugin_disabled') return '所属插件已停用'
   return type || '未知问题'
 }
+
+export function placeholderSourcePluginDisabled(item: PlaceholderItem | null | undefined, pluginEnabledById: Map<string, boolean>) {
+  return item?.source?.kind === 'system_plugin' && pluginEnabledById.get(String(item.source.pluginId || '')) === false
+}

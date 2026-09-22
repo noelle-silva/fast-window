@@ -3,7 +3,7 @@ import { Button, Stack, TextField, Typography } from '@mui/material'
 import { placeholderProblemLabel, type PlaceholderDependencyNode, type PlaceholderProblem } from '../../domain/placeholder'
 import { PlaceholderDependencyGraph } from '../components/PlaceholderDependencyGraph'
 import { useEvent } from '../hooks/useEvent'
-import { PlaceholderDetailDialog } from './PlaceholderDetailDialog'
+import { PlaceholderEditorDialog } from './PlaceholderEditorDialog'
 
 const PREVIEW_DEBOUNCE_MS = 240
 
@@ -13,10 +13,11 @@ type RoleSystemPromptSectionProps = {
   value: string
   onChange: (next: string) => void
   placeholders?: any
+  systemPlugins?: any
 }
 
 export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
-  const { controller, roleName, value, onChange, placeholders } = props
+  const { controller, roleName, value, onChange, placeholders, systemPlugins } = props
   const [previewOpen, setPreviewOpen] = React.useState(false)
   const [treeOpen, setTreeOpen] = React.useState(false)
   const [tree, setTree] = React.useState<PlaceholderDependencyNode | null>(null)
@@ -47,7 +48,7 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
   React.useEffect(() => {
     if (!treeOpen) return
     void loadTree()
-  }, [controller, loadTree, rootLabel, treeOpen, value])
+  }, [controller, loadTree, placeholders?.library, rootLabel, treeOpen, value])
 
   const preview = placeholders?.preview
   const problems: PlaceholderProblem[] = Array.isArray(preview?.problems) ? preview.problems : []
@@ -90,7 +91,7 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
           ) : tree ? (
             <>
               <PlaceholderDependencyGraph tree={tree} rootLabel={rootLabel} height={480} onNodeClick={setDetailName} />
-              <Typography variant="caption" color="text.secondary">拖拽移动，滚轮缩放；点击占位符节点查看详情。</Typography>
+              <Typography variant="caption" color="text.secondary">拖拽移动，滚轮缩放；点击占位符节点可编辑并保存。</Typography>
             </>
           ) : (
             <Typography variant="caption" color="text.secondary">{treeBusy ? '正在生成依赖树…' : '暂无依赖树数据。'}</Typography>
@@ -128,7 +129,7 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
           ) : null}
         </Stack>
       )}
-      <PlaceholderDetailDialog controller={controller} placeholders={placeholders} name={detailName} onClose={() => setDetailName('')} />
+      <PlaceholderEditorDialog controller={controller} placeholders={placeholders} systemPlugins={systemPlugins} name={detailName} onClose={() => setDetailName('')} />
     </Stack>
   )
 }
