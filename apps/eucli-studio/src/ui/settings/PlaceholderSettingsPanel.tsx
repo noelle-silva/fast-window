@@ -14,7 +14,6 @@ import {
   createPlaceholderItem,
   normalizePlaceholderLibrary,
   placeholderProblemLabel,
-  type PlaceholderDependencyNode,
   type PlaceholderFolder,
   type PlaceholderItem,
   type PlaceholderLibrary,
@@ -22,6 +21,7 @@ import {
 import { systemPluginLocatorId } from '../../domain/systemPlugin'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
+import { PlaceholderDependencyTreePanel } from './PlaceholderDependencyTreePanel'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type PlaceholderSettingsPanelProps = {
@@ -855,24 +855,4 @@ function PlaceholderEditor(props: {
   )
 }
 
-function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDependencyNode }) {
-  return (
-    <SettingsSection tone="muted">
-      <Stack spacing={1}>
-        <Typography variant="body2" sx={{ fontWeight: 900 }}>依赖树</Typography>
-        {props.tree?.name ? <DependencyNode node={props.tree} depth={0} /> : <Typography variant="body2" color="text.secondary">选择占位符后查看依赖。</Typography>}
-      </Stack>
-    </SettingsSection>
-  )
-}
 
-function DependencyNode(props: { node: PlaceholderDependencyNode; depth: number }) {
-  const { node, depth } = props
-  const suffix = node.cycle ? '（循环）' : node.missing ? '（未注册）' : ''
-  return (
-    <Box sx={{ pl: depth * 2 }}>
-      <Typography variant="body2" color={node.cycle || node.missing ? 'error' : 'text.primary'}>{node.name}{suffix}</Typography>
-      {Array.isArray(node.children) ? node.children.map((child, index) => <DependencyNode key={`${child.name}:${index}`} node={child} depth={depth + 1} />) : null}
-    </Box>
-  )
-}
