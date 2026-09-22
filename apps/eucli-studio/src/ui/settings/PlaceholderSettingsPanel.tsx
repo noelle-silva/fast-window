@@ -3,6 +3,7 @@ import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitl
 import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import BookmarkBorderOutlinedIcon from '@mui/icons-material/BookmarkBorderOutlined'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -381,6 +382,17 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     })
   }
 
+  const copyPlaceholderToken = (name: string) => {
+    const token = `{{${text(name)}}}`
+    const capabilities = controller?.capabilities
+    const writeText = capabilities?.clipboard?.writeText
+    if (typeof writeText !== 'function') return capabilities?.ui?.showToast?.('未授权：clipboard.writeText', { kind: 'error' })
+    Promise.resolve()
+      .then(() => writeText(token))
+      .then(() => capabilities?.ui?.showToast?.('已复制占位符', { kind: 'success' }))
+      .catch(() => capabilities?.ui?.showToast?.('复制失败', { kind: 'error' }))
+  }
+
   const openFavoriteDialog = (name: string) => {
     const target = text(name)
     if (!target) return
@@ -473,6 +485,13 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                     return (
                       <Box key={`${item.name}:${index}`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 0.25 }}>
                         <Button variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, textTransform: 'none' }}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box></Button>
+                        <Tooltip title={`复制 {{${text(item.name) || '名字'}}}`}>
+                          <span>
+                            <IconButton size="small" aria-label={`复制占位符 ${label}`} onClick={() => copyPlaceholderToken(item.name)} disabled={!text(item.name)}>
+                              <ContentCopyIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                         <Tooltip title="收藏到收藏夹">
                           <span>
                             <IconButton size="small" aria-label={`收藏 ${label}`} onClick={() => openFavoriteDialog(item.name)} disabled={!text(item.name)}>
