@@ -415,9 +415,9 @@ export function createEntityEditors(deps: {
 
   // ===== Group CRUD =====
 
-  function openNewGroupEditor() {
+  function populateNewGroupDraft() {
     const state = getState()
-    if (!state.data) return
+    if (!state.data) return false
     ;(state.draft as any).editGroupId = NEW_GROUP_ID
     ;(state.draft as any).groupName = '新群组'
     ;(state.draft as any).groupAvatar = '👥'
@@ -431,7 +431,13 @@ export function createEntityEditors(deps: {
     ;(state.draft as any).groupRandomWeights = Object.fromEntries(roleIds.map((roleId: string) => [roleId, 1]))
     ;(state.draft as any).groupRandomMinCount = 1
     ;(state.draft as any).groupRandomMaxCount = Math.max(1, Math.min(2, roleIds.length || 1))
-    state.modal = 'group'
+    return true
+  }
+
+  function openNewGroupEditor() {
+    if (!populateNewGroupDraft()) return
+    ;(getState().draft as any).groupEditorInPlace = false
+    getState().modal = 'group'
     render()
   }
 
@@ -439,13 +445,32 @@ export function createEntityEditors(deps: {
     openNewGroupEditor()
   }
 
+  function openNewGroupEditorInPlace() {
+    if (!populateNewGroupDraft()) return
+    ;(getState().draft as any).groupEditorInPlace = true
+    render()
+  }
+
   function openGroupEditor(groupId: any) {
+    if (!populateGroupDraft(groupId)) return
+    ;(getState().draft as any).groupEditorInPlace = false
+    getState().modal = 'group'
+    render()
+  }
+
+  function openGroupEditorInPlace(groupId: any) {
+    if (!populateGroupDraft(groupId)) return
+    ;(getState().draft as any).groupEditorInPlace = true
+    render()
+  }
+
+  function populateGroupDraft(groupId: any) {
     const state = getState()
-    if (!state.data) return
+    if (!state.data) return false
     const gid = String(groupId || '').trim()
-    if (!gid) return
+    if (!gid) return false
     const group = (state.data as any).groups?.find((item: any) => String(item?.id || '') === gid) || null
-    if (!group) return
+    if (!group) return false
     const random = group.random && typeof group.random === 'object' ? group.random : {}
     ;(state.draft as any).editGroupId = gid
     ;(state.draft as any).groupName = String(group.name || '')
@@ -460,8 +485,7 @@ export function createEntityEditors(deps: {
     ;(state.draft as any).groupRandomWeights = random.weightsByRoleId && typeof random.weightsByRoleId === 'object' ? { ...random.weightsByRoleId } : {}
     ;(state.draft as any).groupRandomMinCount = Math.max(1, Math.round(Number(random.minCount || 1)))
     ;(state.draft as any).groupRandomMaxCount = Math.max(1, Math.round(Number(random.maxCount || Math.min(2, memberRoleIds.length || 1))))
-    state.modal = 'group'
-    render()
+    return true
   }
 
   async function saveGroupEditor() {
@@ -1037,8 +1061,10 @@ export function createEntityEditors(deps: {
     saveRoleEditor,
     deleteRole,
     openNewGroupEditor,
+    openNewGroupEditorInPlace,
     createGroup,
     openGroupEditor,
+    openGroupEditorInPlace,
     saveGroupEditor,
     deleteGroup,
     openProvidersEditor,

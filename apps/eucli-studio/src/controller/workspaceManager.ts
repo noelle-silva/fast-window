@@ -325,9 +325,9 @@ export function createWorkspaceManager(deps: {
     emit()
   }
 
-  function openNewWorkspaceEditor() {
+  function populateNewWorkspaceDraft() {
     const state = getState()
-    if (!state?.data) return
+    if (!state?.data) return false
     ;(state.draft as any).editWorkspaceId = NEW_WORKSPACE_ID
     ;(state.draft as any).workspaceName = '新工作区'
     ;(state.draft as any).workspacePrompt = ''
@@ -336,17 +336,43 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = true
     ;(state.draft as any).workspaceActualPromptError = ''
-    state.modal = 'workspace'
+    return true
+  }
+
+  function openNewWorkspaceEditor() {
+    if (!populateNewWorkspaceDraft()) return
+    ;(getState().draft as any).workspaceEditorInPlace = false
+    getState().modal = 'workspace'
+    render()
+    refreshWorkspacePromptPreview().catch(() => null)
+  }
+
+  function openNewWorkspaceEditorInPlace() {
+    if (!populateNewWorkspaceDraft()) return
+    ;(getState().draft as any).workspaceEditorInPlace = true
     render()
     refreshWorkspacePromptPreview().catch(() => null)
   }
 
   function openWorkspaceEditor(workspaceIdRaw: unknown) {
+    if (!populateWorkspaceDraft(workspaceIdRaw)) return
+    ;(getState().draft as any).workspaceEditorInPlace = false
+    getState().modal = 'workspace'
+    render()
+  }
+
+  function openWorkspaceEditorInPlace(workspaceIdRaw: unknown) {
+    if (!populateWorkspaceDraft(workspaceIdRaw)) return
+    ;(getState().draft as any).workspaceEditorInPlace = true
+    render()
+  }
+
+  function populateWorkspaceDraft(workspaceIdRaw: unknown) {
     const state = getState()
-    if (!state?.data) return
+    if (!state?.data) return false
     const workspaceId = text(workspaceIdRaw)
     const workspace = (Array.isArray((state.data as any).workspaces) ? (state.data as any).workspaces : []).find((item: any) => text(item?.id) === workspaceId) || null
-    if (!workspace) return
+    if (!workspace) return false
     ;(state.draft as any).editWorkspaceId = workspaceId
     ;(state.draft as any).workspaceName = text(workspace.name)
     ;(state.draft as any).workspacePrompt = String(workspace.prompt ?? '')
@@ -357,8 +383,7 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = false
     ;(state.draft as any).workspaceActualPromptError = ''
-    state.modal = 'workspace'
-    render()
+    return true
   }
 
   function addWorkspaceDirectory() {
@@ -569,7 +594,9 @@ export function createWorkspaceManager(deps: {
     setActiveWorkspace,
     setWorkspaceRole,
     openNewWorkspaceEditor,
+    openNewWorkspaceEditorInPlace,
     openWorkspaceEditor,
+    openWorkspaceEditorInPlace,
     addWorkspaceDirectory,
     removeWorkspaceDirectory,
     setWorkspaceDirectoryField,

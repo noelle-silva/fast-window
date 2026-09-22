@@ -1,6 +1,5 @@
 import * as React from 'react'
 import {
-  Avatar,
   Box,
   Button,
   FormControl,
@@ -14,14 +13,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
 import { TOPBAR_H } from '../appConstants'
 import { SettingsPageLayout } from './SettingsPageLayout'
 import type { SettingsTabValue } from './settingsNavigation'
-import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
 import { SessionSettingsPanel } from './SessionSettingsPanel'
@@ -29,6 +26,7 @@ import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { StickersSettingsPanel } from './StickersSettingsPanel'
 import { WorkspacesSettingsPanel } from './WorkspacesSettingsPanel'
 import { RolesSettingsPanel } from './RolesSettingsPanel'
+import { GroupsSettingsPanel } from './GroupsSettingsPanel'
 import { ModelGroupsSettingsPanel } from './ModelGroupsSettingsPanel'
 import { AiToolsSettingsPanel } from './AiToolsSettingsPanel'
 import { HookPromptsSettingsPanel } from './HookPromptsSettingsPanel'
@@ -618,72 +616,16 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'groups') {
-    const activeGroupId = String((draft as any)?.activeGroupId || '')
     return wrapSettingsPanel(
-        <SettingsSurface>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography sx={{ fontWeight: 900 }}>群组管理</Typography>
-            <Box sx={{ flex: 1 }} />
-            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createGroup?.()} disabled={loading}>
-              新建群组
-            </Button>
-          </Stack>
-          <Stack spacing={1.25}>
-            {groups.length ? (
-              groups.map((g: any) => {
-                const gid = String(g?.id || '')
-                const isActive = gid && gid === activeGroupId
-                const memberCount = Array.isArray(g?.memberRoleIds) ? g.memberRoleIds.length : 0
-                return (
-                  <SettingsListItem
-                    key={gid}
-                    tone={isActive ? 'selected' : 'default'}
-                    sx={{
-                      bgcolor: isActive ? 'rgba(25,118,210,.08)' : undefined,
-                    }}
-                  >
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                        <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                          {String(g?.avatar || '👥')}
-                        </Avatar>
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography sx={{ fontWeight: 900 }} noWrap>
-                            {String(g?.name || '')}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {memberCount ? `${memberCount} 个成员` : '未选择成员'}
-                          </Typography>
-                        </Box>
-                      </Stack>
-
-                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <Button
-                          size="small"
-                          variant={isActive ? 'contained' : 'text'}
-                          onClick={() => controller.actions.setActiveGroup?.(gid)}
-                          disabled={!gid}
-                        >
-                          {isActive ? '当前' : '进入群聊'}
-                        </Button>
-                        <Button size="small" onClick={() => controller.actions.openGroupEditor?.(gid)} disabled={!gid}>
-                          编辑
-                        </Button>
-                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteGroup?.(gid)} disabled={!gid}>
-                          删除
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </SettingsListItem>
-                )
-              })
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                暂无群组
-              </Typography>
-            )}
-          </Stack>
-        </SettingsSurface>,
+      <GroupsSettingsPanel
+        controller={controller}
+        loading={loading}
+        groups={groups}
+        roles={roles}
+        draft={draft}
+        activeGroupId={String((draft as any)?.activeGroupId || '')}
+        activeTargetKind={activeTargetKind}
+      />,
     )
   }
 
@@ -693,6 +635,7 @@ export function PluginSettingsPage(props: {
         controller={controller}
         loading={loading}
         workspaces={workspaces}
+        draft={draft}
         activeWorkspaceId={activeWorkspaceId}
         activeTargetKind={activeTargetKind}
       />,
