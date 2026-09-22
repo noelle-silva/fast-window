@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Avatar, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography } from '@mui/material'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { PlaceholderSearchSection } from './PlaceholderSearchSection'
+import { RoleSystemPromptSection } from './RoleSystemPromptSection'
 import { RoleToolsSection } from './RoleToolsSection'
 
 function RoleDialogSection(props: { title: string; children: React.ReactNode }) {
@@ -70,14 +71,11 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
       </RoleDialogSection>
 
       <RoleDialogSection title="系统提示词">
-        <TextField
-          label="系统提示词"
+        <RoleSystemPromptSection
+          controller={controller}
           value={String(draft?.roleSystemPrompt || '')}
-          onChange={(e) => controller.actions.setDraft('roleSystemPrompt', e.target.value)}
-          fullWidth
-          multiline
-          rows={20}
-          placeholder="写入系统提示词…"
+          onChange={(next) => controller.actions.setDraft('roleSystemPrompt', next)}
+          preview={placeholders?.preview}
         />
       </RoleDialogSection>
 
