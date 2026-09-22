@@ -47,6 +47,11 @@ type PlaceholderSettingsPanelProps = {
   systemPlugins?: any
 }
 
+// 值输入区最低高度按原设定翻倍（行数 5 → 10），依赖树显示区高度按原设定三倍。
+const PLACEHOLDER_VALUE_MIN_ROWS = 10
+const PLACEHOLDER_VALUE_BOX_MIN_HEIGHT = 232
+const PLACEHOLDER_TREE_VIEWPORT_HEIGHT = 360
+
 function text(value: unknown) {
   return String(value ?? '').trim()
 }
@@ -445,7 +450,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                     onSave={() => { void saveSelectedPlaceholder() }}
                     onDelete={() => { void deleteItem(selectedIndex, selectedPlaceholder.name) }}
                   />
-                  <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} />
+                  <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} viewportHeight={PLACEHOLDER_TREE_VIEWPORT_HEIGHT} />
                 </Stack>
               ) : (
                 <SettingsSection sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">选择一个占位符，或新建后开始编辑。</Typography></SettingsSection>
@@ -713,7 +718,7 @@ function PlaceholderEditor(props: {
                 boxShadow: 'var(--studio-shadow-soft)',
                 px: 1.5,
                 py: 1.25,
-                minHeight: 116,
+                minHeight: PLACEHOLDER_VALUE_BOX_MIN_HEIGHT,
                 display: 'grid',
                 placeItems: 'center',
               }}
@@ -726,7 +731,7 @@ function PlaceholderEditor(props: {
             </Box>
           </Stack>
         ) : (
-          <TextField size="small" multiline minRows={5} label="值" value={item.value} onChange={(e) => onUpdate({ value: e.target.value })} disabled={disabled} fullWidth />
+          <TextField size="small" multiline minRows={PLACEHOLDER_VALUE_MIN_ROWS} label="值" value={item.value} onChange={(e) => onUpdate({ value: e.target.value })} disabled={disabled} fullWidth />
         )}
         <Typography variant="caption" color="text.secondary">创建时间：{formatTime(item.createdAt)}</Typography>
         <Typography variant="body2" sx={{ fontWeight: 900 }}>所属收藏夹</Typography>

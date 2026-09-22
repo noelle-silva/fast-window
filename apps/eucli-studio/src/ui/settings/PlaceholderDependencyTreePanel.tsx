@@ -1,16 +1,20 @@
 import * as React from 'react'
 import { Box, Stack, Typography } from '@mui/material'
 import type { PlaceholderDependencyNode } from '../../domain/placeholder'
+import { parseSvgSize } from '../../render/mermaidExport'
 import { renderMermaidSvg } from '../../render/mermaidRender'
 import { buildPlaceholderDependencyDiagram } from '../../render/placeholderDiagram'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection } from './SettingsSurfaces'
 
-export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDependencyNode }) {
-  const { tree } = props
+export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDependencyNode; viewportHeight?: number }) {
+  const { tree, viewportHeight } = props
   const [svg, setSvg] = React.useState('')
   const [failed, setFailed] = React.useState(false)
   const source = React.useMemo(() => buildPlaceholderDependencyDiagram(tree), [tree])
+  const viewport = Number(viewportHeight) > 0 ? Number(viewportHeight) : 0
+  const svgSize = React.useMemo(() => (svg ? parseSvgSize(svg) : { w: 0, h: 0 }), [svg])
+  const naturalSize = viewport > 0 && svgSize.w > 0 && svgSize.h > 0
 
   React.useEffect(() => {
     let cancelled = false
@@ -44,8 +48,26 @@ export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDepende
         ) : failed ? (
           <PlainDependencyList tree={tree} />
         ) : svg ? (
-          <Box sx={{ overflowX: 'auto', overflowY: 'hidden', ...customScrollbarHiddenSx, '& svg': { maxWidth: '100%', height: 'auto' } }}>
-            <Box sx={{ display: 'inline-block', minWidth: '100%' }} dangerouslySetInnerHTML={{ __html: svg }} />
+          <Box
+            sx={{
+              ...customScrollbarHiddenSx,
+              ...(viewport > 0
+                ? { height: viewport, display: 'flex', overflow: 'auto' }
+                : { overflowX: 'auto', overflowY: 'hidden' }),
+              '& svg': naturalSize
+                ? { display: 'block', width: `${Math.round(svgSize.w)}px`, height: `${Math.round(svgSize.h)}px` }
+                : { maxWidth: '100%', height: 'auto' },
+            }}
+          >
+            <Box
+              sx={{
+                display: 'inline-block',
+                flexShrink: 0,
+                minWidth: viewport > 0 ? undefined : '100%',
+                margin: viewport > 0 ? 'auto' : 0,
+              }}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
           </Box>
         ) : (
           <Typography variant="caption" color="text.secondary">正在生成依赖树…</Typography>
