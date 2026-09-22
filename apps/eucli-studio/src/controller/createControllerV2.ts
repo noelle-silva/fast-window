@@ -67,6 +67,7 @@ import { createControllerBootstrap } from './controllerBootstrap'
 import { createAppearanceActions } from './actions/appearanceActions'
 import { createAiServiceActions } from './actions/aiServiceActions'
 import { createStickerActions } from './actions/stickerActions'
+import { createWallpaperActions } from './actions/wallpaperActions'
 import { createFavoriteActions } from './actions/favoriteActions'
 import { createEntityActions } from './actions/entityActions'
 import { createToolActions } from './actions/toolActions'
@@ -864,6 +865,15 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const appearanceActions = createAppearanceActions({ state, emit, saveMeta, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
   const aiServiceActionSet = createAiServiceActions({ state, emit, saveMeta, showToast: api.ui?.showToast })
   const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, loadStickersFromSource, setStickersEnabled })
+  const wallpaperActions = createWallpaperActions({
+    state,
+    emit,
+    saveMeta,
+    showToast: api.ui?.showToast,
+    pickImageFiles,
+    writeImageBase64: api.files?.images?.writeBase64 as any,
+    deleteImage: api.files?.images?.delete as any,
+  })
   const favoriteActions = createFavoriteActions({ favOps })
   const entityActions = createEntityActions({
     state,
@@ -1028,6 +1038,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ...chatNavigationActions,
     ...aiServiceActionSet,
     ...stickerActions,
+    ...wallpaperActions,
     ...favoriteActions,
     ...entityActions,
     ...toolActions,

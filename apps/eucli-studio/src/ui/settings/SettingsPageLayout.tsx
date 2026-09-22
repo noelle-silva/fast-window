@@ -105,12 +105,13 @@ export function SettingsPageLayout(props: {
   onChange: (value: SettingsTabValue) => void
   navOrder: unknown
   onNavOrderChange: (order: SettingsTabValue[]) => void
+  transparentBackground?: boolean
   children: React.ReactNode
 }) {
   const items = React.useMemo(() => mergeSettingsNavigationItems(props.navOrder), [props.navOrder])
 
   return (
-    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', px: 2, pt: `calc(${props.topbarHeight}px + ${SETTINGS_PAGE_VERTICAL_PADDING}px)`, pb: 2, bgcolor: 'var(--studio-canvas)' }}>
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', px: 2, pt: `calc(${props.topbarHeight}px + ${SETTINGS_PAGE_VERTICAL_PADDING}px)`, pb: 2, bgcolor: props.transparentBackground ? 'transparent' : 'var(--studio-canvas)' }}>
       <Box
         sx={{
           display: 'flex',

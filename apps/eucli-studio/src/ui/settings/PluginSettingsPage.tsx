@@ -25,6 +25,7 @@ import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
 import { SessionSettingsPanel } from './SessionSettingsPanel'
+import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { StickersSettingsPanel } from './StickersSettingsPanel'
 import { WorkspacesSettingsPanel } from './WorkspacesSettingsPanel'
 import { RolesSettingsPanel } from './RolesSettingsPanel'
@@ -126,6 +127,7 @@ export function PluginSettingsPage(props: {
       onChange={onTabChange}
       navOrder={settingsNavOrder}
       onNavOrderChange={(order) => controller.actions.setSettingsNavOrder?.(order)}
+      transparentBackground={transparentChatBg}
     >
       {children}
     </SettingsPageLayout>
@@ -178,21 +180,21 @@ export function PluginSettingsPage(props: {
     <SettingsSurface>
       <Stack spacing={1.25}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Typography sx={{ fontWeight: 900 }}>外观</Typography>
-          <Box sx={{ flex: 1 }} />
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
-            <Typography variant="body2" color="text.secondary">
-              聊天背景透明
-            </Typography>
-          </Stack>
+          <Typography sx={{ fontWeight: 900 }}>客户端外观</Typography>
         </Stack>
 
         <ColorThemeSettingsSection controller={controller} loading={loading} settings={data.settings} />
 
+        <WallpaperSettingsSection controller={controller} loading={loading} settings={data.settings} />
+
         <Typography variant="body2" sx={{ fontWeight: 900 }} color="text.secondary">
           组件调节
         </Typography>
+        {!transparentChatBg ? (
+          <Typography variant="caption" color="text.secondary">
+            启用壁纸后这些调节才可使用。
+          </Typography>
+        ) : null}
 
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -256,7 +258,7 @@ export function PluginSettingsPage(props: {
             step={1}
             onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
             onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
-            disabled={loading}
+            disabled={loading || !transparentChatBg}
           />
         </Box>
 
@@ -278,7 +280,7 @@ export function PluginSettingsPage(props: {
             step={1}
             onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
             onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
-            disabled={loading}
+            disabled={loading || !transparentChatBg}
           />
         </Box>
 
@@ -300,7 +302,7 @@ export function PluginSettingsPage(props: {
             step={1}
             onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
             onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
-            disabled={loading}
+            disabled={loading || !transparentChatBg}
           />
         </Box>
 
@@ -322,7 +324,7 @@ export function PluginSettingsPage(props: {
             step={1}
             onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
             onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
-            disabled={loading}
+            disabled={loading || !transparentChatBg}
           />
         </Box>
 

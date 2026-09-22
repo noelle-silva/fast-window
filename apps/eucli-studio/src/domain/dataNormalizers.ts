@@ -27,6 +27,7 @@ import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeRoleToolPolicy } from './toolPolicy'
 import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode } from './reasoningDisplay'
+import { normalizeWallpaperSettings } from './wallpaper'
 import { normalizeSessionFacts } from './sessionFacts'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
@@ -170,6 +171,8 @@ export function normalizeData(raw: any) {
   if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
   if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
   ;(d.settings as any).reasoningDisplayMode = normalizeReasoningDisplayMode((d.settings as any).reasoningDisplayMode)
+  ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)
+  if ((d.settings as any).wallpaper.enabled) d.settings.transparentChatBg = true
   if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
   const at = d.settings.attachments
   if (typeof at.sendLimitChars !== 'number' || !isFinite(at.sendLimitChars)) {

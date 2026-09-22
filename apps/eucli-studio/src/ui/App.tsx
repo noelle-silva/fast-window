@@ -50,7 +50,9 @@ import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
 import type { ReleaseCandidatesView, StudioBootstrap } from '../domain/release'
 import { resolveColorThemePreset } from '../domain/colorTheme'
-import { createStudioMuiTheme } from './colorThemeStyles'
+import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
+import { useWallpaperImage } from './wallpaper/useWallpaperImage'
+import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
 import { ChatComposer } from './composer/ChatComposer'
 import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
 import { ComposerAttachmentsPopovers } from './composer/ComposerAttachmentsPopovers'
@@ -107,7 +109,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
-  const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
+  const bgAlpha = transparentChatBg ? wallpaperVeilAlpha(chatBgOpacity, chatBgBlur) : 1
+  const wallpaper = normalizeWallpaperSettings(data?.settings?.wallpaper)
+  const activeWallpaper = wallpaper.enabled ? wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null : null
+  const activeWallpaperSrc = useWallpaperImage(controller, activeWallpaper?.relPath || '')
 
   const activeTargetKind0 = String((s.draft as any)?.activeTargetKind || (data?.ui as any)?.activeTargetKind || 'role').trim()
   const activeTargetKind = activeTargetKind0 === 'group' ? 'group' : activeTargetKind0 === 'workspace' ? 'workspace' : 'role'
@@ -830,7 +835,40 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       <CssBaseline />
       <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur })} />
 
-      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
+      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', isolation: 'isolate', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
+        {activeWallpaper ? (
+          <Box sx={{ position: 'absolute', inset: 0, zIndex: -2, pointerEvents: 'none', overflow: 'hidden' }}>
+            {activeWallpaperSrc ? (
+              <Box
+                component="img"
+                src={activeWallpaperSrc}
+                alt=""
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: `${activeWallpaper.view.x}% ${activeWallpaper.view.y}%`,
+                  transform: `scale(${activeWallpaper.view.scale * 1.05})`,
+                  transformOrigin: `${activeWallpaper.view.x}% ${activeWallpaper.view.y}%`,
+                  display: 'block',
+                }}
+              />
+            ) : null}
+          </Box>
+        ) : null}
+        {activeWallpaper ? (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: -1,
+              pointerEvents: 'none',
+              bgcolor: colorMixVar('--studio-canvas', Math.max(1, bgAlpha * 100)),
+              backdropFilter: chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+              WebkitBackdropFilter: chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+            }}
+          />
+        ) : null}
         <ChatTopBar
           page={page}
           loading={!!s.loading}

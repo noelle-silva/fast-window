@@ -24,12 +24,6 @@ export function createAppearanceActions(deps: {
       state.sideTab = tab === 'chats' ? 'chats' : 'roles'
       emit()
     },
-    toggleTransparentChatBg: () => {
-      if (!state.data) return
-      state.data.settings.transparentChatBg = !state.data.settings.transparentChatBg
-      saveMeta().catch(() => {})
-      emit()
-    },
     setChatBgOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatBgOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
