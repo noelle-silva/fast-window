@@ -22,6 +22,22 @@ import { systemPluginLocatorId } from '../../domain/systemPlugin'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { PlaceholderDependencyTreePanel } from './PlaceholderDependencyTreePanel'
+import {
+  addDraftPlaceholder,
+  computeDirtyNames,
+  createPlaceholderDraft,
+  markDraftPlaceholderSaved,
+  planPlaceholderCreate,
+  planPlaceholderDelete,
+  planPlaceholderSave,
+  removeDraftPlaceholder,
+  renameDraftPlaceholder,
+  serverIdentityOf,
+  setDraftFolderMembership,
+  updateDraftLibrary,
+  updateDraftPlaceholder,
+  type PlaceholderDraft,
+} from './placeholderDraft'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type PlaceholderSettingsPanelProps = {
@@ -41,8 +57,7 @@ function cloneLibrary(raw: unknown): PlaceholderLibrary {
 
 type PlaceholderDraftCache = {
   base: any
-  draft: PlaceholderLibrary
-  baselines: Record<string, string>
+  draft: PlaceholderDraft
 }
 
 // 客户端层面的未保存草稿缓存：切换设置页或切换占位符时都不丢未保存的修改。
@@ -82,9 +97,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const sourceLibrary = React.useMemo(() => placeholders?.library || { placeholders: [], folders: [] }, [placeholders?.library])
   const busy = loading || !!placeholders?.loading
   const restoredDraft = placeholderDraftCache && placeholderDraftCache.base === (placeholders?.library ?? null) ? placeholderDraftCache : null
-  const [draft, setDraft] = React.useState<PlaceholderLibrary>(() => (restoredDraft ? restoredDraft.draft : cloneLibrary(sourceLibrary)))
-  // 保存以占位符为粒度：记录草稿名对应的服务端原名，自己的保存不覆盖草稿里其他未保存改动。
-  const renameBaselineRef = React.useRef<Record<string, string>>(restoredDraft ? { ...restoredDraft.baselines } : {})
+  const [draftState, setDraftState] = React.useState<PlaceholderDraft>(() => (restoredDraft ? restoredDraft.draft : createPlaceholderDraft(sourceLibrary)))
+  const draft = draftState.library
+  // 自己的保存不覆盖草稿里其他未保存改动：保存期间与保存结果都不触发草稿重置。
   const savedLibraryRef = React.useRef<any>(null)
   const skipNextSyncRef = React.useRef(!!restoredDraft)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
@@ -110,15 +125,14 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     if (savedLibraryRef.current === 'saving') return
     if (savedLibraryRef.current && savedLibraryRef.current === sourceLibrary) return
     savedLibraryRef.current = null
-    const next = cloneLibrary(sourceLibrary)
-    setDraft(next)
-    renameBaselineRef.current = {}
-    setSelectedIndex((current) => Math.min(Math.max(0, current), Math.max(0, next.placeholders.length - 1)))
+    const next = createPlaceholderDraft(sourceLibrary)
+    setDraftState(next)
+    setSelectedIndex((current) => Math.min(Math.max(0, current), Math.max(0, next.library.placeholders.length - 1)))
   }, [sourceLibrary])
 
   React.useEffect(() => {
-    placeholderDraftCache = { base: placeholders?.library ?? null, draft, baselines: { ...renameBaselineRef.current } }
-  }, [draft, placeholders?.library])
+    placeholderDraftCache = { base: placeholders?.library ?? null, draft: draftState }
+  }, [draftState, placeholders?.library])
 
   React.useEffect(() => {
     controller.actions.refreshPlaceholderLibrary?.(false)
@@ -149,13 +163,15 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     return () => window.clearTimeout(timer)
   }, [controller, previewText])
 
-  React.useEffect(() => {
-    const selectedName = text(draft.placeholders[selectedIndex]?.name)
-    if (!selectedName) return
-    controller.actions.loadPlaceholderDependencies?.(selectedName)?.catch?.(() => null)
-  }, [controller, draft.placeholders, selectedIndex])
-
   const selectedPlaceholder = draft.placeholders[selectedIndex] || null
+  // 依赖树是服务端按已保存数据解析的结果：按服务端身份加载，并在服务端库变化（含保存）后重新加载。
+  const selectedServerName = selectedPlaceholder ? serverIdentityOf(draftState, selectedPlaceholder.name) : ''
+
+  React.useEffect(() => {
+    if (!selectedServerName) return
+    controller.actions.loadPlaceholderDependencies?.(selectedServerName)?.catch?.(() => null)
+  }, [controller, selectedServerName, placeholders?.library])
+
   const selectedFolder = draft.folders.find((folder) => folder.id === selectedFolderId) || null
   const filteredPlaceholders = draft.placeholders
     .map((item, index) => ({ item, index }))
@@ -169,44 +185,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const hasDuplicateName = Object.values(nameCounts).some((count) => count > 1)
   const problems = Array.isArray(placeholders?.problems) ? placeholders.problems : []
 
-  // 未保存标记：草稿条目与服务端条目（按原名对应）在字段或收藏归属上有差异时算脏。
-  const dirtyNames = React.useMemo(() => {
-    const dirty = new Set<string>()
-    const serverInput = placeholders?.library
-    if (!serverInput) return dirty
-    const base = cloneLibrary(serverInput)
-    const baseByName = new Map(base.placeholders.map((entry) => [text(entry.name), entry]))
-    const folderIdsByServerName: Record<string, Set<string>> = {}
-    for (const folder of base.folders) {
-      for (const name of folder.placeholderNames || []) {
-        if (!folderIdsByServerName[name]) folderIdsByServerName[name] = new Set()
-        folderIdsByServerName[name].add(folder.id)
-      }
-    }
-    const folderIdsByDraftName: Record<string, Set<string>> = {}
-    for (const folder of draft.folders) {
-      for (const name of folder.placeholderNames || []) {
-        if (!folderIdsByDraftName[name]) folderIdsByDraftName[name] = new Set()
-        folderIdsByDraftName[name].add(folder.id)
-      }
-    }
-    for (const item of draft.placeholders) {
-      const name = text(item.name)
-      if (!name) continue
-      const identity = text(renameBaselineRef.current[name]) || name
-      const baseItem = baseByName.get(identity)
-      const fieldsDirty = !baseItem || text(baseItem.value) !== text(item.value) || text(baseItem.description) !== text(item.description) || identity !== name
-      const draftFolderIds = folderIdsByDraftName[name] || new Set<string>()
-      const baseFolderIds = folderIdsByServerName[identity] || new Set<string>()
-      const membershipDirty = draftFolderIds.size !== baseFolderIds.size || Array.from(draftFolderIds).some((id) => !baseFolderIds.has(id))
-      if (fieldsDirty || membershipDirty) dirty.add(name)
-    }
-    return dirty
-  }, [draft, placeholders?.library])
-
-  const replacePlaceholder = (index: number, updater: (item: PlaceholderItem) => PlaceholderItem) => {
-    setDraft((current) => ({ ...current, placeholders: current.placeholders.map((item, itemIndex) => (itemIndex === index ? updater(item) : item)) }))
-  }
+  // 未保存标记：草稿与服务端有差异的条目（含改名与收藏归属）。
+  const dirtyNames = React.useMemo(() => computeDirtyNames(placeholders?.library, draftState), [placeholders?.library, draftState])
 
   const persistLibrary = async (next: PlaceholderLibrary) => {
     savedLibraryRef.current = 'saving'
@@ -238,36 +218,13 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   // 保存以占位符为粒度：只把草稿里这个占位符的字段与收藏归属合并进服务端数据，其他未保存改动留在草稿里。
   const savePlaceholderByName = async (draftNameRaw: string, membershipOverride?: Record<string, boolean>) => {
     const draftName = text(draftNameRaw)
-    if (!draftName) {
-      setSaveError('占位符名字不能为空')
+    const plan = planPlaceholderSave(placeholders?.library, draftState, draftName, membershipOverride)
+    if (!plan.ok) {
+      setSaveError(plan.error)
       return false
     }
-    const item = draft.placeholders.find((entry) => text(entry.name) === draftName)
-    if (!item) return false
-    const baseInput = placeholders?.library
-    if (!baseInput) return false
-    if (draft.placeholders.some((entry) => entry !== item && text(entry.name) === draftName)) {
-      setSaveError('占位符名字必须全局唯一')
-      return false
-    }
-    const identity = text(renameBaselineRef.current[draftName]) || draftName
-    const next = cloneLibrary(baseInput)
-    next.placeholders = next.placeholders.filter((entry) => {
-      const name = text(entry.name)
-      return name !== identity && name !== draftName
-    })
-    next.placeholders.push({ ...item, name: draftName })
-    next.folders = next.folders.map((folder) => {
-      const names = new Set((folder.placeholderNames || []).filter((name) => name !== identity && name !== draftName))
-      const include = membershipOverride
-        ? membershipOverride[folder.id] === true
-        : !!draft.folders.find((entry) => entry.id === folder.id)?.placeholderNames?.includes(draftName)
-      if (include) names.add(draftName)
-      return { ...folder, placeholderNames: Array.from(names).sort((a, b) => a.localeCompare(b)) }
-    })
-    return runPersist(next, () => {
-      delete renameBaselineRef.current[identity]
-      renameBaselineRef.current[draftName] = draftName
+    return runPersist(plan.library, () => {
+      setDraftState((current) => markDraftPlaceholderSaved(current, draftName))
     })
   }
 
@@ -280,33 +237,20 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const createItem = async () => {
     const baseInput = placeholders?.library
     if (!baseInput) return
-    const next = cloneLibrary(baseInput)
-    const names = new Set([...next.placeholders.map((entry) => text(entry.name)), ...draft.placeholders.map((entry) => text(entry.name))].filter(Boolean))
+    const knownNames = new Set([
+      ...cloneLibrary(baseInput).placeholders.map((entry) => text(entry.name)),
+      ...draft.placeholders.map((entry) => text(entry.name)),
+    ].filter(Boolean))
     let nextName = '新占位符'
     let suffix = 2
-    while (names.has(nextName)) {
+    while (knownNames.has(nextName)) {
       nextName = `新占位符 ${suffix}`
       suffix += 1
     }
     const item: PlaceholderItem = { ...createPlaceholderItem(), name: nextName }
-    next.placeholders.push(item)
-    const inFolder = !!selectedFolderId
-    if (inFolder) {
-      next.folders = next.folders.map((folder) => folder.id === selectedFolderId
-        ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
-        : folder)
-    }
-    await runPersist(next, () => {
-      setDraft((current) => ({
-        ...current,
-        placeholders: current.placeholders.concat(item),
-        folders: inFolder
-          ? current.folders.map((folder) => folder.id === selectedFolderId
-            ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
-            : folder)
-          : current.folders,
-      }))
-      renameBaselineRef.current[nextName] = nextName
+    const folderId = selectedFolderId
+    await runPersist(planPlaceholderCreate(baseInput, item, folderId), () => {
+      setDraftState((current) => addDraftPlaceholder(current, item, folderId))
       setSelectedIndex(draft.placeholders.length)
     })
   }
@@ -315,31 +259,15 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     const draftName = text(name)
     const baseInput = placeholders?.library
     if (!baseInput || !draftName) return
-    const identity = text(renameBaselineRef.current[draftName]) || draftName
-    const next = cloneLibrary(baseInput)
-    next.placeholders = next.placeholders.filter((entry) => text(entry.name) !== identity)
-    next.folders = next.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).filter((entry) => entry !== identity && entry !== draftName) }))
-    await runPersist(next, () => {
-      delete renameBaselineRef.current[draftName]
-      setDraft((current) => ({
-        ...current,
-        placeholders: current.placeholders.filter((entry) => text(entry.name) !== draftName),
-        folders: current.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).filter((entry) => entry !== draftName) })),
-      }))
+    const identity = serverIdentityOf(draftState, draftName)
+    await runPersist(planPlaceholderDelete(baseInput, [identity, draftName]), () => {
+      setDraftState((current) => removeDraftPlaceholder(current, draftName))
       setSelectedIndex((current) => Math.max(0, Math.min(current, draft.placeholders.length - 2)))
     })
   }
 
-  const renameItem = (index: number, oldName: string, nextNameRaw: string) => {
-    const nextName = nextNameRaw
-    const baseline = text(renameBaselineRef.current[oldName]) || text(oldName)
-    delete renameBaselineRef.current[oldName]
-    if (text(nextName) !== baseline) renameBaselineRef.current[nextName] = baseline
-    replacePlaceholder(index, (item) => ({ ...item, name: nextName }))
-    setDraft((current) => ({
-      ...current,
-      folders: current.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).map((itemName) => itemName === oldName ? nextName : itemName) })),
-    }))
+  const renameItem = (index: number, nextName: string) => {
+    setDraftState((current) => renameDraftPlaceholder(current, index, nextName))
   }
 
   const createFolder = async (nameRaw: string) => {
@@ -351,7 +279,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     const next = cloneLibrary(baseInput)
     next.folders = next.folders.concat(folder)
     return runPersist(next, () => {
-      setDraft((current) => ({ ...current, folders: current.folders.concat(folder) }))
+      setDraftState((current) => updateDraftLibrary(current, (library) => ({ ...library, folders: library.folders.concat(folder) })))
       setSelectedFolderId(folder.id)
     })
   }
@@ -360,10 +288,11 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     const baseInput = placeholders?.library
     if (!baseInput) return false
     const updatedAt = new Date().toISOString()
+    const applyPatch = (folder: PlaceholderFolder) => (folder.id === folderId ? { ...folder, ...patch, updatedAt } : folder)
     const next = cloneLibrary(baseInput)
-    next.folders = next.folders.map((folder) => folder.id === folderId ? { ...folder, ...patch, updatedAt } : folder)
+    next.folders = next.folders.map(applyPatch)
     return runPersist(next, () => {
-      setDraft((current) => ({ ...current, folders: current.folders.map((folder) => folder.id === folderId ? { ...folder, ...patch, updatedAt } : folder) }))
+      setDraftState((current) => updateDraftLibrary(current, (library) => ({ ...library, folders: library.folders.map(applyPatch) })))
     })
   }
 
@@ -371,13 +300,13 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     const baseInput = placeholders?.library
     if (!baseInput) return
     const updatedAt = new Date().toISOString()
+    const applyDelete = (folders: PlaceholderFolder[]) => folders
+      .filter((folder) => folder.id !== folderId)
+      .map((folder) => (folder.parentId === folderId ? { ...folder, parentId: '', updatedAt } : folder))
     const next = cloneLibrary(baseInput)
-    next.folders = next.folders.filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId ? { ...folder, parentId: '', updatedAt } : folder)
+    next.folders = applyDelete(next.folders)
     await runPersist(next, () => {
-      setDraft((current) => ({
-        ...current,
-        folders: current.folders.filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId ? { ...folder, parentId: '', updatedAt } : folder),
-      }))
+      setDraftState((current) => updateDraftLibrary(current, (library) => ({ ...library, folders: applyDelete(library.folders) })))
       if (selectedFolderId === folderId) setSelectedFolderId('')
     })
   }
@@ -413,18 +342,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     const membership = favoriteDialog.checked
     const ok = await savePlaceholderByName(target, membership)
     if (!ok) return
-    setDraft((current) => ({
-      ...current,
-      folders: current.folders.map((folder) => {
-        const shouldInclude = membership[folder.id] === true
-        const names = new Set(folder.placeholderNames || [])
-        const has = names.has(target)
-        if (shouldInclude === has) return folder
-        if (shouldInclude) names.add(target)
-        else names.delete(target)
-        return { ...folder, placeholderNames: Array.from(names).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
-      }),
-    }))
+    setDraftState((current) => setDraftFolderMembership(current, target, membership))
     closeFavoriteDialog()
   }
 
@@ -434,8 +352,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   }
 
   const createFromPlugin = async (pluginId: string, interfaceId: string) => {
-    const saved = await controller.actions.createPlaceholderFromSystemPlugin?.(pluginId, interfaceId)
-    if (saved) setDraft(cloneLibrary(saved))
+    // 外部创建以服务端结果为准：草稿随刷新后的服务端数据重置（与“刷新”同一语义）。
+    await controller.actions.createPlaceholderFromSystemPlugin?.(pluginId, interfaceId)
     setPluginDialogOpen(false)
   }
 
@@ -522,8 +440,8 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                     disabled={busy || saving}
                     saving={saving}
                     sourcePluginDisabled={sourcePluginDisabled(selectedPlaceholder)}
-                    onRename={(nextName) => renameItem(selectedIndex, selectedPlaceholder.name, nextName)}
-                    onUpdate={(patch) => replacePlaceholder(selectedIndex, (item) => ({ ...item, ...patch }))}
+                    onRename={(nextName) => renameItem(selectedIndex, nextName)}
+                    onUpdate={(patch) => setDraftState((current) => updateDraftPlaceholder(current, selectedIndex, patch))}
                     onSave={() => { void saveSelectedPlaceholder() }}
                     onDelete={() => { void deleteItem(selectedIndex, selectedPlaceholder.name) }}
                   />
