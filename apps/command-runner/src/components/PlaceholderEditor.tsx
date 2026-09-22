@@ -2,6 +2,8 @@ import * as React from 'react'
 import AddIcon from '@mui/icons-material/Add'
 import CheckIcon from '@mui/icons-material/Check'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import KeyboardIcon from '@mui/icons-material/Keyboard'
+import ListAltIcon from '@mui/icons-material/ListAlt'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { Box, Button, IconButton, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
@@ -22,8 +24,9 @@ type PlaceholderTarget =
   | { kind: 'value'; placeholder: number; value: number }
 
 // PlaceholderEditor 以左右两栏编辑一组占位符定义：
-// 左栏是占位符名称（一格一个），右栏是该占位符的候选值（一行一格，可直接编辑）；
+// 左栏是占位符名称（一格一个）与取值方式切换，右栏是该占位符的候选值（一行一格，可直接编辑）；
 // 左栏底部加号新增占位符，每块右栏底部加号新增值行，每块右侧提供复制引用与更多操作（删除走二次确认）。
+// 取值方式为「临时填写」时，候选值区域锁定但原样保留，作为切回「预选值」时的草稿；
 // 名称与候选值的合法性由后端统一校验，保存失败时在表单内提示。
 export function PlaceholderEditor({ value, disabled = false, hint, onChange }: PlaceholderEditorProps) {
   const [menu, setMenu] = React.useState<{ target: PlaceholderTarget; anchor: HTMLElement } | null>(null)
@@ -37,7 +40,15 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
   }, [onChange, value])
 
   const addPlaceholder = React.useCallback(() => {
-    onChange([...value, { name: '', values: [] }])
+    onChange([...value, { name: '', valueMode: 'select', values: [] }])
+  }, [onChange, value])
+
+  // toggleValueMode 在「预选值」与「临时填写」之间切换取值方式；
+  // 候选值不动，作为切回预选值时的草稿保留。
+  const toggleValueMode = React.useCallback((index: number) => {
+    onChange(value.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, valueMode: item.valueMode === 'input' ? 'select' : 'input' } : item
+    )))
   }, [onChange, value])
 
   const removePlaceholder = React.useCallback((index: number) => {
@@ -111,6 +122,20 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
                     </IconButton>
                   </span>
                 </Tooltip>
+                <Tooltip title={item.valueMode === 'input'
+                  ? '临时填写：运行时现场输入。点击改为预选值。'
+                  : '预选值：运行时从候选值中选择。点击改为临时填写。'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={disabled}
+                      aria-label="切换占位符取值方式"
+                      onClick={() => toggleValueMode(index)}
+                    >
+                      {item.valueMode === 'input' ? <KeyboardIcon fontSize="small" /> : <ListAltIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
                 <IconButton
                   size="small"
                   disabled={disabled}
@@ -121,13 +146,18 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
                 </IconButton>
               </Box>
               <Box className="cr-placeholder-values-cell">
+                {item.valueMode === 'input' ? (
+                  <Typography color="text.secondary" sx={{ fontSize: 12, lineHeight: 1.6 }}>
+                    临时填写：运行时现场输入，可留空；下方候选值暂存，切回预选值后可继续编辑。
+                  </Typography>
+                ) : null}
                 {item.values.map((current, valueIndex) => (
                   <Box key={valueIndex} className="cr-placeholder-value-row">
                     <TextField
                       size="small"
                       placeholder={`候选值 ${valueIndex + 1}`}
                       value={current}
-                      disabled={disabled}
+                      disabled={disabled || item.valueMode === 'input'}
                       fullWidth
                       inputRef={element => {
                         const key = `${index}:${valueIndex}`
@@ -138,7 +168,7 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
                     />
                     <IconButton
                       size="small"
-                      disabled={disabled}
+                      disabled={disabled || item.valueMode === 'input'}
                       aria-label="候选值更多操作"
                       onClick={event => setMenu({
                         target: { kind: 'value', placeholder: index, value: valueIndex },
@@ -150,7 +180,12 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
                   </Box>
                 ))}
                 <Box className="cr-placeholder-add-value">
-                  <Button size="small" startIcon={<AddIcon fontSize="small" />} disabled={disabled} onClick={() => addValue(index)}>
+                  <Button
+                    size="small"
+                    startIcon={<AddIcon fontSize="small" />}
+                    disabled={disabled || item.valueMode === 'input'}
+                    onClick={() => addValue(index)}
+                  >
                     添加值
                   </Button>
                 </Box>
@@ -159,7 +194,7 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
           ))}
         </Box>
       ) : (
-        <Typography color="text.secondary" sx={{ fontSize: 12 }}>暂无占位符。添加后，运行命令时会弹窗为每个引用选择取值。</Typography>
+        <Typography color="text.secondary" sx={{ fontSize: 12 }}>暂无占位符。添加后，运行命令时会弹窗为每个引用取值。</Typography>
       )}
       <Box className="cr-placeholder-add-row">
         <Button size="small" startIcon={<AddIcon fontSize="small" />} disabled={disabled} onClick={addPlaceholder}>

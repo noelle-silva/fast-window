@@ -1,8 +1,9 @@
 import * as React from 'react'
-import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Typography } from '@mui/material'
 import { DialogShell } from './DialogShell'
+import { PlaceholderValueField } from './PlaceholderValueField'
 import { closeModeLabel, resolveCloseMode, resolveCountdownSeconds, resolveShellInfo } from '../shellResolve'
-import { placeholderReference, resolveCommandPlaceholders } from '../placeholders'
+import { initialPlaceholderSelection, placeholderReference, resolveCommandPlaceholders } from '../placeholders'
 import type { AppSettings, CommandItem, PlaceholderSelection, Repo, ShellInfo } from '../types'
 
 type ConfirmRunDialogProps = {
@@ -22,9 +23,7 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
   const closeMode = resolveCloseMode(command, settings)
   const countdownSeconds = resolveCountdownSeconds(command, settings)
   const placeholders = React.useMemo(() => resolveCommandPlaceholders(command, repo), [command, repo])
-  const [values, setValues] = React.useState<PlaceholderSelection>(() =>
-    Object.fromEntries(placeholders.map(item => [item.name, item.values[0]])),
-  )
+  const [values, setValues] = React.useState<PlaceholderSelection>(() => initialPlaceholderSelection(placeholders))
   const [error, setError] = React.useState<string | null>(null)
   const [running, setRunning] = React.useState(false)
 
@@ -83,16 +82,12 @@ export function ConfirmRunDialog({ command, repo, settings, shells, disabled = f
             {placeholders.map(item => (
               <Box key={item.name} className="cr-placeholder-select-row">
                 <Box component="code" className="cr-placeholder-ref">{placeholderReference(item.name)}</Box>
-                <TextField
-                  select
-                  size="small"
+                <PlaceholderValueField
+                  placeholder={item}
                   value={values[item.name] ?? ''}
                   disabled={disabled || running}
-                  onChange={event => setValues(current => ({ ...current, [item.name]: event.target.value }))}
-                  fullWidth
-                >
-                  {item.values.map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-                </TextField>
+                  onChange={next => setValues(current => ({ ...current, [item.name]: next }))}
+                />
               </Box>
             ))}
           </Box>

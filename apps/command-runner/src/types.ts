@@ -42,10 +42,16 @@ export type ShellInfo = {
   argsTemplate?: string
 }
 
-// Placeholder 是命令脚本中可引用的占位符：名称 + 预先定义的候选值。
-// 运行时由弹窗从候选值中选定，替换脚本里的 {{名称}} 引用。
+// PlaceholderValueMode 是占位符的取值方式：
+// select 表示注册时预定义候选值、运行时从候选中选择；input 表示运行时现场填写。
+export type PlaceholderValueMode = 'select' | 'input'
+
+// Placeholder 是命令脚本中可引用的占位符：名称 + 取值方式 + 候选值。
+// select 型运行时由弹窗从候选值中选定，input 型运行时现场填写（可留空，留空替换为空内容）；
+// input 型的候选值仅作为切回 select 型时的草稿保留。
 export type Placeholder = {
   name: string
+  valueMode: PlaceholderValueMode
   values: string[]
 }
 

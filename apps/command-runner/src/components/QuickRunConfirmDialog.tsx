@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { Alert, Box, Button, Chip, MenuItem, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Typography } from '@mui/material'
 import { DialogShell } from './DialogShell'
-import { placeholderReference, resolveCommandPlaceholders } from '../placeholders'
+import { PlaceholderValueField } from './PlaceholderValueField'
+import { initialPlaceholderSelection, placeholderReference, resolveCommandPlaceholders } from '../placeholders'
 import type { CommandItem, QuickRun, QuickRunPlaceholderSelection, Repo } from '../types'
 
 type QuickRunConfirmDialogProps = {
@@ -43,13 +44,13 @@ export function QuickRunConfirmDialog({
   const [values, setValues] = React.useState<QuickRunPlaceholderSelection>(() =>
     Object.fromEntries(rows
       .filter(row => row.placeholders.length > 0)
-      .map(row => [row.id, Object.fromEntries(row.placeholders.map(item => [item.name, item.values[0]]))])),
+      .map(row => [row.id, initialPlaceholderSelection(row.placeholders)])),
   )
 
   const subtitle = React.useMemo(() => {
     const parts: string[] = []
     if (confirmCount > 0) parts.push(`包含 ${confirmCount} 条已开启二次确认的命令`)
-    if (placeholderCount > 0) parts.push(`包含 ${placeholderCount} 个待选占位符`)
+    if (placeholderCount > 0) parts.push(`包含 ${placeholderCount} 个待取值占位符`)
     if (parts.length === 0) return `确认后将启动全部 ${rows.length} 条命令。`
     return `该快捷运行${parts.join('、')}，取值只作用于本次运行；确认后将启动全部 ${rows.length} 条命令。`
   }, [confirmCount, placeholderCount, rows.length])
@@ -87,19 +88,15 @@ export function QuickRunConfirmDialog({
                   {row.placeholders.map(item => (
                     <Box key={item.name} className="cr-placeholder-select-row">
                       <Box component="code" className="cr-placeholder-ref">{placeholderReference(item.name)}</Box>
-                      <TextField
-                        select
-                        size="small"
+                      <PlaceholderValueField
+                        placeholder={item}
                         value={values[row.id]?.[item.name] ?? ''}
                         disabled={disabled || running}
-                        onChange={event => setValues(current => ({
+                        onChange={next => setValues(current => ({
                           ...current,
-                          [row.id]: { ...current[row.id], [item.name]: event.target.value },
+                          [row.id]: { ...current[row.id], [item.name]: next },
                         }))}
-                        fullWidth
-                      >
-                        {item.values.map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-                      </TextField>
+                      />
                     </Box>
                   ))}
                 </Box>
