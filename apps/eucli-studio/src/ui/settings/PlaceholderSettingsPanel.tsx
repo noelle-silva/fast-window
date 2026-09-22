@@ -1,9 +1,11 @@
 import * as React from 'react'
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, InputLabel, Menu, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, Menu, MenuItem, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import BookmarkBorderOutlinedIcon from '@mui/icons-material/BookmarkBorderOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import {
@@ -36,6 +38,15 @@ function cloneLibrary(raw: unknown): PlaceholderLibrary {
   return normalizePlaceholderLibrary(raw)
 }
 
+type PlaceholderDraftCache = {
+  base: any
+  draft: PlaceholderLibrary
+  baselines: Record<string, string>
+}
+
+// 客户端层面的未保存草稿缓存：切换设置页或切换占位符时都不丢未保存的修改。
+let placeholderDraftCache: PlaceholderDraftCache | null = null
+
 function folderDepth(folder: PlaceholderFolder, folders: PlaceholderFolder[]) {
   let depth = 0
   let parentId = text(folder.parentId)
@@ -67,9 +78,14 @@ function formatTime(value: unknown) {
 
 export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const { controller, loading, placeholders, systemPlugins } = props
-  const sourceLibrary = placeholders?.library || { placeholders: [], folders: [] }
+  const sourceLibrary = React.useMemo(() => placeholders?.library || { placeholders: [], folders: [] }, [placeholders?.library])
   const busy = loading || !!placeholders?.loading
-  const [draft, setDraft] = React.useState<PlaceholderLibrary>(() => cloneLibrary(sourceLibrary))
+  const restoredDraft = placeholderDraftCache && placeholderDraftCache.base === (placeholders?.library ?? null) ? placeholderDraftCache : null
+  const [draft, setDraft] = React.useState<PlaceholderLibrary>(() => (restoredDraft ? restoredDraft.draft : cloneLibrary(sourceLibrary)))
+  // 保存以占位符为粒度：记录草稿名对应的服务端原名，自己的保存不覆盖草稿里其他未保存改动。
+  const renameBaselineRef = React.useRef<Record<string, string>>(restoredDraft ? { ...restoredDraft.baselines } : {})
+  const savedLibraryRef = React.useRef<any>(null)
+  const skipNextSyncRef = React.useRef(!!restoredDraft)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const [selectedFolderId, setSelectedFolderId] = React.useState('')
   const [previewText, setPreviewText] = React.useState('')
@@ -79,13 +95,29 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false)
   const [problemsDialogOpen, setProblemsDialogOpen] = React.useState(false)
   const [folderMenuEl, setFolderMenuEl] = React.useState<HTMLElement | null>(null)
+  const [folderMenuWidth, setFolderMenuWidth] = React.useState<number | undefined>(undefined)
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
+  const [folderDraft, setFolderDraft] = React.useState<{ name: string; parentId: string }>({ name: '', parentId: '' })
+  const [createFolderDialog, setCreateFolderDialog] = React.useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [favoriteDialog, setFavoriteDialog] = React.useState<{ open: boolean; name: string; checked: Record<string, boolean> }>({ open: false, name: '', checked: {} })
 
   React.useEffect(() => {
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false
+      return
+    }
+    if (savedLibraryRef.current === 'saving') return
+    if (savedLibraryRef.current && savedLibraryRef.current === sourceLibrary) return
+    savedLibraryRef.current = null
     const next = cloneLibrary(sourceLibrary)
     setDraft(next)
+    renameBaselineRef.current = {}
     setSelectedIndex((current) => Math.min(Math.max(0, current), Math.max(0, next.placeholders.length - 1)))
   }, [sourceLibrary])
+
+  React.useEffect(() => {
+    placeholderDraftCache = { base: placeholders?.library ?? null, draft, baselines: { ...renameBaselineRef.current } }
+  }, [draft, placeholders?.library])
 
   React.useEffect(() => {
     controller.actions.refreshPlaceholderLibrary?.(false)
@@ -134,44 +166,174 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
   }, {} as Record<string, number>)
   const hasEmptyName = draft.placeholders.some((item) => !text(item.name))
   const hasDuplicateName = Object.values(nameCounts).some((count) => count > 1)
-  const canSave = !busy && !saving && !hasEmptyName && !hasDuplicateName
   const problems = Array.isArray(placeholders?.problems) ? placeholders.problems : []
+
+  // 未保存标记：草稿条目与服务端条目（按原名对应）在字段或收藏归属上有差异时算脏。
+  const dirtyNames = React.useMemo(() => {
+    const dirty = new Set<string>()
+    const serverInput = placeholders?.library
+    if (!serverInput) return dirty
+    const base = cloneLibrary(serverInput)
+    const baseByName = new Map(base.placeholders.map((entry) => [text(entry.name), entry]))
+    const folderIdsByServerName: Record<string, Set<string>> = {}
+    for (const folder of base.folders) {
+      for (const name of folder.placeholderNames || []) {
+        if (!folderIdsByServerName[name]) folderIdsByServerName[name] = new Set()
+        folderIdsByServerName[name].add(folder.id)
+      }
+    }
+    const folderIdsByDraftName: Record<string, Set<string>> = {}
+    for (const folder of draft.folders) {
+      for (const name of folder.placeholderNames || []) {
+        if (!folderIdsByDraftName[name]) folderIdsByDraftName[name] = new Set()
+        folderIdsByDraftName[name].add(folder.id)
+      }
+    }
+    for (const item of draft.placeholders) {
+      const name = text(item.name)
+      if (!name) continue
+      const identity = text(renameBaselineRef.current[name]) || name
+      const baseItem = baseByName.get(identity)
+      const fieldsDirty = !baseItem || text(baseItem.value) !== text(item.value) || text(baseItem.description) !== text(item.description) || identity !== name
+      const draftFolderIds = folderIdsByDraftName[name] || new Set<string>()
+      const baseFolderIds = folderIdsByServerName[identity] || new Set<string>()
+      const membershipDirty = draftFolderIds.size !== baseFolderIds.size || Array.from(draftFolderIds).some((id) => !baseFolderIds.has(id))
+      if (fieldsDirty || membershipDirty) dirty.add(name)
+    }
+    return dirty
+  }, [draft, placeholders?.library])
 
   const replacePlaceholder = (index: number, updater: (item: PlaceholderItem) => PlaceholderItem) => {
     setDraft((current) => ({ ...current, placeholders: current.placeholders.map((item, itemIndex) => (itemIndex === index ? updater(item) : item)) }))
   }
 
-  const createItem = () => {
-    const item = createPlaceholderItem()
-    const names = new Set(draft.placeholders.map((existing) => text(existing.name)).filter(Boolean))
+  const persistLibrary = async (next: PlaceholderLibrary) => {
+    savedLibraryRef.current = 'saving'
+    try {
+      const saved = await controller.actions.savePlaceholderLibrary?.(next)
+      savedLibraryRef.current = saved || null
+      return (saved || null) as PlaceholderLibrary | null
+    } catch (e) {
+      savedLibraryRef.current = null
+      throw e
+    }
+  }
+
+  const runPersist = async (next: PlaceholderLibrary, afterSuccess: () => void) => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      await persistLibrary(next)
+      afterSuccess()
+      return true
+    } catch (e: any) {
+      setSaveError(String(e?.message || e || '保存失败'))
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 保存以占位符为粒度：只把草稿里这个占位符的字段与收藏归属合并进服务端数据，其他未保存改动留在草稿里。
+  const savePlaceholderByName = async (draftNameRaw: string, membershipOverride?: Record<string, boolean>) => {
+    const draftName = text(draftNameRaw)
+    if (!draftName) {
+      setSaveError('占位符名字不能为空')
+      return false
+    }
+    const item = draft.placeholders.find((entry) => text(entry.name) === draftName)
+    if (!item) return false
+    const baseInput = placeholders?.library
+    if (!baseInput) return false
+    if (draft.placeholders.some((entry) => entry !== item && text(entry.name) === draftName)) {
+      setSaveError('占位符名字必须全局唯一')
+      return false
+    }
+    const identity = text(renameBaselineRef.current[draftName]) || draftName
+    const next = cloneLibrary(baseInput)
+    next.placeholders = next.placeholders.filter((entry) => {
+      const name = text(entry.name)
+      return name !== identity && name !== draftName
+    })
+    next.placeholders.push({ ...item, name: draftName })
+    next.folders = next.folders.map((folder) => {
+      const names = new Set((folder.placeholderNames || []).filter((name) => name !== identity && name !== draftName))
+      const include = membershipOverride
+        ? membershipOverride[folder.id] === true
+        : !!draft.folders.find((entry) => entry.id === folder.id)?.placeholderNames?.includes(draftName)
+      if (include) names.add(draftName)
+      return { ...folder, placeholderNames: Array.from(names).sort((a, b) => a.localeCompare(b)) }
+    })
+    return runPersist(next, () => {
+      delete renameBaselineRef.current[identity]
+      renameBaselineRef.current[draftName] = draftName
+    })
+  }
+
+  const saveSelectedPlaceholder = async () => {
+    const item = draft.placeholders[selectedIndex]
+    if (!item) return
+    await savePlaceholderByName(text(item.name))
+  }
+
+  const createItem = async () => {
+    const baseInput = placeholders?.library
+    if (!baseInput) return
+    const next = cloneLibrary(baseInput)
+    const names = new Set([...next.placeholders.map((entry) => text(entry.name)), ...draft.placeholders.map((entry) => text(entry.name))].filter(Boolean))
     let nextName = '新占位符'
     let suffix = 2
     while (names.has(nextName)) {
       nextName = `新占位符 ${suffix}`
       suffix += 1
     }
-    setDraft((current) => ({
-      ...current,
-      placeholders: current.placeholders.concat({ ...item, name: nextName }),
-      folders: selectedFolderId
-        ? current.folders.map((folder) => folder.id === selectedFolderId
-          ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
-          : folder)
-        : current.folders,
-    }))
-    setSelectedIndex(draft.placeholders.length)
+    const item: PlaceholderItem = { ...createPlaceholderItem(), name: nextName }
+    next.placeholders.push(item)
+    const inFolder = !!selectedFolderId
+    if (inFolder) {
+      next.folders = next.folders.map((folder) => folder.id === selectedFolderId
+        ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
+        : folder)
+    }
+    await runPersist(next, () => {
+      setDraft((current) => ({
+        ...current,
+        placeholders: current.placeholders.concat(item),
+        folders: inFolder
+          ? current.folders.map((folder) => folder.id === selectedFolderId
+            ? { ...folder, placeholderNames: Array.from(new Set([...(folder.placeholderNames || []), nextName])).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
+            : folder)
+          : current.folders,
+      }))
+      renameBaselineRef.current[nextName] = nextName
+      setSelectedIndex(draft.placeholders.length)
+    })
   }
 
-  const deleteItem = (index: number, name: string) => {
-    setDraft((current) => ({
-      placeholders: current.placeholders.filter((_item, itemIndex) => itemIndex !== index),
-      folders: current.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).filter((itemName) => itemName !== name) })),
-    }))
-    setSelectedIndex((current) => Math.max(0, Math.min(current, draft.placeholders.length - 2)))
+  const deleteItem = async (index: number, name: string) => {
+    const draftName = text(name)
+    const baseInput = placeholders?.library
+    if (!baseInput || !draftName) return
+    const identity = text(renameBaselineRef.current[draftName]) || draftName
+    const next = cloneLibrary(baseInput)
+    next.placeholders = next.placeholders.filter((entry) => text(entry.name) !== identity)
+    next.folders = next.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).filter((entry) => entry !== identity && entry !== draftName) }))
+    await runPersist(next, () => {
+      delete renameBaselineRef.current[draftName]
+      setDraft((current) => ({
+        ...current,
+        placeholders: current.placeholders.filter((entry) => text(entry.name) !== draftName),
+        folders: current.folders.map((folder) => ({ ...folder, placeholderNames: (folder.placeholderNames || []).filter((entry) => entry !== draftName) })),
+      }))
+      setSelectedIndex((current) => Math.max(0, Math.min(current, draft.placeholders.length - 2)))
+    })
   }
 
   const renameItem = (index: number, oldName: string, nextNameRaw: string) => {
     const nextName = nextNameRaw
+    const baseline = text(renameBaselineRef.current[oldName]) || text(oldName)
+    delete renameBaselineRef.current[oldName]
+    if (text(nextName) !== baseline) renameBaselineRef.current[nextName] = baseline
     replacePlaceholder(index, (item) => ({ ...item, name: nextName }))
     setDraft((current) => ({
       ...current,
@@ -179,52 +341,79 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     }))
   }
 
-  const createFolder = () => {
-    const folder = createPlaceholderFolder()
-    setDraft((current) => ({ ...current, folders: current.folders.concat(folder) }))
-    setSelectedFolderId(folder.id)
+  const createFolder = async (nameRaw: string) => {
+    const name = text(nameRaw)
+    if (!name) return false
+    const baseInput = placeholders?.library
+    if (!baseInput) return false
+    const folder = { ...createPlaceholderFolder(), name }
+    const next = cloneLibrary(baseInput)
+    next.folders = next.folders.concat(folder)
+    return runPersist(next, () => {
+      setDraft((current) => ({ ...current, folders: current.folders.concat(folder) }))
+      setSelectedFolderId(folder.id)
+    })
   }
 
-  const updateFolder = (folderId: string, patch: Partial<PlaceholderFolder>) => {
-    setDraft((current) => ({ ...current, folders: current.folders.map((folder) => folder.id === folderId ? { ...folder, ...patch, updatedAt: new Date().toISOString() } : folder) }))
+  const updateFolder = async (folderId: string, patch: Partial<PlaceholderFolder>) => {
+    const baseInput = placeholders?.library
+    if (!baseInput) return false
+    const updatedAt = new Date().toISOString()
+    const next = cloneLibrary(baseInput)
+    next.folders = next.folders.map((folder) => folder.id === folderId ? { ...folder, ...patch, updatedAt } : folder)
+    return runPersist(next, () => {
+      setDraft((current) => ({ ...current, folders: current.folders.map((folder) => folder.id === folderId ? { ...folder, ...patch, updatedAt } : folder) }))
+    })
   }
 
-  const deleteFolder = (folderId: string) => {
-    setDraft((current) => ({
-      ...current,
-      folders: current.folders.filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId ? { ...folder, parentId: '', updatedAt: new Date().toISOString() } : folder),
-    }))
-    if (selectedFolderId === folderId) setSelectedFolderId('')
+  const deleteFolder = async (folderId: string) => {
+    const baseInput = placeholders?.library
+    if (!baseInput) return
+    const updatedAt = new Date().toISOString()
+    const next = cloneLibrary(baseInput)
+    next.folders = next.folders.filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId ? { ...folder, parentId: '', updatedAt } : folder)
+    await runPersist(next, () => {
+      setDraft((current) => ({
+        ...current,
+        folders: current.folders.filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId ? { ...folder, parentId: '', updatedAt } : folder),
+      }))
+      if (selectedFolderId === folderId) setSelectedFolderId('')
+    })
   }
 
-  const toggleFolderMembership = (folderId: string, itemName: string, checked: boolean) => {
+  const openFavoriteDialog = (name: string) => {
+    const target = text(name)
+    if (!target) return
+    const checked: Record<string, boolean> = {}
+    for (const folder of draft.folders) checked[folder.id] = !!folder.placeholderNames?.includes(target)
+    setFavoriteDialog({ open: true, name: target, checked })
+  }
+
+  const closeFavoriteDialog = () => setFavoriteDialog({ open: false, name: '', checked: {} })
+
+  const toggleFavoriteDialogFolder = (folderId: string) => {
+    setFavoriteDialog((current) => ({ ...current, checked: { ...current.checked, [folderId]: !current.checked[folderId] } }))
+  }
+
+  const saveFavoriteDialog = async () => {
+    const target = text(favoriteDialog.name)
+    if (!target) return
+    const membership = favoriteDialog.checked
+    const ok = await savePlaceholderByName(target, membership)
+    if (!ok) return
     setDraft((current) => ({
       ...current,
       folders: current.folders.map((folder) => {
-        if (folder.id !== folderId) return folder
+        const shouldInclude = membership[folder.id] === true
         const names = new Set(folder.placeholderNames || [])
-        if (checked) names.add(itemName)
-        else names.delete(itemName)
+        const has = names.has(target)
+        if (shouldInclude === has) return folder
+        if (shouldInclude) names.add(target)
+        else names.delete(target)
         return { ...folder, placeholderNames: Array.from(names).sort((a, b) => a.localeCompare(b)), updatedAt: new Date().toISOString() }
       }),
     }))
-  }
-
-  const saveDraft = async () => {
-    if (!canSave) {
-      setSaveError(hasEmptyName ? '占位符名字不能为空' : '占位符名字不能重复')
-      return
-    }
-    setSaving(true)
-    setSaveError('')
-    try {
-      const saved = await controller.actions.savePlaceholderLibrary?.(draft)
-      setDraft(cloneLibrary(saved || draft))
-    } catch (e) {
-      setSaveError(String((e as any)?.message || e || '保存失败'))
-    } finally {
-      setSaving(false)
-    }
+    closeFavoriteDialog()
   }
 
   const openPluginDialog = async () => {
@@ -250,8 +439,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <Button variant="text" onClick={() => setPreviewDialogOpen(true)}>解析预览</Button>
           <Button variant="text" color={problems.length ? 'error' : 'inherit'} onClick={() => setProblemsDialogOpen(true)}>问题看板{problems.length ? `（${problems.length}）` : ''}</Button>
           <Button variant="text" onClick={openPluginDialog} disabled={busy || saving}>从插件接口创建占位符</Button>
-          <Button startIcon={<AddIcon />} variant="text" onClick={createItem} disabled={busy || saving}>新建占位符</Button>
-          <Button startIcon={<SaveIcon />} variant="contained" onClick={saveDraft} disabled={!canSave}>{saving ? '保存中…' : '保存'}</Button>
+          <Button startIcon={<AddIcon />} variant="text" onClick={() => { void createItem() }} disabled={busy || saving}>新建占位符</Button>
         </Stack>
 
         {placeholders?.error ? <Typography variant="body2" color="error">{String(placeholders.error || '')}</Typography> : null}
@@ -268,7 +456,10 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                 variant="outlined"
                 startIcon={<FolderOutlinedIcon fontSize="small" />}
                 endIcon={<ArrowDropDownIcon fontSize="small" />}
-                onClick={(event) => setFolderMenuEl(event.currentTarget)}
+                onClick={(event) => {
+                  setFolderMenuWidth(event.currentTarget.getBoundingClientRect().width)
+                  setFolderMenuEl(event.currentTarget)
+                }}
                 sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
               >
                 <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFolder ? selectedFolder.name : '全部占位符'}</Box>
@@ -279,7 +470,23 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                     const selected = index === selectedIndex
                     const label = text(item.name) || `未命名占位符 ${index + 1}`
                     const disabledByPlugin = sourcePluginDisabled(item)
-                    return <Button key={`${item.name}:${index}`} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box></Button>
+                    return (
+                      <Box key={`${item.name}:${index}`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                        <Button variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, textTransform: 'none' }}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box></Button>
+                        <Tooltip title="收藏到收藏夹">
+                          <span>
+                            <IconButton size="small" aria-label={`收藏 ${label}`} onClick={() => openFavoriteDialog(item.name)} disabled={!text(item.name)}>
+                              <BookmarkBorderOutlinedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        {dirtyNames.has(text(item.name)) ? (
+                          <Tooltip title="有未保存的修改">
+                            <Box sx={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main', boxShadow: '0 0 0 2px var(--studio-field)', pointerEvents: 'none' }} />
+                          </Tooltip>
+                        ) : null}
+                      </Box>
+                    )
                   }) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
                 </Stack>
               </Box>
@@ -294,11 +501,12 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
                     item={selectedPlaceholder}
                     folders={draft.folders}
                     disabled={busy || saving}
+                    saving={saving}
                     sourcePluginDisabled={sourcePluginDisabled(selectedPlaceholder)}
                     onRename={(nextName) => renameItem(selectedIndex, selectedPlaceholder.name, nextName)}
                     onUpdate={(patch) => replacePlaceholder(selectedIndex, (item) => ({ ...item, ...patch }))}
-                    onDelete={() => deleteItem(selectedIndex, selectedPlaceholder.name)}
-                    onToggleFolder={(folderId, checked) => toggleFolderMembership(folderId, selectedPlaceholder.name, checked)}
+                    onSave={() => { void saveSelectedPlaceholder() }}
+                    onDelete={() => { void deleteItem(selectedIndex, selectedPlaceholder.name) }}
                   />
                   <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} />
                 </Stack>
@@ -309,7 +517,13 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </Box>
         </Stack>
 
-        <Menu anchorEl={folderMenuEl} open={!!folderMenuEl} onClose={() => setFolderMenuEl(null)}>
+        <Menu
+          anchorEl={folderMenuEl}
+          open={!!folderMenuEl}
+          onClose={() => setFolderMenuEl(null)}
+          transitionDuration={{ enter: 0, exit: 0 }}
+          PaperProps={{ sx: { width: folderMenuWidth || undefined } }}
+        >
           <MenuItem
             selected={!selectedFolderId}
             onClick={() => {
@@ -335,7 +549,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <Divider />
           <MenuItem
             onClick={() => {
-              createFolder()
+              setCreateFolderDialog({ open: true, name: '' })
               setFolderMenuEl(null)
             }}
           >
@@ -345,6 +559,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <MenuItem
             disabled={!selectedFolder}
             onClick={() => {
+              if (selectedFolder) setFolderDraft({ name: selectedFolder.name, parentId: selectedFolder.parentId || '' })
               setFolderDialogOpen(true)
               setFolderMenuEl(null)
             }}
@@ -353,45 +568,121 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </MenuItem>
         </Menu>
 
-        <Dialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs">
+        <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+          <DialogTitle>收藏「{favoriteDialog.name}」</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1} sx={{ pt: 0.5 }}>
+              {draft.folders.length ? sortedFolders(draft.folders).map((folder) => (
+                <Stack
+                  key={folder.id}
+                  direction="row"
+                  spacing={0.5}
+                  alignItems="center"
+                  onClick={() => toggleFavoriteDialogFolder(folder.id)}
+                  sx={{ pl: 1 + folderDepth(folder, draft.folders) * 2, pr: 1, py: 0.25, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                >
+                  <Checkbox
+                    size="small"
+                    checked={favoriteDialog.checked[folder.id] === true}
+                    onChange={() => toggleFavoriteDialogFolder(folder.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    inputProps={{ 'aria-label': folder.name }}
+                  />
+                  <Typography variant="body2">{folder.name}</Typography>
+                </Stack>
+              )) : <Typography variant="body2" color="text.secondary">还没有收藏夹，先在下拉栏里新建一个。</Typography>}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeFavoriteDialog}>取消</Button>
+            <Button variant="contained" onClick={() => { void saveFavoriteDialog() }} disabled={!draft.folders.length || saving}>{saving ? '保存中…' : '保存'}</Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={createFolderDialog.open} onClose={() => setCreateFolderDialog({ open: false, name: '' })} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+          <DialogTitle>新建收藏夹</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 1.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="收藏夹名称"
+                value={createFolderDialog.name}
+                onChange={(e) => setCreateFolderDialog((current) => ({ ...current, name: e.target.value }))}
+                fullWidth
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateFolderDialog({ open: false, name: '' })}>取消</Button>
+            <Button
+              variant="contained"
+              disabled={!text(createFolderDialog.name) || saving}
+              onClick={() => {
+                void createFolder(createFolderDialog.name).then((ok) => {
+                  if (ok) setCreateFolderDialog({ open: false, name: '' })
+                })
+              }}
+            >
+              创建
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>收藏夹设置</DialogTitle>
-          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+          <DialogContent>
             {selectedFolder ? (
-              <Stack spacing={1.25} sx={{ pt: 0.5 }}>
-                <TextField size="small" label="收藏夹名称" value={selectedFolder.name} onChange={(e) => updateFolder(selectedFolder.id, { name: e.target.value })} disabled={busy || saving} fullWidth />
+              <Stack spacing={1.25} sx={{ pt: 1.5 }}>
+                <TextField size="small" label="收藏夹名称" value={folderDraft.name} onChange={(e) => setFolderDraft((current) => ({ ...current, name: e.target.value }))} disabled={busy || saving} fullWidth />
                 <FormControl size="small" fullWidth>
                   <InputLabel>父级收藏夹</InputLabel>
-                  <Select label="父级收藏夹" value={selectedFolder.parentId || ''} onChange={(e) => updateFolder(selectedFolder.id, { parentId: String(e.target.value || '') })} disabled={busy || saving}>
+                  <Select label="父级收藏夹" value={folderDraft.parentId} onChange={(e) => setFolderDraft((current) => ({ ...current, parentId: String(e.target.value || '') }))} disabled={busy || saving}>
                     <MenuItem value="">无</MenuItem>
                     {draft.folders.filter((folder) => folder.id !== selectedFolder.id).map((folder) => <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>)}
                   </Select>
                 </FormControl>
-                <Button
-                  color="error"
-                  size="small"
-                  startIcon={<DeleteOutlineIcon />}
-                  onClick={() => {
-                    deleteFolder(selectedFolder.id)
-                    setFolderDialogOpen(false)
-                  }}
-                  disabled={busy || saving}
-                >
-                  删除收藏夹
-                </Button>
               </Stack>
             ) : (
               <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>请先在下拉栏里选择一个收藏夹。</Typography>
             )}
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setFolderDialogOpen(false)}>关闭</Button>
+          <DialogActions sx={{ justifyContent: 'space-between' }}>
+            {selectedFolder ? (
+              <Button
+                color="error"
+                size="small"
+                startIcon={<DeleteOutlineIcon />}
+                onClick={() => {
+                  void deleteFolder(selectedFolder.id)
+                  setFolderDialogOpen(false)
+                }}
+                disabled={busy || saving}
+              >
+                删除收藏夹
+              </Button>
+            ) : <span />}
+            <Stack direction="row" spacing={1}>
+              <Button onClick={() => setFolderDialogOpen(false)}>取消</Button>
+              <Button
+                variant="contained"
+                disabled={busy || saving || !selectedFolder}
+                onClick={() => {
+                  if (!selectedFolder) return
+                  void updateFolder(selectedFolder.id, { name: text(folderDraft.name) || selectedFolder.name, parentId: folderDraft.parentId })
+                  setFolderDialogOpen(false)
+                }}
+              >
+                保存
+              </Button>
+            </Stack>
           </DialogActions>
         </Dialog>
 
-        <Dialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md">
+        <Dialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>解析预览</DialogTitle>
-          <DialogContent sx={{ bgcolor: 'grey.50' }}>
-            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 1.5 }}>
               <TextField size="small" multiline minRows={4} label="输入包含占位符的文本" value={previewText} onChange={(e) => setPreviewText(e.target.value)} fullWidth />
               <SettingsSection tone="muted" sx={{ p: 1, minHeight: 92, whiteSpace: 'pre-wrap' }}>{String(placeholders?.preview?.text || '')}</SettingsSection>
             </Stack>
@@ -401,9 +692,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </DialogActions>
         </Dialog>
 
-        <Dialog open={problemsDialogOpen} onClose={() => setProblemsDialogOpen(false)} fullWidth maxWidth="sm">
+        <Dialog open={problemsDialogOpen} onClose={() => setProblemsDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>问题看板</DialogTitle>
-          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+          <DialogContent>
             <Stack spacing={1} sx={{ pt: 0.5 }}>
               {problems.length ? problems.map((problem: any, index: number) => (
                 <Typography key={`${problem.name}:${problem.type}:${index}`} variant="body2" color="error">{String(problem.name || '')}：{placeholderProblemLabel(String(problem.type || ''))}</Typography>
@@ -415,9 +706,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </DialogActions>
         </Dialog>
 
-        <Dialog open={pluginDialogOpen} onClose={() => setPluginDialogOpen(false)} fullWidth maxWidth="sm">
+        <Dialog open={pluginDialogOpen} onClose={() => setPluginDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>从插件接口创建占位符</DialogTitle>
-          <DialogContent sx={{ bgcolor: 'grey.50' }}>
+          <DialogContent>
             <Stack spacing={1}>
               {Array.isArray(systemPlugins?.availableInterfaces) && systemPlugins.availableInterfaces.length ? systemPlugins.availableInterfaces.map((item: any) => (
                 <SettingsListItem key={`${item.pluginId}:${item.interfaceId}`} sx={{ p: 1 }}>
@@ -448,19 +739,31 @@ function PlaceholderEditor(props: {
   item: PlaceholderItem
   folders: PlaceholderFolder[]
   disabled: boolean
+  saving: boolean
   sourcePluginDisabled: boolean
   onRename: (name: string) => void
   onUpdate: (patch: Partial<PlaceholderItem>) => void
+  onSave: () => void
   onDelete: () => void
-  onToggleFolder: (folderId: string, checked: boolean) => void
 }) {
-  const { item, folders, disabled, sourcePluginDisabled, onRename, onUpdate, onDelete, onToggleFolder } = props
+  const { item, folders, disabled, saving, sourcePluginDisabled, onRename, onUpdate, onSave, onDelete } = props
+  const [menuEl, setMenuEl] = React.useState<HTMLElement | null>(null)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
+  const label = text(item.name) || '未命名占位符'
+  const memberFolders = folders.filter((folder) => !!folder.placeholderNames?.includes(item.name))
   return (
     <SettingsSection>
       <Stack spacing={1}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <TextField size="small" label="名字" value={item.name} onChange={(e) => onRename(e.target.value)} sx={{ flex: 1 }} disabled={disabled} />
-          <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={onDelete} disabled={disabled}>删除</Button>
+          <Button startIcon={<SaveIcon />} variant="contained" size="small" onClick={onSave} disabled={disabled || !text(item.name)}>{saving ? '保存中…' : '保存'}</Button>
+          <Tooltip title="更多操作">
+            <span>
+              <IconButton size="small" aria-label="更多操作" onClick={(event) => setMenuEl(event.currentTarget)} disabled={disabled}>
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
         <TextField size="small" label="备注" value={item.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} disabled={disabled} fullWidth />
         {item.source?.kind === 'system_plugin' ? (
@@ -490,15 +793,44 @@ function PlaceholderEditor(props: {
         )}
         <Typography variant="caption" color="text.secondary">创建时间：{formatTime(item.createdAt)}</Typography>
         <Typography variant="body2" sx={{ fontWeight: 900 }}>所属收藏夹</Typography>
-        {folders.length ? folders.map((folder) => {
-          const checked = !!folder.placeholderNames?.includes(item.name)
-          return (
-            <Stack key={folder.id} direction="row" spacing={1} alignItems="center" sx={{ pl: folderDepth(folder, folders) * 2 }}>
-              <Checkbox size="small" checked={checked} onChange={(e) => onToggleFolder(folder.id, e.target.checked)} disabled={disabled || !text(item.name)} />
-              <Typography variant="body2">{folder.name}</Typography>
-            </Stack>
-          )
-        }) : <Typography variant="caption" color="text.secondary">暂无收藏夹。</Typography>}
+        {memberFolders.length ? (
+          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+            {memberFolders.map((folder) => <SettingsPill key={folder.id}>{folder.name}</SettingsPill>)}
+          </Stack>
+        ) : <Typography variant="caption" color="text.secondary">这个占位符还没有加入收藏夹。</Typography>}
+
+        <Menu anchorEl={menuEl} open={!!menuEl} onClose={() => setMenuEl(null)} transitionDuration={{ enter: 0, exit: 0 }}>
+          <MenuItem
+            sx={{ color: 'error.main', gap: 1 }}
+            onClick={() => {
+              setMenuEl(null)
+              setConfirmDeleteOpen(true)
+            }}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+            删除占位符
+          </MenuItem>
+        </Menu>
+
+        <Dialog open={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+          <DialogTitle>确认删除占位符？</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">将删除「{label}」，并从各收藏夹中移除。删除会立即生效。</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDeleteOpen(false)}>取消</Button>
+            <Button
+              color="error"
+              variant="contained"
+              onClick={() => {
+                setConfirmDeleteOpen(false)
+                onDelete()
+              }}
+            >
+              删除
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Stack>
     </SettingsSection>
   )
