@@ -74,7 +74,9 @@ export function createModelGroupsController(deps: {
   }
 
   function createModelGroup() {
-    updateItems((items) => [{ id: makeClientId('mg'), name: uniqueName('新模型组', items), models: [] }, ...items])
+    const id = makeClientId('mg')
+    updateItems((items) => [{ id, name: uniqueName('新模型组', items), models: [] }, ...items])
+    return id
   }
 
   function deleteModelGroup(groupId: any) {

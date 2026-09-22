@@ -5,7 +5,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
-import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { CustomScrollArea } from '../components/CustomScrollArea'
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
+import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type ModelGroupsSettingsPanelProps = {
   controller: any
@@ -19,44 +21,91 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
   const box = modelGroups && typeof modelGroups === 'object' ? modelGroups : {}
   const items = Array.isArray(box.items) ? box.items : []
   const busy = loading || !!box.loading || !!box.saving
+  const [selectedGroupId, setSelectedGroupId] = React.useState('')
 
   React.useEffect(() => {
     controller.actions.refreshModelGroups?.(false)
   }, [controller])
 
-  return (
-    <SettingsSurface>
-        <Stack spacing={1.5}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontWeight: 900 }}>模型组</Typography>
-              <Typography variant="caption" color="text.secondary">把已登记的供应商模型组合成对外模型入口。</Typography>
-            </Box>
-            <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshModelGroups?.(true)} disabled={busy}>{box.loading ? '刷新中…' : '刷新'}</Button>
-            <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createModelGroup?.()} disabled={busy}>新建模型组</Button>
-            <Button startIcon={<SaveIcon />} variant="contained" onClick={() => controller.actions.saveModelGroups?.()} disabled={busy}>{box.saving ? '保存中…' : '保存'}</Button>
-          </Stack>
-          {box.error ? <Typography variant="body2" color="error">{String(box.error || '')}</Typography> : null}
-          {box.saveError ? <Typography variant="body2" color="error">{String(box.saveError || '')}</Typography> : null}
+  const groupIds = React.useMemo(() => items.map((group: any) => String(group?.id || '')).filter(Boolean), [items])
 
-          <Stack spacing={1.5}>
-            {items.length ? items.map((group: any) => (
-              <ModelGroupCard key={String(group?.id || '')} controller={controller} group={group} providers={providers} busy={busy} />
-            )) : (
-              <Typography variant="body2" color="text.secondary">暂无模型组。</Typography>
-            )}
-          </Stack>
+  React.useEffect(() => {
+    setSelectedGroupId((current) => (current && groupIds.includes(current) ? current : groupIds[0] || ''))
+  }, [groupIds])
+
+  const selectedGroup = items.find((group: any) => String(group?.id || '') === selectedGroupId) || null
+
+  const createGroup = () => {
+    const createdId = controller.actions.createModelGroup?.()
+    if (createdId) setSelectedGroupId(String(createdId))
+  }
+
+  return (
+    <SettingsSurface sx={{ height: '100%' }}>
+      <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 900 }}>模型组</Typography>
+            <Typography variant="caption" color="text.secondary">把已登记的供应商模型组合成对外模型入口。</Typography>
+          </Box>
+          <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshModelGroups?.(true)} disabled={busy}>{box.loading ? '刷新中…' : '刷新'}</Button>
+          <Button startIcon={<AddIcon />} variant="text" onClick={createGroup} disabled={busy}>新建模型组</Button>
+          <Button startIcon={<SaveIcon />} variant="contained" onClick={() => controller.actions.saveModelGroups?.()} disabled={busy}>{box.saving ? '保存中…' : '保存'}</Button>
         </Stack>
+        {box.error ? <Typography variant="body2" color="error">{String(box.error || '')}</Typography> : null}
+        {box.saveError ? <Typography variant="body2" color="error">{String(box.saveError || '')}</Typography> : null}
+
+        <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 200, sm: 260, lg: 300 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 900 }}>模型组列表</Typography>
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+                <Stack spacing={1}>
+                  {items.length ? items.map((group: any) => {
+                    const groupId = String(group?.id || '')
+                    const selected = groupId === selectedGroupId
+                    const modelCount = Array.isArray(group?.models) ? group.models.length : 0
+                    return (
+                      <Button
+                        key={groupId}
+                        variant={selected ? 'contained' : 'text'}
+                        color={selected ? 'primary' : 'inherit'}
+                        onClick={() => setSelectedGroupId(groupId)}
+                        disabled={!groupId}
+                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
+                      >
+                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(group?.name || '未命名模型组')} · {modelCount} 个对外模型</Box>
+                      </Button>
+                    )
+                  }) : <Typography variant="body2" color="text.secondary">暂无模型组。</Typography>}
+                </Stack>
+              </Box>
+            </Stack>
+          </SettingsSection>
+
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
+              {selectedGroup ? (
+                <ModelGroupEditor controller={controller} group={selectedGroup} providers={providers} busy={busy} />
+              ) : (
+                <SettingsSection sx={{ p: 2 }}>
+                  <Typography variant="body2" color="text.secondary">选择一个模型组查看和编辑。</Typography>
+                </SettingsSection>
+              )}
+            </CustomScrollArea>
+          </Box>
+        </Stack>
+      </Stack>
     </SettingsSurface>
   )
 }
 
-function ModelGroupCard(props: { controller: any; group: any; providers: any[]; busy: boolean }) {
+function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; busy: boolean }) {
   const { controller, group, providers, busy } = props
   const groupId = String(group?.id || '')
   const models = Array.isArray(group?.models) ? group.models : []
   return (
-    <SettingsListItem>
+    <SettingsSection>
       <Stack spacing={1.25}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
           <TextField size="small" label="模型组名称" value={String(group?.name || '')} onChange={(e) => controller.actions.setModelGroupField?.(groupId, 'name', e.target.value)} sx={{ flex: 1 }} />
@@ -70,7 +119,7 @@ function ModelGroupCard(props: { controller: any; group: any; providers: any[]; 
           <Typography variant="body2" color="text.secondary">这个模型组还没有对外模型。</Typography>
         )}
       </Stack>
-    </SettingsListItem>
+    </SettingsSection>
   )
 }
 
