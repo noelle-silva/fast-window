@@ -97,7 +97,7 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 900 }}>eucli-box端口设置</Typography>
+              <Typography sx={{ fontWeight: 900 }}>端口开放设置</Typography>
               {boxVersion ? <SettingsPill tone="info">v{boxVersion}</SettingsPill> : null}
             </Stack>
             <Typography variant="body2" color="text.secondary">
