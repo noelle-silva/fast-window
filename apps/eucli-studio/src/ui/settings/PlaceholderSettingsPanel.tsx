@@ -463,14 +463,31 @@ function PlaceholderEditor(props: {
           <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={onDelete} disabled={disabled}>删除</Button>
         </Stack>
         <TextField size="small" label="备注" value={item.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} disabled={disabled} fullWidth />
-        <TextField size="small" multiline minRows={5} label="值" value={item.value} onChange={(e) => onUpdate({ value: e.target.value })} disabled={disabled || item.source?.kind === 'system_plugin'} fullWidth />
         {item.source?.kind === 'system_plugin' ? (
-          <Typography variant="caption" color={sourcePluginDisabled ? 'error' : 'text.secondary'}>
-            {sourcePluginDisabled
-              ? '所属插件已停用：解析时会跳过这个占位符并提示，启用插件后自动恢复。'
-              : '这个占位符的值由系统插件动态提供，保存的手写值不会参与解析。'}
-          </Typography>
-        ) : null}
+          <Stack spacing={0.5}>
+            <Typography variant="caption" color="text.secondary">值</Typography>
+            <Box
+              sx={{
+                borderRadius: 2,
+                bgcolor: 'var(--studio-field)',
+                boxShadow: 'var(--studio-shadow-soft)',
+                px: 1.5,
+                py: 1.25,
+                minHeight: 116,
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'center', color: sourcePluginDisabled ? 'error.main' : 'primary.main' }}>
+                {sourcePluginDisabled
+                  ? '所属插件已停用：解析时会跳过这个占位符并提示，启用插件后自动恢复。'
+                  : '这个占位符的值由系统插件动态提供，保存的手写值不会参与解析。'}
+              </Typography>
+            </Box>
+          </Stack>
+        ) : (
+          <TextField size="small" multiline minRows={5} label="值" value={item.value} onChange={(e) => onUpdate({ value: e.target.value })} disabled={disabled} fullWidth />
+        )}
         <Typography variant="caption" color="text.secondary">创建时间：{formatTime(item.createdAt)}</Typography>
         <Typography variant="body2" sx={{ fontWeight: 900 }}>所属收藏夹</Typography>
         {folders.length ? folders.map((folder) => {
