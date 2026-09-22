@@ -21,6 +21,8 @@ import {
   type HookPromptRole,
 } from '../../domain/hookPrompt'
 import { SortableItem, SortableRoot, SortableSection, verticalListSortingStrategy } from '../components/SortableDnd'
+import { CustomScrollArea } from '../components/CustomScrollArea'
+import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type HookPromptsSettingsPanelProps = {
@@ -155,8 +157,8 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
   const canSave = !busy && !saving && !invalidPresetName
 
   return (
-    <SettingsSurface>
-      <Stack spacing={1.5}>
+    <SettingsSurface sx={{ height: '100%' }}>
+      <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 900 }}>hook 提示词</Typography>
@@ -171,58 +173,64 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
         {saveError ? <Typography variant="body2" color="error">{saveError}</Typography> : null}
         {invalidPresetName ? <Typography variant="body2" color="error">预设名称不能为空。</Typography> : null}
 
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems="flex-start">
-          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: '100%', md: 260 } }}>
-            <Stack spacing={1}>
+        <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+          <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 200, sm: 260, lg: 300 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
               <Typography variant="body2" sx={{ fontWeight: 900 }}>预设列表</Typography>
-              {draft.presets.length ? draft.presets.map((preset) => {
-                const selected = preset.id === selectedPresetId
-                return (
-                  <Button key={preset.id} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : 'inherit'} onClick={() => setSelectedPresetId(preset.id)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>
-                    <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preset.name || '未命名预设'}</Box>
-                  </Button>
-                )
-              }) : <Typography variant="body2" color="text.secondary">暂无预设。</Typography>}
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
+                <Stack spacing={1}>
+                  {draft.presets.length ? draft.presets.map((preset) => {
+                    const selected = preset.id === selectedPresetId
+                    return (
+                      <Button key={preset.id} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : 'inherit'} onClick={() => setSelectedPresetId(preset.id)} sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}>
+                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preset.name || '未命名预设'}</Box>
+                      </Button>
+                    )
+                  }) : <Typography variant="body2" color="text.secondary">暂无预设。</Typography>}
+                </Stack>
+              </Box>
             </Stack>
           </SettingsSection>
 
-          <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-            {selectedPreset ? (
-              <Stack spacing={1.25}>
-                <SettingsSection>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                    <TextField
-                      size="small"
-                      label="预设名称"
-                      value={selectedPreset.name}
-                      onChange={(e) => replacePreset(selectedPreset.id, (preset) => ({ ...preset, name: e.target.value, updatedAt: new Date().toISOString() }))}
-                      sx={{ flex: 1 }}
-                    />
-                    <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => deletePreset(selectedPreset.id)} disabled={busy || saving}>删除预设</Button>
-                  </Stack>
-                </SettingsSection>
-
-                <SortableRoot onMove={moveMessageWithinPreset}>
-                  <Stack spacing={1.25}>
-                    {HOOK_PROMPT_POSITIONS.map((position) => (
-                      <HookPromptPositionBlock
-                        key={position}
-                        position={position}
-                        messages={messagesForPosition(selectedPreset, position)}
-                        disabled={busy || saving}
-                        onAdd={() => addMessage(position)}
-                        onUpdate={updateMessage}
-                        onDelete={deleteMessage}
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
+              {selectedPreset ? (
+                <Stack spacing={1.25}>
+                  <SettingsSection>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                      <TextField
+                        size="small"
+                        label="预设名称"
+                        value={selectedPreset.name}
+                        onChange={(e) => replacePreset(selectedPreset.id, (preset) => ({ ...preset, name: e.target.value, updatedAt: new Date().toISOString() }))}
+                        sx={{ flex: 1 }}
                       />
-                    ))}
-                  </Stack>
-                </SortableRoot>
-              </Stack>
-            ) : (
-              <SettingsSection sx={{ p: 2 }}>
-                <Typography variant="body2" color="text.secondary">选择一个预设，或新建预设后开始编辑。</Typography>
-              </SettingsSection>
-            )}
+                      <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => deletePreset(selectedPreset.id)} disabled={busy || saving}>删除预设</Button>
+                    </Stack>
+                  </SettingsSection>
+
+                  <SortableRoot onMove={moveMessageWithinPreset}>
+                    <Stack spacing={1.25}>
+                      {HOOK_PROMPT_POSITIONS.map((position) => (
+                        <HookPromptPositionBlock
+                          key={position}
+                          position={position}
+                          messages={messagesForPosition(selectedPreset, position)}
+                          disabled={busy || saving}
+                          onAdd={() => addMessage(position)}
+                          onUpdate={updateMessage}
+                          onDelete={deleteMessage}
+                        />
+                      ))}
+                    </Stack>
+                  </SortableRoot>
+                </Stack>
+              ) : (
+                <SettingsSection sx={{ p: 2 }}>
+                  <Typography variant="body2" color="text.secondary">选择一个预设，或新建预设后开始编辑。</Typography>
+                </SettingsSection>
+              )}
+            </CustomScrollArea>
           </Box>
         </Stack>
       </Stack>
