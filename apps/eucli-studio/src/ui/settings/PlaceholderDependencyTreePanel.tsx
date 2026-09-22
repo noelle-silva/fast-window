@@ -2,48 +2,9 @@ import * as React from 'react'
 import { Box, Stack, Typography } from '@mui/material'
 import type { PlaceholderDependencyNode } from '../../domain/placeholder'
 import { renderMermaidSvg } from '../../render/mermaidRender'
+import { buildPlaceholderDependencyDiagram } from '../../render/placeholderDiagram'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection } from './SettingsSurfaces'
-
-function nodeLabel(node: PlaceholderDependencyNode) {
-  const suffix = node.cycle ? '（循环）' : node.missing ? '（未注册）' : ''
-  return `{{${String(node.name || '')}}}${suffix}`
-}
-
-function escapeDiagramLabel(value: string) {
-  return value.replace(/"/g, '#quot;').replace(/\s+/g, ' ').trim()
-}
-
-export function buildPlaceholderDependencyDiagram(
-  tree: PlaceholderDependencyNode | null | undefined,
-  options?: { rootLabel?: string },
-): string {
-  const root = tree && tree.name ? tree : null
-  if (!root) return ''
-  const rootLabel = String(options?.rootLabel ?? '').trim()
-  const lines = [
-    '%%{init: {"flowchart": {"curve": "basis", "htmlLabels": false}} }%%',
-    'flowchart LR',
-    '  classDef rootNode fill:#eff6ff,stroke:#3b82f6,color:#1d4ed8',
-    '  classDef missingNode fill:#fef2f2,stroke:#ef4444,color:#b91c1c',
-    '  classDef cycleNode fill:#fffbeb,stroke:#f59e0b,color:#b45309',
-  ]
-  let counter = 0
-  const visit = (node: PlaceholderDependencyNode, parentId: string) => {
-    const id = `n${counter}`
-    counter += 1
-    const label = escapeDiagramLabel(parentId || !rootLabel ? nodeLabel(node) : rootLabel)
-    lines.push(`  ${id}${parentId ? `("${label}")` : `(["${label}"])`}`)
-    if (parentId) lines.push(`  ${parentId} --> ${id}`)
-    if (node.cycle) lines.push(`  class ${id} cycleNode`)
-    else if (node.missing) lines.push(`  class ${id} missingNode`)
-    else if (!parentId) lines.push(`  class ${id} rootNode`)
-    const children = Array.isArray(node.children) ? node.children : []
-    for (const child of children) visit(child, id)
-  }
-  visit(root, '')
-  return lines.join('\n')
-}
 
 export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDependencyNode }) {
   const { tree } = props

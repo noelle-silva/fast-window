@@ -1,10 +1,9 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import type { PlaceholderItem } from '../../domain/placeholder'
 import { CustomScrollArea } from '../components/CustomScrollArea'
-import { PlaceholderDependencyTreePanel } from '../settings/PlaceholderDependencyTreePanel'
-import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
+import { PlaceholderDetailDialog } from './PlaceholderDetailDialog'
 
 const MAX_RESULTS = 60
 
@@ -19,7 +18,7 @@ function placeholderToken(name: unknown) {
 export function PlaceholderSearchSection(props: { controller: any; placeholders?: any }) {
   const { controller, placeholders } = props
   const [query, setQuery] = React.useState('')
-  const [detail, setDetail] = React.useState<PlaceholderItem | null>(null)
+  const [detailName, setDetailName] = React.useState('')
 
   React.useEffect(() => {
     controller.actions.refreshPlaceholderLibrary?.(false)
@@ -47,14 +46,6 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
       .then(() => capabilities?.ui?.showToast?.('已复制占位符', { kind: 'success' }))
       .catch(() => capabilities?.ui?.showToast?.('复制失败', { kind: 'error' }))
   }
-
-  const openDetail = (item: PlaceholderItem) => {
-    setDetail(item)
-    const name = text(item.name)
-    if (name) controller.actions.loadPlaceholderDependencies?.(name)?.catch?.(() => null)
-  }
-
-  const detailPluginSourced = detail?.source?.kind === 'system_plugin'
 
   return (
     <Stack spacing={1.25}>
@@ -90,7 +81,7 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
                   }}
                 >
                   <Button
-                    onClick={() => openDetail(item)}
+                    onClick={() => setDetailName(text(item.name))}
                     sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, px: 0.5, textTransform: 'none', textAlign: 'left' }}
                   >
                     <Box sx={{ minWidth: 0, width: '100%' }}>
@@ -118,46 +109,7 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
         </Box>
       )}
 
-      <Dialog open={!!detail} onClose={() => setDetail(null)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
-        <DialogTitle>{placeholderToken(detail?.name)}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.25} sx={{ pt: 1.5 }}>
-            <Typography variant="body2" color="text.secondary">{text(detail?.description) || '暂无描述'}</Typography>
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>值</Typography>
-              <Box
-                sx={{
-                  mt: 0.5,
-                  p: 1.25,
-                  borderRadius: 2,
-                  bgcolor: 'var(--studio-field)',
-                  boxShadow: 'var(--studio-shadow-soft)',
-                  minHeight: 72,
-                  maxHeight: 220,
-                  overflowY: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  display: detailPluginSourced ? 'grid' : 'block',
-                  placeItems: detailPluginSourced ? 'center' : undefined,
-                  ...customScrollbarHiddenSx,
-                }}
-              >
-                {detailPluginSourced ? (
-                  <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'center', color: 'primary.main' }}>
-                    这个占位符的值由系统插件动态提供，保存的手写值不会参与解析。
-                  </Typography>
-                ) : (
-                  <Typography variant="body2">{String(detail?.value ?? '') || '（空）'}</Typography>
-                )}
-              </Box>
-            </Box>
-            <PlaceholderDependencyTreePanel tree={placeholders?.dependencyTree} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button startIcon={<ContentCopyIcon />} onClick={() => copyToken(detail?.name)}>复制占位符</Button>
-          <Button variant="contained" onClick={() => setDetail(null)}>关闭</Button>
-        </DialogActions>
-      </Dialog>
+      <PlaceholderDetailDialog controller={controller} placeholders={placeholders} name={detailName} onClose={() => setDetailName('')} />
     </Stack>
   )
 }

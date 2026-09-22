@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlaceholderDependencyDiagram } from './PlaceholderDependencyTreePanel'
-import type { PlaceholderDependencyNode } from '../../domain/placeholder'
+import { buildPlaceholderDependencyDiagram, planPlaceholderDependencyDiagram } from './placeholderDiagram'
+import type { PlaceholderDependencyNode } from '../domain/placeholder'
 
 describe('buildPlaceholderDependencyDiagram', () => {
   it('空树返回空字符串', () => {
@@ -51,5 +51,26 @@ describe('buildPlaceholderDependencyDiagram', () => {
   it('自定义根标签为空时回退为占位符样式', () => {
     const source = buildPlaceholderDependencyDiagram({ name: 'user' }, { rootLabel: '   ' })
     expect(source).toContain('n0(["{{user}}"])')
+  })
+})
+
+describe('planPlaceholderDependencyDiagram', () => {
+  it('按渲染顺序给出节点索引，并标记根节点', () => {
+    const tree: PlaceholderDependencyNode = {
+      name: '晶晶',
+      children: [{ name: 'a', children: [{ name: 'b' }] }, { name: 'missing', missing: true }],
+    }
+    const plan = planPlaceholderDependencyDiagram(tree, { rootLabel: '晶晶' })
+    expect(plan.nodes).toEqual([
+      { id: 'n0', name: '晶晶', root: true },
+      { id: 'n1', name: 'a', root: false },
+      { id: 'n2', name: 'b', root: false },
+      { id: 'n3', name: 'missing', root: false },
+    ])
+    expect(plan.source).toContain('n3("{{missing}}（未注册）")')
+  })
+
+  it('空树返回空计划', () => {
+    expect(planPlaceholderDependencyDiagram(null)).toEqual({ source: '', nodes: [] })
   })
 })
