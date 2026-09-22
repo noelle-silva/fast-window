@@ -7,6 +7,13 @@ export type SystemPluginPlaceholderInterface = {
   description: string
 }
 
+export type SystemPluginHosting = {
+  start: string
+  resident: boolean
+  restart: string
+  stopTimeoutMs: number
+}
+
 export type SystemPluginSummary = {
   id: string
   sourceId: string
@@ -15,7 +22,7 @@ export type SystemPluginSummary = {
   version?: string
   eucliBoxCompatibility: EucliBoxCompatibility
   compatibility: CompatibilityStatus
-  lifecycleType: string
+  hosting: SystemPluginHosting
   status: string
   statusMessage?: string
   installed?: boolean
@@ -56,6 +63,16 @@ function objectMap(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, any>) } : {}
 }
 
+function normalizeHosting(value: unknown): SystemPluginHosting {
+  const box = value && typeof value === 'object' ? (value as any) : {}
+  return {
+    start: text(box.start),
+    resident: box.resident === true,
+    restart: text(box.restart),
+    stopTimeoutMs: Number(box.stopTimeoutMs) || 0,
+  }
+}
+
 export function normalizeSystemPluginSummaries(raw: unknown): SystemPluginSummary[] {
   const items = Array.isArray(raw) ? raw : []
   return items.map(normalizeSystemPluginSummary).filter(systemPluginLocatorId)
@@ -71,7 +88,7 @@ export function normalizeSystemPluginSummary(raw: unknown): SystemPluginSummary 
     version: text(box.version),
     eucliBoxCompatibility: normalizeEucliBoxCompatibility(box.eucliBoxCompatibility),
     compatibility: normalizeCompatibilityStatus(box.compatibility),
-    lifecycleType: text(box.lifecycleType),
+    hosting: normalizeHosting(box.hosting),
     status: text(box.status),
     statusMessage: text(box.statusMessage),
     installed: box.installed === true,
@@ -114,11 +131,9 @@ export function normalizeAvailableSystemPluginPlaceholderInterfaces(raw: unknown
   }).filter((item) => item.pluginId && item.interfaceId && item.placeholderName)
 }
 
-export function lifecycleTypeLabel(value: string) {
-  if (value === 'persistent') return '长驻型'
-  if (value === 'on-demand') return '按需型'
-  if (value === 'cached-heartbeat') return '缓存心跳型'
-  return value || '未知类型'
+export function hostingLabel(hosting: SystemPluginHosting) {
+  if (!hosting || !hosting.start) return '未知类型'
+  return hosting.resident ? '常驻型' : '按需型'
 }
 
 export function pluginStatusLabel(value: string) {

@@ -3,7 +3,7 @@ import { Box, Button, Stack, Switch, TextField, Typography } from '@mui/material
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
-import { lifecycleTypeLabel, pluginStatusLabel, systemPluginLocatorId, type SystemPluginDetail } from '../../domain/systemPlugin'
+import { hostingLabel, pluginStatusLabel, systemPluginLocatorId, type SystemPluginDetail } from '../../domain/systemPlugin'
 import { compatibilityRangeText, artifactStatusLabels, isArtifactBusy, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
 import { cloneConfigObject, ConfigFieldsForm, removeConfigValueAtPath, setConfigValueAtPath } from './ConfigFieldsForm'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
@@ -144,7 +144,7 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
                     </Stack>
                     <Typography variant="body2" color="text.secondary">{selectedPlugin.description}</Typography>
                     <Typography variant="caption" color="text.secondary">版本：{selectedPlugin.version || '无效'}；适用本体：{compatibilityRangeText(selectedPlugin.eucliBoxCompatibility)}</Typography>
-                    <Typography variant="caption" color="text.secondary">类型：{lifecycleTypeLabel(selectedPlugin.lifecycleType)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>
+                    <Typography variant="caption" color="text.secondary">类型：{hostingLabel(selectedPlugin.hosting)}；状态：{pluginStatusLabel(selectedPlugin.status)}</Typography>
                     {selectedPlugin.statusMessage ? <Typography variant="caption" color="error">{selectedPlugin.statusMessage}</Typography> : null}
                     <PluginInstallStatusLine state={systemPlugins?.installStates?.[text(selectedPlugin.id)]} pluginId={text(selectedPlugin.id)} />
                   </Stack>
