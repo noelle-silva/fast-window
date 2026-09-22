@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import ClearIcon from '@mui/icons-material/Clear'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import type { PlaceholderItem } from '../../domain/placeholder'
 import { CustomScrollArea } from '../components/CustomScrollArea'
@@ -56,6 +57,17 @@ export function PlaceholderSearchSection(props: { controller: any; placeholders?
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         fullWidth
+        InputProps={{
+          endAdornment: query ? (
+            <InputAdornment position="end">
+              <Tooltip title="清空搜索">
+                <IconButton size="small" edge="end" aria-label="清空搜索" onClick={() => setQuery('')}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </InputAdornment>
+          ) : null,
+        }}
       />
 
       {!keyword ? (
