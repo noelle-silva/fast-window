@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AiChatApp } from '../ui/App'
-import { StandaloneWindowControls, type WindowControlActions } from '../ui/components/StandaloneWindowControls'
+import type { WindowControlActions } from '../ui/components/StandaloneWindowControls'
 import type { AiChatController } from '../controller/types'
 import type { AiChatToastKind, AiChatToastOptions } from '../gateway/capabilities'
 import { EUCLI_STUDIO_CHAT_ROOT_ID } from '../runtime/eucliStudioGlobals'
@@ -51,19 +51,6 @@ const BASE_WINDOW_CONTROL_ACTIONS: WindowControlActions = {
 
 function startWindowDragging() {
   void TAURI_WINDOW?.startDragging?.().catch(() => {})
-}
-
-function commandLabel(command: string | null | undefined) {
-  const id = String(command || '').trim()
-  if (!id) return ''
-  return COMMAND_LABELS[id] || `未知命令：${id}`
-}
-
-const COMMAND_LABELS: Record<string, string> = {
-  'new-chat': '新建对话',
-  'open-studio': '打开 eucli-studio',
-  'provider-settings': '模型提供商设置',
-  'open-settings': '打开设置',
 }
 
 
@@ -273,8 +260,8 @@ export function App() {
   }), [trueExit])
 
   const issue = bootError || dataDirStatus?.error || (dataDirStatus && !dataDirStatus.writable ? '数据目录不可写' : '')
-  const needsEucliBoxConnection = bootStatus === 'ready' && !!runtimeBootstrap && !runtimeBootstrap.businessAvailable
   const canRenderChatApp = !!controller && bootStatus === 'ready' && !!runtimeBootstrap && !issue
+  const needsEucliBoxConnection = canRenderChatApp && !!runtimeBootstrap && !runtimeBootstrap.businessAvailable
 
   return (
     <div className="appShell">
@@ -299,6 +286,7 @@ export function App() {
             />
           {needsEucliBoxConnection && runtimeBootstrap ? (
             <EucliBoxConnectionOverlay
+              phase="form"
               bootstrap={runtimeBootstrap}
               issue={runtimeBootstrap.eucliBoxIssue || ''}
               standalone={launchInfo.standalone}
@@ -311,14 +299,17 @@ export function App() {
           ) : null}
         </div>
       ) : (
-        <BootFallback
-          status={bootStatus}
-          issue={issue || ''}
-          pendingCommand={commandLabel(pendingCommand)}
-          standalone={launchInfo.standalone}
-          windowControlActions={windowControlActions}
-          onPickDataDir={pickDataDir}
-        />
+        <div className="chatHost">
+          <EucliBoxConnectionOverlay
+            phase={issue ? 'error' : 'loading'}
+            issue={issue || ''}
+            standalone={launchInfo.standalone}
+            windowControlActions={windowControlActions}
+            onStartDragging={startWindowDragging}
+            onPickDataDir={pickDataDir}
+            dataDirBusy={dataDirBusy}
+          />
+        </div>
       )}
       {toast ? <div className="toast" data-kind={toast.kind} role={toast.kind === 'error' ? 'alert' : 'status'} aria-live={toast.kind === 'error' ? 'assertive' : 'polite'}>{toast.text}</div> : null}
     </div>
@@ -331,45 +322,4 @@ function normalizeLaunchInfo(raw: FwLaunchInfo): FwLaunchInfo {
     standalone: raw?.standalone !== false,
     mode: String(raw?.mode || (raw?.standalone === false ? 'default' : 'standalone')),
   }
-}
-
-function BootFallback(props: {
-  status: BootStatus
-  issue: string
-  pendingCommand: string | null
-  standalone: boolean
-  windowControlActions: WindowControlActions
-  onPickDataDir: () => void
-}) {
-  const { status, issue, pendingCommand, standalone, windowControlActions, onPickDataDir } = props
-  const title = issue ? 'eucli-studio 启动遇到问题' : 'eucli-studio 正在启动'
-  const onTopbarPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof HTMLElement)) return
-    if (target.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
-    void TAURI_WINDOW?.startDragging?.().catch(() => {})
-  }, [])
-
-  return (
-    <main className="bootFallback" role={issue ? 'alert' : 'status'} aria-live="polite">
-      <header className="bootFallbackTopbar" onPointerDown={onTopbarPointerDown}>
-        <div className="bootFallbackBrand">eucli-studio</div>
-        {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
-      </header>
-      <section className="bootFallbackCard">
-        <div className="bootFallbackTitle">{title}</div>
-        <div className="bootFallbackText">{status === 'booting' ? '正在连接本机后台，请稍等。' : '请处理下面的问题后重试。'}</div>
-      {pendingCommand ? (
-          <div className="bootFallbackText">待处理命令：{pendingCommand}</div>
-      ) : null}
-      {issue ? (
-          <>
-            <div className="bootFallbackIssue">{issue}</div>
-            <button type="button" onClick={onPickDataDir}>选择可写数据目录</button>
-          </>
-      ) : null}
-      </section>
-    </main>
-  )
 }

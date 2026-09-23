@@ -36,85 +36,6 @@ textarea {
   position: relative;
 }
 
-.bootFallback {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 22px;
-  background: #f5f7fb;
-}
-
-.bootFallbackTopbar {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: -10px -10px 18px;
-  padding: 0 10px;
-  color: #1f2430;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(73, 82, 106, 0.12);
-  border-radius: 16px;
-  box-shadow: 0 12px 36px rgba(41, 51, 82, 0.08);
-  backdrop-filter: blur(18px);
-  user-select: none;
-}
-
-.bootFallbackBrand {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.bootFallbackCard {
-  width: min(560px, 100%);
-  margin: auto;
-  padding: 22px;
-  border: 1px solid rgba(73, 82, 106, 0.14);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 24px 70px rgba(41, 51, 82, 0.12);
-  backdrop-filter: blur(22px);
-}
-
-.bootFallbackTitle {
-  font-size: 18px;
-  font-weight: 900;
-}
-
-.bootFallbackText,
-.bootFallbackIssue {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.bootFallbackText {
-  color: #566073;
-}
-
-.bootFallbackIssue {
-  color: #8d2635;
-  overflow-wrap: anywhere;
-}
-
-.bootFallbackCard button {
-  height: 34px;
-  margin-top: 14px;
-  padding: 0 12px;
-  border: 1px solid rgba(141, 38, 53, 0.22);
-  border-radius: 10px;
-  color: #8d2635;
-  background: rgba(255, 255, 255, 0.78);
-  cursor: pointer;
-}
-
-.bootFallbackCard button:hover {
-  background: rgba(255, 255, 255, 0.96);
-}
-
 .eucliConnectOverlay {
   position: absolute;
   inset: 0;
@@ -173,6 +94,22 @@ textarea {
   color: #566073;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.eucliConnectLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 26px 0 10px;
+  color: #566073;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.eucliConnectActions {
+  display: grid;
+  margin-top: 16px;
 }
 
 .eucliConnectForm {
@@ -236,7 +173,8 @@ textarea {
   background: rgba(73, 82, 106, 0.1);
 }
 
-.eucliConnectForm > button {
+.eucliConnectForm > button,
+.eucliConnectActions > button {
   height: 40px;
   border: 1px solid rgba(42, 61, 145, 0.32);
   border-radius: 12px;
@@ -246,11 +184,13 @@ textarea {
   cursor: pointer;
 }
 
-.eucliConnectForm > button:hover:not(:disabled) {
+.eucliConnectForm > button:hover:not(:disabled),
+.eucliConnectActions > button:hover:not(:disabled) {
   background: #3a55d6;
 }
 
 .eucliConnectForm > button:disabled,
+.eucliConnectActions > button:disabled,
 .eucliConnectField input:disabled {
   cursor: not-allowed;
   opacity: 0.64;
@@ -341,7 +281,7 @@ textarea {
 }
 
 @media (max-width: 720px) {
-  .bootFallback {
+  .eucliConnectOverlay {
     padding: 14px;
   }
 
