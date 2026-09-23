@@ -39,8 +39,13 @@ func TestGroupChatIndexStorageKeyDoesNotSaveGroupSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.save(clientConfig{EucliBoxURL: server.URL, Projection: projectionConfig{GroupFolders: map[string]string{"group-1": "群组"}}}); err != nil {
+	if _, err := store.saveConnection(server.URL, ""); err != nil {
 		t.Fatalf("save config error = %v", err)
+	}
+	if _, err := store.updateProjection(func(projection *projectionConfig) {
+		projection.GroupFolders = map[string]string{"group-1": "群组"}
+	}); err != nil {
+		t.Fatalf("save projection error = %v", err)
 	}
 
 	projection := newProjectionService(store, newEBClient(store, testClientRelease()))

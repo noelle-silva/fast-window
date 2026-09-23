@@ -76,16 +76,17 @@ func (s *configStore) loadLocked() (clientConfig, error) {
 	return cfg, nil
 }
 
-func (s *configStore) save(next clientConfig) (clientConfig, error) {
+// saveConnection 只更新连接信息；投影数据由 updateProjection 单独维护，
+// 保存连接时不能整份覆盖，否则会清掉客户端外观设置与投影索引。
+func (s *configStore) saveConnection(url string, key string) (clientConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	projection := normalizeProjection(next.Projection)
-	projection.UpdatedAt = nowMillis()
-	cfg := clientConfig{
-		EucliBoxURL: normalizeBaseURL(next.EucliBoxURL),
-		EucliBoxKey: strings.TrimSpace(next.EucliBoxKey),
-		Projection:  projection,
+	cfg, err := s.loadLocked()
+	if err != nil {
+		return clientConfig{}, err
 	}
+	cfg.EucliBoxURL = normalizeBaseURL(url)
+	cfg.EucliBoxKey = strings.TrimSpace(key)
 	payload, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return clientConfig{}, err

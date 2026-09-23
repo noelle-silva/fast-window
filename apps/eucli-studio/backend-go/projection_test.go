@@ -190,7 +190,7 @@ func TestSessionFavoritesStorageKeyUsesRootAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.save(clientConfig{EucliBoxURL: server.URL}); err != nil {
+	if _, err := store.saveConnection(server.URL, ""); err != nil {
 		t.Fatalf("save config error = %v", err)
 	}
 	projection := newProjectionService(store, newEBClient(store, testClientRelease()))
@@ -250,7 +250,7 @@ func TestMetaSavePreservesStickerProjectionSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.save(clientConfig{EucliBoxURL: server.URL}); err != nil {
+	if _, err := store.saveConnection(server.URL, ""); err != nil {
 		t.Fatalf("save config error = %v", err)
 	}
 

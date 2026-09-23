@@ -262,7 +262,7 @@ func configuredTestStore(t *testing.T, url string) *configStore {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.save(clientConfig{EucliBoxURL: url}); err != nil {
+	if _, err := store.saveConnection(url, ""); err != nil {
 		t.Fatalf("save config error = %v", err)
 	}
 	return store
