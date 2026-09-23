@@ -82,6 +82,7 @@ export default function AppRegistrationPanel({
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [autoStart, setAutoStart] = useState(false)
   const [hostShortcuts, setHostShortcuts] = useState<RegisteredAppShortcut[]>([])
+  const [hostShortcutCandidates, setHostShortcutCandidates] = useState<RegisteredAppShortcut[] | null>(null)
   const [hostShortcutsEdited, setHostShortcutsEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   const [readingHostShortcuts, setReadingHostShortcuts] = useState(false)
@@ -135,6 +136,7 @@ export default function AppRegistrationPanel({
     setRecordingHostShortcutHotkeyId(null)
     setChangingHostShortcutIconId(null)
     setHostShortcutReadConfirm(null)
+    setHostShortcutCandidates(null)
     clearServiceInfo()
     closeEditMenu()
     setEditOpen(false)
@@ -154,6 +156,7 @@ export default function AppRegistrationPanel({
     setDisplayMode('default')
     setAutoStart(false)
     setHostShortcuts([])
+    setHostShortcutCandidates(null)
     setHostShortcutsEdited(false)
     setPickingPath(false)
     setEditingAppKind(null)
@@ -176,6 +179,7 @@ export default function AppRegistrationPanel({
     setDisplayMode(app.displayMode)
     setAutoStart(app.autoStart)
     setHostShortcuts(Array.isArray(app.commands) ? app.commands : [])
+    setHostShortcutCandidates(null)
     setHostShortcutsEdited(false)
     setPickingPath(false)
     setEditingAppKind(app.appKind ?? null)
@@ -259,9 +263,8 @@ export default function AppRegistrationPanel({
       const hit = result.apps.find(item => item.appId === app.id)
       if (hit) {
         const hostShortcuts = Array.isArray(hit.hostShortcuts) ? hit.hostShortcuts : []
-        setHostShortcuts(hostShortcuts)
-        setHostShortcutsEdited(true)
-        await hostToast(hostShortcuts.length ? `已读取 ${hostShortcuts.length} 个宿主快捷命令` : '这个 App 当前没有返回宿主快捷命令')
+        setHostShortcutCandidates(hostShortcuts)
+        await hostToast(hostShortcuts.length ? `已读取 ${hostShortcuts.length} 个宿主快捷命令，可在搜索框中挑选` : '这个 App 当前没有返回宿主快捷命令')
         return
       }
 
@@ -700,6 +703,7 @@ export default function AppRegistrationPanel({
               {autoStartField}
               <AppHostShortcutEditor
                 shortcuts={hostShortcuts}
+                candidateShortcuts={hostShortcutCandidates}
                 appIcon={icon}
                 appName={name}
                 disabled={saving}

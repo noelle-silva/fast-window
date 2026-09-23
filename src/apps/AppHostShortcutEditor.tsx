@@ -2,12 +2,14 @@ import { Avatar, Box, Button, IconButton, Stack, TextField, Typography } from '@
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import type { RegisteredAppShortcut } from './types'
 import { generateSafeId } from './ids'
-import { isDataImageUrl } from '../utils'
+import AppHostShortcutPicker from './AppHostShortcutPicker'
+import { resolveHostShortcutIcon, resolveHostShortcutIconImageUrl } from './hostShortcutIcon'
 import type { IconImageSource } from '../iconImageInput'
 import { hostButtonSx, hostTextFieldSx } from '../components/hostUiStyles'
 
 interface AppHostShortcutEditorProps {
   shortcuts: RegisteredAppShortcut[]
+  candidateShortcuts: RegisteredAppShortcut[] | null
   appIcon: string
   appName: string
   disabled?: boolean
@@ -21,10 +23,6 @@ interface AppHostShortcutEditorProps {
   recordingShortcutId?: string | null
   onStartHotkeyRecording: (shortcutId: string) => void
   onClearHotkey: (shortcutId: string) => void
-}
-
-function shortcutIconDisplay(shortcut: RegisteredAppShortcut, appIcon: string): string {
-  return shortcut.icon || appIcon || shortcut.title[0] || 'S'
 }
 
 function uniqueShortcutId(title: string, shortcuts: RegisteredAppShortcut[]) {
@@ -41,6 +39,7 @@ function uniqueShortcutId(title: string, shortcuts: RegisteredAppShortcut[]) {
 
 export default function AppHostShortcutEditor({
   shortcuts,
+  candidateShortcuts,
   appIcon,
   appName,
   disabled = false,
@@ -69,10 +68,18 @@ export default function AppHostShortcutEditor({
     onChange(shortcuts.filter(shortcut => shortcut.id !== id))
   }
 
+  const toggleCandidateShortcut = (candidate: RegisteredAppShortcut) => {
+    if (shortcuts.some(shortcut => shortcut.id === candidate.id)) {
+      onChange(shortcuts.filter(shortcut => shortcut.id !== candidate.id))
+      return
+    }
+    onChange([...shortcuts, { ...candidate }])
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-        <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ minWidth: 0, flex: '1 1 220px' }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
             宿主快捷命令
           </Typography>
@@ -80,32 +87,41 @@ export default function AppHostShortcutEditor({
             宿主快捷命令会出现在主页搜索列表里，用于快速打开应用内部页面或动作。这里不展示 App 能力 API。
           </Typography>
         </Box>
-        <Button
-          variant="text"
-          disabled={disabled || readingHostShortcuts || !canReadHostShortcuts}
-          onClick={onReadHostShortcuts}
-          sx={{ ...hostButtonSx, flexShrink: 0 }}
-        >
-          {readingHostShortcuts ? '读取中…' : '读取宿主快捷命令'}
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          <AppHostShortcutPicker
+            candidates={candidateShortcuts}
+            registeredShortcuts={shortcuts}
+            appIcon={appIcon}
+            disabled={disabled || readingHostShortcuts}
+            onToggle={toggleCandidateShortcut}
+          />
+          <Button
+            variant="text"
+            disabled={disabled || readingHostShortcuts || !canReadHostShortcuts}
+            onClick={onReadHostShortcuts}
+            sx={{ ...hostButtonSx, flexShrink: 0 }}
+          >
+            {readingHostShortcuts ? '读取中…' : '读取宿主快捷命令'}
+          </Button>
+        </Box>
       </Box>
 
       {shortcuts.length ? (
         <Stack spacing={1}>
           {shortcuts.map(shortcut => {
-            const displayIcon = shortcutIconDisplay(shortcut, appIcon)
-            const iconAsImage = isDataImageUrl(displayIcon) ? displayIcon : undefined
+            const displayIcon = resolveHostShortcutIcon(shortcut, appIcon)
+            const iconImageUrl = resolveHostShortcutIconImageUrl(shortcut, appIcon)
             const iconChanging = changingShortcutIconId === shortcut.id
 
             return (
               <Box key={shortcut.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <Avatar
                   variant="rounded"
-                  src={iconAsImage}
+                  src={iconImageUrl}
                   imgProps={{ alt: `${shortcut.title || appName || '宿主快捷命令'} 图标预览` }}
                   sx={{ width: 36, height: 36, fontSize: 17, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
                 >
-                  {iconAsImage ? null : displayIcon}
+                  {iconImageUrl ? null : displayIcon}
                 </Avatar>
                 <TextField
                   label="快捷命令名称"
