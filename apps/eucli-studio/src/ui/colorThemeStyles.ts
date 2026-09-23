@@ -14,6 +14,8 @@ export function colorThemeCssVariables(preset: ColorThemePreset) {
     '--studio-topbar': colors.topbar,
     '--studio-composer': colors.composer,
     '--studio-field': colors.field,
+    '--studio-settings-surface': colors.field,
+    '--studio-settings-surface-shadow': colors.shadowStrong,
     '--studio-field-hover': colors.fieldHover,
     '--studio-field-focus': colors.fieldFocus,
     '--studio-primary': colors.primary,

@@ -11,7 +11,10 @@ export type ChatGlobalStylesParams = {
 export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
   const { colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur } = params
   return {
-    ':root': colorThemeCssVariables(colorThemePreset),
+    ':root': {
+      ...colorThemeCssVariables(colorThemePreset),
+      ...(transparentChatBg ? { '--studio-settings-surface': 'transparent', '--studio-settings-surface-shadow': 'none' } : {}),
+    },
     'html, body': {
        height: '100%',
        width: '100%',
