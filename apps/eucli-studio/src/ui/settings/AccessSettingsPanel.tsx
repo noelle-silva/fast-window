@@ -9,7 +9,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { persistentPortStateLabel, type PersistentKeyCreated } from '../../domain/accessSettings'
 import { useEvent } from '../hooks/useEvent'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
-import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type AccessSettingsPanelProps = {
   controller: any
@@ -96,15 +96,12 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
     <SettingsSurface>
       <Stack spacing={1.5}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 900 }}>端口开放设置</Typography>
-              {boxVersion ? <SettingsPill tone="info">v{boxVersion}</SettingsPill> : null}
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              管理业务端的长期端口与长期 Key。
-            </Typography>
-          </Box>
+          <SettingsHeading
+            title="端口开放设置"
+            titleAddon={boxVersion ? <SettingsPill tone="info">v{boxVersion}</SettingsPill> : null}
+            description="管理业务端的长期端口与长期 Key。"
+            descriptionVariant="body2"
+          />
         </Stack>
 
         <SettingsSection>

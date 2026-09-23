@@ -7,7 +7,7 @@ import { hostingLabel, pluginStatusLabel, systemPluginLocatorId, type SystemPlug
 import { compatibilityRangeText, artifactStatusLabels, isArtifactBusy, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
 import { cloneConfigObject, ConfigFieldsForm, removeConfigValueAtPath, setConfigValueAtPath } from './ConfigFieldsForm'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
-import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
@@ -92,10 +92,7 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>系统插件管理</Typography>
-            <Typography variant="caption" color="text.secondary">管理本地系统插件、占位符接口名字和插件用户配置。</Typography>
-          </Box>
+          <SettingsHeading title="系统插件管理" description="管理本地系统插件、占位符接口名字和插件用户配置。" />
           <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => setStoreOpen(true)}>商店</Button>
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshSystemPlugins?.(true)} disabled={busy}>{systemPlugins?.loading ? '刷新中…' : '刷新'}</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={save} disabled={busy || unavailable || !selectedPlugin?.id}>{systemPlugins?.saving ? '保存中…' : '保存设置'}</Button>

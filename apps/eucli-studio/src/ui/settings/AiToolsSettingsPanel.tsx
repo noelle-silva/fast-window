@@ -18,7 +18,7 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
 import { ConfigFieldsForm } from './ConfigFieldsForm'
-import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { ToolPromptDescriptionSection } from './ToolPromptDescriptionSection'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { plainObject, stringField } from './schemaFieldValues'
@@ -100,12 +100,7 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
             <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(25,118,210,.10)', color: 'primary.main', display: 'grid', placeItems: 'center' }}>
               <BuildIcon fontSize="small" />
             </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontWeight: 900 }}>AI 工具管理</Typography>
-              <Typography variant="body2" color="text.secondary">
-                从 e-b 工具目录加载工具，并编辑工具的用户配置。
-              </Typography>
-            </Box>
+            <SettingsHeading title="AI 工具管理" description="从 e-b 工具目录加载工具，并编辑工具的用户配置。" descriptionVariant="body2" />
           </Stack>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => setStoreOpen(true)}>

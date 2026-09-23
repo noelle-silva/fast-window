@@ -8,7 +8,7 @@ import { WorkspaceEditorForm } from '../dialogs/WorkspaceEditorForm'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type WorkspacesSettingsPanelProps = {
   controller: any
@@ -33,10 +33,7 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography sx={{ fontWeight: 900 }}>工作区管理</Typography>
-            <Typography variant="caption" color="text.secondary">维护工作区提示词与目录清单。</Typography>
-          </Box>
+          <SettingsHeading title="工作区管理" description="维护工作区提示词与目录清单。" />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createWorkspaceInPlace?.()} disabled={loading}>
             新建工作区
           </Button>

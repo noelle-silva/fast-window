@@ -8,7 +8,7 @@ import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type GroupsSettingsPanelProps = {
   controller: any
@@ -34,10 +34,7 @@ export function GroupsSettingsPanel(props: GroupsSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography sx={{ fontWeight: 900 }}>群组管理</Typography>
-            <Typography variant="caption" color="text.secondary">维护群组成员、轮流顺序与随机参数。</Typography>
-          </Box>
+          <SettingsHeading title="群组管理" description="维护群组成员、轮流顺序与随机参数。" />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createGroupInPlace?.()} disabled={loading}>
             新建群组
           </Button>

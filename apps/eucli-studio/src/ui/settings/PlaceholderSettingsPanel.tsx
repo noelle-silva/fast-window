@@ -39,7 +39,7 @@ import {
   updateDraftPlaceholder,
   type PlaceholderDraft,
 } from './placeholderDraft'
-import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type PlaceholderSettingsPanelProps = {
   controller: any
@@ -348,10 +348,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>占位符管理</Typography>
-            <Typography variant="caption" color="text.secondary">使用 {`{{名字}}`} 在提示词里引用；替换只发生在发送给 AI 前。</Typography>
-          </Box>
+          <SettingsHeading title="占位符管理" description={<>使用 {`{{名字}}`} 在提示词里引用；替换只发生在发送给 AI 前。</>} />
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshPlaceholderLibrary?.(true)} disabled={busy || saving}>{placeholders?.loading ? '刷新中…' : '刷新'}</Button>
           <Button variant="text" onClick={() => setPreviewDialogOpen(true)}>解析预览</Button>
           <Button variant="text" color={problems.length ? 'error' : 'inherit'} onClick={() => setProblemsDialogOpen(true)}>问题看板{problems.length ? `（${problems.length}）` : ''}</Button>

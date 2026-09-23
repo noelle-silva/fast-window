@@ -18,7 +18,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ImageIcon from '@mui/icons-material/Image'
 import { useEvent } from '../hooks/useEvent'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
-import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { StickerInlineImage } from '../components/MessageMedia'
@@ -138,12 +138,10 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
       <SettingsSurface sx={{ height: '100%' }}>
         <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 900 }}>表情包</Typography>
-              <Typography variant="caption" color="text.secondary">
-                协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。
-              </Typography>
-            </Box>
+            <SettingsHeading
+              title="表情包"
+              description={<>协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。</>}
+            />
             <Stack direction="row" alignItems="center" spacing={1}>
               <Switch size="small" checked={enabled} onChange={() => controller.actions.toggleStickersEnabled?.()} />
               <Typography variant="body2" color="text.secondary">

@@ -6,7 +6,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import TuneIcon from '@mui/icons-material/Tune'
 import { MODEL_REQUEST_TIMEOUT_LIMITS } from '../../controller/modelRequestConfig'
 import { useEvent } from '../hooks/useEvent'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type SessionSettingsPanelProps = {
   controller: any
@@ -38,12 +38,7 @@ export function SessionSettingsPanel(props: SessionSettingsPanelProps) {
             <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(25,118,210,.10)', color: 'primary.main', display: 'grid', placeItems: 'center' }}>
               <TuneIcon fontSize="small" />
             </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontWeight: 900 }}>会话设置</Typography>
-              <Typography variant="body2" color="text.secondary">
-                配置模型列表、非流式生成、流式生成三类请求的超时规则。
-              </Typography>
-            </Box>
+            <SettingsHeading title="会话设置" description="配置模型列表、非流式生成、流式生成三类请求的超时规则。" descriptionVariant="body2" />
           </Stack>
 
           <Stack direction="row" spacing={1} justifyContent="flex-end">

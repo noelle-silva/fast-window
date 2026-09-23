@@ -24,7 +24,7 @@ import { SortableItem, SortableRoot, SortableSection, verticalListSortingStrateg
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type HookPromptsSettingsPanelProps = {
   controller: any
@@ -161,10 +161,7 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>hook 提示词</Typography>
-            <Typography variant="caption" color="text.secondary">预设保存在业务端；聊天里只选择一个当前要用的预设。</Typography>
-          </Box>
+          <SettingsHeading title="hook 提示词" description="预设保存在业务端；聊天里只选择一个当前要用的预设。" />
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshHookPromptLibrary?.(true)} disabled={busy || saving}>{hookPrompts?.loading ? '刷新中…' : '刷新'}</Button>
           <Button startIcon={<AddIcon />} variant="text" onClick={createPreset} disabled={busy || saving}>新建预设</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={saveDraft} disabled={!canSave}>{saving ? '保存中…' : '保存'}</Button>

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Paper, type SxProps, type Theme } from '@mui/material'
+import { Box, Paper, Stack, Typography, type SxProps, type Theme } from '@mui/material'
 
 type SurfaceTone = 'default' | 'muted' | 'selected' | 'danger' | 'info'
 
@@ -111,6 +111,30 @@ export const SettingsSection = React.forwardRef<HTMLDivElement, SectionProps>(fu
 export const SettingsListItem = React.forwardRef<HTMLDivElement, SectionProps>(function SettingsListItem(props, ref) {
   return <SettingsSection ref={ref} tone={props.tone || 'default'} sx={[{ p: 1.25 }, ...sxList(props.sx)]}>{props.children}</SettingsSection>
 })
+
+export function SettingsHeading(props: {
+  title: React.ReactNode
+  description?: React.ReactNode
+  descriptionVariant?: 'body2' | 'caption'
+  titleAddon?: React.ReactNode
+  sx?: SxProps<Theme>
+}) {
+  return (
+    <Box sx={[{ minWidth: 0, flex: 1 }, ...sxList(props.sx)]}>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 900, minWidth: 0 }} noWrap>
+          {props.title}
+        </Typography>
+        {props.titleAddon}
+      </Stack>
+      {props.description ? (
+        <Typography component="div" variant={props.descriptionVariant || 'caption'} color="text.secondary" noWrap>
+          {props.description}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
 
 export function SettingsPill(props: { children: React.ReactNode; tone?: SurfaceTone; sx?: SxProps<Theme> }) {
   return (

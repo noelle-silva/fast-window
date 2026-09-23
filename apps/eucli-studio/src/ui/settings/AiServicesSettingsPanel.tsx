@@ -9,7 +9,7 @@ import { clampNum } from '../utils/numbers'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { aiServiceModelSelection, aiServiceSourceSelectItems, aiServiceSourceValue } from './modelItemSelectors'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type AiServiceId = 'contextCompression' | 'mermaidFix' | 'chatTitleNaming' | 'stickerNaming'
 
@@ -76,10 +76,7 @@ export function AiServicesSettingsPanel(props: AiServicesSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography sx={{ fontWeight: 900 }}>AI 微服务</Typography>
-            <Typography variant="caption" color="text.secondary">选择左侧微服务，在右侧配置模型与提示词。</Typography>
-          </Box>
+          <SettingsHeading title="AI 微服务" description="选择左侧微服务，在右侧配置模型与提示词。" />
         </Stack>
 
         <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>

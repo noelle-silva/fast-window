@@ -13,7 +13,7 @@ import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { RoleEditorForm } from '../dialogs/RoleEditorForm'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type RolesSettingsPanelProps = {
   controller: AiChatController
@@ -55,10 +55,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
-            <Typography variant="caption" color="text.secondary">编辑角色信息、系统提示词、模型与工具白名单。</Typography>
-          </Box>
+          <SettingsHeading title="角色管理" description="编辑角色信息、系统提示词、模型与工具白名单。" />
           <SortModeButton enabled={sortMode} onClick={() => setSortMode((value) => !value)} disabled={loading || roles.length <= 1} />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createRoleInPlace?.()} disabled={loading}>
             新建角色

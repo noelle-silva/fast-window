@@ -1,7 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material'
 import CableIcon from '@mui/icons-material/Cable'
 import { compatibilityRangeText, type StudioBootstrap } from '../../domain/release'
-import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type EbSettingsPanelProps = {
   bootstrap?: StudioBootstrap
@@ -17,12 +17,7 @@ export function EbSettingsPanel(props: EbSettingsPanelProps) {
           <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(14,165,233,.10)', color: 'info.main', display: 'grid', placeItems: 'center' }}>
             <CableIcon fontSize="small" />
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>eucli-box连接设置</Typography>
-            <Typography variant="body2" color="text.secondary">
-              查看客户端与 eucli-box 的版本和适用情况。
-            </Typography>
-          </Box>
+          <SettingsHeading title="eucli-box连接设置" description="查看客户端与 eucli-box 的版本和适用情况。" descriptionVariant="body2" />
         </Stack>
 
         {bootstrap ? (

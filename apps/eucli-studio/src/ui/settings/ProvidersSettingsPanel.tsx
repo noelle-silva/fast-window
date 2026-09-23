@@ -6,7 +6,7 @@ import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { providerProtocolLabel } from './modelItemSelectors'
 
 type ProvidersSettingsPanelProps = {
@@ -26,10 +26,7 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>
-            <Typography variant="caption" color="text.secondary">维护供应商的连接信息与已登记的模型。</Typography>
-          </Box>
+          <SettingsHeading title="供应商管理" description="维护供应商的连接信息与已登记的模型。" />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createProvider()} disabled={loading}>新建供应商</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={() => controller.actions.saveProvider()} disabled={loading || !selectedProvider}>保存</Button>
           <MoreActionsMenu

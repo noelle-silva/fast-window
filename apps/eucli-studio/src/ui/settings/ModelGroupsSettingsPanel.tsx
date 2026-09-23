@@ -8,7 +8,7 @@ import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type ModelGroupsSettingsPanelProps = {
   controller: any
@@ -45,10 +45,7 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }}>模型组</Typography>
-            <Typography variant="caption" color="text.secondary">把已登记的供应商模型组合成对外模型入口。</Typography>
-          </Box>
+          <SettingsHeading title="模型组" description="把已登记的供应商模型组合成对外模型入口。" />
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshModelGroups?.(true)} disabled={busy}>{box.loading ? '刷新中…' : '刷新'}</Button>
           <Button startIcon={<AddIcon />} variant="text" onClick={createGroup} disabled={busy}>新建模型组</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={() => controller.actions.saveModelGroups?.()} disabled={busy}>{box.saving ? '保存中…' : '保存'}</Button>
