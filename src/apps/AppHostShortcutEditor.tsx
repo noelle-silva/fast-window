@@ -77,33 +77,23 @@ export default function AppHostShortcutEditor({
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-        <Box sx={{ minWidth: 0, flex: '1 1 220px' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            宿主快捷命令
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            宿主快捷命令会出现在主页搜索列表里，用于快速打开应用内部页面或动作。这里不展示 App 能力 API。
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <AppHostShortcutPicker
-            candidates={candidateShortcuts}
-            registeredShortcuts={shortcuts}
-            appIcon={appIcon}
-            disabled={disabled || readingHostShortcuts}
-            onToggle={toggleCandidateShortcut}
-          />
-          <Button
-            variant="text"
-            disabled={disabled || readingHostShortcuts || !canReadHostShortcuts}
-            onClick={onReadHostShortcuts}
-            sx={{ ...hostButtonSx, flexShrink: 0 }}
-          >
-            {readingHostShortcuts ? '读取中…' : '读取宿主快捷命令'}
-          </Button>
-        </Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        <AppHostShortcutPicker
+          candidates={candidateShortcuts}
+          registeredShortcuts={shortcuts}
+          appIcon={appIcon}
+          disabled={disabled || readingHostShortcuts}
+          onToggle={toggleCandidateShortcut}
+        />
+        <Button
+          variant="text"
+          disabled={disabled || readingHostShortcuts || !canReadHostShortcuts}
+          onClick={onReadHostShortcuts}
+          sx={{ ...hostButtonSx, flexShrink: 0 }}
+        >
+          {readingHostShortcuts ? '读取中…' : '读取宿主快捷命令'}
+        </Button>
       </Box>
 
       {shortcuts.length ? (

@@ -611,7 +611,7 @@ export default function AppRegistrationPanel({
                   </>
                 ) : null}
               </Box>
-              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: 0.5, pt: 1.25, pb: 1, ...hostHiddenScrollbarSx }}>
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: 0.5, pb: 1, ...hostHiddenScrollbarSx }}>
                 <AppRegistrationEditor
                   draft={draft}
                   saving={saving}
