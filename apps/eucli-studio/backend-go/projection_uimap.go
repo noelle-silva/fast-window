@@ -183,12 +183,8 @@ func toUIChat(session map[string]any) map[string]any {
 		if parts := objectList(msg["parts"]); len(parts) > 0 {
 			uiMessage["parts"] = anyList(parts)
 		}
-		images, attachments := toUIMessageAttachments(objectList(msg["attachments"]))
-		if len(images) > 0 {
+		if images := toUIMessageImages(objectList(msg["attachments"])); len(images) > 0 {
 			uiMessage["images"] = images
-		}
-		if len(attachments) > 0 {
-			uiMessage["attachments"] = attachments
 		}
 		messages = append(messages, uiMessage)
 	}
@@ -316,32 +312,22 @@ func normalizeUIModelRef(value any) map[string]any {
 	return map[string]any{"kind": "provider", "providerId": providerID, "groupId": "", "modelId": modelID}
 }
 
-func toUIMessageAttachments(attachments []map[string]any) ([]any, []any) {
+func toUIMessageImages(attachments []map[string]any) []any {
 	images := []any{}
-	files := []any{}
 	for _, attachment := range attachments {
 		kind := strings.TrimSpace(strings.ToLower(stringField(attachment, "kind")))
-		if kind == "image" {
-			path := stringField(attachment, "path")
-			if path != "" {
-				images = append(images, path)
-			}
+		if kind != "image" {
 			continue
 		}
-		text := stringField(attachment, "text")
-		if text == "" {
-			continue
+		if path := stringField(attachment, "path"); path != "" {
+			images = append(images, path)
 		}
-		fullLen := int(numberField(attachment, "fullLen", float64(len([]rune(text)))))
-		sendLen := int(numberField(attachment, "sendLen", float64(len([]rune(text)))))
-		sendPct := int(numberField(attachment, "sendPct", 100))
-		files = append(files, map[string]any{"id": stringField(attachment, "id"), "name": fallback(stringField(attachment, "name"), "文件"), "kind": fallback(kind, "txt"), "lang": fallback(stringField(attachment, "lang"), "text"), "text": text, "fullLen": fullLen, "sendLen": sendLen, "sendPct": sendPct})
 	}
-	return images, files
+	return images
 }
 
 func mergeSettings(settings map[string]any, providers []map[string]any, mermaidFix map[string]any, chatTitleNaming map[string]any, stickerNaming map[string]any, contextCompression map[string]any) map[string]any {
-	out := map[string]any{"streamEnabled": true, "transparentChatBg": false, "chatBgOpacity": 0, "chatBgBlur": 0, "topbarOpacity": 100, "topbarBlur": 0, "composerOpacity": 86, "composerBlur": 10, "branchTree": map[string]any{"dir": "lr", "view": "float", "followSelected": true, "modalHotkey": ""}, "renderSafetyPolicy": "original", "userMessageCollapseEnabled": false, "userMessageCollapseLines": 8, "attachments": map[string]any{"sendLimitChars": 80000, "maxFileSizeMbByKind": map[string]any{"txt": 10, "md": 10, "pdf": 10, "docx": 10, "ppt": 10}}, "stickers": map[string]any{"enabled": false, "categories": []any{}, "map": map[string]any{}}, "providers": []any{}}
+	out := map[string]any{"streamEnabled": true, "transparentChatBg": false, "chatBgOpacity": 0, "chatBgBlur": 0, "topbarOpacity": 100, "topbarBlur": 0, "composerOpacity": 86, "composerBlur": 10, "branchTree": map[string]any{"dir": "lr", "view": "float", "followSelected": true, "modalHotkey": ""}, "renderSafetyPolicy": "original", "userMessageCollapseEnabled": false, "userMessageCollapseLines": 8, "stickers": map[string]any{"enabled": false, "categories": []any{}, "map": map[string]any{}}, "providers": []any{}}
 	for k, v := range settings {
 		out[k] = v
 	}
