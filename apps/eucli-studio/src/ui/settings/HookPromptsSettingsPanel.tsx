@@ -22,6 +22,7 @@ import {
 } from '../../domain/hookPrompt'
 import { SortableItem, SortableRoot, SortableSection, verticalListSortingStrategy } from '../components/SortableDnd'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -205,7 +206,20 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
                         onChange={(e) => replacePreset(selectedPreset.id, (preset) => ({ ...preset, name: e.target.value, updatedAt: new Date().toISOString() }))}
                         sx={{ flex: 1 }}
                       />
-                      <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => deletePreset(selectedPreset.id)} disabled={busy || saving}>删除预设</Button>
+                      <MoreActionsMenu
+                        disabled={busy || saving}
+                        items={[{
+                          key: 'delete',
+                          label: '删除预设',
+                          icon: <DeleteOutlineIcon fontSize="small" />,
+                          danger: true,
+                          confirm: {
+                            title: '确认删除预设？',
+                            description: `将删除「${selectedPreset.name || '未命名预设'}」及其全部提示内容，保存后生效。`,
+                          },
+                          onSelect: () => deletePreset(selectedPreset.id),
+                        }]}
+                      />
                     </Stack>
                   </SettingsSection>
 
@@ -303,9 +317,20 @@ function HookPromptMessageEditor(props: {
                 </FormControl>
               )}
               <Box sx={{ flex: 1 }} />
-              <IconButton aria-label="删除提示内容" size="small" color="error" onClick={() => onDelete(message.id)} disabled={disabled}>
-                <DeleteOutlineIcon fontSize="small" />
-              </IconButton>
+              <MoreActionsMenu
+                disabled={disabled}
+                items={[{
+                  key: 'delete',
+                  label: '删除这条提示内容',
+                  icon: <DeleteOutlineIcon fontSize="small" />,
+                  danger: true,
+                  confirm: {
+                    title: '确认删除提示内容？',
+                    description: '将删除这条提示内容，保存后生效。',
+                  },
+                  onSelect: () => onDelete(message.id),
+                }]}
+              />
             </Stack>
             <TextField
               size="small"

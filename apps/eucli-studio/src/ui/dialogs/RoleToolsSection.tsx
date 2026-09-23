@@ -8,9 +8,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
-  Menu,
-  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -21,9 +18,9 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { normalizeRoleToolPolicy } from '../../domain/toolPolicy'
 import { toolCatalogByName, toolCatalogItems, toolDisplayName, type ToolCatalogItem } from '../../domain/toolCatalog'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 
 type RoleToolsSectionProps = {
   controller: any
@@ -59,7 +56,6 @@ export function RoleToolsSection(props: RoleToolsSectionProps) {
   const policy = normalizeRoleToolPolicy(draft?.roleToolPolicy)
   const catalogItems = toolCatalogItems(tools)
   const catalogByName = React.useMemo<Map<string, ToolCatalogItem>>(() => toolCatalogByName(catalogItems), [catalogItems])
-  const [menu, setMenu] = React.useState<{ el: HTMLElement; toolName: string } | null>(null)
 
   React.useEffect(() => {
     controller.actions.refreshTools?.(false)
@@ -128,9 +124,20 @@ export function RoleToolsSection(props: RoleToolsSectionProps) {
                     </ToggleButtonGroup>
                   </Tooltip>
 
-                  <IconButton size="small" aria-label={`工具 ${toolName} 更多操作`} onClick={(event) => setMenu({ el: event.currentTarget, toolName })}>
-                    <MoreVertIcon fontSize="small" />
-                  </IconButton>
+                  <MoreActionsMenu
+                    ariaLabel={`工具 ${toolName} 更多操作`}
+                    items={[{
+                      key: 'remove',
+                      label: '从白名单删除工具',
+                      icon: <DeleteOutlineIcon fontSize="small" />,
+                      danger: true,
+                      confirm: {
+                        title: '确认从白名单删除工具？',
+                        description: `将把「${toolName}」从该角色白名单移除，保存角色后生效。`,
+                      },
+                      onSelect: () => controller.actions.removeRoleTool(toolName),
+                    }]}
+                  />
                 </Stack>
               </Paper>
             )
@@ -147,20 +154,6 @@ export function RoleToolsSection(props: RoleToolsSectionProps) {
           </Button>
         </Paper>
       )}
-
-      <Menu anchorEl={menu?.el || null} open={!!menu} onClose={() => setMenu(null)}>
-        <MenuItem
-          sx={{ color: 'error.main', gap: 1 }}
-          onClick={() => {
-            const name = menu?.toolName || ''
-            setMenu(null)
-            if (name) controller.actions.removeRoleTool(name)
-          }}
-        >
-          <DeleteOutlineIcon fontSize="small" />
-          从白名单删除工具
-        </MenuItem>
-      </Menu>
 
       <RoleToolAddDialog controller={controller} draft={draft} tools={tools} policy={policy} />
     </Stack>

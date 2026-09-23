@@ -4,6 +4,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
 import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { providerProtocolLabel } from './modelItemSelectors'
@@ -30,8 +31,17 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
             <Typography variant="caption" color="text.secondary">维护供应商的连接信息与已登记的模型。</Typography>
           </Box>
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createProvider()} disabled={loading}>新建供应商</Button>
-          <Button startIcon={<DeleteOutlineIcon />} variant="text" color="error" onClick={() => controller.actions.askDeleteProvider(editingId)} disabled={loading || !selectedProvider}>删除供应商</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={() => controller.actions.saveProvider()} disabled={loading || !selectedProvider}>保存</Button>
+          <MoreActionsMenu
+            disabled={loading || !selectedProvider}
+            items={[{
+              key: 'delete',
+              label: '删除供应商',
+              icon: <DeleteOutlineIcon fontSize="small" />,
+              danger: true,
+              onSelect: () => controller.actions.askDeleteProvider(editingId),
+            }]}
+          />
         </Stack>
 
         <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>

@@ -5,6 +5,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import { NEW_GROUP_ID } from '../../domain/constants'
 import { GroupEditorForm } from '../dialogs/GroupEditorForm'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -97,9 +98,15 @@ export function GroupsSettingsPanel(props: GroupsSettingsPanelProps) {
                           <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveGroup?.(editingGroupId)} disabled={editingIsActive}>
                             进入群聊
                           </Button>
-                          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteGroup?.(editingGroupId)}>
-                            删除群组
-                          </Button>
+                          <MoreActionsMenu
+                            items={[{
+                              key: 'delete',
+                              label: '删除群组',
+                              icon: <DeleteOutlineIcon fontSize="small" />,
+                              danger: true,
+                              onSelect: () => controller.actions.askDeleteGroup?.(editingGroupId),
+                            }]}
+                          />
                         </>
                       ) : null}
                     </Stack>

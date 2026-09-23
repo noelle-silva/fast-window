@@ -1,9 +1,8 @@
-import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SaveIcon from '@mui/icons-material/Save'
 import type { PlaceholderFolder, PlaceholderItem } from '../../domain/placeholder'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsPill, SettingsSection } from './SettingsSurfaces'
 
 // 值输入区最低高度按原设定翻倍（行数 5 → 10），插件提示块保持同高。
@@ -37,8 +36,6 @@ type PlaceholderEditorProps = {
 
 export function PlaceholderEditor(props: PlaceholderEditorProps) {
   const { item, folders, disabled, saving, sourcePluginDisabled, dirty, onRename, onUpdate, onSave, onDelete } = props
-  const [menuEl, setMenuEl] = React.useState<HTMLElement | null>(null)
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false)
   const label = text(item.name) || '未命名占位符'
   const memberFolders = folders.filter((folder) => !!folder.placeholderNames?.includes(item.name))
   return (
@@ -54,13 +51,20 @@ export function PlaceholderEditor(props: PlaceholderEditorProps) {
               </Tooltip>
             ) : null}
           </Box>
-          <Tooltip title="更多操作">
-            <span>
-              <IconButton size="small" aria-label="更多操作" onClick={(event) => setMenuEl(event.currentTarget)} disabled={disabled}>
-                <MoreVertIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <MoreActionsMenu
+            disabled={disabled}
+            items={[{
+              key: 'delete',
+              label: '删除占位符',
+              icon: <DeleteOutlineIcon fontSize="small" />,
+              danger: true,
+              confirm: {
+                title: '确认删除占位符？',
+                description: `将删除「${label}」，并从各收藏夹中移除。删除会立即生效。`,
+              },
+              onSelect: onDelete,
+            }]}
+          />
         </Stack>
         <TextField size="small" label="备注" value={item.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} disabled={disabled} fullWidth />
         {item.source?.kind === 'system_plugin' ? (
@@ -95,39 +99,6 @@ export function PlaceholderEditor(props: PlaceholderEditorProps) {
             {memberFolders.map((folder) => <SettingsPill key={folder.id}>{folder.name}</SettingsPill>)}
           </Stack>
         ) : <Typography variant="caption" color="text.secondary">这个占位符还没有加入收藏夹。</Typography>}
-
-        <Menu anchorEl={menuEl} open={!!menuEl} onClose={() => setMenuEl(null)} transitionDuration={{ enter: 0, exit: 0 }}>
-          <MenuItem
-            sx={{ color: 'error.main', gap: 1 }}
-            onClick={() => {
-              setMenuEl(null)
-              setConfirmDeleteOpen(true)
-            }}
-          >
-            <DeleteOutlineIcon fontSize="small" />
-            删除占位符
-          </MenuItem>
-        </Menu>
-
-        <Dialog open={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
-          <DialogTitle>确认删除占位符？</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2" color="text.secondary">将删除「{label}」，并从各收藏夹中移除。删除会立即生效。</Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setConfirmDeleteOpen(false)}>取消</Button>
-            <Button
-              color="error"
-              variant="contained"
-              onClick={() => {
-                setConfirmDeleteOpen(false)
-                onDelete()
-              }}
-            >
-              删除
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Stack>
     </SettingsSection>
   )

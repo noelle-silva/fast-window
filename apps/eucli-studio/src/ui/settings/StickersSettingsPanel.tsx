@@ -6,9 +6,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
-  MenuItem,
-  Popover,
   Stack,
   Switch,
   TextField,
@@ -19,8 +16,8 @@ import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ImageIcon from '@mui/icons-material/Image'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useEvent } from '../hooks/useEvent'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -49,8 +46,6 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
 
   const [cat, setCat] = React.useState('')
   const [filter, setFilter] = React.useState('')
-  const [confirmDelCat, setConfirmDelCat] = React.useState('')
-  const [catMenuEl, setCatMenuEl] = React.useState<HTMLElement | null>(null)
   const [createCat, setCreateCat] = React.useState<{ open: boolean; name: string }>({ open: false, name: '' })
   const [rename, setRename] = React.useState<{ open: boolean; oldName: string; nextName: string }>({
     open: false,
@@ -105,13 +100,7 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
       .catch(() => api?.ui?.showToast?.('复制失败', { kind: 'error' }))
   })
 
-  const openCatMenu = useEvent((e: React.MouseEvent<HTMLElement>) => setCatMenuEl(e.currentTarget))
-  const closeCatMenu = useEvent(() => setCatMenuEl(null))
-
-  const openCreateCat = useEvent(() => {
-    closeCatMenu()
-    setCreateCat({ open: true, name: '' })
-  })
+  const openCreateCat = useEvent(() => setCreateCat({ open: true, name: '' }))
 
   const closeCreateCat = useEvent(() => setCreateCat({ open: false, name: '' }))
 
@@ -168,13 +157,34 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
               <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
                 <Stack direction="row" spacing={0.5} alignItems="center">
                   <Typography variant="body2" sx={{ fontWeight: 900, flex: 1 }}>分类列表</Typography>
-                  <Tooltip title="分类操作">
-                    <span>
-                      <IconButton aria-label="分类操作" onClick={openCatMenu} disabled={loading} size="small">
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                  <MoreActionsMenu
+                    disabled={loading}
+                    tooltip="分类操作"
+                    ariaLabel="分类操作"
+                    items={[
+                      {
+                        key: 'create',
+                        label: '新建分类',
+                        icon: <AddIcon fontSize="small" />,
+                        onSelect: openCreateCat,
+                      },
+                      {
+                        key: 'delete',
+                        label: '删除当前分类',
+                        icon: <DeleteOutlineIcon fontSize="small" />,
+                        danger: true,
+                        disabled: !cat,
+                        confirm: {
+                          title: '确认删除分类？',
+                          description: '这会删除分类下的全部表情包映射，并尝试删除对应图片文件。',
+                        },
+                        onSelect: () => {
+                          const name = String(cat || '')
+                          if (name) controller.actions.deleteStickerCategory?.(name)
+                        },
+                      },
+                    ]}
+                  />
                 </Stack>
                 <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                   <Stack spacing={1}>
@@ -265,9 +275,20 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
                                 <Button size="small" variant="text" onClick={() => onOpenRename(name)} disabled={loading}>
                                   改名
                                 </Button>
-                                <Button size="small" color="error" variant="text" onClick={() => controller.actions.deleteSticker?.(cat, name)}>
-                                  删除
-                                </Button>
+                                <MoreActionsMenu
+                                  disabled={loading}
+                                  items={[{
+                                    key: 'delete',
+                                    label: '删除',
+                                    icon: <DeleteOutlineIcon fontSize="small" />,
+                                    danger: true,
+                                    confirm: {
+                                      title: '确认删除表情？',
+                                      description: `将删除「${name}」并尝试删除对应图片文件。删除会立即生效。`,
+                                    },
+                                    onSelect: () => controller.actions.deleteSticker?.(cat, name),
+                                  }]}
+                                />
                               </Stack>
                             </SettingsListItem>
                           )
@@ -281,63 +302,6 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
           </Stack>
         </Stack>
       </SettingsSurface>
-
-      <Dialog open={!!confirmDelCat} onClose={() => setConfirmDelCat('')} maxWidth="xs" fullWidth>
-        <DialogTitle>确认删除分类？</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            这会删除分类下的全部表情包映射，并尝试删除对应图片文件。
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelCat('')}>取消</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => {
-              const name = String(confirmDelCat || '')
-              Promise.resolve(controller.actions.deleteStickerCategory?.(name))
-                .then((ok) => { if (ok) setConfirmDelCat('') })
-                .catch(() => {})
-            }}
-            disabled={!confirmDelCat || loading}
-          >
-            删除
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Popover
-        open={!!catMenuEl}
-        anchorEl={catMenuEl}
-        onClose={closeCatMenu}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Box sx={{ minWidth: 180, p: 0.5 }}>
-          <MenuItem
-            onClick={openCreateCat}
-            disabled={loading}
-            sx={{ gap: 1 }}
-          >
-            <AddIcon fontSize="small" />
-            新建分类
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              const name = String(cat || '')
-              closeCatMenu()
-              if (!name) return api?.ui?.showToast?.('请先选择分类', { kind: 'error' })
-              setConfirmDelCat(name)
-            }}
-            disabled={loading || !cat}
-            sx={{ gap: 1 }}
-          >
-            <DeleteOutlineIcon fontSize="small" />
-            删除当前分类
-          </MenuItem>
-        </Box>
-      </Popover>
 
       <Dialog open={createCat.open} onClose={closeCreateCat} maxWidth="xs" fullWidth>
         <DialogTitle>新建分类</DialogTitle>

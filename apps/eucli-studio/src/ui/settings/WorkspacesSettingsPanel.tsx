@@ -6,6 +6,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import { NEW_WORKSPACE_ID } from '../../domain/constants'
 import { WorkspaceEditorForm } from '../dialogs/WorkspaceEditorForm'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -97,9 +98,15 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                           <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveWorkspace?.(editingWorkspaceId)} disabled={editingIsActive}>
                             进入工作区
                           </Button>
-                          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteWorkspace?.(editingWorkspaceId)}>
-                            删除工作区
-                          </Button>
+                          <MoreActionsMenu
+                            items={[{
+                              key: 'delete',
+                              label: '删除工作区',
+                              icon: <DeleteOutlineIcon fontSize="small" />,
+                              danger: true,
+                              onSelect: () => controller.actions.askDeleteWorkspace?.(editingWorkspaceId),
+                            }]}
+                          />
                         </>
                       ) : null}
                     </Stack>

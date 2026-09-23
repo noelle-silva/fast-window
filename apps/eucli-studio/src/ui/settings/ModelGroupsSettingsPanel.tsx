@@ -6,6 +6,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -110,7 +111,20 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
           <TextField size="small" label="模型组名称" value={String(group?.name || '')} onChange={(e) => controller.actions.setModelGroupField?.(groupId, 'name', e.target.value)} sx={{ flex: 1 }} />
           <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupModel?.(groupId)} disabled={busy}>添加对外模型</Button>
-          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.deleteModelGroup?.(groupId)} disabled={busy}>删除组</Button>
+          <MoreActionsMenu
+            disabled={busy}
+            items={[{
+              key: 'delete',
+              label: '删除组',
+              icon: <DeleteOutlineIcon fontSize="small" />,
+              danger: true,
+              confirm: {
+                title: '确认删除模型组？',
+                description: `将删除「${String(group?.name || '未命名模型组')}」及其全部对外模型，保存后生效。`,
+              },
+              onSelect: () => controller.actions.deleteModelGroup?.(groupId),
+            }]}
+          />
         </Stack>
 
         {models.length ? models.map((model: any, modelIndex: number) => (
@@ -164,7 +178,20 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
             </FormControl>
           ) : null}
           <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupMember?.(groupId, modelIndex)} disabled={busy}>添加成员</Button>
-          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.deleteModelGroupModel?.(groupId, modelIndex)} disabled={busy}>删除模型</Button>
+          <MoreActionsMenu
+            disabled={busy}
+            items={[{
+              key: 'delete',
+              label: '删除模型',
+              icon: <DeleteOutlineIcon fontSize="small" />,
+              danger: true,
+              confirm: {
+                title: '确认删除对外模型？',
+                description: `将删除「${String(model?.name || modelId || '对外模型')}」，保存后生效。`,
+              },
+              onSelect: () => controller.actions.deleteModelGroupModel?.(groupId, modelIndex),
+            }]}
+          />
         </Stack>
 
         {members.length ? members.map((member: any, index: number) => (
@@ -199,7 +226,20 @@ function ModelGroupMemberRow(props: { controller: any; groupId: string; modelInd
         </Select>
       </FormControl>
       <TextField size="small" label="权重" type="number" value={String(member?.weight || 1)} onChange={(e) => controller.actions.setModelGroupMemberField?.(groupId, modelIndex, memberIndex, 'weight', e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: { xs: '100%', md: 120 } }} />
-      <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.deleteModelGroupMember?.(groupId, modelIndex, memberIndex)} disabled={busy}>删除</Button>
+      <MoreActionsMenu
+        disabled={busy}
+        items={[{
+          key: 'delete',
+          label: '删除',
+          icon: <DeleteOutlineIcon fontSize="small" />,
+          danger: true,
+          confirm: {
+            title: '确认删除成员？',
+            description: '将移除该供应商模型成员，保存后生效。',
+          },
+          onSelect: () => controller.actions.deleteModelGroupMember?.(groupId, modelIndex, memberIndex),
+        }]}
+      />
     </Stack>
   )
 }

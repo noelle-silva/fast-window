@@ -9,6 +9,7 @@ import { formatModelRefDisplayText } from '../../domain/modelRefUtils'
 import { SortHandleButton, SortModeButton } from '../components/SortControls'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { RoleEditorForm } from '../dialogs/RoleEditorForm'
 import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -136,9 +137,15 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                           <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveRole?.(editingRoleId)} disabled={editingIsActive}>
                             设为当前
                           </Button>
-                          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole?.(editingRoleId)}>
-                            删除角色
-                          </Button>
+                          <MoreActionsMenu
+                            items={[{
+                              key: 'delete',
+                              label: '删除角色',
+                              icon: <DeleteOutlineIcon fontSize="small" />,
+                              danger: true,
+                              onSelect: () => controller.actions.askDeleteRole?.(editingRoleId),
+                            }]}
+                          />
                         </>
                       ) : null}
                     </Stack>

@@ -2,6 +2,7 @@ import { Alert, Box, Button, Divider, Stack, TextField, Typography } from '@mui/
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 
 export function WorkspaceEditorForm(props: { controller: any; draft: any }) {
   const { controller, draft } = props
@@ -87,9 +88,19 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any }) {
                   目录 {index + 1}
                 </Typography>
               </Stack>
-              <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.removeWorkspaceDirectory?.(index)}>
-                删除
-              </Button>
+              <MoreActionsMenu
+                items={[{
+                  key: 'delete',
+                  label: '删除',
+                  icon: <DeleteOutlineIcon fontSize="small" />,
+                  danger: true,
+                  confirm: {
+                    title: '确认删除目录？',
+                    description: `将移除「${String(directory?.path || `目录 ${index + 1}`)}」，保存工作区后生效。`,
+                  },
+                  onSelect: () => controller.actions.removeWorkspaceDirectory?.(index),
+                }]}
+              />
             </Stack>
 
             <Stack spacing={1} sx={{ mt: 1 }}>

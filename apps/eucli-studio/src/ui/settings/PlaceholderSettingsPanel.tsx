@@ -19,6 +19,7 @@ import {
 } from '../../domain/placeholder'
 import { systemPluginEnabledById } from '../../domain/systemPlugin'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { PlaceholderDependencyTreePanel } from './PlaceholderDependencyTreePanel'
 import { PlaceholderEditor } from './PlaceholderEditor'
@@ -554,7 +555,30 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
         </Dialog>
 
         <Dialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
-          <DialogTitle>收藏夹设置</DialogTitle>
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            收藏夹设置
+            <Box sx={{ flex: 1 }} />
+            {selectedFolder ? (
+              <MoreActionsMenu
+                disabled={busy || saving}
+                tooltip="收藏夹操作"
+                items={[{
+                  key: 'delete',
+                  label: '删除收藏夹',
+                  icon: <DeleteOutlineIcon fontSize="small" />,
+                  danger: true,
+                  confirm: {
+                    title: '确认删除收藏夹？',
+                    description: `将删除「${selectedFolder.name}」，其子收藏夹会上移到顶层。删除会立即生效。`,
+                  },
+                  onSelect: () => {
+                    void deleteFolder(selectedFolder.id)
+                    setFolderDialogOpen(false)
+                  },
+                }]}
+              />
+            ) : null}
+          </DialogTitle>
           <DialogContent>
             {selectedFolder ? (
               <Stack spacing={1.25} sx={{ pt: 1.5 }}>
@@ -571,35 +595,19 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
               <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>请先在下拉栏里选择一个收藏夹。</Typography>
             )}
           </DialogContent>
-          <DialogActions sx={{ justifyContent: 'space-between' }}>
-            {selectedFolder ? (
-              <Button
-                color="error"
-                size="small"
-                startIcon={<DeleteOutlineIcon />}
-                onClick={() => {
-                  void deleteFolder(selectedFolder.id)
-                  setFolderDialogOpen(false)
-                }}
-                disabled={busy || saving}
-              >
-                删除收藏夹
-              </Button>
-            ) : <span />}
-            <Stack direction="row" spacing={1}>
-              <Button onClick={() => setFolderDialogOpen(false)}>取消</Button>
-              <Button
-                variant="contained"
-                disabled={busy || saving || !selectedFolder}
-                onClick={() => {
-                  if (!selectedFolder) return
-                  void updateFolder(selectedFolder.id, { name: text(folderDraft.name) || selectedFolder.name, parentId: folderDraft.parentId })
-                  setFolderDialogOpen(false)
-                }}
-              >
-                保存
-              </Button>
-            </Stack>
+          <DialogActions>
+            <Button onClick={() => setFolderDialogOpen(false)}>取消</Button>
+            <Button
+              variant="contained"
+              disabled={busy || saving || !selectedFolder}
+              onClick={() => {
+                if (!selectedFolder) return
+                void updateFolder(selectedFolder.id, { name: text(folderDraft.name) || selectedFolder.name, parentId: folderDraft.parentId })
+                setFolderDialogOpen(false)
+              }}
+            >
+              保存
+            </Button>
           </DialogActions>
         </Dialog>
 

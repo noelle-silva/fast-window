@@ -1,13 +1,14 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Switch, Stack, Typography } from '@mui/material'
+import { Box, Button, Switch, Stack, Typography } from '@mui/material'
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate'
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
-import CloseIcon from '@mui/icons-material/Close'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha, type WallpaperPreset } from '../../domain/wallpaper'
 import { colorMixVar } from '../colorThemeStyles'
 import { useEvent } from '../hooks/useEvent'
 import { clampNum } from '../utils/numbers'
 import { clearWallpaperImage, useWallpaperImage } from '../wallpaper/useWallpaperImage'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsPill, SettingsSection } from './SettingsSurfaces'
 import { WallpaperViewEditorDialog } from './WallpaperViewEditorDialog'
 
@@ -174,25 +175,33 @@ function WallpaperPresetCard(props: {
           }}
         />
       ) : null}
-      <IconButton
-        size="small"
-        aria-label="删除壁纸"
-        onClick={(event) => {
-          event.stopPropagation()
-          onRemove()
-        }}
-        disabled={disabled}
+      <Box
         sx={{
           position: 'absolute',
           top: 2,
           right: 2,
           color: '#fff',
           bgcolor: 'rgba(15,23,42,.46)',
+          borderRadius: '50%',
           '&:hover': { bgcolor: 'rgba(15,23,42,.68)' },
         }}
       >
-        <CloseIcon sx={{ fontSize: 15 }} />
-      </IconButton>
+        <MoreActionsMenu
+          disabled={disabled}
+          tooltip="壁纸操作"
+          items={[{
+            key: 'delete',
+            label: '删除壁纸',
+            icon: <DeleteOutlineIcon fontSize="small" />,
+            danger: true,
+            confirm: {
+              title: '确认删除壁纸？',
+              description: '将删除这张壁纸预设及对应图片文件。删除会立即生效。',
+            },
+            onSelect: onRemove,
+          }]}
+        />
+      </Box>
     </Box>
   )
 }

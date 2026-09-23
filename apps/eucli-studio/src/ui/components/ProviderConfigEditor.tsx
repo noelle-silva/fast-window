@@ -4,6 +4,7 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import { ApiKeyField } from './fields/ApiKeyField'
+import { MoreActionsMenu } from './MoreActionsMenu'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 
 type ProviderConfigEditorProps = {
@@ -98,7 +99,19 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                   <TextField size="small" label="Key 名称" value={String(item?.name || '')} onChange={(e) => updateApiKey(index, { name: e.target.value })} sx={{ flex: 1 }} />
                   <TextField size="small" label="权重" type="number" value={String(item?.weight || 1)} onChange={(e) => updateApiKey(index, { weight: e.target.value })} inputProps={{ min: 1, step: 1 }} sx={{ width: { xs: '100%', sm: 120 } }} />
                   <FormControlLabel control={<Switch checked={item?.enabled !== false} onChange={(e) => updateApiKey(index, { enabled: e.target.checked })} />} label="启用" />
-                  <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => removeApiKey(index)}>删除</Button>
+                  <MoreActionsMenu
+                    items={[{
+                      key: 'delete',
+                      label: '删除',
+                      icon: <DeleteOutlineIcon fontSize="small" />,
+                      danger: true,
+                      confirm: {
+                        title: '确认删除 Key？',
+                        description: `将从供应商配置中移除「${String(item?.name || `Key ${index + 1}`)}」，保存供应商后生效。`,
+                      },
+                      onSelect: () => removeApiKey(index),
+                    }]}
+                  />
                 </Stack>
                 <ApiKeyField value={String(item?.key || '')} onValueChange={(next) => updateApiKey(index, { key: next })} />
               </Stack>
@@ -145,7 +158,19 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                     </Select>
                   </FormControl>
                 ) : null}
-                <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => removeRegisteredModel(index)}>删除</Button>
+                <MoreActionsMenu
+                  items={[{
+                    key: 'delete',
+                    label: '删除',
+                    icon: <DeleteOutlineIcon fontSize="small" />,
+                    danger: true,
+                    confirm: {
+                      title: '确认删除登记模型？',
+                      description: `将移除「${String(item?.name || item?.id || '该模型')}」，保存供应商后生效。`,
+                    },
+                    onSelect: () => removeRegisteredModel(index),
+                  }]}
+                />
               </Stack>
             </Paper>
           )) : (

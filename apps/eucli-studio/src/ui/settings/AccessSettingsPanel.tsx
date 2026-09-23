@@ -8,6 +8,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { persistentPortStateLabel, type PersistentKeyCreated } from '../../domain/accessSettings'
 import { useEvent } from '../hooks/useEvent'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type AccessSettingsPanelProps = {
@@ -148,9 +149,20 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
                           停用
                         </Button>
                       )}
-                      <Button startIcon={<DeleteOutlineIcon />} size="small" color="error" variant="text" onClick={() => controller?.actions?.deleteAccessPort?.(port.id)} disabled={busy}>
-                        删除
-                      </Button>
+                      <MoreActionsMenu
+                        disabled={busy}
+                        items={[{
+                          key: 'delete',
+                          label: '删除',
+                          icon: <DeleteOutlineIcon fontSize="small" />,
+                          danger: true,
+                          confirm: {
+                            title: '确认删除长期端口？',
+                            description: `将删除端口「${port.name}」及其配置。删除会立即生效。`,
+                          },
+                          onSelect: () => controller?.actions?.deleteAccessPort?.(port.id),
+                        }]}
+                      />
                     </Stack>
                   </Stack>
                 </SettingsListItem>
@@ -216,9 +228,20 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
                       <Button size="small" variant="text" onClick={() => controller?.actions?.setAccessKeyExpiration?.(key.id, null)} disabled={busy}>
                         设为永不过期
                       </Button>
-                      <Button startIcon={<DeleteOutlineIcon />} size="small" color="error" variant="text" onClick={() => controller?.actions?.deleteAccessKey?.(key.id)} disabled={busy}>
-                        删除
-                      </Button>
+                      <MoreActionsMenu
+                        disabled={busy}
+                        items={[{
+                          key: 'delete',
+                          label: '删除',
+                          icon: <DeleteOutlineIcon fontSize="small" />,
+                          danger: true,
+                          confirm: {
+                            title: '确认删除长期 Key？',
+                            description: `将删除「${key.name}」，使用该 Key 的连接将无法再访问。删除会立即生效。`,
+                          },
+                          onSelect: () => controller?.actions?.deleteAccessKey?.(key.id),
+                        }]}
+                      />
                     </Stack>
                   </Stack>
                 </SettingsListItem>
