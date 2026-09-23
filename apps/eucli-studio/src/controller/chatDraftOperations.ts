@@ -1,5 +1,5 @@
 import { clamp, uid } from '../core/utils'
-import { MAX_DRAFT_IMAGES, MAX_DRAFT_FILES, DEFAULT_ATTACH_SEND_LIMIT_CHARS } from '../domain/constants'
+import { MAX_DRAFT_IMAGES, MAX_DRAFT_FILES } from '../domain/constants'
 import { looksLikeImageDataUrl } from '../domain/textProcessing'
 import { detectDraftFileKind, addDraftFilePlaceholder } from '../domain/draftFileUtils'
 import type { DraftFileItem } from '../domain/draftFileUtils'
@@ -123,7 +123,6 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
       attachments.push({ kind: 'image', name: String(image?.name || '图片'), dataUrl })
     }
 
-    const sendLimit = DEFAULT_ATTACH_SEND_LIMIT_CHARS
     for (const file of draftFiles) {
       const name = String(file?.name || '文件')
       if (file?.pending) throw new Error('文件解析中，请稍候…')
@@ -135,7 +134,6 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
       const fullLen = raw.length
       const sendLen = Math.max(0, Math.ceil((fullLen * sendPct) / 100))
       if (sendLen <= 0) throw new Error(`${name} 的发送内容为空`)
-      if (sendLen > sendLimit) throw new Error(`${name} 发送内容超过限制，请在附件设置里调低发送比例`)
       attachments.push({ kind: String(file?.kind || 'txt'), name, lang: String(file?.kind || '') === 'md' ? 'markdown' : 'text', text: raw.slice(0, sendLen), fullLen, sendLen, sendPct })
     }
     return attachments
