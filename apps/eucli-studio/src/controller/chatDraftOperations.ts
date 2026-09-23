@@ -14,7 +14,7 @@ import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatDraftOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps } = shared
-  const { getState, pickImageFiles, showToast, emit, renderComposer, readImageFileAsDataUrl, extractTextFromFile } = deps
+  const { getState, pickImageFiles, showToast, emit, renderComposer, readImageFileAsDataUrl } = deps
 
   function addDraftImage(name: any, dataUrl: any, draftKeyRaw?: any) {
     const state = getState()
@@ -110,32 +110,6 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
       setComposerDraftFilesByKey(state, draftKey, nextFiles)
       added++
       emit()
-      ;(async () => {
-        try {
-          const r = await extractTextFromFile(f, kind)
-          const currentState = getState()
-          const currentDraft = readComposerDraftByKey(currentState, draftKey)
-          const cur = currentDraft.files.find((x: any) => String(x?.id || '') === it.id) || null
-          if (!cur) return
-          cur.text = String(r || '')
-          if (!cur.text) cur.error = '未提取到文本'
-          setComposerDraftFilesByKey(currentState, draftKey, currentDraft.files)
-        } catch (e) {
-          const currentState = getState()
-          const currentDraft = readComposerDraftByKey(currentState, draftKey)
-          const cur = currentDraft.files.find((x: any) => String(x?.id || '') === it.id) || null
-          if (!cur) return
-          cur.error = String((e as any)?.message || e || '解析失败')
-          setComposerDraftFilesByKey(currentState, draftKey, currentDraft.files)
-        } finally {
-          const currentState = getState()
-          const currentDraft = readComposerDraftByKey(currentState, draftKey)
-          const cur = currentDraft.files.find((x: any) => String(x?.id || '') === it.id) || null
-          if (cur) cur.pending = false
-          if (cur) setComposerDraftFilesByKey(currentState, draftKey, currentDraft.files)
-          emit()
-        }
-      })().catch(() => {})
     }
     if (!added) showToast?.('未选择文件', { kind: 'error' })
     emit()

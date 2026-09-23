@@ -10,7 +10,6 @@ import {
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
 } from '../domain/constants'
 import { removeDraftFile, removeDraftImage as removeDraftImageFromList } from '../domain/draftFileUtils'
-import type { DraftFileKind } from '../domain/draftFileUtils'
 import {
   activateComposerDraftForCurrentSession,
   setActiveComposerFiles,
@@ -58,7 +57,6 @@ import { loadWorkspaceSession } from './workspaceBridge'
 import { createChatSessionTarget, chatSettingsTargetKey, type ChatSettingsTarget } from './chatSessionTarget'
 import { createChatSettingsSaveQueue, type ChatSettingsAction } from './chatSettingsSaveQueue'
 import { createInitialControllerState } from './controllerState'
-import { createFileTextExtraction } from './fileTextExtraction'
 import { createHookPromptLibraryController } from './hookPromptLibraryController'
 import { createPlaceholderLibraryController } from './placeholderLibraryController'
 import { createSystemPluginController } from './systemPluginController'
@@ -132,12 +130,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   }
 
   const { closeModal } = createModalHelpers({ state, render })
-
-  const fileTextExtraction = createFileTextExtraction({
-    getState: () => state,
-    showToast: api.ui?.showToast,
-  })
-  const { extractTextFromFile } = fileTextExtraction
 
   function getStickerRelPath(category: any, name: any) {
     const cat = typeof category === 'string' ? category.trim() : ''
@@ -733,7 +725,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     renderComposer,
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
-    extractTextFromFile: (file: File, kind: string) => extractTextFromFile(file, kind as DraftFileKind),
   })
   const {
     pickDraftImages,

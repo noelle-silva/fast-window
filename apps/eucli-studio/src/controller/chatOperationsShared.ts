@@ -51,7 +51,6 @@ export type ChatOperationsDeps = {
   renderComposer: () => void
   scrollToBottomSoon: () => void
   readImageFileAsDataUrl: (file: File) => Promise<string>
-  extractTextFromFile: (file: File, kind: string) => Promise<string>
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {
