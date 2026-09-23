@@ -84,7 +84,7 @@ import {
 
 const CONTAINER_HOVER_OPEN_MS = 520
 
-export type CollectionsPageHandle = { openSettings(): void }
+export type CollectionsPageHandle = { handleHostCommand(command: string): void }
 
 export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(function CollectionsPage(_props, ref) {
   const { showToast } = useToast()
@@ -119,6 +119,8 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const [itemSpace, setItemSpace] = React.useState('')
   const [itemIndependentSpace, setItemIndependentSpace] = React.useState(false)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
+  const [pendingHostCommand, setPendingHostCommand] = React.useState<{ id: string; seq: number } | null>(null)
+  const hostCommandSeqRef = React.useRef(0)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
   const [containerExtractDrag, setContainerExtractDrag] = React.useState<ContainerExtractDragState>(null)
   const desktopDragRef = React.useRef<DesktopDragState>(null)
@@ -129,7 +131,13 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
   const hoverOpenTimerRef = React.useRef<number | null>(null)
   const hoverOpenTargetIdRef = React.useRef<string | null>(null)
 
-  React.useImperativeHandle(ref, () => ({ openSettings: () => setSettingsOpen(true) }), [])
+  React.useImperativeHandle(ref, () => ({
+    handleHostCommand: (command: string) => {
+      // seq 让重复命令也触发状态更新（同一条目可反复打开多个页面）。
+      hostCommandSeqRef.current += 1
+      setPendingHostCommand({ id: command, seq: hostCommandSeqRef.current })
+    },
+  }), [])
 
   const cancelWebIconDiscovery = React.useCallback(() => {
     webIconAutoSelectRef.current = false
@@ -477,6 +485,19 @@ export const CollectionsPage = React.forwardRef<CollectionsPageHandle, object>(f
     catch (e) { showToast(errorMessage(e, URL_CATEGORY.openError), 'error') }
     finally { setBusy(false) }
   }
+
+  // 宿主快捷命令 = 打开对应收藏图标；页面就绪前到达的命令先暂存。
+  React.useEffect(() => {
+    if (!pendingHostCommand) return
+    if (phase !== 'ready' || !client) return
+    setPendingHostCommand(null)
+    const item = doc.items.find(current => current.id === pendingHostCommand.id)
+    if (!item) {
+      showToast(`快捷图标不存在（${pendingHostCommand.id}），可能已被删除`, 'error')
+      return
+    }
+    void openItem(item)
+  }, [pendingHostCommand, phase, client, doc])
 
   async function moveItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || item.groupId === targetGroupId) return

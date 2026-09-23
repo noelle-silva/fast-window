@@ -15,17 +15,26 @@ export default function MainApp() {
   }, [])
 
   React.useEffect(() => {
+    const deliver = (command: string | null | undefined) => {
+      const trimmed = String(command || '').trim()
+      if (trimmed) collectionsRef.current?.handleHostCommand(trimmed)
+    }
+
     let unlisten: (() => void) | null = null
     let cancelled = false
     void listen<{ command?: string }>('fw-app-command', event => {
-      const command = String(event.payload?.command || '').trim()
-      if (command === 'open-settings') collectionsRef.current?.openSettings()
+      deliver(event.payload?.command)
     })
       .then(nextUnlisten => {
         if (cancelled) nextUnlisten()
         else unlisten = nextUnlisten
       })
       .catch(() => {})
+
+    void invoke<string | null>('fw_initial_command')
+      .then(command => deliver(command))
+      .catch(() => {})
+
     return () => {
       cancelled = true
       unlisten?.()
