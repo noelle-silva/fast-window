@@ -17,7 +17,6 @@ func toUIRole(role map[string]any) map[string]any {
 	return map[string]any{
 		"id":                 stringField(role, "id"),
 		"name":               fallback(stringField(role, "name"), "未命名角色"),
-		"avatar":             stringField(role, "avatar"),
 		"hookPromptPresetId": stringField(role, "hookPromptPresetId"),
 		"systemPrompt":       promptText(objectList(role["prompts"])),
 		"temperature":        numberField(modelConfig, "temperature", 0.7),
@@ -35,7 +34,6 @@ func fromUIRole(value any) map[string]any {
 	return map[string]any{
 		"id":                 stringField(role, "id"),
 		"name":               fallback(stringField(role, "name"), "未命名角色"),
-		"avatar":             stringField(role, "avatar"),
 		"description":        stringField(role, "description"),
 		"hookPromptPresetId": stringField(role, "hookPromptPresetId"),
 		"prompts":            []any{map[string]any{"id": "system", "role": "system", "content": stringField(role, "systemPrompt"), "order": 0, "createdAt": now, "updatedAt": now}},
@@ -50,7 +48,6 @@ func toUIGroup(group map[string]any) map[string]any {
 	return map[string]any{
 		"id":              stringField(group, "id"),
 		"name":            fallback(stringField(group, "name"), "未命名群组"),
-		"avatar":          fallback(stringField(group, "avatar"), "群"),
 		"prompt":          stringField(group, "prompt"),
 		"mode":            fallback(stringField(group, "mode"), "roundRobin"),
 		"memberRoleIds":   stringSlice(group["memberRoleIds"]),
@@ -67,7 +64,6 @@ func fromUIGroup(value any) map[string]any {
 	return map[string]any{
 		"id":              stringField(group, "id"),
 		"name":            fallback(stringField(group, "name"), "未命名群组"),
-		"avatar":          fallback(stringField(group, "avatar"), "群"),
 		"prompt":          stringField(group, "prompt"),
 		"mode":            normalizeGroupMode(stringField(group, "mode")),
 		"memberRoleIds":   stringSlice(group["memberRoleIds"]),

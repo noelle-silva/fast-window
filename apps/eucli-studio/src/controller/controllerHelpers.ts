@@ -39,7 +39,6 @@ export function createModalHelpers(deps: { state: any; render: () => void }) {
     if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
       state.draft.editRoleId = ''
       state.draft.roleName = ''
-      state.draft.roleAvatar = ''
       state.draft.roleAvatarImage = ''
       state.draft.roleAvatarImageCropSrc = ''
       state.draft.roleSystemPrompt = ''
@@ -55,7 +54,6 @@ export function createModalHelpers(deps: { state: any; render: () => void }) {
     if (String((state.draft as any).editGroupId || '') === NEW_GROUP_ID) {
       ;(state.draft as any).editGroupId = ''
       ;(state.draft as any).groupName = ''
-      ;(state.draft as any).groupAvatar = ''
       ;(state.draft as any).groupAvatarImage = ''
       ;(state.draft as any).groupAvatarImageCropSrc = ''
       ;(state.draft as any).groupPrompt = ''

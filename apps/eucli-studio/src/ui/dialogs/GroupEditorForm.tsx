@@ -1,6 +1,5 @@
 import * as React from 'react'
 import {
-  Avatar,
   Box,
   Button,
   Checkbox,
@@ -19,6 +18,7 @@ import {
 } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { GroupAvatarCropper } from '../components/avatar/GroupAvatarCropper'
 import { useEvent } from '../hooks/useEvent'
 
@@ -33,7 +33,6 @@ function clampNum(n: number, min: number, max: number) {
 export function GroupEditorForm(props: { controller: any; roles: any[]; draft: any }) {
   const { controller, roles, draft } = props
 
-  const avatarEmoji = String((draft as any)?.groupAvatar || '').trim() || '👥'
   const avatarImage = String((draft as any)?.groupAvatarImage || '').trim()
   const avatarCropSrc = String((draft as any)?.groupAvatarImageCropSrc || '').trim()
 
@@ -117,26 +116,16 @@ export function GroupEditorForm(props: { controller: any; roles: any[]; draft: a
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-        <TextField
-          label="群组名"
-          value={String((draft as any)?.groupName || '')}
-          onChange={(e) => controller.actions.setDraft('groupName', e.target.value)}
-          fullWidth
-        />
-        <TextField
-          label="头像（表情，可选）"
-          value={String((draft as any)?.groupAvatar || '')}
-          onChange={(e) => controller.actions.setDraft('groupAvatar', e.target.value)}
-          sx={{ width: { xs: '100%', sm: 200 } }}
-        />
-      </Stack>
+      <TextField
+        label="群组名"
+        value={String((draft as any)?.groupName || '')}
+        onChange={(e) => controller.actions.setDraft('groupName', e.target.value)}
+        fullWidth
+      />
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Avatar src={avatarImage || undefined} sx={{ width: 44, height: 44, fontSize: 18 }}>
-            {avatarEmoji}
-          </Avatar>
+          <EntityAvatar kind="group" image={avatarImage} size={44} />
           <Typography variant="body2" color="text.secondary">
             头像图片（可选）
           </Typography>
@@ -191,9 +180,7 @@ export function GroupEditorForm(props: { controller: any; roles: any[]; draft: a
                   control={<Checkbox checked={on} onChange={() => toggleMember(rid)} />}
                   label={
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                      <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
-                        {String(r?.avatar || '🙂')}
-                      </Avatar>
+                      <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={22} />
                       <Typography sx={{ fontWeight: 900 }} noWrap>
                         {String(r?.name || '')}
                       </Typography>
@@ -216,9 +203,7 @@ export function GroupEditorForm(props: { controller: any; roles: any[]; draft: a
               return (
                 <Paper key={rid} variant="outlined" sx={{ px: 1, py: 0.75 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
-                      {String(r?.avatar || '🤖')}
-                    </Avatar>
+                    <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={22} />
                     <Typography sx={{ fontWeight: 900, flex: 1, minWidth: 0 }} noWrap>
                       {String(r?.name || 'AI')}
                     </Typography>
@@ -269,9 +254,7 @@ export function GroupEditorForm(props: { controller: any; roles: any[]; draft: a
               return (
                 <Box key={rid}>
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
-                      {String(r?.avatar || '🤖')}
-                    </Avatar>
+                    <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={22} />
                     <Typography sx={{ fontWeight: 900, flex: 1, minWidth: 0 }} noWrap>
                       {String(r?.name || 'AI')}
                     </Typography>

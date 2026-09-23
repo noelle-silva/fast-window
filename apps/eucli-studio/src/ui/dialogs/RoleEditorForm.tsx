@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Avatar, Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography } from '@mui/material'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { PlaceholderSearchSection } from './PlaceholderSearchSection'
 import { RoleSystemPromptSection } from './RoleSystemPromptSection'
@@ -19,7 +20,6 @@ function RoleDialogSection(props: { title: string; children: React.ReactNode }) 
 export function RoleEditorForm(props: { controller: any; providers: any[]; modelGroups: any[]; draft: any; models: any; tools: any; hookPrompts?: any; placeholders?: any; systemPlugins?: any }) {
   const { controller, providers, modelGroups, draft, models, tools, hookPrompts, placeholders, systemPlugins } = props
 
-  const avatarEmoji = String(draft?.roleAvatar || '').trim() || '🙂'
   const avatarImage = String(draft?.roleAvatarImage || '').trim()
   const avatarCropSrc = String(draft?.roleAvatarImageCropSrc || '').trim()
 
@@ -42,16 +42,11 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
   return (
     <Stack spacing={2}>
       <RoleDialogSection title="角色信息">
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-          <TextField label="角色名" value={String(draft?.roleName || '')} onChange={(e) => controller.actions.setDraft('roleName', e.target.value)} fullWidth />
-          <TextField label="头像（表情，可选）" value={String(draft?.roleAvatar || '')} onChange={(e) => controller.actions.setDraft('roleAvatar', e.target.value)} sx={{ width: { xs: '100%', sm: 200 } }} />
-        </Stack>
+        <TextField label="角色名" value={String(draft?.roleName || '')} onChange={(e) => controller.actions.setDraft('roleName', e.target.value)} fullWidth />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Avatar src={avatarImage || undefined} sx={{ width: 44, height: 44, fontSize: 18 }}>
-              {avatarEmoji}
-            </Avatar>
+            <EntityAvatar kind="role" image={avatarImage} size={44} />
             <Typography variant="body2" color="text.secondary">
               头像图片（可选）
             </Typography>

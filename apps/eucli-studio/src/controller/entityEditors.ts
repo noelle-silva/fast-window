@@ -207,7 +207,6 @@ export function createEntityEditors(deps: {
 
     state.draft.editRoleId = NEW_ROLE_ID
     state.draft.roleName = '新角色'
-    state.draft.roleAvatar = '🙂'
     state.draft.roleAvatarImage = ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = ''
@@ -270,7 +269,6 @@ export function createEntityEditors(deps: {
 
     state.draft.editRoleId = rid
     state.draft.roleName = String(role.name || '')
-    state.draft.roleAvatar = String(role.avatar || '')
     state.draft.roleAvatarImage = looksLikeImageDataUrl(role.avatarImage) ? String(role.avatarImage || '') : ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = String(role.systemPrompt || '')
@@ -302,7 +300,6 @@ export function createEntityEditors(deps: {
     const rid = String(state.draft.editRoleId || '')
 
     const name = String(state.draft.roleName || '').trim() || '未命名角色'
-    const avatar = String(state.draft.roleAvatar || '').trim() || '🙂'
     const avatarImage = looksLikeImageDataUrl(state.draft.roleAvatarImage) ? String(state.draft.roleAvatarImage || '') : ''
     const sys = String(state.draft.roleSystemPrompt || '').trim()
     const temperature = clampTemp(state.draft.roleTemperature)
@@ -326,7 +323,6 @@ export function createEntityEditors(deps: {
       const role = {
         id: newRid,
         name,
-        avatar,
         avatarImage,
         systemPrompt: sys,
         temperature,
@@ -357,7 +353,6 @@ export function createEntityEditors(deps: {
     const previous = { ...role, modelRef: role.modelRef && typeof role.modelRef === 'object' ? { ...role.modelRef } : role.modelRef }
 
     role.name = name
-    role.avatar = avatar
     role.avatarImage = avatarImage
     role.systemPrompt = sys
     role.temperature = temperature
@@ -420,7 +415,6 @@ export function createEntityEditors(deps: {
     if (!state.data) return false
     ;(state.draft as any).editGroupId = NEW_GROUP_ID
     ;(state.draft as any).groupName = '新群组'
-    ;(state.draft as any).groupAvatar = '👥'
     ;(state.draft as any).groupAvatarImage = ''
     ;(state.draft as any).groupAvatarImageCropSrc = ''
     ;(state.draft as any).groupPrompt = ''
@@ -474,7 +468,6 @@ export function createEntityEditors(deps: {
     const random = group.random && typeof group.random === 'object' ? group.random : {}
     ;(state.draft as any).editGroupId = gid
     ;(state.draft as any).groupName = String(group.name || '')
-    ;(state.draft as any).groupAvatar = String(group.avatar || '')
     ;(state.draft as any).groupAvatarImage = looksLikeImageDataUrl(group.avatarImage) ? String(group.avatarImage || '') : ''
     ;(state.draft as any).groupAvatarImageCropSrc = ''
     ;(state.draft as any).groupPrompt = String(group.prompt || '')
@@ -494,7 +487,6 @@ export function createEntityEditors(deps: {
     const gid = String((state.draft as any).editGroupId || '').trim()
     const isNew = gid === NEW_GROUP_ID
     const name = String((state.draft as any).groupName || '').replace(/\s+/g, ' ').trim() || '未命名群组'
-    const avatar = String((state.draft as any).groupAvatar || '').trim() || '👥'
     const avatarImage = looksLikeImageDataUrl((state.draft as any).groupAvatarImage) ? String((state.draft as any).groupAvatarImage || '') : ''
     const prompt = String((state.draft as any).groupPrompt || '').trim()
     const mode = String((state.draft as any).groupMode || '') === 'random' ? 'random' : 'roundRobin'
@@ -514,7 +506,7 @@ export function createEntityEditors(deps: {
 
     if (isNew) {
       const groupId = uid('g')
-      const group = { id: groupId, name, avatar, avatarImage, prompt, mode, memberRoleIds, roundRobinOrder: order, random: { weightsByRoleId, minCount, maxCount }, createdAt: now(), updatedAt: now() }
+      const group = { id: groupId, name, avatarImage, prompt, mode, memberRoleIds, roundRobinOrder: order, random: { weightsByRoleId, minCount, maxCount }, createdAt: now(), updatedAt: now() }
       try {
         if (typeof saveGroupEntity !== 'function') throw new Error('群组保存通道不可用')
         await saveGroupEntity(group)
@@ -536,7 +528,7 @@ export function createEntityEditors(deps: {
     const group = (state.data as any).groups?.find((item: any) => String(item?.id || '') === gid) || null
     if (!group) return
     const previous = { ...group, memberRoleIds: Array.isArray(group.memberRoleIds) ? group.memberRoleIds.slice() : [], roundRobinOrder: Array.isArray(group.roundRobinOrder) ? group.roundRobinOrder.slice() : [], random: group.random && typeof group.random === 'object' ? { ...group.random, weightsByRoleId: { ...(group.random.weightsByRoleId || {}) } } : group.random }
-    Object.assign(group, { name, avatar, avatarImage, prompt, mode, memberRoleIds, roundRobinOrder: order, random: { weightsByRoleId, minCount, maxCount }, updatedAt: now() })
+    Object.assign(group, { name, avatarImage, prompt, mode, memberRoleIds, roundRobinOrder: order, random: { weightsByRoleId, minCount, maxCount }, updatedAt: now() })
     try {
       await saveGroupEntity?.(group)
       showToast?.('群组已保存', { kind: 'success' })

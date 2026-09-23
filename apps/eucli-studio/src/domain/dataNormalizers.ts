@@ -309,7 +309,6 @@ export function normalizeData(raw: any) {
     if (!r || typeof r !== 'object') continue
     if (!r.id) r.id = uid('r')
     if (typeof r.name !== 'string' || !r.name.trim()) r.name = '未命名角色'
-    if (typeof r.avatar !== 'string' || !r.avatar.trim()) r.avatar = '🙂'
     if (typeof r.avatarImage !== 'string') r.avatarImage = ''
     if (r.avatarImage && !looksLikeImageDataUrl(r.avatarImage)) r.avatarImage = ''
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
@@ -409,7 +408,6 @@ export function normalizeData(raw: any) {
     .map((g: any) => {
       const id = String(g.id || uid('g'))
       const name = typeof g.name === 'string' && g.name.trim() ? String(g.name || '').trim() : '未命名群组'
-      const avatar = typeof g.avatar === 'string' && g.avatar.trim() ? String(g.avatar || '').trim() : '👥'
       let avatarImage = typeof g.avatarImage === 'string' ? String(g.avatarImage || '') : ''
       if (avatarImage && !looksLikeImageDataUrl(avatarImage)) avatarImage = ''
       const prompt = typeof g.prompt === 'string' ? String(g.prompt || '') : ''
@@ -442,7 +440,6 @@ export function normalizeData(raw: any) {
       return {
         id,
         name,
-        avatar,
         avatarImage,
         prompt,
         mode,

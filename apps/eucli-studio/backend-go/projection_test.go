@@ -216,7 +216,6 @@ func TestRoleProjectionPreservesHookPromptPresetID(t *testing.T) {
 	role := map[string]any{
 		"id":                 "developer",
 		"name":               "Developer",
-		"avatar":             "🙂",
 		"hookPromptPresetId": "preset-review",
 		"prompts": []any{map[string]any{
 			"role":    "system",

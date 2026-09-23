@@ -38,7 +38,6 @@ export function createInitialControllerState() {
 
       editRoleId: '',
       roleName: '',
-      roleAvatar: '',
       roleAvatarImage: '',
       roleAvatarImageCropSrc: '',
       roleSystemPrompt: '',
@@ -57,7 +56,6 @@ export function createInitialControllerState() {
 
       editGroupId: '',
       groupName: '',
-      groupAvatar: '',
       groupAvatarImage: '',
       groupAvatarImageCropSrc: '',
       groupPrompt: '',
