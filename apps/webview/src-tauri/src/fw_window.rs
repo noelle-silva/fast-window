@@ -293,13 +293,6 @@ fn hide_all_surfaces(app: &tauri::AppHandle, state: &FwWindowState) {
     }
 }
 
-pub(crate) fn report_available_commands(commands: serde_json::Value) {
-    write_stdout_json_line(serde_json::json!({
-        "type": "fw-app-commands",
-        "commands": commands
-    }));
-}
-
 #[tauri::command]
 pub(crate) fn app_ready(
     app: tauri::AppHandle,

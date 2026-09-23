@@ -10,13 +10,6 @@ use crate::fw_window::{apply_control_action, FwWindowState};
 pub(crate) const REFERENCE_APP_ID: &str = "webview";
 
 #[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AppCommandDescriptor {
-    pub(crate) id: &'static str,
-    pub(crate) title: &'static str,
-}
-
-#[derive(Clone, Serialize)]
 pub(crate) struct ControlEndpoint {
     pub(crate) url: String,
     pub(crate) token: String,
@@ -45,23 +38,6 @@ struct ControlRequest {
     path: String,
     token: String,
     body: Vec<u8>,
-}
-
-pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
-    vec![
-        AppCommandDescriptor {
-            id: "open-webview",
-            title: "打开 webview 收藏桌面",
-        },
-        AppCommandDescriptor {
-            id: "open-settings",
-            title: "打开 webview 设置",
-        },
-        AppCommandDescriptor {
-            id: "show-health",
-            title: "查看 webview 健康状态",
-        },
-    ]
 }
 
 pub(crate) fn random_token(prefix: &str) -> String {
@@ -255,6 +231,13 @@ fn handle_control_connection(
     }
 
     if action == "describeHostShortcuts" {
+        let host_shortcuts = match crate::collections::host_shortcuts::list(app) {
+            Ok(shortcuts) => shortcuts,
+            Err(error) => {
+                eprintln!("[webview] 宿主快捷命令清单读取失败: {error}");
+                Vec::new()
+            }
+        };
         write_control_response(
             &mut stream,
             200,
@@ -263,7 +246,7 @@ fn handle_control_connection(
                 "appId": app_id,
                 "serverId": server_id,
                 "protocolVersion": 1,
-                "hostShortcuts": available_commands()
+                "hostShortcuts": host_shortcuts
             }),
         );
         return;

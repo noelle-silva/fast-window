@@ -8,6 +8,7 @@ pub mod containers;
 pub mod desktop;
 pub mod dispatch;
 pub mod groups;
+pub mod host_shortcuts;
 pub mod identities;
 pub mod items;
 pub mod migration;

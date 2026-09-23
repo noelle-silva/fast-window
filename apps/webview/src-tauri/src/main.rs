@@ -20,13 +20,11 @@ mod webview_settings;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use collections::{collections_request, CollectionsIoLock};
-use control_server::{
-    available_commands, random_token, start_control_server, ControlServerConfig, REFERENCE_APP_ID,
-};
+use control_server::{random_token, start_control_server, ControlServerConfig, REFERENCE_APP_ID};
 use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
-    parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
+    parse_fw_args, take_shutdown_requested, FwWindowState,
 };
 use shutdown::ShutdownState;
 use std::sync::Arc;
@@ -244,7 +242,6 @@ fn main() {
                 window_state_setup.clone(),
                 &desktop_identifier,
             )?;
-            report_available_commands(serde_json::json!(available_commands()));
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();
