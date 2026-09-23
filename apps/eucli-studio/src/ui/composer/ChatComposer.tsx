@@ -51,7 +51,6 @@ export function ChatComposer(props: {
   composerBlur: number
   draft: any
   activeSessionComposerDraftKey: string
-  attachSendLimitChars: number
   draftFilePickerInputRef: React.MutableRefObject<HTMLInputElement | null>
   onPickFilesChanged: (e: React.ChangeEvent<HTMLInputElement>) => void
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
@@ -63,7 +62,6 @@ export function ChatComposer(props: {
   roles: any[]
   activeStopRunId: string
   draftFilesPending: boolean
-  draftFilesWarn: boolean
   hasDraftFiles: boolean
   formatModelRefText: (modelRef: any) => string
   openFileAdjust: (e: React.MouseEvent<HTMLElement>, fileId: string) => void
@@ -110,7 +108,6 @@ export function ChatComposer(props: {
     composerBlur,
     draft,
     activeSessionComposerDraftKey,
-    attachSendLimitChars,
     draftFilePickerInputRef,
     onPickFilesChanged,
     composerInputRef,
@@ -122,7 +119,6 @@ export function ChatComposer(props: {
     roles,
     activeStopRunId,
     draftFilesPending,
-    draftFilesWarn,
     hasDraftFiles,
     formatModelRefText,
     openFileAdjust,
@@ -209,25 +205,20 @@ export function ChatComposer(props: {
               const err = String(f?.error || '').trim()
               const pct0 = Math.round(Number(f?.sendPct ?? 100))
               const pct = clampNum(pct0, 0, 100)
-              const rawLen = String(f?.text || '').trim().length
-              const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
-              const warn = !pending && !err && rawLen > 0 && sendLen > attachSendLimitChars
               const label = pending
                 ? `${name}（解析中…）`
                 : err
                   ? `${name}（失败）`
-                  : warn
-                    ? `${name}（超长提醒）`
-                    : pct < 100
-                      ? `${name}（${pct}%）`
-                      : name
+                  : pct < 100
+                    ? `${name}（${pct}%）`
+                    : name
               return (
                 <Chip
                   key={id || name}
                   size="small"
                   label={label}
                   variant="outlined"
-                  color={err ? 'error' : warn ? 'warning' : 'default'}
+                  color={err ? 'error' : 'default'}
                   onClick={id ? (e) => openFileAdjust(e as any, id) : undefined}
                   onDelete={id ? () => controller.actions.removeDraftFile?.(id) : undefined}
                   sx={{ maxWidth: 320 }}
@@ -253,7 +244,6 @@ export function ChatComposer(props: {
           inputRef={composerInputRef}
           disabled={loading || !activeRole}
           draftFilesPending={draftFilesPending}
-          draftFilesWarn={draftFilesWarn}
           hasDraftNonText={!!((draft?.images || []).length || hasDraftFiles)}
           activeTargetKind={activeTargetKind}
           activeGroup={activeGroup}

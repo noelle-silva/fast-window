@@ -39,7 +39,6 @@ import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
-import { DEFAULT_ATTACH_SEND_LIMIT_CHARS } from '../domain/constants'
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { chatNavigationFromOrderedChats } from '../domain/chatNavigation'
 import { sortChatListItemsForDisplay } from '../domain/chatListOrdering'
@@ -100,7 +99,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
-  const attachSendLimitChars = DEFAULT_ATTACH_SEND_LIMIT_CHARS
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
@@ -583,17 +581,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
   const hasDraftFiles = draftFiles.length > 0
   const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
-  const draftFilesWarn =
-    hasDraftFiles &&
-    draftFiles.some((f: any) => {
-      if (!f || f.pending) return false
-      if (String(f?.error || '').trim()) return false
-      const rawLen = String(f?.text || '').trim().length
-      if (!rawLen) return false
-      const pct = clampNum(Math.round(Number(f?.sendPct ?? 100)), 0, 100)
-      const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
-      return sendLen > attachSendLimitChars
-    })
 
   const activeRoleId = String(activeRole?.id || '')
   const attachViewItem = (() => {
@@ -736,11 +723,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
 
   const {
-    sendWarn,
-    closeSendWarn,
     beginRunPathFollow,
     sendFromComposer,
-    confirmSendWarn,
     onSend,
     onStop,
   } = useChatSending({
@@ -755,9 +739,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setTreeSelectedMid,
     treeSelectedMid,
     branchDraft,
-    draftFiles,
     draftFilesPending,
-    attachSendLimitChars,
     stickToBottomRef,
   })
   const {
@@ -823,7 +805,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const fileAdjustFullLen = fileAdjustRaw.length
   const fileAdjustPct = clampNum(Math.round(Number(fileAdjustItem?.sendPct ?? 100)), 0, 100)
   const fileAdjustSendLen = Math.max(0, Math.ceil((fileAdjustFullLen * fileAdjustPct) / 100))
-  const fileAdjustTooLong = !fileAdjustPending && !fileAdjustError && fileAdjustFullLen > 0 && fileAdjustSendLen > attachSendLimitChars
 
   return (
     <ThemeProvider theme={theme}>
@@ -1016,10 +997,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                attachView={attachView}
                attachViewItem={attachViewItem}
                closeAttachView={closeAttachView}
-               sendWarn={sendWarn}
-               closeSendWarn={closeSendWarn}
-               attachSendLimitChars={attachSendLimitChars}
-               confirmSendWarn={confirmSendWarn}
                attachmentPickerEl={attachmentPickerEl}
                closeAttachmentPicker={closeAttachmentPicker}
                onPickDraftImages={onPickDraftImages}
@@ -1033,7 +1010,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                fileAdjustFullLen={fileAdjustFullLen}
                fileAdjustSendLen={fileAdjustSendLen}
                fileAdjustPct={fileAdjustPct}
-               fileAdjustTooLong={fileAdjustTooLong}
                fileAdjustRaw={fileAdjustRaw}
              />
 
@@ -1117,7 +1093,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 composerBlur={composerBlur}
                 draft={s.draft}
                 activeSessionComposerDraftKey={String((s as any).activeSessionComposerDraftKey || '')}
-                attachSendLimitChars={attachSendLimitChars}
                 draftFilePickerInputRef={draftFilePickerInputRef}
                 onPickFilesChanged={onPickFilesChanged}
                 composerInputRef={composerInputRef}
@@ -1129,7 +1104,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 roles={roles}
                 activeStopRunId={activeStopRunId}
                 draftFilesPending={draftFilesPending}
-                draftFilesWarn={draftFilesWarn}
                 hasDraftFiles={hasDraftFiles}
                 formatModelRefText={formatModelRefText}
                 openFileAdjust={openFileAdjust}

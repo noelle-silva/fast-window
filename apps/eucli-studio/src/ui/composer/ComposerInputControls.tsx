@@ -26,7 +26,6 @@ export function ComposerInputControls(props: {
   inputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   disabled: boolean
   draftFilesPending: boolean
-  draftFilesWarn: boolean
   hasDraftNonText: boolean
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeGroup: any
@@ -45,7 +44,6 @@ export function ComposerInputControls(props: {
     inputRef,
     disabled,
     draftFilesPending,
-    draftFilesWarn,
     hasDraftNonText,
     activeTargetKind,
     activeGroup,
@@ -428,7 +426,7 @@ export function ComposerInputControls(props: {
             </Button>
           ) : null}
 
-          <Button variant="contained" color={draftFilesWarn ? 'warning' : 'primary'} onClick={sendFromInput} disabled={sendDisabled} sx={{ borderRadius: 999 }}>
+          <Button variant="contained" color="primary" onClick={sendFromInput} disabled={sendDisabled} sx={{ borderRadius: 999 }}>
             发送
           </Button>
         </Box>
