@@ -48,8 +48,6 @@ type AppRegistrationEditorProps = {
   pickingPath: boolean
   iconChanging: boolean
   hotkeyRecording: boolean
-  recordingHostShortcutHotkeyId: string | null
-  changingHostShortcutIconId: string | null
   readingHostShortcuts: boolean
   serviceInfo: AppServiceInfo | null
   serviceInfoLoading: boolean
@@ -60,10 +58,6 @@ type AppRegistrationEditorProps = {
   onIconReset: () => void
   onStartHotkeyRecording: () => void
   onCancelHotkeyRecording: () => void
-  onStartHostShortcutHotkeyRecording: (shortcutId: string) => void
-  onHostShortcutIconChange: (shortcutId: string, source: IconImageSource) => void
-  onHostShortcutIconReset: (shortcutId: string) => void
-  onHostShortcutHotkeyClear: (shortcutId: string) => void
   onReadHostShortcuts: () => void
   onServiceInfoSaved: () => void
 }
@@ -101,8 +95,6 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
     pickingPath,
     iconChanging,
     hotkeyRecording,
-    recordingHostShortcutHotkeyId,
-    changingHostShortcutIconId,
     readingHostShortcuts,
     serviceInfo,
     serviceInfoLoading,
@@ -113,10 +105,6 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
     onIconReset,
     onStartHotkeyRecording,
     onCancelHotkeyRecording,
-    onStartHostShortcutHotkeyRecording,
-    onHostShortcutIconChange,
-    onHostShortcutIconReset,
-    onHostShortcutHotkeyClear,
     onReadHostShortcuts,
     onServiceInfoSaved,
   } = props
@@ -274,15 +262,9 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
               appIcon={draft.icon}
               appName={draft.name}
               disabled={saving}
-              changingShortcutIconId={changingHostShortcutIconId}
               readingHostShortcuts={readingHostShortcuts}
               canReadHostShortcuts={!!draft.path.trim()}
               onReadHostShortcuts={onReadHostShortcuts}
-              recordingShortcutId={recordingHostShortcutHotkeyId}
-              onChangeIcon={onHostShortcutIconChange}
-              onResetIcon={onHostShortcutIconReset}
-              onStartHotkeyRecording={onStartHostShortcutHotkeyRecording}
-              onClearHotkey={onHostShortcutHotkeyClear}
               onChange={nextShortcuts => onDraftChange({ hostShortcuts: nextShortcuts, hostShortcutsEdited: true })}
             />
           </EditorSection>

@@ -1,11 +1,12 @@
-import { Avatar, Box, Button, IconButton, Stack, TextField, Typography } from '@mui/material'
-import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
+import { useState } from 'react'
+import { Avatar, Box, Button, Stack, Typography } from '@mui/material'
 import type { RegisteredAppShortcut } from './types'
 import { generateSafeId } from './ids'
 import AppHostShortcutPicker from './AppHostShortcutPicker'
+import AppHostShortcutEditDialog from './AppHostShortcutEditDialog'
 import { resolveHostShortcutIcon, resolveHostShortcutIconImageUrl } from './hostShortcutIcon'
-import type { IconImageSource } from '../iconImageInput'
-import { hostButtonSx, hostTextFieldSx } from '../components/hostUiStyles'
+import { hostButtonSx } from '../components/hostUiStyles'
+import { hostToast } from '../host/hostPrimitives'
 
 interface AppHostShortcutEditorProps {
   shortcuts: RegisteredAppShortcut[]
@@ -13,17 +14,13 @@ interface AppHostShortcutEditorProps {
   appIcon: string
   appName: string
   disabled?: boolean
-  changingShortcutIconId?: string | null
   readingHostShortcuts?: boolean
   canReadHostShortcuts?: boolean
-  onChange: (shortcuts: RegisteredAppShortcut[]) => void
-  onChangeIcon: (shortcutId: string, source: IconImageSource) => void
-  onResetIcon: (shortcutId: string) => void
   onReadHostShortcuts: () => void
-  recordingShortcutId?: string | null
-  onStartHotkeyRecording: (shortcutId: string) => void
-  onClearHotkey: (shortcutId: string) => void
+  onChange: (shortcuts: RegisteredAppShortcut[]) => void
 }
+
+const HOTKEY_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
 
 function uniqueShortcutId(title: string, shortcuts: RegisteredAppShortcut[]) {
   const base = generateSafeId(title, 'shortcut')
@@ -43,30 +40,13 @@ export default function AppHostShortcutEditor({
   appIcon,
   appName,
   disabled = false,
-  changingShortcutIconId = null,
   readingHostShortcuts = false,
   canReadHostShortcuts = true,
-  onChange,
-  onChangeIcon,
-  onResetIcon,
   onReadHostShortcuts,
-  recordingShortcutId = null,
-  onStartHotkeyRecording,
-  onClearHotkey,
+  onChange,
 }: AppHostShortcutEditorProps) {
-  const updateShortcutTitle = (id: string, nextTitle: string) => {
-    onChange(shortcuts.map(shortcut => shortcut.id === id ? { ...shortcut, title: nextTitle } : shortcut))
-  }
-
-  const updateShortcutId = (id: string, nextId: string) => {
-    const siblings = shortcuts.filter(shortcut => shortcut.id !== id)
-    const safeId = uniqueShortcutId(nextId, siblings)
-    onChange(shortcuts.map(shortcut => shortcut.id === id ? { ...shortcut, id: safeId } : shortcut))
-  }
-
-  const removeShortcut = (id: string) => {
-    onChange(shortcuts.filter(shortcut => shortcut.id !== id))
-  }
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const editingShortcut = editingId ? shortcuts.find(shortcut => shortcut.id === editingId) ?? null : null
 
   const toggleCandidateShortcut = (candidate: RegisteredAppShortcut) => {
     if (shortcuts.some(shortcut => shortcut.id === candidate.id)) {
@@ -74,6 +54,23 @@ export default function AppHostShortcutEditor({
       return
     }
     onChange([...shortcuts, { ...candidate }])
+  }
+
+  const commitShortcut = (next: RegisteredAppShortcut) => {
+    if (!editingId) return
+    const siblings = shortcuts.filter(shortcut => shortcut.id !== editingId)
+    const safeId = uniqueShortcutId(next.id, siblings)
+    onChange(shortcuts.map(shortcut => shortcut.id === editingId ? { ...next, id: safeId } : shortcut))
+    if (safeId !== next.id) {
+      void hostToast(`快捷命令 ID「${next.id}」已存在，已自动调整为「${safeId}」`)
+    }
+    setEditingId(null)
+  }
+
+  const removeShortcut = () => {
+    if (!editingId) return
+    onChange(shortcuts.filter(shortcut => shortcut.id !== editingId))
+    setEditingId(null)
   }
 
   return (
@@ -99,80 +96,49 @@ export default function AppHostShortcutEditor({
       {shortcuts.length ? (
         <Stack spacing={1}>
           {shortcuts.map(shortcut => {
-            const displayIcon = resolveHostShortcutIcon(shortcut, appIcon)
             const iconImageUrl = resolveHostShortcutIconImageUrl(shortcut, appIcon)
-            const iconChanging = changingShortcutIconId === shortcut.id
+            const displayIcon = resolveHostShortcutIcon(shortcut, appIcon)
 
             return (
-              <Box key={shortcut.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Box key={shortcut.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Avatar
                   variant="rounded"
                   src={iconImageUrl}
                   imgProps={{ alt: `${shortcut.title || appName || '宿主快捷命令'} 图标预览` }}
-                  sx={{ width: 36, height: 36, fontSize: 17, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
+                  sx={{ width: 32, height: 32, fontSize: 15, bgcolor: 'action.hover', color: 'text.primary', flexShrink: 0 }}
                 >
                   {iconImageUrl ? null : displayIcon}
                 </Avatar>
-                <TextField
-                  label="快捷命令名称"
-                  value={shortcut.title}
-                  onChange={event => updateShortcutTitle(shortcut.id, event.target.value)}
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                    {shortcut.title}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>
+                    {shortcut.id}
+                  </Typography>
+                </Box>
+                {shortcut.hotkey ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontFamily: HOTKEY_FONT_FAMILY, flexShrink: 0 }}
+                  >
+                    {shortcut.hotkey}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0 }}>
+                    未绑定
+                  </Typography>
+                )}
+                <Button
                   size="small"
-                  sx={{ ...hostTextFieldSx, flex: '1 1 220px' }}
-                />
-                <TextField
-                  label="快捷命令 ID"
-                  value={shortcut.id}
-                  onChange={event => updateShortcutId(shortcut.id, event.target.value)}
-                  size="small"
-                  sx={{ ...hostTextFieldSx, width: 150, flexShrink: 0 }}
-                />
-                <TextField
-                  label="快捷命令快捷键"
-                  value={shortcut.hotkey || ''}
-                  size="small"
-                  placeholder="未绑定"
-                  InputProps={{ readOnly: true }}
-                  sx={{ ...hostTextFieldSx, width: 190, flexShrink: 0 }}
-                />
-                <Button
-                  variant={recordingShortcutId === shortcut.id ? 'contained' : 'text'}
-                  color={recordingShortcutId === shortcut.id ? 'warning' : 'primary'}
-                  onClick={() => onStartHotkeyRecording(shortcut.id)}
-                  sx={{ ...hostButtonSx, flexShrink: 0 }}
-                >
-                  {recordingShortcutId === shortcut.id ? '录制中…' : '录制'}
-                </Button>
-                <Button variant="text" onClick={() => onClearHotkey(shortcut.id)} sx={{ ...hostButtonSx, flexShrink: 0 }}>
-                  清空
-                </Button>
-                <Button
                   variant="text"
-                  disabled={disabled || iconChanging}
-                  onClick={() => onChangeIcon(shortcut.id, 'file')}
                   sx={{ ...hostButtonSx, flexShrink: 0 }}
+                  disabled={disabled}
+                  onClick={() => setEditingId(shortcut.id)}
                 >
-                  {iconChanging ? '更新中…' : '选图标'}
+                  编辑
                 </Button>
-                <Button
-                  variant="text"
-                  disabled={disabled || iconChanging}
-                  onClick={() => onChangeIcon(shortcut.id, 'clipboard')}
-                  sx={{ ...hostButtonSx, flexShrink: 0 }}
-                >
-                  粘贴图标
-                </Button>
-                <Button
-                  variant="text"
-                  disabled={disabled || iconChanging || !shortcut.icon}
-                  onClick={() => onResetIcon(shortcut.id)}
-                  sx={{ ...hostButtonSx, flexShrink: 0 }}
-                >
-                  跟随主页
-                </Button>
-                <IconButton size="small" aria-label={`删除宿主快捷命令 ${shortcut.title}`} onClick={() => removeShortcut(shortcut.id)}>
-                  <DeleteRoundedIcon fontSize="small" />
-                </IconButton>
               </Box>
             )
           })}
@@ -182,6 +148,16 @@ export default function AppHostShortcutEditor({
           暂未登记宿主快捷命令。可以点击“读取宿主快捷命令”从 App 获取。
         </Typography>
       )}
+
+      <AppHostShortcutEditDialog
+        open={!!editingShortcut}
+        shortcut={editingShortcut}
+        appIcon={appIcon}
+        appName={appName}
+        onClose={() => setEditingId(null)}
+        onCommit={commitShortcut}
+        onRemove={removeShortcut}
+      />
     </Box>
   )
 }
