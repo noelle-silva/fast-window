@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import type { Theme } from '@mui/material/styles'
 import {
   Box, Typography, IconButton, Button, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  FormControlLabel, Stack, Switch, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
+  Menu, MenuItem,
 } from '@mui/material'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppKind, AppRegistrationEditRequest, RegisteredApp, RegisteredAppShortcut, RegisteredAppUpdatePatch } from './types'
+import type { AppRegistrationEditRequest, RegisteredApp, RegisteredAppUpdatePatch } from './types'
 import type { AppServiceInfo } from './appServiceInfo'
 import AppCardView from './AppCardView'
-import AppHostShortcutEditor from './AppHostShortcutEditor'
-import AppIconEditor from './AppIconEditor'
-import AppServiceInfoPanel from './AppServiceInfoPanel'
+import AppRegistrationEditor, { emptyAppRegistrationDraft, type AppRegistrationDraft } from './AppRegistrationEditor'
 import { getAppStatus } from './appLauncher'
 import { listAppHostShortcuts } from './appHostShortcuts'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
@@ -22,7 +20,8 @@ import { loadAppServiceInfo } from './appServiceInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
-import { hostButtonSx, hostDangerButtonSx, hostSoftChipSx, hostTextFieldSx, hostToggleGroupSx } from '../components/hostUiStyles'
+import { hostButtonSx, hostDangerButtonSx, hostHiddenScrollbarSx, hostSoftChipSx, hostSurfaceSx } from '../components/hostUiStyles'
+import { useHostAppearance } from '../components/hostAppearance'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
@@ -30,8 +29,6 @@ interface AppRegistrationPanelProps {
   onReplace: (previousId: string, app: RegisteredApp) => void | Promise<void>
   onRemove: (id: string) => void | Promise<void>
   onUpdate: (id: string, patch: RegisteredAppUpdatePatch) => void | Promise<void>
-  onClose?: () => void
-  embedded?: boolean
   editRequest?: AppRegistrationEditRequest | null
   onEditRequestHandled?: (requestId: number) => void
 }
@@ -63,44 +60,36 @@ export default function AppRegistrationPanel({
   onReplace,
   onRemove,
   onUpdate,
-  onClose,
-  embedded,
   editRequest,
   onEditRequestHandled,
 }: AppRegistrationPanelProps) {
-  const [editOpen, setEditOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [path, setPath] = useState('')
-  const [icon, setIcon] = useState('')
+  const hostAppearance = useHostAppearance()
+  const [draft, setDraft] = useState<AppRegistrationDraft>(emptyAppRegistrationDraft)
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [pickingPath, setPickingPath] = useState(false)
   const [iconChanging, setIconChanging] = useState(false)
   const [changingHostShortcutIconId, setChangingHostShortcutIconId] = useState<string | null>(null)
-  const [hotkey, setHotkey] = useState('')
-  const [hotkeyLaunchBehavior, setHotkeyLaunchBehavior] = useState<AppHotkeyLaunchBehavior>('launch')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [recordingHostShortcutHotkeyId, setRecordingHostShortcutHotkeyId] = useState<string | null>(null)
-  const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
-  const [autoStart, setAutoStart] = useState(false)
-  const [hostShortcuts, setHostShortcuts] = useState<RegisteredAppShortcut[]>([])
-  const [hostShortcutCandidates, setHostShortcutCandidates] = useState<RegisteredAppShortcut[] | null>(null)
-  const [hostShortcutsEdited, setHostShortcutsEdited] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [readingHostShortcuts, setReadingHostShortcuts] = useState(false)
-  const [hostShortcutReadConfirm, setHostShortcutReadConfirm] = useState<HostShortcutReadConfirmState>(null)
-  const [pickingPath, setPickingPath] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
-  const [editMenuAnchorEl, setEditMenuAnchorEl] = useState<HTMLElement | null>(null)
-  const [editingAppKind, setEditingAppKind] = useState<AppKind | null>(null)
+  const [hostShortcutReadConfirm, setHostShortcutReadConfirm] = useState<HostShortcutReadConfirmState>(null)
+  const [detailMenuAnchorEl, setDetailMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [serviceInfo, setServiceInfo] = useState<AppServiceInfo | null>(null)
   const [serviceInfoLoading, setServiceInfoLoading] = useState(false)
   const [serviceInfoError, setServiceInfoError] = useState<string | null>(null)
   const handledEditRequestIdRef = useRef<number | null>(null)
   const serviceInfoRequestIdRef = useRef(0)
 
-  const editingApp = editingId ? apps.find(app => app.id === editingId) ?? null : null
-  const dialogAppKind: AppKind | null = serviceInfo?.appKind ?? editingAppKind
-  const showServiceInfo = dialogAppKind === 'service-app'
+  const selectedApp = selectedAppId ? apps.find(app => app.id === selectedAppId) ?? null : null
+  const editorActive = creating || !!selectedApp
+
+  const updateDraft = (patch: Partial<AppRegistrationDraft>) => {
+    setDraft(prev => ({ ...prev, ...patch }))
+  }
 
   const clearServiceInfo = () => {
     serviceInfoRequestIdRef.current += 1
@@ -118,7 +107,7 @@ export default function AppRegistrationPanel({
       const info = await loadAppServiceInfo(exePath)
       if (serviceInfoRequestIdRef.current !== requestId) return
       setServiceInfo(info)
-      setEditingAppKind(info.appKind)
+      updateDraft({ appKind: info.appKind })
     } catch (error: any) {
       if (serviceInfoRequestIdRef.current !== requestId) return
       setServiceInfoError(String(error?.message || error || '读取服务信息失败'))
@@ -127,65 +116,48 @@ export default function AppRegistrationPanel({
     }
   }
 
-  const closeEditMenu = () => {
-    setEditMenuAnchorEl(null)
+  const closeDetailMenu = () => {
+    setDetailMenuAnchorEl(null)
   }
 
-  const closeEditDialog = () => {
+  const selectApp = (app: RegisteredApp) => {
     setHotkeyRecording(false)
     setRecordingHostShortcutHotkeyId(null)
     setChangingHostShortcutIconId(null)
     setHostShortcutReadConfirm(null)
-    setHostShortcutCandidates(null)
-    clearServiceInfo()
-    closeEditMenu()
-    setEditOpen(false)
+    setPickingPath(false)
+    setIconChanging(false)
+    setCreating(false)
+    setSelectedAppId(app.id)
+    setDraft({
+      name: app.name,
+      path: app.path,
+      icon: app.icon || '',
+      hotkey: app.hotkey ?? '',
+      hotkeyLaunchBehavior: app.hotkeyLaunchBehavior ?? 'launch',
+      displayMode: app.displayMode,
+      autoStart: app.autoStart,
+      hostShortcuts: Array.isArray(app.commands) ? app.commands : [],
+      hostShortcutsEdited: false,
+      hostShortcutCandidates: null,
+      appKind: app.appKind ?? null,
+    })
+    closeDetailMenu()
+    void refreshServiceInfo(app.path)
   }
 
   const openAdd = () => {
     setHotkeyRecording(false)
-    setEditingId(null)
-    setName('')
-    setPath('')
-    setIcon('')
-    setIconChanging(false)
-    setChangingHostShortcutIconId(null)
-    setHotkey('')
-    setHotkeyLaunchBehavior('launch')
     setRecordingHostShortcutHotkeyId(null)
-    setDisplayMode('default')
-    setAutoStart(false)
-    setHostShortcuts([])
-    setHostShortcutCandidates(null)
-    setHostShortcutsEdited(false)
+    setChangingHostShortcutIconId(null)
+    setHostShortcutReadConfirm(null)
     setPickingPath(false)
-    setEditingAppKind(null)
+    setIconChanging(false)
+    setCreating(true)
+    setSelectedAppId(null)
+    setDraft(emptyAppRegistrationDraft())
+    closeDetailMenu()
     clearServiceInfo()
-    closeEditMenu()
-    setEditOpen(true)
-  }
-
-  const openEdit = (app: RegisteredApp) => {
-    setHotkeyRecording(false)
-    setEditingId(app.id)
-    setName(app.name)
-    setPath(app.path)
-    setIcon(app.icon || '')
-    setIconChanging(false)
-    setChangingHostShortcutIconId(null)
-    setHotkey(app.hotkey ?? '')
-    setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
-    setRecordingHostShortcutHotkeyId(null)
-    setDisplayMode(app.displayMode)
-    setAutoStart(app.autoStart)
-    setHostShortcuts(Array.isArray(app.commands) ? app.commands : [])
-    setHostShortcutCandidates(null)
-    setHostShortcutsEdited(false)
-    setPickingPath(false)
-    setEditingAppKind(app.appKind ?? null)
-    void refreshServiceInfo(app.path)
-    closeEditMenu()
-    setEditOpen(true)
   }
 
   useEffect(() => {
@@ -194,7 +166,7 @@ export default function AppRegistrationPanel({
     const app = apps.find(item => item.id === editRequest.appId)
     if (!app) return
     handledEditRequestIdRef.current = editRequest.requestId
-    openEdit(app)
+    selectApp(app)
     onEditRequestHandled?.(editRequest.requestId)
   }, [apps, editRequest, onEditRequestHandled])
 
@@ -205,13 +177,15 @@ export default function AppRegistrationPanel({
       if (!picked) return
       const info = await inspectInstalledApp(picked)
       const nextIcon = info.icon || await readAppIcon(info.path)
-      setName(info.name)
-      setPath(info.path)
-      setIcon(nextIcon)
-      setDisplayMode(info.displayMode)
-      setHostShortcuts(info.commands)
-      setHostShortcutsEdited(true)
-      setEditingAppKind(info.appKind ?? null)
+      updateDraft({
+        name: info.name,
+        path: info.path,
+        icon: nextIcon,
+        displayMode: info.displayMode,
+        hostShortcuts: info.commands,
+        hostShortcutsEdited: true,
+        appKind: info.appKind ?? null,
+      })
       void refreshServiceInfo(info.path)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
@@ -220,7 +194,7 @@ export default function AppRegistrationPanel({
     }
   }
 
-  const normalizedHostShortcuts = () => hostShortcuts
+  const normalizedHostShortcuts = () => draft.hostShortcuts
     .map(shortcut => ({
       ...shortcut,
       id: shortcut.id.trim(),
@@ -231,24 +205,24 @@ export default function AppRegistrationPanel({
     .filter(shortcut => shortcut.id && shortcut.title)
 
   const currentAppForHostShortcutRead = async (): Promise<RegisteredApp | null> => {
-    const p = path.trim()
+    const p = draft.path.trim()
     if (!p) {
       await hostToast('请先选择可执行文件')
       return null
     }
 
     const info = await inspectInstalledApp(p)
-    const existingApp = editingId ? apps.find(app => app.id === editingId) : null
+    const existingApp = selectedApp
     return {
       id: info.id,
-      name: name.trim() || info.name,
-      icon: icon || info.icon || await readAppIcon(info.path) || '',
+      name: draft.name.trim() || info.name,
+      icon: draft.icon || info.icon || await readAppIcon(info.path) || '',
       path: info.path,
-      hotkey: hotkey.trim() || undefined,
-      hotkeyLaunchBehavior: hotkey.trim() ? hotkeyLaunchBehavior : undefined,
-      displayMode,
+      hotkey: draft.hotkey.trim() || undefined,
+      hotkeyLaunchBehavior: draft.hotkey.trim() ? draft.hotkeyLaunchBehavior : undefined,
+      displayMode: draft.displayMode,
       commands: normalizedHostShortcuts(),
-      autoStart,
+      autoStart: draft.autoStart,
       windowWidth: existingApp?.windowWidth,
       windowHeight: existingApp?.windowHeight,
       windowX: existingApp?.windowX,
@@ -263,7 +237,7 @@ export default function AppRegistrationPanel({
       const hit = result.apps.find(item => item.appId === app.id)
       if (hit) {
         const hostShortcuts = Array.isArray(hit.hostShortcuts) ? hit.hostShortcuts : []
-        setHostShortcutCandidates(hostShortcuts)
+        updateDraft({ hostShortcutCandidates: hostShortcuts })
         await hostToast(hostShortcuts.length ? `已读取 ${hostShortcuts.length} 个宿主快捷命令，可在搜索框中挑选` : '这个 App 当前没有返回宿主快捷命令')
         return
       }
@@ -299,7 +273,7 @@ export default function AppRegistrationPanel({
     try {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
-      setIcon(dataUrl)
+      updateDraft({ icon: dataUrl })
       await hostToast('图标已更新，保存后生效')
     } catch (error: any) {
       await hostToast(String(error?.message || error || '更改图标失败'))
@@ -309,7 +283,7 @@ export default function AppRegistrationPanel({
   }
 
   const resetIconToDefault = async () => {
-    const p = path.trim()
+    const p = draft.path.trim()
     if (!p) {
       await hostToast('请先选择可执行文件')
       return
@@ -319,8 +293,7 @@ export default function AppRegistrationPanel({
     try {
       const info = await inspectInstalledApp(p)
       const defaultIcon = info.icon || await readAppIcon(info.path)
-      setPath(info.path)
-      setIcon(defaultIcon || '')
+      updateDraft({ path: info.path, icon: defaultIcon || '' })
       await hostToast('已恢复默认图标，保存后生效')
     } catch (error: any) {
       await hostToast(String(error?.message || error || '恢复默认图标失败'))
@@ -330,7 +303,7 @@ export default function AppRegistrationPanel({
   }
 
   const changeHostShortcutIcon = async (shortcutId: string, source: IconImageSource) => {
-    if (!hostShortcuts.some(shortcut => shortcut.id === shortcutId)) {
+    if (!draft.hostShortcuts.some(shortcut => shortcut.id === shortcutId)) {
       await hostToast('宿主快捷命令不存在，未更改图标')
       return
     }
@@ -339,8 +312,10 @@ export default function AppRegistrationPanel({
     try {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
-      setHostShortcutsEdited(true)
-      setHostShortcuts(prev => prev.map(shortcut => shortcut.id === shortcutId ? { ...shortcut, icon: dataUrl } : shortcut))
+      updateDraft({
+        hostShortcutsEdited: true,
+        hostShortcuts: draft.hostShortcuts.map(shortcut => shortcut.id === shortcutId ? { ...shortcut, icon: dataUrl } : shortcut),
+      })
       await hostToast('宿主快捷命令图标已更新，保存后生效')
     } catch (error: any) {
       await hostToast(String(error?.message || error || '更改宿主快捷命令图标失败'))
@@ -350,20 +325,84 @@ export default function AppRegistrationPanel({
   }
 
   const resetHostShortcutIconToAppIcon = (shortcutId: string) => {
-    setHostShortcutsEdited(true)
-    setHostShortcuts(prev => prev.map(shortcut => {
-      if (shortcut.id !== shortcutId) return shortcut
-      const { icon: _icon, ...nextShortcut } = shortcut
-      return nextShortcut
-    }))
+    updateDraft({
+      hostShortcutsEdited: true,
+      hostShortcuts: draft.hostShortcuts.map(shortcut => {
+        if (shortcut.id !== shortcutId) return shortcut
+        const { icon: _icon, ...nextShortcut } = shortcut
+        return nextShortcut
+      }),
+    })
   }
 
-  const resolveIconForSave = async (appPath: string, inspectedIcon: string) => {
-    return icon || inspectedIcon || await readAppIcon(appPath) || ''
+  const startHotkeyRecording = () => {
+    setRecordingHostShortcutHotkeyId(null)
+    setHotkeyRecording(true)
   }
+
+  const cancelHotkeyRecording = () => {
+    setHotkeyRecording(false)
+  }
+
+  const startHostShortcutHotkeyRecording = (shortcutId: string) => {
+    setHotkeyRecording(false)
+    setRecordingHostShortcutHotkeyId(shortcutId)
+  }
+
+  const clearHostShortcutHotkey = (shortcutId: string) => {
+    updateDraft({
+      hostShortcutsEdited: true,
+      hostShortcuts: draft.hostShortcuts.map(shortcut => {
+        if (shortcut.id !== shortcutId) return shortcut
+        const { hotkey: _hotkey, ...nextShortcut } = shortcut
+        return nextShortcut
+      }),
+    })
+    setRecordingHostShortcutHotkeyId(prev => (prev === shortcutId ? null : prev))
+  }
+
+  useEffect(() => {
+    if (!hotkeyRecording && !recordingHostShortcutHotkeyId) return
+
+    pauseShortcutRecordingGuards()
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      ;(e as any).stopImmediatePropagation?.()
+
+      if (e.key === 'Escape') {
+        setHotkeyRecording(false)
+        setRecordingHostShortcutHotkeyId(null)
+        return
+      }
+
+      if (e.repeat) return
+      const shot = buildShortcutFromEvent(e)
+      if (!shot) return
+      if (recordingHostShortcutHotkeyId) {
+        updateDraft({
+          hostShortcutsEdited: true,
+          hostShortcuts: draft.hostShortcuts.map(shortcut => (
+            shortcut.id === recordingHostShortcutHotkeyId ? { ...shortcut, hotkey: shot } : shortcut
+          )),
+        })
+        setRecordingHostShortcutHotkeyId(null)
+        return
+      }
+      updateDraft({ hotkey: shot })
+      setHotkeyRecording(false)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      resumeShortcutRecordingGuards()
+    }
+  }, [hotkeyRecording, recordingHostShortcutHotkeyId, draft.hostShortcuts])
 
   const openRemoveConfirm = (app: RegisteredApp) => {
-    closeEditMenu()
+    closeDetailMenu()
     setRemoveConfirm({ app, step: 'remove' })
   }
 
@@ -386,11 +425,14 @@ export default function AppRegistrationPanel({
       }
       await onRemove(app.id)
       await hostToast(`已取消注册：${app.name}`)
-      if (editingId === app.id) {
+      if (selectedAppId === app.id) {
         setHotkeyRecording(false)
-          setRecordingHostShortcutHotkeyId(null)
-        setEditOpen(false)
-        setEditingId(null)
+        setRecordingHostShortcutHotkeyId(null)
+        setSelectedAppId(null)
+        setCreating(false)
+        setDraft(emptyAppRegistrationDraft())
+        closeDetailMenu()
+        clearServiceInfo()
       }
       setRemoveConfirm(null)
     } catch (error: any) {
@@ -401,20 +443,20 @@ export default function AppRegistrationPanel({
   }
 
   const save = async () => {
-    const n = name.trim()
-    const p = path.trim()
+    const n = draft.name.trim()
+    const p = draft.path.trim()
     if (!p) return
 
     setSaving(true)
     try {
       const info = await inspectInstalledApp(p)
       const nextName = n || info.name
-      const existingApp = editingId ? apps.find(app => app.id === editingId) : null
-      const nextIcon = await resolveIconForSave(info.path, info.icon)
-      const nextHotkey = hotkey.trim()
-      const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
+      const existingApp = selectedApp
+      const nextIcon = draft.icon || info.icon || await readAppIcon(info.path) || ''
+      const nextHotkey = draft.hotkey.trim()
+      const nextHotkeyLaunchBehavior = nextHotkey ? draft.hotkeyLaunchBehavior : undefined
       const nextHostShortcuts = normalizedHostShortcuts()
-      const hostShortcutsToSave = hostShortcutsEdited ? nextHostShortcuts : (existingApp?.commands ?? info.commands)
+      const hostShortcutsToSave = draft.hostShortcutsEdited ? nextHostShortcuts : (existingApp?.commands ?? info.commands)
       const nextApp: RegisteredApp = {
         id: info.id,
         name: nextName,
@@ -422,37 +464,39 @@ export default function AppRegistrationPanel({
         path: info.path,
         hotkey: nextHotkey || undefined,
         hotkeyLaunchBehavior: nextHotkeyLaunchBehavior,
-        displayMode,
+        displayMode: draft.displayMode,
         commands: hostShortcutsToSave,
-        autoStart,
+        autoStart: draft.autoStart,
         windowWidth: existingApp?.windowWidth,
         windowHeight: existingApp?.windowHeight,
         windowX: existingApp?.windowX,
         windowY: existingApp?.windowY,
       }
 
-      if (editingId) {
-        if (editingId === info.id) {
-          await onUpdate(editingId, {
+      if (selectedAppId) {
+        if (selectedAppId === info.id) {
+          await onUpdate(selectedAppId, {
             name: nextApp.name,
             path: nextApp.path,
             icon: nextIcon,
             hotkey: nextHotkey || null,
             hotkeyLaunchBehavior: nextHotkeyLaunchBehavior ?? null,
-            displayMode,
-            autoStart,
+            displayMode: draft.displayMode,
+            autoStart: draft.autoStart,
             commands: hostShortcutsToSave,
           })
         } else {
-          await onReplace(editingId, nextApp)
+          await onReplace(selectedAppId, nextApp)
         }
       } else {
         await onAdd(nextApp)
       }
       setHotkeyRecording(false)
       setRecordingHostShortcutHotkeyId(null)
-      closeEditMenu()
-      setEditOpen(false)
+      setCreating(false)
+      setSelectedAppId(nextApp.id)
+      closeDetailMenu()
+      void refreshServiceInfo(nextApp.path)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '保存应用失败'))
     } finally {
@@ -460,275 +504,150 @@ export default function AppRegistrationPanel({
     }
   }
 
-  const startHotkeyRecording = () => {
-    setRecordingHostShortcutHotkeyId(null)
-    setHotkeyRecording(true)
-  }
+  const listPanelSx = (theme: Theme) => ({
+    ...hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })(theme),
+    width: { xs: 168, sm: 208, md: 248 },
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    p: 1,
+  })
 
-  const saveHotkey = (next: string) => {
-    setHotkey(next)
-    setHotkeyRecording(false)
-  }
-
-  const cancelHotkeyRecording = () => {
-    setHotkeyRecording(false)
-  }
-
-  const startHostShortcutHotkeyRecording = (shortcutId: string) => {
-    setHotkeyRecording(false)
-    setRecordingHostShortcutHotkeyId(shortcutId)
-  }
-
-  const saveHostShortcutHotkey = (shortcutId: string, next: string) => {
-    setHostShortcutsEdited(true)
-    setHostShortcuts(prev => prev.map(shortcut => shortcut.id === shortcutId ? { ...shortcut, hotkey: next } : shortcut))
-    setRecordingHostShortcutHotkeyId(null)
-  }
-
-  const clearHostShortcutHotkey = (shortcutId: string) => {
-    setHostShortcutsEdited(true)
-    setHostShortcuts(prev => prev.map(shortcut => {
-      if (shortcut.id !== shortcutId) return shortcut
-      const { hotkey: _hotkey, ...nextShortcut } = shortcut
-      return nextShortcut
-    }))
-    if (recordingHostShortcutHotkeyId === shortcutId) setRecordingHostShortcutHotkeyId(null)
-  }
-
-  useEffect(() => {
-    if (!hotkeyRecording && !recordingHostShortcutHotkeyId) return
-
-    pauseShortcutRecordingGuards()
-
-    return () => {
-      resumeShortcutRecordingGuards()
-    }
-  }, [hotkeyRecording, recordingHostShortcutHotkeyId])
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!hotkeyRecording && !recordingHostShortcutHotkeyId) return
-    e.preventDefault()
-    e.stopPropagation()
-    ;(e as any).stopImmediatePropagation?.()
-
-    if (e.key === 'Escape') {
-      setHotkeyRecording(false)
-      setRecordingHostShortcutHotkeyId(null)
-      return
-    }
-
-    if (e.repeat) return
-    const shot = buildShortcutFromEvent(e.nativeEvent)
-    if (!shot) return
-    if (recordingHostShortcutHotkeyId) {
-      saveHostShortcutHotkey(recordingHostShortcutHotkeyId, shot)
-      return
-    }
-    saveHotkey(shot)
-  }
-
-  const autoStartField = (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>FW 启动时自启</Typography>
-      <FormControlLabel
-        sx={{ m: 0 }}
-        control={
-          <Switch
-            size="small"
-            checked={autoStart}
-            disabled={saving}
-            onChange={e => setAutoStart(e.target.checked)}
-            inputProps={{ 'aria-label': 'FW 启动时自启' }}
-          />
-        }
-        label={autoStart ? '已开启' : '已关闭'}
-      />
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
-        开启后，Fast Window 启动时会自动启动这个应用；关闭后仍可手动启动或通过快捷键唤醒。
-      </Typography>
-    </Box>
-  )
-
-  const content = (
-    <>
-      {embedded ? (
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              应用注册
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              管理可由 Fast Window 启动和唤醒的 v5 独立应用。
-            </Typography>
-          </Box>
-            <Button onClick={openAdd} variant="contained" size="small" sx={{ ...hostButtonSx, flexShrink: 0 }}>
-            添加应用
-          </Button>
-        </Box>
-      ) : null}
-
-      <Box>
-        {apps.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-            暂无注册应用
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'flex-start' }, gap: 1, mb: 1.25 }}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            应用注册
           </Typography>
-        ) : (
-          apps.map(app => (
-            <AppCardView key={app.id} app={app} onClick={() => openEdit(app)} />
-          ))
-        )}
+          <Typography variant="caption" color="text.secondary">
+            管理可由 Fast Window 启动和唤醒的 v5 独立应用。
+          </Typography>
+        </Box>
+        <Button
+          onClick={openAdd}
+          variant="text"
+          size="small"
+          sx={{ ...hostButtonSx, flexShrink: 0, alignSelf: 'flex-start' }}
+          disabled={saving}
+        >
+          添加应用
+        </Button>
       </Box>
 
-      <Dialog open={editOpen} onClose={closeEditDialog} fullWidth maxWidth="md">
-        <DialogTitle sx={{ pr: editingId ? 6 : undefined }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box component="span">{editingId ? '编辑应用' : '添加应用'}</Box>
-            {dialogAppKind ? (
-              <Chip
-                label={dialogAppKind === 'service-app' ? '服务' : '窗口'}
-                size="small"
-                sx={{ ...hostSoftChipSx, height: 20, fontSize: 11 }}
-              />
-            ) : null}
+      <Box sx={{ display: 'flex', gap: 1.25, flex: 1, minHeight: 0, minWidth: 0 }}>
+        <Box sx={listPanelSx}>
+          <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, mb: 0.75, display: 'block' }}>
+            应用列表
+          </Typography>
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...hostHiddenScrollbarSx }}>
+            {apps.length === 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, py: 1 }}>
+                暂无注册应用
+              </Typography>
+            ) : (
+              apps.map(app => (
+                <AppCardView
+                  key={app.id}
+                  app={app}
+                  selected={!creating && app.id === selectedAppId}
+                  onClick={() => selectApp(app)}
+                />
+              ))
+            )}
           </Box>
-          {editingId ? (
+        </Box>
+
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {editorActive ? (
             <>
-              <IconButton
-                aria-label="更多应用操作"
-                size="small"
-                onClick={e => setEditMenuAnchorEl(e.currentTarget)}
-                sx={{ position: 'absolute', right: 8, top: 8 }}
-              >
-                <MoreVertRoundedIcon fontSize="small" />
-              </IconButton>
-              <Menu
-                anchorEl={editMenuAnchorEl}
-                open={!!editMenuAnchorEl}
-                onClose={closeEditMenu}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-              >
-                <MenuItem
-                  disabled={!editingApp || !!removingId}
-                  onClick={() => editingApp && openRemoveConfirm(editingApp)}
-                  sx={{ color: 'error.main', gap: 1 }}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  {creating ? '添加应用' : '编辑应用'}
+                </Typography>
+                {draft.appKind ? (
+                  <Chip
+                    label={draft.appKind === 'service-app' ? '服务' : '窗口'}
+                    size="small"
+                    sx={{ ...hostSoftChipSx, height: 20, fontSize: 11 }}
+                  />
+                ) : null}
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  onClick={() => void save()}
+                  variant="contained"
+                  size="small"
+                  sx={hostButtonSx}
+                  disabled={saving}
                 >
-                  <DeleteRoundedIcon fontSize="small" />
-                  取消注册
-                </MenuItem>
-              </Menu>
-            </>
-          ) : null}
-        </DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }} onKeyDown={onKeyDown}>
-          <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth sx={hostTextFieldSx} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" sx={hostTextFieldSx} />
-            <Button variant="text" onClick={() => void pickExecutablePath()} disabled={pickingPath || saving} sx={{ ...hostButtonSx, flexShrink: 0 }}>
-              {pickingPath ? '选择中…' : '选择文件'}
-            </Button>
-          </Box>
-          <AppIconEditor
-            name={name}
-            icon={icon}
-            saving={saving}
-            changing={iconChanging}
-            canReset={!!path.trim()}
-            onChange={source => void changeIcon(source)}
-            onResetDefault={() => void resetIconToDefault()}
-          />
-          {showServiceInfo ? (
-            <>
-              {autoStartField}
-              <AppServiceInfoPanel
-                info={serviceInfo}
-                loading={serviceInfoLoading}
-                error={serviceInfoError}
-                exePath={path.trim()}
-                onSaved={() => refreshServiceInfo(path.trim())}
-              />
+                  {saving ? '保存中…' : '保存'}
+                </Button>
+                {selectedApp ? (
+                  <>
+                    <IconButton
+                      aria-label="更多应用操作"
+                      size="small"
+                      onClick={e => setDetailMenuAnchorEl(e.currentTarget)}
+                    >
+                      <MoreVertRoundedIcon fontSize="small" />
+                    </IconButton>
+                    <Menu
+                      anchorEl={detailMenuAnchorEl}
+                      open={!!detailMenuAnchorEl}
+                      onClose={closeDetailMenu}
+                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    >
+                      <MenuItem
+                        disabled={!!removingId}
+                        onClick={() => openRemoveConfirm(selectedApp)}
+                        sx={{ color: 'error.main', gap: 1 }}
+                      >
+                        <DeleteRoundedIcon fontSize="small" />
+                        取消注册
+                      </MenuItem>
+                    </Menu>
+                  </>
+                ) : null}
+              </Box>
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: 0.5, pt: 1.25, pb: 1, ...hostHiddenScrollbarSx }}>
+                <AppRegistrationEditor
+                  draft={draft}
+                  saving={saving}
+                  pickingPath={pickingPath}
+                  iconChanging={iconChanging}
+                  hotkeyRecording={hotkeyRecording}
+                  recordingHostShortcutHotkeyId={recordingHostShortcutHotkeyId}
+                  changingHostShortcutIconId={changingHostShortcutIconId}
+                  readingHostShortcuts={readingHostShortcuts}
+                  serviceInfo={serviceInfo}
+                  serviceInfoLoading={serviceInfoLoading}
+                  serviceInfoError={serviceInfoError}
+                  onDraftChange={updateDraft}
+                  onPickPath={() => void pickExecutablePath()}
+                  onIconChange={source => void changeIcon(source)}
+                  onIconReset={() => void resetIconToDefault()}
+                  onStartHotkeyRecording={startHotkeyRecording}
+                  onCancelHotkeyRecording={cancelHotkeyRecording}
+                  onStartHostShortcutHotkeyRecording={startHostShortcutHotkeyRecording}
+                  onHostShortcutIconChange={(shortcutId, source) => void changeHostShortcutIcon(shortcutId, source)}
+                  onHostShortcutIconReset={resetHostShortcutIconToAppIcon}
+                  onHostShortcutHotkeyClear={clearHostShortcutHotkey}
+                  onReadHostShortcuts={() => void readHostShortcuts()}
+                  onServiceInfoSaved={() => void refreshServiceInfo(draft.path.trim())}
+                />
+              </Box>
             </>
           ) : (
-            <>
-              <TextField
-                label="快捷键（可选）"
-                value={hotkey}
-                size="small"
-                fullWidth
-                placeholder="点击录制然后按键"
-                InputProps={{ readOnly: true }}
-                helperText={hotkeyRecording ? '录制中…按 ESC 取消，按下组合键即可保存到输入框里。' : '点击开始录制，然后按下组合键。'}
-                sx={hostTextFieldSx}
-              />
-              <Stack direction="row" spacing={1}>
-                <Button variant={hotkeyRecording ? 'contained' : 'text'} sx={hostButtonSx} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
-                  {hotkeyRecording ? '录制中…' : '开始录制'}
-                </Button>
-                <Button variant="text" sx={hostButtonSx} onClick={() => setHotkey('')}>
-                  清空快捷键
-                </Button>
-              </Stack>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>快捷键启动方式</Typography>
-                <ToggleButtonGroup
-                  value={hotkeyLaunchBehavior}
-                  exclusive
-                  onChange={(_, v) => v && setHotkeyLaunchBehavior(v)}
-                  size="small"
-                  disabled={!hotkey.trim()}
-                  aria-label="快捷键启动方式"
-                  sx={hostToggleGroupSx}
-                >
-                  <ToggleButton value="launch">可启动未运行应用</ToggleButton>
-                  <ToggleButton value="runningOnly">仅控制已运行应用</ToggleButton>
-                </ToggleButtonGroup>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
-                  选择“仅控制已运行应用”后，应用未运行时按下快捷键不会唤醒或启动它。
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>显示模式</Typography>
-                <ToggleButtonGroup
-                  value={displayMode}
-                  exclusive
-                  onChange={(_, v) => v && setDisplayMode(v)}
-                  size="small"
-                  sx={hostToggleGroupSx}
-                >
-                  <ToggleButton value="default">默认</ToggleButton>
-                  <ToggleButton value="window">窗口</ToggleButton>
-                  <ToggleButton value="top">置顶</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-              {autoStartField}
-              <AppHostShortcutEditor
-                shortcuts={hostShortcuts}
-                candidateShortcuts={hostShortcutCandidates}
-                appIcon={icon}
-                appName={name}
-                disabled={saving}
-                changingShortcutIconId={changingHostShortcutIconId}
-                readingHostShortcuts={readingHostShortcuts}
-                canReadHostShortcuts={!!path.trim()}
-                onReadHostShortcuts={() => void readHostShortcuts()}
-                recordingShortcutId={recordingHostShortcutHotkeyId}
-                onChangeIcon={(shortcutId, source) => void changeHostShortcutIcon(shortcutId, source)}
-                onResetIcon={resetHostShortcutIconToAppIcon}
-                onStartHotkeyRecording={startHostShortcutHotkeyRecording}
-                onClearHotkey={clearHostShortcutHotkey}
-                onChange={nextShortcuts => {
-                  setHostShortcutsEdited(true)
-                  setHostShortcuts(nextShortcuts)
-                }}
-              />
-            </>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+              <Typography variant="body2" color="text.secondary">
+                从左侧选择一个应用，或添加新应用。
+              </Typography>
+            </Box>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={saving} onClick={closeEditDialog}>取消</Button>
-          <Button disabled={saving} onClick={() => void save()} variant="contained" sx={hostButtonSx}>保存</Button>
-        </DialogActions>
-      </Dialog>
+        </Box>
+      </Box>
 
       <Dialog open={!!removeConfirm} onClose={closeRemoveConfirm} fullWidth maxWidth="xs">
         <DialogTitle>{removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册应用'}</DialogTitle>
@@ -770,27 +689,6 @@ export default function AppRegistrationPanel({
           </Button>
         </DialogActions>
       </Dialog>
-    </>
-  )
-
-  if (embedded) {
-    return <Box>{content}</Box>
-  }
-
-  return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ pr: 6 }}>
-        注册管理
-        <IconButton aria-label="关闭" onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }} size="small">
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent>{content}</DialogContent>
-      <DialogActions>
-        <Button onClick={openAdd} variant="contained" size="small" sx={hostButtonSx}>
-          添加应用
-        </Button>
-      </DialogActions>
-    </Dialog>
+    </Box>
   )
 }

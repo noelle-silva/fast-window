@@ -64,6 +64,15 @@ const TAB_WEBVIEW = 6
 const TAB_ABOUT = 7
 const TAB_DEV = 8
 
+const hostPageFillSx = {
+  p: 2,
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  boxSizing: 'border-box',
+} as const
+
 function toast(message: string) {
   void hostToast(message)
 }
@@ -271,6 +280,7 @@ export default function SettingsView(props: {
   const toolbarSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'toolbar', dense: true })
   const itemSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'item' })
   const noticeSx = hostSurfaceSx(hostAppearance.surfaceMode, { tone: 'notice', dense: true })
+  const appRegistrationActive = tabIndex === TAB_APP_REGISTRATION
 
   const wallpaperBaseUrl = useMemo(() => convertFileSrc('wallpaper', 'wallpaper'), [])
   const wallpaperView: WallpaperView = useMemo(() => {
@@ -717,7 +727,7 @@ export default function SettingsView(props: {
     <Box sx={hostPageRootSx}>
       <HostPageHeader title="设置" onBack={onBack} translucent={hostAppearance.glassEnabled} />
 
-      <Box sx={hostPageScrollSx}>
+      <Box sx={appRegistrationActive ? hostPageFillSx : hostPageScrollSx}>
         <Box sx={toolbarSx}>
           <Tabs
             value={tabIndex}
@@ -1242,11 +1252,18 @@ export default function SettingsView(props: {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_APP_REGISTRATION} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
+      <Box
+        role="tabpanel"
+        hidden={tabIndex !== TAB_APP_REGISTRATION}
+        id="settings-tabpanel-4"
+        aria-labelledby="settings-tab-4"
+        sx={appRegistrationActive
+          ? { pt: 0.5, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
+          : { pt: 0.5 }}
+      >
         {tabIndex === TAB_APP_REGISTRATION ? (
-          <Box sx={panelSx}>
+          <Box sx={theme => ({ ...panelSx(theme), flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' })}>
             <AppRegistrationPanel
-              embedded
               apps={registeredApps}
               onAdd={onAddRegisteredApp}
               onReplace={onReplaceRegisteredApp}
