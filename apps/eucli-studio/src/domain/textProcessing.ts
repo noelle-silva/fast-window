@@ -1,5 +1,4 @@
 import { clamp } from '../core/utils'
-import { normalizeMessageAttachments } from './message'
 
 export function limitHistory(messages: any, maxTurns: number) {
   const list = Array.isArray(messages) ? messages : []
@@ -10,41 +9,6 @@ export function limitHistory(messages: any, maxTurns: number) {
 export function looksLikeImageDataUrl(s: any) {
   const t = String(s || '')
   return t.startsWith('data:image/')
-}
-
-export function escapeFence(s: string) {
-  return String(s || '').replaceAll('```', '``\u200b`')
-}
-
-export function buildUserTextForOpenAi(m: any) {
-  let base = String(m?.content || '').trim()
-  const atts = normalizeMessageAttachments(m?.attachments)
-  if (!atts.length) return base
-
-  if (atts.length === 1) {
-    const n = String(atts[0]?.name || '')
-    const defaultLabel = n ? `附件：${n}` : ''
-    if (defaultLabel && base === defaultLabel) base = ''
-  }
-
-  const blocks: string[] = []
-  for (const a of atts) {
-    const name = String(a?.name || '文件')
-    const fullLen = clamp(Number(a?.fullLen || 0), 0, 10_000_000)
-    const sendLen = clamp(Number(a?.sendLen || 0), 0, fullLen || 0)
-    const pct = clamp(Number(a?.sendPct ?? 100), 0, 100)
-    const lang = String(a?.lang || (String(a?.kind || '') === 'md' ? 'markdown' : 'text')) || 'text'
-    const raw = String(a?.text || '').trim()
-    if (!raw) continue
-    const snippet = escapeFence(raw)
-    const header = `附件：${name}（发送 ${pct}%：${sendLen}/${fullLen} 字符）`
-    blocks.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
-    if (blocks.length >= 20) break
-  }
-
-  const extra = blocks.join('\n\n').trim()
-  if (!extra) return base
-  return base ? `${base}\n\n${extra}`.trim() : extra
 }
 
 export function extractMermaidCodeFromAiReply(input: any) {

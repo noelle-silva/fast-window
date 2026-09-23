@@ -14,7 +14,6 @@ export function createChatOperations(deps: ChatOperationsDeps) {
   return {
     pickDraftImages: draftOperations.pickDraftImages,
     addDraftImagesFromFiles: draftOperations.addDraftImagesFromFiles,
-    addDraftFilesFromFiles: draftOperations.addDraftFilesFromFiles,
     sendChat: runOperations.sendChat,
     sendGroupChat: runOperations.sendGroupChat,
     stopSending: runOperations.stopSending,

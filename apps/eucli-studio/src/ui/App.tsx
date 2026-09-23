@@ -7,7 +7,7 @@ import { useFavoriteFolders } from './hooks/useFavoriteFolders'
 import { useMessageActions } from './hooks/useMessageActions'
 import { useChatTree } from './hooks/useChatTree'
 import { useChatSending, type SendPathAnchor, emptySendPathAnchor } from './hooks/useChatSending'
-import { useComposerAttachments } from './hooks/useComposerAttachments'
+import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
 import { useSessionRunObservations } from './hooks/useSessionRunObservations'
@@ -56,7 +56,7 @@ import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
 import { ChatComposer } from './composer/ChatComposer'
 import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
-import { ComposerAttachmentsPopovers } from './composer/ComposerAttachmentsPopovers'
+import { ComposerImagePickerPopover } from './composer/ComposerImagePickerPopover'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
 
 type SettingsTab = SettingsTabValue
@@ -319,24 +319,17 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setFavoriteSearchText,
   })
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
-  const draftFilePickerInputRef = React.useRef<HTMLInputElement | null>(null)
   const roleSessionControlsEnabled = activeTargetKind !== 'group' && !!activeRole
 
   const {
-    attachmentPickerEl,
-    closeAttachmentPicker,
-    openAttachmentPicker,
+    imagePickerEl,
+    closeImagePicker,
+    openImagePicker,
     onPickDraftImages,
-    onPickDraftFiles,
-    onPickFilesChanged,
-    fileAdjust,
-    closeFileAdjust,
-    openFileAdjust,
     onPaste,
-  } = useComposerAttachments({
+  } = useComposerImagePicker({
     controller,
     loading: !!s.loading,
-    draftFilePickerInputRef,
   })
 
   const onTopbarPointerDown = useEvent((e: React.PointerEvent) => {
@@ -574,10 +567,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
 
 
-  const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
-  const hasDraftFiles = draftFiles.length > 0
-  const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
-
   const activeRoleId = String(activeRole?.id || '')
   const chatNav = (() => {
     const loading = !!s.loading
@@ -725,7 +714,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setTreeSelectedMid,
     treeSelectedMid,
     branchDraft,
-    draftFilesPending,
     stickToBottomRef,
   })
   const {
@@ -783,14 +771,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     autoScrollBlockUntilRef,
     treeSuppressClickRef,
   })
-  const fileAdjustItem = fileAdjust.id ? draftFiles.find((x: any) => String(x?.id || '') === String(fileAdjust.id || '')) : null
-  const fileAdjustName = String(fileAdjustItem?.name || '文件')
-  const fileAdjustPending = !!fileAdjustItem?.pending
-  const fileAdjustError = String(fileAdjustItem?.error || '').trim()
-  const fileAdjustRaw = String(fileAdjustItem?.text || '').trim()
-  const fileAdjustFullLen = fileAdjustRaw.length
-  const fileAdjustPct = clampNum(Math.round(Number(fileAdjustItem?.sendPct ?? 100)), 0, 100)
-  const fileAdjustSendLen = Math.max(0, Math.ceil((fileAdjustFullLen * fileAdjustPct) / 100))
 
   return (
     <ThemeProvider theme={theme}>
@@ -974,24 +954,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
               )}
              </CustomScrollArea>
 
-             <ComposerAttachmentsPopovers
-               controller={controller}
+             <ComposerImagePickerPopover
                loading={!!s.loading}
                activeRole={activeRole}
-               attachmentPickerEl={attachmentPickerEl}
-               closeAttachmentPicker={closeAttachmentPicker}
+               imagePickerEl={imagePickerEl}
+               closeImagePicker={closeImagePicker}
                onPickDraftImages={onPickDraftImages}
-               onPickDraftFiles={onPickDraftFiles}
-               fileAdjust={fileAdjust}
-               closeFileAdjust={closeFileAdjust}
-               fileAdjustName={fileAdjustName}
-               fileAdjustItem={fileAdjustItem}
-               fileAdjustPending={fileAdjustPending}
-               fileAdjustError={fileAdjustError}
-               fileAdjustFullLen={fileAdjustFullLen}
-               fileAdjustSendLen={fileAdjustSendLen}
-               fileAdjustPct={fileAdjustPct}
-               fileAdjustRaw={fileAdjustRaw}
              />
 
               <MessageMenusDialogs
@@ -1074,8 +1042,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 composerBlur={composerBlur}
                 draft={s.draft}
                 activeSessionComposerDraftKey={String((s as any).activeSessionComposerDraftKey || '')}
-                draftFilePickerInputRef={draftFilePickerInputRef}
-                onPickFilesChanged={onPickFilesChanged}
                 composerInputRef={composerInputRef}
                 activeTargetKind={activeTargetKind}
                 activeChatTargetId={String(activeChatTargetId || '')}
@@ -1084,11 +1050,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 activeGroup={activeGroup}
                 roles={roles}
                 activeStopRunId={activeStopRunId}
-                draftFilesPending={draftFilesPending}
-                hasDraftFiles={hasDraftFiles}
                 formatModelRefText={formatModelRefText}
-                openFileAdjust={openFileAdjust}
-                openAttachmentPicker={openAttachmentPicker}
+                openImagePicker={openImagePicker}
                 hookPrompts={hookPrompts}
                 activeHookPromptMode={activeHookPromptMode as any}
                 activeHookPromptPresetId={activeHookPromptPresetId}

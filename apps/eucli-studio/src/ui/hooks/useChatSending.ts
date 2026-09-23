@@ -28,7 +28,6 @@ export function useChatSending(deps: {
   setTreeSelectedMid: React.Dispatch<React.SetStateAction<string>>
   treeSelectedMid: string
   branchDraft: any
-  draftFilesPending: boolean
   stickToBottomRef: React.MutableRefObject<boolean>
 }) {
   const {
@@ -43,7 +42,6 @@ export function useChatSending(deps: {
     setTreeSelectedMid,
     treeSelectedMid,
     branchDraft,
-    draftFilesPending,
     stickToBottomRef,
   } = deps
 
@@ -103,7 +101,6 @@ export function useChatSending(deps: {
     controller.actions.send()
   })
   const onSend = useEvent(() => {
-    if (draftFilesPending) return controller?.capabilities?.ui?.showToast?.('文件解析中，请稍候…')
     sendFromComposer()
   })
   const onStop = useEvent(() => controller.actions.stop?.(activeStopRunId))

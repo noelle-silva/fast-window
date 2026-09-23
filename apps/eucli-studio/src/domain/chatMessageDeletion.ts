@@ -98,27 +98,8 @@ export function planDeleteSingleMessage(messages: any[], messageId: any, target:
   const targetParentMid = parentMessageIdOf(target)
   const deletedMessageIds = new Set<string>([mid])
   const deletedMessageParentById: Record<string, string> = { [mid]: targetParentMid }
-  const groupId = String((target as any)?.groupId || '').trim()
-  const groupRole = String((target as any)?.groupRole || '').trim()
-  const rootMid = messageIdOf(target)
 
-  const remainingMessages =
-    target?.role === 'user' && groupId && groupRole === 'root'
-      ? messages.filter((message: any) => {
-          if (!message || typeof message !== 'object') return true
-          const id = messageIdOf(message)
-          if (id === mid) return false
-          if (String(message?.role || '') !== 'user') return true
-          if (String((message as any)?.groupId || '').trim() !== groupId) return true
-          if (String((message as any)?.groupRole || '').trim() !== 'attachment') return true
-          if (String((message as any)?.groupParentMid || '').trim() !== rootMid) return true
-          if (id) {
-            deletedMessageIds.add(id)
-            deletedMessageParentById[id] = parentMessageIdOf(message)
-          }
-          return false
-        })
-      : messages.filter((message: any) => messageIdOf(message) !== mid)
+  const remainingMessages = messages.filter((message: any) => messageIdOf(message) !== mid)
 
   const nextMessages = remainingMessages.map((message: any) => {
     if (!message || typeof message !== 'object') return message
@@ -158,25 +139,6 @@ export function planDeleteMessageSubtree(messages: any[], rootMessageId: any): D
     deletedMessageIds.add(current)
     for (const childId of children.get(current) || []) {
       if (childId && !deletedMessageIds.has(childId)) stack.push(childId)
-    }
-  }
-
-  for (const id of Array.from(deletedMessageIds)) {
-    const message = oldById.get(id) || null
-    if (!message || String(message?.role || '') !== 'user') continue
-    const groupId = String((message as any)?.groupId || '').trim()
-    const groupRole = String((message as any)?.groupRole || '').trim()
-    if (!groupId || groupRole !== 'root') continue
-    const groupRootMid = messageIdOf(message)
-
-    for (const candidate of messages) {
-      if (!candidate || typeof candidate !== 'object') continue
-      if (String(candidate?.role || '') !== 'user') continue
-      if (String((candidate as any)?.groupId || '').trim() !== groupId) continue
-      if (String((candidate as any)?.groupRole || '').trim() !== 'attachment') continue
-      if (String((candidate as any)?.groupParentMid || '').trim() !== groupRootMid) continue
-      const candidateId = messageIdOf(candidate)
-      if (candidateId) deletedMessageIds.add(candidateId)
     }
   }
 

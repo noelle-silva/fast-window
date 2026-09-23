@@ -5,7 +5,6 @@ export const SESSION_FAVORITES_KEY = 'sessions/favorites'
 export const STICKERS_KEY = 'stickers/index'
 
 export const MAX_DRAFT_IMAGES = 8
-export const MAX_DRAFT_FILES = 6
 export const DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES = 15
 export const CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN = 1
 export const CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX = 100
@@ -42,8 +41,7 @@ export const DEFAULT_STICKER_NAMING_SYSTEM_PROMPT = `你是“表情包取名助
 - 不要包含 / 或 \\ 或 ] 或换行
 - 尽量不超过 12 个汉字`
 
-export const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx', 'ppt'])
-export const CHAT_MSG_GROUP_ROLES = new Set(['root', 'attachment'])
+export const CHAT_MSG_GROUP_ROLES = new Set(['root'])
 export const CHAT_BRANCHING_SCHEMA_VERSION = 1
 export const CHAT_DEFAULT_BRANCH_ID = 'main'
 export const CHAT_DEFAULT_BRANCH_NAME = '主线'

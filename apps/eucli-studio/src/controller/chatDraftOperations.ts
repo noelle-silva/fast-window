@@ -1,20 +1,17 @@
-import { clamp, uid } from '../core/utils'
-import { MAX_DRAFT_IMAGES, MAX_DRAFT_FILES } from '../domain/constants'
+import { uid } from '../core/utils'
+import { MAX_DRAFT_IMAGES } from '../domain/constants'
 import { looksLikeImageDataUrl } from '../domain/textProcessing'
-import { detectDraftFileKind, addDraftFilePlaceholder } from '../domain/draftFileUtils'
-import type { DraftFileItem } from '../domain/draftFileUtils'
 import {
   activeComposerDraftKey,
   activateComposerDraftForCurrentSession,
   readComposerDraftByKey,
-  setComposerDraftFilesByKey,
   setComposerDraftImagesByKey,
 } from '../domain/sessionComposerDrafts'
 import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatDraftOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps } = shared
-  const { getState, pickImageFiles, showToast, emit, renderComposer, readImageFileAsDataUrl } = deps
+  const { getState, pickImageFiles, showToast, renderComposer, readImageFileAsDataUrl } = deps
 
   function addDraftImage(name: any, dataUrl: any, draftKeyRaw?: any) {
     const state = getState()
@@ -85,64 +82,19 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
     renderComposer()
   }
 
-  async function addDraftFilesFromFiles(files: File[]) {
-    const state = getState()
-    if (state.loading) return
-    const list = Array.isArray(files) ? files.filter((f) => f instanceof File) : []
-    if (!list.length) return
-    const draftKey = activeComposerDraftKey(state)
-    if (!draftKey) return showToast?.('请先选择会话', { kind: 'error' })
-    activateComposerDraftForCurrentSession(state)
-    const draft = readComposerDraftByKey(state, draftKey)
-    const left = Math.max(0, MAX_DRAFT_FILES - draft.files.length)
-    if (!left) return showToast?.(`最多选择 ${MAX_DRAFT_FILES} 个文件`, { kind: 'error' })
-
-    let added = 0
-    for (const f of list.slice(0, left)) {
-      const kind = detectDraftFileKind(f)
-      if (!kind) {
-        showToast?.(`不支持的文件：${String(f?.name || '文件')}`, { kind: 'error' })
-        continue
-      }
-      const nextFiles = readComposerDraftByKey(state, draftKey).files.slice()
-      const it = addDraftFilePlaceholder(nextFiles, f, kind)
-      if (!it) break
-      setComposerDraftFilesByKey(state, draftKey, nextFiles)
-      added++
-      emit()
-    }
-    if (!added) showToast?.('未选择文件', { kind: 'error' })
-    emit()
-  }
-
-  function buildRunAttachments(draftImages: any[], draftFiles: DraftFileItem[]) {
-    const attachments: any[] = []
+  function buildRunImages(draftImages: any[]) {
+    const list: any[] = []
     for (const image of draftImages) {
       const dataUrl = String(image?.dataUrl || '').trim()
       if (!looksLikeImageDataUrl(dataUrl)) throw new Error(`图片无效：${String(image?.name || '图片')}`)
-      attachments.push({ kind: 'image', name: String(image?.name || '图片'), dataUrl })
+      list.push({ kind: 'image', name: String(image?.name || '图片'), dataUrl })
     }
-
-    for (const file of draftFiles) {
-      const name = String(file?.name || '文件')
-      if (file?.pending) throw new Error('文件解析中，请稍候…')
-      const error = String(file?.error || '').trim()
-      if (error) throw new Error(`${name} 解析失败：${error}`)
-      const raw = String(file?.text || '').trim()
-      if (!raw) throw new Error(`${name} 未提取到可发送文本`)
-      const sendPct = clamp(Math.round(Number(file?.sendPct ?? 100)), 0, 100)
-      const fullLen = raw.length
-      const sendLen = Math.max(0, Math.ceil((fullLen * sendPct) / 100))
-      if (sendLen <= 0) throw new Error(`${name} 的发送内容为空`)
-      attachments.push({ kind: String(file?.kind || 'txt'), name, lang: String(file?.kind || '') === 'md' ? 'markdown' : 'text', text: raw.slice(0, sendLen), fullLen, sendLen, sendPct })
-    }
-    return attachments
+    return list
   }
 
   return {
     pickDraftImages,
     addDraftImagesFromFiles,
-    addDraftFilesFromFiles,
-    buildRunAttachments,
+    buildRunImages,
   }
 }

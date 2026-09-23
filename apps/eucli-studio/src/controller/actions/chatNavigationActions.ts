@@ -1,9 +1,7 @@
-import { clamp } from '../../core/utils'
-import { removeDraftFile, removeDraftImage as removeDraftImageFromList } from '../../domain/draftFileUtils'
+import { removeDraftImage as removeDraftImageFromList } from '../../domain/draftImageUtils'
 import {
   activateComposerDraftForCurrentSession,
   saveActiveComposerDraftMirror,
-  setActiveComposerFiles,
   setActiveComposerImages,
   setActiveComposerInput,
 } from '../../domain/sessionComposerDrafts'
@@ -21,9 +19,8 @@ export function createChatNavigationActions(deps: {
   pickChatForActiveTarget: (chatId: any) => any
   pickDraftImages: () => any
   addDraftImagesFromFiles: (files: File[]) => any
-  addDraftFilesFromFiles: (files: File[]) => any
 }) {
-  const { state, emit, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles, addDraftFilesFromFiles } = deps
+  const { state, emit, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
 
   return {
     setActiveRole: (roleId: any) => {
@@ -81,27 +78,9 @@ export function createChatNavigationActions(deps: {
       setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
       emit()
     },
-    removeDraftFile: (id: any) => {
-      const draft = activateComposerDraftForCurrentSession(state)
-      setActiveComposerFiles(state, removeDraftFile(draft.files, String(id || '')))
-      emit()
-    },
-    setDraftFileSendPct: (id: any, pct: any) => {
-      const rid = String(id || '')
-      if (!rid) return
-      const draft = activateComposerDraftForCurrentSession(state)
-      const it = draft.files.find((x: any) => String(x?.id || '') === rid)
-      if (!it) return
-      it.sendPct = clamp(Math.round(Number(pct ?? 100)), 0, 100)
-      setActiveComposerFiles(state, draft.files)
-      emit()
-    },
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: async (files: any) => {
       await addDraftImagesFromFiles(Array.isArray(files) ? files : [])
-    },
-    addDraftFilesFromFiles: async (files: any) => {
-      await addDraftFilesFromFiles(Array.isArray(files) ? files : [])
     },
   }
 }

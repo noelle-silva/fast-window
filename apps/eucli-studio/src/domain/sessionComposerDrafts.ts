@@ -12,7 +12,6 @@ export type ComposerDraftAddress = {
 export type SessionComposerDraft = {
   input: string
   images: any[]
-  files: any[]
 }
 
 const NEW_CHAT_ID = '__new__'
@@ -69,14 +68,13 @@ export function activeComposerDraftKey(state: any) {
 }
 
 function emptyComposerDraft(): SessionComposerDraft {
-  return { input: '', images: [], files: [] }
+  return { input: '', images: [] }
 }
 
 function normalizeComposerDraft(value: any): SessionComposerDraft {
   const draft = value && typeof value === 'object' ? value : emptyComposerDraft()
   draft.input = String(draft.input || '')
   if (!Array.isArray(draft.images)) draft.images = []
-  if (!Array.isArray(draft.files)) draft.files = []
   return draft as SessionComposerDraft
 }
 
@@ -91,7 +89,6 @@ function mirrorDraftFromState(state: any): SessionComposerDraft {
   return {
     input: String((draft as any).input || ''),
     images: Array.isArray((draft as any).images) ? (draft as any).images : [],
-    files: Array.isArray((draft as any).files) ? (draft as any).files : [],
   }
 }
 
@@ -101,11 +98,10 @@ function assignMirrorDraft(state: any, draftRaw: SessionComposerDraft) {
   const draft = normalizeComposerDraft(draftRaw)
   state.draft.input = draft.input
   state.draft.images = draft.images
-  state.draft.files = draft.files
 }
 
 function hasComposerDraftContent(draft: SessionComposerDraft) {
-  return !!String(draft.input || '').trim() || draft.images.length > 0 || draft.files.length > 0
+  return !!String(draft.input || '').trim() || draft.images.length > 0
 }
 
 function ensureDraftForKey(state: any, key: string) {
@@ -162,17 +158,6 @@ export function readComposerDraftByKey(state: any, keyRaw: unknown): SessionComp
   return normalizeComposerDraft(store[key])
 }
 
-export function setComposerDraftFilesByKey(state: any, keyRaw: unknown, files: any[]) {
-  const key = text(keyRaw)
-  if (!key) return emptyComposerDraft()
-  const store = ensureComposerDraftStore(state)
-  const draft = normalizeComposerDraft(store[key])
-  draft.files = Array.isArray(files) ? files : []
-  store[key] = draft
-  if (text(state?.activeSessionComposerDraftKey) === key) assignMirrorDraft(state, draft)
-  return draft
-}
-
 export function setComposerDraftImagesByKey(state: any, keyRaw: unknown, images: any[]) {
   const key = text(keyRaw)
   if (!key) return emptyComposerDraft()
@@ -198,18 +183,10 @@ export function setActiveComposerImages(state: any, images: any[]) {
   return draft
 }
 
-export function setActiveComposerFiles(state: any, files: any[]) {
-  const draft = activateComposerDraftForCurrentSession(state)
-  draft.files = Array.isArray(files) ? files : []
-  assignMirrorDraft(state, draft)
-  return draft
-}
-
 export function clearActiveComposerDraft(state: any) {
   const draft = activateComposerDraftForCurrentSession(state)
   draft.input = ''
   draft.images = []
-  draft.files = []
   assignMirrorDraft(state, draft)
   return draft
 }

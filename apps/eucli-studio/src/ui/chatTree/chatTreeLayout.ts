@@ -39,9 +39,7 @@ export function buildChatTreeLayout(messagesRaw: any[], opts?: { maxNodes?: numb
       const parentMid = String((m as any)?.parentMid || '').trim()
       const createdAt = Number(m?.createdAt || 0)
       const branchId = String((m as any)?.branchId || '').trim()
-      const groupRole = String((m as any)?.groupRole || '').trim()
-      if (groupRole === 'attachment') return null
-      return { id, role, content, parentMid, createdAt, branchId, groupRole }
+      return { id, role, content, parentMid, createdAt, branchId }
     })
     .filter(Boolean) as any[]
 

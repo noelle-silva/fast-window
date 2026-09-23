@@ -21,7 +21,6 @@ import {
   readActiveComposerDraft,
   readComposerDraftByKey,
 } from '../domain/sessionComposerDrafts'
-import type { DraftFileItem } from '../domain/draftFileUtils'
 import { buildGroupSpeakerPlan } from '../domain/groupSpeakerPlan'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { cancelRoleRun, pollRunUntilTerminal, runStateFailureError, startRoleRun } from './ebRoleRun'
@@ -31,11 +30,11 @@ import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatRunOperations(
   shared: ReturnType<typeof createChatOperationsShared>,
-  draftOperations: { buildRunAttachments: (draftImages: any[], draftFiles: DraftFileItem[]) => any[] },
+  draftOperations: { buildRunImages: (draftImages: any[]) => any[] },
 ) {
   const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed } = shared
   const { getState, netRequest, showToast, ensureActiveChatLoaded, render, renderComposer, scrollToBottomSoon } = deps
-  const { buildRunAttachments } = draftOperations
+  const { buildRunImages } = draftOperations
 
   function workspaceTargetId(workspaceIdRaw: unknown, roleIdRaw?: unknown) {
     const roleId = String(roleIdRaw || sa.activeRole()?.id || '').trim()
@@ -557,14 +556,12 @@ export function createChatRunOperations(
     const composerDraft = draftKey ? readComposerDraftByKey(state, draftKey) : readActiveComposerDraft(state)
     const input = String(composerDraft.input || '').trim()
     const draftImages = Array.isArray(composerDraft.images) ? composerDraft.images : []
-    const draftFiles: DraftFileItem[] = Array.isArray(composerDraft.files) ? (composerDraft.files as any[]) : []
-    const hasFiles = draftFiles.length > 0
-    if (!input && !draftImages.length && !hasFiles) return showToast?.('输入不能为空', { kind: 'error' })
+    if (!input && !draftImages.length) return showToast?.('输入不能为空', { kind: 'error' })
     let attachments: any[] = []
     try {
-      attachments = buildRunAttachments(draftImages, draftFiles)
+      attachments = buildRunImages(draftImages)
     } catch (e) {
-      return showToast?.(String((e as any)?.message || e || '附件无效'), { kind: 'error' })
+      return showToast?.(String((e as any)?.message || e || '图片无效'), { kind: 'error' })
     }
 
     const rid = String(role.id || '')
@@ -626,15 +623,13 @@ export function createChatRunOperations(
     const composerDraft = draftKey ? readComposerDraftByKey(state, draftKey) : readActiveComposerDraft(state)
     const input = String(composerDraft.input || '').trim()
     const draftImages = Array.isArray(composerDraft.images) ? composerDraft.images : []
-    const draftFiles: DraftFileItem[] = Array.isArray(composerDraft.files) ? (composerDraft.files as any[]) : []
-    const hasFiles = draftFiles.length > 0
-    if (!input && !draftImages.length && !hasFiles) return showToast?.('输入不能为空', { kind: 'error' })
+    if (!input && !draftImages.length) return showToast?.('输入不能为空', { kind: 'error' })
 
     let attachments: any[] = []
     try {
-      attachments = buildRunAttachments(draftImages, draftFiles)
+      attachments = buildRunImages(draftImages)
     } catch (e) {
-      return showToast?.(String((e as any)?.message || e || '附件无效'), { kind: 'error' })
+      return showToast?.(String((e as any)?.message || e || '图片无效'), { kind: 'error' })
     }
 
     const groupId = String(group.id || '').trim()

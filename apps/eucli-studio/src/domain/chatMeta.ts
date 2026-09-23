@@ -103,8 +103,6 @@ function messagePreview(message: any): string {
   }
   const images = Array.isArray(message.images) ? message.images : []
   if (images.length) return '图片'
-  const attachments = Array.isArray(message.attachments) ? message.attachments : []
-  if (attachments.length) return '文件'
   return ''
 }
 

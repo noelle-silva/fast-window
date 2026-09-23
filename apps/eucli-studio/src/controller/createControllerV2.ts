@@ -9,10 +9,9 @@ import {
   DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
 } from '../domain/constants'
-import { removeDraftFile, removeDraftImage as removeDraftImageFromList } from '../domain/draftFileUtils'
+import { removeDraftImage as removeDraftImageFromList } from '../domain/draftImageUtils'
 import {
   activateComposerDraftForCurrentSession,
-  setActiveComposerFiles,
   setActiveComposerImages,
   setActiveComposerInput,
 } from '../domain/sessionComposerDrafts'
@@ -729,7 +728,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const {
     pickDraftImages,
     addDraftImagesFromFiles,
-    addDraftFilesFromFiles,
     sendChat,
     stopSending,
     regenerateAssistantMessage,
@@ -825,15 +823,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
       emit()
     },
-    removeDraftFile: (id: string) => {
-      const draft = activateComposerDraftForCurrentSession(state)
-      setActiveComposerFiles(state, removeDraftFile(draft.files, String(id || '')))
-      emit()
-    },
     sendChat: () => sendChat(),
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: (files: any) => addDraftImagesFromFiles(Array.isArray(files) ? files : []),
-    addDraftFilesFromFiles: (files: any) => addDraftFilesFromFiles(Array.isArray(files) ? files : []),
     stop: () => stopSending().catch(() => {}),
     clearChatModelOverride: () => {},
     setChatModelOverride: () => {},
@@ -991,7 +983,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     pickChatForActiveTarget,
     pickDraftImages,
     addDraftImagesFromFiles,
-    addDraftFilesFromFiles,
   })
   const chatInteractionActions = createChatInteractionActions({
     state,

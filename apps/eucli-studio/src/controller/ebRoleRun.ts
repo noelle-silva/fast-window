@@ -69,7 +69,7 @@ export async function startRoleRun(netRequest: EbNetRequest, input: { roleId: st
   const hasContextMessageId = !!body.contextMessageId
   if ([hasMessage, hasUserMessageId, hasContextMessageId].filter(Boolean).length !== 1) throw new Error('必须且只能指定输入内容、用户消息或上下文消息')
   if (body.parentMessageId && (hasUserMessageId || hasContextMessageId)) throw new Error('父消息不能和用户消息或上下文消息同时指定')
-  if ((hasUserMessageId || hasContextMessageId) && hasAttachments) throw new Error('从已有消息继续生成时不能携带新附件')
+  if ((hasUserMessageId || hasContextMessageId) && hasAttachments) throw new Error('从已有消息继续生成时不能携带新图片')
   if (body.parentMessageId && !body.sessionId) throw new Error('会话无效')
   if ((hasUserMessageId || hasContextMessageId) && !body.sessionId) throw new Error('会话无效')
   if (!body.parentMessageId) delete (body as any).parentMessageId

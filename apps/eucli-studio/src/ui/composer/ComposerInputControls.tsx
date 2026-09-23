@@ -25,7 +25,6 @@ export function ComposerInputControls(props: {
   initialValue: string
   inputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   disabled: boolean
-  draftFilesPending: boolean
   hasDraftNonText: boolean
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeGroup: any
@@ -43,7 +42,6 @@ export function ComposerInputControls(props: {
     initialValue,
     inputRef,
     disabled,
-    draftFilesPending,
     hasDraftNonText,
     activeTargetKind,
     activeGroup,
@@ -253,7 +251,7 @@ export function ComposerInputControls(props: {
     }
   })
 
-  const sendDisabled = disabled || draftFilesPending || (!String(value || '').trim() && !hasDraftNonText)
+  const sendDisabled = disabled || (!String(value || '').trim() && !hasDraftNonText)
 
   return (
     <>

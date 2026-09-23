@@ -3,7 +3,7 @@ import { defaultModelRequestConfigState } from './modelRequestConfig'
 import { emptyRoleToolPolicy } from '../domain/toolPolicy'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
-import type { DraftFileItem, DraftImageItem } from '../domain/draftFileUtils'
+import type { DraftImageItem } from '../domain/draftImageUtils'
 
 export function createInitialControllerState() {
   return {
@@ -30,7 +30,6 @@ export function createInitialControllerState() {
     draft: {
       input: '',
       images: [] as DraftImageItem[],
-      files: [] as DraftFileItem[],
       activeTargetKind: 'role' as string,
       activeRoleId: '',
       activeGroupId: '',

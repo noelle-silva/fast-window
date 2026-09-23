@@ -2,7 +2,6 @@ import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText } from '../../domain/chatMessageDisplay'
-import { chatMessageMaterialKind } from '../../domain/message'
 import { formatTokenEstimate, formatTokenEstimateShort, sumMessageTokenEstimate } from '../../domain/messageTokenUsage'
 
 type TargetKind = 'role' | 'group' | 'workspace'
@@ -132,11 +131,6 @@ export function useChatMessageView(deps: {
       if (!m) continue
       const hasActiveRun = !!activeRunCardForMessage(m) && isAssistantGenerating(m)
       if (isStaleAssistantPlaceholder(m, hasActiveRun)) continue
-      if (chatMessageMaterialKind(m) !== 'user') {
-        out.push(m)
-        continue
-      }
-      if (String(m?.groupRole || '') === 'attachment' && String(m?.groupParentMid || '').trim()) continue
       out.push(m)
     }
     return out

@@ -1,10 +1,9 @@
 import * as React from 'react'
-import { Box, Button, Chip, CircularProgress, IconButton, Stack, Tooltip } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, Stack, Tooltip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import CloseIcon from '@mui/icons-material/Close'
 import { HookPromptSelector } from '../components/HookPromptSelector'
-import { clampNum } from '../utils/numbers'
 import { ComposerInputControls } from './ComposerInputControls'
 
 const composerToolIconButtonSx = {
@@ -51,8 +50,6 @@ export function ChatComposer(props: {
   composerBlur: number
   draft: any
   activeSessionComposerDraftKey: string
-  draftFilePickerInputRef: React.MutableRefObject<HTMLInputElement | null>
-  onPickFilesChanged: (e: React.ChangeEvent<HTMLInputElement>) => void
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeChatTargetId: string
@@ -61,11 +58,8 @@ export function ChatComposer(props: {
   activeGroup: any
   roles: any[]
   activeStopRunId: string
-  draftFilesPending: boolean
-  hasDraftFiles: boolean
   formatModelRefText: (modelRef: any) => string
-  openFileAdjust: (e: React.MouseEvent<HTMLElement>, fileId: string) => void
-  openAttachmentPicker: (e: React.MouseEvent<HTMLElement>) => void
+  openImagePicker: (e: React.MouseEvent<HTMLElement>) => void
   hookPrompts: any
   activeHookPromptMode: 'none' | 'preset' | 'inherit'
   activeHookPromptPresetId: string
@@ -108,8 +102,6 @@ export function ChatComposer(props: {
     composerBlur,
     draft,
     activeSessionComposerDraftKey,
-    draftFilePickerInputRef,
-    onPickFilesChanged,
     composerInputRef,
     activeTargetKind,
     activeChatTargetId,
@@ -118,11 +110,8 @@ export function ChatComposer(props: {
     activeGroup,
     roles,
     activeStopRunId,
-    draftFilesPending,
-    hasDraftFiles,
     formatModelRefText,
-    openFileAdjust,
-    openAttachmentPicker,
+    openImagePicker,
     hookPrompts,
     activeHookPromptMode,
     activeHookPromptPresetId,
@@ -196,55 +185,13 @@ export function ChatComposer(props: {
           </Stack>
         ) : null}
 
-        {Array.isArray((draft as any)?.files) && (draft as any).files.length ? (
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            {(draft as any).files.map((f: any) => {
-              const id = String(f?.id || '')
-              const name = String(f?.name || '文件')
-              const pending = !!f?.pending
-              const err = String(f?.error || '').trim()
-              const pct0 = Math.round(Number(f?.sendPct ?? 100))
-              const pct = clampNum(pct0, 0, 100)
-              const label = pending
-                ? `${name}（解析中…）`
-                : err
-                  ? `${name}（失败）`
-                  : pct < 100
-                    ? `${name}（${pct}%）`
-                    : name
-              return (
-                <Chip
-                  key={id || name}
-                  size="small"
-                  label={label}
-                  variant="outlined"
-                  color={err ? 'error' : 'default'}
-                  onClick={id ? (e) => openFileAdjust(e as any, id) : undefined}
-                  onDelete={id ? () => controller.actions.removeDraftFile?.(id) : undefined}
-                  sx={{ maxWidth: 320 }}
-                />
-              )
-            })}
-          </Stack>
-        ) : null}
-
-        <input
-          ref={draftFilePickerInputRef}
-          hidden
-          type="file"
-          multiple
-          accept=".txt,.md,.pdf,.docx,.ppt,.pptx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-          onChange={onPickFilesChanged}
-        />
-
         <ComposerInputControls
           controller={controller}
           draftKey={String(activeSessionComposerDraftKey || `${activeTargetKind}:${activeChatTargetId}:${activeChatId || '__new__'}`)}
           initialValue={String(draft?.input || '')}
           inputRef={composerInputRef}
           disabled={loading || !activeRole}
-          draftFilesPending={draftFilesPending}
-          hasDraftNonText={!!((draft?.images || []).length || hasDraftFiles)}
+          hasDraftNonText={!!(draft?.images || []).length}
           activeTargetKind={activeTargetKind}
           activeGroup={activeGroup}
           roles={roles}
@@ -252,11 +199,11 @@ export function ChatComposer(props: {
           formatModelRefText={formatModelRefText}
           toolbarStart={(
             <>
-              <Tooltip title="添加图片或文件">
+              <Tooltip title="添加图片">
                 <span>
                   <IconButton
-                    aria-label="添加图片或文件"
-                    onClick={openAttachmentPicker}
+                    aria-label="添加图片"
+                    onClick={openImagePicker}
                     disabled={loading || !activeRole}
                     size="small"
                     sx={composerToolIconButtonSx}
