@@ -1,4 +1,4 @@
-export type SettingsTabValue = 'appearance' | 'attachments' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access'
+export type SettingsTabValue = 'appearance' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access'
 
 export type SettingsNavigationItem = {
   value: SettingsTabValue
@@ -19,7 +19,6 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'services', label: 'AI 微服务' },
   { value: 'eb', label: 'eucli-box连接设置' },
   { value: 'appearance', label: '客户端外观' },
-  { value: 'attachments', label: '附件' },
   { value: 'stickers', label: '表情包' },
   { value: 'commandSystem', label: '命令系统管理' },
   { value: 'access', label: '端口开放设置' },

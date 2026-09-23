@@ -1,17 +1,8 @@
 import * as React from 'react'
-import {
-  Box,
-  InputAdornment,
-  Slider,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { clampNum } from '../utils/numbers'
+import { Typography } from '@mui/material'
 import { TOPBAR_H } from '../appConstants'
 import { SettingsPageLayout } from './SettingsPageLayout'
 import type { SettingsTabValue } from './settingsNavigation'
-import { SettingsSurface } from './SettingsSurfaces'
 import { AiServicesSettingsPanel } from './AiServicesSettingsPanel'
 import { AppearanceSettingsPanel } from './AppearanceSettingsPanel'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
@@ -86,126 +77,9 @@ export function PluginSettingsPage(props: {
     )
   }
 
-  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
-  const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
-  const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
-  const attachMaxFileSizeMbTxt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.txt ?? 10), 0, 2048)
-  const attachMaxFileSizeMbMd = clampNum(Number((attachMaxFileSizeMbByKind as any)?.md ?? 10), 0, 2048)
-  const attachMaxFileSizeMbPdf = clampNum(Number((attachMaxFileSizeMbByKind as any)?.pdf ?? 10), 0, 2048)
-  const attachMaxFileSizeMbDocx = clampNum(Number((attachMaxFileSizeMbByKind as any)?.docx ?? 10), 0, 2048)
-  const attachMaxFileSizeMbPpt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.ppt ?? 10), 0, 2048)
-
   if (tab === 'appearance') {
     return wrapSettingsPanel(
       <AppearanceSettingsPanel controller={controller} loading={loading} data={data} />,
-    )
-  }
-
-  if (tab === 'attachments') {
-    return wrapSettingsPanel(
-        <SettingsSurface>
-          <Stack spacing={1.25}>
-            <Typography sx={{ fontWeight: 900 }}>附件</Typography>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  单文件长度阈值
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(attachSendLimitChars)} 字符
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={attachSendLimitChars}
-                min={1000}
-                max={2000000}
-                step={5000}
-                onChange={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, true)}
-                disabled={loading}
-              />
-              <Typography variant="caption" color="text.secondary">
-                当任一附件“实际发送长度”超过该阈值，点击发送会弹出确认提醒；可在输入栏的附件条目里单独调节“发送百分比”。
-              </Typography>
-            </Box>
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  单文件大小上限
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  MB（0 表示不限制）
-                </Typography>
-              </Stack>
-
-              <Stack spacing={1} sx={{ mt: 1 }}>
-                <TextField
-                  size="small"
-                  label="TXT"
-                  type="number"
-                  value={String(Math.round(attachMaxFileSizeMbTxt))}
-                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('txt', e.target.value, false)}
-                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('txt', (e.target as any).value, true)}
-                  inputProps={{ min: 0, max: 2048, step: 1 }}
-                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
-                  disabled={loading}
-                />
-                <TextField
-                  size="small"
-                  label="MD"
-                  type="number"
-                  value={String(Math.round(attachMaxFileSizeMbMd))}
-                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('md', e.target.value, false)}
-                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('md', (e.target as any).value, true)}
-                  inputProps={{ min: 0, max: 2048, step: 1 }}
-                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
-                  disabled={loading}
-                />
-                <TextField
-                  size="small"
-                  label="PDF"
-                  type="number"
-                  value={String(Math.round(attachMaxFileSizeMbPdf))}
-                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('pdf', e.target.value, false)}
-                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('pdf', (e.target as any).value, true)}
-                  inputProps={{ min: 0, max: 2048, step: 1 }}
-                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
-                  disabled={loading}
-                />
-                <TextField
-                  size="small"
-                  label="DOCX"
-                  type="number"
-                  value={String(Math.round(attachMaxFileSizeMbDocx))}
-                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('docx', e.target.value, false)}
-                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('docx', (e.target as any).value, true)}
-                  inputProps={{ min: 0, max: 2048, step: 1 }}
-                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
-                  disabled={loading}
-                />
-                <TextField
-                  size="small"
-                  label="PPT/PPTX"
-                  type="number"
-                  value={String(Math.round(attachMaxFileSizeMbPpt))}
-                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('ppt', e.target.value, false)}
-                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('ppt', (e.target as any).value, true)}
-                  inputProps={{ min: 0, max: 2048, step: 1 }}
-                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
-                  disabled={loading}
-                />
-              </Stack>
-
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                超过上限会在解析前直接拒绝；0 表示不限制。
-              </Typography>
-            </Box>
-          </Stack>
-        </SettingsSurface>,
     )
   }
 
