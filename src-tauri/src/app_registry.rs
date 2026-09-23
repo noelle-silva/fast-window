@@ -658,7 +658,7 @@ fn validate_host_shortcut_array(
         if seen.insert(command_id.to_string(), ()).is_some() {
             return Err(format!("{app_id} 的{label} ID 重复: {command_id}"));
         }
-        if title.len() > 80 {
+        if title.chars().count() > 80 {
             return Err(format!("{app_id} 的{label}名称过长: {title}"));
         }
         validate_declaration_description(command.get("description"), app_id, label, command_id)?;
