@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Avatar, Box, Button, Stack, Typography } from '@mui/material'
+import { Box, Button, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
@@ -12,6 +12,7 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { RoleEditorForm } from '../dialogs/RoleEditorForm'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
 type RolesSettingsPanelProps = {
@@ -99,9 +100,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                                   disabled={!roleId}
                                   sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, px: 1, textTransform: 'none', textAlign: 'left' }}
                                 >
-                                  <Avatar src={String(role?.avatarImage || '') || undefined} sx={{ width: 24, height: 24, fontSize: 12, mr: 0.75 }}>
-                                    {String(role?.avatar || '🙂')}
-                                  </Avatar>
+                                  <EntityAvatar kind="role" image={String(role?.avatarImage || '')} size={24} sx={{ mr: 0.75 }} />
                                   <Box sx={{ minWidth: 0 }}>
                                     <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>
                                       {String(role?.name || '')}{isActive ? ' · 当前' : ''}

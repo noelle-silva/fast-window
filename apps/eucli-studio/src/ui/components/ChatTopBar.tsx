@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Avatar, Box, Button, IconButton, Toolbar, Tooltip, Typography } from '@mui/material'
+import { AppBar, Box, Button, IconButton, Toolbar, Tooltip, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
@@ -8,6 +8,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
 import { colorMixVar } from '../colorThemeStyles'
+import { EntityAvatar } from './avatar/EntityAvatar'
 
 export function ChatTopBar(props: {
   page: 'chat' | 'settings'
@@ -109,18 +110,11 @@ export function ChatTopBar(props: {
               disabled={loading || (!roles.length && !groups.length && !workspaces.length)}
               sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
             >
-              <Avatar
-                src={
-                  activeTargetKind === 'group'
-                    ? String((activeGroup as any)?.avatarImage || '') || undefined
-                    : activeTargetKind === 'workspace'
-                      ? undefined
-                      : String(activeRole?.avatarImage || '') || undefined
-                }
-                sx={{ width: 22, height: 22, fontSize: 12 }}
-              >
-                {activeTargetKind === 'group' ? String((activeGroup as any)?.avatar || '👥') : activeTargetKind === 'workspace' ? '📁' : String(activeRole?.avatar || '🙂')}
-              </Avatar>
+              <EntityAvatar
+                kind={activeTargetKind}
+                image={String((activeTargetKind === 'group' ? (activeGroup as any)?.avatarImage : activeTargetKind === 'role' ? activeRole?.avatarImage : '') || '')}
+                size={22}
+              />
               <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
                 {activeTargetKind === 'group'
                   ? activeGroup
@@ -144,9 +138,7 @@ export function ChatTopBar(props: {
                 disabled={loading || !roles.length}
                 sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
               >
-                <Avatar src={String(activeRole?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
-                  {String(activeRole?.avatar || '🙂')}
-                </Avatar>
+                <EntityAvatar kind="role" image={String(activeRole?.avatarImage || '')} size={22} />
                 <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 160 }} noWrap>
                   {activeRole ? String(activeRole?.name || '') : '请选择角色'}
                 </Typography>

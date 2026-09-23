@@ -1,6 +1,5 @@
 import * as React from 'react'
 import {
-  Avatar,
   Box,
   Button,
   Chip,
@@ -16,6 +15,7 @@ import {
 import { useEvent } from '../hooks/useEvent'
 import { findAtMentionTrigger } from '../utils/mention'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { clampNum } from '../utils/numbers'
 import { COMPOSER_SLASH_COMMANDS, findSlashCommandTrigger } from './composerSlashCommands'
 
@@ -387,7 +387,6 @@ export function ComposerInputControls(props: {
               {atPickerOptions.map((r: any) => {
                 const id = String(r?.id || '')
                 const name = String(r?.name || '')
-                const avatar = String(r?.avatar || '🙂')
                 const avatarImage = String(r?.avatarImage || '')
                 const modelRefText = formatModelRefText(r?.modelRef)
                 return (
@@ -401,9 +400,7 @@ export function ComposerInputControls(props: {
                     sx={{ borderRadius: 1 }}
                   >
                     <ListItemAvatar sx={{ minWidth: 40 }}>
-                      <Avatar src={avatarImage || undefined} sx={{ width: 28, height: 28, fontSize: 16 }}>
-                        {avatar}
-                      </Avatar>
+                      <EntityAvatar kind="role" image={avatarImage} size={28} />
                     </ListItemAvatar>
                     <ListItemText primary={name || '未命名角色'} secondary={modelRefText || '未配置模型'} />
                   </ListItemButton>

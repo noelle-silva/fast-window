@@ -1,9 +1,10 @@
-import { Avatar, Box, Button, Stack, Typography } from '@mui/material'
+import { Box, Button, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
 import { NEW_GROUP_ID } from '../../domain/constants'
 import { GroupEditorForm } from '../dialogs/GroupEditorForm'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -65,9 +66,7 @@ export function GroupsSettingsPanel(props: GroupsSettingsPanelProps) {
                         disabled={!groupId}
                         sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', px: 1, textTransform: 'none', textAlign: 'left' }}
                       >
-                        <Avatar src={String(group?.avatarImage || '') || undefined} sx={{ width: 24, height: 24, fontSize: 13, mr: 0.75 }}>
-                          {String(group?.avatar || '👥')}
-                        </Avatar>
+                        <EntityAvatar kind="group" image={String(group?.avatarImage || '')} size={24} sx={{ mr: 0.75 }} />
                         <Box sx={{ minWidth: 0 }}>
                           <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>
                             {String(group?.name || '未命名群组')}{isActive ? ' · 当前' : ''}

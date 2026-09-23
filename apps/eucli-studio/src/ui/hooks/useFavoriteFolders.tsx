@@ -1,9 +1,10 @@
 import * as React from 'react'
-import { Avatar, Box, Checkbox, Collapse, IconButton, ListItemButton, ListItemText, Stack, Typography } from '@mui/material'
+import { Box, Checkbox, Collapse, IconButton, ListItemButton, ListItemText, Stack, Typography } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../components/ChatSessionRunIndicator'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
@@ -169,8 +170,7 @@ export function useFavoriteFolders(deps: {
         if (!g) return null
         return {
           name: String(g?.name || '群聊'),
-          avatar: String(g?.avatar || '👥'),
-          avatarImage: String(g?.avatarImage || ''),
+          image: String(g?.avatarImage || ''),
         }
       }
       if (targetKind === 'workspace') {
@@ -178,16 +178,14 @@ export function useFavoriteFolders(deps: {
         if (!workspace) return null
         return {
           name: String(workspace?.name || '工作区'),
-          avatar: '📁',
-          avatarImage: '',
+          image: '',
         }
       }
       const r = roles.find((it: any) => String(it?.id || '') === tid) || null
       if (!r) return null
       return {
         name: String(r?.name || '角色'),
-        avatar: String(r?.avatar || '🙂'),
-        avatarImage: String(r?.avatarImage || ''),
+        image: String(r?.avatarImage || ''),
       }
     },
     [groups, roles, workspaces],
@@ -524,9 +522,7 @@ export function useFavoriteFolders(deps: {
                 onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
               >
                 <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
-                  <Avatar src={String(targetMeta?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                    {String(targetMeta?.avatar || (targetKind === 'group' ? '👥' : targetKind === 'workspace' ? '📁' : '🙂'))}
-                  </Avatar>
+                  <EntityAvatar kind={targetKind} image={String(targetMeta?.image || '')} size={28} />
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
                     {targetName}
                   </Typography>

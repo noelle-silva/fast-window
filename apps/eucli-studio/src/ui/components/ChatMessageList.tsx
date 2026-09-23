@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Avatar, Box, Button, Chip, Collapse, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
@@ -10,6 +10,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import StorageIcon from '@mui/icons-material/Storage'
+import { EntityAvatar } from './avatar/EntityAvatar'
 import { isAssistantAwaitingFirstOutput, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
@@ -351,7 +352,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         const roleName = String((speakerRole as any)?.name || (activeTargetKind === 'group' ? 'AI' : activeRole?.name || 'AI'))
         // 头像与名字用于区分发言人，只有群聊存在多个发言人时才需要显示
         const showSpeakerIdentity = activeTargetKind === 'group'
-        const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
         const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
         const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
         const replyDurationText = !isUser ? formatDurationMs(resolveReplyDurationMs(m)) : ''
@@ -427,11 +427,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
               {!isUser && (showSpeakerIdentity || !!roleModelText) ? (
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                    {showSpeakerIdentity ? (
-                      <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
-                        {roleAvatarEmoji}
-                      </Avatar>
-                    ) : null}
+                    {showSpeakerIdentity ? <EntityAvatar kind="role" image={roleAvatarImage} size={66} /> : null}
                     <Stack spacing={0} sx={{ minWidth: 0 }}>
                       {showSpeakerIdentity ? (
                         <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>

@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { Avatar, Box, Button, IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Popover, Tab, Tabs, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Popover, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX, SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 
 export function RolePickerPopover(props: {
@@ -80,9 +81,7 @@ export function RolePickerPopover(props: {
                   sx={SOFT_POPOVER_ITEM_SX}
                 >
                   <ListItemAvatar>
-                    <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                      {String(r?.avatar || '🙂')}
-                    </Avatar>
+                    <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={28} />
                   </ListItemAvatar>
                   <ListItemText
                     sx={{ minWidth: 0 }}
@@ -129,9 +128,7 @@ export function RolePickerPopover(props: {
                   sx={SOFT_POPOVER_ITEM_SX}
                 >
                   <ListItemAvatar>
-                    <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                      {String(g?.avatar || '👥')}
-                    </Avatar>
+                    <EntityAvatar kind="group" image={String(g?.avatarImage || '')} size={28} />
                   </ListItemAvatar>
                   <ListItemText
                     sx={{ minWidth: 0 }}
@@ -197,9 +194,7 @@ export function RolePickerPopover(props: {
                   sx={SOFT_POPOVER_ITEM_SX}
                 >
                   <ListItemAvatar>
-                    <Avatar sx={{ width: 28, height: 28, fontSize: 14, bgcolor: 'rgba(59,130,246,.12)', color: 'primary.main' }}>
-                      📁
-                    </Avatar>
+                    <EntityAvatar kind="workspace" size={28} />
                   </ListItemAvatar>
                   <ListItemText
                     sx={{ minWidth: 0 }}
