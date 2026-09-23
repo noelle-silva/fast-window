@@ -21,7 +21,7 @@ import { pendingChatForTarget } from '../domain/pendingChat'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
-import { createSplitStorage } from '../storage/splitStorage'
+import { createEmptyShellData, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
 import { createGroupChatSync } from '../storage/groupChatSync'
 
@@ -81,7 +81,7 @@ import { fmtTime, createModalHelpers } from './controllerHelpers'
 
 export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilities }): {
   controller: AiChatController
-  init: () => Promise<void>
+  init: (options?: { businessAvailable?: boolean }) => Promise<void>
 } {
   const capabilities = deps.capabilities
   const api = capabilities
@@ -1104,9 +1104,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 21. INIT
   // ============================================================
-  async function init() {
+  async function init(options?: { businessAvailable?: boolean }) {
     disposed = false
     await ensureRenderer().catch(() => {})
+    if (options?.businessAvailable === false) {
+      // 未连接业务端：controller 只承载客户端外壳，不加载业务数据、不启动轮询与事件订阅。
+      state.data = createEmptyShellData()
+      state.loading = false
+      render()
+      return
+    }
     await load()
     refreshModelGroups(false).catch(() => {})
     ebRunEvents.start()

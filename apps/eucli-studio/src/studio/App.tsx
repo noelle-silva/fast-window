@@ -7,10 +7,10 @@ import { StandaloneWindowControls, type WindowControlActions } from '../ui/compo
 import type { AiChatController } from '../controller/types'
 import type { AiChatToastKind, AiChatToastOptions } from '../gateway/capabilities'
 import { EUCLI_STUDIO_CHAT_ROOT_ID } from '../runtime/eucliStudioGlobals'
-import { createAiChatAppRuntime, type AiChatAppRuntime } from './aiChatAppHost'
+import { createAiChatAppRuntime, type AiChatAppRuntime, type EucliBoxConfig, type EucliBoxConfigInput } from './aiChatAppHost'
+import { EucliBoxConnectionOverlay } from './EucliBoxConnectionOverlay'
 import { useReleaseStore } from './useReleaseStore'
-import { compatibilityRangeText, type ReleaseCandidatesView, type StudioBootstrap } from '../domain/release'
-import { ReleaseCandidatesPanel } from '../ui/release/ReleaseCandidatesPanel'
+import type { StudioBootstrap } from '../domain/release'
 
 type DataDirStatus = {
   dataDir: string
@@ -47,6 +47,10 @@ const BASE_WINDOW_CONTROL_ACTIONS: WindowControlActions = {
   minimize: () => TAURI_WINDOW?.minimize?.(),
   toggleMaximize: () => TAURI_WINDOW?.toggleMaximize?.(),
   closeToTray: () => TAURI_WINDOW ? invoke('hide_to_tray') : Promise.resolve(),
+}
+
+function startWindowDragging() {
+  void TAURI_WINDOW?.startDragging?.().catch(() => {})
 }
 
 function commandLabel(command: string | null | undefined) {
@@ -131,6 +135,17 @@ export function App() {
   const connectMountedBackend = React.useCallback(async () => {
     return connectBackend(isAppUnmounted)
   }, [connectBackend, isAppUnmounted])
+
+  const loadEucliBoxConfig = React.useCallback((): Promise<EucliBoxConfig> => {
+    const runtime = runtimeRef.current
+    return runtime ? runtime.getEucliBoxConfig() : Promise.resolve({ eucliBoxUrl: '' })
+  }, [])
+
+  const saveEucliBoxConfig = React.useCallback((config: EucliBoxConfigInput): Promise<EucliBoxConfig> => {
+    const runtime = runtimeRef.current
+    if (!runtime) return Promise.reject(new Error('本机后台未就绪，请稍后重试'))
+    return runtime.setEucliBoxConfig(config)
+  }, [])
 
   const handleCommand = React.useCallback((command: string | null | undefined) => {
     const id = String(command || '').trim()
@@ -245,12 +260,9 @@ export function App() {
     trueExit,
   }), [trueExit])
 
-  const runtimeBootstrapIssue = bootStatus === 'ready' && runtimeBootstrap && !runtimeBootstrap.businessAvailable
-    ? runtimeBootstrap.eucliBoxIssue
-    : ''
   const issue = bootError || dataDirStatus?.error || (dataDirStatus && !dataDirStatus.writable ? '数据目录不可写' : '')
   const needsEucliBoxConnection = bootStatus === 'ready' && !!runtimeBootstrap && !runtimeBootstrap.businessAvailable
-  const canRenderChatApp = !!controller && bootStatus === 'ready' && runtimeBootstrap?.businessAvailable === true && !issue
+  const canRenderChatApp = !!controller && bootStatus === 'ready' && !!runtimeBootstrap && !issue
 
   return (
     <div className="appShell">
@@ -272,18 +284,19 @@ export function App() {
              releaseView={release.view}
              onReleaseRefresh={release.refresh}
             />
+          {needsEucliBoxConnection && runtimeBootstrap ? (
+            <EucliBoxConnectionOverlay
+              bootstrap={runtimeBootstrap}
+              issue={runtimeBootstrap.eucliBoxIssue || ''}
+              standalone={launchInfo.standalone}
+              windowControlActions={windowControlActions}
+              onStartDragging={startWindowDragging}
+              onLoadConfig={loadEucliBoxConfig}
+              onSaveConfig={saveEucliBoxConfig}
+              onApply={() => void connectMountedBackend()}
+            />
+          ) : null}
         </div>
-      ) : needsEucliBoxConnection ? (
-        <EucliBoxConfigScreen
-          standalone={launchInfo.standalone}
-          windowControlActions={windowControlActions}
-          issue={runtimeBootstrapIssue}
-          bootstrap={runtimeBootstrap}
-          releaseView={release.view}
-          releaseBusy={release.busy}
-          onReleaseRefresh={release.refresh}
-          onApply={() => void connectMountedBackend()}
-        />
       ) : (
         <BootFallback
           status={bootStatus}
@@ -305,101 +318,6 @@ function normalizeLaunchInfo(raw: FwLaunchInfo): FwLaunchInfo {
     standalone: raw?.standalone !== false,
     mode: String(raw?.mode || (raw?.standalone === false ? 'default' : 'standalone')),
   }
-}
-
-function EucliBoxConfigScreen(props: {
-  standalone: boolean
-  windowControlActions: WindowControlActions
-  issue: string
-  bootstrap: StudioBootstrap
-  releaseView: ReleaseCandidatesView
-  releaseBusy: boolean
-  onReleaseRefresh: (kind?: string) => Promise<void> | void
-  onApply: () => Promise<void> | void
-}) {
-  const { standalone, windowControlActions, issue, bootstrap, releaseView, releaseBusy, onReleaseRefresh, onApply } = props
-  const [url, setUrl] = React.useState('')
-  const [key, setKey] = React.useState('')
-  const [saving, setSaving] = React.useState(false)
-  const [configReady, setConfigReady] = React.useState(false)
-  const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
-
-  React.useEffect(() => {
-    let disposed = false
-    void createAiChatAppRuntime({
-      showToast: () => {},
-      onBack: () => getCurrentWindow().hide(),
-    }).then(runtime => {
-      if (disposed) {
-        runtime.dispose()
-        return
-      }
-      runtimeRef.current = runtime
-      runtime.getEucliBoxConfig().then(config => {
-        if (disposed) return
-        setUrl(config.eucliBoxUrl || '')
-        setKey(config.eucliBoxKey || '')
-        setConfigReady(true)
-      }).catch(() => setConfigReady(true))
-    })
-    return () => {
-      disposed = true
-      runtimeRef.current?.dispose()
-      runtimeRef.current = null
-    }
-  }, [])
-
-  const save = React.useCallback(async () => {
-    const runtime = runtimeRef.current
-    if (!runtime || saving) return
-    setSaving(true)
-    try {
-      await runtime.setEucliBoxConfig({ eucliBoxUrl: url.trim().replace(/\/+$/, ''), eucliBoxKey: key.trim() })
-      await onApply()
-    } finally {
-      setSaving(false)
-    }
-  }, [onApply, saving, url, key])
-
-  const onTopbarPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return
-    const target = event.target
-    if (!(target instanceof HTMLElement)) return
-    if (target.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
-    void TAURI_WINDOW?.startDragging?.().catch(() => {})
-  }, [])
-
-  return (
-    <main className="bootFallback" role="main" aria-live="polite">
-      <header className="bootFallbackTopbar" onPointerDown={onTopbarPointerDown}>
-        <div className="bootFallbackBrand">eucli-studio</div>
-        {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
-      </header>
-      <section className="bootFallbackCard eucliConfigCard">
-        <div className="bootFallbackTitle">连接业务端</div>
-        <dl className="releaseFacts">
-          <div><dt>客户端版本</dt><dd>{bootstrap.clientVersion || '版本资料无效'}</dd></div>
-          <div><dt>所需本体范围</dt><dd>{compatibilityRangeText(bootstrap.clientEucliBoxCompatibility)}</dd></div>
-          {bootstrap.eucliBoxVersion ? <div><dt>业务端版本</dt><dd>{bootstrap.eucliBoxVersion}</dd></div> : null}
-        </dl>
-        <div className="eucliConfigForm">
-          <label className="eucliConfigLabel" htmlFor="eucliBoxUrl">业务端地址（网关）
-            <input id="eucliBoxUrl" type="text" placeholder="http://127.0.0.1:8765" value={url} disabled={!configReady} onChange={(e) => setUrl(e.target.value)} />
-          </label>
-          <label className="eucliConfigLabel" htmlFor="eucliBoxKey">访问 Key
-            <input id="eucliBoxKey" type="password" placeholder="业务端长期 Key" value={key} disabled={!configReady} onChange={(e) => setKey(e.target.value)} />
-          </label>
-          <button type="button" disabled={!configReady || saving || !url.trim()} onClick={save}>
-            {saving ? '连接中…' : '保存并连接'}
-          </button>
-        </div>
-        {issue ? <div className="bootFallbackIssue">{issue}</div> : null}
-        <div className="eucliReleaseChecks">
-          <ReleaseCandidatesPanel view={releaseView} busy={releaseBusy} onRefresh={() => onApply()} compact />
-        </div>
-      </section>
-    </main>
-  )
 }
 
 function BootFallback(props: {

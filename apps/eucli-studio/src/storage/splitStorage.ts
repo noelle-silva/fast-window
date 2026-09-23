@@ -60,6 +60,21 @@ async function removeRequired(storage: { remove: (key: string) => Promise<any> }
 
 const noop = async () => {}
 
+// 未连接业务端时的外壳数据：形状与已加载数据一致，但没有业务内容。
+// 会话界面靠它保持可渲染，业务数据由连接成功后的正常加载路径填充。
+export function createEmptyShellData() {
+  return normalizeData({
+    version: VERSION,
+    settings: {},
+    favorites: {},
+    roles: [],
+    chatsByRole: {},
+    groups: [],
+    chatsByGroup: {},
+    ui: {},
+  })
+}
+
 export function createSplitStorage(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void>; remove: (k: string) => Promise<void> }
   syncRoleAvatarFile?: (folder: any, role: any) => Promise<void>
