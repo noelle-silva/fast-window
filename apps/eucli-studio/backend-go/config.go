@@ -12,9 +12,10 @@ import (
 const configFileName = "eucli-studio-client-config.json"
 
 type clientConfig struct {
-	EucliBoxURL string           `json:"eucliBoxUrl"`
-	EucliBoxKey string           `json:"eucliBoxKey"`
-	Projection  projectionConfig `json:"projection"`
+	EucliBoxURL          string           `json:"eucliBoxUrl"`
+	EucliBoxKey          string           `json:"eucliBoxKey"`
+	EucliBoxDisconnected bool             `json:"eucliBoxDisconnected,omitempty"`
+	Projection           projectionConfig `json:"projection"`
 }
 
 type projectionConfig struct {
@@ -78,7 +79,8 @@ func (s *configStore) loadLocked() (clientConfig, error) {
 
 // saveConnection 只更新连接信息；投影数据由 updateProjection 单独维护，
 // 保存连接时不能整份覆盖，否则会清掉客户端外观设置与投影索引。
-func (s *configStore) saveConnection(url string, key string) (clientConfig, error) {
+// eucliBoxDisconnected 是用户主动「退出连接」的挂起标记：地址与 Key 保留，自动连接暂停。
+func (s *configStore) saveConnection(url string, key string, disconnected bool) (clientConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg, err := s.loadLocked()
@@ -87,6 +89,7 @@ func (s *configStore) saveConnection(url string, key string) (clientConfig, erro
 	}
 	cfg.EucliBoxURL = normalizeBaseURL(url)
 	cfg.EucliBoxKey = strings.TrimSpace(key)
+	cfg.EucliBoxDisconnected = disconnected
 	payload, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return clientConfig{}, err

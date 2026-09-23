@@ -134,6 +134,41 @@ func TestBootstrapManualConfigChain(t *testing.T) {
 	}
 }
 
+func TestBootstrapReportsDisconnectedStateWithoutDialing(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+	}))
+	defer server.Close()
+
+	store, err := newConfigStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("newConfigStore() error = %v", err)
+	}
+	if _, err := store.saveConnection(server.URL, "key-1", true); err != nil {
+		t.Fatalf("saveConnection() error = %v", err)
+	}
+	svc, err := newService(store, testClientRelease(), nil)
+	if err != nil {
+		t.Fatalf("newService() error = %v", err)
+	}
+
+	info, err := svc.bootstrap(context.Background())
+	if err != nil {
+		t.Fatalf("bootstrap() error = %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("disconnected bootstrap should not dial eucli-box, requests = %d", requests)
+	}
+	if info.BusinessAvailable || !info.EucliBoxConfigured {
+		t.Fatalf("disconnected bootstrap = %#v", info)
+	}
+	if info.EucliBoxIssue == "" {
+		t.Fatal("disconnected bootstrap should carry an issue")
+	}
+}
+
 func TestBusinessMethodsRequireSuccessfulBootstrap(t *testing.T) {
 	store, err := newConfigStore(t.TempDir())
 	if err != nil {
@@ -262,7 +297,7 @@ func configuredTestStore(t *testing.T, url string) *configStore {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.saveConnection(url, ""); err != nil {
+	if _, err := store.saveConnection(url, "", false); err != nil {
 		t.Fatalf("save config error = %v", err)
 	}
 	return store

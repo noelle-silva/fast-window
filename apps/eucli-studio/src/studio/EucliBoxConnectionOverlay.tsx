@@ -52,7 +52,7 @@ export function EucliBoxConnectionOverlay(props: EucliBoxConnectionOverlayProps)
     setSaving(true)
     setSaveError('')
     try {
-      await onSaveConfig({ eucliBoxUrl: url.trim().replace(/\/+$/, ''), eucliBoxKey: key.trim() })
+      await onSaveConfig({ eucliBoxUrl: url.trim().replace(/\/+$/, ''), eucliBoxKey: key.trim(), eucliBoxDisconnected: false })
       await onApply()
     } catch (error: any) {
       setSaveError(String(error?.message || error || '保存连接配置失败'))

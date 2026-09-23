@@ -147,6 +147,18 @@ export function App() {
     return runtime.setEucliBoxConfig(config)
   }, [])
 
+  const disconnectEucliBox = React.useCallback(async () => {
+    const runtime = runtimeRef.current
+    if (!runtime) throw new Error('本机后台未就绪，请稍后重试')
+    const current = await runtime.getEucliBoxConfig()
+    await runtime.setEucliBoxConfig({
+      eucliBoxUrl: String(current.eucliBoxUrl || ''),
+      eucliBoxKey: String(current.eucliBoxKey || ''),
+      eucliBoxDisconnected: true,
+    })
+    await connectMountedBackend()
+  }, [connectMountedBackend])
+
   const handleCommand = React.useCallback((command: string | null | undefined) => {
     const id = String(command || '').trim()
     if (!id) return
@@ -277,6 +289,7 @@ export function App() {
               onPick: pickDataDir,
               onRefresh: refreshDataDirStatus,
             }}
+            eucliBoxConnection={{ onLoad: loadEucliBoxConfig, onDisconnect: disconnectEucliBox }}
              windowControls={{
               standalone: launchInfo.standalone,
                 actions: windowControlActions,

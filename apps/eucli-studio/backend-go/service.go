@@ -58,13 +58,14 @@ func (s *service) dispatch(ctx context.Context, method string, params json.RawMe
 		return s.config.load()
 	case "eucli.config.set":
 		var input struct {
-			EucliBoxURL string `json:"eucliBoxUrl"`
-			EucliBoxKey string `json:"eucliBoxKey"`
+			EucliBoxURL          string `json:"eucliBoxUrl"`
+			EucliBoxKey          string `json:"eucliBoxKey"`
+			EucliBoxDisconnected bool   `json:"eucliBoxDisconnected"`
 		}
 		if err := json.Unmarshal(paramsOrEmpty(params), &input); err != nil {
 			return nil, err
 		}
-		saved, err := s.config.saveConnection(input.EucliBoxURL, input.EucliBoxKey)
+		saved, err := s.config.saveConnection(input.EucliBoxURL, input.EucliBoxKey, input.EucliBoxDisconnected)
 		if err == nil {
 			s.clearConnectionState()
 		}

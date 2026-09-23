@@ -37,6 +37,11 @@ func (s *service) bootstrap(ctx context.Context) (runtimeBootstrap, error) {
 		return info, nil
 	}
 	info.EucliBoxConfigured = true
+	if cfg.EucliBoxDisconnected {
+		info.EucliBoxIssue = "已退出当前连接，地址与 Key 已保留，点「保存并连接」即可重连。"
+		s.setConnectionState(info)
+		return info, nil
+	}
 	return s.bootstrapConnected(ctx, info)
 }
 

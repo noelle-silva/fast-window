@@ -36,6 +36,7 @@ import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
 import type { SettingsTabValue } from './settings/settingsNavigation'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
+import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 import { pendingChatForTarget } from '../domain/pendingChat'
@@ -70,8 +71,8 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   return Math.ceil(gap) <= thresholdPx
 }
 
-export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; windowControls?: AiChatWindowControls; releaseView: ReleaseCandidatesView | null; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
-  const { controller, bootstrap, dataDirectory, windowControls, releaseView, onReleaseRefresh } = props
+export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseView: ReleaseCandidatesView | null; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
+  const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseView, onReleaseRefresh } = props
   const s = useAiChatState(controller)
   const data = s.data
   const colorThemePreset = resolveColorThemePreset(data?.settings?.colorTheme)
@@ -1350,6 +1351,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             tab={settingsTab}
             onTabChange={setSettingsTab}
             dataDirectory={dataDirectory}
+            eucliBoxConnection={eucliBoxConnection}
           />
         )}
         </Box>

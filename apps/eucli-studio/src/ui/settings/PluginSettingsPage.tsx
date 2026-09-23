@@ -25,7 +25,7 @@ import { AiToolsSettingsPanel } from './AiToolsSettingsPanel'
 import { HookPromptsSettingsPanel } from './HookPromptsSettingsPanel'
 import { PlaceholderSettingsPanel } from './PlaceholderSettingsPanel'
 import { SystemPluginSettingsPanel } from './SystemPluginSettingsPanel'
-import { EbSettingsPanel } from './EbSettingsPanel'
+import { EbSettingsPanel, type AiChatEucliBoxConnection } from './EbSettingsPanel'
 import { AccessSettingsPanel } from './AccessSettingsPanel'
 import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
 import type { ReleaseCandidatesView, StudioBootstrap } from '../../domain/release'
@@ -58,8 +58,9 @@ export function PluginSettingsPage(props: {
   tab: SettingsTab
   onTabChange: (tab: SettingsTab) => void
   dataDirectory?: AiChatDataDirectory
+  eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
@@ -272,7 +273,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'eb') {
-    return wrapSettingsPanel(<EbSettingsPanel bootstrap={bootstrap} />)
+    return wrapSettingsPanel(<EbSettingsPanel bootstrap={bootstrap} connection={eucliBoxConnection} />)
   }
 
   if (tab === 'access') {

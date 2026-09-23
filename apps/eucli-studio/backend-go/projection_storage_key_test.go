@@ -39,7 +39,7 @@ func TestGroupChatIndexStorageKeyDoesNotSaveGroupSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newConfigStore() error = %v", err)
 	}
-	if _, err := store.saveConnection(server.URL, ""); err != nil {
+	if _, err := store.saveConnection(server.URL, "", false); err != nil {
 		t.Fatalf("save config error = %v", err)
 	}
 	if _, err := store.updateProjection(func(projection *projectionConfig) {

@@ -27,11 +27,13 @@ export type AiChatAppRuntime = {
 export type EucliBoxConfig = {
   eucliBoxUrl: string
   eucliBoxKey?: string
+  eucliBoxDisconnected?: boolean
 }
 
 export type EucliBoxConfigInput = {
   eucliBoxUrl: string
   eucliBoxKey?: string
+  eucliBoxDisconnected?: boolean
 }
 
 export type AiChatAppHostOptions = {
