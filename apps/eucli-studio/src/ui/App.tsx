@@ -891,6 +891,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           onOpenWorkspaceRolePicker={openWorkspaceRolePicker}
           onOpenChatPicker={openChatPicker}
           onCreateChat={() => controller.actions.createChat()}
+          onOpenProviders={() => controller.actions.openProviders?.()}
           onOpenSettings={openPluginSettings}
           onSwitchChat={chatSwitch.requestSwitch}
         />
@@ -1353,7 +1354,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         )}
         </Box>
 
-        <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
+        <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
         <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
         <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} />

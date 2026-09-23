@@ -6,6 +6,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import HistoryIcon from '@mui/icons-material/History'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import SettingsIcon from '@mui/icons-material/Settings'
+import StorageIcon from '@mui/icons-material/Storage'
 import { colorMixVar } from '../colorThemeStyles'
 
 export function ChatTopBar(props: {
@@ -30,6 +31,7 @@ export function ChatTopBar(props: {
   onOpenWorkspaceRolePicker: (e: React.MouseEvent<HTMLElement>) => void
   onOpenChatPicker: (e: React.MouseEvent<HTMLElement>) => void
   onCreateChat: () => void
+  onOpenProviders: () => void
   onOpenSettings: (tab: any) => void
   onSwitchChat: (chatId: any) => void
 }) {
@@ -55,6 +57,7 @@ export function ChatTopBar(props: {
     onOpenWorkspaceRolePicker,
     onOpenChatPicker,
     onCreateChat,
+    onOpenProviders,
     onOpenSettings,
     onSwitchChat,
   } = props
@@ -196,6 +199,11 @@ export function ChatTopBar(props: {
             <Tooltip title={treeOpen ? '收起分支树' : '展开分支树'}>
               <IconButton onClick={onToggleTree} size="small" aria-label={treeOpen ? '收起分支树' : '展开分支树'}>
                 <AccountTreeIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="供应商">
+              <IconButton onClick={onOpenProviders} size="small" aria-label="供应商">
+                <StorageIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="设置">
