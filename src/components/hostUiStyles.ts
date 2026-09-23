@@ -169,3 +169,9 @@ export const hostSoftChipSx = {
   bgcolor: (theme: Theme) => hostNeutralTint(theme, 0.07),
   color: 'text.secondary',
 } as const
+
+export const hostHiddenScrollbarSx = {
+  scrollbarWidth: 'none',
+  msOverflowStyle: 'none',
+  '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 },
+} as const
