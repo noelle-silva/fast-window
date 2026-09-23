@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"fast-window-hypercortex-backend/faceplugin"
 )
 
 func defaultTextFace() noteFaceManifest {
@@ -219,8 +221,8 @@ func (svc *service) loadNoteFace(scope string, packageDir string, faceID string)
 		content = raw
 		exists = true
 	} else if face.Kind == "html" {
-		if adapter, err := requireFaceAdapter(face.Kind); err == nil {
-			content = adapter.EmptyContent(manifest)
+		if adapter, err := faceplugin.Require(face.Kind); err == nil {
+			content = adapter.EmptyContent(manifest.ID, manifest.Title)
 		}
 	}
 	return noteFaceDocFromManifest(manifest, packageDir, face, content, exists), nil

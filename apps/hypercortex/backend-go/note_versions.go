@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"fast-window-hypercortex-backend/faceplugin"
 )
 
 const noteVersionIndexVersion = 1
@@ -162,7 +164,7 @@ func collectNoteVersionFaces(svc *service, scope string, packageDir string, mani
 		if err != nil {
 			return nil, fmt.Errorf("读取笔记面 %s 失败: %w", id, err)
 		}
-		if adapter, err := requireFaceAdapter(face.Kind); err == nil {
+		if adapter, err := faceplugin.Require(face.Kind); err == nil {
 			content = adapter.NormalizeContent(content)
 		}
 		faces[id] = noteVersionFaceSnapshot{Manifest: normalizeFaceManifest(face), Content: content}
@@ -333,7 +335,7 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 			return nil, fmt.Errorf("版本快照缺少笔记面 %s", faceID)
 		}
 		content := saved.Content
-		if adapter, err := requireFaceAdapter(face.Kind); err == nil {
+		if adapter, err := faceplugin.Require(face.Kind); err == nil {
 			content = adapter.NormalizeContent(content)
 		}
 		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)), content, true); err != nil {

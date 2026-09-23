@@ -5,73 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-)
 
-var fenceLineHeadRe = regexp.MustCompile(`^[ \t]{0,3}` + "```")
-var fenceLineSeekRe = regexp.MustCompile(`\n[ \t]{0,3}` + "```")
+	"fast-window-hypercortex-backend/faceplugin"
+)
 
 const noteFaceSchemaVersion = 2
 
-// htmlFaceDisplayModes 与前端 htmlFaceDisplay.ts 的 isHtmlFaceDisplayMode 保持同一枚举。
-var htmlFaceDisplayModes = map[string]bool{
-	"natural":    true,
-	"fit-window": true,
-	"fixed-fit":  true,
-}
-
-type noteFaceAdapter struct {
-	Kind              string
-	Label             string
-	DefaultFaceID     string
-	DefaultFileName   string
-	Capabilities      faceCapabilities
-	NormalizeContent  func(string) string
-	EmptyContent      func(noteManifest) string
-	NormalizeSettings func(map[string]any) map[string]any
-	ExtractRefs       func(string) []noteRef
-	// SearchText 将该面内容转成交给搜索系统的可搜文本（供匹配与截取摘要）。
-	// 为 nil 表示该面类型不提供内容搜索，与 capabilities.Searchable=false 同源。
-	SearchText func(string) string
-}
-
-var noteFaceAdapters = map[string]noteFaceAdapter{
-	"markdown": {
-		Kind:              "markdown",
-		Label:             "文本",
-		DefaultFaceID:     "text",
-		DefaultFileName:   "text.md",
-		Capabilities:      faceCapabilities{Editable: true, Searchable: true, Previewable: true, Creatable: true, Deletable: false},
-		NormalizeContent:  normalizeTextFaceContent,
-		EmptyContent:      func(noteManifest) string { return "" },
-		NormalizeSettings: normalizePlainSettings,
-		ExtractRefs:       extractPlaceholderRefs,
-		SearchText:        markdownSearchText,
-	},
-	"html": {
-		Kind:              "html",
-		Label:             "HTML",
-		DefaultFaceID:     "html",
-		DefaultFileName:   "html-view.html",
-		Capabilities:      faceCapabilities{Editable: true, Searchable: false, Previewable: true, Creatable: true, Deletable: true},
-		NormalizeContent:  normalizeTextFaceContent,
-		EmptyContent:      func(manifest noteManifest) string { return emptyHTMLDoc(manifest.ID, manifest.Title) },
-		NormalizeSettings: normalizeHTMLSettings,
-		ExtractRefs:       extractPlaceholderRefs,
-	},
-}
-
-func requireFaceAdapter(kind string) (noteFaceAdapter, error) {
-	adapter, ok := noteFaceAdapters[strings.TrimSpace(kind)]
-	if !ok {
-		return noteFaceAdapter{}, errors.New("未知笔记面类型")
-	}
-	return adapter, nil
-}
-
 func defaultFaceForKind(kind string, input noteFaceManifest) (noteFaceManifest, error) {
-	adapter, err := requireFaceAdapter(kind)
+	adapter, err := faceplugin.Require(kind)
 	if err != nil {
 		return noteFaceManifest{}, err
 	}
@@ -100,7 +42,7 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	if err := svc.ensureRoots(); err != nil {
 		return nil, err
 	}
-	adapter, err := requireFaceAdapter(strings.TrimSpace(asString(input["kind"])))
+	adapter, err := faceplugin.Require(strings.TrimSpace(asString(input["kind"])))
 	if err != nil {
 		return nil, err
 	}
@@ -246,187 +188,7 @@ func (svc *service) renamePackageIfNeeded(scope string, currentDir string, desir
 	return nil
 }
 
-func normalizeTextFaceContent(value string) string {
-	return strings.ReplaceAll(value, "\r\n", "\n")
-}
-
-// maskFencedCodeBlocks 与前端 noteRefs.ts 保持一致：遮蔽 ``` 围栏代码块（含闭合行换行）
-func maskFencedCodeBlocks(content string) string {
-	buf := []byte(content)
-	pos := 0
-	for {
-		openAt, ok := nextFenceOpenIndex(content, pos)
-		if !ok {
-			break
-		}
-		end := len(content)
-		if closeAt, found := nextFenceOpenIndex(content, openAt+3); found {
-			if lineEnd := strings.IndexByte(content[closeAt+3:], '\n'); lineEnd >= 0 {
-				end = closeAt + 3 + lineEnd + 1
-			}
-		}
-		for i := openAt; i < end; i++ {
-			buf[i] = ' '
-		}
-		pos = end
-	}
-	return string(buf)
-}
-
-// nextFenceOpenIndex 等价前端 noteRefs.ts openRe.exec 语义：^ 仅匹配文本头，其余围栏必须出现在行首 \n 之后
-func nextFenceOpenIndex(src string, pos int) (openAt int, ok bool) {
-	if pos == 0 {
-		if loc := fenceLineHeadRe.FindStringIndex(src); loc != nil && loc[0] == 0 {
-			return 0, true
-		}
-	}
-	loc := fenceLineSeekRe.FindStringIndex(src[pos:])
-	if loc == nil {
-		return 0, false
-	}
-	return pos + loc[1] - 3, true
-}
-
-// maskInlineCodeSpans 与前端 noteRefs.ts 保持一致：遮蔽行内代码双反引号/单反引号区间（含两端标记）
-func maskInlineCodeSpans(content string) string {
-	buf := []byte(content)
-	i := 0
-	for i < len(content) {
-		if content[i] != '`' {
-			i++
-			continue
-		}
-		j := i
-		for j < len(content) && content[j] == '`' {
-			j++
-		}
-		fence := content[i:j]
-		closeAt := strings.Index(content[j:], fence)
-		if closeAt < 0 {
-			i = j
-			continue
-		}
-		closeAt += j
-		end := closeAt + len(fence)
-		for p := i; p < end; p++ {
-			buf[p] = ' '
-		}
-		i = end
-	}
-	return string(buf)
-}
-
-func maskCode(content string) string {
-	return maskInlineCodeSpans(maskFencedCodeBlocks(content))
-}
-
-func extractPlaceholderRefs(content string) []noteRef {
-	refs := []noteRef{}
-	seen := map[string]bool{}
-	text := maskCode(strings.ReplaceAll(content, "\r\n", "\n"))
-	for {
-		start := strings.Index(text, "[[")
-		if start < 0 {
-			break
-		}
-		text = text[start+2:]
-		end := strings.Index(text, "]]")
-		if end < 0 {
-			break
-		}
-		inner := text[:end]
-		text = text[end+2:]
-		// 与前端 noteRefs.ts 单行约束保持一致：占位符内容出现换行不算有效引用，不提取
-		if strings.Contains(inner, "\n") {
-			continue
-		}
-		// 与前端 noteRefs.ts 正则 [^\]\n] 语义保持一致：占位符内容出现单个 ] 视为无效占位符，不提取
-		if strings.Contains(inner, "]") {
-			continue
-		}
-		ref, ok := parseNoteRefPlaceholder(inner)
-		if !ok {
-			continue
-		}
-		key := ref.NoteID + "\x00" + ref.FaceID
-		if !seen[key] {
-			seen[key] = true
-			refs = append(refs, ref)
-		}
-	}
-	return refs
-}
-
-func parseNoteRefPlaceholder(inner string) (noteRef, bool) {
-	noteID := ""
-	faceID := ""
-	for _, part := range strings.Split(inner, "|") {
-		part = strings.TrimSpace(part)
-		eq := strings.Index(part, "=")
-		if eq < 0 {
-			continue
-		}
-		value := strings.TrimSpace(part[eq+1:])
-		// 与前端 parseNotePlaceholderBody 保持一致：重复键后写覆盖（含写空）
-		switch strings.TrimSpace(part[:eq]) {
-		case "note_id":
-			noteID = value
-		case "face":
-			faceID = value
-		}
-	}
-	if noteID == "" {
-		return noteRef{}, false
-	}
-	return noteRef{NoteID: noteID, FaceID: faceID}, true
-}
-
-func uniqueNoteRefs(refs []noteRef) []noteRef {
-	seen := map[string]bool{}
-	out := []noteRef{}
-	for _, ref := range refs {
-		ref.NoteID = strings.TrimSpace(ref.NoteID)
-		ref.FaceID = strings.TrimSpace(ref.FaceID)
-		if ref.NoteID == "" {
-			continue
-		}
-		key := ref.NoteID + "\x00" + ref.FaceID
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, ref)
-	}
-	return out
-}
-
-func normalizePlainSettings(value map[string]any) map[string]any {
-	if value == nil {
-		return map[string]any{}
-	}
-	out := map[string]any{}
-	for k, v := range value {
-		key := strings.TrimSpace(k)
-		if key != "" {
-			out[key] = v
-		}
-	}
-	return out
-}
-
-func normalizeHTMLSettings(value map[string]any) map[string]any {
-	out := map[string]any{}
-	if value == nil {
-		return out
-	}
-	if scale := asFloat(value["fixedScale"]); scale >= 0.25 && scale <= 2 {
-		out["fixedScale"] = scale
-	}
-	if mode := strings.TrimSpace(asString(value["displayMode"])); htmlFaceDisplayModes[mode] {
-		out["displayMode"] = mode
-	}
-	return out
-}
+// maskFencedCodeBlocks 等引用语法工具已迁入协议包 faceplugin（见 faceplugin/refs.go）。
 
 func mapFromAny(value any) map[string]any {
 	if value == nil {
@@ -496,7 +258,7 @@ func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *n
 	}
 	created := []string{}
 	for _, kind := range kinds {
-		adapter, err := requireFaceAdapter(kind)
+		adapter, err := faceplugin.Require(kind)
 		if err != nil {
 			continue
 		}
@@ -516,7 +278,7 @@ func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *n
 	if resetOrder {
 		order := []string{}
 		for _, kind := range kinds {
-			adapter, err := requireFaceAdapter(kind)
+			adapter, err := faceplugin.Require(kind)
 			if err != nil {
 				continue
 			}
@@ -547,13 +309,13 @@ func (svc *service) writeFaceEmptyContentIfMissing(scope string, packageDir stri
 	if exists(target) {
 		return nil
 	}
-	adapter, err := requireFaceAdapter(face.Kind)
+	adapter, err := faceplugin.Require(face.Kind)
 	if err != nil {
 		return nil
 	}
 	content := ""
 	if adapter.EmptyContent != nil {
-		content = adapter.EmptyContent(manifest)
+		content = adapter.EmptyContent(manifest.ID, manifest.Title)
 	}
 	return svc.writeText(scope, rel, content, false)
 }
@@ -607,13 +369,13 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	}
 	// 先解析全部提交面的协议输入：任何未知面类型都在产生磁盘副作用之前快速失败。
 	type resolvedFaceInput struct {
-		adapter noteFaceAdapter
+		adapter faceplugin.Plugin
 		faceID  string
 		content string
 	}
 	resolved := make([]resolvedFaceInput, 0, len(submitted))
 	for _, item := range submitted {
-		adapter, err := requireFaceAdapter(item.Kind)
+		adapter, err := faceplugin.Require(item.Kind)
 		if err != nil {
 			return nil, err
 		}
@@ -772,7 +534,7 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 		}
 		settings[key] = value
 	}
-	adapter, err := requireFaceAdapter(face.Kind)
+	adapter, err := faceplugin.Require(face.Kind)
 	if err != nil {
 		return nil, err
 	}

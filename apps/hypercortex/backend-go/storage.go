@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"fast-window-hypercortex-backend/faceplugin"
 )
 
 func (svc *service) loadNoteIndex(scope string) (noteIndex, error) {
@@ -96,7 +98,7 @@ func normalizeRefIndex(idx noteRefIndex) noteRefIndex {
 		}
 		for faceID, refs := range faces {
 			faceID = strings.TrimSpace(faceID)
-			unique := uniqueNoteRefs(refs)
+			unique := faceplugin.UniqueRefs(refs)
 			if len(unique) == 0 {
 				continue
 			}
@@ -122,7 +124,7 @@ func (svc *service) collectRefsForNote(scope string, manifest noteManifest, pack
 	out := map[string][]noteRef{}
 	for _, faceID := range manifest.FaceOrder {
 		faceManifest := manifest.Faces[faceID]
-		adapter, ok := noteFaceAdapters[faceManifest.Kind]
+		adapter, ok := faceplugin.Get(faceManifest.Kind)
 		if !ok || adapter.ExtractRefs == nil {
 			continue
 		}
@@ -130,7 +132,7 @@ func (svc *service) collectRefsForNote(scope string, manifest noteManifest, pack
 		if err != nil {
 			continue
 		}
-		refs := uniqueNoteRefs(adapter.ExtractRefs(content))
+		refs := faceplugin.UniqueRefs(adapter.ExtractRefs(content))
 		if len(refs) == 0 {
 			continue
 		}

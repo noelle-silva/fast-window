@@ -6,11 +6,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"fast-window-hypercortex-backend/faceplugin"
 )
 
 func TestExtractPlaceholderRefsParsesFaceParam(t *testing.T) {
 	content := "\r\n[[note_id=target-a]]\r\n[[note_id=target-b|face=html|title=Other|remarks=note]]\r\n[[face=text|note_id=target-c]]\r\n[[note_id=target-a|face=html]]\r\n[[note_id=]]\r\n[[note_id=target-c|face=text|title=dup]]\r\n"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{
 		{NoteID: "target-a"},
 		{NoteID: "target-b", FaceID: "html"},
@@ -25,7 +27,7 @@ func TestExtractPlaceholderRefsParsesFaceParam(t *testing.T) {
 // 锁死重复键后写胜出语义：与前端 parseNotePlaceholderBody 行为一致
 func TestExtractPlaceholderRefsDuplicateKeysLastWriteWins(t *testing.T) {
 	content := "[[note_id=first|note_id=second|face=html|face=text]]\n[[note_id=old-target|note_id=new-target|face=old-face|face=new-face]]\n[[note_id=a|note_id=]]\n[[note_id=a|face=html|face=]]\n"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{
 		{NoteID: "second", FaceID: "text"},
 		{NoteID: "new-target", FaceID: "new-face"},
@@ -37,7 +39,7 @@ func TestExtractPlaceholderRefsDuplicateKeysLastWriteWins(t *testing.T) {
 }
 
 func TestExtractPlaceholderRefsInHtmlLikeContent(t *testing.T) {
-	refs := extractPlaceholderRefs(`<div>[[note_id=target-a|face=html]]</div><p>plain</p>`)
+	refs := faceplugin.ExtractPlaceholderRefs(`<div>[[note_id=target-a|face=html]]</div><p>plain</p>`)
 	want := []noteRef{{NoteID: "target-a", FaceID: "html"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
@@ -46,7 +48,7 @@ func TestExtractPlaceholderRefsInHtmlLikeContent(t *testing.T) {
 
 func TestExtractPlaceholderRefsSkipsFencedCodeBlocks(t *testing.T) {
 	content := "before [[note_id=outside]]\n\n```js\n[[note_id=inside-fence]]\n```\n\ntext\n\n```\n[[note_id=unclosed-fence]]\n"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "outside"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
@@ -55,7 +57,7 @@ func TestExtractPlaceholderRefsSkipsFencedCodeBlocks(t *testing.T) {
 
 func TestExtractPlaceholderRefsSkipsInlineCodeSpans(t *testing.T) {
 	content := "inline `[[note_id=inside-single]]` and ``[[note_id=inside-double]]`` and [[note_id=outside]]"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "outside"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
@@ -65,7 +67,7 @@ func TestExtractPlaceholderRefsSkipsInlineCodeSpans(t *testing.T) {
 // 锁死前后端单行占位符语义：占位符内容出现换行不算有效引用
 func TestExtractPlaceholderRefsSkipsMultilinePlaceholders(t *testing.T) {
 	content := "[[note_id=in-line]]\n[[note_id=break1\n|face=html]]\n[[note_id=\nbreak2]]\n[[note_id=crlf\r\n|face=text]]\n[[note_id=still-valid]]"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "in-line"}, {NoteID: "still-valid"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
@@ -75,7 +77,7 @@ func TestExtractPlaceholderRefsSkipsMultilinePlaceholders(t *testing.T) {
 // 锁死前后端单行占位符语义：占位符内容出现单个 ] 视为无效占位符，不提取、不索引
 func TestExtractPlaceholderRefsSkipsInnerBracketPlaceholders(t *testing.T) {
 	content := "[[note_id=a]b]]\n[[note_id=skipped|face=html]x]]\n[[note_id=valid]]\n[[note_id=also-valid|face=text]]"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "valid"}, {NoteID: "also-valid", FaceID: "text"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
@@ -85,7 +87,7 @@ func TestExtractPlaceholderRefsSkipsInnerBracketPlaceholders(t *testing.T) {
 // 锁死围栏遮蔽边界：紧邻空围栏、"```\n```" 先闭合后未闭合均不越界遮蔽
 func TestExtractPlaceholderRefsAdjacentFenceBlocks(t *testing.T) {
 	content := "before [[note_id=before]]\n\n```\n```\n\n[[note_id=after]]\n\n```\nx\n\n```\n```\n\n[[note_id=after-empty-again]]\n\n```\n[[note_id=unclosed]]\n"
-	refs := extractPlaceholderRefs(content)
+	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "before"}, {NoteID: "after"}, {NoteID: "after-empty-again"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)

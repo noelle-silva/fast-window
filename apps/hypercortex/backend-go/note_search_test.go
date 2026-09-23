@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	markdown "fast-window-hypercortex-backend/faceplugins/markdown"
 )
 
 func TestMarkdownSearchTextKeepsCodeAndReplacesPlaceholders(t *testing.T) {
 	content := "# 标题\n\n正文提到 **项目A** 和 [[note_id=target-b|face=html|title=项目B]]。\n\n`[[note_id=inline-code]]` 不应被替换。\n\n```js\n[[note_id=in-fence]]\n```\n\n末尾 {{asset:abc.png||300}}\n"
-	got := markdownSearchText(content)
+	got := markdown.SearchText(content)
 	want := "# 标题\n\n正文提到 **项目A** 和 项目B。\n\n`[[note_id=inline-code]]` 不应被替换。\n\n```js\n[[note_id=in-fence]]\n```\n\n末尾  \n"
 	if got != want {
 		t.Fatalf("searchText = %q\nwant %q", got, want)
@@ -21,7 +23,7 @@ func TestMarkdownSearchTextKeepsCodeAndReplacesPlaceholders(t *testing.T) {
 
 func TestMarkdownSearchTextFallbackToRemarksAndRemovesEmptyRefs(t *testing.T) {
 	content := "[[note_id=a|title=|remarks=笔记甲]] [[note_id=b]] [[note_id=c|face=text|title=]]"
-	got := markdownSearchText(content)
+	got := markdown.SearchText(content)
 	want := "笔记甲  "
 	if got != want {
 		t.Fatalf("searchText = %q, want %q", got, want)

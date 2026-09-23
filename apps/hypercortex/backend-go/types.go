@@ -1,6 +1,10 @@
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"fast-window-hypercortex-backend/faceplugin"
+)
 
 const (
 	stateDirName        = "state"
@@ -66,20 +70,12 @@ type resourceRef struct {
 	Name    string `json:"name,omitempty"`
 }
 
-type noteRef struct {
-	NoteID string `json:"noteId"`
-	FaceID string `json:"faceId,omitempty"`
-}
+// noteRef 与 faceCapabilities 是协议层类型在宿主内的别名：引用语法与能力画像都属于系统级协议。
+type noteRef = faceplugin.Ref
 
 type noteRefIndex map[string]map[string][]noteRef
 
-type faceCapabilities struct {
-	Editable    bool `json:"editable"`
-	Searchable  bool `json:"searchable"`
-	Previewable bool `json:"previewable"`
-	Creatable   bool `json:"creatable"`
-	Deletable   bool `json:"deletable"`
-}
+type faceCapabilities = faceplugin.Capabilities
 
 type noteFaceManifest struct {
 	ID           string                     `json:"id"`
