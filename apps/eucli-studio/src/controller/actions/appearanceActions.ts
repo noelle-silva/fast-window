@@ -6,7 +6,6 @@ import {
   normalizeColorThemeSettings,
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
-import { CHAT_ATTACHMENT_KINDS, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, MAX_ATTACH_MAX_FILE_MB } from '../../domain/constants'
 import { normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
@@ -176,31 +175,6 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       state.data.settings.reasoningDisplayMode = normalizeReasoningDisplayMode(mode)
       saveMeta().catch(() => {})
-      emit()
-    },
-    setAttachmentsSendLimitChars: (chars: any, commit: any) => {
-      if (!state.data) return
-      if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
-        state.data.settings.attachments = { sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS } as any
-      }
-      const at = state.data.settings.attachments as any
-      at.sendLimitChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
-      if (commit) saveMeta().catch(() => {})
-      emit()
-    },
-    setAttachmentsMaxFileSizeMb: (kind: any, mb: any, commit: any) => {
-      if (!state.data) return
-      const k = String(kind || '').trim()
-      if (!CHAT_ATTACHMENT_KINDS.has(k)) return
-      if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
-        state.data.settings.attachments = { sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS, maxFileSizeMbByKind: {} } as any
-      }
-      const at = state.data.settings.attachments as any
-      if (!at.maxFileSizeMbByKind || typeof at.maxFileSizeMbByKind !== 'object') at.maxFileSizeMbByKind = {}
-      const n = Number(mb)
-      const next = !isFinite(n) ? DEFAULT_ATTACH_MAX_FILE_MB : clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
-      at.maxFileSizeMbByKind[k] = next
-      if (commit) saveMeta().catch(() => {})
       emit()
     },
   }

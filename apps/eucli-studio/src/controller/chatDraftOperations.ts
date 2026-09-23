@@ -115,16 +115,6 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
     emit()
   }
 
-  function currentAttachSendLimitChars() {
-    const value = Number(stateDataSettings()?.attachments?.sendLimitChars ?? DEFAULT_ATTACH_SEND_LIMIT_CHARS)
-    return clamp(Math.round(value), 1000, 2_000_000)
-  }
-
-  function stateDataSettings() {
-    const state = getState()
-    return state?.data?.settings && typeof state.data.settings === 'object' ? state.data.settings : {}
-  }
-
   function buildRunAttachments(draftImages: any[], draftFiles: DraftFileItem[]) {
     const attachments: any[] = []
     for (const image of draftImages) {
@@ -133,7 +123,7 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
       attachments.push({ kind: 'image', name: String(image?.name || '图片'), dataUrl })
     }
 
-    const sendLimit = currentAttachSendLimitChars()
+    const sendLimit = DEFAULT_ATTACH_SEND_LIMIT_CHARS
     for (const file of draftFiles) {
       const name = String(file?.name || '文件')
       if (file?.pending) throw new Error('文件解析中，请稍候…')

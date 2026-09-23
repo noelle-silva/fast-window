@@ -39,6 +39,7 @@ import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
+import { DEFAULT_ATTACH_SEND_LIMIT_CHARS } from '../domain/constants'
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { chatNavigationFromOrderedChats } from '../domain/chatNavigation'
 import { sortChatListItemsForDisplay } from '../domain/chatListOrdering'
@@ -99,14 +100,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
-  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
-  const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
-  const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
-  const attachMaxFileSizeMbTxt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.txt ?? 10), 0, 2048)
-  const attachMaxFileSizeMbMd = clampNum(Number((attachMaxFileSizeMbByKind as any)?.md ?? 10), 0, 2048)
-  const attachMaxFileSizeMbPdf = clampNum(Number((attachMaxFileSizeMbByKind as any)?.pdf ?? 10), 0, 2048)
-  const attachMaxFileSizeMbDocx = clampNum(Number((attachMaxFileSizeMbByKind as any)?.docx ?? 10), 0, 2048)
-  const attachMaxFileSizeMbPpt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.ppt ?? 10), 0, 2048)
+  const attachSendLimitChars = DEFAULT_ATTACH_SEND_LIMIT_CHARS
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []

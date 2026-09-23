@@ -2,9 +2,6 @@ import { now, uid, clamp, normalizeTimeMs } from '../core/utils'
 import {
   VERSION,
   SPLIT_SCHEMA_VERSION,
-  DEFAULT_ATTACH_MAX_FILE_MB,
-  MAX_ATTACH_MAX_FILE_MB,
-  DEFAULT_ATTACH_SEND_LIMIT_CHARS,
   DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
   DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
@@ -37,12 +34,6 @@ export function normalizeRenderSafetyPolicy(v0: unknown) {
   if (v === 'unsafe') return 'unsafe'
   if (v === 'baseline' || v === 'minimal') return 'baseline'
   return 'original'
-}
-
-export function normalizeMaxFileSizeMb(v: unknown) {
-	const n = Number(v)
-	if (!isFinite(n)) return DEFAULT_ATTACH_MAX_FILE_MB
-	return clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
 }
 
 function normalizeAsyncToolTasks(raw: unknown) {
@@ -173,12 +164,6 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).reasoningDisplayMode = normalizeReasoningDisplayMode((d.settings as any).reasoningDisplayMode)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)
   if ((d.settings as any).wallpaper.enabled) d.settings.transparentChatBg = true
-  if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
-  const at = d.settings.attachments
-  if (typeof at.sendLimitChars !== 'number' || !isFinite(at.sendLimitChars)) {
-    if (typeof at.maxCharsPerFile === 'number' && isFinite(at.maxCharsPerFile)) at.sendLimitChars = at.maxCharsPerFile
-    else at.sendLimitChars = DEFAULT_ATTACH_SEND_LIMIT_CHARS
-  }
   d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
   d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
   d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
@@ -187,15 +172,6 @@ export function normalizeData(raw: any) {
   d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
-  at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
-
-  if (!at.maxFileSizeMbByKind || typeof at.maxFileSizeMbByKind !== 'object') (at as any).maxFileSizeMbByKind = {}
-  const mb = (at as any).maxFileSizeMbByKind
-  mb.txt = normalizeMaxFileSizeMb(mb.txt)
-  mb.md = normalizeMaxFileSizeMb(mb.md)
-  mb.pdf = normalizeMaxFileSizeMb(mb.pdf)
-  mb.docx = normalizeMaxFileSizeMb(mb.docx)
-  mb.ppt = normalizeMaxFileSizeMb(mb.ppt)
   if (!Array.isArray(d.settings.providers)) d.settings.providers = []
 
   if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
