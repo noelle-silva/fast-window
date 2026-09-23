@@ -329,9 +329,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onPickDraftImages,
     onPickDraftFiles,
     onPickFilesChanged,
-    attachView,
-    closeAttachView,
-    openAttachView,
     fileAdjust,
     closeFileAdjust,
     openFileAdjust,
@@ -457,7 +454,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeVisibleRunCards,
     activeStopRunId,
     assistantSiblingsByPrevAiMid,
-    groupedAttMsgsByRootMid,
     displayRenderMessages,
     lastMsgText,
     activeContextTokenUsageText,
@@ -583,16 +579,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
 
   const activeRoleId = String(activeRole?.id || '')
-  const attachViewItem = (() => {
-    const mid = String(attachView.mid || '').trim()
-    const idx = Math.floor(Number(attachView.idx ?? -1))
-    if (!mid || !renderChat || !Array.isArray((renderChat as any).messages) || idx < 0) return null
-    const m = (renderChat as any).messages.find((x: any) => String(x?.id || '') === mid) || null
-    const atts = m && Array.isArray(m.attachments) ? m.attachments : []
-    const a = idx >= 0 && idx < atts.length ? atts[idx] : null
-    if (!a) return null
-    return { message: m, attachment: a }
-  })()
   const chatNav = (() => {
     const loading = !!s.loading
     if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
@@ -956,7 +942,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                   activeRole={activeRole}
                   activeTargetKind={activeTargetKind}
                   activeVisibleRunCards={activeVisibleRunCards}
-                  groupedAttMsgsByRootMid={groupedAttMsgsByRootMid}
                   prevAiMidByAssistantId={prevAiMidByAssistantId}
                   assistantSiblingsByPrevAiMid={assistantSiblingsByPrevAiMid}
                   chatAllMessagesRaw={chatAllMessagesRaw}
@@ -982,7 +967,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                   onSaveEditMessage={saveEditMessage}
                   onStartEditMessage={startEditMessage}
                   onCopyMessageText={copyMessageText}
-                  onOpenAttachView={openAttachView}
                   onSwitchBranchSibling={switchBranchSibling}
                   onRegenerate={openRegenConfirm}
                   onDeleteMessage={openDeleteMessageConfirm}
@@ -994,9 +978,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                controller={controller}
                loading={!!s.loading}
                activeRole={activeRole}
-               attachView={attachView}
-               attachViewItem={attachViewItem}
-               closeAttachView={closeAttachView}
                attachmentPickerEl={attachmentPickerEl}
                closeAttachmentPicker={closeAttachmentPicker}
                onPickDraftImages={onPickDraftImages}

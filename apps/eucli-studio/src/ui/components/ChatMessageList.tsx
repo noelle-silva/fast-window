@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
@@ -32,7 +31,6 @@ type ChatMessageListProps = {
   activeRole: any
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeVisibleRunCards: any[]
-  groupedAttMsgsByRootMid: Map<string, any[]>
   prevAiMidByAssistantId: Map<string, string>
   assistantSiblingsByPrevAiMid: Map<string, any[]>
   chatAllMessagesRaw: any[]
@@ -58,18 +56,9 @@ type ChatMessageListProps = {
   onSaveEditMessage: () => void | Promise<void>
   onStartEditMessage: (mid: string, text: string) => void
   onCopyMessageText: (text: unknown) => void
-  onOpenAttachView: (e: React.MouseEvent<HTMLElement>, mid: string, idx: number) => void
   onSwitchBranchSibling: (mid: string, direction: -1 | 1, nextMid: string) => void
   onRegenerate: (mid: string, role: MessageRole) => void
   onDeleteMessage: (mid: string, role: MessageRole) => void
-}
-
-function clampNum(n: number, min: number, max: number) {
-  const x = Number(n)
-  if (!isFinite(x)) return min
-  if (x < min) return min
-  if (x > max) return max
-  return x
 }
 
 function retryDelaySeconds(retry: any) {
@@ -103,7 +92,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     activeRole,
     activeTargetKind,
     activeVisibleRunCards,
-    groupedAttMsgsByRootMid,
     prevAiMidByAssistantId,
     assistantSiblingsByPrevAiMid,
     chatAllMessagesRaw,
@@ -129,7 +117,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     onSaveEditMessage,
     onStartEditMessage,
     onCopyMessageText,
-    onOpenAttachView,
     onSwitchBranchSibling,
     onRegenerate,
     onDeleteMessage,
@@ -359,12 +346,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         // 耗时与时间移到操作按钮左侧：AI 消息显示「回复耗时 · 时间」，用户消息只显示时间。
         const actionMetaText = (isUser ? [time] : [replyDurationText, time]).filter(Boolean).join(' · ')
         const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
-        const rootAttachments = isUser && Array.isArray(m?.attachments) ? m.attachments : []
-        const legacyAttMsgs = isUser ? groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || [] : []
-        const fileAttachmentItems = [
-          ...rootAttachments.map((a: any, idx: number) => ({ mid, idx, attachment: a })),
-          ...legacyAttMsgs.map((am: any) => ({ mid: String(am?.id || '').trim(), idx: 0, attachment: am && Array.isArray(am.attachments) ? am.attachments[0] : null })),
-        ].filter((item: any) => item.mid && item.attachment)
         const activeRunCard = activeRunCardForAssistantMessage(activeVisibleRunCards, m)
         const messageGenerating = !!activeRunCard && isAssistantGenerating(m)
         const messageAwaitingFirstOutput = messageGenerating && isAssistantAwaitingFirstOutput(m)
@@ -476,10 +457,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                     ) : (
                       <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
                     )
-                  ) : fileAttachmentItems.length ? (
-                    <Typography variant="body2" color="text.secondary">
-                      （附件）
-                    </Typography>
                   ) : null}
                   {canCollapse ? (
                     <Box sx={{ textAlign: 'right' }}>
@@ -494,31 +471,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                         {isExpanded ? `收起（共${contentLines.length}行）` : `展开（共${contentLines.length}行）`}
                       </Button>
                     </Box>
-                  ) : null}
-                  {fileAttachmentItems.length ? (
-                    <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
-                      {fileAttachmentItems.slice(0, 20).map((item: any) => {
-                        const a = item.attachment
-                        const targetMid = String(item.mid || '').trim()
-                        if (!a || !targetMid) return null
-                        const name = String(a?.name || '文件')
-                        const pct = clampNum(Math.round(Number(a?.sendPct ?? 100)), 0, 100)
-                        const fullLen = clampNum(Math.round(Number(a?.fullLen ?? 0)), 0, 10_000_000)
-                        const sendLen = clampNum(Math.round(Number(a?.sendLen ?? String(a?.text || '').length ?? 0)), 0, fullLen || 0)
-                        const label = `${name}（${pct}%：${sendLen}/${fullLen}）`
-                        return (
-                          <Chip
-                            key={`${targetMid}:${String(a?.id || item.idx || 0)}`}
-                            size="small"
-                            icon={<AttachFileIcon fontSize="small" />}
-                            label={label}
-                            variant="outlined"
-                            onClick={(e) => onOpenAttachView(e as any, targetMid, Number(item.idx || 0))}
-                            sx={{ maxWidth: 520 }}
-                          />
-                        )
-                      })}
-                    </Stack>
                   ) : null}
                 </Box>
               ) : messageError || retryFailure ? (

@@ -126,19 +126,6 @@ export function useChatMessageView(deps: {
     }
     return m
   }, [allMessages])
-  const groupedAttMsgsByRootMid = React.useMemo(() => {
-    const map = new Map<string, any[]>()
-    for (const m of allMessages) {
-      if (!m || chatMessageMaterialKind(m) !== 'user') continue
-      if (String(m?.groupRole || '') !== 'attachment') continue
-      const parent = String(m?.groupParentMid || '').trim()
-      if (!parent) continue
-      const list = map.get(parent) || []
-      list.push(m)
-      map.set(parent, list)
-    }
-    return map
-  }, [allMessages])
   const renderMessages = React.useMemo(() => {
     const out: any[] = []
     for (const m of allMessages) {
@@ -201,7 +188,6 @@ export function useChatMessageView(deps: {
     activeRunCardForMessage,
     assistantSiblingsByPrevAiMid,
     msgIndexById,
-    groupedAttMsgsByRootMid,
     renderMessages,
     showActiveRunTailPending,
     activeRunTailPendingMessage,

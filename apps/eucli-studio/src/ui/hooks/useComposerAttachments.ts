@@ -9,7 +9,6 @@ export function useComposerAttachments(deps: {
   const { controller, loading, draftFilePickerInputRef } = deps
 
   const [attachmentPickerEl, setAttachmentPickerEl] = React.useState<HTMLElement | null>(null)
-  const [attachView, setAttachView] = React.useState<{ el: HTMLElement | null; mid: string; idx: number }>({ el: null, mid: '', idx: -1 })
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
 
   const closeAttachmentPicker = useEvent(() => setAttachmentPickerEl(null))
@@ -27,15 +26,6 @@ export function useComposerAttachments(deps: {
     e.target.value = ''
     if (!files.length) return
     controller.actions.addDraftFilesFromFiles?.(files)
-  })
-
-  const closeAttachView = useEvent(() => setAttachView({ el: null, mid: '', idx: -1 }))
-  const openAttachView = useEvent((e: React.MouseEvent<HTMLElement>, mid: string, idx: number) => {
-    const id = String(mid || '').trim()
-    if (!id) return
-    e.preventDefault()
-    e.stopPropagation()
-    setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
   })
 
   const closeFileAdjust = useEvent(() => setFileAdjust({ el: null, id: '' }))
@@ -70,9 +60,6 @@ export function useComposerAttachments(deps: {
     onPickDraftImages,
     onPickDraftFiles,
     onPickFilesChanged,
-    attachView,
-    closeAttachView,
-    openAttachView,
     fileAdjust,
     closeFileAdjust,
     openFileAdjust,

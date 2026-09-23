@@ -1,8 +1,6 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Paper, Popover, Slider, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Paper, Popover, Slider, Stack, Typography } from '@mui/material'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
-import CloseIcon from '@mui/icons-material/Close'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import ImageIcon from '@mui/icons-material/Image'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { clampNum } from '../utils/numbers'
@@ -11,9 +9,6 @@ export function ComposerAttachmentsPopovers(props: {
   controller: any
   loading: boolean
   activeRole: any
-  attachView: { el: HTMLElement | null; mid: string; idx: number }
-  attachViewItem: any
-  closeAttachView: () => void
   attachmentPickerEl: HTMLElement | null
   closeAttachmentPicker: () => void
   onPickDraftImages: () => void
@@ -33,9 +28,6 @@ export function ComposerAttachmentsPopovers(props: {
     controller,
     loading,
     activeRole,
-    attachView,
-    attachViewItem,
-    closeAttachView,
     attachmentPickerEl,
     closeAttachmentPicker,
     onPickDraftImages,
@@ -54,61 +46,6 @@ export function ComposerAttachmentsPopovers(props: {
 
   return (
     <>
-      <Popover
-        open={!!attachView.el && !!attachViewItem}
-        anchorEl={attachView.el}
-        onClose={closeAttachView}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-      >
-        <Box sx={{ width: 520, maxWidth: '84vw', p: 1.25 }}>
-          <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-            <Typography sx={{ fontWeight: 900 }}>
-              {String(attachViewItem?.attachment?.name || '附件')}
-            </Typography>
-            <Stack direction="row" spacing={0.5}>
-              <Tooltip title="复制文本">
-                <IconButton
-                  size="small"
-                  aria-label="复制附件文本"
-                  onClick={() => {
-                    const text = String(attachViewItem?.attachment?.text || '')
-                    const writeText = controller.capabilities?.clipboard?.writeText
-                    if (typeof writeText !== 'function') return controller.capabilities?.ui?.showToast?.('未授权：clipboard.writeText', { kind: 'error' })
-                    Promise.resolve()
-                      .then(() => writeText(text))
-                      .then(() => controller.capabilities?.ui?.showToast?.('已复制', { kind: 'success' }))
-                      .catch(() => controller.capabilities?.ui?.showToast?.('复制失败', { kind: 'error' }))
-                  }}
-                >
-                  <ContentCopyIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="关闭">
-                <IconButton size="small" aria-label="关闭附件预览" onClick={closeAttachView}>
-                  <CloseIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </Stack>
-
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-            将发送：{Math.round(Number(attachViewItem?.attachment?.sendLen ?? 0))}/{Math.round(Number(attachViewItem?.attachment?.fullLen ?? 0))}（
-            {clampNum(Math.round(Number(attachViewItem?.attachment?.sendPct ?? 100)), 0, 100)}%）
-          </Typography>
-
-          <TextField
-            fullWidth
-            multiline
-            minRows={8}
-            maxRows={20}
-            size="small"
-            value={String(attachViewItem?.attachment?.text || '')}
-            inputProps={{ readOnly: true, style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' } }}
-          />
-        </Box>
-      </Popover>
-
       <Popover
         open={!!attachmentPickerEl}
         anchorEl={attachmentPickerEl}
