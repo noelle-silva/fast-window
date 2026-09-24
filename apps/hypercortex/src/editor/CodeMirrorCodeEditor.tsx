@@ -1,9 +1,8 @@
 import React from 'react'
 import { basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, placeholder as cmPlaceholder } from '@codemirror/view'
 import { ensureHyperCodeMirrorEditorStyles } from './styles'
-import { htmlHighlightExtension } from './htmlHighlight'
 
 export interface CodeMirrorCodeEditorProps {
   value: string
@@ -14,7 +13,8 @@ export interface CodeMirrorCodeEditorProps {
   active?: boolean
   ariaLabel?: string
   lineWrapping?: boolean
-  mode?: 'plain' | 'html'
+  /** 附加的 CodeMirror 扩展：由使用方提供（宿主本身不携带任何具体面的语法高亮）。 */
+  extensions?: Extension[]
 }
 
 export const CodeMirrorCodeEditor = React.memo(function CodeMirrorCodeEditor({
@@ -25,7 +25,7 @@ export const CodeMirrorCodeEditor = React.memo(function CodeMirrorCodeEditor({
   active,
   ariaLabel,
   lineWrapping = true,
-  mode = 'plain',
+  extensions,
 }: CodeMirrorCodeEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
   const viewRef = React.useRef<EditorView | null>(null)
@@ -58,7 +58,7 @@ export const CodeMirrorCodeEditor = React.memo(function CodeMirrorCodeEditor({
         }),
         placeholder ? cmPlaceholder(placeholder) : [],
         updateListener,
-        mode === 'html' ? htmlHighlightExtension() : [],
+        ...(extensions || []),
       ],
     })
 

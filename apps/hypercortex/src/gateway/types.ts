@@ -6,7 +6,7 @@ import type {
   HyperCortexNoteFaceDoc,
   HyperCortexNoteFaceSettingsV2,
 } from '../noteFaces'
-import type { HyperCortexNoteDoc, HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
+import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
@@ -58,16 +58,14 @@ export type ClipboardGateway = {
   writeText: (text: string) => Promise<void>
 }
 
-export type SaveNotePackageInput = {
+// 创建空笔记的提交形态：后端按 faceKinds 补齐协议默认面并写入空白内容。
+export type CreateNoteInput = {
   id?: string
-  packageDir?: string
   title?: string
   description?: string
-  body?: string
   tags?: string[]
   createdAtMs?: number
   resources?: HyperCortexNoteResourceRef[]
-  saveTextFace?: boolean
   // 需要确保存在的面类型清单（按顺序）：缺失的类型由后端补齐默认面。
   faceKinds?: string[]
 }
@@ -126,7 +124,7 @@ export type NotesService = {
   restoreNoteVersion: (scope: VaultScope, packageDir: string, versionId: string) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   loadNoteIndex: (scope: VaultScope) => Promise<HyperCortexIndexV1>
   rebuildNoteIndexFromFs: (scope: VaultScope, idx: HyperCortexIndexV1) => Promise<HyperCortexIndexV1>
-  createEmptyNote: (scope: VaultScope, input: SaveNotePackageInput) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc; manifest: HyperCortexNoteManifestV1 }>
+  createEmptyNote: (scope: VaultScope, input: CreateNoteInput) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
 }
 
 export type AssetsService = {

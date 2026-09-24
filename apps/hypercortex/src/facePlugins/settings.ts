@@ -5,6 +5,18 @@ import type { FaceSettingField } from './protocol'
  * 宿主只按插件声明的字段做解析，不识别任何具体面类型。
  */
 
+/** 面插件全局设置容器（类型标识 → 字段键 → 值）的通用规范化：只保留对象值并浅拷贝。 */
+export function normalizeFacePluginSettingsContainer(raw: unknown): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const [kind, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(kind || '').trim()
+    if (!key || !value || typeof value !== 'object' || Array.isArray(value)) continue
+    out[key] = { ...(value as Record<string, unknown>) }
+  }
+  return out
+}
+
 /** 校验并收敛单个设置值；非法值返回 undefined（视为未设置）。 */
 export function normalizeFaceSettingValue(field: FaceSettingField, value: unknown): unknown | undefined {
   if (value == null) return undefined

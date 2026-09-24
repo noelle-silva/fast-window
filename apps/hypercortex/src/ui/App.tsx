@@ -68,11 +68,13 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
-import { normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
+import { migrateLegacyHtmlFaceSettings } from '../legacy/htmlFaceSettingsMigration'
+import { normalizeFacePluginSettingsContainer } from '../facePlugins/settings'
 import {
   normalizeDefaultFaceKinds,
   normalizeFaceKindOrder,
   orderKindsByGlobalOrder,
+  resolveNoteFaceOrder,
 } from '../facePreferences'
 import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
@@ -157,26 +159,6 @@ function stripDraftTabKeyMap(value: any): Record<string, string> {
   return out
 }
 
-/**
- * 面插件全局设置的统一容器规范化。
- * 一次性迁移：旧 HTML 面全局字段（htmlFaceDisplayMode / htmlFaceFixedScaleDefault）搬入容器，容器已有值优先。
- */
-function normalizeFacePluginSettings(raw: unknown, meta: HyperCortexMetadataV1): Record<string, Record<string, unknown>> {
-  const out: Record<string, Record<string, unknown>> = {}
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    for (const [kind, value] of Object.entries(raw as Record<string, unknown>)) {
-      const key = String(kind || '').trim()
-      if (!key || !value || typeof value !== 'object' || Array.isArray(value)) continue
-      out[key] = { ...(value as Record<string, unknown>) }
-    }
-  }
-  const html = { ...(out.html || {}) }
-  if (html.displayMode === undefined) html.displayMode = normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode)
-  if (html.fixedScale === undefined) html.fixedScale = normalizeHtmlFaceFixedScale(meta.htmlFaceFixedScaleDefault)
-  out.html = html
-  return out
-}
-
 function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
 
   delete (next as any).openNoteIds
@@ -201,9 +183,7 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
   next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
-  next.htmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(next.htmlFaceDisplayMode)
-  next.htmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(next.htmlFaceFixedScaleDefault)
-  next.facePluginSettings = normalizeFacePluginSettings(next.facePluginSettings, next)
+  next.facePluginSettings = normalizeFacePluginSettingsContainer(next.facePluginSettings)
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
   next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
 
@@ -350,6 +330,47 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
       return next.toggleSidebar
     default:
       return ''
+  }
+}
+
+/**
+ * 会话初始快照的唯一构造入口（普通新建与索引页创建共用）：
+ * 面清单/面顺序/激活面/笔记级字段一次性装配，保证两条创建流程表现一致。
+ */
+function buildNoteInitSnapshot(input: {
+  faceManifests: NoteDetailSnapshotV1['faceManifests']
+  faceOrder?: readonly string[]
+  globalKindOrder: readonly string[]
+  title: string
+  description?: string
+  tags?: string[]
+  resources?: NoteDetailSnapshotV1['baseFields']['resources']
+  noteTimes: NoteDetailSnapshotV1['noteTimes']
+}): NoteDetailSnapshotV1 {
+  const faces = resolveNoteFaceOrder({
+    faceOrder: input.faceOrder,
+    faces: input.faceManifests,
+    globalKindOrder: input.globalKindOrder,
+  })
+  const title = String(input.title || '').trim() || '未命名'
+  const description = String(input.description || '').trim()
+  const tags = (input.tags || []).slice()
+  const resources = (input.resources || []).slice()
+  return {
+    baseFields: { title, description, tags: tags.slice(), resources: resources.slice() },
+    faceManifests: input.faceManifests,
+    faceContents: {},
+    savedFaceContents: {},
+    editing: true,
+    faceViewState: {},
+    face: faces[0] || '',
+    faces,
+    editTitle: title,
+    editDescription: description,
+    editTags: tags,
+    editResources: resources,
+    noteTimes: input.noteTimes,
+    infoSidebarVisible: false,
   }
 }
 
@@ -1443,7 +1464,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
-        const normalizedFacePluginSettings = normalizeFacePluginSettings(normalizedMeta.facePluginSettings, normalizedMeta)
+        const normalizedFacePluginSettings = migrateLegacyHtmlFaceSettings(normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings), normalizedMeta)
         facePluginSettingsRef.current = normalizedFacePluginSettings
         setFacePluginSettings(normalizedFacePluginSettings)
         const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder, knownFaceKinds)
@@ -1925,23 +1946,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
     // 新笔记默认创建的面：按全局顺序排列，名单来自后端声明。
     const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => faceManifestFromDeclaration(requireFaceDeclaration(kind)))
-    const defaultFaces = defaultFaceManifests.map(face => face.id)
-    noteInitSnapshotsRef.current[draftId] = {
-      baseFields: { title: '未命名', description: '', tags: [], resources: [] },
+    noteInitSnapshotsRef.current[draftId] = buildNoteInitSnapshot({
       faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
-      faceContents: {},
-      savedFaceContents: {},
-      editing: true,
-      faceViewState: {},
-      face: defaultFaces[0] || '',
-      faces: defaultFaces,
-      editTitle: '未命名',
-      editDescription: '',
-      editTags: [],
-      editResources: [],
+      globalKindOrder: faceKindOrder,
+      title: '未命名',
       noteTimes: { createdAtMs: now, updatedAtMs: now },
-      infoSidebarVisible: false,
-    }
+    })
 
     setOpenNoteTabs(prev => {
       return [...prev, meta]
@@ -2280,9 +2290,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const result = await gateway.notes.createEmptyNote('library', {
           title: '未命名',
           description: '',
-          body: '',
           tags: [],
-          saveTextFace: false,
           faceKinds: orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder),
         })
         const meta = result.meta
@@ -2297,25 +2305,20 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           const current = prev || { version: 1, notes: {} }
           return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
         })
-        noteInitSnapshotsRef.current[meta.id] = {
-          baseFields: { title: meta.title || '未命名', description: meta.description || '', tags: [], resources: [] },
-          faceManifests: {},
-          faceContents: {},
-          savedFaceContents: {},
-          editing: true,
-          faceViewState: {},
-          face: '',
-          faces: [],
-          editTitle: meta.title || '未命名',
-          editDescription: meta.description || '',
-          editTags: [],
-          editResources: [],
+        // 会话初始状态与普通新建共用同一构造入口；面清单取自后端已创建的真实清单。
+        noteInitSnapshotsRef.current[meta.id] = buildNoteInitSnapshot({
+          faceManifests: result.manifest.faces,
+          faceOrder: result.manifest.faceOrder,
+          globalKindOrder: faceKindOrder,
+          title: meta.title || '未命名',
+          description: meta.description || '',
+          tags: [],
+          resources: [],
           noteTimes: {
             createdAtMs: Number(meta.createdAtMs) > 0 ? Number(meta.createdAtMs) : Date.now(),
             updatedAtMs: Number(meta.updatedAtMs) > 0 ? Number(meta.updatedAtMs) : Date.now(),
           },
-          infoSidebarVisible: false,
-        }
+        })
         handleOpenNote(meta)
         void gateway.host.toast('已创建空白笔记并添加到索引页')
       } catch (e: any) {

@@ -94,7 +94,9 @@ export type HyperCortexMetadataV1 = {
   shortcuts?: HyperCortexShortcutBindingsV1
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.
   shortcutHintsEnabled?: boolean
+  // @deprecated 旧版 HTML 面全局字段：仅由一次性迁移读取搬入统一容器，宿主不再写入或规范化；请勿新增消费方。
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
+  // @deprecated 旧版 HTML 面全局字段：仅由一次性迁移读取搬入统一容器，宿主不再写入或规范化；请勿新增消费方。
   htmlFaceFixedScaleDefault?: number
   // 面插件全局设置统一容器：类型标识 → 字段键 → 值（旧 HTML 面字段在加载时一次性搬入）。
   facePluginSettings?: Record<string, Record<string, unknown>>
