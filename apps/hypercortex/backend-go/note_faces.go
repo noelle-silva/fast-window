@@ -465,19 +465,7 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, err
 	}
-	doc, err := svc.loadNotePackage(scope, desiredDir)
-	if err != nil {
-		return nil, err
-	}
-	result := map[string]any{"meta": meta, "doc": doc, "htmlFace": nil, "manifest": manifest, "refs": refs}
-	if faceIDForKind(manifest.Faces, "html") != "" {
-		htmlFace, err := svc.loadHTMLFace(scope, desiredDir)
-		if err != nil {
-			return nil, err
-		}
-		result["htmlFace"] = htmlFace
-	}
-	return result, nil
+	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
 }
 
 // saveNoteFaceOrder 保存笔记级面顺序（Q35 统一优先级机制的笔记级覆盖）。

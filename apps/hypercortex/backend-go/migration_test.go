@@ -282,12 +282,12 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 	if !legacyDoc.Exists || legacyDoc.Content != "legacy payload" {
 		t.Fatalf("unknown face content lost: %+v", legacyDoc)
 	}
-	textBody, err := svc.loadNotePackage("library", noteRel)
+	textFaceDoc, err := svc.loadNoteFace("library", noteRel, "text")
 	if err != nil {
-		t.Fatalf("load migrated package failed: %v", err)
+		t.Fatalf("load migrated text face failed: %v", err)
 	}
-	if !strings.Contains(textBody.Body, "[[note_id=other-a]]") {
-		t.Fatalf("text face body lost: %q", textBody.Body)
+	if !strings.Contains(textFaceDoc.Content, "[[note_id=other-a]]") {
+		t.Fatalf("text face body lost: %q", textFaceDoc.Content)
 	}
 
 	refs, err := svc.loadRefIndex("library")

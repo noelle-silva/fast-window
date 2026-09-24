@@ -12,14 +12,15 @@ func createVersionedTestNote(t *testing.T, svc *service) string {
 		t.Fatalf("ensure roots failed: %v", err)
 	}
 	input := map[string]any{
-		"id":           "20260522010101001",
-		"title":        "Versioned Note",
-		"description":  "Original description",
-		"body":         "# Alpha\n\nfirst body",
-		"tags":         []string{"release"},
-		"saveTextFace": true,
+		"id":          "20260522010101001",
+		"title":       "Versioned Note",
+		"description": "Original description",
+		"faceId":      "text",
+		"kind":        "markdown",
+		"content":     "# Alpha\n\nfirst body",
+		"tags":        []string{"release"},
 	}
-	result, err := svc.saveNotePackage("library", mustJSONRaw(t, input))
+	result, err := svc.saveNoteFace("library", mustJSONRaw(t, input))
 	if err != nil {
 		t.Fatalf("save note failed: %v", err)
 	}
@@ -79,25 +80,21 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 		t.Fatalf("publish version failed: %v", err)
 	}
 	update := map[string]any{
-		"id":           "20260522010101001",
-		"packageDir":   packageDir,
-		"title":        "Changed Note",
-		"description":  "Changed description",
-		"body":         "# Beta\n\n[[note_id=missing-target]]\nchanged body",
-		"tags":         []string{"changed"},
-		"saveTextFace": true,
+		"id":          "20260522010101001",
+		"packageDir":  packageDir,
+		"title":       "Changed Note",
+		"description": "Changed description",
+		"faceId":      "text",
+		"kind":        "markdown",
+		"content":     "# Beta\n\n[[note_id=missing-target]]\nchanged body",
+		"tags":        []string{"changed"},
 	}
-	if _, err := svc.saveNotePackage("library", mustJSONRaw(t, update)); err != nil {
+	if _, err := svc.saveNoteFace("library", mustJSONRaw(t, update)); err != nil {
 		t.Fatalf("update note failed: %v", err)
 	}
 
-	result, err := svc.restoreNoteVersion("library", packageDir, first.VersionID)
-	if err != nil {
+	if _, err := svc.restoreNoteVersion("library", packageDir, first.VersionID); err != nil {
 		t.Fatalf("restore version failed: %v", err)
-	}
-	doc := result.(map[string]any)["doc"].(noteDoc)
-	if doc.Title != "Versioned Note" || !strings.Contains(doc.Body, "first body") {
-		t.Fatalf("restored doc = %+v, want original content", doc)
 	}
 	manifest, err := svc.loadNoteManifest("library", packageDir)
 	if err != nil {
@@ -105,6 +102,13 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 	}
 	if manifest.Title != "Versioned Note" || manifest.UpdatedAtMs <= 0 {
 		t.Fatalf("restored manifest = %+v", manifest)
+	}
+	restoredFace, err := svc.loadNoteFace("library", packageDir, "text")
+	if err != nil {
+		t.Fatalf("load restored face failed: %v", err)
+	}
+	if !strings.Contains(restoredFace.Content, "first body") {
+		t.Fatalf("restored text = %q, want original content", restoredFace.Content)
 	}
 	refs, err := svc.loadRefIndex("library")
 	if err != nil {

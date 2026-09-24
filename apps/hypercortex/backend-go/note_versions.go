@@ -363,11 +363,7 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 	if err != nil {
 		return nil, err
 	}
-	doc, err := svc.loadNotePackage(scope, packageDir)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest, "refs": refs}, nil
+	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
 }
 
 func (svc *service) refreshNoteVersionSnapshots() error {

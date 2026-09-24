@@ -16,11 +16,6 @@ func defaultTextFace() noteFaceManifest {
 	return face
 }
 
-func defaultHTMLFace(settings map[string]any) noteFaceManifest {
-	face, _ := defaultFaceForKind("html", noteFaceManifest{ID: "html", Settings: settings})
-	return face
-}
-
 func normalizeFaceManifest(input noteFaceManifest) noteFaceManifest {
 	if input.Kind == "" {
 		return input
@@ -190,22 +185,6 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest, "refs": refs}, nil
 }
 
-func (svc *service) loadNotePackage(scope string, packageDir string) (noteDoc, error) {
-	manifest, err := svc.loadNoteManifest(scope, packageDir)
-	if err != nil {
-		return noteDoc{}, err
-	}
-	textFace := manifest.Faces["text"]
-	if textFace.File == "" {
-		textFace = defaultTextFace()
-	}
-	body := ""
-	if raw, err := svc.readText(scope, filepath.ToSlash(filepath.Join(packageDir, textFace.File))); err == nil {
-		body = raw
-	}
-	return noteDoc{ID: manifest.ID, PackageDir: packageDir, Title: manifest.Title, Description: manifest.Description, Body: body, Tags: manifest.Tags, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, SchemaVersion: manifest.SchemaVersion, Resources: manifest.Resources, DisplayHTML: renderMarkdownLite(body)}, nil
-}
-
 func (svc *service) loadNoteFace(scope string, packageDir string, faceID string) (noteFaceDoc, error) {
 	manifest, err := svc.loadNoteManifest(scope, packageDir)
 	if err != nil {
@@ -220,71 +199,10 @@ func (svc *service) loadNoteFace(scope string, packageDir string, faceID string)
 	if raw, err := svc.readText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File))); err == nil {
 		content = raw
 		exists = true
-	} else if face.Kind == "html" {
-		if adapter, err := faceplugin.Require(face.Kind); err == nil {
-			content = adapter.EmptyContent(manifest.ID, manifest.Title)
-		}
+	} else if adapter, err := faceplugin.Require(face.Kind); err == nil {
+		content = adapter.EmptyContent(manifest.ID, manifest.Title)
 	}
 	return noteFaceDocFromManifest(manifest, packageDir, face, content, exists), nil
-}
-
-func (svc *service) loadHTMLFace(scope string, packageDir string) (htmlFaceDoc, error) {
-	manifest, err := svc.loadNoteManifest(scope, packageDir)
-	if err != nil {
-		return htmlFaceDoc{}, err
-	}
-	face, ok := manifest.Faces["html"]
-	if !ok {
-		return htmlFaceFromParts(manifest, packageDir, faceEmptyContent("html", manifest), false, nil), nil
-	}
-	content := ""
-	exists := false
-	if raw, err := svc.readText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File))); err == nil {
-		content = raw
-		exists = true
-	} else {
-		content = faceEmptyContent("html", manifest)
-	}
-	return htmlFaceFromParts(manifest, packageDir, content, exists, fixedScaleFromSettings(face.Settings)), nil
-}
-
-func (svc *service) saveHTMLFace(scope string, raw json.RawMessage) (any, error) {
-	input := map[string]any{}
-	if err := json.Unmarshal(raw, &input); err != nil {
-		return nil, err
-	}
-	input["faceId"] = "html"
-	input["kind"] = "html"
-	input["content"] = asString(input["html"])
-	nextRaw, err := json.Marshal(input)
-	if err != nil {
-		return nil, err
-	}
-	result, err := svc.saveNoteFace(scope, nextRaw)
-	if err != nil {
-		return nil, err
-	}
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		return nil, errors.New("保存 HTML 面返回值无效")
-	}
-	meta, ok := resultMap["meta"].(noteMeta)
-	if !ok {
-		return nil, errors.New("保存 HTML 面缺少 meta")
-	}
-	faceDoc, ok := resultMap["faceDoc"].(noteFaceDoc)
-	if !ok {
-		return nil, errors.New("保存 HTML 面缺少 faceDoc")
-	}
-	manifest, ok := resultMap["manifest"].(noteManifest)
-	if !ok {
-		return nil, errors.New("保存 HTML 面缺少 manifest")
-	}
-	refs, ok := resultMap["refs"].(map[string][]noteRef)
-	if !ok {
-		return nil, errors.New("保存 HTML 面缺少 refs")
-	}
-	return map[string]any{"meta": meta, "htmlFace": htmlFaceDocFromFaceDoc(faceDoc), "manifest": manifest, "refs": refs}, nil
 }
 
 func (svc *service) upsertNoteMeta(scope string, meta noteMeta) error {
@@ -330,34 +248,6 @@ func (svc *service) deleteFile(scope string, rel string) error {
 		return err
 	}
 	return os.Remove(target)
-}
-
-func htmlFaceFromParts(manifest noteManifest, packageDir string, content string, exists bool, fixedScale *float64) htmlFaceDoc {
-	return htmlFaceDoc{ID: manifest.ID, PackageDir: packageDir, Title: manifest.Title, Description: manifest.Description, HTML: content, Exists: exists, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, SchemaVersion: manifest.SchemaVersion, FixedScale: fixedScale}
-}
-
-func htmlFaceDocFromFaceDoc(doc noteFaceDoc) htmlFaceDoc {
-	return htmlFaceDoc{ID: doc.NoteID, PackageDir: doc.PackageDir, Title: doc.NoteTitle, Description: doc.NoteDescription, HTML: doc.Content, Exists: doc.Exists, CreatedAtMs: doc.CreatedAtMs, UpdatedAtMs: doc.UpdatedAtMs, SchemaVersion: doc.SchemaVersion, FixedScale: fixedScaleFromSettings(doc.Face.Settings)}
-}
-
-// faceEmptyContent 通过协议注册表取某类型的空白内容（宿主不持有具体面的内容模板）。
-func faceEmptyContent(kind string, manifest noteManifest) string {
-	adapter, err := faceplugin.Require(kind)
-	if err != nil || adapter.EmptyContent == nil {
-		return ""
-	}
-	return adapter.EmptyContent(manifest.ID, manifest.Title)
-}
-
-func fixedScaleFromSettings(settings map[string]any) *float64 {
-	if settings == nil {
-		return nil
-	}
-	value := asFloat(settings["fixedScale"])
-	if value < 0.25 || value > 2 {
-		return nil
-	}
-	return &value
 }
 
 func uniqueStrings(list []string) []string {

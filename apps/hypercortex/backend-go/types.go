@@ -208,19 +208,6 @@ type noteFaceDoc struct {
 	SchemaVersion   int              `json:"schemaVersion"`
 }
 
-type htmlFaceDoc struct {
-	ID            string   `json:"id"`
-	PackageDir    string   `json:"packageDir"`
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	HTML          string   `json:"html"`
-	Exists        bool     `json:"exists"`
-	CreatedAtMs   float64  `json:"createdAtMs"`
-	UpdatedAtMs   float64  `json:"updatedAtMs"`
-	SchemaVersion int      `json:"schemaVersion"`
-	FixedScale    *float64 `json:"fixedScale,omitempty"`
-}
-
 type assetIndexEntry struct {
 	MetadataVersion int      `json:"metadataVersion"`
 	AssetID         string   `json:"assetId"`

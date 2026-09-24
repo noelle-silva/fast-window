@@ -13,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+
+	"fast-window-hypercortex-backend/faceplugin"
 )
 
 type service struct {
@@ -201,10 +203,10 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.loadNoteIndex(requireScope(params))
 	case "hypercortex.notes.rebuildIndex":
 		return svc.rebuildNoteIndex(requireScope(params))
-	case "hypercortex.notes.create", "hypercortex.notes.savePackage":
+	case "hypercortex.notes.listFacePlugins":
+		return faceplugin.ListDeclarations(), nil
+	case "hypercortex.notes.create":
 		return svc.saveNotePackage(requireScope(params), rawField(params, "input"))
-	case "hypercortex.notes.loadPackage":
-		return svc.loadNotePackage(requireScope(params), stringField(params, "packageDir"))
 	case "hypercortex.notes.loadManifest":
 		return svc.loadNoteManifest(requireScope(params), stringField(params, "packageDir"))
 	case "hypercortex.notes.tryReadManifest":
@@ -223,10 +225,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.saveNoteFaceOrder(requireScope(params), stringField(params, "packageDir"), stringSliceField(params, "faceOrder"))
 	case "hypercortex.notes.deleteFace":
 		return svc.deleteNoteFace(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), optionalStringField(params, "mode"))
-	case "hypercortex.notes.loadHtmlFace":
-		return svc.loadHTMLFace(requireScope(params), stringField(params, "packageDir"))
-	case "hypercortex.notes.saveHtmlFace":
-		return svc.saveHTMLFace(requireScope(params), rawField(params, "input"))
 	case "hypercortex.notes.saveFaceSettings":
 		return svc.saveNoteFaceSettings(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), rawField(params, "settings"))
 	case "hypercortex.notes.versions.publish":

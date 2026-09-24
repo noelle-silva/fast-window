@@ -13,11 +13,10 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "faceless-note-1",
-		"title":        "只有标题",
-		"description":  "无面笔记",
-		"saveTextFace": false,
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":          "faceless-note-1",
+		"title":       "只有标题",
+		"description": "无面笔记",
 	}))
 	if err != nil {
 		t.Fatalf("save faceless note failed: %v", err)
@@ -30,18 +29,16 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 	if len(manifest.Faces) != 0 || len(manifest.FaceOrder) != 0 {
 		t.Fatalf("faceless manifest = %#v", manifest)
 	}
-	doc, err := svc.loadNotePackage("library", meta.Dir)
-	if err != nil {
-		t.Fatalf("load faceless package failed: %v", err)
+	if manifest.Title != "只有标题" {
+		t.Fatalf("faceless title = %q", manifest.Title)
 	}
-	if doc.Title != "只有标题" || doc.Body != "" {
-		t.Fatalf("faceless doc = %#v", doc)
+	if _, err := svc.loadNoteFace("library", meta.Dir, "text"); err == nil {
+		t.Fatal("faceless note must not expose a text face")
 	}
 
-	if _, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "faceless-note-2",
-		"title":        "",
-		"saveTextFace": false,
+	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":    "faceless-note-2",
+		"title": "",
 	})); err == nil || !strings.Contains(err.Error(), "标题") {
 		t.Fatalf("expected title rejection for faceless note, got %v", err)
 	}
@@ -54,11 +51,12 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "face-ts-note-1",
-		"title":        "时间戳",
-		"body":         "hello",
-		"saveTextFace": true,
+	first, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+		"id":      "face-ts-note-1",
+		"title":   "时间戳",
+		"faceId":  "text",
+		"kind":    "markdown",
+		"content": "hello",
 	}))
 	if err != nil {
 		t.Fatalf("first save failed: %v", err)
@@ -76,12 +74,13 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("face updated %v != note updated %v", textFace.UpdatedAtMs, manifest1.UpdatedAtMs)
 	}
 
-	second, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "face-ts-note-1",
-		"packageDir":   firstMeta.Dir,
-		"title":        "时间戳",
-		"body":         "hello again",
-		"saveTextFace": true,
+	second, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+		"id":         "face-ts-note-1",
+		"packageDir": firstMeta.Dir,
+		"title":      "时间戳",
+		"faceId":     "text",
+		"kind":       "markdown",
+		"content":    "hello again",
 	}))
 	if err != nil {
 		t.Fatalf("second save failed: %v", err)
@@ -225,14 +224,15 @@ func TestPublishVersionIgnoresTimestampOnlyChanges(t *testing.T) {
 		t.Fatalf("publish version failed: %v", err)
 	}
 
-	if _, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "20260522010101001",
-		"packageDir":   packageDir,
-		"title":        "Versioned Note",
-		"description":  "Original description",
-		"body":         "# Alpha\n\nfirst body",
-		"tags":         []string{"release"},
-		"saveTextFace": true,
+	if _, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+		"id":          "20260522010101001",
+		"packageDir":  packageDir,
+		"title":       "Versioned Note",
+		"description": "Original description",
+		"tags":        []string{"release"},
+		"faceId":      "text",
+		"kind":        "markdown",
+		"content":     "# Alpha\n\nfirst body",
 	})); err != nil {
 		t.Fatalf("re-save note failed: %v", err)
 	}

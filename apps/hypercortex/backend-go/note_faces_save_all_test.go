@@ -24,12 +24,13 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "save-faces-note-1",
-		"title":        "批量保存",
-		"body":         "old text",
-		"saveTextFace": true,
-		"faceKinds":    []string{"markdown", "html"},
+	created, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+		"id":        "save-faces-note-1",
+		"title":     "批量保存",
+		"faceId":    "text",
+		"kind":      "markdown",
+		"content":   "old text",
+		"faceKinds": []string{"markdown", "html"},
 	}))
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
@@ -53,18 +54,21 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	resultMap := result.(map[string]any)
 	manifest := resultMap["manifest"].(noteManifest)
 	meta := resultMap["meta"].(noteMeta)
-	doc := resultMap["doc"].(noteDoc)
-	htmlFace, ok := resultMap["htmlFace"].(htmlFaceDoc)
-	if !ok {
-		t.Fatalf("htmlFace = %#v", resultMap["htmlFace"])
-	}
 	refs := resultMap["refs"].(map[string][]noteRef)
 
-	if doc.Body != "new text [[note_id=other-note]]" {
-		t.Fatalf("doc body = %q", doc.Body)
+	textDoc, err := svc.loadNoteFace("library", packageDir, "text")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(htmlFace.HTML, "new html") {
-		t.Fatalf("html content = %q", htmlFace.HTML)
+	if textDoc.Content != "new text [[note_id=other-note]]" {
+		t.Fatalf("text content = %q", textDoc.Content)
+	}
+	htmlDoc, err := svc.loadNoteFace("library", packageDir, "html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(htmlDoc.Content, "new html") {
+		t.Fatalf("html content = %q", htmlDoc.Content)
 	}
 	if meta.Title != "批量保存（改）" || meta.UpdatedAtMs <= 0 {
 		t.Fatalf("meta = %#v", meta)
@@ -236,12 +240,13 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.saveNotePackage("library", mustJSONRaw(t, map[string]any{
-		"id":           "save-face-order-1",
-		"title":        "面顺序",
-		"body":         "",
-		"saveTextFace": true,
-		"faceKinds":    []string{"markdown", "html"},
+	created, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+		"id":        "save-face-order-1",
+		"title":     "面顺序",
+		"faceId":    "text",
+		"kind":      "markdown",
+		"content":   "",
+		"faceKinds": []string{"markdown", "html"},
 	}))
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
