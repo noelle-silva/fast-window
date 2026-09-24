@@ -34,96 +34,6 @@ func defaultFaceForKind(kind string, input noteFaceManifest) (noteFaceManifest, 
 	}, nil
 }
 
-func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error) {
-	input := map[string]any{}
-	if err := json.Unmarshal(raw, &input); err != nil {
-		return nil, err
-	}
-	if err := svc.ensureRoots(); err != nil {
-		return nil, err
-	}
-	adapter, err := faceplugin.Require(strings.TrimSpace(asString(input["kind"])))
-	if err != nil {
-		return nil, err
-	}
-	id := strings.TrimSpace(asString(input["id"]))
-	if id == "" {
-		id = noteID()
-	}
-	title := nonEmpty(asString(input["title"]), "未命名")
-	currentDir := strings.TrimSpace(asString(input["packageDir"]))
-	desiredDir, err := notePackageDirForID(id)
-	if err != nil {
-		return nil, err
-	}
-	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
-		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {
-			return nil, err
-		}
-	}
-
-	existing, _ := svc.loadNoteManifest(scope, desiredDir)
-	faceID := nonEmpty(asString(input["faceId"]), adapter.DefaultFaceID)
-	existingFace, faceExists := existing.Faces[faceID]
-	settings := mapFromAny(input["settings"])
-	if settings == nil {
-		settings = existingFace.Settings
-	}
-	face, err := defaultFaceForKind(adapter.Kind, noteFaceManifest{ID: faceID, Title: existingFace.Title, File: existingFace.File, Settings: settings, Extra: existingFace.Extra})
-	if err != nil {
-		return nil, err
-	}
-
-	created := asFloat(input["createdAtMs"])
-	if created <= 0 {
-		created = existing.CreatedAtMs
-	}
-	if created <= 0 {
-		created = nowMs()
-	}
-	updated := nowMs()
-	face.CreatedAtMs = nonZeroFloat(existingFace.CreatedAtMs, created)
-	if !faceExists {
-		face.CreatedAtMs = updated
-	}
-	face.UpdatedAtMs = updated
-	resources := existing.Resources
-	if _, ok := input["resources"]; ok {
-		resources = normalizeResources(input["resources"])
-	}
-	if resources == nil {
-		resources = existing.Resources
-	}
-	faces := existing.Faces
-	if faces == nil {
-		faces = map[string]noteFaceManifest{}
-	}
-	faces[face.ID] = face
-	manifest := noteManifest{ID: id, Title: title, Description: strings.TrimSpace(asString(firstNonNil(input["description"], existing.Description))), Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: resources}
-	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
-		return nil, err
-	}
-	manifest.FaceOrder = appendIfMissing(manifest.FaceOrder, face.ID)
-	manifest = normalizeManifest(manifest)
-
-	content := adapter.NormalizeContent(asString(input["content"]))
-	if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(desiredDir, manifest.Faces[face.ID].File)), content, true); err != nil {
-		return nil, err
-	}
-	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(desiredDir, manifestFile)), manifest); err != nil {
-		return nil, err
-	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
-	if err := svc.upsertNoteMeta(scope, meta); err != nil {
-		return nil, err
-	}
-	refs, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"meta": meta, "faceDoc": noteFaceDocFromManifest(manifest, desiredDir, manifest.Faces[face.ID], content, true), "manifest": manifest, "refs": refs}, nil
-}
-
 // deleteNoteFace 删除笔记中的某个面：
 // mode 为 trash 时先移入回收站（可恢复），其余情况直接永久删除文件。
 // 两种模式都会同步清理该面发出的引用与搜索索引条目（Q15）。
@@ -190,29 +100,11 @@ func (svc *service) renamePackageIfNeeded(scope string, currentDir string, desir
 
 // maskFencedCodeBlocks 等引用语法工具已迁入协议包 faceplugin（见 faceplugin/refs.go）。
 
-func mapFromAny(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	rec, ok := value.(map[string]any)
-	if !ok {
-		return map[string]any{}
-	}
-	return rec
-}
-
 func tagsOrExisting(value any, existing []string) []string {
 	if _, ok := value.([]any); ok {
 		return normalizeTags(value)
 	}
 	return existing
-}
-
-func firstNonNil(value any, fallback any) any {
-	if value == nil {
-		return fallback
-	}
-	return value
 }
 
 func faceKindsFromAny(value any) []string {

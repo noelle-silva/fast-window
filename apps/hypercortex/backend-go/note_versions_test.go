@@ -15,12 +15,12 @@ func createVersionedTestNote(t *testing.T, svc *service) string {
 		"id":          "20260522010101001",
 		"title":       "Versioned Note",
 		"description": "Original description",
-		"faceId":      "text",
-		"kind":        "markdown",
-		"content":     "# Alpha\n\nfirst body",
 		"tags":        []string{"release"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "# Alpha\n\nfirst body"},
+		},
 	}
-	result, err := svc.saveNoteFace("library", mustJSONRaw(t, input))
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, input))
 	if err != nil {
 		t.Fatalf("save note failed: %v", err)
 	}
@@ -84,12 +84,12 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 		"packageDir":  packageDir,
 		"title":       "Changed Note",
 		"description": "Changed description",
-		"faceId":      "text",
-		"kind":        "markdown",
-		"content":     "# Beta\n\n[[note_id=missing-target]]\nchanged body",
 		"tags":        []string{"changed"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "# Beta\n\n[[note_id=missing-target]]\nchanged body"},
+		},
 	}
-	if _, err := svc.saveNoteFace("library", mustJSONRaw(t, update)); err != nil {
+	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, update)); err != nil {
 		t.Fatalf("update note failed: %v", err)
 	}
 

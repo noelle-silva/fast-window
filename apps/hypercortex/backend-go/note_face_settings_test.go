@@ -13,19 +13,25 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
-		"id":       "face-settings-note-1",
-		"title":    "设置补丁",
-		"faceId":   "html",
-		"kind":     "html",
-		"content":  "<div>hi</div>",
-		"settings": map[string]any{"fixedScale": 0.8, "displayMode": "fit-window"},
+	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":    "face-settings-note-1",
+		"title": "设置补丁",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>hi</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
-	manifest := first.(map[string]any)["manifest"].(noteManifest)
-	packageDir := first.(map[string]any)["meta"].(noteMeta).Dir
+	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
+	// 初始设置经统一设置通道写入，随后以补丁语义逐步调整。
+	if _, err := svc.saveNoteFaceSettings("library", packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.8, "displayMode": "fit-window"})); err != nil {
+		t.Fatalf("save face settings failed: %v", err)
+	}
+	manifest, err := svc.loadNoteManifest("library", packageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	htmlFace := manifest.Faces["html"]
 	if got := asFloat(htmlFace.Settings["fixedScale"]); got != 0.8 {
 		t.Fatalf("fixedScale = %v, want 0.8", got)
@@ -87,13 +93,13 @@ func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":        "face-kinds-note-1",
 		"title":     "默认面",
-		"faceId":    "text",
-		"kind":      "markdown",
-		"content":   "hello",
 		"faceKinds": []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "hello"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save note with faceKinds failed: %v", err)
@@ -126,14 +132,14 @@ func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 	}
 
 	// 再次保存：面不重复创建，面顺序保持不变。
-	second, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	second, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":         "face-kinds-note-1",
 		"packageDir": meta.Dir,
 		"title":      "默认面",
-		"faceId":     "text",
-		"kind":       "markdown",
-		"content":    "hello again",
 		"faceKinds":  []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "hello again"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("second save failed: %v", err)
@@ -147,20 +153,20 @@ func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 	}
 }
 
-// Q47/Q48：草稿首次保存时以 saveNoteFace 落盘，按 faceKinds 补齐缺失的默认面。
+// Q47/Q48：草稿首次保存时以批量保存通道落盘，按 faceKinds 补齐缺失的默认面。
 func TestSaveNoteFaceFaceKindsCreatesMissingFaces(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":        "face-kinds-html-1",
 		"title":     "HTML 默认",
-		"faceId":    "html",
-		"kind":      "html",
-		"content":   "<div>draft</div>",
 		"faceKinds": []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>draft</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face with faceKinds failed: %v", err)
@@ -205,13 +211,13 @@ func TestFaceKindsDoNotReorderExistingNote(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "<div>html</div>")
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "face-order-existing"))
 
-	result, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":         "face-order-existing-note",
 		"packageDir": rel,
-		"faceId":     "text",
-		"kind":       "markdown",
-		"content":    "updated",
 		"faceKinds":  []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "updated"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save note face failed: %v", err)
@@ -228,26 +234,28 @@ func TestSaveHtmlFaceKeepsDisplayModeSettings(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	first, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
-		"id":       "html-settings-keep-1",
-		"title":    "保留设置",
-		"faceId":   "html",
-		"kind":     "html",
-		"content":  "<div>one</div>",
-		"settings": map[string]any{"displayMode": "natural"},
+	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":    "html-settings-keep-1",
+		"title": "保留设置",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>one</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
-	packageDir := first.(map[string]any)["meta"].(noteMeta).Dir
+	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
+	if _, err := svc.saveNoteFaceSettings("library", packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"})); err != nil {
+		t.Fatalf("save displayMode failed: %v", err)
+	}
 
-	result, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":         "html-settings-keep-1",
 		"packageDir": packageDir,
 		"title":      "保留设置",
-		"faceId":     "html",
-		"kind":       "html",
-		"content":    "<div>two</div>",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>two</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face content failed: %v", err)
@@ -256,7 +264,10 @@ func TestSaveHtmlFaceKeepsDisplayModeSettings(t *testing.T) {
 	if got := asString(manifest.Faces["html"].Settings["displayMode"]); got != "natural" {
 		t.Fatalf("displayMode lost on content save: %q", got)
 	}
-	faceDoc := result.(map[string]any)["faceDoc"].(noteFaceDoc)
+	faceDoc, err := svc.loadNoteFace("library", packageDir, "html")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(faceDoc.Content, "two") {
 		t.Fatalf("html content = %q", faceDoc.Content)
 	}

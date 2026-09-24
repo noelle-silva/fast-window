@@ -24,13 +24,13 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-note-1",
 		"title":     "批量保存",
-		"faceId":    "text",
-		"kind":      "markdown",
-		"content":   "old text",
 		"faceKinds": []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "old text"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
@@ -128,13 +128,13 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	first, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-keep-1",
 		"title":     "保留未提交面",
-		"faceId":    "html",
-		"kind":      "html",
-		"content":   "<div>keep</div>",
 		"faceKinds": []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>keep</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
@@ -240,13 +240,13 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":        "save-face-order-1",
 		"title":     "面顺序",
-		"faceId":    "text",
-		"kind":      "markdown",
-		"content":   "",
 		"faceKinds": []string{"markdown", "html"},
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": ""},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)

@@ -51,12 +51,12 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
-		"id":      "face-ts-note-1",
-		"title":   "时间戳",
-		"faceId":  "text",
-		"kind":    "markdown",
-		"content": "hello",
+	first, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":    "face-ts-note-1",
+		"title": "时间戳",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "hello"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("first save failed: %v", err)
@@ -74,13 +74,13 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("face updated %v != note updated %v", textFace.UpdatedAtMs, manifest1.UpdatedAtMs)
 	}
 
-	second, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	second, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":         "face-ts-note-1",
 		"packageDir": firstMeta.Dir,
 		"title":      "时间戳",
-		"faceId":     "text",
-		"kind":       "markdown",
-		"content":    "hello again",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "hello again"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("second save failed: %v", err)
@@ -98,13 +98,13 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("text face updated went backwards: %v -> %v", textFace.UpdatedAtMs, textFace2.UpdatedAtMs)
 	}
 
-	faceResult, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	faceResult, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":         "face-ts-note-1",
 		"packageDir": secondMeta.Dir,
-		"faceId":     "html",
-		"kind":       "html",
-		"title":      "HTML",
-		"content":    "<div>x</div>",
+		"title":      "时间戳",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>x</div>"},
+		},
 	}))
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
@@ -165,13 +165,14 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
 
-	if _, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
-		"id":         "20260522010101001",
-		"packageDir": packageDir,
-		"faceId":     "html",
-		"kind":       "html",
-		"title":      "HTML",
-		"content":    "<div>[[note_id=html-target]]</div>",
+	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+		"id":          "20260522010101001",
+		"packageDir":  packageDir,
+		"title":       "Versioned Note",
+		"description": "Original description",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>[[note_id=html-target]]</div>"},
+		},
 	})); err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
@@ -224,15 +225,15 @@ func TestPublishVersionIgnoresTimestampOnlyChanges(t *testing.T) {
 		t.Fatalf("publish version failed: %v", err)
 	}
 
-	if _, err := svc.saveNoteFace("library", mustJSONRaw(t, map[string]any{
+	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
 		"id":          "20260522010101001",
 		"packageDir":  packageDir,
 		"title":       "Versioned Note",
 		"description": "Original description",
 		"tags":        []string{"release"},
-		"faceId":      "text",
-		"kind":        "markdown",
-		"content":     "# Alpha\n\nfirst body",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "# Alpha\n\nfirst body"},
+		},
 	})); err != nil {
 		t.Fatalf("re-save note failed: %v", err)
 	}
