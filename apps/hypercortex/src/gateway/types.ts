@@ -2,10 +2,7 @@ import type { VaultScope } from '../core'
 import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { NoteRefEntryMap, NoteRefIndex } from '../noteRefs'
-import type {
-  HyperCortexNoteFaceDoc,
-  HyperCortexNoteFaceSettingsV2,
-} from '../noteFaces'
+import type { HyperCortexNoteFaceDoc } from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, NoteMeta } from '../core'
@@ -70,22 +67,6 @@ export type CreateNoteInput = {
   faceKinds?: string[]
 }
 
-export type SaveNoteFaceInput = {
-  id?: string
-  packageDir?: string
-  title?: string
-  description?: string
-  body?: string
-  tags?: string[]
-  createdAtMs?: number
-  resources?: HyperCortexNoteResourceRef[]
-  faceId: string
-  kind: string
-  content: string
-  settings?: HyperCortexNoteFaceSettingsV2 | null
-  faceKinds?: string[]
-}
-
 // 批量保存时提交的单个面内容（Q24：保存整个笔记所有面）。
 export type SaveNoteFaceContentInput = {
   faceId: string
@@ -113,7 +94,6 @@ export type NotesService = {
   tryReadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1 | null>
   listFacePlugins: () => Promise<FaceDeclaration[]>
   loadNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteFaceDoc>
-  saveNoteFace: (scope: VaultScope, input: SaveNoteFaceInput) => Promise<{ meta: NoteMeta; faceDoc: HyperCortexNoteFaceDoc; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string, mode: 'trash' | 'permanent') => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   saveNoteFaceOrder: (scope: VaultScope, packageDir: string, faceOrder: string[]) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
