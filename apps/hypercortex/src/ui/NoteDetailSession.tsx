@@ -4,7 +4,6 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded'
-import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
@@ -14,14 +13,12 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
-import { createMarkdownRenderEngine } from '../render/engine'
-import { HYPERCORTEX_NOTE_SCHEMA_VERSION, type HyperCortexNoteManifestV1 } from '../noteSchema'
+import { HYPERCORTEX_NOTE_SCHEMA_VERSION, type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import { buildAssetMarkerBlock, formatAssetMarkerInsertion } from '../assetMarker'
 import { mergeNoteResources } from '../noteResources'
-import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/pastedAssetUpload'
+import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import type { SaveNoteFaceContentInput } from '../gateway/types'
@@ -35,19 +32,13 @@ import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { HtmlFaceIframe } from './HtmlFaceIframe'
 import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
-import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
-import { ImageDialog } from './preview/ImageDialog'
-import { MermaidDialog } from './preview/MermaidDialog'
 import { HtmlFaceFullscreenDialog } from './preview/HtmlFaceFullscreenDialog'
-import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandlerOnce'
-import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreviewButton'
-import { usePreviewController } from './preview/usePreviewController'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
+import { getFaceViewPlugin, type FaceViewContext } from '../facePlugins'
 
 type NoteFaceId = string
-type TextEditorMode = 'source' | 'live'
 
 type NoteContent = {
   title: string
@@ -158,7 +149,7 @@ export type NoteDetailSnapshotV1 = {
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
   base: NoteContent
   editing: boolean
-  textEditorMode: TextEditorMode
+  faceViewState: Record<string, unknown>
   face: NoteFaceId
   faces: NoteFaceId[]
   editTitle: string
@@ -256,7 +247,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [saving, setSaving] = React.useState(false)
 
   const [editing, setEditing] = React.useState(init?.editing ?? (isDraft ? true : false))
-  const [textEditorMode, setTextEditorMode] = React.useState<TextEditorMode>(init?.textEditorMode ?? 'live')
+  const [faceViewState, setFaceViewState] = React.useState<Record<string, unknown>>(init?.faceViewState ?? {})
   const [face, setFace] = React.useState<NoteFaceId>(init?.face ?? '')
   const [faces, setFaces] = React.useState<NoteFaceId[]>(init?.faces ?? [])
   const [facesReady, setFacesReady] = React.useState(() => !!init?.faces || isDraft)
@@ -304,42 +295,39 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     },
   )
 
-  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ clipboard: gateway.clipboard, host: gateway.host, assets: gateway.assets, scope }))
-  React.useEffect(() => {
-    renderEngineRef.current.noteIndex = noteIndexMap
-  }, [noteIndexMap])
-
-  const textRenderRef = React.useRef<HTMLDivElement>(null)
-  const playbackCleanupRef = React.useRef<(() => void) | null>(null)
-  const onPlayingChangeRef = React.useRef<typeof onPlayingChange>(onPlayingChange)
-  React.useEffect(() => {
-    onPlayingChangeRef.current = onPlayingChange
-  }, [onPlayingChange])
-
-  const bindTextPlaybackReporter = React.useCallback(() => {
-    const el = textRenderRef.current
-    playbackCleanupRef.current?.()
-    playbackCleanupRef.current = null
-    if (!el) return
-    playbackCleanupRef.current = renderEngineRef.current.bindPlaybackReporter(el, playing => onPlayingChangeRef.current?.(playing))
+  const uploadPastedFiles = React.useCallback(
+    (files: File[]) => uploadPastedAssetFiles(gateway, scope, files),
+    [gateway, scope],
+  )
+  const handleResourcesAdded = React.useCallback((resources: HyperCortexNoteResourceRef[]) => {
+    setEditResources(prev => mergeNoteResources(prev, resources))
+    setDoc(prev => prev ? { ...prev, resources: mergeNoteResources(prev.resources || [], resources) } : prev)
   }, [])
 
-  React.useEffect(() => {
-    return () => {
-      playbackCleanupRef.current?.()
-      playbackCleanupRef.current = null
-    }
+  // 面视窗只按类型从注册表挂载；宿主不识别具体面的界面实现。
+  const faceViewPlugin = getFaceViewPlugin(String(faceManifests[face]?.kind || ''))
+  const FaceReadView = faceViewPlugin?.ReadView || null
+  const FaceEditView = faceViewPlugin?.EditView || null
+  const FaceToolbar = faceViewPlugin?.Toolbar || null
+
+  const handleFaceViewStateChange = React.useCallback((patch: Record<string, unknown>) => {
+    setFaceViewState(prev => ({ ...prev, ...patch }))
   }, [])
+  const resetFaceViewState = React.useCallback(() => {
+    const plugin = getFaceViewPlugin(String(faceManifests[face]?.kind || ''))
+    setFaceViewState(plugin ? { ...plugin.defaultViewState } : {})
+  }, [face, faceManifests])
 
-  React.useEffect(() => {
-    if (face === 'text' && !editing) return
-    playbackCleanupRef.current?.()
-    playbackCleanupRef.current = null
-  }, [editing, face])
-
-  const sanitizeSvg = React.useCallback((svg: unknown) => renderEngineRef.current.sanitizeSvg(svg, 'baseline'), [])
-  const preview = usePreviewController({ toast: gateway.host.toast, sanitizeSvg })
-  const [pastingAssets, setPastingAssets] = React.useState(false)
+  const faceViewContext: FaceViewContext = React.useMemo(() => ({
+    gateway,
+    scope,
+    noteIndexMap,
+    getNoteMeta: noteId => allNotesById[noteId],
+    onOpenNote,
+    onPlayingChange,
+    uploadFiles: uploadPastedFiles,
+    onResourcesAdded: handleResourcesAdded,
+  }), [allNotesById, gateway, handleResourcesAdded, noteIndexMap, onOpenNote, onPlayingChange, scope, uploadPastedFiles])
 
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
@@ -427,42 +415,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     closeMoreMenu()
     favoritesTargets.openPicker({ kind: 'note', id: note.id })
   }, [closeMoreMenu, favoritesTargets, note.id])
-
-  const handlePasteFiles = React.useCallback(async (files: File[], insertText: (text: string) => void) => {
-    if (pastingAssets) {
-      void gateway.host.toast('已有附件正在上传，请稍后再粘贴')
-      return
-    }
-    setPastingAssets(true)
-    try {
-      const resources = await uploadPastedAssetFiles(gateway, scope, files)
-      const markerBlock = buildAssetMarkerBlock(resources)
-      if (!markerBlock) throw new Error('附件上传成功，但没有生成可插入的引用占位符')
-      setEditResources(prev => mergeNoteResources(prev, resources))
-      setDoc(prev => prev ? { ...prev, resources: mergeNoteResources(prev.resources || [], resources) } : prev)
-      insertText(markerBlock)
-      void gateway.host.toast(resources.length > 1 ? `已上传 ${resources.length} 个附件并插入占位符` : '已上传附件并插入占位符')
-    } catch (err: any) {
-      void gateway.host.toast(`粘贴附件失败：${String(err?.message || err || '未知错误')}`)
-    } finally {
-      setPastingAssets(false)
-    }
-  }, [gateway, pastingAssets, scope])
-
-  const handleSourcePaste = React.useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = filesFromClipboardData(event.clipboardData)
-    if (!files.length) return
-    event.preventDefault()
-    const target = event.currentTarget
-    const from = target.selectionStart ?? editBody.length
-    const to = target.selectionEnd ?? from
-    const insertText = (text: string) => {
-      const insert = String(text || '')
-      if (!insert) return
-      setEditBody(prev => `${prev.slice(0, from)}${formatAssetMarkerInsertion(insert, prev.slice(0, from), prev.slice(to))}${prev.slice(to)}`)
-    }
-    void handlePasteFiles(files, insertText)
-  }, [editBody.length, handlePasteFiles])
 
   const confirmDeleteNote = React.useCallback(async () => {
     if (deleting) return
@@ -620,44 +572,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     void loadNoteIfNeeded()
   }, [loadNoteIfNeeded, visible])
 
-  React.useLayoutEffect(() => {
-    if (!visible) return
-    if (face !== 'text' || editing || !textRenderRef.current) return
-    renderEngineRef.current.renderInto(textRenderRef.current, editBody || '', { onAsyncLayout: bindTextPlaybackReporter })
-    bindTextPlaybackReporter()
-  }, [bindTextPlaybackReporter, editBody, editing, face, noteIndexMap, visible])
-
-  React.useEffect(() => {
-    if (!visible) return
-    if (face !== 'text' || editing) return
-    const el = textRenderRef.current
-    if (!el) return
-    ensurePreviewClickHandlerOnce(el, { controller: preview.controller, stopPropagation: true })
-    // 首次进入笔记页时，正文节点可能尚未挂载（doc 还没加载出来），
-    // 只依赖 visible/face/editing 会导致错过绑定，从而出现“切换页面回来才生效”。
-  }, [doc, editing, face, preview.controller, visible])
-
-  React.useEffect(() => {
-    if (!visible) return
-    if (face !== 'text' || editing) return
-    const el = textRenderRef.current
-    if (!el) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target instanceof Element ? e.target : null
-      const link = target?.closest?.('.hc-note-ref') as HTMLElement | null
-      if (!link) return
-      const targetId = String(link.getAttribute('data-note-id') || '').trim()
-      if (!targetId) return
-      e.preventDefault()
-      const meta = allNotesById[targetId]
-      if (!meta) return
-      const faceId = String(link.getAttribute('data-face-id') || '').trim()
-      onOpenNote(meta, faceId || undefined)
-    }
-    el.addEventListener('click', handler)
-    return () => el.removeEventListener('click', handler)
-  }, [allNotesById, doc, editing, face, onOpenNote, visible])
-
   const outgoingIds = React.useMemo(() => {
     if (!infoSidebarVisible) return []
     const body = isTextFaceId(face, faceManifests) ? editBody : (doc?.body || editBody || '')
@@ -693,10 +607,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       .filter(group => group.refs.length > 0)
   }, [faces, faceManifests, noteId, refIndex])
 
-  const toggleTextEditorMode = React.useCallback(() => {
-    setTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
-  }, [])
-
   const handleAddTag = React.useCallback(() => {
     setEditTags(prev => appendTag(prev, tagInput))
     setTagInput('')
@@ -705,33 +615,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const handleRemoveTag = React.useCallback((tag: string) => {
     setEditTags(prev => prev.filter(item => item !== tag))
   }, [])
-
-  /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
-  const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
-    // Live 编辑态：点击预览内容本体用于“回到源码编辑”，预览弹窗改为右上角按钮触发。
-    ensureLiveEditorPreviewButton(el, {
-      controller: preview.controller,
-      getRoot: (current) => current.closest('.cm-editor'),
-    })
-
-    const pending: { el: HTMLElement; event: string }[] = []
-    el.querySelectorAll('img').forEach(img => {
-      if (!img.complete) pending.push({ el: img, event: 'load' })
-    })
-    el.querySelectorAll('video').forEach(vid => {
-      if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
-    })
-    const cleanupPlaybackReporter = renderEngineRef.current.bindPlaybackReporter(el, playing => onPlayingChangeRef.current?.(playing))
-    if (!pending.length) return cleanupPlaybackReporter
-
-    let remaining = pending.length
-    const done = () => { if (--remaining <= 0) requestUpdate() }
-    pending.forEach(({ el: m, event }) => {
-      m.addEventListener(event, done, { once: true })
-      m.addEventListener('error', done, { once: true })
-    })
-    return cleanupPlaybackReporter
-  }, [preview.controller])
 
   const handleToggleMode = React.useCallback(() => {
     if (!doc) return
@@ -749,9 +632,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setTagInput('')
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
-    setTextEditorMode('live')
+    resetFaceViewState()
     setEditing(false)
-  }, [base, doc?.resources, saving])
+  }, [base, doc?.resources, resetFaceViewState, saving])
 
   const handleSave = React.useCallback(async () => {
     if (!noteId) return false
@@ -848,7 +731,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         htmlFace: nextHtmlFace ? { ...nextHtmlFace, id: nextMeta.id, packageDir: nextMeta.dir } : null,
         base: nextBase,
         editing,
-        textEditorMode,
+        faceViewState,
         face,
         faceManifests: nextFaceManifests,
         faces: nextFaces,
@@ -873,7 +756,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, faceViewState])
 
   const saveCurrentForVersionPublish = React.useCallback(async () => {
     const saved = await handleSave()
@@ -950,7 +833,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         htmlFace: nextHtmlFace ? { ...nextHtmlFace, id: nextMeta.id, packageDir: nextMeta.dir } : null,
         base: nextBase,
         editing,
-        textEditorMode,
+        faceViewState,
         face,
         faceManifests: nextFaceManifests,
         faces: nextFaces,
@@ -973,7 +856,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [base.body, base.html, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onDirtyChange, onSaved, saving, scope, textEditorMode])
+  }, [base.body, base.html, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onDirtyChange, onSaved, saving, scope, faceViewState])
 
   const handleRestoreVersion = React.useCallback(async (versionId: string) => {
     const dir = String(note.dir || '').trim()
@@ -1003,11 +886,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditResources(result.doc.resources || [])
     setTagInput('')
     setEditing(false)
-    setTextEditorMode('live')
+    resetFaceViewState()
 
     onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
     onDirtyChange?.({ noteId, dirty: false })
-  }, [gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, scope])
+  }, [gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, resetFaceViewState, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -1209,26 +1092,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc && editing && isTextFaceId(face, faceManifests) ? (
-            <Tooltip title={textEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'} placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label={textEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'}
-                onClick={toggleTextEditorMode}
-                disabled={saving}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                {textEditorMode === 'source' ? <WysiwygRoundedIcon fontSize="small" /> : <CodeRoundedIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
+          {!loading && !loadError && doc && FaceToolbar ? (
+            <FaceToolbar editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} />
           ) : null}
 
           {dirty ? (
@@ -1709,30 +1574,25 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 onSaveNoteFixedScale={String(note.dir || '').trim() ? handleSaveNoteFixedScale : undefined}
                 scaleControlsVisible={htmlScaleControlsVisible}
               />
-            ) : editing ? textEditorMode === 'live' ? (
-              <BlockEditor value={editBody} onChange={setEditBody} placeholder={pastingAssets ? '正在上传粘贴的附件...' : '开始编辑正文...'} minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} writeClipboardText={gateway.clipboard.writeText} showToast={gateway.host.toast} onPasteFiles={handlePasteFiles} />
+            ) : FaceEditView && FaceReadView ? (
+              editing ? (
+                <FaceEditView
+                  content={editBody}
+                  visible={visible}
+                  onChange={setEditBody}
+                  viewState={faceViewState}
+                  onViewStateChange={handleFaceViewStateChange}
+                  context={faceViewContext}
+                />
+              ) : (
+                <FaceReadView content={editBody} visible={visible} context={faceViewContext} />
+              )
             ) : (
-              <InputBase
-                value={editBody}
-                onChange={e => setEditBody(e.target.value)}
-                onPaste={handleSourcePaste}
-                placeholder="开始编辑正文..."
-                fullWidth
-                multiline
-                minRows={18}
-                inputProps={{ 'aria-label': '编辑 Markdown 正文源码', spellCheck: false }}
-                sx={{
-                  width: '100%',
-                  alignItems: 'flex-start',
-                  fontSize: 14,
-                  lineHeight: 1.7,
-                  color: '#1f2937',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  '& textarea': { padding: 0, resize: 'none' },
-                }}
-              />
-            ) : (
-              <Box ref={textRenderRef} className="hc-render" sx={{ width: '100%', minHeight: 120 }} />
+              <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
+                <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
+                  该面的类型暂不支持显示，内容已原样保留
+                </Typography>
+              </Box>
             )}
 
             </Box>
@@ -1853,8 +1713,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         />
       ) : null}
 
-      <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
-      <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />
       <HtmlFaceFullscreenDialog
         open={htmlFullscreenOpen}
         html={editHtml}
