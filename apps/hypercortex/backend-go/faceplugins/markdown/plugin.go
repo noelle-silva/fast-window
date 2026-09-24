@@ -21,7 +21,7 @@ func Plugin() faceplugin.Plugin {
 			Searchable:  true,
 			Previewable: true,
 			Creatable:   true,
-			Deletable:   false,
+			Deletable:   true,
 		},
 		NormalizeContent:  normalizeContent,
 		EmptyContent:      func(noteID string, noteTitle string) string { return "" },

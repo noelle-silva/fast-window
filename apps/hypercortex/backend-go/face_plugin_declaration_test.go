@@ -36,6 +36,10 @@ func TestListFacePluginsDeclaresMarkdownAndHtml(t *testing.T) {
 	if markdown["label"] != "文本" || markdown["defaultFaceId"] != "text" || markdown["defaultFileName"] != "text.md" || markdown["protocolVersion"] != float64(1) {
 		t.Fatalf("markdown declaration = %#v", markdown)
 	}
+	markdownCapabilities := markdown["capabilities"].(map[string]any)
+	if markdownCapabilities["editable"] != true || markdownCapabilities["searchable"] != true || markdownCapabilities["previewable"] != true || markdownCapabilities["creatable"] != true || markdownCapabilities["deletable"] != true {
+		t.Fatalf("markdown capabilities = %#v", markdownCapabilities)
+	}
 	markdownSettings, ok := markdown["settings"].([]any)
 	if !ok || len(markdownSettings) != 0 {
 		t.Fatalf("markdown settings = %#v, want empty array", markdown["settings"])
