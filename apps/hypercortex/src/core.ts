@@ -100,6 +100,8 @@ export type HyperCortexMetadataV1 = {
   shortcutHintsEnabled?: boolean
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceFixedScaleDefault?: number
+  // 面插件全局设置统一容器：类型标识 → 字段键 → 值（旧 HTML 面字段在加载时一次性搬入）。
+  facePluginSettings?: Record<string, Record<string, unknown>>
   // 面类型的全局顺序；新笔记默认创建的面按此顺序排列。
   faceKindOrder?: string[]
   // 新建笔记时默认创建的面类型（多选，空数组表示无面）。

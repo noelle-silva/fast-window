@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Dialog, IconButton, Tooltip } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import { darkFloatingControlSx } from '../pluginUiStyles'
+import { darkFloatingControlSx } from '../../ui/pluginUiStyles'
 
 type Props = {
   open: boolean

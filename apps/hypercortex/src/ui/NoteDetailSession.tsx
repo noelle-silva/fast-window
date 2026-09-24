@@ -3,13 +3,11 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconBut
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
-import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
@@ -19,24 +17,21 @@ import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleF
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
-import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import type { NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import type { SaveNoteFaceContentInput } from '../gateway/types'
-import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../htmlFaceDisplay'
-import { DEFAULT_FACE_KIND_ORDER, resolveHtmlFacePreferences, resolveNoteFaceOrder } from '../facePreferences'
+import { DEFAULT_FACE_KIND_ORDER, resolveNoteFaceOrder } from '../facePreferences'
 import { HTML_FACE_KIND, MARKDOWN_FACE_KIND, createDefaultFaceManifest, getHtmlFaceFixedScale, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
 import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
-import { HtmlFaceIframe } from './HtmlFaceIframe'
-import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
-import { HtmlFaceFullscreenDialog } from './preview/HtmlFaceFullscreenDialog'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
 import { getFaceViewPlugin, type FaceViewContext } from '../facePlugins'
+import { resolveFaceSettingValues } from '../facePlugins/settings'
 
 type NoteFaceId = string
 
@@ -198,8 +193,7 @@ export type NoteDetailSessionProps = {
   favoritesDoc?: HyperCortexFavoritesDocV1 | null
   onFavoriteSaved?: (doc: HyperCortexFavoritesDocV1) => void
   onPlayingChange?: (playing: boolean) => void
-  htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
-  htmlFaceGlobalDefaultScale?: number
+  facePluginGlobalSettings?: Record<string, Record<string, unknown>>
   globalFaceKindOrder?: readonly string[]
 }
 
@@ -226,8 +220,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     favoritesDoc,
     onFavoriteSaved,
     onPlayingChange,
-    htmlFaceDisplayMode = DEFAULT_HTML_FACE_DISPLAY_MODE,
-    htmlFaceGlobalDefaultScale = HTML_FACE_FIXED_SCALE.default,
+    facePluginGlobalSettings = {},
     globalFaceKindOrder = DEFAULT_FACE_KIND_ORDER,
   } = props
 
@@ -241,7 +234,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [doc, setDoc] = React.useState<HyperCortexNoteDoc | null>(init?.doc ?? null)
   const [htmlFace, setHtmlFace] = React.useState<HyperCortexHtmlFaceDoc | null>(init?.htmlFace ?? null)
   const [faceManifests, setFaceManifests] = React.useState<Record<string, HyperCortexNoteFaceManifestV2>>(init?.faceManifests ?? {})
-  const [htmlFaceScaleSaving, setHtmlFaceScaleSaving] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -270,7 +262,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [moreMenuAnchorEl, setMoreMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const moreMenuOpen = !!moreMenuAnchorEl
-  const [htmlScaleControlsVisible, setHtmlScaleControlsVisible] = React.useState(false)
   const [deleteFaceMenuAnchorEl, setDeleteFaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const deleteFaceMenuOpen = !!deleteFaceMenuAnchorEl
   const closeMoreMenu = React.useCallback(() => {
@@ -280,7 +271,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
   const [deleteFaceTarget, setDeleteFaceTarget] = React.useState<NoteFaceId | null>(null)
-  const [htmlFullscreenOpen, setHtmlFullscreenOpen] = React.useState(false)
   const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false)
   const [noteSettingsOpen, setNoteSettingsOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
@@ -308,26 +298,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const faceViewPlugin = getFaceViewPlugin(String(faceManifests[face]?.kind || ''))
   const FaceReadView = faceViewPlugin?.ReadView || null
   const FaceEditView = faceViewPlugin?.EditView || null
-  const FaceToolbar = faceViewPlugin?.Toolbar || null
+  const FaceToolbarLeft = faceViewPlugin?.Toolbars?.left || null
+  const FaceToolbarRight = faceViewPlugin?.Toolbars?.right || null
 
   const handleFaceViewStateChange = React.useCallback((patch: Record<string, unknown>) => {
     setFaceViewState(prev => ({ ...prev, ...patch }))
   }, [])
   const resetFaceViewState = React.useCallback(() => {
     const plugin = getFaceViewPlugin(String(faceManifests[face]?.kind || ''))
-    setFaceViewState(plugin ? { ...plugin.defaultViewState } : {})
+    setFaceViewState(prev => ({ ...prev, ...(plugin ? plugin.defaultViewState : {}) }))
   }, [face, faceManifests])
 
-  const faceViewContext: FaceViewContext = React.useMemo(() => ({
-    gateway,
-    scope,
-    noteIndexMap,
-    getNoteMeta: noteId => allNotesById[noteId],
-    onOpenNote,
-    onPlayingChange,
-    uploadFiles: uploadPastedFiles,
-    onResourcesAdded: handleResourcesAdded,
-  }), [allNotesById, gateway, handleResourcesAdded, noteIndexMap, onOpenNote, onPlayingChange, scope, uploadPastedFiles])
+  // 过程 3 过渡：宿主仍持双轨内容，按面类型把当前内容与变更入口交给视窗（过程 4 统一）。
+  const faceViewContent = isHtmlFaceId(face, faceManifests) ? editHtml : editBody
+  const faceViewContentChange = isHtmlFaceId(face, faceManifests) ? setEditHtml : setEditBody
 
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
@@ -348,18 +332,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     () => faces.filter(faceId => !!faceManifests[faceId]?.capabilities.deletable),
     [faceManifests, faces],
   )
-  const htmlFaceManifest = React.useMemo(
-    () => Object.values(faceManifests).find(face => isHtmlFace(face)) || null,
-    [faceManifests],
+  const activeFaceKind = String(faceManifests[face]?.kind || '')
+  const faceGlobalSettings = React.useMemo(
+    () => facePluginGlobalSettings[activeFaceKind] || {},
+    [activeFaceKind, facePluginGlobalSettings],
   )
-  // HTML 面显示偏好统一按“笔记级 > 全局级 > 协议默认”解析（Q33/Q34/Q35）。
-  const htmlFacePreferences = React.useMemo(
-    () => resolveHtmlFacePreferences({
-      faceSettings: htmlFaceManifest?.settings,
-      globalMode: htmlFaceDisplayMode,
-      globalFixedScale: htmlFaceGlobalDefaultScale,
-    }),
-    [htmlFaceDisplayMode, htmlFaceGlobalDefaultScale, htmlFaceManifest],
+  const faceNoteSettings = React.useMemo(
+    () => (faceManifests[face]?.settings || {}) as Record<string, unknown>,
+    [face, faceManifests],
+  )
+  // 面设置统一按「笔记级覆盖 > 全局值 > 声明默认」解析（Q33/Q34/Q35）。
+  const faceEffectiveSettings = React.useMemo(
+    () => resolveFaceSettingValues(faceViewPlugin, { noteSettings: faceNoteSettings, globalSettings: faceGlobalSettings }),
+    [faceGlobalSettings, faceNoteSettings, faceViewPlugin],
   )
   // 笔记级设置写回后，把最新面清单同步到会话状态（面顺序与缩放覆盖共用同一入口）。
   const applyNoteManifest = React.useCallback((manifest: HyperCortexNoteManifestV1) => {
@@ -467,20 +452,28 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [deleteFaceTarget, deleting, faceManifests, gateway, globalFaceKindOrder, note.dir, noteId, onSaved, scope, trashEnabled])
 
-  const handleSaveNoteFixedScale = React.useCallback(async (scale: number | null) => {
+  const updateFaceSettings = React.useCallback(async (patch: Record<string, unknown | null>) => {
     const dir = String(note.dir || '').trim()
-    if (!dir || htmlFaceScaleSaving || !htmlFaceManifest) return
-    setHtmlFaceScaleSaving(true)
-    try {
-      const result = await gateway.notes.saveFaceSettings(scope, dir, htmlFaceManifest.id, { fixedScale: scale })
-      applyNoteManifest(result.manifest)
-      void gateway.host.toast('已保存笔记缩放比例')
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '保存缩放比例失败'))
-    } finally {
-      setHtmlFaceScaleSaving(false)
-    }
-  }, [applyNoteManifest, gateway, htmlFaceManifest, htmlFaceScaleSaving, note.dir, scope])
+    const faceId = String(face || '').trim()
+    if (!dir || !faceId) return
+    const result = await gateway.notes.saveFaceSettings(scope, dir, faceId, patch)
+    applyNoteManifest(result.manifest)
+  }, [applyNoteManifest, face, gateway, note.dir, scope])
+
+  const faceViewContext: FaceViewContext = React.useMemo(() => ({
+    gateway,
+    scope,
+    noteIndexMap,
+    getNoteMeta: noteId => allNotesById[noteId],
+    onOpenNote,
+    onPlayingChange,
+    uploadFiles: uploadPastedFiles,
+    onResourcesAdded: handleResourcesAdded,
+    settings: faceEffectiveSettings,
+    noteSettings: faceNoteSettings,
+    globalSettings: faceGlobalSettings,
+    updateSettings: String(note.dir || '').trim() ? updateFaceSettings : undefined,
+  }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, note.dir, noteIndexMap, onOpenNote, onPlayingChange, scope, updateFaceSettings, uploadPastedFiles])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -1072,28 +1065,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc && isHtmlFaceId(face, faceManifests) && !editing ? (
-            <Tooltip title="全屏预览" placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label="全屏预览 HTML 面"
-                onClick={() => setHtmlFullscreenOpen(true)}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                }}
-              >
-                <FullscreenRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-
-          {!loading && !loadError && doc && FaceToolbar ? (
-            <FaceToolbar editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} />
+          {!loading && !loadError && doc && FaceToolbarLeft ? (
+            <FaceToolbarLeft editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
           ) : null}
 
           {dirty ? (
@@ -1116,21 +1089,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
         {!loading && !loadError && doc ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
-            {isHtmlFaceId(face, faceManifests) && !editing && htmlFaceDisplayMode === 'fixed-fit' ? (
-              <Tooltip title={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'} placement="bottom-end">
-                <IconButton
-                  size="small"
-                  aria-label={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'}
-                  onClick={() => setHtmlScaleControlsVisible(prev => !prev)}
-                  sx={{
-                    color: htmlScaleControlsVisible ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-                    bgcolor: 'transparent',
-                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                  }}
-                >
-                  <TuneRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+            {FaceToolbarRight ? (
+              <FaceToolbarRight editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
             ) : null}
 
             <Tooltip title="版本历史" placement="bottom-end">
@@ -1553,39 +1513,18 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
             {facesReady && faces.length === 0 ? (
               <FaceEmptyState onCreateFace={kind => void handleAddFace(kind)} />
-            ) : isHtmlFaceId(face, faceManifests) ? editing ? (
-              <CodeMirrorCodeEditor
-                value={editHtml}
-                onChange={setEditHtml}
-                placeholder="输入 HTML 代码..."
-                minHeight={420}
-                active={visible}
-                ariaLabel="编辑 HTML 正文代码"
-                lineWrapping
-                mode="html"
-              />
-            ) : (
-              <HtmlFaceIframe
-                html={editHtml}
-                mode={htmlFacePreferences.mode}
-                minHeightPx={240}
-                fixedScale={htmlFacePreferences.fixedScale}
-                noteFixedScale={htmlFacePreferences.noteFixedScale}
-                onSaveNoteFixedScale={String(note.dir || '').trim() ? handleSaveNoteFixedScale : undefined}
-                scaleControlsVisible={htmlScaleControlsVisible}
-              />
             ) : FaceEditView && FaceReadView ? (
               editing ? (
                 <FaceEditView
-                  content={editBody}
+                  content={faceViewContent}
                   visible={visible}
-                  onChange={setEditBody}
+                  onChange={faceViewContentChange}
                   viewState={faceViewState}
                   onViewStateChange={handleFaceViewStateChange}
                   context={faceViewContext}
                 />
               ) : (
-                <FaceReadView content={editBody} visible={visible} context={faceViewContext} />
+                <FaceReadView content={faceViewContent} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
               )
             ) : (
               <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
@@ -1706,18 +1645,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           packageDir={note.dir}
           faceManifests={faceManifests}
           faceOrder={faces}
-          htmlFacePreferences={htmlFacePreferences}
-          globalHtmlFaceMode={htmlFaceDisplayMode}
-          globalHtmlFaceScale={htmlFaceGlobalDefaultScale}
+          facePluginGlobalSettings={facePluginGlobalSettings}
           onManifestSaved={applyNoteManifest}
         />
       ) : null}
-
-      <HtmlFaceFullscreenDialog
-        open={htmlFullscreenOpen}
-        html={editHtml}
-        onClose={() => setHtmlFullscreenOpen(false)}
-      />
     </Box>
   )
 })

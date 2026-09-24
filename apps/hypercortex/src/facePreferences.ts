@@ -1,16 +1,7 @@
-import type { HyperCortexHtmlFaceDisplayModeV1 } from './core'
-import {
-  HTML_FACE_FIXED_SCALE,
-  htmlFaceDisplayModeFromSettings,
-  htmlFaceFixedScaleFromSettings,
-  normalizeHtmlFaceDisplayMode,
-  normalizeHtmlFaceFixedScale,
-} from './htmlFaceDisplay'
 import {
   getNoteFaceAdapter,
   listNoteFaceAdapters,
   type HyperCortexNoteFaceManifestV2,
-  type HyperCortexNoteFaceSettingsV2,
 } from './noteFaces'
 
 /**
@@ -103,35 +94,4 @@ export function resolveNoteFaceOrder(input: {
   }
   Object.keys(faces).forEach(push)
   return out
-}
-
-// ---- HTML 面显示偏好的优先级解析（Q33 / Q34 / Q35） ----
-
-export type FacePreferenceSource = 'note' | 'global'
-
-export type HtmlFacePreferencesV1 = {
-  /** 生效的显示方式（笔记级 > 全局级 > 协议默认）。 */
-  mode: HyperCortexHtmlFaceDisplayModeV1
-  modeSource: FacePreferenceSource
-  /** 生效的缩放比例（笔记级 > 全局级 > 协议默认）。 */
-  fixedScale: number
-  fixedScaleSource: FacePreferenceSource
-  /** 笔记级缩放覆盖值；null 表示未覆盖（使用全局值）。 */
-  noteFixedScale: number | null
-}
-
-export function resolveHtmlFacePreferences(input: {
-  faceSettings?: HyperCortexNoteFaceSettingsV2 | null
-  globalMode: HyperCortexHtmlFaceDisplayModeV1
-  globalFixedScale: number
-}): HtmlFacePreferencesV1 {
-  const noteMode = htmlFaceDisplayModeFromSettings(input.faceSettings)
-  const noteFixedScale = htmlFaceFixedScaleFromSettings(input.faceSettings)
-  return {
-    mode: noteMode ?? normalizeHtmlFaceDisplayMode(input.globalMode),
-    modeSource: noteMode ? 'note' : 'global',
-    fixedScale: noteFixedScale ?? normalizeHtmlFaceFixedScale(input.globalFixedScale, HTML_FACE_FIXED_SCALE.default),
-    fixedScaleSource: noteFixedScale !== undefined ? 'note' : 'global',
-    noteFixedScale: noteFixedScale ?? null,
-  }
 }

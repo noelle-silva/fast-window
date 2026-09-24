@@ -2,13 +2,14 @@ import * as React from 'react'
 import { Box, Dialog, DialogContent, DialogTitle, Divider, IconButton, Typography } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 
-import type { HyperCortexHtmlFaceDisplayModeV1, VaultScope } from '../../core'
+import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
-import type { HtmlFacePreferencesV1 } from '../../facePreferences'
-import { isHtmlFace, isKnownFaceKind, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
+import { getFaceViewPlugin, type FaceViewPlugin } from '../../facePlugins'
+import { resolveFaceSettingValues } from '../../facePlugins/settings'
+import { isKnownFaceKind, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
 import { FaceOrderList } from '../FaceOrderList'
-import { HtmlFaceNoteSettingsSection, type HtmlFaceDisplayModeChoice } from './HtmlFaceNoteSettingsSection'
+import { FaceNoteSettingsSection } from '../face-settings/FaceNoteSettingsSection'
 
 type Props = {
   open: boolean
@@ -18,14 +19,12 @@ type Props = {
   packageDir: string
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
   faceOrder: readonly string[]
-  htmlFacePreferences: HtmlFacePreferencesV1
-  globalHtmlFaceMode: HyperCortexHtmlFaceDisplayModeV1
-  globalHtmlFaceScale: number
+  facePluginGlobalSettings: Record<string, Record<string, unknown>>
   /** 任一设置保存成功后带回最新 manifest，由会话同步到界面状态。 */
   onManifestSaved: (manifest: HyperCortexNoteManifestV1) => void
 }
 
-/** 笔记设置（Q46）：管理这篇笔记自己的 HTML 面显示方式、缩放覆盖与面顺序。 */
+/** 笔记设置（Q46）：管理这篇笔记各面自己的设置覆盖与面顺序。 */
 export function NoteSettingsDialog(props: Props): React.ReactNode {
   const {
     open,
@@ -35,18 +34,21 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     packageDir,
     faceManifests,
     faceOrder,
-    htmlFacePreferences,
-    globalHtmlFaceMode,
-    globalHtmlFaceScale,
+    facePluginGlobalSettings,
     onManifestSaved,
   } = props
 
   const [busy, setBusy] = React.useState(false)
 
-  const htmlFaceManifest = React.useMemo(
-    () => Object.values(faceManifests).find(face => isHtmlFace(face)) || null,
-    [faceManifests],
-  )
+  const settingsFaces = React.useMemo(() => {
+    const out: { plugin: FaceViewPlugin; face: HyperCortexNoteFaceManifestV2 }[] = []
+    for (const face of Object.values(faceManifests)) {
+      const plugin = getFaceViewPlugin(face.kind)
+      if (!plugin || !(plugin.settings || []).length) continue
+      out.push({ plugin, face })
+    }
+    return out
+  }, [faceManifests])
 
   const runSave = React.useCallback(async (
     action: () => Promise<{ manifest: HyperCortexNoteManifestV1 }>,
@@ -66,24 +68,12 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     }
   }, [busy, gateway.host, onManifestSaved])
 
-  const handleModeChoiceChange = React.useCallback((choice: HtmlFaceDisplayModeChoice) => {
-    if (!htmlFaceManifest) return
-    void runSave(
-      () => gateway.notes.saveFaceSettings(scope, packageDir, htmlFaceManifest.id, choice === 'global' ? { displayMode: null } : { displayMode: choice }),
-      '保存笔记显示方式失败',
+  const handleFaceSettingPatch = React.useCallback((faceId: string, patch: Record<string, unknown | null>) => {
+    return runSave(
+      () => gateway.notes.saveFaceSettings(scope, packageDir, faceId, patch),
+      '保存笔记面设置失败',
     )
-  }, [gateway, htmlFaceManifest, packageDir, runSave, scope])
-
-  const handleFixedScaleCommit = React.useCallback(
-    (scale: number | null) => {
-      if (!htmlFaceManifest) return Promise.resolve(false)
-      return runSave(
-        () => gateway.notes.saveFaceSettings(scope, packageDir, htmlFaceManifest.id, { fixedScale: scale }),
-        '保存笔记缩放比例失败',
-      )
-    },
-    [gateway, htmlFaceManifest, packageDir, runSave, scope],
-  )
+  }, [gateway, packageDir, runSave, scope])
 
   const handleFaceOrderChange = React.useCallback((next: string[]) => {
     void runSave(
@@ -98,8 +88,6 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     const title = String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
     return isKnownFaceKind(manifest.kind) ? title : `${title}（暂不支持）`
   }, [faceManifests])
-
-  const modeChoice: HtmlFaceDisplayModeChoice = htmlFacePreferences.modeSource === 'note' ? htmlFacePreferences.mode : 'global'
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -121,21 +109,24 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
       </DialogTitle>
       <DialogContent dividers sx={{ pt: 2, pb: 3 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.25 }}>
-          {htmlFaceManifest ? (
-            <>
-              <HtmlFaceNoteSettingsSection
-                modeChoice={modeChoice}
-                globalMode={globalHtmlFaceMode}
-                fixedScale={htmlFacePreferences.fixedScale}
-                hasNoteScaleOverride={htmlFacePreferences.noteFixedScale != null}
-                globalScale={globalHtmlFaceScale}
-                busy={busy}
-                onModeChoiceChange={handleModeChoiceChange}
-                onFixedScaleCommit={handleFixedScaleCommit}
-              />
-              <Divider />
-            </>
-          ) : null}
+          {settingsFaces.map(({ plugin, face }) => {
+            const noteValues = (face.settings || {}) as Record<string, unknown>
+            const globalValues = facePluginGlobalSettings[plugin.kind] || {}
+            const effectiveValues = resolveFaceSettingValues(plugin, { noteSettings: noteValues, globalSettings: globalValues })
+            return (
+              <React.Fragment key={plugin.kind}>
+                <FaceNoteSettingsSection
+                  plugin={plugin}
+                  noteValues={noteValues}
+                  globalValues={globalValues}
+                  effectiveValues={effectiveValues}
+                  busy={busy}
+                  onPatch={patch => handleFaceSettingPatch(face.id, patch)}
+                />
+                <Divider />
+              </React.Fragment>
+            )
+          })}
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box>

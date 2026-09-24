@@ -1,11 +1,12 @@
 import * as React from 'react'
 import { Box, Switch, Tab, Tabs, Typography } from '@mui/material'
-import type { HyperCortexColorPresetIdV1, HyperCortexHtmlFaceDisplayModeV1, HyperCortexSidebarSortModeV1 } from '../core'
+import type { HyperCortexColorPresetIdV1, HyperCortexSidebarSortModeV1 } from '../core'
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import { listFaceViewPlugins } from '../facePlugins'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
+import { FacePluginSettingsPanel } from './face-settings/FacePluginSettingsPanel'
 import { FaceSettingsPanel } from './FaceSettingsPanel'
-import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
@@ -39,10 +40,8 @@ export type SettingsPageProps = {
   onTrashEnabledChange: (enabled: boolean) => void
   onTrashAutoDeleteDaysChange: (days: number) => void
   onOpenTrash: () => void
-  htmlFaceDisplayMode: HyperCortexHtmlFaceDisplayModeV1
-  onHtmlFaceDisplayModeChange: (mode: HyperCortexHtmlFaceDisplayModeV1) => void
-  htmlFaceFixedScaleDefault: number
-  onHtmlFaceFixedScaleDefaultChange: (scale: number) => void
+  facePluginSettings: Record<string, Record<string, unknown>>
+  onFacePluginSettingChange: (kind: string, key: string, value: unknown) => void
   colorPresetId: HyperCortexColorPresetIdV1
   onColorPresetChange: (presetId: HyperCortexColorPresetIdV1) => void
   pageDisplayModes: PageDisplayModesV1
@@ -158,12 +157,16 @@ export function SettingsPage(props: SettingsPageProps) {
               defaultFaceKinds={props.defaultFaceKinds}
               onDefaultFaceKindsChange={props.onDefaultFaceKindsChange}
             />
-            <HtmlFaceDisplaySettingsPanel
-              mode={props.htmlFaceDisplayMode}
-              onChange={props.onHtmlFaceDisplayModeChange}
-              fixedScaleDefault={props.htmlFaceFixedScaleDefault}
-              onFixedScaleDefaultChange={props.onHtmlFaceFixedScaleDefaultChange}
-            />
+            {listFaceViewPlugins()
+              .filter(plugin => (plugin.settings || []).length > 0)
+              .map(plugin => (
+                <FacePluginSettingsPanel
+                  key={plugin.kind}
+                  plugin={plugin}
+                  values={props.facePluginSettings[plugin.kind] || {}}
+                  onChange={(key, value) => props.onFacePluginSettingChange(plugin.kind, key, value)}
+                />
+              ))}
             <ColorPresetSettingsPanel
               value={props.colorPresetId}
               onChange={props.onColorPresetChange}

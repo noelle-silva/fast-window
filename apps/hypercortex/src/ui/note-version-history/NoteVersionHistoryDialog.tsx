@@ -5,7 +5,7 @@ import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../../noteVersions'
 import { isHtmlFace, labelForFaceKind } from '../../noteFaces'
-import { HtmlFaceIframe } from '../HtmlFaceIframe'
+import { HtmlFaceIframe } from '../../facePlugins/html/HtmlFaceIframe'
 
 type Props = {
   open: boolean

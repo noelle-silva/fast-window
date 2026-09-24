@@ -13,7 +13,6 @@ import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
   kindFromMime,
   mimeFromExt,
-  type HyperCortexHtmlFaceDisplayModeV1,
   type HyperCortexMetadataV1,
   type HyperCortexSidebarSortModeV1,
   type HyperCortexColorPresetIdV1,
@@ -69,7 +68,7 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
-import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE, normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
+import { normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
 import {
   DEFAULT_FACE_KIND_ORDER,
   normalizeDefaultFaceKinds,
@@ -159,8 +158,27 @@ function stripDraftTabKeyMap(value: any): Record<string, string> {
   return out
 }
 
-function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {
-  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
+/**
+ * 面插件全局设置的统一容器规范化。
+ * 一次性迁移：旧 HTML 面全局字段（htmlFaceDisplayMode / htmlFaceFixedScaleDefault）搬入容器，容器已有值优先。
+ */
+function normalizeFacePluginSettings(raw: unknown, meta: HyperCortexMetadataV1): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [kind, value] of Object.entries(raw as Record<string, unknown>)) {
+      const key = String(kind || '').trim()
+      if (!key || !value || typeof value !== 'object' || Array.isArray(value)) continue
+      out[key] = { ...(value as Record<string, unknown>) }
+    }
+  }
+  const html = { ...(out.html || {}) }
+  if (html.displayMode === undefined) html.displayMode = normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode)
+  if (html.fixedScale === undefined) html.fixedScale = normalizeHtmlFaceFixedScale(meta.htmlFaceFixedScaleDefault)
+  out.html = html
+  return out
+}
+
+function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
 
   delete (next as any).openNoteIds
   delete (next as any).activeNoteId
@@ -186,6 +204,7 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
   next.htmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(next.htmlFaceDisplayMode)
   next.htmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(next.htmlFaceFixedScaleDefault)
+  next.facePluginSettings = normalizeFacePluginSettings(next.facePluginSettings, next)
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
   next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
 
@@ -426,8 +445,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   // ---- 回收站设置（持久化在 metadata）
   const [trashEnabled, setTrashEnabled] = React.useState(true)
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
-  const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>(DEFAULT_HTML_FACE_DISPLAY_MODE)
-  const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE.default)
+  const [facePluginSettings, setFacePluginSettings] = React.useState<Record<string, Record<string, unknown>>>({})
+  const facePluginSettingsRef = React.useRef<Record<string, Record<string, unknown>>>({})
   const [faceKindOrder, setFaceKindOrder] = React.useState<string[]>(() => [...DEFAULT_FACE_KIND_ORDER])
   const [defaultFaceKinds, setDefaultFaceKinds] = React.useState<string[]>([])
   const [colorPresetId, setColorPresetId] = React.useState<HyperCortexColorPresetIdV1>(DEFAULT_COLOR_PRESET_ID)
@@ -1417,10 +1436,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
-        const normalizedHtmlFaceDisplayMode = normalizeHtmlFaceDisplayMode(normalizedMeta.htmlFaceDisplayMode)
-        const normalizedHtmlFaceFixedScaleDefault = normalizeHtmlFaceFixedScale(normalizedMeta.htmlFaceFixedScaleDefault)
-        setHtmlFaceDisplayMode(normalizedHtmlFaceDisplayMode)
-        setHtmlFaceFixedScaleDefault(normalizedHtmlFaceFixedScaleDefault)
+        const normalizedFacePluginSettings = normalizeFacePluginSettings(normalizedMeta.facePluginSettings, normalizedMeta)
+        facePluginSettingsRef.current = normalizedFacePluginSettings
+        setFacePluginSettings(normalizedFacePluginSettings)
         const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder)
         const normalizedDefaultFaceKinds = normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds)
         setFaceKindOrder(normalizedFaceKindOrder)
@@ -1485,8 +1503,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           (normalizedMeta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
           normalizedMeta.trashEnabled !== normalizedTrashEnabled ||
           normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
-          normalizedMeta.htmlFaceDisplayMode !== normalizedHtmlFaceDisplayMode ||
-          normalizedMeta.htmlFaceFixedScaleDefault !== normalizedHtmlFaceFixedScaleDefault ||
+          JSON.stringify(normalizedMeta.facePluginSettings || {}) !== JSON.stringify(normalizedFacePluginSettings) ||
           JSON.stringify(normalizedMeta.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
           JSON.stringify(normalizedMeta.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
           normalizedMeta.colorPresetId !== normalizedColorPresetId ||
@@ -1497,8 +1514,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             shortcutHintsEnabled: normalizedShortcutHintsEnabled,
             trashEnabled: normalizedTrashEnabled,
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
-            htmlFaceDisplayMode: normalizedHtmlFaceDisplayMode,
-            htmlFaceFixedScaleDefault: normalizedHtmlFaceFixedScaleDefault,
+            facePluginSettings: normalizedFacePluginSettings,
             faceKindOrder: normalizedFaceKindOrder,
             defaultFaceKinds: normalizedDefaultFaceKinds,
             colorPresetId: normalizedColorPresetId,
@@ -1547,12 +1563,20 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [persistMetadataPatch],
   )
 
-  const handleHtmlFaceDisplayModeChange = React.useCallback(
-    (mode: HyperCortexHtmlFaceDisplayModeV1) => {
-      const next = normalizeHtmlFaceDisplayMode(mode)
-      setHtmlFaceDisplayMode(next)
+  /** 面插件全局设置写回：按「类型标识 + 字段键」写入统一容器并持久化。 */
+  const handleFacePluginSettingChange = React.useCallback(
+    (kind: string, key: string, value: unknown) => {
+      const faceKind = String(kind || '').trim()
+      const settingKey = String(key || '').trim()
+      if (!faceKind || !settingKey) return
+      const next = {
+        ...facePluginSettingsRef.current,
+        [faceKind]: { ...(facePluginSettingsRef.current[faceKind] || {}), [settingKey]: value },
+      }
+      facePluginSettingsRef.current = next
+      setFacePluginSettings(next)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
+      void persistMetadataPatch({ facePluginSettings: next }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -1700,16 +1724,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       }
     },
     [favoritesDoc, gateway, handleFavoritesDocChange],
-  )
-
-  const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
-    (scale: number) => {
-      const next = normalizeHtmlFaceFixedScale(scale)
-      setHtmlFaceFixedScaleDefault(next)
-      if (!metaReadyRef.current) return
-      void persistMetadataPatch({ htmlFaceFixedScaleDefault: next }).catch(() => {})
-    },
-    [persistMetadataPatch],
   )
 
   const handleOpenTrashPage = React.useCallback(() => navigatePage('trash'), [navigatePage])
@@ -2673,10 +2687,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             onTrashEnabledChange={handleTrashEnabledChange}
             onTrashAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
             onOpenTrash={handleOpenTrashPage}
-            htmlFaceDisplayMode={htmlFaceDisplayMode}
-            onHtmlFaceDisplayModeChange={handleHtmlFaceDisplayModeChange}
-            htmlFaceFixedScaleDefault={htmlFaceFixedScaleDefault}
-            onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
+            facePluginSettings={facePluginSettings}
+            onFacePluginSettingChange={handleFacePluginSettingChange}
             colorPresetId={colorPresetId}
             onColorPresetChange={handleColorPresetChange}
             pageDisplayModes={pageDisplayModes}
@@ -3067,8 +3079,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       favoritesDoc={favoritesDoc}
                       onFavoriteSaved={handleFavoritesDocChange}
                       onPlayingChange={playing => setTabPlaying(noteTabKey(tab.id), playing)}
-                      htmlFaceDisplayMode={htmlFaceDisplayMode}
-                      htmlFaceGlobalDefaultScale={htmlFaceFixedScaleDefault}
+                      facePluginGlobalSettings={facePluginSettings}
                       globalFaceKindOrder={faceKindOrder}
                     />
                   ))
@@ -3167,10 +3178,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onTrashEnabledChange={handleTrashEnabledChange}
                   onTrashAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
                   onOpenTrash={handleOpenTrashPage}
-                  htmlFaceDisplayMode={htmlFaceDisplayMode}
-                  onHtmlFaceDisplayModeChange={handleHtmlFaceDisplayModeChange}
-                  htmlFaceFixedScaleDefault={htmlFaceFixedScaleDefault}
-                  onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
+                  facePluginSettings={facePluginSettings}
+                  onFacePluginSettingChange={handleFacePluginSettingChange}
                   colorPresetId={colorPresetId}
                   onColorPresetChange={handleColorPresetChange}
                   pageDisplayModes={pageDisplayModes}

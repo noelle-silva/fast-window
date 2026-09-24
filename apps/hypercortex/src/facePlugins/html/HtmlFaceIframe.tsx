@@ -4,9 +4,9 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
-import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
-import { HTML_FACE_FIXED_SCALE, HTML_FACE_FIXED_VIEWPORT, clampHtmlFaceFixedScale, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
-import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
+import type { HyperCortexHtmlFaceDisplayModeV1 } from '../../core'
+import { HTML_FACE_FIXED_SCALE, HTML_FACE_FIXED_VIEWPORT, clampHtmlFaceFixedScale, normalizeHtmlFaceFixedScale } from '../../htmlFaceDisplay'
+import { AutoHeightHtmlIframe } from '../../ui/AutoHeightHtmlIframe'
 
 type Props = {
   html: string
@@ -36,7 +36,7 @@ function normalizeHtmlDocument(src: string): string {
   return `<!doctype html>\n${doc.documentElement.outerHTML}`
 }
 
-function normalizeScale(value: unknown, fallback = HTML_FACE_FIXED_SCALE.default): number {
+function normalizeScale(value: unknown, fallback: number = HTML_FACE_FIXED_SCALE.default): number {
   return normalizeHtmlFaceFixedScale(value, fallback)
 }
 

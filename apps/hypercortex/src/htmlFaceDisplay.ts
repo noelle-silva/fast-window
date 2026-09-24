@@ -62,7 +62,7 @@ function finiteNumberFrom(value: unknown): number | null {
   return null
 }
 
-export function normalizeHtmlFaceFixedScale(value: unknown, fallback = HTML_FACE_FIXED_SCALE.default): number {
+export function normalizeHtmlFaceFixedScale(value: unknown, fallback: number = HTML_FACE_FIXED_SCALE.default): number {
   const n = finiteNumberFrom(value)
   return clampHtmlFaceFixedScale(n === null ? fallback : n)
 }

@@ -9,5 +9,5 @@ export const markdownFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: { mode: 'live' },
   ReadView: MarkdownReadView,
   EditView: MarkdownEditView,
-  Toolbar: MarkdownToolbar,
+  Toolbars: { left: MarkdownToolbar },
 }

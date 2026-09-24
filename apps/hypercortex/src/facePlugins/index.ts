@@ -1,23 +1,24 @@
-import { getNoteFaceAdapter } from '../noteFaces'
+import { listNoteFaceAdapters } from '../noteFaces'
+import { htmlFaceViewPlugin } from './html'
 import { markdownFaceViewPlugin } from './markdown'
-import { listFaceViewPlugins, registerFaceViewPlugin } from './protocol'
+import { getFaceViewPlugin, registerFaceViewPlugin } from './protocol'
 
 /**
  * 官方面视窗插件装配清单：宿主只登记插件模块，不包含任何具体面的界面实现。
- * 装配期校验：已注册插件的类型必须来自面声明，可编辑面必须有编辑态视窗。
- * 过程 3（网页面迁移）完成后，校验升级为「面声明全量覆盖」。
+ * 装配期校验声明与视窗实现一致（每个声明类型必须有阅读态视窗，可编辑面必须有编辑态视窗）。
  */
 export function assembleFaceViewPlugins(): void {
   registerFaceViewPlugin(markdownFaceViewPlugin)
-  validateRegisteredFaceViewPlugins()
+  registerFaceViewPlugin(htmlFaceViewPlugin)
+  validateFaceViewPlugins()
 }
 
-function validateRegisteredFaceViewPlugins(): void {
-  for (const plugin of listFaceViewPlugins()) {
-    const adapter = getNoteFaceAdapter(plugin.kind)
-    if (!adapter) throw new Error(`面视窗插件的类型未在面声明中注册：${plugin.kind}`)
+function validateFaceViewPlugins(): void {
+  for (const adapter of listNoteFaceAdapters()) {
+    const plugin = getFaceViewPlugin(adapter.kind)
+    if (!plugin) throw new Error(`面视窗缺失：${adapter.kind}`)
     if (adapter.capabilities.editable && !plugin.EditView) {
-      throw new Error(`可编辑面缺少编辑态视窗：${plugin.kind}`)
+      throw new Error(`可编辑面缺少编辑态视窗：${adapter.kind}`)
     }
   }
 }
@@ -25,4 +26,4 @@ function validateRegisteredFaceViewPlugins(): void {
 assembleFaceViewPlugins()
 
 export { getFaceViewPlugin, listFaceViewPlugins } from './protocol'
-export type { FaceEditViewProps, FaceReadViewProps, FaceToolbarProps, FaceViewContext, FaceViewPlugin } from './protocol'
+export type { FaceEditViewProps, FaceReadViewProps, FaceSettingField, FaceSettingOption, FaceToolbarProps, FaceToolbarSlot, FaceViewContext, FaceViewPlugin } from './protocol'
