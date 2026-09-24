@@ -3,8 +3,6 @@ export const HyperCortexRpc = {
     loadIndex: 'hypercortex.notes.loadIndex',
     rebuildIndex: 'hypercortex.notes.rebuildIndex',
     create: 'hypercortex.notes.create',
-    savePackage: 'hypercortex.notes.savePackage',
-    loadPackage: 'hypercortex.notes.loadPackage',
     loadManifest: 'hypercortex.notes.loadManifest',
     tryReadManifest: 'hypercortex.notes.tryReadManifest',
     loadFace: 'hypercortex.notes.loadFace',
@@ -12,8 +10,6 @@ export const HyperCortexRpc = {
     saveFaces: 'hypercortex.notes.saveFaces',
     saveFaceOrder: 'hypercortex.notes.saveFaceOrder',
     deleteFace: 'hypercortex.notes.deleteFace',
-    loadHtmlFace: 'hypercortex.notes.loadHtmlFace',
-    saveHtmlFace: 'hypercortex.notes.saveHtmlFace',
     saveFaceSettings: 'hypercortex.notes.saveFaceSettings',
     versions: {
       publish: 'hypercortex.notes.versions.publish',

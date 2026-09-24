@@ -11,17 +11,16 @@ import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
-import { HYPERCORTEX_NOTE_SCHEMA_VERSION, type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
-import { renderNoteDisplayHtml } from '../noteRender'
+import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
 import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
-import type { NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
-import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
+import type { NoteMeta, VaultScope } from '../core'
+import type { HyperCortexGateway } from '../gateway'
 import type { SaveNoteFaceContentInput } from '../gateway/types'
 import { DEFAULT_FACE_KIND_ORDER, resolveNoteFaceOrder } from '../facePreferences'
-import { HTML_FACE_KIND, MARKDOWN_FACE_KIND, createDefaultFaceManifest, getHtmlFaceFixedScale, getNoteFaceAdapter, isHtmlFace, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import { createDefaultFaceManifest, getNoteFaceAdapter, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
@@ -30,17 +29,16 @@ import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
-import { getFaceViewPlugin, type FaceViewContext } from '../facePlugins'
+import { getFaceViewPlugin, useFaceDraft, type FaceDraftStore, type FaceViewContext } from '../facePlugins'
 import { resolveFaceSettingValues } from '../facePlugins/settings'
 
 type NoteFaceId = string
 
-type NoteContent = {
+type NoteBaseFields = {
   title: string
   description: string
-  body: string
   tags: string[]
-  html: string
+  resources: HyperCortexNoteResourceRef[]
 }
 
 function normalizeTagText(value: string): string {
@@ -63,16 +61,9 @@ function areStringListsEqual(a: string[], b: string[]): boolean {
   return true
 }
 
-function isNoteContentEqual(a: NoteContent, b: NoteContent): boolean {
-  return a.title === b.title && a.description === b.description && a.body === b.body && a.html === b.html && areStringListsEqual(a.tags, b.tags)
-}
-
-function isHtmlFaceId(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): boolean {
-  return isHtmlFace(faces[String(faceId || '').trim()])
-}
-
-function isTextFaceId(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): boolean {
-  return faces[String(faceId || '').trim()]?.kind === 'markdown'
+/** 笔记级字段的脏比较：资源清单不参与（与迁移前一致）。 */
+function areNoteBaseFieldsEqual(a: NoteBaseFields, b: NoteBaseFields): boolean {
+  return a.title === b.title && a.description === b.description && areStringListsEqual(a.tags, b.tags)
 }
 
 function faceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): string {
@@ -139,19 +130,21 @@ function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.
 }
 
 export type NoteDetailSnapshotV1 = {
-  doc: HyperCortexNoteDoc | null
-  htmlFace: HyperCortexHtmlFaceDoc | null
+  baseFields: NoteBaseFields
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
-  base: NoteContent
+  /** 会话迁移时带走的面草稿内容（含未保存改动）。 */
+  faceContents: Record<string, string>
+  /** 会话迁移时带走的各面已保存内容（放弃改动时回退用）。 */
+  savedFaceContents: Record<string, string>
   editing: boolean
   faceViewState: Record<string, unknown>
   face: NoteFaceId
   faces: NoteFaceId[]
   editTitle: string
   editDescription: string
-  editBody: string
   editTags: string[]
-  editHtml: string
+  editResources: HyperCortexNoteResourceRef[]
+  noteTimes: { createdAtMs: number; updatedAtMs: number }
   infoSidebarVisible: boolean
 }
 
@@ -231,9 +224,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   if (initRef.current === undefined) initRef.current = consumeInitSnapshot(noteId)
   const init = initRef.current
 
-  const [doc, setDoc] = React.useState<HyperCortexNoteDoc | null>(init?.doc ?? null)
-  const [htmlFace, setHtmlFace] = React.useState<HyperCortexHtmlFaceDoc | null>(init?.htmlFace ?? null)
   const [faceManifests, setFaceManifests] = React.useState<Record<string, HyperCortexNoteFaceManifestV2>>(init?.faceManifests ?? {})
+  const [loaded, setLoaded] = React.useState(() => !!init || isDraft)
+  const [noteTimes, setNoteTimes] = React.useState(() => init?.noteTimes ?? {
+    createdAtMs: Number(note.createdAtMs) > 0 ? Number(note.createdAtMs) : Date.now(),
+    updatedAtMs: Number(note.updatedAtMs) > 0 ? Number(note.updatedAtMs) : Date.now(),
+  })
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -251,11 +247,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [editTitle, setEditTitle] = React.useState(init?.editTitle ?? (note.title || ''))
   const [editDescription, setEditDescription] = React.useState(init?.editDescription ?? (note.description || ''))
-  const [editBody, setEditBody] = React.useState(init?.editBody ?? '')
   const [editTags, setEditTags] = React.useState<string[]>(init?.editTags ?? [])
   const [tagInput, setTagInput] = React.useState('')
-  const [editHtml, setEditHtml] = React.useState(init?.editHtml ?? '')
-  const [editResources, setEditResources] = React.useState(init?.doc?.resources ?? [])
+  const [editResources, setEditResources] = React.useState<HyperCortexNoteResourceRef[]>(init?.editResources ?? [])
 
   const [addFaceSelectorVisible, setAddFaceSelectorVisible] = React.useState(false)
   const [pendingAddFace, setPendingAddFace] = React.useState<NoteFaceId | null>(null)
@@ -275,15 +269,40 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [noteSettingsOpen, setNoteSettingsOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
 
-  const [base, setBase] = React.useState<NoteContent>(
-    init?.base ?? {
+  const [baseFields, setBaseFields] = React.useState<NoteBaseFields>(
+    init?.baseFields ?? {
       title: note.title || '未命名',
       description: note.description || '',
-      body: '',
       tags: [],
-      html: '',
+      resources: [],
     },
   )
+
+  // 面草稿存储：草稿归插件自持，宿主只取内容与脏标记，不保存草稿本身。
+  const faceStoresRef = React.useRef<Record<string, FaceDraftStore>>({})
+  const faceSavedContentsRef = React.useRef<Record<string, string>>(init?.savedFaceContents ?? {})
+  const [faceDirtyVersion, setFaceDirtyVersion] = React.useState(0)
+  const dirtyNotifyRef = React.useRef<() => void>(() => {})
+  React.useEffect(() => {
+    dirtyNotifyRef.current = () => setFaceDirtyVersion(v => v + 1)
+  }, [])
+  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string): FaceDraftStore | null => {
+    const plugin = getFaceViewPlugin(kind)
+    if (!plugin?.createDraftStore) return null
+    const store = plugin.createDraftStore({ faceId, initialContent })
+    store.subscribe(() => dirtyNotifyRef.current())
+    return store
+  }, [])
+  const storesInitializedRef = React.useRef(false)
+  if (!storesInitializedRef.current) {
+    storesInitializedRef.current = true
+    if (init?.faceContents) {
+      for (const [faceId, manifest] of Object.entries(init.faceManifests || {})) {
+        const store = createFaceStore(faceId, manifest.kind, init.faceContents[faceId] ?? '')
+        if (store) faceStoresRef.current[faceId] = store
+      }
+    }
+  }
 
   const uploadPastedFiles = React.useCallback(
     (files: File[]) => uploadPastedAssetFiles(gateway, scope, files),
@@ -291,7 +310,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   )
   const handleResourcesAdded = React.useCallback((resources: HyperCortexNoteResourceRef[]) => {
     setEditResources(prev => mergeNoteResources(prev, resources))
-    setDoc(prev => prev ? { ...prev, resources: mergeNoteResources(prev.resources || [], resources) } : prev)
   }, [])
 
   // 面视窗只按类型从注册表挂载；宿主不识别具体面的界面实现。
@@ -309,25 +327,26 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setFaceViewState(prev => ({ ...prev, ...(plugin ? plugin.defaultViewState : {}) }))
   }, [face, faceManifests])
 
-  // 过程 3 过渡：宿主仍持双轨内容，按面类型把当前内容与变更入口交给视窗（过程 4 统一）。
-  const faceViewContent = isHtmlFaceId(face, faceManifests) ? editHtml : editBody
-  const faceViewContentChange = isHtmlFaceId(face, faceManifests) ? setEditHtml : setEditBody
+  // 当前面的草稿由插件存储持有；宿主只订阅内容用于渲染与保存。
+  const activeDraft = useFaceDraft(faceStoresRef.current[face] || null)
 
-  const draftNowRef = React.useMemo<NoteContent>(() => {
-    return {
-      title: editTitle,
-      description: editDescription,
-      body: editBody,
-      tags: editTags,
-      html: editHtml,
-    }
-  }, [editBody, editDescription, editHtml, editTags, editTitle])
+  const draftFields = React.useMemo<NoteBaseFields>(() => ({
+    title: editTitle,
+    description: editDescription,
+    tags: editTags,
+    resources: editResources,
+  }), [editDescription, editResources, editTags, editTitle])
 
-  const dirty = React.useMemo(() => !isNoteContentEqual(draftNowRef, base), [base, draftNowRef])
+  const fieldsDirty = React.useMemo(() => !areNoteBaseFieldsEqual(draftFields, baseFields), [baseFields, draftFields])
+  const facesDirty = React.useMemo(
+    () => Object.values(faceStoresRef.current).some(store => store.isDirty()),
+    [faceDirtyVersion],
+  )
+  const dirty = fieldsDirty || facesDirty
   const noteTitleForPrompt = React.useMemo(() => {
-    const s = String(editTitle || doc?.title || note.title || '').trim()
+    const s = String(editTitle || note.title || '').trim()
     return s || '未命名'
-  }, [doc?.title, editTitle, note.title])
+  }, [editTitle, note.title])
   const deletableFaceIds = React.useMemo(
     () => faces.filter(faceId => !!faceManifests[faceId]?.capabilities.deletable),
     [faceManifests, faces],
@@ -352,8 +371,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     const nextFaces = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
     setFaces(nextFaces)
     setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
-    const htmlManifest = Object.values(manifest.faces).find(face => isHtmlFace(face)) || null
-    setHtmlFace(prev => (prev ? { ...prev, fixedScale: getHtmlFaceFixedScale(htmlManifest) } : prev))
   }, [globalFaceKindOrder])
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
@@ -428,18 +445,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     try {
       const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
       const result = await gateway.notes.deleteNoteFace(scope, dir, targetFaceId, mode)
+      delete faceStoresRef.current[targetFaceId]
+      delete faceSavedContentsRef.current[targetFaceId]
       setFaceManifests(result.manifest.faces)
       const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
       setFaces(nextFaces)
       setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
-      if (isHtmlFaceId(targetFaceId, faceManifests)) {
-        const nextHtml = await gateway.notes.loadHtmlFace(scope, dir).catch(() => null)
-        if (nextHtml) {
-          setHtmlFace(nextHtml)
-          setEditHtml(nextHtml.html || '')
-          setBase(prev => ({ ...prev, html: nextHtml.html || '' }))
-        }
-      }
       setAddFaceSelectorVisible(false)
       setPendingAddFace(null)
       setDeleteFaceTarget(null)
@@ -475,31 +486,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     updateSettings: String(note.dir || '').trim() ? updateFaceSettings : undefined,
   }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, note.dir, noteIndexMap, onOpenNote, onPlayingChange, scope, updateFaceSettings, uploadPastedFiles])
 
-  const ensureDraftDocIfNeeded = React.useCallback(() => {
-    if (!isDraft) return
-    if (doc) return
-    const now = Date.now()
-    const title = String(editTitle || '').trim() || note.title || '未命名'
-    const description = String(editDescription || '').trim()
-    const tags = editTags.slice()
-    const body = editBody || ''
-    setDoc({
-      id: noteId,
-      packageDir: '',
-      title,
-      description,
-      body,
-      tags,
-      createdAtMs: Number(note.createdAtMs) > 0 ? Number(note.createdAtMs) : now,
-      updatedAtMs: Number(note.updatedAtMs) > 0 ? Number(note.updatedAtMs) : now,
-      schemaVersion: HYPERCORTEX_NOTE_SCHEMA_VERSION,
-      resources: [],
-      displayHtml: renderNoteDisplayHtml({ title, description, body, tags }),
-    })
-    // 草稿的面清单来自初始快照（含默认面配置），这里不重置。
-    setFacesReady(true)
-  }, [doc, editBody, editDescription, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
-
   const hasEverActivatedRef = React.useRef(false)
   React.useEffect(() => {
     if (visible) hasEverActivatedRef.current = true
@@ -507,20 +493,29 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const loadNoteIfNeeded = React.useCallback(async (options?: { force?: boolean }) => {
     if (!noteId) return
-    if (isDraft) return ensureDraftDocIfNeeded()
-    if (doc && !options?.force) return
+    if (isDraft) return
+    if (loaded && !options?.force) return
     if (!String(note.dir || '').trim()) return
 
     if (!options?.force) setLoading(true)
     setLoadError(null)
     try {
-      const [loadedDoc, loadedHtml] = await Promise.all([
-        gateway.notes.loadNotePackage(scope, note.dir),
-        gateway.notes.loadHtmlFace(scope, note.dir).catch(() => null),
-      ])
       const manifest = await gateway.notes.loadNoteManifest(scope, note.dir)
-      setDoc(loadedDoc)
-      setHtmlFace(loadedHtml)
+      const faceIds = Object.keys(manifest.faces)
+      const faceDocs = await Promise.all(
+        faceIds.map(id => gateway.notes.loadNoteFace(scope, note.dir, id).catch(() => null)),
+      )
+      const stores: Record<string, FaceDraftStore> = {}
+      const saved: Record<string, string> = {}
+      for (let i = 0; i < faceIds.length; i++) {
+        const faceId = faceIds[i]
+        const content = faceDocs[i]?.content ?? ''
+        saved[faceId] = content
+        const store = createFaceStore(faceId, manifest.faces[faceId].kind, content)
+        if (store) stores[faceId] = store
+      }
+      faceStoresRef.current = stores
+      faceSavedContentsRef.current = saved
       setFaceManifests(manifest.faces)
 
       const nextFaces: NoteFaceId[] = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
@@ -528,22 +523,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
       setFacesReady(true)
 
-      const nextBase: NoteContent = {
-        title: loadedDoc.title || note.title || '未命名',
-        description: loadedDoc.description || note.description || '',
-        body: loadedDoc.body || '',
-        tags: (loadedDoc.tags || []).slice(),
-        html: loadedHtml?.html || '',
+      const nextBase: NoteBaseFields = {
+        title: manifest.title || note.title || '未命名',
+        description: manifest.description || note.description || '',
+        tags: (manifest.tags || []).slice(),
+        resources: manifest.resources || [],
       }
-      setBase(nextBase)
-
+      setBaseFields(nextBase)
       setEditTitle(nextBase.title)
       setEditDescription(nextBase.description)
-      setEditBody(nextBase.body)
       setEditTags(nextBase.tags.slice())
-      setEditHtml(nextBase.html)
-      setEditResources(loadedDoc.resources || [])
+      setEditResources(nextBase.resources.slice())
+      setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
       setTagInput('')
+      setLoaded(true)
     } catch (e: any) {
       if (options?.force) {
         void gateway.host.toast(String(e?.message || e || '刷新笔记失败'))
@@ -553,7 +546,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       if (!options?.force) setLoading(false)
     }
-  }, [doc, ensureDraftDocIfNeeded, gateway, globalFaceKindOrder, isDraft, note.description, note.dir, note.title, noteId, scope])
+  }, [createFaceStore, gateway, globalFaceKindOrder, isDraft, loaded, note.description, note.dir, note.title, noteId, scope])
 
   React.useEffect(() => {
     if (!hasEverActivatedRef.current) return
@@ -565,24 +558,28 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     void loadNoteIfNeeded()
   }, [loadNoteIfNeeded, visible])
 
-  const outgoingIds = React.useMemo(() => {
-    if (!infoSidebarVisible) return []
-    const body = isTextFaceId(face, faceManifests) ? editBody : (doc?.body || editBody || '')
-    return extractNoteRefs(body)
-  }, [doc?.body, editBody, face, faceManifests, infoSidebarVisible])
+  // 出链与卡片预取统一从各面草稿内容提取（未保存的引用同样可见）。
+  const draftRefIds = React.useMemo(() => {
+    const ids = new Set<string>()
+    for (const store of Object.values(faceStoresRef.current)) {
+      for (const id of extractNoteRefs(store.getContent())) ids.add(id)
+    }
+    return Array.from(ids)
+  }, [faceDirtyVersion, loaded])
+
+  const outgoingIds = React.useMemo(() => (infoSidebarVisible ? draftRefIds : []), [draftRefIds, infoSidebarVisible])
 
   React.useEffect(() => {
     if (!onEnsureNoteCardInfoLoaded) return
-    if (!doc) return
-    const targets = extractNoteRefs(editBody || doc.body || '')
-    for (const id of targets) {
+    if (!loaded) return
+    for (const id of draftRefIds) {
       const meta = allNotesById[id]
       if (!meta) continue
       try {
         void Promise.resolve(onEnsureNoteCardInfoLoaded(meta)).catch(() => {})
       } catch (_) {}
     }
-  }, [allNotesById, doc, editBody, onEnsureNoteCardInfoLoaded])
+  }, [allNotesById, draftRefIds, loaded, onEnsureNoteCardInfoLoaded])
 
   const allBacklinks = React.useMemo(() => {
     if (!noteId) return []
@@ -610,24 +607,25 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [])
 
   const handleToggleMode = React.useCallback(() => {
-    if (!doc) return
+    if (!loaded) return
     setEditing(prev => !prev)
-  }, [doc])
+  }, [loaded])
 
   const handleDiscard = React.useCallback(() => {
     if (saving) return
-    setEditTitle(base.title)
-    setEditDescription(base.description)
-    setEditBody(base.body)
-    setEditTags(base.tags.slice())
-    setEditHtml(base.html)
-    setEditResources(doc?.resources || [])
+    setEditTitle(baseFields.title)
+    setEditDescription(baseFields.description)
+    setEditTags(baseFields.tags.slice())
+    setEditResources(baseFields.resources.slice())
+    for (const [faceId, store] of Object.entries(faceStoresRef.current)) {
+      store.reset(faceSavedContentsRef.current[faceId] ?? '')
+    }
     setTagInput('')
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
     resetFaceViewState()
     setEditing(false)
-  }, [base, doc?.resources, resetFaceViewState, saving])
+  }, [baseFields, resetFaceViewState, saving])
 
   const handleSave = React.useCallback(async () => {
     if (!noteId) return false
@@ -642,106 +640,68 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const originalId = noteId
       const title = rawTitle || '未命名'
       const description = String(editDescription || '').trim()
-      const body = String(editBody || '').replace(/\r\n/g, '\n')
       const tags = editTags.map(normalizeTagText).filter(Boolean)
       // 当前笔记的面清单（按界面顺序）：保存时确保这些面存在，即新笔记默认面的落盘点。
       const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
+      // 提交当前面：内容从该面的插件草稿存储取，宿主不持有草稿本身。
+      const activeManifest = faceManifests[face]
+      const activeStore = faceStoresRef.current[face]
+      const facePayloads: SaveNoteFaceContentInput[] = activeManifest && activeStore
+        ? [{ faceId: face, kind: activeManifest.kind, content: activeStore.getContent() }]
+        : []
 
-      let nextMeta: NoteMeta
-      let nextDoc: HyperCortexNoteDoc | null = doc
-      let nextHtmlFace: HyperCortexHtmlFaceDoc | null = htmlFace
-      let nextFaceManifests: Record<string, HyperCortexNoteFaceManifestV2> = faceManifests
-      let nextFaces: NoteFaceId[] = faces
-      let toastMsg: string
-      let refsForIndex: NoteRefEntryMap | undefined
-
-      if (isHtmlFaceId(face, faceManifests)) {
-        const result = await gateway.notes.saveHtmlFace(scope, {
-          id: isDraft ? undefined : originalId,
-          packageDir: isDraft ? undefined : note.dir,
-          title,
-          description,
-          body: doc?.body || '',
-          tags,
-          createdAtMs: note.createdAtMs,
-          resources: editResources,
-          html: editHtml,
-          faceKinds,
-        })
-        nextMeta = result.meta
-        nextHtmlFace = result.htmlFace
-        nextFaceManifests = result.manifest.faces
-        nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
-        setHtmlFace(nextHtmlFace)
-        setFaceManifests(nextFaceManifests)
-        setFaces(nextFaces)
-        if (nextDoc) {
-          nextDoc = { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir, title, description, tags, updatedAtMs: nextMeta.updatedAtMs }
-          setDoc(nextDoc)
-        }
-        toastMsg = 'HTML 面已保存'
-        refsForIndex = result.refs
-      } else {
-        const result = await gateway.notes.saveNotePackage(scope, {
-          id: isDraft ? undefined : originalId,
-          packageDir: isDraft ? undefined : note.dir,
-          title,
-          description,
-          body,
-          tags,
-          createdAtMs: note.createdAtMs,
-          resources: editResources,
-          saveTextFace: isTextFaceId(face, faceManifests),
-          faceKinds,
-        })
-        nextMeta = result.meta
-        nextDoc = result.doc
-        nextFaceManifests = result.manifest.faces
-        nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
-        setDoc(nextDoc)
-        setEditBody(nextDoc.body)
-        setEditResources(nextDoc.resources || [])
-        setFaceManifests(nextFaceManifests)
-        setFaces(nextFaces)
-        toastMsg = '笔记已保存'
-        refsForIndex = result.refs
-      }
-
-      const nextBase: NoteContent = {
+      const result = await gateway.notes.saveNoteFaces(scope, {
+        id: isDraft ? undefined : originalId,
+        packageDir: isDraft ? undefined : note.dir,
         title,
         description,
-        body: base.body,
-        tags: tags.slice(),
-        html: base.html,
+        tags,
+        createdAtMs: noteTimes.createdAtMs,
+        resources: editResources,
+        faceKinds,
+        faces: facePayloads,
+      })
+
+      const nextMeta = result.meta
+      const nextFaceManifests = result.manifest.faces
+      const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
+      for (const payload of facePayloads) {
+        const store = faceStoresRef.current[payload.faceId]
+        if (store) store.reset(payload.content)
+        faceSavedContentsRef.current[payload.faceId] = payload.content
       }
-      if (isTextFaceId(face, faceManifests)) nextBase.body = body
-      if (isHtmlFaceId(face, faceManifests)) nextBase.html = editHtml
-      setBase(nextBase)
+      setFaceManifests(nextFaceManifests)
+      setFaces(nextFaces)
+
+      const nextBaseFields: NoteBaseFields = { title, description, tags: tags.slice(), resources: editResources }
+      setBaseFields(nextBaseFields)
+      const nextUpdatedAtMs = nextMeta.updatedAtMs
+      setNoteTimes(prev => ({ createdAtMs: prev.createdAtMs, updatedAtMs: nextUpdatedAtMs }))
 
       const didMigrateId = isDraft && nextMeta.id !== originalId
       const snapshotForNewId: NoteDetailSnapshotV1 | undefined = didMigrateId ? {
-        doc: nextDoc ? { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir } : null,
-        htmlFace: nextHtmlFace ? { ...nextHtmlFace, id: nextMeta.id, packageDir: nextMeta.dir } : null,
-        base: nextBase,
+        baseFields: nextBaseFields,
+        faceManifests: nextFaceManifests,
+        faceContents: Object.fromEntries(Object.entries(faceStoresRef.current).map(([id, store]) => [id, store.getContent()])),
+        savedFaceContents: { ...faceSavedContentsRef.current },
         editing,
         faceViewState,
         face,
-        faceManifests: nextFaceManifests,
         faces: nextFaces,
         editTitle: title,
         editDescription: description,
-        editBody: isTextFaceId(face, faceManifests) ? body : editBody,
         editTags: tags.slice(),
-        editHtml,
+        editResources,
+        noteTimes: { createdAtMs: noteTimes.createdAtMs, updatedAtMs: nextUpdatedAtMs },
         infoSidebarVisible,
       } : undefined
 
-      onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex })
+      onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex: result.refs })
 
       // 侧边栏未保存黄点：保存成功后应立即消失（不依赖上层重新渲染时机）。
       onDirtyChange?.({ noteId: originalId, dirty: false })
       if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
-      await gateway.host.toast(toastMsg)
+      await gateway.host.toast('笔记已保存')
       return true
     } catch (e: any) {
       await gateway.host.toast(String(e?.message || e || '保存失败'))
@@ -749,7 +709,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, faceViewState])
+  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onDirtyChange, onSaved, saving, scope])
 
   const saveCurrentForVersionPublish = React.useCallback(async () => {
     const saved = await handleSave()
@@ -771,18 +731,16 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const originalId = noteId
       const title = rawTitle || '未命名'
       const description = String(editDescription || '').trim()
-      const body = String(editBody || '').replace(/\r\n/g, '\n')
       const tags = editTags.map(normalizeTagText).filter(Boolean)
       const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
-      // 只提交需要写回的面：草稿首次落盘提交全部面，已保存笔记提交内容有改动的面。
+      // 只提交需要写回的面：草稿首次落盘提交全部面，已保存笔记提交草稿有改动的面。
       const facePayloads: SaveNoteFaceContentInput[] = []
       for (const faceId of faces) {
         const faceManifest = faceManifests[faceId]
-        if (!faceManifest) continue
-        if (faceManifest.kind === MARKDOWN_FACE_KIND && (isDraft || body !== base.body)) {
-          facePayloads.push({ faceId, kind: faceManifest.kind, content: body })
-        } else if (faceManifest.kind === HTML_FACE_KIND && (isDraft || editHtml !== base.html)) {
-          facePayloads.push({ faceId, kind: faceManifest.kind, content: editHtml })
+        const store = faceStoresRef.current[faceId]
+        if (!faceManifest || !store) continue
+        if (isDraft || store.isDirty()) {
+          facePayloads.push({ faceId, kind: faceManifest.kind, content: store.getContent() })
         }
       }
 
@@ -792,49 +750,43 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         title,
         description,
         tags,
-        createdAtMs: note.createdAtMs,
+        createdAtMs: noteTimes.createdAtMs,
         resources: editResources,
         faceKinds,
         faces: facePayloads,
       })
 
       const nextMeta = result.meta
-      const nextDoc = result.doc
-      const nextHtmlFace = result.htmlFace
       const nextFaceManifests = result.manifest.faces
       const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
-
-      setDoc(nextDoc)
-      setEditBody(nextDoc.body)
-      setEditResources(nextDoc.resources || [])
-      if (nextHtmlFace) setHtmlFace(nextHtmlFace)
+      for (const payload of facePayloads) {
+        const store = faceStoresRef.current[payload.faceId]
+        if (store) store.reset(payload.content)
+        faceSavedContentsRef.current[payload.faceId] = payload.content
+      }
       setFaceManifests(nextFaceManifests)
       setFaces(nextFaces)
 
-      const nextBase: NoteContent = {
-        title,
-        description,
-        body: nextDoc.body,
-        tags: tags.slice(),
-        html: nextHtmlFace ? nextHtmlFace.html : base.html,
-      }
-      setBase(nextBase)
+      const nextBaseFields: NoteBaseFields = { title, description, tags: tags.slice(), resources: editResources }
+      setBaseFields(nextBaseFields)
+      const nextUpdatedAtMs = nextMeta.updatedAtMs
+      setNoteTimes(prev => ({ createdAtMs: prev.createdAtMs, updatedAtMs: nextUpdatedAtMs }))
 
       const didMigrateId = isDraft && nextMeta.id !== originalId
       const snapshotForNewId: NoteDetailSnapshotV1 | undefined = didMigrateId ? {
-        doc: nextDoc ? { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir } : null,
-        htmlFace: nextHtmlFace ? { ...nextHtmlFace, id: nextMeta.id, packageDir: nextMeta.dir } : null,
-        base: nextBase,
+        baseFields: nextBaseFields,
+        faceManifests: nextFaceManifests,
+        faceContents: Object.fromEntries(Object.entries(faceStoresRef.current).map(([id, store]) => [id, store.getContent()])),
+        savedFaceContents: { ...faceSavedContentsRef.current },
         editing,
         faceViewState,
         face,
-        faceManifests: nextFaceManifests,
         faces: nextFaces,
         editTitle: title,
         editDescription: description,
-        editBody: nextDoc.body,
         editTags: tags.slice(),
-        editHtml: nextHtmlFace ? nextHtmlFace.html : editHtml,
+        editResources,
+        noteTimes: { createdAtMs: noteTimes.createdAtMs, updatedAtMs: nextUpdatedAtMs },
         infoSidebarVisible,
       } : undefined
 
@@ -849,41 +801,53 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [base.body, base.html, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onDirtyChange, onSaved, saving, scope, faceViewState])
+  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onDirtyChange, onSaved, saving, scope])
 
   const handleRestoreVersion = React.useCallback(async (versionId: string) => {
     const dir = String(note.dir || '').trim()
     if (!dir) throw new Error('请先保存笔记，再恢复版本')
     const result = await gateway.notes.restoreNoteVersion(scope, dir, versionId)
-    const restoredHtml = await gateway.notes.loadHtmlFace(scope, result.meta.dir)
-    const nextFaces = resolveNoteFaceOrder({ faceOrder: result.manifest.faceOrder, faces: result.manifest.faces, globalKindOrder: globalFaceKindOrder })
-    const nextBase: NoteContent = {
-      title: result.doc.title || '未命名',
-      description: result.doc.description || '',
-      body: result.doc.body || '',
-      tags: (result.doc.tags || []).slice(),
-      html: restoredHtml.html || '',
+    const manifest = result.manifest
+    const faceIds = Object.keys(manifest.faces)
+    const faceDocs = await Promise.all(
+      faceIds.map(id => gateway.notes.loadNoteFace(scope, result.meta.dir, id).catch(() => null)),
+    )
+    const stores: Record<string, FaceDraftStore> = {}
+    const saved: Record<string, string> = {}
+    for (let i = 0; i < faceIds.length; i++) {
+      const faceId = faceIds[i]
+      const content = faceDocs[i]?.content ?? ''
+      saved[faceId] = content
+      const store = createFaceStore(faceId, manifest.faces[faceId].kind, content)
+      if (store) stores[faceId] = store
+    }
+    faceStoresRef.current = stores
+    faceSavedContentsRef.current = saved
+
+    const nextFaces = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
+    const nextBase: NoteBaseFields = {
+      title: manifest.title || '未命名',
+      description: manifest.description || '',
+      tags: (manifest.tags || []).slice(),
+      resources: manifest.resources || [],
     }
 
-    setDoc(result.doc)
-    setHtmlFace(restoredHtml)
-    setFaceManifests(result.manifest.faces)
+    setFaceManifests(manifest.faces)
     setFaces(nextFaces)
     setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
-    setBase(nextBase)
+    setBaseFields(nextBase)
     setEditTitle(nextBase.title)
     setEditDescription(nextBase.description)
-    setEditBody(nextBase.body)
     setEditTags(nextBase.tags.slice())
-    setEditHtml(nextBase.html)
-    setEditResources(result.doc.resources || [])
+    setEditResources(nextBase.resources.slice())
+    setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
     setTagInput('')
     setEditing(false)
     resetFaceViewState()
 
     onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
     onDirtyChange?.({ noteId, dirty: false })
-  }, [gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, resetFaceViewState, scope])
+  }, [createFaceStore, gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, resetFaceViewState, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -916,10 +880,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const copyFaceRef = React.useCallback((faceId: string) => {
     const face = String(faceId || '').trim()
     if (!face) return
-    const title = editTitle || doc?.title || note.title || ''
+    const title = editTitle || note.title || ''
     void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, title, face))
     void gateway.host.toast('已复制此面引用占位符')
-  }, [doc?.title, editTitle, gateway, note.title, noteId])
+  }, [editTitle, gateway, note.title, noteId])
 
   React.useImperativeHandle(ref, () => ({
     isDirty: () => dirty,
@@ -936,29 +900,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     const targetKind = String(kind || pendingAddFace || '').trim()
     const adapter = getNoteFaceAdapter(targetKind)
     if (!adapter || !adapter.capabilities.creatable) return
-    if (!doc) return
+    if (!loaded) return
     if (Object.values(faceManifests).some(face => face.kind === adapter.kind)) return
     const nextFace = createDefaultFaceManifest(adapter.kind)
-    if (adapter.kind === HTML_FACE_KIND) {
-      let nextHtml = ''
-      if (!isDraft && String(note.dir || '').trim()) {
-        try {
-          const loaded = await gateway.notes.loadHtmlFace(scope, note.dir)
-          nextHtml = loaded.html || ''
-          setHtmlFace(loaded)
-        } catch {
-          nextHtml = ''
-        }
-      }
-      setEditHtml(nextHtml)
-    }
+    // 新面从空白草稿开始；落盘时由后端按面协议生成空白内容。
+    const store = createFaceStore(nextFace.id, adapter.kind, '')
+    if (store) faceStoresRef.current[nextFace.id] = store
+    faceSavedContentsRef.current[nextFace.id] = ''
     setFaceManifests(prev => ({ ...prev, [nextFace.id]: nextFace }))
     setFaces(prev => (prev.includes(nextFace.id) ? prev : [...prev, nextFace.id]))
     setFace(nextFace.id)
     setEditing(true)
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
-  }, [doc, faceManifests, gateway, isDraft, note.dir, pendingAddFace, scope])
+  }, [createFaceStore, faceManifests, loaded, pendingAddFace])
 
   if (!noteId) return null
 
@@ -977,7 +932,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     >
       <Box sx={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
-          {!loading && !loadError && doc ? (
+          {!loading && !loadError && loaded ? (
             <Tooltip title={editing ? '切到阅读模式' : '切到编辑模式'} placement="bottom-start">
               <IconButton
                 size="small"
@@ -999,7 +954,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc ? (
+          {!loading && !loadError && loaded ? (
             <Tooltip title="保存" placement="bottom-start">
               <IconButton
                 size="small"
@@ -1021,7 +976,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc ? (
+          {!loading && !loadError && loaded ? (
             <Tooltip title="保存整个笔记所有面" placement="bottom-start">
               <IconButton
                 size="small"
@@ -1043,7 +998,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc && dirty ? (
+          {!loading && !loadError && loaded && dirty ? (
             <Tooltip title="放弃改动（回到已保存状态）" placement="bottom-start">
               <IconButton
                 size="small"
@@ -1065,7 +1020,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Tooltip>
           ) : null}
 
-          {!loading && !loadError && doc && FaceToolbarLeft ? (
+          {!loading && !loadError && loaded && FaceToolbarLeft ? (
             <FaceToolbarLeft editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
           ) : null}
 
@@ -1087,7 +1042,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           ) : null}
         </Box>
 
-        {!loading && !loadError && doc ? (
+        {!loading && !loadError && loaded ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
             {FaceToolbarRight ? (
               <FaceToolbarRight editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
@@ -1191,7 +1146,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 size="small"
                 aria-label="复制引用占位符"
                 onClick={() => {
-                  void gateway.clipboard.writeText(buildNotePlaceholderForCopy(doc.id, editTitle || doc.title || note.title || ''))
+                  void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, editTitle || note.title || ''))
                   void gateway.host.toast('已复制引用占位符')
                 }}
                 sx={{
@@ -1367,7 +1322,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       {loading ? <Typography sx={{ pt: 7 }} color="text.secondary">正在加载笔记...</Typography> : null}
       {!loading && loadError ? <Typography sx={{ pt: 7 }} color="error">{loadError}</Typography> : null}
 
-      {!loading && !loadError && doc ? (
+      {!loading && !loadError && loaded ? (
         <Box sx={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', minWidth: 0, gap: 2, alignItems: 'stretch' }}>
           <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain', pt: 7 }}>
             <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1400,7 +1355,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               </Box>
             ) : (
               <Typography sx={{ minWidth: 0, width: '100%', mt: 0.5, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                {editTitle || doc?.title || note.title || '未命名'}
+                {editTitle || note.title || '未命名'}
               </Typography>
             )}
 
@@ -1516,15 +1471,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             ) : FaceEditView && FaceReadView ? (
               editing ? (
                 <FaceEditView
-                  content={faceViewContent}
+                  content={activeDraft.content}
                   visible={visible}
-                  onChange={faceViewContentChange}
+                  onChange={activeDraft.setContent}
                   viewState={faceViewState}
                   onViewStateChange={handleFaceViewStateChange}
                   context={faceViewContext}
                 />
               ) : (
-                <FaceReadView content={faceViewContent} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
+                <FaceReadView content={activeDraft.content} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
               )
             ) : (
               <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
@@ -1540,11 +1495,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           {infoSidebarVisible ? (
             <Box sx={{ flex: '0 0 280px', width: 280, minWidth: 280, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
               <NoteInfoSidebar
-                noteId={doc.id}
+                noteId={noteId}
                 description={editDescription}
                 editing={editing}
-                createdAtMs={doc.createdAtMs}
-                updatedAtMs={doc.updatedAtMs}
+                createdAtMs={noteTimes.createdAtMs}
+                updatedAtMs={noteTimes.updatedAtMs}
                 outgoingIds={outgoingIds}
                 allBacklinks={allBacklinks}
                 faceBacklinkGroups={faceBacklinkGroups}
@@ -1598,7 +1553,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               ? `确定将笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面移入回收站吗？删除后可在回收站恢复。`
               : `回收站当前未启用。确定永久删除笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面吗？此操作不可撤销。`}
           </Typography>
-          {dirty && isHtmlFaceId(deleteFaceTarget || '', faceManifests) ? (
+          {dirty && !!faceStoresRef.current[String(deleteFaceTarget || '').trim()]?.isDirty() ? (
             <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
               提示：会丢弃该面的未保存改动。
             </Typography>

@@ -1626,16 +1626,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return
       }
       try {
-        const loaded = await gateway.notes.loadNotePackage('library', dir)
-        const result = await gateway.notes.saveNotePackage('library', {
+        // 笔记信息更新走统一通道：读 manifest + 提交笔记级元数据，内容不动。
+        const loaded = await gateway.notes.loadNoteManifest('library', dir)
+        const result = await gateway.notes.saveNoteFaces('library', {
           id: note.id,
           packageDir: dir,
           title: patch.title,
           description: patch.description,
-          body: loaded.body,
           tags: loaded.tags,
+          createdAtMs: loaded.createdAtMs,
           resources: loaded.resources,
-          saveTextFace: false,
+          faceKinds: [],
+          faces: [],
         })
         setNoteIndex(prev => {
           const current = prev || { version: 1, notes: {} }
@@ -1917,19 +1919,19 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => createDefaultFaceManifest(kind))
     const defaultFaces = defaultFaceManifests.map(face => face.id)
     noteInitSnapshotsRef.current[draftId] = {
-      doc: null,
-      htmlFace: null,
+      baseFields: { title: '未命名', description: '', tags: [], resources: [] },
       faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
-      base: { title: '未命名', description: '', body: '', tags: [], html: '' },
+      faceContents: {},
+      savedFaceContents: {},
       editing: true,
       faceViewState: {},
       face: defaultFaces[0] || '',
       faces: defaultFaces,
       editTitle: '未命名',
       editDescription: '',
-      editBody: '',
       editTags: [],
-      editHtml: '',
+      editResources: [],
+      noteTimes: { createdAtMs: now, updatedAtMs: now },
       infoSidebarVisible: false,
     }
 
@@ -2288,19 +2290,22 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
         })
         noteInitSnapshotsRef.current[meta.id] = {
-          doc: null,
-          htmlFace: null,
+          baseFields: { title: meta.title || '未命名', description: meta.description || '', tags: [], resources: [] },
           faceManifests: {},
-          base: { title: meta.title || '未命名', description: meta.description || '', body: '', tags: [], html: '' },
+          faceContents: {},
+          savedFaceContents: {},
           editing: true,
           faceViewState: {},
           face: '',
           faces: [],
           editTitle: meta.title || '未命名',
           editDescription: meta.description || '',
-          editBody: '',
           editTags: [],
-          editHtml: '',
+          editResources: [],
+          noteTimes: {
+            createdAtMs: Number(meta.createdAtMs) > 0 ? Number(meta.createdAtMs) : Date.now(),
+            updatedAtMs: Number(meta.updatedAtMs) > 0 ? Number(meta.updatedAtMs) : Date.now(),
+          },
           infoSidebarVisible: false,
         }
         handleOpenNote(meta)
