@@ -1,7 +1,7 @@
 import * as React from 'react'
 
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../../core'
-import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from '../../htmlFaceDisplay'
+import { DEFAULT_HTML_FACE_DISPLAY_MODE, HTML_FACE_FIXED_SCALE } from './display'
 import type { FaceReadViewProps } from '../protocol'
 import { HtmlFaceFullscreenDialog } from './HtmlFaceFullscreenDialog'
 import { HtmlFaceIframe } from './HtmlFaceIframe'

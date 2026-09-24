@@ -1,5 +1,5 @@
 import type { HyperCortexMetadataV1 } from '../core'
-import { normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
+import { normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../facePlugins/html/display'
 
 /**
  * 一次性兼容迁移：把旧版 HTML 面全局字段（htmlFaceDisplayMode / htmlFaceFixedScaleDefault）

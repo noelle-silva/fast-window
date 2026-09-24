@@ -1,4 +1,4 @@
-import type { HyperCortexHtmlFaceDisplayModeV1 } from './core'
+import type { HyperCortexHtmlFaceDisplayModeV1 } from '../../core'
 
 export const HTML_FACE_FIXED_VIEWPORT = {
   width: 1280,
