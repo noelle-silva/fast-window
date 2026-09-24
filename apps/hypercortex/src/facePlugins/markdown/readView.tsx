@@ -46,6 +46,9 @@ export function MarkdownReadView({ content, visible, context }: FaceReadViewProp
   React.useLayoutEffect(() => {
     const el = renderRef.current
     if (!visible || !el || !engineRef.current) return
+    // 渲染前先注入引用索引：布局副作用先于被动副作用执行，新建引擎必须在此拿到索引，
+    // 否则首帧会把引用渲染成「不存在的笔记」。
+    engineRef.current.noteIndex = context.noteIndexMap
     engineRef.current.renderInto(el, content || '', { onAsyncLayout: bindPlaybackReporter })
     bindPlaybackReporter()
   }, [bindPlaybackReporter, content, context.noteIndexMap, visible])
