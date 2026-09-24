@@ -1,3 +1,4 @@
+import { createTextDraftStore } from '../draft'
 import type { FaceViewPlugin } from '../protocol'
 import { HtmlFaceEditView } from './editView'
 import { HtmlFaceReadView } from './readView'
@@ -10,6 +11,7 @@ export const htmlFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: {},
   ReadView: HtmlFaceReadView,
   EditView: HtmlFaceEditView,
+  createDraftStore: ({ initialContent }) => createTextDraftStore(initialContent),
   Toolbars: { left: HtmlFaceFullscreenToolbar, right: HtmlFaceScaleToolbar },
   settings: HTML_FACE_SETTINGS,
   settingsTitle: 'HTML 面显示策略',

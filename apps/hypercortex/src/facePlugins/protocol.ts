@@ -102,6 +102,16 @@ export type FaceToolbarProps = {
 /** 宿主在工具条两侧预留的插槽位置。 */
 export type FaceToolbarSlot = 'left' | 'right'
 
+/** 面草稿存储：草稿归插件自持；宿主只取内容与脏标记，不保存草稿本身。 */
+export type FaceDraftStore = {
+  getContent: () => string
+  setContent: (next: string) => void
+  subscribe: (listener: () => void) => () => void
+  /** 保存/放弃后把草稿与已保存内容对齐。 */
+  reset: (content: string) => void
+  isDirty: () => boolean
+}
+
 /** 面视窗插件：一个类型标识的界面半包。 */
 export type FaceViewPlugin = {
   kind: string
@@ -109,6 +119,8 @@ export type FaceViewPlugin = {
   defaultViewState: Record<string, unknown>
   ReadView: React.ComponentType<FaceReadViewProps>
   EditView?: React.ComponentType<FaceEditViewProps>
+  /** 为可编辑面创建草稿存储；视图编辑与宿主保存共用同一份草稿。 */
+  createDraftStore?: (input: { faceId: string; initialContent: string }) => FaceDraftStore
   /** 面专属工具条控件：按插槽位置交给宿主渲染。 */
   Toolbars?: Partial<Record<FaceToolbarSlot, React.ComponentType<FaceToolbarProps>>>
   /** 面自己声明的可配置项；宿主按统一优先级解析并通用渲染设置界面。 */

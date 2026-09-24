@@ -20,10 +20,14 @@ function validateFaceViewPlugins(): void {
     if (adapter.capabilities.editable && !plugin.EditView) {
       throw new Error(`可编辑面缺少编辑态视窗：${adapter.kind}`)
     }
+    if (adapter.capabilities.editable && !plugin.createDraftStore) {
+      throw new Error(`可编辑面缺少草稿存储：${adapter.kind}`)
+    }
   }
 }
 
 assembleFaceViewPlugins()
 
 export { getFaceViewPlugin, listFaceViewPlugins } from './protocol'
-export type { FaceEditViewProps, FaceReadViewProps, FaceSettingField, FaceSettingOption, FaceToolbarProps, FaceToolbarSlot, FaceViewContext, FaceViewPlugin } from './protocol'
+export { useFaceDraft } from './draft'
+export type { FaceDraftStore, FaceEditViewProps, FaceReadViewProps, FaceSettingField, FaceSettingOption, FaceToolbarProps, FaceToolbarSlot, FaceViewContext, FaceViewPlugin } from './protocol'
