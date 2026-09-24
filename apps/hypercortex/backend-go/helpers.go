@@ -323,28 +323,6 @@ func noteID() string {
 	return time.Now().Format("20060102150405") + fmt.Sprintf("%03d", time.Now().Nanosecond()/1e6)
 }
 
-func renderMarkdownLite(body string) string {
-	text := strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\r", "\n")
-	if strings.TrimSpace(text) == "" {
-		return ""
-	}
-	parts := strings.Split(text, "\n\n")
-	out := []string{}
-	for _, part := range parts {
-		p := strings.TrimSpace(part)
-		if p == "" {
-			continue
-		}
-		out = append(out, "<p>"+strings.ReplaceAll(htmlEscape(p), "\n", "<br />")+"</p>")
-	}
-	return strings.Join(out, "\n")
-}
-
-func htmlEscape(value string) string {
-	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&#34;", "'", "&#39;")
-	return replacer.Replace(value)
-}
-
 func mimeFromExt(ext string) string {
 	return assetFileMimeFromExt(ext)
 }

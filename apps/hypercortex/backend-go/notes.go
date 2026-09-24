@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,11 +11,6 @@ import (
 
 	"fast-window-hypercortex-backend/faceplugin"
 )
-
-func defaultTextFace() noteFaceManifest {
-	face, _ := defaultFaceForKind("markdown", noteFaceManifest{ID: "text"})
-	return face
-}
 
 func normalizeFaceManifest(input noteFaceManifest) noteFaceManifest {
 	if input.Kind == "" {
@@ -95,7 +91,11 @@ func (svc *service) loadNoteManifest(scope string, packageDir string) (noteManif
 	return manifest, nil
 }
 
-func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, error) {
+// createNote 创建一篇空笔记：按提交的元数据与面类型清单建立笔记包，
+// 为每个类型补齐协议默认面并写入空白内容，然后写 manifest、更新笔记索引、刷新派生索引。
+// 提交字段：id、title、description、tags、createdAtMs、resources、faceKinds。
+// 目标笔记包已存在时快速失败，避免覆盖既有笔记。
+func (svc *service) createNote(scope string, raw json.RawMessage) (any, error) {
 	input := map[string]any{}
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, err
@@ -110,79 +110,51 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	rawTitle := strings.TrimSpace(asString(input["title"]))
 	title := nonEmpty(rawTitle, "未命名")
 	description := strings.TrimSpace(asString(input["description"]))
-	body := strings.ReplaceAll(asString(input["body"]), "\r\n", "\n")
-	currentDir := strings.TrimSpace(asString(input["packageDir"]))
 	desiredDir, err := notePackageDirForID(id)
 	if err != nil {
 		return nil, err
 	}
-
-	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
-		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {
-			return nil, err
-		}
+	if _, err := svc.loadNoteManifest(scope, desiredDir); err == nil {
+		return nil, fmt.Errorf("笔记已存在：%s", id)
 	}
 
-	existing, _ := svc.loadNoteManifest(scope, desiredDir)
-	faces := existing.Faces
-	if faces == nil {
-		faces = map[string]noteFaceManifest{}
-	}
 	created := asFloat(input["createdAtMs"])
-	if created <= 0 {
-		created = existing.CreatedAtMs
-	}
 	if created <= 0 {
 		created = nowMs()
 	}
 	updated := nowMs()
-	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil}
-	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
+	manifest := noteManifest{
+		ID:          id,
+		Title:       title,
+		Description: description,
+		Tags:        normalizeTags(input["tags"]),
+		CreatedAtMs: created,
+		UpdatedAtMs: updated,
+		FaceOrder:   []string{},
+		Faces:       map[string]noteFaceManifest{},
+	}
+	if _, ok := input["resources"]; ok {
+		manifest.Resources = normalizeResources(input["resources"])
+	}
+	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), true, updated); err != nil {
 		return nil, err
 	}
 	if rawTitle == "" && len(manifest.Faces) == 0 {
 		return nil, errors.New("无面笔记至少需要一个标题")
 	}
-	saveTextFace := input["saveTextFace"] == true
-	if saveTextFace {
-		if _, ok := manifest.Faces["text"]; !ok {
-			textFace := defaultTextFace()
-			textFace.CreatedAtMs = updated
-			textFace.UpdatedAtMs = updated
-			manifest.Faces["text"] = textFace
-		}
-	}
-	resources := existing.Resources
-	if _, ok := input["resources"]; ok {
-		resources = normalizeResources(input["resources"])
-	}
-	if resources == nil {
-		resources = existing.Resources
-	}
-	manifest.Resources = resources
 	manifest = normalizeManifest(manifest)
 
-	if saveTextFace {
-		textFace := manifest.Faces["text"]
-		textFace.UpdatedAtMs = updated
-		manifest.Faces["text"] = textFace
-		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(desiredDir, textFace.File)), body, true); err != nil {
-			return nil, err
-		}
-	}
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(desiredDir, manifestFile)), manifest); err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: id, Title: title, Description: description, Dir: desiredDir, CreatedAtMs: created, UpdatedAtMs: updated}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	refs, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest)
-	if err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(scope, desiredDir, manifest); err != nil {
 		return nil, err
 	}
-	doc := noteDoc{ID: id, PackageDir: desiredDir, Title: title, Description: description, Body: body, Tags: manifest.Tags, CreatedAtMs: created, UpdatedAtMs: updated, SchemaVersion: 2, Resources: manifest.Resources, DisplayHTML: renderMarkdownLite(body)}
-	return map[string]any{"meta": meta, "doc": doc, "manifest": manifest, "refs": refs}, nil
+	return map[string]any{"meta": meta, "manifest": manifest}, nil
 }
 
 func (svc *service) loadNoteFace(scope string, packageDir string, faceID string) (noteFaceDoc, error) {

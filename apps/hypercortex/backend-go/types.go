@@ -180,20 +180,6 @@ type noteManifest struct {
 	Resources     []resourceRef               `json:"resources"`
 }
 
-type noteDoc struct {
-	ID            string        `json:"id"`
-	PackageDir    string        `json:"packageDir"`
-	Title         string        `json:"title"`
-	Description   string        `json:"description"`
-	Body          string        `json:"body"`
-	Tags          []string      `json:"tags"`
-	CreatedAtMs   float64       `json:"createdAtMs"`
-	UpdatedAtMs   float64       `json:"updatedAtMs"`
-	SchemaVersion int           `json:"schemaVersion"`
-	Resources     []resourceRef `json:"resources"`
-	DisplayHTML   string        `json:"displayHtml"`
-}
-
 type noteFaceDoc struct {
 	ID              string           `json:"id"`
 	PackageDir      string           `json:"packageDir"`

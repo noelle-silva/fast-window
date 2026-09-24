@@ -206,7 +206,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.notes.listFacePlugins":
 		return faceplugin.ListDeclarations(), nil
 	case "hypercortex.notes.create":
-		return svc.saveNotePackage(requireScope(params), rawField(params, "input"))
+		return svc.createNote(requireScope(params), rawField(params, "input"))
 	case "hypercortex.notes.loadManifest":
 		return svc.loadNoteManifest(requireScope(params), stringField(params, "packageDir"))
 	case "hypercortex.notes.tryReadManifest":
