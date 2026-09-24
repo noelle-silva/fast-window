@@ -235,7 +235,7 @@ func (svc *service) loadHTMLFace(scope string, packageDir string) (htmlFaceDoc, 
 	}
 	face, ok := manifest.Faces["html"]
 	if !ok {
-		return htmlFaceFromParts(manifest, packageDir, emptyHTMLDoc(manifest.ID, manifest.Title), false, nil), nil
+		return htmlFaceFromParts(manifest, packageDir, faceEmptyContent("html", manifest), false, nil), nil
 	}
 	content := ""
 	exists := false
@@ -243,7 +243,7 @@ func (svc *service) loadHTMLFace(scope string, packageDir string) (htmlFaceDoc, 
 		content = raw
 		exists = true
 	} else {
-		content = emptyHTMLDoc(manifest.ID, manifest.Title)
+		content = faceEmptyContent("html", manifest)
 	}
 	return htmlFaceFromParts(manifest, packageDir, content, exists, fixedScaleFromSettings(face.Settings)), nil
 }
@@ -340,8 +340,13 @@ func htmlFaceDocFromFaceDoc(doc noteFaceDoc) htmlFaceDoc {
 	return htmlFaceDoc{ID: doc.NoteID, PackageDir: doc.PackageDir, Title: doc.NoteTitle, Description: doc.NoteDescription, HTML: doc.Content, Exists: doc.Exists, CreatedAtMs: doc.CreatedAtMs, UpdatedAtMs: doc.UpdatedAtMs, SchemaVersion: doc.SchemaVersion, FixedScale: fixedScaleFromSettings(doc.Face.Settings)}
 }
 
-func emptyHTMLDoc(id string, title string) string {
-	return "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <meta name=\"hypercortex-note-id\" content=\"" + htmlEscape(strings.TrimSpace(id)) + "\" />\n    <meta name=\"hypercortex-note-schema-version\" content=\"2\" />\n    <title>" + htmlEscape(nonEmpty(title, "未命名")) + "</title>\n  </head>\n  <body>\n    <div id=\"hypercortex-content\"></div>\n  </body>\n</html>"
+// faceEmptyContent 通过协议注册表取某类型的空白内容（宿主不持有具体面的内容模板）。
+func faceEmptyContent(kind string, manifest noteManifest) string {
+	adapter, err := faceplugin.Require(kind)
+	if err != nil || adapter.EmptyContent == nil {
+		return ""
+	}
+	return adapter.EmptyContent(manifest.ID, manifest.Title)
 }
 
 func fixedScaleFromSettings(settings map[string]any) *float64 {
