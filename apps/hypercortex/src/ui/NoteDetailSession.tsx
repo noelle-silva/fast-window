@@ -286,10 +286,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   React.useEffect(() => {
     dirtyNotifyRef.current = () => setFaceDirtyVersion(v => v + 1)
   }, [])
-  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string): FaceDraftStore | null => {
+  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string, savedContent?: string): FaceDraftStore | null => {
     const plugin = getFaceViewPlugin(kind)
     if (!plugin?.createDraftStore) return null
-    const store = plugin.createDraftStore({ faceId, initialContent })
+    const store = plugin.createDraftStore({ faceId, initialContent, savedContent })
     store.subscribe(() => dirtyNotifyRef.current())
     return store
   }, [])
@@ -298,7 +298,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     storesInitializedRef.current = true
     if (init?.faceContents) {
       for (const [faceId, manifest] of Object.entries(init.faceManifests || {})) {
-        const store = createFaceStore(faceId, manifest.kind, init.faceContents[faceId] ?? '')
+        // 会话迁移：草稿内容与已保存基线分离播种，未保存的面保持脏状态。
+        const store = createFaceStore(faceId, manifest.kind, init.faceContents[faceId] ?? '', init.savedFaceContents?.[faceId] ?? '')
         if (store) faceStoresRef.current[faceId] = store
       }
     }

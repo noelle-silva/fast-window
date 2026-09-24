@@ -119,8 +119,9 @@ export type FaceViewPlugin = {
   defaultViewState: Record<string, unknown>
   ReadView: React.ComponentType<FaceReadViewProps>
   EditView?: React.ComponentType<FaceEditViewProps>
-  /** 为可编辑面创建草稿存储；视图编辑与宿主保存共用同一份草稿。 */
-  createDraftStore?: (input: { faceId: string; initialContent: string }) => FaceDraftStore
+  /** 为可编辑面创建草稿存储；视图编辑与宿主保存共用同一份草稿。
+   *  savedContent 为已保存基线（会话迁移时用于保留未保存状态），缺省等于当前内容。 */
+  createDraftStore?: (input: { faceId: string; initialContent: string; savedContent?: string }) => FaceDraftStore
   /** 面专属工具条控件：按插槽位置交给宿主渲染。 */
   Toolbars?: Partial<Record<FaceToolbarSlot, React.ComponentType<FaceToolbarProps>>>
   /** 面自己声明的可配置项；宿主按统一优先级解析并通用渲染设置界面。 */

@@ -9,9 +9,9 @@ import type { FaceDraftStore } from './protocol'
 export type { FaceDraftStore }
 
 /** 文本型面的通用草稿存储（markdown / html 等文本内容的插件可直接复用）。 */
-export function createTextDraftStore(initialContent: string): FaceDraftStore {
-  let saved = initialContent
-  let content = initialContent
+export function createTextDraftStore(initialContent: string, savedContent: string = initialContent): FaceDraftStore {
+  let saved = String(savedContent ?? '')
+  let content = String(initialContent ?? '')
   const listeners = new Set<() => void>()
   const emit = () => {
     for (const listener of Array.from(listeners)) listener()

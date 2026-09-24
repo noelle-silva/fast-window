@@ -11,7 +11,7 @@ export const htmlFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: {},
   ReadView: HtmlFaceReadView,
   EditView: HtmlFaceEditView,
-  createDraftStore: ({ initialContent }) => createTextDraftStore(initialContent),
+  createDraftStore: ({ initialContent, savedContent }) => createTextDraftStore(initialContent, savedContent ?? initialContent),
   Toolbars: { left: HtmlFaceFullscreenToolbar, right: HtmlFaceScaleToolbar },
   settings: HTML_FACE_SETTINGS,
   settingsTitle: 'HTML 面显示策略',

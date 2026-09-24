@@ -10,6 +10,6 @@ export const markdownFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: { mode: 'live' },
   ReadView: MarkdownReadView,
   EditView: MarkdownEditView,
-  createDraftStore: ({ initialContent }) => createTextDraftStore(initialContent),
+  createDraftStore: ({ initialContent, savedContent }) => createTextDraftStore(initialContent, savedContent ?? initialContent),
   Toolbars: { left: MarkdownToolbar },
 }
