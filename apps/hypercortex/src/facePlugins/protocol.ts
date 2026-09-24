@@ -58,6 +58,7 @@ export type FaceEditViewProps = FaceReadViewProps & {
 
 /** 工具条视窗输入：面专属控件在宿主预留的插槽位置渲染。 */
 export type FaceToolbarProps = {
+  /** 面视窗当前的实际编辑态：不可编辑的面始终为 false（即使宿主处于编辑模式）。 */
   editing: boolean
   disabled: boolean
   viewState: Record<string, unknown>
@@ -73,13 +74,17 @@ export type FaceContentPreviewProps = {
   content: string
 }
 
-/** 面草稿存储：草稿归插件自持；宿主只取内容与脏标记，不保存草稿本身。 */
-export type FaceDraftStore = {
+/**
+ * 面内容存储：面内容的唯一持有者（由插件实现）。
+ * 可编辑面用它承载未保存草稿，只读面用它承载静态内容；宿主只取内容与脏标记，不持久化内容本身。
+ */
+export type FaceContentStore = {
   getContent: () => string
   setContent: (next: string) => void
   subscribe: (listener: () => void) => () => void
-  /** 保存/放弃后把草稿与已保存内容对齐。 */
+  /** 保存/放弃后把当前内容与已保存基线对齐。 */
   reset: (content: string) => void
+  /** 是否存在未保存改动；只读面恒为 false。 */
   isDirty: () => boolean
 }
 
@@ -90,9 +95,10 @@ export type FaceViewPlugin = {
   defaultViewState: Record<string, unknown>
   ReadView: React.ComponentType<FaceReadViewProps>
   EditView?: React.ComponentType<FaceEditViewProps>
-  /** 为可编辑面创建草稿存储；视图编辑与宿主保存共用同一份草稿。
+  /** 为面创建内容存储（所有面必交）：面视窗渲染与宿主保存共用同一份内容；
+   *  可编辑面的未保存改动通过脏标记上报，只读面恒不脏。
    *  savedContent 为已保存基线（会话迁移时用于保留未保存状态），缺省等于当前内容。 */
-  createDraftStore?: (input: { faceId: string; initialContent: string; savedContent?: string }) => FaceDraftStore
+  createContentStore: (input: { faceId: string; initialContent: string; savedContent?: string }) => FaceContentStore
   /** 面专属工具条控件：按插槽位置交给宿主渲染。 */
   Toolbars?: Partial<Record<FaceToolbarSlot, React.ComponentType<FaceToolbarProps>>>
   /** 只读内容预览（版本历史等宿主场景）；缺省时宿主按纯文本展示内容。 */
@@ -101,11 +107,12 @@ export type FaceViewPlugin = {
 
 const registry = new Map<string, FaceViewPlugin>()
 
-/** 装配期注册视窗插件；声明不完整或类型重复直接快速失败。 */
+/** 装配期注册视窗插件；结构不完整或类型重复直接快速失败。 */
 export function registerFaceViewPlugin(plugin: FaceViewPlugin): void {
   const kind = String(plugin.kind || '').trim()
   if (!kind) throw new Error('面视窗插件缺少类型标识')
   if (!plugin.ReadView) throw new Error(`面视窗插件缺少阅读态视窗：${kind}`)
+  if (typeof plugin.createContentStore !== 'function') throw new Error(`面视窗插件缺少内容存储：${kind}`)
   if (registry.has(kind)) throw new Error(`面视窗插件重复注册：${kind}`)
   registry.set(kind, plugin)
 }
@@ -122,7 +129,7 @@ export function listFaceViewPlugins(): FaceViewPlugin[] {
 
 /**
  * 声明与视窗实现的一致性校验（声明写入运行时仓库时执行，快速失败）：
- * 每个声明类型必须有阅读态视窗；可编辑面必须有编辑态视窗与草稿存储。
+ * 每个声明类型必须有阅读态视窗与内容存储（注册期已把关）；可编辑面还必须有编辑态视窗。
  */
 export function validateFaceViewPluginsAgainstDeclarations(declarations: readonly FaceDeclaration[]): void {
   const seen = new Set<string>()
@@ -139,9 +146,6 @@ export function validateFaceViewPluginsAgainstDeclarations(declarations: readonl
     if (!plugin) throw new Error(`面视窗缺失：${kind}`)
     if (declaration.capabilities.editable && !plugin.EditView) {
       throw new Error(`可编辑面缺少编辑态视窗：${kind}`)
-    }
-    if (declaration.capabilities.editable && !plugin.createDraftStore) {
-      throw new Error(`可编辑面缺少草稿存储：${kind}`)
     }
   }
 }

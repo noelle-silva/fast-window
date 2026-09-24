@@ -1,4 +1,4 @@
-import { createTextDraftStore } from '../draft'
+import { createTextContentStore } from '../content'
 import type { FaceViewPlugin } from '../protocol'
 import { HtmlFaceContentPreview } from './contentPreview'
 import { HtmlFaceEditView } from './editView'
@@ -11,7 +11,7 @@ export const htmlFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: {},
   ReadView: HtmlFaceReadView,
   EditView: HtmlFaceEditView,
-  createDraftStore: ({ initialContent, savedContent }) => createTextDraftStore(initialContent, savedContent ?? initialContent),
+  createContentStore: ({ initialContent, savedContent }) => createTextContentStore(initialContent, savedContent ?? initialContent),
   Toolbars: { left: HtmlFaceFullscreenToolbar, right: HtmlFaceScaleToolbar },
   ContentPreview: HtmlFaceContentPreview,
 }

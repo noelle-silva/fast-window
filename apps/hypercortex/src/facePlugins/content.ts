@@ -1,15 +1,15 @@
 import * as React from 'react'
 
-import type { FaceDraftStore } from './protocol'
+import type { FaceContentStore } from './protocol'
 
 /**
- * 面草稿存储：草稿归插件自持，视图与保存共用同一份内容。
- * 宿主只通过 getContent / isDirty 取内容与脏标记，不保存草稿本身。
+ * 面内容存储：面内容的唯一持有者；可编辑面用它承载未保存草稿，只读面用它承载静态内容。
+ * 宿主只通过 getContent / isDirty 取内容与脏标记，不持久化内容本身。
  */
-export type { FaceDraftStore }
+export type { FaceContentStore }
 
-/** 文本型面的通用草稿存储（markdown / html 等文本内容的插件可直接复用）。 */
-export function createTextDraftStore(initialContent: string, savedContent: string = initialContent): FaceDraftStore {
+/** 文本型面的通用内容存储（markdown / html 等文本内容的插件可直接复用）。 */
+export function createTextContentStore(initialContent: string, savedContent: string = initialContent): FaceContentStore {
   let saved = String(savedContent ?? '')
   let content = String(initialContent ?? '')
   const listeners = new Set<() => void>()
@@ -40,8 +40,8 @@ export function createTextDraftStore(initialContent: string, savedContent: strin
   }
 }
 
-/** 宿主侧订阅钩子：视窗通过它读取草稿内容并触发重渲染。 */
-export function useFaceDraft(store: FaceDraftStore | null | undefined): { content: string; setContent: (next: string) => void } {
+/** 宿主侧订阅钩子：视窗通过它读取面内容并触发重渲染。 */
+export function useFaceContent(store: FaceContentStore | null | undefined): { content: string; setContent: (next: string) => void } {
   const content = React.useSyncExternalStore(
     React.useCallback(
       (listener: () => void) => (store ? store.subscribe(listener) : () => {}),

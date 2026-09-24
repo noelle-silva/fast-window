@@ -1,4 +1,4 @@
-import { createTextDraftStore } from '../draft'
+import { createTextContentStore } from '../content'
 import type { FaceViewPlugin } from '../protocol'
 import { MarkdownEditView } from './editView'
 import { MarkdownReadView } from './readView'
@@ -10,6 +10,6 @@ export const markdownFaceViewPlugin: FaceViewPlugin = {
   defaultViewState: { mode: 'live' },
   ReadView: MarkdownReadView,
   EditView: MarkdownEditView,
-  createDraftStore: ({ initialContent, savedContent }) => createTextDraftStore(initialContent, savedContent ?? initialContent),
+  createContentStore: ({ initialContent, savedContent }) => createTextContentStore(initialContent, savedContent ?? initialContent),
   Toolbars: { left: MarkdownToolbar },
 }

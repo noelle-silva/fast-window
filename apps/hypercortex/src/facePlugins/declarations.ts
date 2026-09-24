@@ -48,7 +48,7 @@ export function subscribeFaceDeclarations(listener: () => void): () => void {
   }
 }
 
-/** 写入声明：装配校验（每个声明类型必须有阅读态视窗、可编辑面必须有编辑态视窗与草稿存储）不通过直接快速失败。 */
+/** 写入声明：装配校验（每个声明类型必须有阅读态视窗与内容存储、可编辑面必须有编辑态视窗）不通过直接快速失败。 */
 export function setFaceDeclarations(list: readonly FaceDeclaration[]): void {
   const next = Array.isArray(list) ? list.slice() : []
   validateFaceViewPluginsAgainstDeclarations(next)

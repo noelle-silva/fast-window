@@ -14,7 +14,7 @@ export function assembleFaceViewPlugins(): void {
 assembleFaceViewPlugins()
 
 export { getFaceViewPlugin, listFaceViewPlugins, validateFaceViewPluginsAgainstDeclarations } from './protocol'
-export { useFaceDraft } from './draft'
+export { useFaceContent } from './content'
 export {
   faceManifestFromDeclaration,
   getCreatableFaceDeclarations,
@@ -27,7 +27,7 @@ export {
 } from './declarations'
 export type {
   FaceContentPreviewProps,
-  FaceDraftStore,
+  FaceContentStore,
   FaceEditViewProps,
   FaceReadViewProps,
   FaceSettingField,

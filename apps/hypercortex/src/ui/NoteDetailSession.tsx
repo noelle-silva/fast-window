@@ -34,9 +34,9 @@ import {
   faceManifestFromDeclaration,
   getFaceDeclaration,
   getFaceViewPlugin,
+  useFaceContent,
   useFaceDeclarations,
-  useFaceDraft,
-  type FaceDraftStore,
+  type FaceContentStore,
   type FaceViewContext,
 } from '../facePlugins'
 import { resolveFaceSettingValues } from '../facePlugins/settings'
@@ -292,18 +292,18 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     },
   )
 
-  // 面草稿存储：草稿归插件自持，宿主只取内容与脏标记，不保存草稿本身。
-  const faceStoresRef = React.useRef<Record<string, FaceDraftStore>>({})
+  // 面内容存储：内容由插件持有，宿主只取内容与脏标记，不持久化内容本身。
+  const faceStoresRef = React.useRef<Record<string, FaceContentStore>>({})
   const faceSavedContentsRef = React.useRef<Record<string, string>>(init?.savedFaceContents ?? {})
   const [faceDirtyVersion, setFaceDirtyVersion] = React.useState(0)
   const dirtyNotifyRef = React.useRef<() => void>(() => {})
   React.useEffect(() => {
     dirtyNotifyRef.current = () => setFaceDirtyVersion(v => v + 1)
   }, [])
-  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string, savedContent?: string): FaceDraftStore | null => {
+  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string, savedContent?: string): FaceContentStore | null => {
     const plugin = getFaceViewPlugin(kind)
-    if (!plugin?.createDraftStore) return null
-    const store = plugin.createDraftStore({ faceId, initialContent, savedContent })
+    if (!plugin) return null
+    const store = plugin.createContentStore({ faceId, initialContent, savedContent })
     store.subscribe(() => dirtyNotifyRef.current())
     return store
   }, [])
@@ -342,8 +342,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setFaceViewState(prev => ({ ...prev, ...(plugin ? plugin.defaultViewState : {}) }))
   }, [face, faceManifests])
 
-  // 当前面的草稿由插件存储持有；宿主只订阅内容用于渲染与保存。
-  const activeDraft = useFaceDraft(faceStoresRef.current[face] || null)
+  // 当前面的内容由插件存储持有；宿主只订阅内容用于渲染与保存。
+  const activeContent = useFaceContent(faceStoresRef.current[face] || null)
 
   const draftFields = React.useMemo<NoteBaseFields>(() => ({
     title: editTitle,
@@ -371,6 +371,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     () => getFaceDeclaration(activeFaceKind),
     [activeFaceKind, faceDeclarations],
   )
+  // 面视窗的实际编辑态判据：宿主处于编辑模式且当前面按声明具备可编辑能力。
+  // 不可编辑的面（含未知类型）始终保持阅读态，不因模式切换落入占位或强行进入编辑；
+  // 编辑模式仍服务于笔记级字段（标题/标签）的编辑。
+  const faceEditing = editing && !!activeFaceDeclaration?.capabilities.editable
   const faceGlobalSettings = React.useMemo(
     () => facePluginGlobalSettings[activeFaceKind] || {},
     [activeFaceKind, facePluginGlobalSettings],
@@ -524,7 +528,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const faceDocs = await Promise.all(
         faceIds.map(id => gateway.notes.loadNoteFace(scope, note.dir, id).catch(() => null)),
       )
-      const stores: Record<string, FaceDraftStore> = {}
+      const stores: Record<string, FaceContentStore> = {}
       const saved: Record<string, string> = {}
       for (let i = 0; i < faceIds.length; i++) {
         const faceId = faceIds[i]
@@ -662,7 +666,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const tags = editTags.map(normalizeTagText).filter(Boolean)
       // 当前笔记的面清单（按界面顺序）：保存时确保这些面存在，即新笔记默认面的落盘点。
       const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
-      // 提交当前面：内容从该面的插件草稿存储取，宿主不持有草稿本身。
+      // 提交当前面：内容从该面的插件内容存储取，宿主不持有内容本身。
       const activeManifest = faceManifests[face]
       const activeStore = faceStoresRef.current[face]
       const facePayloads: SaveNoteFaceContentInput[] = activeManifest && activeStore
@@ -831,7 +835,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     const faceDocs = await Promise.all(
       faceIds.map(id => gateway.notes.loadNoteFace(scope, result.meta.dir, id).catch(() => null)),
     )
-    const stores: Record<string, FaceDraftStore> = {}
+    const stores: Record<string, FaceContentStore> = {}
     const saved: Record<string, string> = {}
     for (let i = 0; i < faceIds.length; i++) {
       const faceId = faceIds[i]
@@ -1040,7 +1044,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           ) : null}
 
           {!loading && !loadError && loaded && FaceToolbarLeft ? (
-            <FaceToolbarLeft editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
+            <FaceToolbarLeft editing={faceEditing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
           ) : null}
 
           {dirty ? (
@@ -1064,7 +1068,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         {!loading && !loadError && loaded ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
             {FaceToolbarRight ? (
-              <FaceToolbarRight editing={editing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
+              <FaceToolbarRight editing={faceEditing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
             ) : null}
 
             <Tooltip title="版本历史" placement="bottom-end">
@@ -1487,18 +1491,18 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
             {facesReady && faces.length === 0 ? (
               <FaceEmptyState declarations={creatableFaceDeclarations} onCreateFace={kind => void handleAddFace(kind)} />
-            ) : FaceEditView && FaceReadView ? (
-              editing ? (
+            ) : FaceReadView ? (
+              faceEditing && FaceEditView ? (
                 <FaceEditView
-                  content={activeDraft.content}
+                  content={activeContent.content}
                   visible={visible}
-                  onChange={activeDraft.setContent}
+                  onChange={activeContent.setContent}
                   viewState={faceViewState}
                   onViewStateChange={handleFaceViewStateChange}
                   context={faceViewContext}
                 />
               ) : (
-                <FaceReadView content={activeDraft.content} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
+                <FaceReadView content={activeContent.content} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
               )
             ) : (
               <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
