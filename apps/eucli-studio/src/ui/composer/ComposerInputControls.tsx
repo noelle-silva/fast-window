@@ -261,7 +261,7 @@ export function ComposerInputControls(props: {
         minRows={2}
         maxRows={8}
         variant="outlined"
-        placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片/选择文件）"
+        placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
         value={value}
         inputRef={setInputRef}
         onChange={(e) => {
