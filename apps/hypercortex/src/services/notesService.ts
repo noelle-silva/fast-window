@@ -18,6 +18,7 @@ export function createNotesService(background: BackgroundClient): NotesService {
     restoreNoteVersion: (scope, packageDir, versionId) => background.invoke(HyperCortexRpc.notes.versions.restore, { scope, packageDir, versionId }),
     loadNoteIndex: scope => background.invoke(HyperCortexRpc.notes.loadIndex, { scope }),
     rebuildNoteIndexFromFs: (scope, idx) => background.invoke(HyperCortexRpc.notes.rebuildIndex, { scope, idx }),
+    listFacePlugins: () => background.invoke(HyperCortexRpc.notes.listFacePlugins),
     createEmptyNote: (scope, input) => background.invoke(HyperCortexRpc.notes.create, { scope, input }),
   }
 }

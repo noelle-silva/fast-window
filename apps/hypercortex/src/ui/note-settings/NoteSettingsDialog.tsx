@@ -5,9 +5,10 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
-import { getFaceViewPlugin, type FaceViewPlugin } from '../../facePlugins'
+import { getFaceDeclaration, useFaceDeclarations } from '../../facePlugins'
 import { resolveFaceSettingValues } from '../../facePlugins/settings'
-import { isKnownFaceKind, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
+import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
+import type { FaceDeclaration } from '../../shared/faceDeclarations'
 import { FaceOrderList } from '../FaceOrderList'
 import { FaceNoteSettingsSection } from '../face-settings/FaceNoteSettingsSection'
 
@@ -39,16 +40,17 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
   } = props
 
   const [busy, setBusy] = React.useState(false)
+  const faceDeclarations = useFaceDeclarations()
 
   const settingsFaces = React.useMemo(() => {
-    const out: { plugin: FaceViewPlugin; face: HyperCortexNoteFaceManifestV2 }[] = []
+    const out: { declaration: FaceDeclaration; face: HyperCortexNoteFaceManifestV2 }[] = []
     for (const face of Object.values(faceManifests)) {
-      const plugin = getFaceViewPlugin(face.kind)
-      if (!plugin || !(plugin.settings || []).length) continue
-      out.push({ plugin, face })
+      const declaration = getFaceDeclaration(face.kind)
+      if (!declaration || !declaration.settings.length) continue
+      out.push({ declaration, face })
     }
     return out
-  }, [faceManifests])
+  }, [faceDeclarations, faceManifests])
 
   const runSave = React.useCallback(async (
     action: () => Promise<{ manifest: HyperCortexNoteManifestV1 }>,
@@ -85,9 +87,10 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
   const faceLabel = React.useCallback((faceId: string) => {
     const manifest = faceManifests[String(faceId || '').trim()]
     if (!manifest) return String(faceId || '').trim() || '未知面'
-    const title = String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
-    return isKnownFaceKind(manifest.kind) ? title : `${title}（暂不支持）`
-  }, [faceManifests])
+    const declaration = getFaceDeclaration(manifest.kind)
+    const title = String(manifest.title || '').trim() || declaration?.label || String(manifest.kind || '').trim() || '未知'
+    return declaration ? title : `${title}（暂不支持）`
+  }, [faceDeclarations, faceManifests])
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -109,14 +112,14 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
       </DialogTitle>
       <DialogContent dividers sx={{ pt: 2, pb: 3 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.25 }}>
-          {settingsFaces.map(({ plugin, face }) => {
+          {settingsFaces.map(({ declaration, face }) => {
             const noteValues = (face.settings || {}) as Record<string, unknown>
-            const globalValues = facePluginGlobalSettings[plugin.kind] || {}
-            const effectiveValues = resolveFaceSettingValues(plugin, { noteSettings: noteValues, globalSettings: globalValues })
+            const globalValues = facePluginGlobalSettings[declaration.kind] || {}
+            const effectiveValues = resolveFaceSettingValues(declaration.settings, { noteSettings: noteValues, globalSettings: globalValues })
             return (
-              <React.Fragment key={plugin.kind}>
+              <React.Fragment key={declaration.kind}>
                 <FaceNoteSettingsSection
-                  plugin={plugin}
+                  fields={declaration.settings}
                   noteValues={noteValues}
                   globalValues={globalValues}
                   effectiveValues={effectiveValues}

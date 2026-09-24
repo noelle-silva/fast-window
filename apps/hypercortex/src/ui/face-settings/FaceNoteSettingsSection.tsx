@@ -1,12 +1,13 @@
 import * as React from 'react'
 import { Box, Button, Slider, Typography } from '@mui/material'
 
-import type { FaceSettingField, FaceViewPlugin } from '../../facePlugins'
+import type { FaceSettingField } from '../../facePlugins'
 import { formatFaceSettingValue, hasFaceSettingOverride, renderFaceSettingTemplate } from '../../facePlugins/settings'
 import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from '../settingsUiStyles'
 
 type Props = {
-  plugin: FaceViewPlugin
+  /** 当前类型的声明字段清单；宿主按声明通用渲染笔记级覆盖。 */
+  fields: readonly FaceSettingField[]
   noteValues: Record<string, unknown>
   globalValues: Record<string, unknown>
   effectiveValues: Record<string, unknown>
@@ -15,9 +16,8 @@ type Props = {
   onPatch: (patch: Record<string, unknown | null>) => Promise<boolean>
 }
 
-/** 笔记设置里的面配置区块：按插件声明通用渲染笔记级覆盖。 */
-export function FaceNoteSettingsSection({ plugin, noteValues, globalValues, effectiveValues, busy, onPatch }: Props) {
-  const fields = plugin.settings || []
+/** 笔记设置里的面配置区块：按声明字段通用渲染笔记级覆盖。 */
+export function FaceNoteSettingsSection({ fields, noteValues, globalValues, effectiveValues, busy, onPatch }: Props) {
   if (!fields.length) return null
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

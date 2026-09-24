@@ -4,8 +4,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider
 import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../../noteVersions'
-import { isHtmlFace, labelForFaceKind } from '../../noteFaces'
-import { HtmlFaceIframe } from '../../facePlugins/html/HtmlFaceIframe'
+import { getFaceDeclaration, getFaceViewPlugin } from '../../facePlugins'
 
 type Props = {
   open: boolean
@@ -26,7 +25,7 @@ function formatVersionTime(ms: number): string {
 function faceTitle(snapshot: HyperCortexNoteVersionSnapshot | null, faceId: string): string {
   const face = snapshot?.faces?.[faceId]?.manifest
   if (!face) return faceId
-  return String(face.title || '').trim() || labelForFaceKind(face.kind)
+  return String(face.title || '').trim() || getFaceDeclaration(face.kind)?.label || String(face.kind || '').trim() || '未知'
 }
 
 function orderedFaceIds(snapshot: HyperCortexNoteVersionSnapshot | null): string[] {
@@ -132,7 +131,9 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
   }, [gateway, onClose, onRestoreVersion, restoring, selectedVersionId])
 
   const selectedFace = selectedFaceId ? snapshot?.faces?.[selectedFaceId] : null
-  const selectedFaceIsHtml = !!selectedFace && isHtmlFace(selectedFace.manifest)
+  // 只读预览按类型挂载插件提供的内容预览视窗；缺省按纯文本展示。
+  const FaceContentPreview = selectedFace ? getFaceViewPlugin(selectedFace.manifest.kind)?.ContentPreview : undefined
+  const hasRichPreview = !!FaceContentPreview
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 4, minHeight: 620 } }}>
@@ -227,10 +228,10 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
                   ))}
                 </Box>
                 <Divider />
-                <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', bgcolor: selectedFaceIsHtml ? '#f8fafc' : '#0f172a' }}>
-                  {selectedFace ? selectedFaceIsHtml ? (
+                <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', bgcolor: hasRichPreview ? '#f8fafc' : '#0f172a' }}>
+                  {selectedFace ? FaceContentPreview ? (
                     <Box sx={{ p: 2 }}>
-                      <HtmlFaceIframe html={selectedFace.content} mode="natural" minHeightPx={360} />
+                      <FaceContentPreview content={selectedFace.content} />
                     </Box>
                   ) : (
                     <Box component="pre" sx={{ m: 0, p: 2, color: '#e5e7eb', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.75, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>

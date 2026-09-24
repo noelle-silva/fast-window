@@ -3,14 +3,14 @@ import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { NoteRefEntryMap, NoteRefIndex } from '../noteRefs'
 import type {
-  HyperCortexHtmlFaceDoc,
   HyperCortexNoteFaceDoc,
   HyperCortexNoteFaceSettingsV2,
 } from '../noteFaces'
-import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
+import type { HyperCortexNoteDoc, HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
-import type { HyperCortexIndexV1, HyperCortexMetadataV1, HyperCortexNoteDoc, NoteMeta } from '../core'
+import type { HyperCortexIndexV1, HyperCortexMetadataV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
+import type { FaceDeclaration } from '../shared/faceDeclarations'
 
 export type HyperCortexTrashItem = {
   kind: 'note' | 'asset' | 'face'
@@ -113,16 +113,17 @@ export type HyperCortexNoteFaceSettingsPatch = Record<string, unknown>
 export type NotesService = {
   loadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1>
   tryReadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1 | null>
+  listFacePlugins: () => Promise<FaceDeclaration[]>
   loadNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteFaceDoc>
   saveNoteFace: (scope: VaultScope, input: SaveNoteFaceInput) => Promise<{ meta: NoteMeta; faceDoc: HyperCortexNoteFaceDoc; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string, mode: 'trash' | 'permanent') => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
-  saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc; htmlFace: HyperCortexHtmlFaceDoc | null; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
+  saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   saveNoteFaceOrder: (scope: VaultScope, packageDir: string, faceOrder: string[]) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   saveFaceSettings: (scope: VaultScope, packageDir: string, faceId: string, settings: HyperCortexNoteFaceSettingsPatch) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   publishNoteVersion: (scope: VaultScope, packageDir: string, commitName: string) => Promise<HyperCortexNoteVersionSummary>
   listNoteVersions: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteVersionSummary[]>
   loadNoteVersion: (scope: VaultScope, packageDir: string, versionId: string) => Promise<HyperCortexNoteVersionSnapshot>
-  restoreNoteVersion: (scope: VaultScope, packageDir: string, versionId: string) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
+  restoreNoteVersion: (scope: VaultScope, packageDir: string, versionId: string) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   loadNoteIndex: (scope: VaultScope) => Promise<HyperCortexIndexV1>
   rebuildNoteIndexFromFs: (scope: VaultScope, idx: HyperCortexIndexV1) => Promise<HyperCortexIndexV1>
   createEmptyNote: (scope: VaultScope, input: SaveNotePackageInput) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc; manifest: HyperCortexNoteManifestV1 }>
@@ -282,5 +283,3 @@ export type HyperCortexGateway = {
   search: SearchService
   metadata: MetadataService
 }
-
-export type { HyperCortexHtmlFaceDoc }

@@ -1,33 +1,41 @@
-import { listNoteFaceAdapters } from '../noteFaces'
 import { htmlFaceViewPlugin } from './html'
 import { markdownFaceViewPlugin } from './markdown'
-import { getFaceViewPlugin, registerFaceViewPlugin } from './protocol'
+import { registerFaceViewPlugin } from './protocol'
 
 /**
  * 官方面视窗插件装配清单：宿主只登记插件模块，不包含任何具体面的界面实现。
- * 装配期校验声明与视窗实现一致（每个声明类型必须有阅读态视窗，可编辑面必须有编辑态视窗）。
+ * 声明与视窗实现的一致性校验在声明写入仓库时执行（setFaceDeclarations）。
  */
 export function assembleFaceViewPlugins(): void {
   registerFaceViewPlugin(markdownFaceViewPlugin)
   registerFaceViewPlugin(htmlFaceViewPlugin)
-  validateFaceViewPlugins()
-}
-
-function validateFaceViewPlugins(): void {
-  for (const adapter of listNoteFaceAdapters()) {
-    const plugin = getFaceViewPlugin(adapter.kind)
-    if (!plugin) throw new Error(`面视窗缺失：${adapter.kind}`)
-    if (adapter.capabilities.editable && !plugin.EditView) {
-      throw new Error(`可编辑面缺少编辑态视窗：${adapter.kind}`)
-    }
-    if (adapter.capabilities.editable && !plugin.createDraftStore) {
-      throw new Error(`可编辑面缺少草稿存储：${adapter.kind}`)
-    }
-  }
 }
 
 assembleFaceViewPlugins()
 
-export { getFaceViewPlugin, listFaceViewPlugins } from './protocol'
+export { getFaceViewPlugin, listFaceViewPlugins, validateFaceViewPluginsAgainstDeclarations } from './protocol'
 export { useFaceDraft } from './draft'
-export type { FaceDraftStore, FaceEditViewProps, FaceReadViewProps, FaceSettingField, FaceSettingOption, FaceToolbarProps, FaceToolbarSlot, FaceViewContext, FaceViewPlugin } from './protocol'
+export {
+  faceManifestFromDeclaration,
+  getCreatableFaceDeclarations,
+  getFaceDeclaration,
+  getFaceDeclarations,
+  getFaceKindOrder,
+  requireFaceDeclaration,
+  setFaceDeclarations,
+  useFaceDeclarations,
+} from './declarations'
+export type {
+  FaceContentPreviewProps,
+  FaceDraftStore,
+  FaceEditViewProps,
+  FaceReadViewProps,
+  FaceSettingField,
+  FaceSettingOption,
+  FaceToolbarProps,
+  FaceToolbarSlot,
+  FaceViewContext,
+  FaceViewPlugin,
+} from './protocol'
+export type { FaceManifestOverrides } from './declarations'
+export type { FaceDeclaration } from '../shared/faceDeclarations'

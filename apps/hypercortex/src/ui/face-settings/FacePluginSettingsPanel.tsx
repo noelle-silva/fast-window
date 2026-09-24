@@ -1,29 +1,33 @@
 import { Box, Slider, Typography } from '@mui/material'
 
-import type { FaceSettingField, FaceViewPlugin } from '../../facePlugins'
+import type { FaceSettingField } from '../../facePlugins'
 import { formatFaceSettingValue, renderFaceSettingTemplate } from '../../facePlugins/settings'
 import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from '../settingsUiStyles'
 
 type Props = {
-  plugin: FaceViewPlugin
+  /** 类型标识（用于默认面板标题）。 */
+  kind: string
+  /** 声明字段清单；宿主按声明通用渲染。 */
+  fields: readonly FaceSettingField[]
+  title?: string
+  intro?: string
   values: Record<string, unknown>
   disabled?: boolean
   onChange: (key: string, value: unknown) => void
 }
 
-/** 全局设置页的面配置区块：按插件声明通用渲染。 */
-export function FacePluginSettingsPanel({ plugin, values, disabled, onChange }: Props) {
-  const fields = plugin.settings || []
+/** 全局设置页的面配置区块：按声明字段通用渲染。 */
+export function FacePluginSettingsPanel({ kind, fields, title, intro, values, disabled, onChange }: Props) {
   if (!fields.length) return null
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <Box>
         <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>
-          {plugin.settingsTitle || `${plugin.kind} 面设置`}
+          {title || `${kind} 面设置`}
         </Typography>
-        {plugin.settingsIntro ? (
+        {intro ? (
           <Typography sx={{ mt: 0.5, fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
-            {plugin.settingsIntro}
+            {intro}
           </Typography>
         ) : null}
       </Box>

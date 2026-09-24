@@ -19,8 +19,9 @@ import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import type { SaveNoteFaceContentInput } from '../gateway/types'
-import { DEFAULT_FACE_KIND_ORDER, resolveNoteFaceOrder } from '../facePreferences'
-import { createDefaultFaceManifest, getNoteFaceAdapter, isKnownFaceKind, labelForFaceKind, listNoteFaceAdapters, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import { resolveNoteFaceOrder } from '../facePreferences'
+import type { HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import type { FaceDeclaration } from '../shared/faceDeclarations'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
@@ -29,7 +30,15 @@ import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
-import { getFaceViewPlugin, useFaceDraft, type FaceDraftStore, type FaceViewContext } from '../facePlugins'
+import {
+  faceManifestFromDeclaration,
+  getFaceDeclaration,
+  getFaceViewPlugin,
+  useFaceDeclarations,
+  useFaceDraft,
+  type FaceDraftStore,
+  type FaceViewContext,
+} from '../facePlugins'
 import { resolveFaceSettingValues } from '../facePlugins/settings'
 
 type NoteFaceId = string
@@ -69,13 +78,13 @@ function areNoteBaseFieldsEqual(a: NoteBaseFields, b: NoteBaseFields): boolean {
 function faceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): string {
   const manifest = faces[String(faceId || '').trim()]
   if (!manifest) return String(faceId || '').trim() || '未知'
-  const title = String(manifest.title || '').trim() || labelForFaceKind(manifest.kind)
-  if (!isKnownFaceKind(manifest.kind)) return `${title}（暂不支持）`
+  const declaration = getFaceDeclaration(manifest.kind)
+  const title = String(manifest.title || '').trim() || declaration?.label || String(manifest.kind || '').trim() || '未知'
+  if (!declaration) return `${title}（暂不支持）`
   return title
 }
 
-function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.ReactNode {
-  const creatableFaces = listNoteFaceAdapters().filter(adapter => adapter.capabilities.creatable)
+function FaceEmptyState(props: { declarations: readonly FaceDeclaration[]; onCreateFace: (kind: string) => void }): React.ReactNode {
   return (
     <Box
       sx={{
@@ -94,16 +103,16 @@ function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.
         当前笔记没有面，请选择创建一个面
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-        {creatableFaces.map(adapter => (
+        {props.declarations.map(declaration => (
           <Box
-            key={adapter.kind}
+            key={declaration.kind}
             role="button"
             tabIndex={0}
-            onClick={() => props.onCreateFace(adapter.kind)}
+            onClick={() => props.onCreateFace(declaration.kind)}
             onKeyDown={e => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                props.onCreateFace(adapter.kind)
+                props.onCreateFace(declaration.kind)
               }
             }}
             sx={{
@@ -121,7 +130,7 @@ function FaceEmptyState(props: { onCreateFace: (kind: string) => void }): React.
               '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
             }}
           >
-            {adapter.label}
+            {declaration.label}
           </Box>
         ))}
       </Box>
@@ -214,11 +223,16 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onFavoriteSaved,
     onPlayingChange,
     facePluginGlobalSettings = {},
-    globalFaceKindOrder = DEFAULT_FACE_KIND_ORDER,
+    globalFaceKindOrder = [],
   } = props
 
   const noteId = String(note.id || '').trim()
   const isDraft = isDraftNoteId(noteId) || !String(note.dir || '').trim()
+  const faceDeclarations = useFaceDeclarations()
+  const creatableFaceDeclarations = React.useMemo(
+    () => faceDeclarations.filter(declaration => declaration.capabilities.creatable),
+    [faceDeclarations],
+  )
 
   const initRef = React.useRef<NoteDetailSnapshotV1 | null | undefined>(undefined)
   if (initRef.current === undefined) initRef.current = consumeInitSnapshot(noteId)
@@ -353,6 +367,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     [faceManifests, faces],
   )
   const activeFaceKind = String(faceManifests[face]?.kind || '')
+  const activeFaceDeclaration = React.useMemo(
+    () => getFaceDeclaration(activeFaceKind),
+    [activeFaceKind, faceDeclarations],
+  )
   const faceGlobalSettings = React.useMemo(
     () => facePluginGlobalSettings[activeFaceKind] || {},
     [activeFaceKind, facePluginGlobalSettings],
@@ -363,8 +381,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   )
   // 面设置统一按「笔记级覆盖 > 全局值 > 声明默认」解析（Q33/Q34/Q35）。
   const faceEffectiveSettings = React.useMemo(
-    () => resolveFaceSettingValues(faceViewPlugin, { noteSettings: faceNoteSettings, globalSettings: faceGlobalSettings }),
-    [faceGlobalSettings, faceNoteSettings, faceViewPlugin],
+    () => resolveFaceSettingValues(activeFaceDeclaration?.settings, { noteSettings: faceNoteSettings, globalSettings: faceGlobalSettings }),
+    [activeFaceDeclaration, faceGlobalSettings, faceNoteSettings],
   )
   // 笔记级设置写回后，把最新面清单同步到会话状态（面顺序与缩放覆盖共用同一入口）。
   const applyNoteManifest = React.useCallback((manifest: HyperCortexNoteManifestV1) => {
@@ -899,13 +917,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const handleAddFace = React.useCallback(async (kind?: string) => {
     const targetKind = String(kind || pendingAddFace || '').trim()
-    const adapter = getNoteFaceAdapter(targetKind)
-    if (!adapter || !adapter.capabilities.creatable) return
+    const declaration = getFaceDeclaration(targetKind)
+    if (!declaration || !declaration.capabilities.creatable) return
     if (!loaded) return
-    if (Object.values(faceManifests).some(face => face.kind === adapter.kind)) return
-    const nextFace = createDefaultFaceManifest(adapter.kind)
+    if (Object.values(faceManifests).some(face => face.kind === declaration.kind)) return
+    const nextFace = faceManifestFromDeclaration(declaration)
     // 新面从空白草稿开始；落盘时由后端按面协议生成空白内容。
-    const store = createFaceStore(nextFace.id, adapter.kind, '')
+    const store = createFaceStore(nextFace.id, declaration.kind, '')
     if (store) faceStoresRef.current[nextFace.id] = store
     faceSavedContentsRef.current[nextFace.id] = ''
     setFaceManifests(prev => ({ ...prev, [nextFace.id]: nextFace }))
@@ -1201,18 +1219,18 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   gap: 0.5,
                 }}
               >
-                {listNoteFaceAdapters()
-                  .filter(adapter => adapter.capabilities.creatable && !faces.some(f => faceManifests[f]?.kind === adapter.kind))
-                  .map(adapter => (
+                {creatableFaceDeclarations
+                  .filter(declaration => !faces.some(f => faceManifests[f]?.kind === declaration.kind))
+                  .map(declaration => (
                     <Box
-                      key={adapter.kind}
+                      key={declaration.kind}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setPendingAddFace(adapter.kind)}
+                      onClick={() => setPendingAddFace(declaration.kind)}
                       onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
-                          setPendingAddFace(adapter.kind)
+                          setPendingAddFace(declaration.kind)
                         }
                       }}
                       sx={{
@@ -1220,8 +1238,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                         px: 1.5,
                         py: 0.75,
                         borderRadius: 999,
-                        bgcolor: pendingAddFace === adapter.kind ? '#111' : 'transparent',
-                        color: pendingAddFace === adapter.kind ? '#fff' : '#374151',
+                        bgcolor: pendingAddFace === declaration.kind ? '#111' : 'transparent',
+                        color: pendingAddFace === declaration.kind ? '#fff' : '#374151',
                         fontSize: 12,
                         lineHeight: 1,
                         fontWeight: 700,
@@ -1229,7 +1247,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                         userSelect: 'none',
                       }}
                     >
-                      {adapter.label}
+                      {declaration.label}
                     </Box>
                   ))}
                 <Box
@@ -1468,7 +1486,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Box>
 
             {facesReady && faces.length === 0 ? (
-              <FaceEmptyState onCreateFace={kind => void handleAddFace(kind)} />
+              <FaceEmptyState declarations={creatableFaceDeclarations} onCreateFace={kind => void handleAddFace(kind)} />
             ) : FaceEditView && FaceReadView ? (
               editing ? (
                 <FaceEditView

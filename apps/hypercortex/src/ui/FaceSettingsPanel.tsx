@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Checkbox, FormControlLabel, Typography } from '@mui/material'
-import { labelForFaceKind, listNoteFaceAdapters } from '../noteFaces'
+import { getFaceDeclaration, useFaceDeclarations } from '../facePlugins'
 import { FaceOrderList } from './FaceOrderList'
 import { settingsSelectableSurfaceSx } from './settingsUiStyles'
 
@@ -13,7 +13,15 @@ type FaceSettingsPanelProps = {
 
 export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
   const { faceKindOrder, onFaceKindOrderChange, defaultFaceKinds, onDefaultFaceKindsChange } = props
-  const creatableAdapters = React.useMemo(() => listNoteFaceAdapters().filter(adapter => adapter.capabilities.creatable), [])
+  const faceDeclarations = useFaceDeclarations()
+  const creatableDeclarations = React.useMemo(
+    () => faceDeclarations.filter(declaration => declaration.capabilities.creatable),
+    [faceDeclarations],
+  )
+  const labelOf = React.useCallback(
+    (kind: string) => getFaceDeclaration(kind)?.label || String(kind || '').trim() || '未知',
+    [faceDeclarations],
+  )
 
   const toggleDefaultKind = React.useCallback(
     (kind: string) => {
@@ -38,7 +46,7 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
         </Typography>
         <FaceOrderList
           order={faceKindOrder}
-          labelOf={kind => labelForFaceKind(kind)}
+          labelOf={labelOf}
           onReorder={onFaceKindOrderChange}
         />
       </Box>
@@ -49,11 +57,11 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
           选中后，新建笔记会自动创建这些面；一个都不选则新建无面笔记。多个默认面按上面的全局顺序排列。
         </Typography>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          {creatableAdapters.map(adapter => {
-            const checked = defaultFaceKinds.includes(adapter.kind)
+          {creatableDeclarations.map(declaration => {
+            const checked = defaultFaceKinds.includes(declaration.kind)
             return (
               <Box
-                key={adapter.kind}
+                key={declaration.kind}
                 sx={{
                   borderRadius: 2,
                   ...settingsSelectableSurfaceSx(checked),
@@ -62,8 +70,8 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
                 }}
               >
                 <FormControlLabel
-                  control={<Checkbox size="small" checked={checked} onChange={() => toggleDefaultKind(adapter.kind)} />}
-                  label={<Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{adapter.label}</Typography>}
+                  control={<Checkbox size="small" checked={checked} onChange={() => toggleDefaultKind(declaration.kind)} />}
+                  label={<Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{declaration.label}</Typography>}
                   sx={{ m: 0 }}
                 />
               </Box>

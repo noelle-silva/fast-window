@@ -3,7 +3,7 @@ import { Box, Switch, Tab, Tabs, Typography } from '@mui/material'
 import type { HyperCortexColorPresetIdV1, HyperCortexSidebarSortModeV1 } from '../core'
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
-import { listFaceViewPlugins } from '../facePlugins'
+import { useFaceDeclarations } from '../facePlugins'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
 import { FacePluginSettingsPanel } from './face-settings/FacePluginSettingsPanel'
 import { FaceSettingsPanel } from './FaceSettingsPanel'
@@ -54,6 +54,7 @@ export type SettingsPageProps = {
 
 export function SettingsPage(props: SettingsPageProps) {
   const [category, setCategory] = React.useState<SettingsCategoryId>('data')
+  const faceDeclarations = useFaceDeclarations()
 
   const refreshDataDirStatus = React.useCallback(async () => {
     await props.onRefreshDataDirStatus()
@@ -157,14 +158,17 @@ export function SettingsPage(props: SettingsPageProps) {
               defaultFaceKinds={props.defaultFaceKinds}
               onDefaultFaceKindsChange={props.onDefaultFaceKindsChange}
             />
-            {listFaceViewPlugins()
-              .filter(plugin => (plugin.settings || []).length > 0)
-              .map(plugin => (
+            {faceDeclarations
+              .filter(declaration => declaration.settings.length > 0)
+              .map(declaration => (
                 <FacePluginSettingsPanel
-                  key={plugin.kind}
-                  plugin={plugin}
-                  values={props.facePluginSettings[plugin.kind] || {}}
-                  onChange={(key, value) => props.onFacePluginSettingChange(plugin.kind, key, value)}
+                  key={declaration.kind}
+                  kind={declaration.kind}
+                  fields={declaration.settings}
+                  title={declaration.settingsTitle}
+                  intro={declaration.settingsIntro}
+                  values={props.facePluginSettings[declaration.kind] || {}}
+                  onChange={(key, value) => props.onFacePluginSettingChange(declaration.kind, key, value)}
                 />
               ))}
             <ColorPresetSettingsPanel

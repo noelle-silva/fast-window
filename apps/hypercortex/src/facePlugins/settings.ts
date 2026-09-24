@@ -1,4 +1,4 @@
-import type { FaceSettingField, FaceViewPlugin } from './protocol'
+import type { FaceSettingField } from './protocol'
 
 /**
  * 面设置的通用解析与展示：笔记级覆盖 > 全局值 > 声明默认。
@@ -16,13 +16,13 @@ export function normalizeFaceSettingValue(field: FaceSettingField, value: unknow
   return Math.min(field.max, Math.max(field.min, n))
 }
 
-/** 解析一个面插件的全部生效设置。 */
+/** 解析一组声明字段的全部生效设置（笔记级覆盖 > 全局值 > 声明默认）。 */
 export function resolveFaceSettingValues(
-  plugin: FaceViewPlugin | null | undefined,
+  fields: readonly FaceSettingField[] | null | undefined,
   input: { noteSettings?: Record<string, unknown> | null; globalSettings?: Record<string, unknown> | null },
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const field of plugin?.settings || []) {
+  for (const field of fields || []) {
     const noteValue = normalizeFaceSettingValue(field, input.noteSettings?.[field.key])
     const globalValue = normalizeFaceSettingValue(field, input.globalSettings?.[field.key])
     out[field.key] = noteValue ?? globalValue ?? field.default

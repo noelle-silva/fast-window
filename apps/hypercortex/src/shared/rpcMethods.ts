@@ -2,6 +2,7 @@ export const HyperCortexRpc = {
   notes: {
     loadIndex: 'hypercortex.notes.loadIndex',
     rebuildIndex: 'hypercortex.notes.rebuildIndex',
+    listFacePlugins: 'hypercortex.notes.listFacePlugins',
     create: 'hypercortex.notes.create',
     loadManifest: 'hypercortex.notes.loadManifest',
     tryReadManifest: 'hypercortex.notes.tryReadManifest',

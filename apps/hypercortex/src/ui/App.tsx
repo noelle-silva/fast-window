@@ -70,12 +70,11 @@ import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, 
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 import { normalizeHtmlFaceDisplayMode, normalizeHtmlFaceFixedScale } from '../htmlFaceDisplay'
 import {
-  DEFAULT_FACE_KIND_ORDER,
   normalizeDefaultFaceKinds,
   normalizeFaceKindOrder,
   orderKindsByGlobalOrder,
 } from '../facePreferences'
-import { createDefaultFaceManifest } from '../noteFaces'
+import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
@@ -447,7 +446,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
   const [facePluginSettings, setFacePluginSettings] = React.useState<Record<string, Record<string, unknown>>>({})
   const facePluginSettingsRef = React.useRef<Record<string, Record<string, unknown>>>({})
-  const [faceKindOrder, setFaceKindOrder] = React.useState<string[]>(() => [...DEFAULT_FACE_KIND_ORDER])
+  const [faceKindOrder, setFaceKindOrder] = React.useState<string[]>([])
   const [defaultFaceKinds, setDefaultFaceKinds] = React.useState<string[]>([])
   const [colorPresetId, setColorPresetId] = React.useState<HyperCortexColorPresetIdV1>(DEFAULT_COLOR_PRESET_ID)
   const colorPreset = React.useMemo(() => getColorPreset(colorPresetId), [colorPresetId])
@@ -1420,7 +1419,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   React.useEffect(() => {
     void (async () => {
       try {
-        const normalizedMeta = (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
+        // 声明单源：先取后端面插件声明并写入运行时仓库；后续所有面偏好都按已知类型清单规范化。
+        const loadMetadata = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
+        const [normalizedMeta, declarations] = await Promise.all([
+          loadMetadata(),
+          gateway.notes.listFacePlugins(),
+        ])
+        setFaceDeclarations(declarations)
+        const knownFaceKinds = declarations.map(declaration => declaration.kind)
+        const creatableFaceKinds = declarations.filter(declaration => declaration.capabilities.creatable).map(declaration => declaration.kind)
         metaRef.current = normalizedMeta
         setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
         const nextPageDisplayModes = normalizePageDisplayModes(normalizedMeta.pageDisplayModes)
@@ -1439,8 +1446,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedFacePluginSettings = normalizeFacePluginSettings(normalizedMeta.facePluginSettings, normalizedMeta)
         facePluginSettingsRef.current = normalizedFacePluginSettings
         setFacePluginSettings(normalizedFacePluginSettings)
-        const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder)
-        const normalizedDefaultFaceKinds = normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds)
+        const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder, knownFaceKinds)
+        const normalizedDefaultFaceKinds = normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds, creatableFaceKinds)
         setFaceKindOrder(normalizedFaceKindOrder)
         setDefaultFaceKinds(normalizedDefaultFaceKinds)
         const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
@@ -1521,7 +1528,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             pageDisplayModes: nextPageDisplayModes,
           }).catch(() => {})
         }
-      } catch {
+      } catch (e: any) {
+        void gateway.host.toast(String(e?.message || e || '初始化应用数据失败'))
       } finally {
         setTabsInitReady(true)
         setMetaReady(true)
@@ -1583,7 +1591,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const handleFaceKindOrderChange = React.useCallback(
     (next: string[]) => {
-      const normalized = normalizeFaceKindOrder(next)
+      const normalized = normalizeFaceKindOrder(next, getFaceKindOrder())
       setFaceKindOrder(normalized)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ faceKindOrder: normalized }).catch(() => {})
@@ -1593,7 +1601,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   const handleDefaultFaceKindsChange = React.useCallback(
     (next: string[]) => {
-      const normalized = normalizeDefaultFaceKinds(next)
+      const normalized = normalizeDefaultFaceKinds(next, getCreatableFaceDeclarations().map(declaration => declaration.kind))
       setDefaultFaceKinds(normalized)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ defaultFaceKinds: normalized }).catch(() => {})
@@ -1915,8 +1923,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     }
     draftNoteMetaRef.current[draftId] = meta
 
-    // 新笔记默认创建的面：按全局顺序排列，落到第一个面。
-    const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => createDefaultFaceManifest(kind))
+    // 新笔记默认创建的面：按全局顺序排列，名单来自后端声明。
+    const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => faceManifestFromDeclaration(requireFaceDeclaration(kind)))
     const defaultFaces = defaultFaceManifests.map(face => face.id)
     noteInitSnapshotsRef.current[draftId] = {
       baseFields: { title: '未命名', description: '', tags: [], resources: [] },

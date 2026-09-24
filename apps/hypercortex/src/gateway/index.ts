@@ -92,4 +92,4 @@ export function resetHyperCortexGateway() {
   gatewayPromise = null
 }
 
-export type { DataDirStatus, HyperCortexGateway, HyperCortexHtmlFaceDoc, HyperCortexTrashItem, LegacyDataImportResult } from './types'
+export type { DataDirStatus, HyperCortexGateway, HyperCortexTrashItem, LegacyDataImportResult } from './types'

@@ -1,42 +1,34 @@
-import {
-  getNoteFaceAdapter,
-  listNoteFaceAdapters,
-  type HyperCortexNoteFaceManifestV2,
-} from './noteFaces'
+import type { HyperCortexNoteFaceManifestV2 } from './noteFaces'
 
 /**
  * 笔记面设置的两层优先级统一机制：
- * 笔记级（存在笔记包内）> 全局级（存在全局设置）> 协议默认值。
+ * 笔记级（存在笔记包内）> 全局级（存在全局设置）> 声明默认值。
  * 全局面偏好（顺序、默认创建面）的规范化与解析都收敛在本模块。
+ *
+ * 已知类型清单来自运行时声明仓库（后端声明单源），由调用方传入。
  */
 
 // ---- 全局面偏好：规范化 ----
 
-/** 面类型的全局顺序由面协议注册表的注册顺序给出。 */
-export const DEFAULT_FACE_KIND_ORDER: readonly string[] = listNoteFaceAdapters().map(adapter => adapter.kind)
-
-/** 全量收敛：已知类型按输入顺序排前，遗漏的类型按注册顺序补齐。 */
-export function normalizeFaceKindOrder(value: unknown): string[] {
-  const registered = listNoteFaceAdapters().map(adapter => adapter.kind)
+/** 全量收敛：已知类型按输入顺序排前，遗漏的类型按已知类型顺序补齐。 */
+export function normalizeFaceKindOrder(value: unknown, knownKinds: readonly string[]): string[] {
   const out: string[] = []
   const push = (kind: unknown) => {
     const id = String(kind || '').trim()
-    if (!id || !registered.includes(id) || out.includes(id)) return
+    if (!id || !knownKinds.includes(id) || out.includes(id)) return
     out.push(id)
   }
   if (Array.isArray(value)) value.forEach(push)
-  registered.forEach(push)
+  knownKinds.forEach(push)
   return out
 }
 
-/** 新笔记默认创建的面类型：保留顺序、去重，只接受协议声明可创建的类型。 */
-export function normalizeDefaultFaceKinds(value: unknown): string[] {
+/** 新笔记默认创建的面类型：保留顺序、去重，只接受可创建的类型。 */
+export function normalizeDefaultFaceKinds(value: unknown, creatableKinds: readonly string[]): string[] {
   const out: string[] = []
   const push = (kind: unknown) => {
     const id = String(kind || '').trim()
-    if (!id || out.includes(id)) return
-    const adapter = getNoteFaceAdapter(id)
-    if (!adapter || !adapter.capabilities.creatable) return
+    if (!id || out.includes(id) || !creatableKinds.includes(id)) return
     out.push(id)
   }
   if (Array.isArray(value)) value.forEach(push)
