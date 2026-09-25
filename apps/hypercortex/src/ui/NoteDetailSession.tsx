@@ -1,15 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
-import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
-import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
 import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
@@ -27,14 +18,15 @@ import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
 import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
-import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
 import {
   faceManifestFromDeclaration,
+  filterCreatableFaceDeclarations,
   getFaceDeclaration,
   getFaceViewPlugin,
   resolveFaceCapabilities,
+  resolveFaceLabel,
   useFaceContent,
   useFaceDeclarations,
   type FaceContentStore,
@@ -42,48 +34,14 @@ import {
 } from '../facePlugins'
 import { resolveFaceSettingValues } from '../facePlugins/settings'
 
-type NoteFaceId = string
-
-type NoteBaseFields = {
-  title: string
-  description: string
-  tags: string[]
-  resources: HyperCortexNoteResourceRef[]
-}
-
-function normalizeTagText(value: string): string {
-  return String(value || '').trim()
-}
-
-function appendTag(list: string[], raw: string): string[] {
-  const tag = normalizeTagText(raw)
-  if (!tag) return list
-  if (list.includes(tag)) return list
-  return [...list, tag]
-}
-
-function areStringListsEqual(a: string[], b: string[]): boolean {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-/** 笔记级字段的脏比较：资源清单不参与（与迁移前一致）。 */
-function areNoteBaseFieldsEqual(a: NoteBaseFields, b: NoteBaseFields): boolean {
-  return a.title === b.title && a.description === b.description && areStringListsEqual(a.tags, b.tags)
-}
-
-function faceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2>): string {
-  const manifest = faces[String(faceId || '').trim()]
-  if (!manifest) return String(faceId || '').trim() || '未知'
-  const declaration = getFaceDeclaration(manifest.kind)
-  const title = String(manifest.title || '').trim() || declaration?.label || String(manifest.kind || '').trim() || '未知'
-  if (!declaration) return `${title}（暂不支持）`
-  return title
-}
+import {
+  appendTag,
+  areNoteBaseFieldsEqual,
+  normalizeTagText,
+  type NoteBaseFields,
+  type NoteFaceId,
+} from './note-detail/noteDetailTools'
+import { NoteDetailTopBar } from './note-detail/NoteDetailTopBar'
 
 function FaceEmptyState(props: { declarations: readonly FaceDeclaration[]; onCreateFace: (kind: string) => void }): React.ReactNode {
   return (
@@ -229,9 +187,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const noteId = String(note.id || '').trim()
   const isDraft = isDraftNoteId(noteId) || !String(note.dir || '').trim()
+  const packageAvailable = !isDraft && !!String(note.dir || '').trim()
   const faceDeclarations = useFaceDeclarations()
   const creatableFaceDeclarations = React.useMemo(
-    () => faceDeclarations.filter(declaration => declaration.capabilities.creatable),
+    () => filterCreatableFaceDeclarations(faceDeclarations),
     [faceDeclarations],
   )
 
@@ -629,7 +588,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     return faces
       .map(faceId => ({
         faceId,
-        label: `${faceLabel(faceId, faceManifests)}面引用`,
+        label: `${resolveFaceLabel(faceId, faceManifests)}面引用`,
         refs: getFaceBacklinksFor(refIndex, noteId, faceId),
       }))
       .filter(group => group.refs.length > 0)
@@ -817,6 +776,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [faceSwitchRequest, noteId, onFaceSwitchConsumed])
 
+  const handleCopyNoteRef = React.useCallback(() => {
+    void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, editTitle || note.title || ''))
+    void gateway.host.toast('已复制引用占位符')
+  }, [editTitle, gateway, note.title, noteId])
+
   const copyFaceRef = React.useCallback((faceId: string) => {
     const face = String(faceId || '').trim()
     if (!face) return
@@ -870,394 +834,56 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         position: 'relative',
       }}
     >
-      <Box sx={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
-          {!loading && !loadError && loaded ? (
-            <Tooltip title={editing ? '切到阅读模式' : '切到编辑模式'} placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label={editing ? '切换到阅读模式' : '切换到编辑模式'}
-                onClick={handleToggleMode}
-                disabled={saving}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                {editing ? <WysiwygRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          ) : null}
-
-          {!loading && !loadError && loaded ? (
-            <Tooltip title="保存" placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label="保存笔记"
-                onClick={() => void handleSave()}
-                disabled={saving || (!dirty && !isDraft)}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                <SaveRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-
-          {!loading && !loadError && loaded ? (
-            <Tooltip title="保存整个笔记所有面" placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label="保存整个笔记所有面"
-                onClick={() => void handleSaveAllFaces()}
-                disabled={saving || (!dirty && !isDraft)}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                <PlaylistAddCheckRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-
-          {!loading && !loadError && loaded && dirty ? (
-            <Tooltip title="放弃改动（回到已保存状态）" placement="bottom-start">
-              <IconButton
-                size="small"
-                aria-label="放弃未保存改动"
-                onClick={handleDiscard}
-                disabled={saving}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  boxShadow: 'none',
-                  border: 0,
-                  flex: '0 0 auto',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                <CloseRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-
-          {!loading && !loadError && loaded && FaceToolbarLeft ? (
-            <FaceToolbarLeft editing={faceEditing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
-          ) : null}
-
-          {dirty ? (
-            <Tooltip title="有未保存改动" placement="bottom-start">
-              <Box
-                aria-label="有未保存改动"
-                sx={{
-                  ml: 0.25,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 999,
-                  bgcolor: '#f59e0b',
-                  boxShadow: '0 0 0 2px #fff',
-                  flex: '0 0 auto',
-                }}
-              />
-            </Tooltip>
-          ) : null}
-        </Box>
-
-        {!loading && !loadError && loaded ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
-            {FaceToolbarRight ? (
-              <FaceToolbarRight editing={faceEditing} disabled={saving} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
-            ) : null}
-
-            <Tooltip title="版本历史" placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="版本历史"
-                onClick={requestOpenVersionHistory}
-                disabled={isDraft || !String(note.dir || '').trim()}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                  '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                }}
-              >
-                <HistoryRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="更多操作" placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="更多操作"
-                onClick={e => setMoreMenuAnchorEl(e.currentTarget)}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                }}
-              >
-                <MoreHorizRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Menu
-              open={moreMenuOpen}
-              onClose={closeMoreMenu}
-              anchorEl={moreMenuAnchorEl}
-              PaperProps={{ sx: menuPaperSx }}
-            >
-              <MenuItem
-                onClick={() => void requestOpenNoteDir()}
-                disabled={isDraft || !String(note.dir || '').trim()}
-              >
-                打开当前笔记文件夹
-              </MenuItem>
-              <MenuItem
-                onClick={requestOpenVersionHistory}
-                disabled={isDraft || !String(note.dir || '').trim()}
-              >
-                版本历史…
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  closeMoreMenu()
-                  setNoteSettingsOpen(true)
-                }}
-                disabled={isDraft || !String(note.dir || '').trim()}
-              >
-                笔记设置…
-              </MenuItem>
-              <MenuItem onClick={openFavoritesPicker} disabled={isDraft || !favoritesDoc}>
-                收藏到…
-              </MenuItem>
-              <MenuItem
-                onClick={() => requestDeleteNote()}
-                sx={menuDangerItemSx}
-              >
-                删除当前整个笔记…
-              </MenuItem>
-              {deletableFaceIds.length > 0 ? (
-                <>
-                  <MenuItem
-                    onClick={e => setDeleteFaceMenuAnchorEl(e.currentTarget as HTMLElement)}
-                    sx={{ mt: 0.5, bgcolor: 'var(--hc-danger-soft)', color: 'var(--hc-danger)', '&:hover': { bgcolor: 'var(--hc-accent-clay)' } }}
-                  >
-                    删除当前笔记的其中面…
-                  </MenuItem>
-                </>
-              ) : null}
-            </Menu>
-
-            <Menu
-              open={deleteFaceMenuOpen}
-              onClose={() => setDeleteFaceMenuAnchorEl(null)}
-              anchorEl={deleteFaceMenuAnchorEl}
-              PaperProps={{ sx: menuPaperSx }}
-            >
-              {deletableFaceIds.map(faceId => (
-                <MenuItem key={faceId} onClick={() => requestDeleteFace(faceId)} sx={{ color: 'var(--hc-danger)' }}>
-                  {faceLabel(faceId, faceManifests)}
-                </MenuItem>
-              ))}
-            </Menu>
-
-            <Tooltip title="复制引用占位符" placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="复制引用占位符"
-                onClick={() => {
-                  void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, editTitle || note.title || ''))
-                  void gateway.host.toast('已复制引用占位符')
-                }}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                }}
-              >
-                <ContentCopyRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="笔记信息"
-                onClick={() => setInfoSidebarVisible(prev => !prev)}
-                sx={{
-                  color: infoSidebarVisible ? '#111' : 'rgba(0,0,0,.58)',
-                  bgcolor: infoSidebarVisible ? 'rgba(0,0,0,.06)' : 'transparent',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                }}
-              >
-                <InfoRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="新增面" placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="新增面"
-                onClick={() => setAddFaceSelectorVisible(prev => !prev)}
-                sx={{
-                  color: 'rgba(0,0,0,.58)',
-                  bgcolor: 'transparent',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                }}
-              >
-                <AddRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            {addFaceSelectorVisible ? (
-              <Box
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  p: 0.5,
-                  borderRadius: 999,
-                  bgcolor: 'rgba(0,0,0,.05)',
-                  gap: 0.5,
-                }}
-              >
-                {creatableFaceDeclarations
-                  .filter(declaration => !faces.some(f => faceManifests[f]?.kind === declaration.kind))
-                  .map(declaration => (
-                    <Box
-                      key={declaration.kind}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setPendingAddFace(declaration.kind)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setPendingAddFace(declaration.kind)
-                        }
-                      }}
-                      sx={{
-                        minWidth: 56,
-                        px: 1.5,
-                        py: 0.75,
-                        borderRadius: 999,
-                        bgcolor: pendingAddFace === declaration.kind ? '#111' : 'transparent',
-                        color: pendingAddFace === declaration.kind ? '#fff' : '#374151',
-                        fontSize: 12,
-                        lineHeight: 1,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                      }}
-                    >
-                      {declaration.label}
-                    </Box>
-                  ))}
-                <Box
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void handleAddFace()}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      void handleAddFace()
-                    }
-                  }}
-                  sx={{
-                    minWidth: 56,
-                    px: 1.5,
-                    py: 0.75,
-                    borderRadius: 999,
-                    bgcolor: '#fff',
-                    color: pendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
-                    fontSize: 12,
-                    lineHeight: 1,
-                    fontWeight: 700,
-                    cursor: pendingAddFace ? 'pointer' : 'default',
-                    userSelect: 'none',
-                  }}
-                >
-                  添加
-                </Box>
-              </Box>
-            ) : null}
-
-            <Box
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                p: 0.5,
-                borderRadius: 999,
-                bgcolor: 'rgba(0,0,0,.05)',
-                gap: 0.5,
-              }}
-            >
-              {faces.map(f => (
-                <Box key={f} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setFace(f)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setFace(f)
-                      }
-                    }}
-                    sx={{
-                      minWidth: 56,
-                      px: 1.5,
-                      py: 0.75,
-                      borderRadius: 999,
-                      bgcolor: face === f ? '#111' : 'transparent',
-                      color: face === f ? '#fff' : '#374151',
-                      fontSize: 12,
-                      lineHeight: 1,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                    }}
-                  >
-                    {faceLabel(f, faceManifests)}
-                  </Box>
-                  <Tooltip title="复制此面引用" placement="bottom-end">
-                    <IconButton
-                      size="small"
-                      aria-label={`复制 ${faceLabel(f, faceManifests)} 面引用`}
-                      onClick={() => copyFaceRef(f)}
-                      sx={{
-                        color: 'rgba(0,0,0,.48)',
-                        p: 0.4,
-                        '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                      }}
-                    >
-                      <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              ))}
-            </Box>
-          </Box>
-        ) : null}
-      </Box>
+      <NoteDetailTopBar
+        loading={loading}
+        loadError={loadError}
+        loaded={loaded}
+        editing={editing}
+        saving={saving}
+        dirty={dirty}
+        isDraft={isDraft}
+        packageAvailable={packageAvailable}
+        faceEditing={faceEditing}
+        onToggleMode={handleToggleMode}
+        onSave={handleSave}
+        onSaveAllFaces={handleSaveAllFaces}
+        onDiscard={handleDiscard}
+        FaceToolbarLeft={FaceToolbarLeft}
+        FaceToolbarRight={FaceToolbarRight}
+        faceViewState={faceViewState}
+        onFaceViewStateChange={handleFaceViewStateChange}
+        faceViewContext={faceViewContext}
+        moreMenuOpen={moreMenuOpen}
+        moreMenuAnchorEl={moreMenuAnchorEl}
+        onMoreMenuOpen={setMoreMenuAnchorEl}
+        onMoreMenuClose={closeMoreMenu}
+        onOpenNoteDir={requestOpenNoteDir}
+        onOpenVersionHistory={requestOpenVersionHistory}
+        onOpenNoteSettings={() => setNoteSettingsOpen(true)}
+        canFavorite={!!favoritesDoc}
+        onOpenFavorites={openFavoritesPicker}
+        onRequestDeleteNote={requestDeleteNote}
+        deletableFaceIds={deletableFaceIds}
+        deleteFaceMenuOpen={deleteFaceMenuOpen}
+        deleteFaceMenuAnchorEl={deleteFaceMenuAnchorEl}
+        onDeleteFaceMenuOpen={setDeleteFaceMenuAnchorEl}
+        onDeleteFaceMenuClose={() => setDeleteFaceMenuAnchorEl(null)}
+        onRequestDeleteFace={requestDeleteFace}
+        onCopyNoteRef={handleCopyNoteRef}
+        infoSidebarVisible={infoSidebarVisible}
+        onToggleInfoSidebar={() => setInfoSidebarVisible(prev => !prev)}
+        addFaceSelectorVisible={addFaceSelectorVisible}
+        onToggleAddFaceSelector={() => setAddFaceSelectorVisible(prev => !prev)}
+        creatableFaceDeclarations={creatableFaceDeclarations}
+        pendingAddFace={pendingAddFace}
+        onPickAddFace={setPendingAddFace}
+        onConfirmAddFace={() => void handleAddFace()}
+        face={face}
+        faces={faces}
+        faceManifests={faceManifests}
+        onSelectFace={setFace}
+        onCopyFaceRef={copyFaceRef}
+      />
 
       {loading ? <Typography sx={{ pt: 7 }} color="text.secondary">正在加载笔记...</Typography> : null}
       {!loading && loadError ? <Typography sx={{ pt: 7 }} color="error">{loadError}</Typography> : null}
@@ -1490,8 +1116,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
             {trashEnabled
-              ? `确定将笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面移入回收站吗？删除后可在回收站恢复。`
-              : `回收站当前未启用。确定永久删除笔记的「${deleteFaceTarget ? faceLabel(deleteFaceTarget, faceManifests) : ''}」面吗？此操作不可撤销。`}
+              ? `确定将笔记的「${deleteFaceTarget ? resolveFaceLabel(deleteFaceTarget, faceManifests) : ''}」面移入回收站吗？删除后可在回收站恢复。`
+              : `回收站当前未启用。确定永久删除笔记的「${deleteFaceTarget ? resolveFaceLabel(deleteFaceTarget, faceManifests) : ''}」面吗？此操作不可撤销。`}
           </Typography>
           {dirty && !!faceStoresRef.current[String(deleteFaceTarget || '').trim()]?.isDirty() ? (
             <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
