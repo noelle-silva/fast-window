@@ -130,10 +130,12 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
   const stageElRef = React.useRef<HTMLDivElement | null>(null)
   const contentElRef = React.useRef<HTMLDivElement | null>(null)
   const [stageEl, setStageEl] = React.useState<HTMLDivElement | null>(null)
-  const setStageRef = React.useCallback((node: HTMLDivElement | null) => {
-    stageElRef.current = node
-    setStageEl(node)
-  }, [])
+  // 元素替换检测：渲染后对比引用，仅真实挂载/卸载时同步状态。
+  // 不用「setState 型函数 ref」——合并 ref 的组件可能在清理时调用 ref(null)，在提交阶段反复触发 setState。
+  React.useEffect(() => {
+    const el = stageElRef.current
+    if (el !== stageEl) setStageEl(el)
+  })
 
   const dragRef = React.useRef<null | { x: number; y: number; sl: number; st: number; el: HTMLElement }>(null)
   const dragMovedRef = React.useRef(false)
@@ -433,7 +435,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
     >
       <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: 'rgba(255,255,255,.86)' }}>
         <Box
-          ref={setStageRef}
+          ref={stageElRef}
           onMouseDown={onStageMouseDown}
           onClick={onStageClick}
           sx={{

@@ -359,13 +359,11 @@ export function MuuriGrid(props: Props): React.ReactNode {
     grid.refreshItems().layout()
   }, [sizeSignature, draggingRefId])
 
-  const setGridNode = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      gridRef.current = node
-      setContainerNode(node)
-    },
-    [gridRef],
-  )
+  // 元素替换检测：渲染后对比引用，仅真实挂载/卸载时同步状态（避免函数 ref 在提交阶段反复 setState）。
+  React.useEffect(() => {
+    const node = gridRef.current
+    if (node !== containerNode) setContainerNode(node)
+  })
 
   const indicatorRect = React.useMemo(() => {
     if (!dropIndicatorLayout || containerWidth <= 0) return null
@@ -374,7 +372,7 @@ export function MuuriGrid(props: Props): React.ReactNode {
 
   return (
     <Box
-      ref={setGridNode}
+      ref={gridRef}
       sx={{
         position: 'relative',
         minHeight: 0,

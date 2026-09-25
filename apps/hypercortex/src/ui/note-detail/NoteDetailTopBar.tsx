@@ -308,6 +308,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
             </MenuItem>
             <MenuItem
               onClick={() => onRequestDeleteNote()}
+              disabled={saving}
               sx={menuDangerItemSx}
             >
               删除当前整个笔记…
@@ -316,6 +317,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
               <>
                 <MenuItem
                   onClick={e => onDeleteFaceMenuOpen(e.currentTarget as HTMLElement)}
+                  disabled={saving}
                   sx={{ mt: 0.5, bgcolor: 'var(--hc-danger-soft)', color: 'var(--hc-danger)', '&:hover': { bgcolor: 'var(--hc-accent-clay)' } }}
                 >
                   删除当前笔记的其中面…

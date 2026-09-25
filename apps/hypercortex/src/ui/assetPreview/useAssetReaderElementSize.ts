@@ -10,10 +10,11 @@ export function useAssetReaderElementSize<T extends HTMLElement>() {
   const [element, setElement] = React.useState<T | null>(null)
   const [size, setSize] = React.useState<AssetReaderElementSize>({ width: 0, height: 0 })
 
-  const ref = React.useCallback((nextElement: T | null) => {
-    elementRef.current = nextElement
-    setElement(nextElement)
-  }, [])
+  // 元素替换检测：渲染后对比引用，仅真实挂载/卸载时同步状态（避免函数 ref 在提交阶段反复 setState）。
+  React.useEffect(() => {
+    const el = elementRef.current
+    if (el !== element) setElement(el)
+  })
 
   React.useEffect(() => {
     if (!element) return
@@ -35,5 +36,5 @@ export function useAssetReaderElementSize<T extends HTMLElement>() {
     return () => observer.disconnect()
   }, [element])
 
-  return { ref, elementRef, size }
+  return { ref: elementRef, elementRef, size }
 }

@@ -31,7 +31,15 @@ export function areStringListsEqual(a: string[], b: string[]): boolean {
   return true
 }
 
-/** 笔记级字段的脏比较：资源清单不参与（与迁移前一致）。 */
+/** 资源清单等价比较：以引用集合判等（顺序无业务含义）。 */
+function areResourceRefsEqual(a: HyperCortexNoteResourceRef[], b: HyperCortexNoteResourceRef[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  const ids = new Set(a.map(ref => ref.assetId))
+  return b.every(ref => ids.has(ref.assetId))
+}
+
+/** 笔记级字段的脏比较：标题、简介、标签与资源清单都参与。 */
 export function areNoteBaseFieldsEqual(a: NoteBaseFields, b: NoteBaseFields): boolean {
-  return a.title === b.title && a.description === b.description && areStringListsEqual(a.tags, b.tags)
+  return a.title === b.title && a.description === b.description && areStringListsEqual(a.tags, b.tags) && areResourceRefsEqual(a.resources, b.resources)
 }

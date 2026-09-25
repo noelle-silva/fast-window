@@ -26,6 +26,8 @@ export type MarkdownRenderEngine = {
     options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void; assetInline?: boolean },
   ) => void
   bindPlaybackReporter: (el: unknown, onPlayingChange: (playing: boolean) => void) => MediaPlaybackCleanup
+  /** 仅刷新容器内引用锚点的存在/失效状态（不重建内容），用于引用索引变化时保留媒体与滚动状态。 */
+  refreshNoteRefs: (el: unknown) => void
   noteIndex?: Record<string, { title: string; faceIds?: string[] }>
 }
 
@@ -39,6 +41,41 @@ function uid(prefix: string) {
 
 function esc(s: unknown) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c])
+}
+
+type NoteRefInput = { noteId?: unknown; faceId?: unknown; remarks?: unknown; displayText?: unknown }
+
+// 引用锚点缓存条目：渲染输入 + 对应节点（刷新时按输入重放，不从 DOM 回读数据）。
+type NoteRefAnchorEntry = { ref: NoteRefInput; node: HTMLElement; index: number }
+
+/**
+ * 生成引用锚点 HTML（存在、类型失效、不存在三种状态）。
+ * 渲染回填与引用索引局部刷新共用同一生成逻辑，保证状态单源。
+ */
+function renderNoteRefAnchor(
+  ref: NoteRefInput,
+  noteIndex?: Record<string, { title: string; faceIds?: string[] }>,
+  index?: number,
+): string {
+  const noteId = String(ref.noteId || '').trim()
+  const remarks = String(ref.remarks || '')
+  const remarksAttr = remarks ? ` data-note-remarks="${esc(remarks)}"` : ''
+  const displayText = String(ref.displayText || '').trim()
+  const indexAttr = index == null ? '' : ` data-hc-ref-index="${index}"`
+  const faceId = String(ref.faceId || '').trim()
+  const meta = noteIndex ? noteIndex[noteId] : undefined
+  if (!meta) {
+    const text = displayText || '未知笔记'
+    return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(noteId)}"${indexAttr}${remarksAttr}>${esc(`不存在笔记：${text}`)}</a>`
+  }
+  const faceAttr = faceId ? ` data-face-id="${esc(faceId)}"` : ''
+  const label = displayText || String(meta.title || '').trim() || '未知笔记'
+  const faceList = faceId ? meta.faceIds : undefined
+  if (faceList && faceList.length > 0 && !faceList.includes(faceId)) {
+    return `<a class="hc-note-ref hc-note-ref--face-gone" data-note-id="${esc(noteId)}"${indexAttr}${faceAttr}${remarksAttr}>${esc(`此面已失效：${label}`)}</a>`
+  }
+  const badge = faceList && faceList.includes(faceId) ? `<span class="hc-note-ref-badge">${esc(faceId)}</span>` : ''
+  return `<a class="hc-note-ref" data-note-id="${esc(noteId)}"${indexAttr}${faceAttr}${remarksAttr}>${esc(label)}${badge}</a>`
 }
 
 /* ------------------------------------------------------------------ */
@@ -131,6 +168,8 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
   let mermaidInited = false
   let markedConfigured = false
   const mermaidSvgCache = new Map<string, string>()
+  // 引用锚点缓存（按渲染容器隔离）：索引更新时按缓存输入重放刷新。
+  const noteRefAnchorsByContainer = new WeakMap<HTMLElement, NoteRefAnchorEntry[]>()
   const defaultAssets = init?.assets
   const defaultScope: VaultScope = init?.scope || 'library'
 
@@ -743,30 +782,31 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     if (Array.isArray(pre.noteRefs) && pre.noteRefs.length) {
       const ni = self.noteIndex
       safe = safe.replace(/@@NOTE_REF_(\d+)@@/g, (_m, id) => {
-        const r = pre.noteRefs[Number(id)]
+        const index = Number(id)
+        const r = pre.noteRefs[index]
         if (!r) return ''
-        const remarksAttr = r.remarks ? ` data-note-remarks="${esc(r.remarks)}"` : ''
-        const meta = ni ? ni[r.noteId] : undefined
-        const exists = !!meta
-        if (!exists) {
-          const custom = String(r.displayText || '').trim()
-          const text = custom || '未知笔记'
-          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(`不存在笔记：${text}`)}</a>`
-        }
-        const faceId = String(r.faceId || '').trim()
-        const faceAttr = faceId ? ` data-face-id="${esc(faceId)}"` : ''
-        const label = String(r.displayText || '').trim() || String(meta?.title || '').trim() || '未知笔记'
-        const faceList = faceId ? meta.faceIds : undefined
-        if (faceList && faceList.length > 0 && !faceList.includes(faceId)) {
-          return `<a class="hc-note-ref hc-note-ref--face-gone" data-note-id="${esc(r.noteId)}"${faceAttr}${remarksAttr}>${esc(`此面已失效：${label}`)}</a>`
-        }
-        const badge = faceList && faceList.includes(faceId) ? `<span class="hc-note-ref-badge">${esc(faceId)}</span>` : ''
-        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}"${faceAttr}${remarksAttr}>${esc(label)}${badge}</a>`
+        return renderNoteRefAnchor(r, ni, index)
       })
     }
 
     // 注入 DOM
     el.innerHTML = safe
+
+    // 记录本次渲染的引用锚点（输入 + 节点）：索引更新时按输入重放刷新，不从 DOM 回读数据。
+    const noteRefInputs: NoteRefInput[] = Array.isArray(pre.noteRefs) ? pre.noteRefs : []
+    if (noteRefInputs.length) {
+      const entries: NoteRefAnchorEntry[] = []
+      for (const node of Array.from(el.querySelectorAll('.hc-note-ref[data-hc-ref-index]'))) {
+        if (!(node instanceof HTMLElement)) continue
+        const index = Number(node.getAttribute('data-hc-ref-index'))
+        const ref = noteRefInputs[index]
+        if (!ref) continue
+        entries.push({ ref, node, index })
+      }
+      noteRefAnchorsByContainer.set(el, entries)
+    } else {
+      noteRefAnchorsByContainer.delete(el)
+    }
 
     // 后处理增强
     enhanceCodeBlocks(el)
@@ -821,7 +861,25 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     return bindMediaPlaybackReporterInElement(el, onPlayingChange)
   }
 
-  const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto, bindPlaybackReporter }
+  /** 刷新容器内引用锚点的状态：按渲染时缓存的输入重放生成（不重建内容、不从 DOM 回读数据）。 */
+  function refreshNoteRefs(el: unknown) {
+    if (!(el instanceof HTMLElement)) return
+    const entries = noteRefAnchorsByContainer.get(el)
+    if (!entries || !entries.length) return
+    for (const entry of entries) {
+      if (!entry.node.isConnected) continue
+      const next = renderNoteRefAnchor(entry.ref, self.noteIndex, entry.index)
+      if (next === entry.node.outerHTML) continue
+      const holder = document.createElement('template')
+      holder.innerHTML = next
+      const fresh = holder.content.firstElementChild
+      if (!(fresh instanceof HTMLElement)) continue
+      entry.node.replaceWith(fresh)
+      entry.node = fresh
+    }
+  }
+
+  const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto, bindPlaybackReporter, refreshNoteRefs }
   return self
 }
 

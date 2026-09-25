@@ -42,9 +42,12 @@ export function AssetDetailSession({
   const [previewToolbarHost, setPreviewToolbarHost] = React.useState<HTMLDivElement | null>(null)
   const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
   const imagePreview = usePreviewController({ toast: gateway.host.toast })
-  const bindPreviewToolbarHost = React.useCallback((node: HTMLDivElement | null) => {
-    setPreviewToolbarHost(node)
-  }, [])
+  const previewToolbarHostRef = React.useRef<HTMLDivElement | null>(null)
+  // 元素替换检测：渲染后对比引用，仅真实挂载/卸载时同步状态（避免函数 ref 在提交阶段反复 setState）。
+  React.useEffect(() => {
+    const node = previewToolbarHostRef.current
+    if (node !== previewToolbarHost) setPreviewToolbarHost(node)
+  })
   const showPreviewToolbarSlot = preview.toolbarSlot === 'header'
 
   const load = React.useCallback(async () => {
@@ -120,7 +123,7 @@ export function AssetDetailSession({
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, minWidth: 0, flex: '1 1 auto', flexWrap: 'wrap' }}>
             {showPreviewToolbarSlot ? (
-              <Box ref={bindPreviewToolbarHost} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0, flex: '1 1 440px' }} />
+              <Box ref={previewToolbarHostRef} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0, flex: '1 1 440px' }} />
             ) : null}
             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
               <Button variant="text" size="small" onClick={() => void load()} disabled={loading} sx={{ ...softButtonSx, borderRadius: 2 }}>

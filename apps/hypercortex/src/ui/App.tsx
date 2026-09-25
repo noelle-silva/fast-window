@@ -369,6 +369,7 @@ function buildNoteInitSnapshot(input: {
     editDescription: description,
     editTags: tags,
     editResources: resources,
+    tagInput: '',
     noteTimes: input.noteTimes,
     infoSidebarVisible: false,
   }
@@ -715,7 +716,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     if (!nid) return
     if (!handle) {
       delete noteSessionHandlesRef.current[nid]
-      delete noteSessionRefCallbacksRef.current[nid]
       setNoteDirtyById(prev => {
         if (!Object.prototype.hasOwnProperty.call(prev, nid)) return prev
         const next = { ...prev }
@@ -1823,7 +1823,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           return next
         })
       } catch (e: any) {
-        void gateway.host.toast(String(e?.message || e || '删除失败'))
+        // 失败向上抛出：由调用方保留确认界面并提示，避免「删除失败但对话框已关」。
+        throw e
       }
     },
     [gateway],
@@ -1887,11 +1888,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const confirmDeleteNoteFromCard = React.useCallback(async () => {
     const target = noteCardDeleteTarget
     if (!target) return
-    setNoteCardDeleteTarget(null)
     closeNoteCardMenu()
     const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
-    await handleDeleteNote({ note: target, mode })
-  }, [closeNoteCardMenu, handleDeleteNote, noteCardDeleteTarget, trashEnabled])
+    try {
+      await handleDeleteNote({ note: target, mode })
+      setNoteCardDeleteTarget(null)
+    } catch (e: any) {
+      void gateway.host.toast(String(e?.message || e || '删除失败'))
+    }
+  }, [closeNoteCardMenu, gateway.host, handleDeleteNote, noteCardDeleteTarget, trashEnabled])
 
   const requestCopyTitleFromCardMenu = React.useCallback(async () => {
     const note = noteCardMenu?.note
@@ -2281,6 +2286,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     (note: NoteMeta, faceId?: string) => {
       const nid = String(note?.id || '').trim()
       if (!nid) return
+      // 打开笔记统一收浮层：无论从模态页、侧栏、引用还是创建流程进入。
+      setOpenModalPage(null)
       void ensureRefIndexLoaded().catch(() => {})
       const nextKey = noteTabKey(nid)
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
@@ -2659,10 +2666,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             noteIndex={noteIndex?.notes}
             assetIndex={assetPoolIndex?.assets}
             onNavigateFolder={handleNavigateFolder}
-            onOpenNote={note => {
-              setOpenModalPage(null)
-              void handleOpenNote(note)
-            }}
+            onOpenNote={handleOpenNote}
             onOpenAsset={asset => {
               setOpenModalPage(null)
               void handleOpenAssetTab(asset)
@@ -2671,7 +2675,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             onCreateNoteInIndex={handleCreateNoteInIndex}
             onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
             onDeleteFolderEntity={handleDeleteFolderEntity}
-            onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
+            onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void gateway.host.toast(String(e?.message || e || '删除失败')))}
             onDeleteAssetEntity={requestDeleteAssetEntity}
             onUpdateNoteInfo={handleUpdateNoteInfo}
             onUpdateAssetInfo={handleUpdateAssetInfo}
@@ -2698,10 +2702,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             layout={allNotesLayout}
             noteCardInfoById={noteCardInfoById}
             onLayoutToggle={toggleAllNotesLayout}
-            onOpenNote={note => {
-              setOpenModalPage(null)
-              void handleOpenNote(note)
-            }}
+            onOpenNote={handleOpenNote}
             onCopyRef={note => {
               void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
               void gateway.host.toast('已复制引用占位符')
@@ -3159,7 +3160,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onCreateNoteInIndex={handleCreateNoteInIndex}
                   onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
                   onDeleteFolderEntity={handleDeleteFolderEntity}
-                  onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
+                  onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void gateway.host.toast(String(e?.message || e || '删除失败')))}
                   onDeleteAssetEntity={requestDeleteAssetEntity}
                   onUpdateNoteInfo={handleUpdateNoteInfo}
                   onUpdateAssetInfo={handleUpdateAssetInfo}
