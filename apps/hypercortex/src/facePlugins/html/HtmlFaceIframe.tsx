@@ -6,7 +6,7 @@ import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../../core'
 import { HTML_FACE_FIXED_SCALE, HTML_FACE_FIXED_VIEWPORT, clampHtmlFaceFixedScale, normalizeHtmlFaceFixedScale } from './display'
-import { AutoHeightHtmlIframe } from '../../ui/AutoHeightHtmlIframe'
+import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 
 type Props = {
   html: string

@@ -1,4 +1,4 @@
-import type { PreviewController } from './usePreviewController'
+import type { PreviewController } from '../../ui/preview/usePreviewController'
 
 export function ensurePreviewClickHandlerOnce(
   el: HTMLElement,

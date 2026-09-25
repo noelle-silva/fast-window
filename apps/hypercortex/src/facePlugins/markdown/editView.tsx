@@ -2,13 +2,11 @@ import * as React from 'react'
 import { InputBase } from '@mui/material'
 
 import { buildAssetMarkerBlock, formatAssetMarkerInsertion } from '../../assetMarker'
-import { HyperCodeMirrorEditor as BlockEditor } from '../../editor/HyperCodeMirrorEditor'
-import { createMarkdownRenderEngine } from '../../render/engine'
+import { HyperCodeMirrorEditor as BlockEditor } from './HyperCodeMirrorEditor'
 import { filesFromClipboardData } from '../../services/pastedAssetUpload'
-import { ensureLiveEditorPreviewButton } from '../../ui/preview/ensureLiveEditorPreviewButton'
-import { ImageDialog } from '../../ui/preview/ImageDialog'
-import { MermaidDialog } from '../../ui/preview/MermaidDialog'
-import { usePreviewController } from '../../ui/preview/usePreviewController'
+import { ensureLiveEditorPreviewButton } from './ensureLiveEditorPreviewButton'
+import { MarkdownPreviewDialogs } from './MarkdownPreviewDialogs'
+import { useMarkdownFaceRuntime } from './useMarkdownFaceRuntime'
 import type { FaceEditViewProps } from '../protocol'
 
 /** 文本面编辑态视窗：Live / 源码两种编辑模式、粘贴附件上传与预览。 */
@@ -16,21 +14,7 @@ export function MarkdownEditView({ content, visible, onChange, viewState, contex
   const [uploading, setUploading] = React.useState(false)
   const uploadingRef = React.useRef(false)
 
-  const engineRef = React.useRef<ReturnType<typeof createMarkdownRenderEngine> | null>(null)
-  if (!engineRef.current) {
-    engineRef.current = createMarkdownRenderEngine({
-      clipboard: context.gateway.clipboard,
-      host: context.gateway.host,
-      assets: context.gateway.assets,
-      scope: context.scope,
-    })
-  }
-  React.useEffect(() => {
-    if (engineRef.current) engineRef.current.noteIndex = context.noteIndexMap
-  }, [context.noteIndexMap])
-
-  const sanitizeSvg = React.useCallback((svg: unknown) => engineRef.current?.sanitizeSvg(svg, 'baseline') ?? '', [])
-  const preview = usePreviewController({ toast: context.gateway.host.toast, sanitizeSvg })
+  const { engineRef, preview } = useMarkdownFaceRuntime(context)
 
   const onPlayingChangeRef = React.useRef(context.onPlayingChange)
   React.useEffect(() => {
@@ -103,12 +87,7 @@ export function MarkdownEditView({ content, visible, onChange, viewState, contex
 
   const mode = viewState.mode === 'source' ? 'source' : 'live'
 
-  const dialogs = (
-    <>
-      <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
-      <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />
-    </>
-  )
+  const dialogs = <MarkdownPreviewDialogs preview={preview} />
 
   if (mode === 'source') {
     return (

@@ -2,7 +2,7 @@ import React from 'react'
 import { basicSetup } from 'codemirror'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, placeholder as cmPlaceholder } from '@codemirror/view'
-import { ensureHyperCodeMirrorEditorStyles } from './styles'
+import { ensureHyperCodeMirrorEditorStyles } from '../../editor/styles'
 
 export interface CodeMirrorCodeEditorProps {
   value: string

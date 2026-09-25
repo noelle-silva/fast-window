@@ -1,4 +1,4 @@
-import type { PreviewController } from './usePreviewController'
+import type { PreviewController } from '../../ui/preview/usePreviewController'
 
 function pickFirstMermaidBlock(root: Element): HTMLElement | null {
   const el = root.querySelector('.mermaid-block[data-mermaid="1"]')

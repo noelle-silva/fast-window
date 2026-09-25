@@ -1,7 +1,7 @@
 import * as React from 'react'
 import type { Extension } from '@codemirror/state'
 
-import { CodeMirrorCodeEditor } from '../../editor/CodeMirrorCodeEditor'
+import { CodeMirrorCodeEditor } from './CodeMirrorCodeEditor'
 import { htmlHighlightExtension } from './htmlHighlight'
 import type { FaceEditViewProps } from '../protocol'
 

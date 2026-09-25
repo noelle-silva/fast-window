@@ -7,11 +7,11 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ZoomInIcon from '@mui/icons-material/ZoomIn'
 import ZoomOutIcon from '@mui/icons-material/ZoomOut'
-import { MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './viewerZoom'
-import { useEvent } from './useEvent'
-import { clampOffset } from './clampOffset'
-import type { PreviewController } from './usePreviewController'
-import { darkFloatingControlSx } from '../pluginUiStyles'
+import { MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../../ui/preview/viewerZoom'
+import { useEvent } from '../../ui/preview/useEvent'
+import { clampOffset } from '../../ui/preview/clampOffset'
+import type { PreviewController } from '../../ui/preview/usePreviewController'
+import { darkFloatingControlSx } from '../../ui/pluginUiStyles'
 
 function clampNum(n: number, min: number, max: number) {
   const x = Number(n)

@@ -1,7 +1,7 @@
 import React from 'react'
-import { ensureHyperCodeMirrorEditorStyles } from './styles'
-import { formatAssetMarkerInsertion } from '../assetMarker'
-import { parseNotePlaceholderBody } from '../notePlaceholder'
+import { ensureHyperCodeMirrorEditorStyles } from '../../editor/styles'
+import { formatAssetMarkerInsertion } from '../../assetMarker'
+import { parseNotePlaceholderBody } from '../../notePlaceholder'
 
 // CM6（新一代编辑器核心）
 import { basicSetup } from 'codemirror'

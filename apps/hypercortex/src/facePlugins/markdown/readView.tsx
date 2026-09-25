@@ -1,31 +1,15 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
 
-import { createMarkdownRenderEngine } from '../../render/engine'
-import { ensurePreviewClickHandlerOnce } from '../../ui/preview/ensurePreviewClickHandlerOnce'
-import { ImageDialog } from '../../ui/preview/ImageDialog'
-import { MermaidDialog } from '../../ui/preview/MermaidDialog'
-import { usePreviewController } from '../../ui/preview/usePreviewController'
+import { ensurePreviewClickHandlerOnce } from './ensurePreviewClickHandlerOnce'
+import { MarkdownPreviewDialogs } from './MarkdownPreviewDialogs'
+import { useMarkdownFaceRuntime } from './useMarkdownFaceRuntime'
 import type { FaceReadViewProps } from '../protocol'
 
 /** 文本面阅读态视窗：正文渲染、引用跳转、预览弹窗与媒体播放上报。 */
 export function MarkdownReadView({ content, visible, context }: FaceReadViewProps): React.ReactNode {
   const renderRef = React.useRef<HTMLDivElement>(null)
-  const engineRef = React.useRef<ReturnType<typeof createMarkdownRenderEngine> | null>(null)
-  if (!engineRef.current) {
-    engineRef.current = createMarkdownRenderEngine({
-      clipboard: context.gateway.clipboard,
-      host: context.gateway.host,
-      assets: context.gateway.assets,
-      scope: context.scope,
-    })
-  }
-  React.useEffect(() => {
-    if (engineRef.current) engineRef.current.noteIndex = context.noteIndexMap
-  }, [context.noteIndexMap])
-
-  const sanitizeSvg = React.useCallback((svg: unknown) => engineRef.current?.sanitizeSvg(svg, 'baseline') ?? '', [])
-  const preview = usePreviewController({ toast: context.gateway.host.toast, sanitizeSvg })
+  const { engineRef, preview } = useMarkdownFaceRuntime(context)
 
   const playbackCleanupRef = React.useRef<(() => void) | null>(null)
   const bindPlaybackReporter = React.useCallback(() => {
@@ -81,8 +65,7 @@ export function MarkdownReadView({ content, visible, context }: FaceReadViewProp
   return (
     <>
       <Box ref={renderRef} className="hc-render" sx={{ width: '100%', minHeight: 120 }} />
-      <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
-      <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />
+      <MarkdownPreviewDialogs preview={preview} />
     </>
   )
 }
