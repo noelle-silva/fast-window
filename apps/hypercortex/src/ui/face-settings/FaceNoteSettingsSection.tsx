@@ -3,7 +3,8 @@ import { Box, Button, Slider, Typography } from '@mui/material'
 
 import type { FaceSettingField } from '../../facePlugins'
 import { formatFaceSettingValue, hasFaceSettingOverride, renderFaceSettingTemplate } from '../../facePlugins/settings'
-import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from '../settingsUiStyles'
+import { settingsAccentTextSx } from '../settingsUiStyles'
+import { FaceSettingChoiceCard } from './FaceSettingChoiceCard'
 
 type Props = {
   /** 当前类型的声明字段清单；宿主按声明通用渲染笔记级覆盖。 */
@@ -70,50 +71,15 @@ function FaceSettingNoteField(props: {
           {options.map(option => {
             const active = option.value === null ? !hasOverride : hasOverride && effectiveValue === option.value
             return (
-              <Box
+              <FaceSettingChoiceCard
                 key={option.value ?? 'global'}
-                role="button"
-                tabIndex={0}
-                aria-pressed={active}
-                onClick={() => {
-                  if (busy || active) return
-                  void onPatch({ [field.key]: option.value })
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    if (!busy && !active) void onPatch({ [field.key]: option.value })
-                  }
-                }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 1.5,
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 2,
-                  ...settingsSelectableSurfaceSx(active),
-                  cursor: busy || active ? 'default' : 'pointer',
-                  userSelect: 'none',
-                  transition: 'background 120ms, box-shadow 120ms',
-                }}
-              >
-                <Box sx={settingsChoiceMarkSx(active)}>
-                  {active ? (
-                    <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'var(--hc-surface)' }} />
-                  ) : null}
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'var(--hc-text)', lineHeight: 1.3 }}>
-                    {option.label}
-                  </Typography>
-                  {option.description ? (
-                    <Typography sx={{ mt: 0.35, fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
-                      {option.description}
-                    </Typography>
-                  ) : null}
-                </Box>
-              </Box>
+                label={option.label}
+                description={option.description}
+                active={active}
+                disabled={busy}
+                dense
+                onSelect={() => void onPatch({ [field.key]: option.value })}
+              />
             )
           })}
         </Box>

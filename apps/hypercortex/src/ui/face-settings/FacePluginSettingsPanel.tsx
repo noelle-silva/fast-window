@@ -2,7 +2,8 @@ import { Box, Slider, Typography } from '@mui/material'
 
 import type { FaceSettingField } from '../../facePlugins'
 import { formatFaceSettingValue, normalizeFaceSettingValue, renderFaceSettingTemplate } from '../../facePlugins/settings'
-import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from '../settingsUiStyles'
+import { settingsAccentTextSx } from '../settingsUiStyles'
+import { FaceSettingChoiceCard } from './FaceSettingChoiceCard'
 
 type Props = {
   /** 类型标识（用于默认面板标题）。 */
@@ -56,55 +57,16 @@ function FaceSettingGlobalField(props: {
   if (field.kind === 'enum') {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {field.options.map(item => {
-          const active = value === item.value
-          return (
-            <Box
-              key={item.value}
-              role="button"
-              tabIndex={0}
-              aria-pressed={active}
-              onClick={() => {
-                if (disabled || active) return
-                onChange(item.value)
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  if (!disabled && !active) onChange(item.value)
-                }
-              }}
-              sx={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 1.5,
-                px: 1.5,
-                py: 1,
-                borderRadius: 2,
-                ...settingsSelectableSurfaceSx(active),
-                cursor: disabled || active ? 'default' : 'pointer',
-                userSelect: 'none',
-                transition: 'background 120ms, box-shadow 120ms',
-              }}
-            >
-              <Box sx={settingsChoiceMarkSx(active)}>
-                {active ? (
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'var(--hc-surface)' }} />
-                ) : null}
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'var(--hc-text)', lineHeight: 1.3 }}>
-                  {item.label}
-                </Typography>
-                {item.description ? (
-                  <Typography sx={{ mt: 0.35, fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
-                    {item.description}
-                  </Typography>
-                ) : null}
-              </Box>
-            </Box>
-          )
-        })}
+        {field.options.map(item => (
+          <FaceSettingChoiceCard
+            key={item.value}
+            label={item.label}
+            description={item.description}
+            active={value === item.value}
+            disabled={disabled}
+            onSelect={() => onChange(item.value)}
+          />
+        ))}
       </Box>
     )
   }

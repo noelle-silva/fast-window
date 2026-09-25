@@ -1,7 +1,7 @@
 import type { NoteMeta, VaultScope } from '../core'
 import { isDraftNoteId } from '../drafts'
 import { resolveNoteFaceOrder } from '../facePreferences'
-import { getFaceDeclaration } from '../facePlugins'
+import { resolveFaceKindLabel } from '../facePlugins'
 import type { NotesService } from '../gateway/types'
 import type { NoteCardInfo } from './noteCardInfo'
 
@@ -25,7 +25,7 @@ export async function loadNoteCardInfo(
     faceLabels: faceOrder
       .map(faceId => manifest.faces?.[faceId])
       .filter(Boolean)
-      .map(face => String(face.title || '').trim() || getFaceDeclaration(face.kind)?.label || String(face.kind || '').trim() || '未知'),
+      .map(face => String(face.title || '').trim() || resolveFaceKindLabel(face.kind)),
     faceIds: faceOrder,
   }
 }

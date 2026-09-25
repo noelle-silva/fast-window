@@ -4,7 +4,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider
 import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../../noteVersions'
-import { getFaceDeclaration, getFaceViewPlugin } from '../../facePlugins'
+import { getFaceViewPlugin, resolveFaceKindLabel } from '../../facePlugins'
 
 type Props = {
   open: boolean
@@ -25,7 +25,7 @@ function formatVersionTime(ms: number): string {
 function faceTitle(snapshot: HyperCortexNoteVersionSnapshot | null, faceId: string): string {
   const face = snapshot?.faces?.[faceId]?.manifest
   if (!face) return faceId
-  return String(face.title || '').trim() || getFaceDeclaration(face.kind)?.label || String(face.kind || '').trim() || '未知'
+  return String(face.title || '').trim() || resolveFaceKindLabel(face.kind)
 }
 
 function orderedFaceIds(snapshot: HyperCortexNoteVersionSnapshot | null): string[] {

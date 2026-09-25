@@ -5,7 +5,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
-import { getFaceDeclaration, useFaceDeclarations } from '../../facePlugins'
+import { getFaceDeclaration, resolveFaceLabel, useFaceDeclarations } from '../../facePlugins'
 import { resolveFaceSettingValues } from '../../facePlugins/settings'
 import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
 import type { FaceDeclaration } from '../../shared/faceDeclarations'
@@ -84,13 +84,7 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     )
   }, [gateway, packageDir, runSave, scope])
 
-  const faceLabel = React.useCallback((faceId: string) => {
-    const manifest = faceManifests[String(faceId || '').trim()]
-    if (!manifest) return String(faceId || '').trim() || '未知面'
-    const declaration = getFaceDeclaration(manifest.kind)
-    const title = String(manifest.title || '').trim() || declaration?.label || String(manifest.kind || '').trim() || '未知'
-    return declaration ? title : `${title}（暂不支持）`
-  }, [faceDeclarations, faceManifests])
+  const faceLabel = React.useCallback((faceId: string) => resolveFaceLabel(faceId, faceManifests), [faceManifests])
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>

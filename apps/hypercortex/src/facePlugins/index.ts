@@ -17,12 +17,15 @@ export { getFaceViewPlugin, listFaceViewPlugins, validateFaceViewPluginsAgainstD
 export { useFaceContent } from './content'
 export {
   faceManifestFromDeclaration,
+  filterCreatableFaceDeclarations,
   getCreatableFaceDeclarations,
   getFaceDeclaration,
   getFaceDeclarations,
   getFaceKindOrder,
   requireFaceDeclaration,
   resolveFaceCapabilities,
+  resolveFaceKindLabel,
+  resolveFaceLabel,
   setFaceDeclarations,
   useFaceDeclarations,
 } from './declarations'

@@ -76,7 +76,7 @@ import {
   orderKindsByGlobalOrder,
   resolveNoteFaceOrder,
 } from '../facePreferences'
-import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceDeclaration, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
+import { faceManifestFromDeclaration, filterCreatableFaceDeclarations, getCreatableFaceDeclarations, getFaceDeclaration, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
@@ -1473,7 +1473,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           setInitError(`面插件声明加载失败：${String(e?.message || e || '未知错误')}`)
         }
         const knownFaceKinds = declarations.map(declaration => declaration.kind)
-        const creatableFaceKinds = declarations.filter(declaration => declaration.capabilities.creatable).map(declaration => declaration.kind)
+        const creatableFaceKinds = filterCreatableFaceDeclarations(declarations).map(declaration => declaration.kind)
 
         const normalizedFacePluginSettings = migrateLegacyHtmlFaceSettings(normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings), normalizedMeta)
         facePluginSettingsRef.current = normalizedFacePluginSettings

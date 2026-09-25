@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Checkbox, FormControlLabel, Typography } from '@mui/material'
-import { getFaceDeclaration, useFaceDeclarations } from '../facePlugins'
+import { filterCreatableFaceDeclarations, resolveFaceKindLabel, useFaceDeclarations } from '../facePlugins'
 import { FaceOrderList } from './FaceOrderList'
 import { settingsSelectableSurfaceSx } from './settingsUiStyles'
 
@@ -15,11 +15,11 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
   const { faceKindOrder, onFaceKindOrderChange, defaultFaceKinds, onDefaultFaceKindsChange } = props
   const faceDeclarations = useFaceDeclarations()
   const creatableDeclarations = React.useMemo(
-    () => faceDeclarations.filter(declaration => declaration.capabilities.creatable),
+    () => filterCreatableFaceDeclarations(faceDeclarations),
     [faceDeclarations],
   )
   const labelOf = React.useCallback(
-    (kind: string) => getFaceDeclaration(kind)?.label || String(kind || '').trim() || '未知',
+    (kind: string) => resolveFaceKindLabel(kind),
     [faceDeclarations],
   )
 

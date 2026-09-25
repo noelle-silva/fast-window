@@ -22,9 +22,32 @@ export function getFaceKindOrder(): string[] {
   return declarations.map(declaration => declaration.kind)
 }
 
+/** 可创建面的声明过滤（声明仓库与初始化共用同一判据）。 */
+export function filterCreatableFaceDeclarations(declarations: readonly FaceDeclaration[]): readonly FaceDeclaration[] {
+  return declarations.filter(declaration => declaration.capabilities.creatable)
+}
+
 /** 可创建面的声明清单。 */
 export function getCreatableFaceDeclarations(): readonly FaceDeclaration[] {
-  return declarations.filter(declaration => declaration.capabilities.creatable)
+  return filterCreatableFaceDeclarations(declarations)
+}
+
+/** 类型标识的展示名：声明名优先，回退到类型标识本身。 */
+export function resolveFaceKindLabel(kind: string): string {
+  return getFaceDeclaration(kind)?.label || String(kind || '').trim() || '未知'
+}
+
+/**
+ * 面实例的展示名：面标题 > 声明名 > 类型标识；未知类型（声明缺失）追加「暂不支持」。
+ * 所有面的标签展示统一经过本函数，禁止各处自行拼接回退链。
+ */
+export function resolveFaceLabel(faceId: string, faces: Record<string, HyperCortexNoteFaceManifestV2> | null | undefined): string {
+  const id = String(faceId || '').trim()
+  const manifest = faces?.[id]
+  if (!manifest) return id || '未知'
+  const declaration = getFaceDeclaration(manifest.kind)
+  const title = String(manifest.title || '').trim() || declaration?.label || String(manifest.kind || '').trim() || '未知'
+  return declaration ? title : `${title}（暂不支持）`
 }
 
 /** 按类型标识取声明；未知类型返回 null（宿主按占位处理）。 */
