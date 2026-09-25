@@ -8,7 +8,7 @@
     "build:resources": "node scripts/build-resources.mjs",
     "build:exe": "pnpm build:ui && pnpm tauri build",
     "build:exe:dev": "pnpm tauri build --debug --no-bundle --config src-tauri/tauri.conf.dev.json",
-    "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
+    "build:ui": "pnpm typecheck && pnpm build:backend && vite build && pnpm build:resources",
     "build:app": "node scripts/stage-app.mjs",
     "build:app:dev": "node scripts/stage-app.mjs --profile dev",
     "build:app:exe": "node scripts/sync-app-exe.mjs",
@@ -18,6 +18,8 @@
     "apps:bump:dry": "node scripts/bump-app-version.mjs --dry-run",
     "apps:bump": "node scripts/bump-app-version.mjs",
     "dev": "vite --host 127.0.0.1 --port 1432",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:watch": "tsc --noEmit -p tsconfig.json --watch",
     "tauri": "tauri",
     "test": "node --test \"scripts/tests/**/*.test.mjs\""
   },
