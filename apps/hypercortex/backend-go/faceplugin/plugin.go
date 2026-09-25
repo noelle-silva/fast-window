@@ -14,7 +14,9 @@ import (
 // ProtocolVersion 是当前协议版本；插件声明的版本必须一致才能注册。
 const ProtocolVersion = 1
 
-// Capabilities 是面类型的能力画像（随笔记描述文件持久化，字段形态保持不变）。
+// Capabilities 是面类型的能力画像，随笔记描述文件持久化以保持字段形态稳定。
+// 已知类型的能力以注册表为唯一权威（读取路径由 normalizeFaceManifest 刷新）；
+// 持久化副本仅作为未知类型（插件已下线）的兜底快照。
 type Capabilities struct {
 	Editable    bool `json:"editable"`
 	Searchable  bool `json:"searchable"`

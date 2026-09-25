@@ -69,23 +69,27 @@ func normalizeContent(value string) string {
 	return strings.ReplaceAll(value, "\r\n", "\n")
 }
 
-// displayModes 与前端 htmlFaceDisplay.ts 的 isHtmlFaceDisplayMode 保持同一枚举。
-var displayModes = map[string]bool{
-	"natural":    true,
-	"fit-window": true,
-	"fixed-fit":  true,
-}
-
+// normalizeSettings 从声明派生合法值收敛：显示方式只接受声明中的枚举值，缩放只接受声明范围。
 func normalizeSettings(value map[string]any) map[string]any {
 	out := map[string]any{}
 	if value == nil {
 		return out
 	}
-	if scale := asFloat(value["fixedScale"]); scale >= 0.25 && scale <= 2 {
-		out["fixedScale"] = scale
-	}
-	if mode := strings.TrimSpace(asString(value["displayMode"])); displayModes[mode] {
-		out["displayMode"] = mode
+	for _, field := range settingsDeclaration() {
+		switch field.Key {
+		case "fixedScale":
+			if scale := asFloat(value["fixedScale"]); scale >= field.Min && scale <= field.Max {
+				out["fixedScale"] = scale
+			}
+		case "displayMode":
+			mode := strings.TrimSpace(asString(value["displayMode"]))
+			for _, option := range field.Options {
+				if option.Value == mode {
+					out["displayMode"] = mode
+					break
+				}
+			}
+		}
 	}
 	return out
 }
