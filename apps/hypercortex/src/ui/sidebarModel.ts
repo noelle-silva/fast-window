@@ -343,7 +343,7 @@ export function closeTabsInSidebar(sidebarItems: SidebarItem[], closingKeys: str
   const closing = new Set((Array.isArray(closingKeys) ? closingKeys : []).map(v => String(v || '').trim()).filter(Boolean))
   if (!closing.size) return cloneItems(sidebarItems)
   return cloneItems(sidebarItems)
-    .flatMap(item => {
+    .flatMap((item): SidebarItem[] => {
       if (item.type === 'tab') return closing.has(item.tabKey) ? [] : [item]
       return [{ ...item, tabKeys: item.tabKeys.filter(tabKey => !closing.has(tabKey)) }]
     })

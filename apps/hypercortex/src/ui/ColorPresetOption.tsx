@@ -66,7 +66,7 @@ function colorPresetOptionSx(preset: HyperCortexColorPreset, active: boolean) {
       bgcolor: 'var(--hc-surface-soft)',
       boxShadow: '0 12px 26px var(--hc-shadow)',
     },
-    '&::before': active ? colorPresetSelectionStripSx(preset) : undefined,
+    ...(active ? { '&::before': colorPresetSelectionStripSx(preset) } : {}),
     '&::after': {
       ...colorPresetSelectionStripSx(preset),
       opacity: 0,

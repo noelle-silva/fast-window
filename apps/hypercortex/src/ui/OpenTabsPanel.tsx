@@ -343,7 +343,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const dnd = useOpenTabsPointerDnd({
     enabled: !isSortableMode,
-    sidebarItems,
     onMoveTabToUngroupedIndex,
     onMoveTabToGroupIndex,
     onMoveGroupToIndex,

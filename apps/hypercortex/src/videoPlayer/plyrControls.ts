@@ -1,5 +1,3 @@
-type PlyrControlsProps = { id: string }
-
 const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 
 function icon(name: 'play' | 'mute' | 'pip' | 'fullscreen' | 'speed') {
@@ -35,7 +33,8 @@ function speedMenu() {
   `
 }
 
-export function buildSandboxSafePlyrControls({ id }: PlyrControlsProps) {
+// 签名对齐 Plyr 的 controls 回调（id, seektime, title）：Plyr 按位置参数调用。
+export function buildSandboxSafePlyrControls(id: string) {
   return `
     <button type="button" class="plyr__control plyr__control--overlaid hc-plyr-button hc-plyr-button--play-large" data-plyr="play" aria-label="播放" title="播放">
       ${icon('play')}

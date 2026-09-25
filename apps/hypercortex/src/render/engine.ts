@@ -412,7 +412,7 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
 
   /* ---------- HTML 消毒 ---------- */
 
-  function sanitizeHtml(html: unknown, policy?: RenderSafetyPolicy) {
+  function sanitizeHtml(html: unknown, policy?: RenderSafetyPolicy): string {
     const raw = String(html || '')
     const mode: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
 
@@ -554,7 +554,7 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
       }
     }
 
-    for (const n of toRemove) n.remove()
+    for (const n of toRemove) n.parentNode?.removeChild(n)
     return tpl.innerHTML
   }
 

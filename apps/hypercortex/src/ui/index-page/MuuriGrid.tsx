@@ -99,7 +99,10 @@ function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivE
   const renderedElements = getRenderedMuuriElements(containerNode)
   const renderedElementSet = new Set(renderedElements)
 
-  const staleItems = grid.getItems().filter(item => !renderedElementSet.has(item.getElement()))
+  const staleItems = grid.getItems().filter(item => {
+    const el = item.getElement()
+    return !el || !renderedElementSet.has(el)
+  })
   if (staleItems.length) grid.remove(staleItems, { removeElements: false, layout: false })
 
   const knownElements = new Set(grid.getItems().map(item => item.getElement()))

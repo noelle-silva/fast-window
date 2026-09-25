@@ -390,7 +390,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
 
   // ---- 页面呈现方式（哪些页面以模态窗打开）
   const [pageDisplayModes, setPageDisplayModes] = React.useState<PageDisplayModesV1>(() => normalizePageDisplayModes(undefined))
-  const pageDisplayModesRef = React.useRef<PageDisplayModesV1>(() => normalizePageDisplayModes(undefined))
+  const pageDisplayModesRef = React.useRef<PageDisplayModesV1>(normalizePageDisplayModes(undefined))
   React.useEffect(() => {
     pageDisplayModesRef.current = pageDisplayModes
   }, [pageDisplayModes])
