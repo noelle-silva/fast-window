@@ -3,7 +3,7 @@ import type * as React from 'react'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import type { HyperCortexNoteResourceRef } from '../noteSchema'
-import type { FaceDeclaration } from '../shared/faceDeclarations'
+import type { FaceDeclaration, FaceSettingField, FaceSettingOption } from '../shared/faceDeclarations'
 
 /**
  * 笔记面视窗协议：宿主只按类型标识挂载插件视窗；
@@ -127,25 +127,78 @@ export function listFaceViewPlugins(): FaceViewPlugin[] {
   return Array.from(registry.values())
 }
 
+/** 前端支持的协议版本；后端声明与视窗注册必须与本版本一致。 */
+const SUPPORTED_PROTOCOL_VERSION = 1
+
 /**
  * 声明与视窗实现的一致性校验（声明写入运行时仓库时执行，快速失败）：
- * 每个声明类型必须有阅读态视窗与内容存储（注册期已把关）；可编辑面还必须有编辑态视窗。
+ * 校验协议版本、能力字段类型、设置清单形态，以及声明类型与视窗实现的一致性。
+ * 任何不合法直接启动报错，不做静默降级。
  */
 export function validateFaceViewPluginsAgainstDeclarations(declarations: readonly FaceDeclaration[]): void {
+  if (!Array.isArray(declarations) || declarations.length === 0) {
+    throw new Error('面声明清单为空')
+  }
   const seen = new Set<string>()
   for (const declaration of declarations) {
     const kind = String(declaration.kind || '').trim()
     if (!kind) throw new Error('面声明缺少类型标识')
     if (seen.has(kind)) throw new Error(`面声明类型标识重复：${kind}`)
-    if (!declaration.capabilities || typeof declaration.capabilities !== 'object') {
-      throw new Error(`面声明缺少能力画像：${kind}`)
+    if (declaration.protocolVersion !== SUPPORTED_PROTOCOL_VERSION) {
+      throw new Error(`面声明协议版本不匹配：${kind} 为 ${declaration.protocolVersion}，需要 ${SUPPORTED_PROTOCOL_VERSION}`)
     }
-    if (!Array.isArray(declaration.settings)) throw new Error(`面声明缺少设置清单：${kind}`)
+    validateFaceCapabilities(kind, declaration.capabilities)
+    validateFaceSettingsDeclaration(kind, declaration.settings)
     seen.add(kind)
     const plugin = getFaceViewPlugin(kind)
     if (!plugin) throw new Error(`面视窗缺失：${kind}`)
     if (declaration.capabilities.editable && !plugin.EditView) {
       throw new Error(`可编辑面缺少编辑态视窗：${kind}`)
     }
+    // previewable 属于协议保留字段（暂不消费）：允许无内容预览视窗，宿主按纯文本兜底展示。
+  }
+}
+
+const CAPABILITY_KEYS = ['editable', 'searchable', 'previewable', 'creatable', 'deletable'] as const
+
+function validateFaceCapabilities(kind: string, capabilities: FaceDeclaration['capabilities']): void {
+  if (!capabilities || typeof capabilities !== 'object') {
+    throw new Error(`面声明缺少能力画像：${kind}`)
+  }
+  for (const key of CAPABILITY_KEYS) {
+    if (typeof capabilities[key] !== 'boolean') {
+      throw new Error(`面声明的能力字段非法：${kind}.${key}`)
+    }
+  }
+}
+
+function validateFaceSettingsDeclaration(kind: string, settings: readonly FaceSettingField[]): void {
+  if (!Array.isArray(settings)) throw new Error(`面声明缺少设置清单：${kind}`)
+  const seenKeys = new Set<string>()
+  for (const field of settings) {
+    const key = String(field?.key || '').trim()
+    if (!key) throw new Error(`面声明的设置项缺少键：${kind}`)
+    if (seenKeys.has(key)) throw new Error(`面声明的设置项键重复：${kind}.${key}`)
+    seenKeys.add(key)
+    if (!String(field.label || '').trim()) throw new Error(`面声明的设置项缺少名称：${kind}.${key}`)
+    if (field.kind === 'enum') {
+      const options: FaceSettingOption[] = Array.isArray(field.options) ? field.options : []
+      if (options.length === 0) {
+        throw new Error(`面声明的枚举设置项缺少选项：${kind}.${key}`)
+      }
+      if (!options.some(option => option.value === field.default)) {
+        throw new Error(`面声明的枚举设置项默认值不在选项中：${kind}.${key}`)
+      }
+      continue
+    }
+    if (field.kind === 'number') {
+      const rangeValid = typeof field.min === 'number' && typeof field.max === 'number' && typeof field.step === 'number' && field.min < field.max && field.step > 0
+      if (!rangeValid) throw new Error(`面声明的数值设置项范围非法：${kind}.${key}`)
+      if (typeof field.default !== 'number' || field.default < field.min || field.default > field.max) {
+        throw new Error(`面声明的数值设置项默认值越界：${kind}.${key}`)
+      }
+      continue
+    }
+    throw new Error(`面声明的设置项形态未知：${kind}.${key}`)
   }
 }

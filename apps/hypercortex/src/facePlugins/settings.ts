@@ -57,9 +57,14 @@ export function formatFaceSettingValue(field: FaceSettingField, value: unknown):
   return field.options.find(option => option.value === value)?.label || String(value ?? '')
 }
 
-/** 替换说明模板中的值占位（{value} / {global}）。 */
-export function renderFaceSettingTemplate(template: string | undefined, field: FaceSettingField, value: unknown): string {
+/** 替换说明模板中的值占位：{value} 用给定值、{global} 用全局值。 */
+export function renderFaceSettingTemplate(
+  template: string | undefined,
+  field: FaceSettingField,
+  values: { value: unknown; global: unknown },
+): string {
   if (!template) return ''
-  const text = formatFaceSettingValue(field, value)
-  return template.replaceAll('{value}', text).replaceAll('{global}', text)
+  return template
+    .replaceAll('{value}', formatFaceSettingValue(field, values.value))
+    .replaceAll('{global}', formatFaceSettingValue(field, values.global))
 }

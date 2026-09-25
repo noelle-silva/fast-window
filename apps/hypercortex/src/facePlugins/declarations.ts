@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-import type { HyperCortexNoteFaceManifestV2, HyperCortexNoteFaceSettingsV2 } from '../noteFaces'
+import type { HyperCortexNoteFaceCapabilitiesV2, HyperCortexNoteFaceManifestV2, HyperCortexNoteFaceSettingsV2 } from '../noteFaces'
 import type { FaceDeclaration } from '../shared/faceDeclarations'
 import { validateFaceViewPluginsAgainstDeclarations } from './protocol'
 
@@ -38,6 +38,19 @@ export function requireFaceDeclaration(kind: string): FaceDeclaration {
   const declaration = getFaceDeclaration(kind)
   if (!declaration) throw new Error(`未知笔记面类型：${kind}`)
   return declaration
+}
+
+/**
+ * 面能力解析（单一入口）：声明为权威来源；未知类型回退到笔记清单里的快照能力。
+ * 所有能力消费点必须经过本函数，禁止在同处混用声明与快照两种来源。
+ */
+export function resolveFaceCapabilities(
+  kind: string,
+  manifestCapabilities?: HyperCortexNoteFaceCapabilitiesV2 | null,
+): HyperCortexNoteFaceCapabilitiesV2 | null {
+  const declaration = getFaceDeclaration(kind)
+  if (declaration) return declaration.capabilities
+  return manifestCapabilities && typeof manifestCapabilities === 'object' ? manifestCapabilities : null
 }
 
 /** 订阅声明变化（useSyncExternalStore 入口）。 */

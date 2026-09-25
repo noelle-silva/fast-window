@@ -18,7 +18,16 @@ export function migrateLegacyHtmlFaceSettings(
   legacy: Pick<HyperCortexMetadataV1, 'htmlFaceDisplayMode' | 'htmlFaceFixedScaleDefault'>,
 ): Record<string, Record<string, unknown>> {
   const html = { ...(container.html || {}) }
-  if (html.displayMode === undefined) html.displayMode = normalizeHtmlFaceDisplayMode(legacy.htmlFaceDisplayMode)
-  if (html.fixedScale === undefined) html.fixedScale = normalizeHtmlFaceFixedScale(legacy.htmlFaceFixedScaleDefault)
+  let changed = false
+  // 仅搬运真实存在过的旧字段：从未设置过的用户保持「跟随声明默认」，不被物化默认值钉死。
+  if (html.displayMode === undefined && legacy.htmlFaceDisplayMode !== undefined) {
+    html.displayMode = normalizeHtmlFaceDisplayMode(legacy.htmlFaceDisplayMode)
+    changed = true
+  }
+  if (html.fixedScale === undefined && legacy.htmlFaceFixedScaleDefault !== undefined) {
+    html.fixedScale = normalizeHtmlFaceFixedScale(legacy.htmlFaceFixedScaleDefault)
+    changed = true
+  }
+  if (!changed) return container
   return { ...container, html }
 }

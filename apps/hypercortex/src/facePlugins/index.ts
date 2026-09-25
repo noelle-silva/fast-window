@@ -22,6 +22,7 @@ export {
   getFaceDeclarations,
   getFaceKindOrder,
   requireFaceDeclaration,
+  resolveFaceCapabilities,
   setFaceDeclarations,
   useFaceDeclarations,
 } from './declarations'

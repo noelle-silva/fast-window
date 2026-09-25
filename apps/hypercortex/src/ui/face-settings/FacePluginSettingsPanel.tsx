@@ -1,7 +1,7 @@
 import { Box, Slider, Typography } from '@mui/material'
 
 import type { FaceSettingField } from '../../facePlugins'
-import { formatFaceSettingValue, renderFaceSettingTemplate } from '../../facePlugins/settings'
+import { formatFaceSettingValue, normalizeFaceSettingValue, renderFaceSettingTemplate } from '../../facePlugins/settings'
 import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from '../settingsUiStyles'
 
 type Props = {
@@ -36,7 +36,7 @@ export function FacePluginSettingsPanel({ kind, fields, title, intro, values, di
         <FaceSettingGlobalField
           key={field.key}
           field={field}
-          value={values[field.key] ?? field.default}
+          value={normalizeFaceSettingValue(field, values[field.key]) ?? field.default}
           disabled={disabled}
           onChange={value => onChange(field.key, value)}
         />
@@ -117,7 +117,7 @@ function FaceSettingGlobalField(props: {
       </Typography>
       {field.description ? (
         <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
-          {renderFaceSettingTemplate(field.description, field, numericValue)}
+          {renderFaceSettingTemplate(field.description, field, { value: numericValue, global: numericValue })}
         </Typography>
       ) : null}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>

@@ -69,14 +69,14 @@ import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 import { migrateLegacyHtmlFaceSettings } from '../legacy/htmlFaceSettingsMigration'
-import { normalizeFacePluginSettingsContainer } from '../facePlugins/settings'
+import { normalizeFacePluginSettingsContainer, normalizeFaceSettingValue } from '../facePlugins/settings'
 import {
   normalizeDefaultFaceKinds,
   normalizeFaceKindOrder,
   orderKindsByGlobalOrder,
   resolveNoteFaceOrder,
 } from '../facePreferences'
-import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
+import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceDeclaration, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
@@ -1618,9 +1618,14 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const faceKind = String(kind || '').trim()
       const settingKey = String(key || '').trim()
       if (!faceKind || !settingKey) return
+      // 按声明归一化：非法值拒绝落库，写入路径与展示路径共用同一解析。
+      const declaration = getFaceDeclaration(faceKind)
+      const field = declaration?.settings.find(item => item.key === settingKey)
+      const normalizedValue = field ? normalizeFaceSettingValue(field, value) : undefined
+      if (!field || normalizedValue === undefined) return
       const next = {
         ...facePluginSettingsRef.current,
-        [faceKind]: { ...(facePluginSettingsRef.current[faceKind] || {}), [settingKey]: value },
+        [faceKind]: { ...(facePluginSettingsRef.current[faceKind] || {}), [settingKey]: normalizedValue },
       }
       facePluginSettingsRef.current = next
       setFacePluginSettings(next)

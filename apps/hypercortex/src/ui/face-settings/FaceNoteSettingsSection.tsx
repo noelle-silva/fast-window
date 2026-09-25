@@ -126,6 +126,7 @@ function FaceSettingNoteField(props: {
       field={field}
       hasOverride={hasOverride}
       effectiveValue={effectiveValue}
+      globalValue={globalValue}
       busy={busy}
       onPatch={onPatch}
     />
@@ -136,10 +137,11 @@ function NumberOverrideField(props: {
   field: Extract<FaceSettingField, { kind: 'number' }>
   hasOverride: boolean
   effectiveValue: unknown
+  globalValue: unknown
   busy: boolean
   onPatch: (patch: Record<string, unknown | null>) => Promise<boolean>
 }) {
-  const { field, hasOverride, effectiveValue, busy, onPatch } = props
+  const { field, hasOverride, effectiveValue, globalValue, busy, onPatch } = props
   const effectiveNumber = Number(effectiveValue)
   const [draft, setDraft] = React.useState(effectiveNumber)
   const draggingRef = React.useRef(false)
@@ -172,7 +174,7 @@ function NumberOverrideField(props: {
       </Box>
       {field.noteDescription ? (
         <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
-          {renderFaceSettingTemplate(field.noteDescription, field, effectiveValue)}
+          {renderFaceSettingTemplate(field.noteDescription, field, { value: effectiveValue, global: globalValue })}
         </Typography>
       ) : null}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>

@@ -31,8 +31,8 @@ export function HtmlFaceFullscreenToolbar({ editing, viewState: _viewState, onVi
 
 /** 网页面工具条插槽（右）：固定视口缩放调节开关。 */
 export function HtmlFaceScaleToolbar({ editing, viewState, onViewStateChange, context }: FaceToolbarProps): React.ReactNode {
-  // 与迁移前一致：仅全局显示方式为固定视口缩放、且非编辑态时提供缩放调节入口。
-  if (editing || context.globalSettings.displayMode !== 'fixed-fit') return null
+  // 按生效设置（笔记级 > 全局 > 声明默认）显隐：仅固定视口缩放模式、且非编辑态时提供缩放调节入口。
+  if (editing || context.settings.displayMode !== 'fixed-fit') return null
   const visible = viewState.scaleControlsVisible === true
   return (
     <Tooltip title={visible ? '收起缩放调节' : '展开缩放调节'} placement="bottom-end">
