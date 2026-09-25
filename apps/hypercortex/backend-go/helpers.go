@@ -187,7 +187,7 @@ func (svc *service) writeRawJSON(scope string, rel string, raw json.RawMessage) 
 func requireScope(raw json.RawMessage) string {
 	scope := strings.TrimSpace(stringField(raw, "scope"))
 	if scope != "library" && scope != "data" {
-		panicSafe(fmt.Errorf("非法 scope：%s", scope))
+		panic(fmt.Errorf("非法 scope：%s", scope))
 	}
 	return scope
 }
@@ -251,10 +251,6 @@ func asFloat(value any) float64 {
 	default:
 		return 0
 	}
-}
-
-func panicSafe(err error) {
-	panic(err)
 }
 
 func normalizeTags(value any) []string {

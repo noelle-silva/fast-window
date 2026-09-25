@@ -13,6 +13,10 @@ import (
 var searchNoteRefPattern = regexp.MustCompile(`\[\[([^\]\n]+?)\]\]`)
 var searchAssetPattern = regexp.MustCompile(`\{\{asset:[^\}\n]+?\}\}`)
 
+// 围栏代码块识别的包级正则：避免每次搜索文本转换重复编译。
+var searchFenceOpenRe = regexp.MustCompile(`^(\s*)(` + "`" + `{3,})(.*)$`)
+var searchFenceCloseRe = regexp.MustCompile(`^(\s*)(` + "`" + `{3,})\s*$`)
+
 // searchTextSegment 表示一段文本：code=true 表示代码区域（围栏代码块或行内代码），原样保留。
 type searchTextSegment struct {
 	code  bool
@@ -50,15 +54,13 @@ func splitSearchFenceSegments(src string) []searchTextSegment {
 	fenceIndent := ""
 	fenceMarker := ""
 	fenceLines := []string{}
-	openRe := regexp.MustCompile(`^(\s*)(` + "`" + `{3,})(.*)$`)
-	closeRe := regexp.MustCompile(`^(\s*)(` + "`" + `{3,})\s*$`)
 	for idx, line := range lines {
 		withNl := line
 		if idx < len(lines)-1 {
 			withNl += "\n"
 		}
 		if !inFence {
-			m := openRe.FindStringSubmatch(line)
+			m := searchFenceOpenRe.FindStringSubmatch(line)
 			if m == nil {
 				textBuf = append(textBuf, withNl)
 				continue
@@ -70,7 +72,7 @@ func splitSearchFenceSegments(src string) []searchTextSegment {
 			fenceLines = []string{withNl}
 			continue
 		}
-		m := closeRe.FindStringSubmatch(line)
+		m := searchFenceCloseRe.FindStringSubmatch(line)
 		if m != nil && m[1] == fenceIndent && m[2] == fenceMarker {
 			fenceLines = append(fenceLines, withNl)
 			out = append(out, searchTextSegment{code: true, value: strings.Join(fenceLines, "")})

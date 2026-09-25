@@ -283,7 +283,6 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	}
 	rawTitle := strings.TrimSpace(asString(input["title"]))
 	title := nonEmpty(rawTitle, "未命名")
-	description := strings.TrimSpace(asString(input["description"]))
 	currentDir := strings.TrimSpace(asString(input["packageDir"]))
 	desiredDir, err := notePackageDirForID(id)
 	if err != nil {
@@ -313,6 +312,15 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	if existing.ID != "" && existing.ID != id {
 		return nil, fmt.Errorf("笔记目录归属不匹配：%s 属于笔记 %s", desiredDir, existing.ID)
 	}
+	// 目录改名已发生：立即同步笔记索引目录，缩短「磁盘已改名、索引未更新」的窗口。
+	if existing.ID != "" && currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
+		meta := noteMeta{ID: existing.ID, Title: existing.Title, Description: existing.Description, Dir: desiredDir, CreatedAtMs: existing.CreatedAtMs, UpdatedAtMs: existing.UpdatedAtMs}
+		if err := svc.upsertNoteMeta(scope, meta); err != nil {
+			// 索引更新失败：回滚目录改名，保持索引与磁盘一致。
+			_ = svc.renamePackageIfNeeded(scope, desiredDir, currentDir)
+			return nil, fmt.Errorf("更新笔记索引失败：%w", err)
+		}
+	}
 	// 面身份守卫：已存在的面不允许改变类型（在产生磁盘副作用之前快速失败）。
 	for _, item := range resolved {
 		if existingFace, ok := existing.Faces[item.faceID]; ok && strings.TrimSpace(existingFace.Kind) != "" && existingFace.Kind != item.adapter.Kind {
@@ -331,6 +339,11 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 		created = nowMs()
 	}
 	updated := nowMs()
+	// 字段保留语义：缺失则沿用旧值，显式提供（含空串）则采用提交值。
+	description := existing.Description
+	if raw, ok := input["description"]; ok {
+		description = strings.TrimSpace(asString(raw))
+	}
 	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil}
 	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
 		return nil, err
@@ -338,12 +351,12 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	if rawTitle == "" && len(manifest.Faces) == 0 {
 		return nil, errors.New("无面笔记至少需要一个标题")
 	}
+	// 资源清单：仅在提交值为合法列表时更新；缺失或类型非法一律保留旧值。
 	resources := existing.Resources
-	if _, ok := input["resources"]; ok {
-		resources = normalizeResources(input["resources"])
-	}
-	if resources == nil {
-		resources = existing.Resources
+	if raw, ok := input["resources"]; ok {
+		if _, isList := raw.([]any); isList {
+			resources = normalizeResources(raw)
+		}
 	}
 	manifest.Resources = resources
 

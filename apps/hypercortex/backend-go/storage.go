@@ -229,12 +229,19 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 	}
 	_ = os.MkdirAll(trashRoot, 0o755)
 	out := []trashItem{}
-	months, _ := os.ReadDir(trashRoot)
+	months, err := os.ReadDir(trashRoot)
+	if err != nil {
+		return nil, err
+	}
 	for _, month := range months {
 		if !month.IsDir() || month.Name() == "assets" || month.Name() == trashFacesDirName {
 			continue
 		}
-		packages, _ := os.ReadDir(filepath.Join(trashRoot, month.Name()))
+		packages, err := os.ReadDir(filepath.Join(trashRoot, month.Name()))
+		if err != nil {
+			// 单个月份目录不可读不应阻断整个回收站列表。
+			continue
+		}
 		for _, pkg := range packages {
 			if !pkg.IsDir() {
 				continue
@@ -274,13 +281,23 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 
 func (svc *service) listAssetTrash(scope string, trashRoot string) ([]trashItem, error) {
 	assetTrashRoot := filepath.Join(trashRoot, "assets")
-	months, _ := os.ReadDir(assetTrashRoot)
+	months, err := os.ReadDir(assetTrashRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return []trashItem{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	out := []trashItem{}
 	for _, month := range months {
 		if !month.IsDir() {
 			continue
 		}
-		assetDirs, _ := os.ReadDir(filepath.Join(assetTrashRoot, month.Name()))
+		assetDirs, err := os.ReadDir(filepath.Join(assetTrashRoot, month.Name()))
+		if err != nil {
+			// 单个月份目录不可读不应阻断整个附件回收站列表。
+			continue
+		}
 		for _, assetDir := range assetDirs {
 			if !assetDir.IsDir() {
 				continue

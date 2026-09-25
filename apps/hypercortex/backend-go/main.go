@@ -23,6 +23,9 @@ type service struct {
 	libraryDir  string
 	mu          sync.Mutex
 	uploadTasks *assetUploadTaskStore
+	// 插件声明指纹检查：进程内只执行一次，保证派生索引与插件声明一致。
+	pluginStateOnce sync.Once
+	pluginStateErr  error
 }
 
 func main() {
@@ -159,6 +162,9 @@ func (svc *service) ensureRoots() error {
 		if err := os.MkdirAll(filepath.Join(svc.libraryDir, dir), 0o755); err != nil {
 			return err
 		}
+	}
+	if err := svc.ensurePluginDataState(); err != nil {
+		return err
 	}
 	return nil
 }

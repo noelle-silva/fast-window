@@ -108,13 +108,23 @@ func (svc *service) moveNoteFaceToTrash(scope string, packageDir string, manifes
 
 func (svc *service) listFaceTrash(scope string, trashRoot string) ([]trashItem, error) {
 	faceTrashRoot := filepath.Join(trashRoot, trashFacesDirName)
-	months, _ := os.ReadDir(faceTrashRoot)
+	months, err := os.ReadDir(faceTrashRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return []trashItem{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	out := []trashItem{}
 	for _, month := range months {
 		if !month.IsDir() {
 			continue
 		}
-		entries, _ := os.ReadDir(filepath.Join(faceTrashRoot, month.Name()))
+		entries, err := os.ReadDir(filepath.Join(faceTrashRoot, month.Name()))
+		if err != nil {
+			// 单个月份目录不可读不应阻断整个回收站列表。
+			continue
+		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
