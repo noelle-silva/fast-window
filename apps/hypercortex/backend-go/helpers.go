@@ -152,7 +152,8 @@ func (svc *service) tryLoadJSON(scope string, rel string) (any, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, nil
+		// 损坏或不可读时快速失败：交由上层报告，禁止以「不存在」处理并覆盖写空配置。
+		return nil, fmt.Errorf("读取 %s 失败：%w", rel, err)
 	}
 	return value, nil
 }

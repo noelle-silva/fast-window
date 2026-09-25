@@ -116,6 +116,9 @@ func (svc *service) createNote(scope string, raw json.RawMessage) (any, error) {
 	}
 	if _, err := svc.loadNoteManifest(scope, desiredDir); err == nil {
 		return nil, fmt.Errorf("笔记已存在：%s", id)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		// 清单存在但不可读（损坏等）：快速失败，禁止以「不存在」处理并覆盖。
+		return nil, fmt.Errorf("读取笔记清单失败：%w", err)
 	}
 
 	created := asFloat(input["createdAtMs"])

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,9 @@ func (svc *service) deleteNoteFace(scope string, packageDir string, faceID strin
 		return nil, errors.New("该笔记面不可删除")
 	}
 	if strings.TrimSpace(mode) == "permanent" {
-		_ = svc.deleteFile(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)))
+		if err := svc.deleteFile(scope, filepath.ToSlash(filepath.Join(packageDir, face.File))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("删除面文件失败：%w", err)
+		}
 	} else if err := svc.moveNoteFaceToTrash(scope, packageDir, manifest, id); err != nil {
 		return nil, err
 	}
@@ -286,13 +289,36 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, err
 	}
+
+	// 归属守卫（先于目录改名）：提交目录内已有笔记时其身份必须与提交 id 一致，清单损坏同样快速失败。
+	if currentDir != "" {
+		current, err := svc.loadNoteManifest(scope, currentDir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("读取笔记清单失败：%w", err)
+		}
+		if current.ID != "" && current.ID != id {
+			return nil, fmt.Errorf("笔记目录归属不匹配：%s 属于笔记 %s", currentDir, current.ID)
+		}
+	}
 	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
 		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {
 			return nil, err
 		}
 	}
 
-	existing, _ := svc.loadNoteManifest(scope, desiredDir)
+	existing, err := svc.loadNoteManifest(scope, desiredDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("读取笔记清单失败：%w", err)
+	}
+	if existing.ID != "" && existing.ID != id {
+		return nil, fmt.Errorf("笔记目录归属不匹配：%s 属于笔记 %s", desiredDir, existing.ID)
+	}
+	// 面身份守卫：已存在的面不允许改变类型（在产生磁盘副作用之前快速失败）。
+	for _, item := range resolved {
+		if existingFace, ok := existing.Faces[item.faceID]; ok && strings.TrimSpace(existingFace.Kind) != "" && existingFace.Kind != item.adapter.Kind {
+			return nil, fmt.Errorf("面 %s 的类型不匹配：现有 %s，提交 %s", item.faceID, existingFace.Kind, item.adapter.Kind)
+		}
+	}
 	faces := existing.Faces
 	if faces == nil {
 		faces = map[string]noteFaceManifest{}
@@ -340,13 +366,21 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 		writes = append(writes, pendingFaceWrite{face: face, content: item.content})
 	}
 	manifest = normalizeManifest(manifest)
+	if err := validateUniqueFaceFiles(manifest); err != nil {
+		return nil, err
+	}
 
+	// 面内容写入为事务：任一失败恢复全部已写文件，清单写入失败同样回滚，不留半更新状态。
+	fileWrites := make([]faceFileWrite, 0, len(writes))
 	for _, write := range writes {
-		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(desiredDir, write.face.File)), write.content, true); err != nil {
-			return nil, err
-		}
+		fileWrites = append(fileWrites, faceFileWrite{RelPath: filepath.ToSlash(filepath.Join(desiredDir, write.face.File)), Content: write.content})
+	}
+	tx, err := svc.writeFaceFiles(scope, fileWrites)
+	if err != nil {
+		return nil, err
 	}
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(desiredDir, manifestFile)), manifest); err != nil {
+		tx.rollback()
 		return nil, err
 	}
 	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
@@ -433,4 +467,109 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 		return nil, err
 	}
 	return map[string]any{"meta": meta, "manifest": manifest}, nil
+}
+
+// validateUniqueFaceFiles 校验笔记内所有面的落盘文件名唯一，防止两个面互写同一文件。
+func validateUniqueFaceFiles(manifest noteManifest) error {
+	seen := map[string]string{}
+	for faceID, face := range manifest.Faces {
+		file := strings.TrimSpace(face.File)
+		if file == "" {
+			continue
+		}
+		if owner, exists := seen[file]; exists && owner != faceID {
+			return fmt.Errorf("面文件重名：%s 同时被面 %s 与 %s 使用", file, owner, faceID)
+		}
+		seen[file] = faceID
+	}
+	return nil
+}
+
+// faceFileWrite 描述一次面内容文件的写入意图。
+type faceFileWrite struct {
+	RelPath string
+	Content string
+}
+
+// faceFileBackup 记录面文件在事务开始前的原状，用于失败回滚。
+type faceFileBackup struct {
+	relPath  string
+	existed  bool
+	original []byte
+}
+
+// faceFileTransaction 面内容文件写入事务：写入/删除前记录原状，
+// 任一环节失败可整体回滚，避免磁盘上出现「部分面已更新」的中间状态。
+type faceFileTransaction struct {
+	svc     *service
+	scope   string
+	backups []faceFileBackup
+}
+
+// writeFaceFiles 开启事务并依次写入面内容文件；中途失败时自动回滚已写文件。
+func (svc *service) writeFaceFiles(scope string, writes []faceFileWrite) (*faceFileTransaction, error) {
+	tx := &faceFileTransaction{svc: svc, scope: scope}
+	for _, write := range writes {
+		target, err := svc.resolvePath(scope, write.RelPath)
+		if err != nil {
+			tx.rollback()
+			return nil, err
+		}
+		if err := tx.backup(write.RelPath, target); err != nil {
+			tx.rollback()
+			return nil, err
+		}
+		if err := writeFileAtomic(target, []byte(write.Content)); err != nil {
+			tx.rollback()
+			return nil, err
+		}
+	}
+	return tx, nil
+}
+
+// remove 在事务内删除面文件；失败可随事务整体回滚。
+func (tx *faceFileTransaction) remove(relPath string) error {
+	if strings.TrimSpace(relPath) == "" {
+		return nil
+	}
+	target, err := tx.svc.resolvePath(tx.scope, relPath)
+	if err != nil {
+		return err
+	}
+	if err := tx.backup(relPath, target); err != nil {
+		return err
+	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (tx *faceFileTransaction) backup(relPath string, target string) error {
+	original, err := os.ReadFile(target)
+	switch {
+	case err == nil:
+		tx.backups = append(tx.backups, faceFileBackup{relPath: relPath, existed: true, original: original})
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		tx.backups = append(tx.backups, faceFileBackup{relPath: relPath, existed: false})
+		return nil
+	default:
+		return err
+	}
+}
+
+// rollback 把所有已写/已删文件恢复到事务开始前的状态。
+func (tx *faceFileTransaction) rollback() {
+	for _, item := range tx.backups {
+		target, err := tx.svc.resolvePath(tx.scope, item.relPath)
+		if err != nil {
+			continue
+		}
+		if item.existed {
+			_ = writeFileAtomic(target, item.original)
+			continue
+		}
+		_ = os.Remove(target)
+	}
 }

@@ -302,20 +302,6 @@ func (svc *service) loadNoteVersion(scope string, packageDir string, versionID s
 	return snapshot, nil
 }
 
-func (svc *service) deleteFaceContentIfPresent(scope string, packageDir string, face noteFaceManifest) error {
-	if strings.TrimSpace(face.File) == "" {
-		return nil
-	}
-	target, err := svc.resolvePath(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)))
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
 func (svc *service) restoreNoteVersion(scope string, packageDir string, versionID string) (any, error) {
 	current, err := svc.loadNoteManifest(scope, packageDir)
 	if err != nil {
@@ -329,6 +315,8 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 	manifest := normalizeManifest(snapshot.Manifest)
 	manifest.CreatedAtMs = current.CreatedAtMs
 	manifest.UpdatedAtMs = updated
+	// 预检：快照必须覆盖清单中的每个面（在任何写入之前快速失败），并收集待写内容。
+	writes := make([]faceFileWrite, 0, len(manifest.Faces))
 	for faceID, face := range manifest.Faces {
 		saved, ok := snapshot.Faces[faceID]
 		if !ok {
@@ -338,21 +326,26 @@ func (svc *service) restoreNoteVersion(scope string, packageDir string, versionI
 		if adapter, err := faceplugin.Require(face.Kind); err == nil {
 			content = adapter.NormalizeContent(content)
 		}
-		if err := svc.writeText(scope, filepath.ToSlash(filepath.Join(packageDir, face.File)), content, true); err != nil {
-			return nil, err
-		}
+		writes = append(writes, faceFileWrite{RelPath: filepath.ToSlash(filepath.Join(packageDir, face.File)), Content: content})
 		face.UpdatedAtMs = updated
 		manifest.Faces[faceID] = face
+	}
+	// 写入为事务：写面、移除快照中已不存在的面文件、写清单，任一步失败整体回滚。
+	tx, err := svc.writeFaceFiles(scope, writes)
+	if err != nil {
+		return nil, err
 	}
 	for faceID, face := range current.Faces {
 		if _, ok := manifest.Faces[faceID]; ok {
 			continue
 		}
-		if err := svc.deleteFaceContentIfPresent(scope, packageDir, face); err != nil {
+		if err := tx.remove(filepath.ToSlash(filepath.Join(packageDir, face.File))); err != nil {
+			tx.rollback()
 			return nil, err
 		}
 	}
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
+		tx.rollback()
 		return nil, err
 	}
 	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: packageDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
