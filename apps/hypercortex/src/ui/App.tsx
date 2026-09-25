@@ -76,7 +76,7 @@ import {
   orderKindsByGlobalOrder,
   resolveNoteFaceOrder,
 } from '../facePreferences'
-import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations } from '../facePlugins'
+import { faceManifestFromDeclaration, getCreatableFaceDeclarations, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
@@ -653,6 +653,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
+  const [initError, setInitError] = React.useState<string | null>(null)
+  const [initRetryBusy, setInitRetryBusy] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
   const [sidebarSortMode, setSidebarSortMode] = React.useState<HyperCortexSidebarSortModeV1>('sortable')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
@@ -1437,20 +1439,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [updateSidebarItems],
   )
 
-  React.useEffect(() => {
-    void (async () => {
-      try {
-        // 声明单源：先取后端面插件声明并写入运行时仓库；后续所有面偏好都按已知类型清单规范化。
-        const loadMetadata = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
-        const [normalizedMeta, declarations] = await Promise.all([
-          loadMetadata(),
-          gateway.notes.listFacePlugins(),
-        ])
-        setFaceDeclarations(declarations)
-        const knownFaceKinds = declarations.map(declaration => declaration.kind)
-        const creatableFaceKinds = declarations.filter(declaration => declaration.capabilities.creatable).map(declaration => declaration.kind)
-        metaRef.current = normalizedMeta
-        setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
+  // 初始化：核心元数据装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
+  // 面声明为独立失败域，不阻断核心元数据，面系统可在重试后恢复。
+  const runAppInitialization = React.useCallback(async () => {
+    setInitError(null)
+    try {
+      const loadMetadata = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
+      const normalizedMeta = await loadMetadata()
+      metaRef.current = normalizedMeta
+      setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
         const nextPageDisplayModes = normalizePageDisplayModes(normalizedMeta.pageDisplayModes)
         pageDisplayModesRef.current = nextPageDisplayModes
         setPageDisplayModes(nextPageDisplayModes)
@@ -1464,11 +1461,30 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
+
+        // 声明单源：取后端面插件声明并写入运行时仓库；失败不阻断核心元数据（面系统本会话降级）。
+        let declarations: FaceDeclaration[] = []
+        let declarationsReady = false
+        try {
+          declarations = await gateway.notes.listFacePlugins()
+          setFaceDeclarations(declarations)
+          declarationsReady = true
+        } catch (e: any) {
+          setInitError(`面插件声明加载失败：${String(e?.message || e || '未知错误')}`)
+        }
+        const knownFaceKinds = declarations.map(declaration => declaration.kind)
+        const creatableFaceKinds = declarations.filter(declaration => declaration.capabilities.creatable).map(declaration => declaration.kind)
+
         const normalizedFacePluginSettings = migrateLegacyHtmlFaceSettings(normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings), normalizedMeta)
         facePluginSettingsRef.current = normalizedFacePluginSettings
         setFacePluginSettings(normalizedFacePluginSettings)
-        const normalizedFaceKindOrder = normalizeFaceKindOrder(normalizedMeta.faceKindOrder, knownFaceKinds)
-        const normalizedDefaultFaceKinds = normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds, creatableFaceKinds)
+        // 声明未就绪时保持用户既有面偏好原值，避免用空清单清空偏好（重试成功后按声明重新收敛）。
+        const normalizedFaceKindOrder = declarationsReady
+          ? normalizeFaceKindOrder(normalizedMeta.faceKindOrder, knownFaceKinds)
+          : (Array.isArray(normalizedMeta.faceKindOrder) ? normalizedMeta.faceKindOrder : [])
+        const normalizedDefaultFaceKinds = declarationsReady
+          ? normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds, creatableFaceKinds)
+          : (Array.isArray(normalizedMeta.defaultFaceKinds) ? normalizedMeta.defaultFaceKinds : [])
         setFaceKindOrder(normalizedFaceKindOrder)
         setDefaultFaceKinds(normalizedDefaultFaceKinds)
         const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
@@ -1549,14 +1565,18 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             pageDisplayModes: nextPageDisplayModes,
           }).catch(() => {})
         }
-      } catch (e: any) {
-        void gateway.host.toast(String(e?.message || e || '初始化应用数据失败'))
-      } finally {
-        setTabsInitReady(true)
-        setMetaReady(true)
-      }
-    })()
+      setTabsInitReady(true)
+      setMetaReady(true)
+    } catch (e: any) {
+      const message = String(e?.message || e || '初始化应用数据失败')
+      setInitError(message)
+      void gateway.host.toast(message)
+    }
   }, [gateway, persistMetadataPatch, applyWorkspaceSidebarState])
+
+  React.useEffect(() => {
+    void runAppInitialization()
+  }, [runAppInitialization])
 
   const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
   React.useEffect(() => {
@@ -3295,6 +3315,35 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           <Button onClick={handleCloseTabPromptCancel}>取消</Button>
           <Button variant="text" onClick={handleCloseTabPromptGoSave} sx={softButtonSx}>去保存</Button>
           <Button variant="contained" color="error" onClick={handleCloseTabPromptDiscardAndClose} disabled={closeTabPromptTargetSaving}>放弃改动并关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!initError} onClose={() => {}} maxWidth="xs" fullWidth>
+        <DialogTitle>初始化失败</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            {initError}
+          </Typography>
+          <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
+            {metaReady
+              ? '核心数据已就绪，可以继续使用；面相关功能可能暂不可用。'
+              : '为避免覆盖已有数据，应用数据写入已暂停。请先修复问题再重试。'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          {metaReady ? (
+            <Button onClick={() => setInitError(null)} disabled={initRetryBusy}>暂时继续</Button>
+          ) : null}
+          <Button
+            variant="contained"
+            disabled={initRetryBusy}
+            onClick={() => {
+              setInitRetryBusy(true)
+              void runAppInitialization().finally(() => setInitRetryBusy(false))
+            }}
+          >
+            {initRetryBusy ? '重试中…' : '重试'}
+          </Button>
         </DialogActions>
       </Dialog>
     </ThemeProvider>

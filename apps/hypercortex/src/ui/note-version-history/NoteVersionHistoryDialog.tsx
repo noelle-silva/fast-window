@@ -52,6 +52,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
   const [loadingSnapshot, setLoadingSnapshot] = React.useState(false)
   const [publishing, setPublishing] = React.useState(false)
   const [restoring, setRestoring] = React.useState(false)
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = React.useState(false)
   const [error, setError] = React.useState('')
 
   const refreshVersions = React.useCallback(async () => {
@@ -94,7 +95,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
 
   const publish = React.useCallback(async () => {
     const name = String(commitName || '').trim()
-    if (!name || publishing) return
+    if (!name || publishing || restoring) return
     setPublishing(true)
     setError('')
     try {
@@ -111,10 +112,10 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
     } finally {
       setPublishing(false)
     }
-  }, [commitName, dirty, gateway, onSaveCurrent, packageDir, publishing, refreshVersions, scope])
+  }, [commitName, dirty, gateway, onSaveCurrent, packageDir, publishing, refreshVersions, restoring, scope])
 
   const restore = React.useCallback(async () => {
-    if (!selectedVersionId || restoring) return
+    if (!selectedVersionId || restoring || publishing) return
     setRestoring(true)
     setError('')
     try {
@@ -128,7 +129,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
     } finally {
       setRestoring(false)
     }
-  }, [gateway, onClose, onRestoreVersion, restoring, selectedVersionId])
+  }, [gateway, onClose, onRestoreVersion, publishing, restoring, selectedVersionId])
 
   const selectedFace = selectedFaceId ? snapshot?.faces?.[selectedFaceId] : null
   // 只读预览按类型挂载插件提供的内容预览视窗；缺省按纯文本展示。
@@ -156,7 +157,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
             inputProps={{ 'aria-label': '版本提交名' }}
             sx={{ flex: 1, minWidth: 0, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: '#fff', fontSize: 14 }}
           />
-          <Button variant="contained" onClick={() => void publish()} disabled={!String(commitName || '').trim() || publishing || !String(packageDir || '').trim()} sx={{ borderRadius: 999, px: 2.25, fontWeight: 800 }}>
+          <Button variant="contained" onClick={() => void publish()} disabled={!String(commitName || '').trim() || publishing || restoring || !String(packageDir || '').trim()} sx={{ borderRadius: 999, px: 2.25, fontWeight: 800 }}>
             {publishing ? '发布中…' : dirty ? '保存并发布' : '发布版本'}
           </Button>
         </Box>
@@ -203,7 +204,19 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
                     <Typography sx={{ mt: 0.75, fontSize: 13, color: 'rgba(0,0,0,.56)' }}>{snapshot.commitName} · {formatVersionTime(snapshot.createdAtMs)}</Typography>
                     {snapshot.manifest.description ? <Typography sx={{ mt: 1, fontSize: 13, color: 'rgba(0,0,0,.66)' }}>{snapshot.manifest.description}</Typography> : null}
                   </Box>
-                  <Button variant="outlined" color="warning" onClick={() => void restore()} disabled={restoring} sx={{ borderRadius: 999, flex: '0 0 auto', fontWeight: 800 }}>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    onClick={() => {
+                      if (dirty) {
+                        setRestoreConfirmOpen(true)
+                        return
+                      }
+                      void restore()
+                    }}
+                    disabled={restoring || publishing}
+                    sx={{ borderRadius: 999, flex: '0 0 auto', fontWeight: 800 }}
+                  >
                     {restoring ? '恢复中…' : '恢复此版本'}
                   </Button>
                 </Box>
@@ -247,6 +260,29 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
+
+      <Dialog open={restoreConfirmOpen} onClose={() => setRestoreConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>恢复此版本</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            当前笔记有未保存改动。恢复后这些改动会丢失，当前内容会被所选版本覆盖。确定恢复吗？
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRestoreConfirmOpen(false)} disabled={restoring}>取消</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={restoring}
+            onClick={() => {
+              setRestoreConfirmOpen(false)
+              void restore()
+            }}
+          >
+            恢复
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   )
 }

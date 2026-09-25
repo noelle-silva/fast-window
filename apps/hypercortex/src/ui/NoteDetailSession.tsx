@@ -721,9 +721,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex: result.refs })
 
-      // 侧边栏未保存黄点：保存成功后应立即消失（不依赖上层重新渲染时机）。
-      onDirtyChange?.({ noteId: originalId, dirty: false })
-      if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
       await gateway.host.toast('笔记已保存')
       return true
     } catch (e: any) {
@@ -732,7 +729,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onDirtyChange, onSaved, saving, scope])
+  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onSaved, saving, scope])
 
   const saveCurrentForVersionPublish = React.useCallback(async () => {
     const saved = await handleSave()
@@ -814,8 +811,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       } : undefined
 
       onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex: result.refs })
-      onDirtyChange?.({ noteId: originalId, dirty: false })
-      if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
       await gateway.host.toast('笔记所有面已保存')
       return true
     } catch (e: any) {
@@ -824,7 +819,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onDirtyChange, onSaved, saving, scope])
+  }, [editDescription, editResources, editTags, editTitle, editing, face, faceManifests, faceViewState, faces, gateway, globalFaceKindOrder, infoSidebarVisible, isDraft, note.dir, noteId, noteTimes, onSaved, saving, scope])
 
   const handleRestoreVersion = React.useCallback(async (versionId: string) => {
     const dir = String(note.dir || '').trim()
@@ -869,8 +864,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     resetFaceViewState()
 
     onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
-    onDirtyChange?.({ noteId, dirty: false })
-  }, [createFaceStore, gateway, globalFaceKindOrder, note.dir, noteId, onDirtyChange, onSaved, resetFaceViewState, scope])
+  }, [createFaceStore, gateway, globalFaceKindOrder, note.dir, noteId, onSaved, resetFaceViewState, scope])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
