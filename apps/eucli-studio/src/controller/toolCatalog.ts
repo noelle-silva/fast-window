@@ -96,14 +96,14 @@ export function createToolCatalog(deps: {
   async function openToolConfig(toolIdRaw: any) {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
-    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', saveError: '' })
+    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, saveError: '' })
     deps.emit()
     try {
       const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}`, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
-      patchCatalog({ detailLoading: false, detailError: '', selectedToolId: String(tool.id || toolId), selectedTool: tool, configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), saveError: '' })
+      patchCatalog({ detailLoading: false, detailError: '', selectedToolId: String(tool.id || toolId), selectedTool: tool, configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants), saveError: '' })
       return tool
     } catch (e: any) {
       const error = String(e?.message || e || '工具详情加载失败')
@@ -116,7 +116,7 @@ export function createToolCatalog(deps: {
   }
 
   function closeToolConfig() {
-    patchCatalog({ selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', detailError: '', saveError: '' })
+    patchCatalog({ selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, detailError: '', saveError: '' })
     deps.emit()
   }
 
@@ -150,6 +150,22 @@ export function createToolCatalog(deps: {
     deps.emit()
   }
 
+  // setToolCapabilityGrant 按标准能力项（id:access）增删授权草稿；
+  // 授权项只保存开启状态，关闭即移除键。
+  function setToolCapabilityGrant(keyRaw: any, granted: any) {
+    const key = String(keyRaw || '').trim()
+    if (!key) return
+    const { catalog } = currentCatalog()
+    const draft = { ...clonePlainObject(catalog.capabilityGrantsDraft) }
+    if (granted) {
+      draft[key] = true
+    } else {
+      delete draft[key]
+    }
+    patchCatalog({ capabilityGrantsDraft: draft, saveError: '' })
+    deps.emit()
+  }
+
   async function saveSelectedToolConfig() {
     const { catalog } = currentCatalog()
     const toolId = String(catalog.selectedToolId || catalog.selectedTool?.id || '').trim()
@@ -157,15 +173,16 @@ export function createToolCatalog(deps: {
 
     const userConfig = clonePlainObject(catalog.configDraft)
     const promptDescriptionOverride = String(catalog.promptDescriptionDraft ?? '')
+    const capabilityGrants = clonePlainObject(catalog.capabilityGrantsDraft)
 
     patchCatalog({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride, capabilityGrants }, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
-      patchCatalog({ saving: false, saveError: '', selectedTool: tool, selectedToolId: String(tool.id || toolId), configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? '') })
+      patchCatalog({ saving: false, saveError: '', selectedTool: tool, selectedToolId: String(tool.id || toolId), configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants) })
       await refreshTools(true)
       deps.showToast?.('工具配置已保存', { kind: 'success' })
       return true
@@ -277,7 +294,7 @@ export function createToolCatalog(deps: {
     installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
+  return { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {
@@ -292,6 +309,7 @@ function defaultToolCatalogState() {
     selectedTool: null as any,
     configDraft: {} as Record<string, any>,
     promptDescriptionDraft: '',
+    capabilityGrantsDraft: {} as Record<string, boolean>,
     saving: false,
     saveError: '',
     installStates: {} as ArtifactInstallStateMap,
@@ -345,7 +363,33 @@ function normalizeToolDefinition(value: any): any {
     userConfigSchema: objectOrNull((source as any).userConfigSchema),
     userConfig: objectOrEmpty((source as any).userConfig),
     defaultConfig: objectOrEmpty((source as any).defaultConfig),
+    capabilities: normalizeToolCapabilities((source as any).capabilities),
+    capabilityGrants: normalizeCapabilityGrants((source as any).capabilityGrants),
   }
+}
+
+function normalizeToolCapabilities(value: any): any[] {
+  const list = Array.isArray(value) ? value : []
+  const out: any[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const id = String((item as any).id || '').trim()
+    const access = String((item as any).access || '').trim()
+    if (!id || !access) continue
+    out.push({ id, access, name: String((item as any).name || '').trim(), description: String((item as any).description || '').trim() })
+  }
+  return out
+}
+
+// normalizeCapabilityGrants 只保留明确开启的授权项，键为能力标识与访问方式。
+function normalizeCapabilityGrants(value: any): Record<string, boolean> {
+  const source = objectOrEmpty(value)
+  const out: Record<string, boolean> = {}
+  for (const [key, granted] of Object.entries(source)) {
+    const normalized = String(key || '').trim()
+    if (normalized && granted === true) out[normalized] = true
+  }
+  return out
 }
 
 function objectOrEmpty(value: any): Record<string, any> {

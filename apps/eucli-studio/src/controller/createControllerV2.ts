@@ -541,7 +541,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
+  const { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
 
   const installSourceClient = createInstallSourceClient({
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -921,6 +921,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeToolConfigValue,
     setToolPromptDescriptionDraft,
     resetToolPromptDescriptionDraftToDefault,
+    setToolCapabilityGrant,
     saveSelectedToolConfig,
     installTool,
     updateTool,

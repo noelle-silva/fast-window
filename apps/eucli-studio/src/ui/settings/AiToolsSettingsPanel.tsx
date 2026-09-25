@@ -19,6 +19,7 @@ import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
 import { ConfigFieldsForm } from './ConfigFieldsForm'
 import { SettingsHeading, SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { ToolCapabilityGrantsSection } from './ToolCapabilityGrantsSection'
 import { ToolPromptDescriptionSection } from './ToolPromptDescriptionSection'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { plainObject, stringField } from './schemaFieldValues'
@@ -204,6 +205,8 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
                           />
                         </Stack>
                       </SettingsSection>
+
+                      <ToolCapabilityGrantsSection controller={controller} tool={selectedTool} tools={tools} />
                     </Stack>
                   </Box>
 
