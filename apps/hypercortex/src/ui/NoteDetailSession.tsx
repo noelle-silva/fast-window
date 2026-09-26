@@ -3,7 +3,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconBut
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
-import { extractNoteRefs, getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
+import { getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
@@ -569,14 +569,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     void loadNoteIfNeeded()
   }, [loadNoteIfNeeded, visible])
 
-  // 出链与卡片预取统一从各面草稿内容提取（未保存的引用同样可见）。
+  // 出链与卡片预取统一从各面草稿内容提取（未保存的引用同样可见）；按面类型派发到各自的引用解析器。
   const draftRefIds = React.useMemo(() => {
     const ids = new Set<string>()
-    for (const store of Object.values(faceStoresRef.current)) {
-      for (const id of extractNoteRefs(store.getContent())) ids.add(id)
+    for (const [faceId, store] of Object.entries(faceStoresRef.current)) {
+      const kind = String(faceManifests[faceId]?.kind || '').trim()
+      const refs = kind ? getFaceViewPlugin(kind)?.extractRefs?.(store.getContent()) || [] : []
+      for (const ref of refs) {
+        const noteId = String(ref?.noteId || '').trim()
+        if (noteId) ids.add(noteId)
+      }
     }
     return Array.from(ids)
-  }, [faceDirtyVersion, loaded])
+  }, [faceDirtyVersion, loaded, faceManifests])
 
   const outgoingIds = React.useMemo(() => (infoSidebarVisible ? draftRefIds : []), [draftRefIds, infoSidebarVisible])
 

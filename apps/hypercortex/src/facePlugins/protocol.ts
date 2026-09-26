@@ -3,6 +3,7 @@ import type * as React from 'react'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import type { HyperCortexNoteResourceRef } from '../noteSchema'
+import type { NoteRef } from '../noteRefs'
 import type { FaceDeclaration, FaceSettingField, FaceSettingOption } from '../shared/faceDeclarations'
 
 /**
@@ -103,6 +104,8 @@ export type FaceViewPlugin = {
   Toolbars?: Partial<Record<FaceToolbarSlot, React.ComponentType<FaceToolbarProps>>>
   /** 只读内容预览（版本历史等宿主场景）；缺省时宿主按纯文本展示内容。 */
   ContentPreview?: React.ComponentType<FaceContentPreviewProps>
+  /** 从面内容提取系统引用（面自己的语言规则，如代码区域屏蔽）；缺省表示该面不产出引用。 */
+  extractRefs?: (content: string) => NoteRef[]
 }
 
 const registry = new Map<string, FaceViewPlugin>()
