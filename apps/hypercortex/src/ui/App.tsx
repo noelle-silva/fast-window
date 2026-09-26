@@ -1183,6 +1183,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
+      // Portal 浮层（下拉菜单、弹窗）中的按下事件会沿 React 组件树冒泡到这里；
+      // 只有真正落在工具栏 DOM 内的按下才触发窗口拖动，否则会吞掉浮层自身的点击。
+      const target = e.target as Node | null
+      if (!target || !e.currentTarget.contains(target)) return
       if (isInteractiveTarget(e.target)) return
       gateway.host.startDragging()
     },

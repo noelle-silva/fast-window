@@ -43,7 +43,11 @@ export function RepoSwitcher(props: RepoSwitcherProps) {
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           disabled={disabled}
-          onClick={event => setAnchorEl(current => (current ? null : event.currentTarget))}
+          onClick={event => {
+            // currentTarget 在事件结束后会被置空，不能延迟到状态更新器里读取。
+            const button = event.currentTarget
+            setAnchorEl(current => (current ? null : button))
+          }}
           startIcon={<StorageRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
           endIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
           sx={{
