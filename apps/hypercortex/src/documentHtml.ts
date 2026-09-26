@@ -1,10 +1,6 @@
-import { createMarkdownRenderEngine } from './render/engine'
+import { sanitizeHtml } from './htmlSanitizer'
 
-let documentRenderEngine: ReturnType<typeof createMarkdownRenderEngine> | null = null
-
+/** docx 等文档预览的 HTML 消毒：复用通用渲染安全设施（baseline 策略）。 */
 export function sanitizeDocumentHtml(html: unknown): string {
-  if (!documentRenderEngine) {
-    documentRenderEngine = createMarkdownRenderEngine({ scope: 'library' })
-  }
-  return documentRenderEngine.sanitizeHtml(html, 'baseline')
+  return sanitizeHtml(html, 'baseline')
 }
