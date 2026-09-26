@@ -26,7 +26,7 @@ func Plugin() faceplugin.Plugin {
 		NormalizeContent:  normalizeContent,
 		EmptyContent:      func(noteID string, noteTitle string) string { return "" },
 		NormalizeSettings: normalizePlainSettings,
-		ExtractRefs:       faceplugin.ExtractPlaceholderRefs,
+		ExtractRefs:       ExtractRefs,
 		SearchText:        SearchText,
 	}
 }

@@ -30,7 +30,7 @@ func Plugin() faceplugin.Plugin {
 		NormalizeContent:  normalizeContent,
 		EmptyContent:      func(noteID string, noteTitle string) string { return emptyDoc(noteID, noteTitle) },
 		NormalizeSettings: normalizeSettings,
-		ExtractRefs:       faceplugin.ExtractPlaceholderRefs,
+		ExtractRefs:       ExtractRefs,
 		SettingsTitle:     "HTML 面显示策略",
 		SettingsIntro:     "控制「HTML 面」的 iframe 在查看（非编辑）状态下的尺寸行为。",
 		Settings:          settingsDeclaration(),

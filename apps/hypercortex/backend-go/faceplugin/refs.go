@@ -1,89 +1,17 @@
 package faceplugin
 
 import (
-	"regexp"
 	"strings"
 )
 
-var fenceLineHeadRe = regexp.MustCompile(`^[ \t]{0,3}` + "```")
-var fenceLineSeekRe = regexp.MustCompile(`\n[ \t]{0,3}` + "```")
-
-// maskFencedCodeBlocks 与前端 noteRefs.ts 保持一致：遮蔽 ``` 围栏代码块（含闭合行换行）
-func maskFencedCodeBlocks(content string) string {
-	buf := []byte(content)
-	pos := 0
-	for {
-		openAt, ok := nextFenceOpenIndex(content, pos)
-		if !ok {
-			break
-		}
-		end := len(content)
-		if closeAt, found := nextFenceOpenIndex(content, openAt+3); found {
-			if lineEnd := strings.IndexByte(content[closeAt+3:], '\n'); lineEnd >= 0 {
-				end = closeAt + 3 + lineEnd + 1
-			}
-		}
-		for i := openAt; i < end; i++ {
-			buf[i] = ' '
-		}
-		pos = end
-	}
-	return string(buf)
-}
-
-// nextFenceOpenIndex 等价前端 noteRefs.ts openRe.exec 语义：^ 仅匹配文本头，其余围栏必须出现在行首 \n 之后
-func nextFenceOpenIndex(src string, pos int) (openAt int, ok bool) {
-	if pos == 0 {
-		if loc := fenceLineHeadRe.FindStringIndex(src); loc != nil && loc[0] == 0 {
-			return 0, true
-		}
-	}
-	loc := fenceLineSeekRe.FindStringIndex(src[pos:])
-	if loc == nil {
-		return 0, false
-	}
-	return pos + loc[1] - 3, true
-}
-
-// maskInlineCodeSpans 与前端 noteRefs.ts 保持一致：遮蔽行内代码双反引号/单反引号区间（含两端标记）
-func maskInlineCodeSpans(content string) string {
-	buf := []byte(content)
-	i := 0
-	for i < len(content) {
-		if content[i] != '`' {
-			i++
-			continue
-		}
-		j := i
-		for j < len(content) && content[j] == '`' {
-			j++
-		}
-		fence := content[i:j]
-		closeAt := strings.Index(content[j:], fence)
-		if closeAt < 0 {
-			i = j
-			continue
-		}
-		closeAt += j
-		end := closeAt + len(fence)
-		for p := i; p < end; p++ {
-			buf[p] = ' '
-		}
-		i = end
-	}
-	return string(buf)
-}
-
-func maskCode(content string) string {
-	return maskInlineCodeSpans(maskFencedCodeBlocks(content))
-}
-
 // ExtractPlaceholderRefs 按系统统一的引用占位符语法提取引用：
-// 全系统唯一语法 [[note_id=xxx|face=yyy|...]]，遮蔽代码区域，去重。
+// 全系统唯一语法 [[note_id=xxx|face=yyy|...]]，去重。
+// 本函数只做纯语法解析，不感知任何面语言的代码区域；
+// 代码区域遮蔽（如 markdown 围栏、html 代码标签）由各面插件在调用前自行完成。
 func ExtractPlaceholderRefs(content string) []Ref {
 	refs := []Ref{}
 	seen := map[string]bool{}
-	text := maskCode(strings.ReplaceAll(content, "\r\n", "\n"))
+	text := strings.ReplaceAll(content, "\r\n", "\n")
 	for {
 		start := strings.Index(text, "[[")
 		if start < 0 {

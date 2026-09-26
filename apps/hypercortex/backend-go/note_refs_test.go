@@ -46,24 +46,6 @@ func TestExtractPlaceholderRefsInHtmlLikeContent(t *testing.T) {
 	}
 }
 
-func TestExtractPlaceholderRefsSkipsFencedCodeBlocks(t *testing.T) {
-	content := "before [[note_id=outside]]\n\n```js\n[[note_id=inside-fence]]\n```\n\ntext\n\n```\n[[note_id=unclosed-fence]]\n"
-	refs := faceplugin.ExtractPlaceholderRefs(content)
-	want := []noteRef{{NoteID: "outside"}}
-	if !reflect.DeepEqual(refs, want) {
-		t.Fatalf("refs = %#v, want %#v", refs, want)
-	}
-}
-
-func TestExtractPlaceholderRefsSkipsInlineCodeSpans(t *testing.T) {
-	content := "inline `[[note_id=inside-single]]` and ``[[note_id=inside-double]]`` and [[note_id=outside]]"
-	refs := faceplugin.ExtractPlaceholderRefs(content)
-	want := []noteRef{{NoteID: "outside"}}
-	if !reflect.DeepEqual(refs, want) {
-		t.Fatalf("refs = %#v, want %#v", refs, want)
-	}
-}
-
 // 锁死前后端单行占位符语义：占位符内容出现换行不算有效引用
 func TestExtractPlaceholderRefsSkipsMultilinePlaceholders(t *testing.T) {
 	content := "[[note_id=in-line]]\n[[note_id=break1\n|face=html]]\n[[note_id=\nbreak2]]\n[[note_id=crlf\r\n|face=text]]\n[[note_id=still-valid]]"
@@ -79,16 +61,6 @@ func TestExtractPlaceholderRefsSkipsInnerBracketPlaceholders(t *testing.T) {
 	content := "[[note_id=a]b]]\n[[note_id=skipped|face=html]x]]\n[[note_id=valid]]\n[[note_id=also-valid|face=text]]"
 	refs := faceplugin.ExtractPlaceholderRefs(content)
 	want := []noteRef{{NoteID: "valid"}, {NoteID: "also-valid", FaceID: "text"}}
-	if !reflect.DeepEqual(refs, want) {
-		t.Fatalf("refs = %#v, want %#v", refs, want)
-	}
-}
-
-// 锁死围栏遮蔽边界：紧邻空围栏、"```\n```" 先闭合后未闭合均不越界遮蔽
-func TestExtractPlaceholderRefsAdjacentFenceBlocks(t *testing.T) {
-	content := "before [[note_id=before]]\n\n```\n```\n\n[[note_id=after]]\n\n```\nx\n\n```\n```\n\n[[note_id=after-empty-again]]\n\n```\n[[note_id=unclosed]]\n"
-	refs := faceplugin.ExtractPlaceholderRefs(content)
-	want := []noteRef{{NoteID: "before"}, {NoteID: "after"}, {NoteID: "after-empty-again"}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %#v, want %#v", refs, want)
 	}
