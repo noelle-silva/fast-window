@@ -24,7 +24,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-note-1",
 		"title":     "批量保存",
 		"faceKinds": []string{"markdown", "html"},
@@ -38,7 +38,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 	time.Sleep(2 * time.Millisecond)
 
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "save-faces-note-1",
 		"packageDir": packageDir,
 		"title":      "批量保存（改）",
@@ -56,14 +56,14 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	meta := resultMap["meta"].(noteMeta)
 	refs := resultMap["refs"].(map[string][]noteRef)
 
-	textDoc, err := svc.loadNoteFace("library", packageDir, "text")
+	textDoc, err := svc.loadNoteFace(testRepoID(t, svc), packageDir, "text")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if textDoc.Content != "new text [[note_id=other-note]]" {
 		t.Fatalf("text content = %q", textDoc.Content)
 	}
-	htmlDoc, err := svc.loadNoteFace("library", packageDir, "html")
+	htmlDoc, err := svc.loadNoteFace(testRepoID(t, svc), packageDir, "html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 		t.Fatalf("tags = %q, want a,b", got)
 	}
 
-	base := filepath.Join(svc.libraryDir, filepath.FromSlash(packageDir))
+	base := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(packageDir))
 	if got := readFileText(t, filepath.Join(base, "text.md")); got != "new text [[note_id=other-note]]" {
 		t.Fatalf("text file = %q", got)
 	}
@@ -97,7 +97,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	if len(refs["text"]) != 1 || refs["text"][0].NoteID != "other-note" {
 		t.Fatalf("refs = %#v", refs)
 	}
-	onDisk, err := svc.loadNoteManifest("library", packageDir)
+	onDisk, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	}
 
 	// 搜索索引同触发点刷新：文本面新内容可被搜到。
-	hits, err := svc.queryNoteSearch("library", "new text", nil)
+	hits, err := svc.queryNoteSearch(testRepoID(t, svc), "new text", nil)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	first, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-keep-1",
 		"title":     "保留未提交面",
 		"faceKinds": []string{"markdown", "html"},
@@ -143,7 +143,7 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 	htmlBefore := first.(map[string]any)["manifest"].(noteManifest).Faces["html"]
 	time.Sleep(2 * time.Millisecond)
 
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "save-faces-keep-1",
 		"packageDir": packageDir,
 		"title":      "保留未提交面",
@@ -159,7 +159,7 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 	if htmlAfter.UpdatedAtMs != htmlBefore.UpdatedAtMs {
 		t.Fatalf("unsubmitted html updatedAtMs changed: before=%v after=%v", htmlBefore.UpdatedAtMs, htmlAfter.UpdatedAtMs)
 	}
-	base := filepath.Join(svc.libraryDir, filepath.FromSlash(packageDir))
+	base := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(packageDir))
 	if got := readFileText(t, filepath.Join(base, "html-view.html")); !strings.Contains(got, "keep") {
 		t.Fatalf("unsubmitted html content changed: %q", got)
 	}
@@ -172,7 +172,7 @@ func TestSaveNoteFacesCreatesNoteWithAllFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-draft-1",
 		"title":     "草稿落盘",
 		"faceKinds": []string{"markdown", "html"},
@@ -192,7 +192,7 @@ func TestSaveNoteFacesCreatesNoteWithAllFaces(t *testing.T) {
 	if got := strings.Join(manifest.FaceOrder, ","); got != "text,html" {
 		t.Fatalf("faceOrder = %q, want text,html", got)
 	}
-	base := filepath.Join(svc.libraryDir, filepath.FromSlash(meta.Dir))
+	base := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(meta.Dir))
 	mustExist(t, filepath.Join(base, manifestFile))
 	if got := readFileText(t, filepath.Join(base, "text.md")); got != "draft text" {
 		t.Fatalf("text file = %q", got)
@@ -200,7 +200,7 @@ func TestSaveNoteFacesCreatesNoteWithAllFaces(t *testing.T) {
 	if got := readFileText(t, filepath.Join(base, "html-view.html")); !strings.Contains(got, "draft html") {
 		t.Fatalf("html file = %q", got)
 	}
-	idx, err := svc.loadNoteIndex("library")
+	idx, err := svc.loadNoteIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSaveNoteFacesRejectsUnknownFaceKindWithoutSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "save-faces-invalid-1",
 		"title":     "非法面",
 		"faceKinds": []string{"markdown", "html"},
@@ -231,7 +231,7 @@ func TestSaveNoteFacesRejectsUnknownFaceKindWithoutSideEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustNotExist(t, filepath.Join(svc.libraryDir, filepath.FromSlash(desiredDir)))
+	mustNotExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(desiredDir)))
 }
 
 // Q35：笔记级面顺序保存后参与优先级解析；非法与重复项被剔除，未列出的面补齐不丢失。
@@ -240,7 +240,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "save-face-order-1",
 		"title":     "面顺序",
 		"faceKinds": []string{"markdown", "html"},
@@ -253,7 +253,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 
-	saved, err := svc.saveNoteFaceOrder("library", packageDir, []string{"html", "text", "html", "ghost"})
+	saved, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html", "text", "html", "ghost"})
 	if err != nil {
 		t.Fatalf("save face order failed: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	}
 
 	// 未列出的面自动补齐，不因排序丢失。
-	again, err := svc.saveNoteFaceOrder("library", packageDir, []string{"html"})
+	again, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html"})
 	if err != nil {
 		t.Fatalf("save partial order failed: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	if got := strings.Join(againOrder, ","); got != "html,text" {
 		t.Fatalf("partial order = %q, want html,text", got)
 	}
-	onDisk, err := svc.loadNoteManifest("library", packageDir)
+	onDisk, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatal(err)
 	}

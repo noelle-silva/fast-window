@@ -146,7 +146,11 @@ func (svc *service) getAssetThumbnailByRelPath(scope string, relPath string, wid
 	}
 	cacheExt, mimeType := thumbnailOutputFormat(spec)
 	relCachePath := thumbnailCacheRelPath(cacheKey, cacheExt)
-	cachePath := filepath.Join(svc.thumbnailCacheRoot(), filepath.FromSlash(relCachePath))
+	cacheRoot, err := svc.thumbnailCacheRoot(scope)
+	if err != nil {
+		return thumbnailResult{}, err
+	}
+	cachePath := filepath.Join(cacheRoot, filepath.FromSlash(relCachePath))
 
 	if force {
 		if err := svc.deleteThumbnailCacheForAsset(scope, assetID, ext); err != nil {
@@ -163,7 +167,7 @@ func (svc *service) getAssetThumbnailByRelPath(scope string, relPath string, wid
 	if err := svc.generateThumbnailCache(source, cachePath, spec, cacheExt); err != nil {
 		return thumbnailResult{}, err
 	}
-	if err := svc.recordThumbnailCache(cacheKey, relCachePath, mimeType, spec); err != nil {
+	if err := svc.recordThumbnailCache(scope, cacheKey, relCachePath, mimeType, spec); err != nil {
 		return thumbnailResult{}, err
 	}
 	dataURL, err := readThumbnailDataURL(cachePath, mimeType)
@@ -286,13 +290,22 @@ func (svc *service) generateThumbnailCache(source string, cachePath string, spec
 	return nil
 }
 
-func (svc *service) thumbnailCacheRoot() string {
-	return filepath.Join(svc.libraryDir, thumbnailCacheDir, thumbnailCacheSubdir)
+// thumbnailCacheRoot 返回指定仓库的缩略图缓存根目录。
+func (svc *service) thumbnailCacheRoot(scope string) (string, error) {
+	root, err := svc.repoRoot(scope)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, thumbnailCacheDir, thumbnailCacheSubdir), nil
 }
 
-func (svc *service) readThumbnailIndex() (thumbnailIndex, error) {
+func (svc *service) readThumbnailIndex(scope string) (thumbnailIndex, error) {
 	idx := thumbnailIndex{Version: thumbnailCacheVersion, Entries: map[string]thumbnailIndexEntry{}}
-	path := filepath.Join(svc.thumbnailCacheRoot(), thumbnailIndexFile)
+	root, err := svc.thumbnailCacheRoot(scope)
+	if err != nil {
+		return thumbnailIndex{}, err
+	}
+	path := filepath.Join(root, thumbnailIndexFile)
 	if err := readJSONFile(path, &idx); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return thumbnailIndex{Version: thumbnailCacheVersion, Entries: map[string]thumbnailIndexEntry{}}, nil
@@ -308,24 +321,32 @@ func (svc *service) readThumbnailIndex() (thumbnailIndex, error) {
 	return idx, nil
 }
 
-func (svc *service) writeThumbnailIndex(idx thumbnailIndex) error {
+func (svc *service) writeThumbnailIndex(scope string, idx thumbnailIndex) error {
 	idx.Version = thumbnailCacheVersion
 	idx.UpdatedMs = nowMs()
 	if idx.Entries == nil {
 		idx.Entries = map[string]thumbnailIndexEntry{}
 	}
-	return writeJSONFile(filepath.Join(svc.thumbnailCacheRoot(), thumbnailIndexFile), idx)
+	root, err := svc.thumbnailCacheRoot(scope)
+	if err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(root, thumbnailIndexFile), idx)
 }
 
-func (svc *service) recordThumbnailCache(cacheKey string, relCachePath string, mimeType string, spec thumbnailCacheSpec) error {
-	idx, err := svc.readThumbnailIndex()
+func (svc *service) recordThumbnailCache(scope string, cacheKey string, relCachePath string, mimeType string, spec thumbnailCacheSpec) error {
+	idx, err := svc.readThumbnailIndex(scope)
+	if err != nil {
+		return err
+	}
+	root, err := svc.thumbnailCacheRoot(scope)
 	if err != nil {
 		return err
 	}
 	assetKeyValue := assetKey(spec.AssetID, spec.Ext)
 	for key, entry := range idx.Entries {
 		if entry.Scope == spec.Scope && entry.AssetKey == assetKeyValue && entry.Width == spec.Width && entry.Height == spec.Height && key != cacheKey {
-			_ = os.Remove(filepath.Join(svc.thumbnailCacheRoot(), filepath.FromSlash(entry.Path)))
+			_ = os.Remove(filepath.Join(root, filepath.FromSlash(entry.Path)))
 			delete(idx.Entries, key)
 		}
 	}
@@ -343,11 +364,15 @@ func (svc *service) recordThumbnailCache(cacheKey string, relCachePath string, m
 		Height:     spec.Height,
 		CreatedMs:  nowMs(),
 	}
-	return svc.writeThumbnailIndex(idx)
+	return svc.writeThumbnailIndex(scope, idx)
 }
 
 func (svc *service) deleteThumbnailCacheForAsset(scope string, assetID string, ext string) error {
-	idx, err := svc.readThumbnailIndex()
+	idx, err := svc.readThumbnailIndex(scope)
+	if err != nil {
+		return err
+	}
+	root, err := svc.thumbnailCacheRoot(scope)
 	if err != nil {
 		return err
 	}
@@ -355,7 +380,7 @@ func (svc *service) deleteThumbnailCacheForAsset(scope string, assetID string, e
 	changed := false
 	for key, entry := range idx.Entries {
 		if entry.Scope == scope && entry.AssetKey == assetKeyValue {
-			_ = os.Remove(filepath.Join(svc.thumbnailCacheRoot(), filepath.FromSlash(entry.Path)))
+			_ = os.Remove(filepath.Join(root, filepath.FromSlash(entry.Path)))
 			delete(idx.Entries, key)
 			changed = true
 		}
@@ -363,7 +388,7 @@ func (svc *service) deleteThumbnailCacheForAsset(scope string, assetID string, e
 	if !changed {
 		return nil
 	}
-	return svc.writeThumbnailIndex(idx)
+	return svc.writeThumbnailIndex(scope, idx)
 }
 
 func thumbnailCacheKey(spec thumbnailCacheSpec) (string, error) {

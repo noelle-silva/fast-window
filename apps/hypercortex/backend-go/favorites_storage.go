@@ -219,8 +219,8 @@ func normalizeFavoritesDoc(raw any) (favoritesDoc, bool) {
 	return normalized, changed
 }
 
-func (svc *service) tryLoadFavorites() (favoritesDoc, bool, error) {
-	target, err := svc.resolvePath("library", favoritesFile)
+func (svc *service) tryLoadFavorites(scope string) (favoritesDoc, bool, error) {
+	target, err := svc.resolvePath(scope, favoritesFile)
 	if err != nil {
 		return favoritesDoc{}, false, err
 	}
@@ -238,14 +238,14 @@ func (svc *service) tryLoadFavorites() (favoritesDoc, bool, error) {
 	return doc, changed, nil
 }
 
-func (svc *service) ensureFavorites() (any, error) {
-	existing, changed, err := svc.tryLoadFavorites()
+func (svc *service) ensureFavorites(scope string) (any, error) {
+	existing, changed, err := svc.tryLoadFavorites(scope)
 	if err != nil {
 		return nil, err
 	}
 	if existing.Version == 1 {
 		if changed {
-			if err := svc.saveFavoritesDoc(existing); err != nil {
+			if err := svc.saveFavoritesDoc(scope, existing); err != nil {
 				return nil, err
 			}
 		}
@@ -253,7 +253,7 @@ func (svc *service) ensureFavorites() (any, error) {
 	}
 	now := nowMs()
 	fresh := freshFavoritesDoc(now)
-	target, err := svc.resolvePath("library", favoritesFile)
+	target, err := svc.resolvePath(scope, favoritesFile)
 	if err != nil {
 		return nil, err
 	}
@@ -263,15 +263,15 @@ func (svc *service) ensureFavorites() (any, error) {
 	return fresh, nil
 }
 
-func (svc *service) saveFavoritesDoc(doc favoritesDoc) error {
-	target, err := svc.resolvePath("library", favoritesFile)
+func (svc *service) saveFavoritesDoc(scope string, doc favoritesDoc) error {
+	target, err := svc.resolvePath(scope, favoritesFile)
 	if err != nil {
 		return err
 	}
 	return writeJSONFile(target, doc)
 }
 
-func (svc *service) saveFavorites(raw json.RawMessage) error {
+func (svc *service) saveFavorites(scope string, raw json.RawMessage) error {
 	var value any
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
 		value = nil
@@ -279,5 +279,5 @@ func (svc *service) saveFavorites(raw json.RawMessage) error {
 		return err
 	}
 	doc, _ := normalizeFavoritesDoc(value)
-	return svc.saveFavoritesDoc(doc)
+	return svc.saveFavoritesDoc(scope, doc)
 }

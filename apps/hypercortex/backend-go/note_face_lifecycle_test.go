@@ -13,7 +13,7 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":          "faceless-note-1",
 		"title":       "只有标题",
 		"description": "无面笔记",
@@ -22,7 +22,7 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 		t.Fatalf("save faceless note failed: %v", err)
 	}
 	meta := result.(map[string]any)["meta"].(noteMeta)
-	manifest, err := svc.loadNoteManifest("library", meta.Dir)
+	manifest, err := svc.loadNoteManifest(testRepoID(t, svc), meta.Dir)
 	if err != nil {
 		t.Fatalf("load manifest failed: %v", err)
 	}
@@ -32,11 +32,11 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 	if manifest.Title != "只有标题" {
 		t.Fatalf("faceless title = %q", manifest.Title)
 	}
-	if _, err := svc.loadNoteFace("library", meta.Dir, "text"); err == nil {
+	if _, err := svc.loadNoteFace(testRepoID(t, svc), meta.Dir, "text"); err == nil {
 		t.Fatal("faceless note must not expose a text face")
 	}
 
-	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":    "faceless-note-2",
 		"title": "",
 	})); err == nil || !strings.Contains(err.Error(), "标题") {
@@ -51,7 +51,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	first, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":    "face-ts-note-1",
 		"title": "时间戳",
 		"faces": []map[string]any{
@@ -62,7 +62,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("first save failed: %v", err)
 	}
 	firstMeta := first.(map[string]any)["meta"].(noteMeta)
-	manifest1, err := svc.loadNoteManifest("library", firstMeta.Dir)
+	manifest1, err := svc.loadNoteManifest(testRepoID(t, svc), firstMeta.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("face updated %v != note updated %v", textFace.UpdatedAtMs, manifest1.UpdatedAtMs)
 	}
 
-	second, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	second, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "face-ts-note-1",
 		"packageDir": firstMeta.Dir,
 		"title":      "时间戳",
@@ -86,7 +86,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("second save failed: %v", err)
 	}
 	secondMeta := second.(map[string]any)["meta"].(noteMeta)
-	manifest2, err := svc.loadNoteManifest("library", secondMeta.Dir)
+	manifest2, err := svc.loadNoteManifest(testRepoID(t, svc), secondMeta.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		t.Fatalf("text face updated went backwards: %v -> %v", textFace.UpdatedAtMs, textFace2.UpdatedAtMs)
 	}
 
-	faceResult, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	faceResult, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "face-ts-note-1",
 		"packageDir": secondMeta.Dir,
 		"title":      "时间戳",
@@ -128,7 +128,7 @@ func TestDeleteNoteFacePermanentModeSkipsTrash(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "delete-face-permanent")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "delete-face-permanent")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "delete-face-permanent-note",
 		Title:     "永久删除",
@@ -145,13 +145,13 @@ func TestDeleteNoteFacePermanentModeSkipsTrash(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "<div>html</div>")
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-permanent"))
 
-	if _, err := svc.deleteNoteFace("library", rel, "html", "permanent"); err != nil {
+	if _, err := svc.deleteNoteFace(testRepoID(t, svc), rel, "html", "permanent"); err != nil {
 		t.Fatalf("deleteNoteFace failed: %v", err)
 	}
-	if _, err := svc.loadNoteFace("library", rel, "html"); err == nil {
+	if _, err := svc.loadNoteFace(testRepoID(t, svc), rel, "html"); err == nil {
 		t.Fatal("html face still exists after permanent delete")
 	}
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
 
-	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":          "20260522010101001",
 		"packageDir":  packageDir,
 		"title":       "Versioned Note",
@@ -176,14 +176,14 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
-	version, err := svc.publishNoteVersion("library", packageDir, "With html")
+	version, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "With html")
 	if err != nil {
 		t.Fatalf("publish version failed: %v", err)
 	}
-	if _, err := svc.deleteNoteFace("library", packageDir, "html", "permanent"); err != nil {
+	if _, err := svc.deleteNoteFace(testRepoID(t, svc), packageDir, "html", "permanent"); err != nil {
 		t.Fatalf("delete html face failed: %v", err)
 	}
-	without, err := svc.loadNoteManifest("library", packageDir)
+	without, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,24 +191,24 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 		t.Fatalf("html face still present after delete: %#v", without.Faces)
 	}
 
-	if _, err := svc.restoreNoteVersion("library", packageDir, version.VersionID); err != nil {
+	if _, err := svc.restoreNoteVersion(testRepoID(t, svc), packageDir, version.VersionID); err != nil {
 		t.Fatalf("restore version failed: %v", err)
 	}
-	restored, err := svc.loadNoteManifest("library", packageDir)
+	restored, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := restored.Faces["html"]; !ok {
 		t.Fatalf("deleted face not resurrected by version restore: %#v", restored.Faces)
 	}
-	faceDoc, err := svc.loadNoteFace("library", packageDir, "html")
+	faceDoc, err := svc.loadNoteFace(testRepoID(t, svc), packageDir, "html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !faceDoc.Exists || !strings.Contains(faceDoc.Content, "html-target") {
 		t.Fatalf("resurrected face content = %#v", faceDoc)
 	}
-	refs, err := svc.loadRefIndex("library")
+	refs, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,11 +221,11 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 func TestPublishVersionIgnoresTimestampOnlyChanges(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
-	if _, err := svc.publishNoteVersion("library", packageDir, "First release"); err != nil {
+	if _, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "First release"); err != nil {
 		t.Fatalf("publish version failed: %v", err)
 	}
 
-	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":          "20260522010101001",
 		"packageDir":  packageDir,
 		"title":       "Versioned Note",
@@ -237,7 +237,7 @@ func TestPublishVersionIgnoresTimestampOnlyChanges(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("re-save note failed: %v", err)
 	}
-	if _, err := svc.publishNoteVersion("library", packageDir, "Same content"); err == nil || !strings.Contains(err.Error(), "无需重复发布") {
+	if _, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "Same content"); err == nil || !strings.Contains(err.Error(), "无需重复发布") {
 		t.Fatalf("expected duplicate publish rejection after timestamp-only save, got %v", err)
 	}
 }
@@ -248,7 +248,7 @@ func TestRestoreFaceTrashFailsWhenNoteMissing(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "orphan-face-restore")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "orphan-face-restore")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "orphan-face-restore-note",
 		Title:     "回收站孤儿面",
@@ -265,20 +265,20 @@ func TestRestoreFaceTrashFailsWhenNoteMissing(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "<div>html</div>")
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "orphan-face-restore"))
 
-	if _, err := svc.deleteNoteFace("library", rel, "html", "trash"); err != nil {
+	if _, err := svc.deleteNoteFace(testRepoID(t, svc), rel, "html", "trash"); err != nil {
 		t.Fatalf("deleteNoteFace failed: %v", err)
 	}
-	if err := svc.permanentlyDeleteNoteDir("library", manifest.ID, rel); err != nil {
+	if err := svc.permanentlyDeleteNoteDir(testRepoID(t, svc), manifest.ID, rel); err != nil {
 		t.Fatalf("permanently delete note failed: %v", err)
 	}
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Kind != "face" {
 		t.Fatalf("trash items = %#v", items)
 	}
-	if _, err := svc.restoreTrashItem("library", mustJSONRaw(t, items[0])); err == nil || !strings.Contains(err.Error(), "所属笔记不存在") {
+	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err == nil || !strings.Contains(err.Error(), "所属笔记不存在") {
 		t.Fatalf("expected missing note rejection, got %v", err)
 	}
 }

@@ -35,7 +35,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "search-note-1")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "search-note-1")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "search-note-1",
 		Title:     "搜索目标",
@@ -51,12 +51,12 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "第一面内容提到 量子纠缠 与 [[note_id=other|title=关联笔记]]。")
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "<div>量子纠缠 只在 HTML 面出现</div>")
 
-	if _, err := svc.refreshDerivedIndexesForNote("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-1")), manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-1")), manifest); err != nil {
 		t.Fatal(err)
 	}
 
 	// 面内容命中：返回该笔记 + 文本面命中 + 摘要
-	res, err := svc.queryNoteSearch("library", "量子纠缠", nil)
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "量子纠缠", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 		t.Fatalf("snippet empty: %#v", hit.FaceHits[0])
 	}
 	// 标题单独命中时标记 title
-	byTitle, err := svc.queryNoteSearch("library", "搜索目标", nil)
+	byTitle, err := svc.queryNoteSearch(testRepoID(t, svc), "搜索目标", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestSearchQueryTitleHitForEmptyTextFace(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "search-note-2")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "search-note-2")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "search-note-2",
 		Title:     "空内容笔记",
@@ -101,10 +101,10 @@ func TestSearchQueryTitleHitForEmptyTextFace(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "")
-	if _, err := svc.refreshDerivedIndexesForNote("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-2")), manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-2")), manifest); err != nil {
 		t.Fatal(err)
 	}
-	res, err := svc.queryNoteSearch("library", "空内容", nil)
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "空内容", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "search-note-3")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "search-note-3")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "search-note-3",
 		Title:     "过滤目标",
@@ -131,11 +131,11 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "正文段落里没有任何目标词\n")
-	if _, err := svc.refreshDerivedIndexesForNote("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-3")), manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-3")), manifest); err != nil {
 		t.Fatal(err)
 	}
 	// 范围仅文本面内容：标题字段不参与，本笔记应被过滤掉
-	res, err := svc.queryNoteSearch("library", "过滤目标", []string{"markdown"})
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", []string{"markdown"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 		t.Fatalf("filtered items = %#v", res.Items)
 	}
 	// 不限定范围时标题可命中
-	all, err := svc.queryNoteSearch("library", "过滤目标", nil)
+	all, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestSearchIndexRebuildIsIdempotent(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "search-note-4")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "search-note-4")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "search-note-4",
 		Title:     "重建笔记",
@@ -178,17 +178,17 @@ func TestSearchIndexRebuildIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "稳定内容内容内容")
-	if err := svc.rebuildSearchIndex("library"); err != nil {
+	if err := svc.rebuildSearchIndex(testRepoID(t, svc)); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(svc.libraryDir, searchIndexFile))
+	before, err := os.ReadFile(filepath.Join(testRepoRoot(t, svc), searchIndexFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.rebuildSearchIndex("library"); err != nil {
+	if err := svc.rebuildSearchIndex(testRepoID(t, svc)); err != nil {
 		t.Fatal(err)
 	}
-	after, err := os.ReadFile(filepath.Join(svc.libraryDir, searchIndexFile))
+	after, err := os.ReadFile(filepath.Join(testRepoRoot(t, svc), searchIndexFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteID := "restore-search-note-1"
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", noteID)
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", noteID)
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", noteID))
 	manifest := normalizeManifest(noteManifest{
 		ID:        noteID,
@@ -260,10 +260,10 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	}
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "正文段落里提到 恢复关键词X。")
 
-	if _, err := svc.refreshDerivedIndexesForNote("library", rel, manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), rel, manifest); err != nil {
 		t.Fatal(err)
 	}
-	before, err := svc.queryNoteSearch("library", "恢复关键词X", nil)
+	before, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,10 +272,10 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	}
 
 	// 移入回收站：搜索索引应被清理
-	if _, err := svc.moveNoteToTrash("library", mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel})); err != nil {
+	if _, err := svc.moveNoteToTrash(testRepoID(t, svc), mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel})); err != nil {
 		t.Fatal(err)
 	}
-	trashed, err := svc.queryNoteSearch("library", "恢复关键词X", nil)
+	trashed, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,17 +284,17 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	}
 
 	// 从回收站恢复：搜索索引应重建，恢复后再次可命中
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 {
 		t.Fatalf("trash items = %#v", items)
 	}
-	if _, err := svc.restoreTrashItem("library", mustJSONRaw(t, items[0])); err != nil {
+	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := svc.queryNoteSearch("library", "恢复关键词X", nil)
+	restored, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestSearchMethodsDispatch(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	params, err := json.Marshal(map[string]any{"scope": "library", "query": "不存在的内容xyz", "faceKinds": []string{}})
+	params, err := json.Marshal(map[string]any{"scope": testRepoID(t, svc), "query": "不存在的内容xyz", "faceKinds": []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}

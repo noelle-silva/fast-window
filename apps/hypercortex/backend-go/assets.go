@@ -263,8 +263,8 @@ func (svc *service) openDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if !isInside(svc.libraryDir, abs) && !isInside(svc.dataDir, abs) {
-		return errors.New("只能打开 HyperCortex library/data 范围内目录")
+	if !isInside(svc.dataDir, abs) {
+		return errors.New("只能打开 HyperCortex 数据目录范围内目录")
 	}
 	if err := os.MkdirAll(abs, 0o755); err != nil {
 		return err

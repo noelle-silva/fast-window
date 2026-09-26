@@ -9,7 +9,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":          "field-keep-1",
 		"title":       "字段保留",
 		"description": "原简介",
@@ -22,7 +22,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 
 	// 缺失 description 与 resources：保留旧值。
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "field-keep-1",
 		"packageDir": packageDir,
 		"title":      "字段保留",
@@ -42,7 +42,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 	}
 
 	// 非法类型 resources：保留旧值。
-	result, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "field-keep-1",
 		"packageDir": packageDir,
 		"title":      "字段保留",
@@ -60,7 +60,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 	}
 
 	// 显式空串 description：清空生效。
-	result, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":          "field-keep-1",
 		"packageDir":  packageDir,
 		"title":       "字段保留",

@@ -17,14 +17,15 @@ func nowMs() float64 {
 	return float64(time.Now().UnixMilli())
 }
 
-func scopeRoot(svc *service, scope string) (string, error) {
+// scopeRoot 解析数据根：data 为应用设置域；legacyLibraryName 仅供迁移链重放历史布局；其余一律按仓库 ID 定位。
+func (svc *service) scopeRoot(scope string) (string, error) {
 	switch scope {
-	case "library":
-		return svc.libraryDir, nil
 	case "data":
 		return svc.stateDir, nil
+	case legacyLibraryName:
+		return svc.legacyLibraryDir, nil
 	default:
-		return "", fmt.Errorf("非法 scope：%s", scope)
+		return svc.repoRoot(scope)
 	}
 }
 
@@ -61,10 +62,15 @@ func cleanRelPath(input string) (string, error) {
 }
 
 func (svc *service) resolvePath(scope string, rel string) (string, error) {
-	root, err := scopeRoot(svc, scope)
+	root, err := svc.scopeRoot(scope)
 	if err != nil {
 		return "", err
 	}
+	return resolveUnderRoot(root, rel)
+}
+
+// resolveUnderRoot 在给定根目录下解析相对路径，拒绝越界。
+func resolveUnderRoot(root string, rel string) (string, error) {
 	clean, err := cleanRelPath(rel)
 	if err != nil {
 		return "", err
@@ -184,12 +190,21 @@ func (svc *service) writeRawJSON(scope string, rel string, raw json.RawMessage) 
 	return writeRawJSONFile(target, raw)
 }
 
+// requireScope 校验客户端作用域：只允许应用设置域或合法仓库 ID。
 func requireScope(raw json.RawMessage) string {
 	scope := strings.TrimSpace(stringField(raw, "scope"))
-	if scope != "library" && scope != "data" {
-		panic(fmt.Errorf("非法 scope：%s", scope))
+	if scope == "data" || isRepoID(scope) {
+		return scope
 	}
-	return scope
+	panic(fmt.Errorf("非法 scope：%s", scope))
+}
+
+// repoScopeOrError 用于只允许仓库数据的操作（如回收站、仓库状态）。
+func repoScopeOrError(scope string) error {
+	if !isRepoID(scope) {
+		return fmt.Errorf("该操作仅支持仓库数据：%s", scope)
+	}
+	return nil
 }
 
 func rawField(raw json.RawMessage, key string) json.RawMessage {

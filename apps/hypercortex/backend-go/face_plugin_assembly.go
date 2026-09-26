@@ -43,27 +43,38 @@ func faceDeclarationFingerprint() string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// ensurePluginDataState 保证派生索引与当前插件声明一致：
-// 声明指纹变化（或首次运行）时全量重建引用索引与搜索索引，然后记录新指纹。
-func (svc *service) ensurePluginDataState() error {
-	svc.pluginStateOnce.Do(func() {
-		svc.pluginStateErr = svc.reconcilePluginDataState()
-	})
-	return svc.pluginStateErr
+// ensureRepoPluginState 保证指定仓库的派生索引与当前插件声明一致：
+// 声明指纹变化（或首次激活）时全量重建引用索引与搜索索引，然后记录新指纹。
+// 每个仓库在进程内只调和一次；调和结果同时受仓库激活入口调用约束。
+func (svc *service) ensureRepoPluginState(repoID string) error {
+	svc.pluginMu.Lock()
+	defer svc.pluginMu.Unlock()
+	if svc.pluginReadyRepos[repoID] {
+		return nil
+	}
+	if err := svc.reconcileRepoPluginState(repoID); err != nil {
+		return err
+	}
+	svc.pluginReadyRepos[repoID] = true
+	return nil
 }
 
-func (svc *service) reconcilePluginDataState() error {
+func (svc *service) reconcileRepoPluginState(repoID string) error {
 	fingerprint := faceDeclarationFingerprint()
-	path := filepath.Join(svc.libraryDir, facePluginsStateFile)
+	root, err := svc.repoRoot(repoID)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(root, facePluginsStateFile)
 	var state facePluginsState
 	if err := readJSONFile(path, &state); err == nil && state.DeclarationFingerprint != "" && state.DeclarationFingerprint == fingerprint {
 		return nil
 	}
-	log.Printf("面插件声明发生变化，重建派生索引（指纹 %s）", fingerprint)
-	if err := svc.rebuildRefsIndex("library"); err != nil {
+	log.Printf("仓库 %s 的面插件声明发生变化，重建派生索引（指纹 %s）", repoID, fingerprint)
+	if err := svc.rebuildRefsIndex(repoID); err != nil {
 		return fmt.Errorf("重建引用索引失败：%w", err)
 	}
-	if err := svc.rebuildSearchIndex("library"); err != nil {
+	if err := svc.rebuildSearchIndex(repoID); err != nil {
 		return fmt.Errorf("重建搜索索引失败：%w", err)
 	}
 	return writeJSONFile(path, facePluginsState{Version: 1, DeclarationFingerprint: fingerprint})

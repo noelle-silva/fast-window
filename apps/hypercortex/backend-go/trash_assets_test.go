@@ -16,7 +16,7 @@ func TestAssetTrashLifecycle(t *testing.T) {
 	ext := "txt"
 	key := assetKey(assetID, ext)
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", key))
-	mustWriteFile(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)), "hello")
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)), "hello")
 	idx := assetIndex{Version: assetIndexVersion, Assets: map[string]assetIndexEntry{
 		key: newAssetMetadata(assetIndexEntry{
 			AssetID:     assetID,
@@ -27,15 +27,15 @@ func TestAssetTrashLifecycle(t *testing.T) {
 			Size:        5,
 		}),
 	}}
-	if err := svc.saveAssetIndex("library", idx); err != nil {
+	if err := svc.saveAssetIndex(testRepoID(t, svc), idx); err != nil {
 		t.Fatalf("save asset index failed: %v", err)
 	}
 
-	if _, err := svc.moveAssetToTrash("library", assetID, ext); err != nil {
+	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext); err != nil {
 		t.Fatalf("move asset to trash failed: %v", err)
 	}
-	mustNotExist(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)))
-	idx, err := svc.ensureAssetIndex("library")
+	mustNotExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)))
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("load asset index failed: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestAssetTrashLifecycle(t *testing.T) {
 		t.Fatalf("asset index still contains %s after move to trash", key)
 	}
 
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("list trash failed: %v", err)
 	}
@@ -51,11 +51,11 @@ func TestAssetTrashLifecycle(t *testing.T) {
 		t.Fatalf("unexpected trash items: %+v", items)
 	}
 
-	if _, err := svc.restoreTrashItem("library", mustJSONRaw(t, items[0])); err != nil {
+	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatalf("restore asset failed: %v", err)
 	}
-	mustExist(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)))
-	idx, err = svc.ensureAssetIndex("library")
+	mustExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)))
+	idx, err = svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("reload asset index failed: %v", err)
 	}
@@ -74,25 +74,25 @@ func TestPermanentlyDeleteAssetTrashItem(t *testing.T) {
 	ext := "txt"
 	key := assetKey(assetID, ext)
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", key))
-	mustWriteFile(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)), "bye")
-	if err := svc.saveAssetIndex("library", assetIndex{Version: assetIndexVersion, Assets: map[string]assetIndexEntry{
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)), "bye")
+	if err := svc.saveAssetIndex(testRepoID(t, svc), assetIndex{Version: assetIndexVersion, Assets: map[string]assetIndexEntry{
 		key: newAssetMetadata(assetIndexEntry{AssetID: assetID, Ext: ext, Path: relPath, Kind: "document", Size: 3}),
 	}}); err != nil {
 		t.Fatalf("save asset index failed: %v", err)
 	}
-	if _, err := svc.moveAssetToTrash("library", assetID, ext); err != nil {
+	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext); err != nil {
 		t.Fatalf("move asset to trash failed: %v", err)
 	}
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("list trash failed: %v", err)
 	}
 	if len(items) != 1 {
 		t.Fatalf("trash items = %d, want 1", len(items))
 	}
-	trashDirPath := filepath.Join(svc.libraryDir, filepath.FromSlash(items[0].Dir))
+	trashDirPath := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(items[0].Dir))
 	mustExist(t, trashDirPath)
-	if err := svc.permanentlyDeleteTrashItem("library", mustJSONRaw(t, items[0])); err != nil {
+	if err := svc.permanentlyDeleteTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatalf("permanently delete asset failed: %v", err)
 	}
 	mustNotExist(t, trashDirPath)

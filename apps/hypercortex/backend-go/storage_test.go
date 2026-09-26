@@ -8,7 +8,7 @@ import (
 
 func TestEnsureFavoritesNormalizesDirtyDocumentAndWritesBack(t *testing.T) {
 	svc := newTestService(t)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, favoritesFile), `{
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), favoritesFile), `{
   "version": 1,
   "rootFolderId": "legacy-root",
   "folders": {
@@ -30,7 +30,7 @@ func TestEnsureFavoritesNormalizesDirtyDocumentAndWritesBack(t *testing.T) {
   }
 }`)
 
-	result, err := svc.ensureFavorites()
+	result, err := svc.ensureFavorites(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureFavorites failed: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestEnsureFavoritesNormalizesDirtyDocumentAndWritesBack(t *testing.T) {
 	assertNormalizedDirtyFavorites(t, doc)
 
 	var saved favoritesDoc
-	if err := readJSONFile(filepath.Join(svc.libraryDir, favoritesFile), &saved); err != nil {
+	if err := readJSONFile(filepath.Join(testRepoRoot(t, svc), favoritesFile), &saved); err != nil {
 		t.Fatalf("read saved favorites failed: %v", err)
 	}
 	assertNormalizedDirtyFavorites(t, saved)
@@ -55,12 +55,12 @@ func TestSaveFavoritesNormalizesPayloadBeforeWriting(t *testing.T) {
   "refsByFolderId": { "root": [null, { "kind": "note", "targetId": "n-1" }, { "kind": "note", "targetId": "n-1" }] }
 }`)
 
-	if err := svc.saveFavorites(raw); err != nil {
+	if err := svc.saveFavorites(testRepoID(t, svc), raw); err != nil {
 		t.Fatalf("saveFavorites failed: %v", err)
 	}
 
 	var saved favoritesDoc
-	if err := readJSONFile(filepath.Join(svc.libraryDir, favoritesFile), &saved); err != nil {
+	if err := readJSONFile(filepath.Join(testRepoRoot(t, svc), favoritesFile), &saved); err != nil {
 		t.Fatalf("read saved favorites failed: %v", err)
 	}
 	if saved.Version != 1 || saved.RootFolderID != "root" || saved.Folders["root"].ID != "root" {
@@ -77,9 +77,9 @@ func TestSaveFavoritesNormalizesPayloadBeforeWriting(t *testing.T) {
 
 func TestEnsureFavoritesRecreatesUnsupportedDocumentVersion(t *testing.T) {
 	svc := newTestService(t)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, favoritesFile), `{"version":2,"folders":{"future":{"title":"Future"}},"refsByFolderId":{"future":[{"kind":"note","targetId":"n-future"}]}}`)
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), favoritesFile), `{"version":2,"folders":{"future":{"title":"Future"}},"refsByFolderId":{"future":[{"kind":"note","targetId":"n-future"}]}}`)
 
-	result, err := svc.ensureFavorites()
+	result, err := svc.ensureFavorites(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureFavorites failed: %v", err)
 	}

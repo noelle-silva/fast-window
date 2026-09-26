@@ -25,9 +25,9 @@ func TestImageThumbnailCacheLifecycle(t *testing.T) {
 	assetID := "image-asset"
 	ext := "png"
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "images", "2026-05", assetKey(assetID, ext)))
-	writeTestPNG(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)), 96, 64)
+	writeTestPNG(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)), 96, 64)
 
-	first, err := svc.getAssetThumbnail("library", assetID, ext, 64, 48, false)
+	first, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 64, 48, false)
 	if err != nil {
 		t.Fatalf("first thumbnail failed: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestImageThumbnailCacheLifecycle(t *testing.T) {
 	}
 	var cachePath string
 	for _, entry := range idx.Entries {
-		cachePath = filepath.Join(svc.thumbnailCacheRoot(), filepath.FromSlash(entry.Path))
+		cachePath = filepath.Join(thumbnailCacheRootForTest(t, svc), filepath.FromSlash(entry.Path))
 	}
 	mustExist(t, cachePath)
 
-	second, err := svc.getAssetThumbnail("library", assetID, ext, 64, 48, false)
+	second, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 64, 48, false)
 	if err != nil {
 		t.Fatalf("second thumbnail failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestImageThumbnailCacheLifecycle(t *testing.T) {
 		t.Fatal("second thumbnail should hit cache")
 	}
 
-	rebuilt, err := svc.rebuildAssetThumbnail("library", assetID, ext, 64, 48)
+	rebuilt, err := svc.rebuildAssetThumbnail(testRepoID(t, svc), assetID, ext, 64, 48)
 	if err != nil {
 		t.Fatalf("rebuild thumbnail failed: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestImageThumbnailCacheLifecycle(t *testing.T) {
 		t.Fatal("rebuilt thumbnail should be freshly generated")
 	}
 
-	if err := svc.deleteAsset("library", assetID, ext); err != nil {
+	if err := svc.deleteAsset(testRepoID(t, svc), assetID, ext); err != nil {
 		t.Fatalf("delete asset failed: %v", err)
 	}
 	idx = readThumbnailIndexForTest(t, svc)
@@ -81,11 +81,11 @@ func TestRebuildAllThumbnailsIncludesDocumentsAndSkipsArchives(t *testing.T) {
 		t.Fatalf("ensure roots failed: %v", err)
 	}
 
-	writeTestPNG(t, filepath.Join(svc.libraryDir, assetsDir, "images", "2026-05", "image-a.png"), 80, 80)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, assetsDir, "docs", "2026-05", "doc-a.txt"), "hello document thumbnail")
-	mustWriteFile(t, filepath.Join(svc.libraryDir, assetsDir, "docs", "2026-05", "archive-a.zip"), "not a real zip but still unsupported by extension")
+	writeTestPNG(t, filepath.Join(testRepoRoot(t, svc), assetsDir, "images", "2026-05", "image-a.png"), 80, 80)
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), assetsDir, "docs", "2026-05", "doc-a.txt"), "hello document thumbnail")
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), assetsDir, "docs", "2026-05", "archive-a.zip"), "not a real zip but still unsupported by extension")
 
-	report, err := svc.rebuildAllThumbnails("library", 64, 48)
+	report, err := svc.rebuildAllThumbnails(testRepoID(t, svc), 64, 48)
 	if err != nil {
 		t.Fatalf("rebuild all failed: %v", err)
 	}
@@ -107,9 +107,9 @@ func TestDocumentThumbnailCacheLifecycle(t *testing.T) {
 	assetID := "document-asset"
 	ext := "txt"
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", assetKey(assetID, ext)))
-	mustWriteFile(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)), "Document Title\nThis is a useful document thumbnail preview.")
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)), "Document Title\nThis is a useful document thumbnail preview.")
 
-	first, err := svc.getAssetThumbnail("library", assetID, ext, 320, 180, false)
+	first, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 320, 180, false)
 	if err != nil {
 		t.Fatalf("document thumbnail failed: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestDocumentThumbnailCacheLifecycle(t *testing.T) {
 	}
 	assertDataURLContains(t, first.DataURL, "Document Title")
 
-	second, err := svc.getAssetThumbnail("library", assetID, ext, 320, 180, false)
+	second, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 320, 180, false)
 	if err != nil {
 		t.Fatalf("second document thumbnail failed: %v", err)
 	}
@@ -143,8 +143,8 @@ func TestPDFThumbnailRendersRealFirstPageJPEG(t *testing.T) {
 	assetID := "70223fdd74952ac639e97f00ab111111111111111111111111111111111111"
 	ext := "pdf"
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", assetKey(assetID, ext)))
-	writeTestPDF(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)))
-	idx, err := svc.ensureAssetIndex("library")
+	writeTestPDF(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)))
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +158,11 @@ func TestPDFThumbnailRendersRealFirstPageJPEG(t *testing.T) {
 		ModifiedMs: nowMs(),
 		SourceName: "Analytical mechanics (Lemoyne).pdf",
 	})
-	if err := svc.saveAssetIndex("library", idx); err != nil {
+	if err := svc.saveAssetIndex(testRepoID(t, svc), idx); err != nil {
 		t.Fatal(err)
 	}
 
-	thumb, err := svc.getAssetThumbnail("library", assetID, ext, 320, 180, false)
+	thumb, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 320, 180, false)
 	if err != nil {
 		t.Fatalf("thumbnail failed: %v", err)
 	}
@@ -178,9 +178,9 @@ func TestEPUBThumbnailUsesManifestCoverImage(t *testing.T) {
 	assetID := "book-asset"
 	ext := "epub"
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", assetKey(assetID, ext)))
-	writeTestEPUBWithCover(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)))
+	writeTestEPUBWithCover(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)))
 
-	thumb, err := svc.getAssetThumbnail("library", assetID, ext, 320, 180, false)
+	thumb, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 320, 180, false)
 	if err != nil {
 		t.Fatalf("epub thumbnail failed: %v", err)
 	}
@@ -197,9 +197,9 @@ func TestZipThumbnailIsNotRegistered(t *testing.T) {
 	assetID := "archive-asset"
 	ext := "zip"
 	relPath := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", assetKey(assetID, ext)))
-	mustWriteFile(t, filepath.Join(svc.libraryDir, filepath.FromSlash(relPath)), "zip content")
+	mustWriteFile(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)), "zip content")
 
-	if _, err := svc.getAssetThumbnail("library", assetID, ext, 64, 48, false); err == nil || !strings.Contains(err.Error(), "未注册缩略图能力") {
+	if _, err := svc.getAssetThumbnail(testRepoID(t, svc), assetID, ext, 64, 48, false); err == nil || !strings.Contains(err.Error(), "未注册缩略图能力") {
 		t.Fatalf("zip thumbnail error = %v, want explicit unsupported capability error", err)
 	}
 }
@@ -406,11 +406,20 @@ func testPNGBytes(t *testing.T, width int, height int) []byte {
 
 func readThumbnailIndexForTest(t *testing.T, svc *service) thumbnailIndex {
 	t.Helper()
-	idx, err := svc.readThumbnailIndex()
+	idx, err := svc.readThumbnailIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("read thumbnail index failed: %v", err)
 	}
 	return idx
+}
+
+func thumbnailCacheRootForTest(t *testing.T, svc *service) string {
+	t.Helper()
+	root, err := svc.thumbnailCacheRoot(testRepoID(t, svc))
+	if err != nil {
+		t.Fatalf("thumbnailCacheRoot failed: %v", err)
+	}
+	return root
 }
 
 func minIntForTest(a int, b int) int {

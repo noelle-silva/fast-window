@@ -15,7 +15,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 	}
 
 	result, err := svc.dispatch("hypercortex.notes.create", mustJSONRaw(t, map[string]any{
-		"scope": "library",
+		"scope": testRepoID(t, svc),
 		"input": map[string]any{
 			"id":          "create-note-1",
 			"title":       "创建空笔记",
@@ -51,7 +51,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 		t.Fatalf("faces = %#v", manifest.Faces)
 	}
 
-	base := filepath.Join(svc.libraryDir, filepath.FromSlash(meta.Dir))
+	base := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(meta.Dir))
 	mustExist(t, filepath.Join(base, manifestFile))
 	if got := readFileText(t, filepath.Join(base, "text.md")); got != "" {
 		t.Fatalf("text.md = %q, want empty", got)
@@ -61,14 +61,14 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 		t.Fatalf("html-view.html = %q", htmlRaw)
 	}
 
-	textDoc, err := svc.loadNoteFace("library", meta.Dir, "text")
+	textDoc, err := svc.loadNoteFace(testRepoID(t, svc), meta.Dir, "text")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !textDoc.Exists || textDoc.Content != "" {
 		t.Fatalf("text face doc = %#v", textDoc)
 	}
-	htmlDoc, err := svc.loadNoteFace("library", meta.Dir, "html")
+	htmlDoc, err := svc.loadNoteFace(testRepoID(t, svc), meta.Dir, "html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 		t.Fatalf("html face doc = %#v", htmlDoc)
 	}
 
-	onDisk, err := svc.loadNoteManifest("library", meta.Dir)
+	onDisk, err := svc.loadNoteManifest(testRepoID(t, svc), meta.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 		t.Fatalf("manifest on disk = %#v", onDisk)
 	}
 
-	idx, err := svc.loadNoteIndex("library")
+	idx, err := svc.loadNoteIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 	}
 
 	// 派生索引已刷新：标题可被搜索命中；空内容笔记不产生引用条目。
-	hits, err := svc.queryNoteSearch("library", "创建空笔记", nil)
+	hits, err := svc.queryNoteSearch(testRepoID(t, svc), "创建空笔记", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 	if !found {
 		t.Fatalf("search hits = %#v", hits.Items)
 	}
-	refs, err := svc.loadRefIndex("library")
+	refs, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestCreateNoteWithoutIdOrFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.createNote("library", mustJSONRaw(t, map[string]any{"title": "仅标题"}))
+	result, err := svc.createNote(testRepoID(t, svc), mustJSONRaw(t, map[string]any{"title": "仅标题"}))
 	if err != nil {
 		t.Fatalf("create note without faces failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestCreateNoteWithoutIdOrFaces(t *testing.T) {
 	if len(manifest.Faces) != 0 || len(manifest.FaceOrder) != 0 {
 		t.Fatalf("manifest faces = %#v, faceOrder = %#v", manifest.Faces, manifest.FaceOrder)
 	}
-	mustExist(t, filepath.Join(svc.libraryDir, filepath.FromSlash(meta.Dir), manifestFile))
+	mustExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(meta.Dir), manifestFile))
 }
 
 // createNote：无标题且无面时快速失败，不产生任何笔记包。
@@ -144,7 +144,7 @@ func TestCreateNoteRejectsUntitledNoteWithoutFaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := svc.createNote("library", mustJSONRaw(t, map[string]any{"id": "create-note-untitled"}))
+	_, err := svc.createNote(testRepoID(t, svc), mustJSONRaw(t, map[string]any{"id": "create-note-untitled"}))
 	if err == nil || !strings.Contains(err.Error(), "至少需要一个标题") {
 		t.Fatalf("err = %v, want 标题校验错误", err)
 	}
@@ -152,7 +152,7 @@ func TestCreateNoteRejectsUntitledNoteWithoutFaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustNotExist(t, filepath.Join(svc.libraryDir, filepath.FromSlash(desiredDir)))
+	mustNotExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(desiredDir)))
 }
 
 // createNote：目标笔记已存在时快速失败，不覆盖既有笔记的标题与面。
@@ -162,7 +162,7 @@ func TestCreateNoteRejectsExistingPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := svc.createNote("library", mustJSONRaw(t, map[string]any{
+	first, err := svc.createNote(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "create-note-dup",
 		"title":     "原始标题",
 		"faceKinds": []string{"markdown"},
@@ -172,7 +172,7 @@ func TestCreateNoteRejectsExistingPackage(t *testing.T) {
 	}
 	meta := first.(map[string]any)["meta"].(noteMeta)
 
-	_, err = svc.createNote("library", mustJSONRaw(t, map[string]any{
+	_, err = svc.createNote(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "create-note-dup",
 		"title":     "重复创建",
 		"faceKinds": []string{"markdown", "html"},
@@ -181,7 +181,7 @@ func TestCreateNoteRejectsExistingPackage(t *testing.T) {
 		t.Fatalf("err = %v, want 笔记已存在", err)
 	}
 
-	onDisk, err := svc.loadNoteManifest("library", meta.Dir)
+	onDisk, err := svc.loadNoteManifest(testRepoID(t, svc), meta.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}

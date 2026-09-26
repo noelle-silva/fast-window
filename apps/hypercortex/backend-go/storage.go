@@ -336,8 +336,8 @@ func (svc *service) listAssetTrash(scope string, trashRoot string) ([]trashItem,
 }
 
 func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, error) {
-	if scope != "library" {
-		return nil, errors.New("回收站仅支持 library scope")
+	if err := repoScopeOrError(scope); err != nil {
+		return nil, err
 	}
 	var note noteMeta
 	if err := json.Unmarshal(raw, &note); err != nil {
@@ -386,8 +386,8 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 }
 
 func (svc *service) moveAssetToTrash(scope string, assetID string, ext string) (any, error) {
-	if scope != "library" {
-		return nil, errors.New("回收站仅支持 library scope")
+	if err := repoScopeOrError(scope); err != nil {
+		return nil, err
 	}
 	assetID = strings.TrimSpace(assetID)
 	ext = normalizeAssetExt(ext)
@@ -490,8 +490,8 @@ func (svc *service) permanentlyDeleteNoteDir(scope string, noteID string, dir st
 }
 
 func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, error) {
-	if scope != "library" {
-		return nil, errors.New("回收站仅支持 library scope")
+	if err := repoScopeOrError(scope); err != nil {
+		return nil, err
 	}
 	var item trashItem
 	if err := json.Unmarshal(raw, &item); err != nil {
@@ -638,7 +638,7 @@ func (svc *service) permanentlyDeleteTrashItemByValue(scope string, item trashIt
 }
 
 func (svc *service) maybeAutoCleanupTrash(scope string, days float64) (any, error) {
-	if scope != "library" || days <= 0 {
+	if repoScopeOrError(scope) != nil || days <= 0 {
 		return map[string]int{"deletedCount": 0}, nil
 	}
 	items, err := svc.listTrash(scope)

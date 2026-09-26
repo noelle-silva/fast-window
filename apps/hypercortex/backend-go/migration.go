@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	currentDataVersion                 = 8
+	currentDataVersion                 = 9
 	migrationsLedgerFile               = "_migrations.json"
 	migrationRecoveryDir               = "_migration-recovery"
 	migrationRecoveryFile              = "recovery.json"
@@ -24,6 +24,7 @@ const (
 	noteFaceTimestampsMigration        = "2026-09-14-note-face-timestamps"
 	htmlFaceLegacySettingsMigration    = "2026-09-26-html-face-legacy-global-settings"
 	dataIdentitySplitMigration         = "2026-09-26-data-identity-split"
+	repoPoolLayoutMigration            = "2026-09-26-repo-pool-layout"
 )
 
 // repoStateFieldKeys 是从元数据中拆出、归属笔记仓库身份的工作状态字段。
@@ -74,9 +75,11 @@ type migrationRecoveryDoc struct {
 }
 
 type migrationReport struct {
-	Imported bool     `json:"imported"`
-	Files    []string `json:"files"`
-	Skipped  []string `json:"skipped"`
+	Imported  bool     `json:"imported"`
+	RepoID    string   `json:"repoId,omitempty"`
+	RepoTitle string   `json:"repoTitle,omitempty"`
+	Files     []string `json:"files"`
+	Skipped   []string `json:"skipped"`
 }
 
 func (svc *service) migrateDataLayout() error {
@@ -229,11 +232,25 @@ func (svc *service) migrateDataIdentitySplit() error {
 		return err
 	}
 	for _, file := range []string{favoritesFile, facePluginsStateFile} {
-		if err := moveFileIfTargetMissing(filepath.Join(svc.stateDir, file), filepath.Join(svc.libraryDir, file)); err != nil {
+		if err := moveFileIfTargetMissing(filepath.Join(svc.stateDir, file), filepath.Join(svc.legacyLibraryDir, file)); err != nil {
 			return err
 		}
 	}
-	return moveDirIfTargetMissing(filepath.Join(svc.stateDir, thumbnailCacheDir), filepath.Join(svc.libraryDir, thumbnailCacheDir))
+	return moveDirIfTargetMissing(filepath.Join(svc.stateDir, thumbnailCacheDir), filepath.Join(svc.legacyLibraryDir, thumbnailCacheDir))
+}
+
+// extractRepoStateFields 从元数据中摘出仓库工作状态字段（就地删除），返回仓库状态文档主体。
+func extractRepoStateFields(meta map[string]any) map[string]any {
+	repoState := map[string]any{}
+	for _, key := range repoStateFieldKeys {
+		value, ok := meta[key]
+		if !ok {
+			continue
+		}
+		repoState[key] = value
+		delete(meta, key)
+	}
+	return repoState
 }
 
 // splitMetadataIdentity 把元数据中的仓库工作状态字段搬入 library/hypercortex-repo-state.json。
@@ -248,21 +265,13 @@ func (svc *service) splitMetadataIdentity() error {
 		return fmt.Errorf("读取元数据失败：%w", err)
 	}
 
-	repoState := map[string]any{}
-	for _, key := range repoStateFieldKeys {
-		value, ok := meta[key]
-		if !ok {
-			continue
-		}
-		repoState[key] = value
-		delete(meta, key)
-	}
+	repoState := extractRepoStateFields(meta)
 	if len(repoState) == 0 {
 		return nil
 	}
 
 	repoState["version"] = 1
-	repoStatePath := filepath.Join(svc.libraryDir, repoStateFile)
+	repoStatePath := filepath.Join(svc.legacyLibraryDir, repoStateFile)
 	if !exists(repoStatePath) {
 		if err := writeJSONFile(repoStatePath, repoState); err != nil {
 			return fmt.Errorf("写入仓库状态失败：%w", err)
@@ -270,6 +279,52 @@ func (svc *service) splitMetadataIdentity() error {
 	}
 	meta["version"] = 1
 	return writeJSONFile(metaPath, meta)
+}
+
+// migrateRepoPoolLayout 把历史唯一知识库下沉为仓库池中的默认仓库：
+// 先为历史库写入仓库身份（可重试的确认步骤），再把整个目录原子改名进仓库池。
+func (svc *service) migrateRepoPoolLayout() error {
+	info, err := os.Stat(svc.legacyLibraryDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("历史知识库路径不是目录")
+	}
+	if err := os.MkdirAll(svc.reposDir, 0o755); err != nil {
+		return err
+	}
+	identity, err := svc.ensureLegacyLibraryIdentity()
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(svc.reposDir, identity.ID)
+	if exists(target) {
+		return fmt.Errorf("仓库池已存在同名仓库目录：%s", identity.ID)
+	}
+	if err := os.Rename(svc.legacyLibraryDir, target); err != nil {
+		return fmt.Errorf("知识库下沉仓库池失败：%w", err)
+	}
+	return ensureRepoLayout(target)
+}
+
+// ensureLegacyLibraryIdentity 为历史知识库生成或复用仓库身份，保证迁移可重试。
+func (svc *service) ensureLegacyLibraryIdentity() (repoIdentity, error) {
+	if identity, err := svc.readRepoIdentity(svc.legacyLibraryDir); err == nil {
+		return identity, nil
+	}
+	id, err := newRepoID()
+	if err != nil {
+		return repoIdentity{}, err
+	}
+	identity := repoIdentity{Version: 1, ID: id, Title: "默认仓库", CreatedAtMs: nowMs()}
+	if err := svc.writeRepoIdentity(svc.legacyLibraryDir, identity); err != nil {
+		return repoIdentity{}, fmt.Errorf("写入仓库身份失败：%w", err)
+	}
+	return identity, nil
 }
 
 // migrateNoteManifestsToUnifiedFaceProtocol 把旧清单收敛为统一面协议形态（去掉角色字段并补齐能力快照）。
@@ -364,6 +419,12 @@ func (svc *service) runDataMigrations() error {
 			ToVersion:   8,
 			Run:         (*service).migrateDataIdentitySplit,
 		},
+		{
+			ID:          repoPoolLayoutMigration,
+			FromVersion: 8,
+			ToVersion:   9,
+			Run:         (*service).migrateRepoPoolLayout,
+		},
 	}
 	return svc.runMigrations(migrations)
 }
@@ -454,7 +515,7 @@ func (svc *service) failMigration(id string, fromVersion int, toVersion int, cau
 		Error:         cause.Error(),
 		DataDir:       svc.dataDir,
 		StateDir:      svc.stateDir,
-		LibraryDir:    svc.libraryDir,
+		LibraryDir:    svc.legacyLibraryDir,
 		RecoveryDir:   recoveryDir,
 	}
 	if err := writeJSONFile(filepath.Join(recoveryDir, migrationRecoveryFile), doc); err != nil {
@@ -470,6 +531,9 @@ func (svc *service) clearMigrationRecovery() error {
 	return nil
 }
 
+// importLegacyData 把旧版数据目录导入为一个新仓库：
+// 笔记/附件/回收站/索引/收藏夹与仓库工作状态进入新仓库；应用设置只在当前缺失时补种；
+// 导入过程不触碰任何现有仓库。
 func (svc *service) importLegacyData(sourceDir string) (migrationReport, error) {
 	source, err := filepath.Abs(strings.TrimSpace(sourceDir))
 	if err != nil {
@@ -485,40 +549,65 @@ func (svc *service) importLegacyData(sourceDir string) (migrationReport, error) 
 		return migrationReport{}, err
 	}
 
-	report := migrationReport{Imported: true}
-	rootFileTargets := []struct {
-		name   string
-		target string
-	}{
-		{metadataFile, svc.stateDir},
-		{favoritesFile, svc.libraryDir},
+	report := migrationReport{Imported: true, Files: []string{}, Skipped: []string{}}
+
+	var legacyMeta map[string]any
+	metaPath := filepath.Join(source, metadataFile)
+	if err := readJSONFile(metaPath, &legacyMeta); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return report, fmt.Errorf("读取旧版元数据失败：%w", err)
 	}
-	for _, file := range rootFileTargets {
-		copied, err := copyFileIfTargetMissing(filepath.Join(source, file.name), filepath.Join(file.target, file.name))
-		if err != nil {
-			return report, err
-		}
-		report.record(file.name, copied)
+	var legacyRepoState map[string]any
+	if legacyMeta != nil {
+		legacyRepoState = extractRepoStateFields(legacyMeta)
 	}
-	for _, dir := range []string{notesDir, assetsDir, trashDir} {
-		copied, err := copyDirMissingEntries(filepath.Join(source, dir), filepath.Join(svc.libraryDir, dir))
-		if err != nil {
-			return report, err
-		}
-		report.record(dir+"/", copied)
-	}
-	for _, file := range []string{indexFile, refsIndexFile, assetsIndexFile} {
-		copied, err := copyFileIfTargetMissing(filepath.Join(source, file), filepath.Join(svc.libraryDir, file))
-		if err != nil {
-			return report, err
-		}
-		report.record(file, copied)
-	}
-	if err := svc.splitMetadataIdentity(); err != nil {
+
+	id, err := newRepoID()
+	if err != nil {
 		return report, err
 	}
-	if err := svc.migrateNotePackageDirsToIDs(); err != nil {
+	identity := repoIdentity{Version: 1, ID: id, Title: "导入仓库", CreatedAtMs: nowMs()}
+	err = svc.buildRepo(identity, func(root string) error {
+		for _, dir := range []string{notesDir, assetsDir, trashDir} {
+			copied, err := copyDirMissingEntries(filepath.Join(source, dir), filepath.Join(root, dir))
+			if err != nil {
+				return err
+			}
+			report.record(dir+"/", copied)
+		}
+		for _, file := range []string{indexFile, refsIndexFile, assetsIndexFile, favoritesFile} {
+			copied, err := copyFileIfTargetMissing(filepath.Join(source, file), filepath.Join(root, file))
+			if err != nil {
+				return err
+			}
+			report.record(file, copied)
+		}
+		if len(legacyRepoState) > 0 {
+			legacyRepoState["version"] = 1
+			if err := writeJSONFile(filepath.Join(root, repoStateFile), legacyRepoState); err != nil {
+				return err
+			}
+			report.record(repoStateFile, true)
+		}
+		return svc.migrateNotePackageDirsToIDsAt(root)
+	})
+	if err != nil {
 		return report, err
+	}
+	report.RepoID = identity.ID
+	report.RepoTitle = identity.Title
+
+	// 应用设置：只在当前缺失时补种（此时仓库字段已摘除，保持应用设置身份纯净）。
+	if legacyMeta != nil {
+		stateMetaPath := filepath.Join(svc.stateDir, metadataFile)
+		if !exists(stateMetaPath) {
+			legacyMeta["version"] = 1
+			if err := writeJSONFile(stateMetaPath, legacyMeta); err != nil {
+				return report, err
+			}
+			report.record(metadataFile, true)
+		} else {
+			report.record(metadataFile, false)
+		}
 	}
 	return report, nil
 }
@@ -536,11 +625,11 @@ func (svc *service) moveRootFileToState(name string) error {
 }
 
 func (svc *service) moveRootFileToLibrary(name string) error {
-	return moveFileIfTargetMissing(filepath.Join(svc.dataDir, name), filepath.Join(svc.libraryDir, name))
+	return moveFileIfTargetMissing(filepath.Join(svc.dataDir, name), filepath.Join(svc.legacyLibraryDir, name))
 }
 
 func (svc *service) moveRootDirToLibrary(name string) error {
-	return moveDirIfTargetMissing(filepath.Join(svc.dataDir, name), filepath.Join(svc.libraryDir, name))
+	return moveDirIfTargetMissing(filepath.Join(svc.dataDir, name), filepath.Join(svc.legacyLibraryDir, name))
 }
 
 func moveFileIfTargetMissing(from string, to string) error {

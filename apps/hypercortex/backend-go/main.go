@@ -18,14 +18,15 @@ import (
 )
 
 type service struct {
-	dataDir     string
-	stateDir    string
-	libraryDir  string
-	mu          sync.Mutex
-	uploadTasks *assetUploadTaskStore
-	// 插件声明指纹检查：进程内只执行一次，保证派生索引与插件声明一致。
-	pluginStateOnce sync.Once
-	pluginStateErr  error
+	dataDir          string
+	stateDir         string
+	reposDir         string
+	legacyLibraryDir string
+	mu               sync.Mutex
+	uploadTasks      *assetUploadTaskStore
+	// 插件声明指纹调和：每个仓库进程内只执行一次，保证派生索引与插件声明一致。
+	pluginMu         sync.Mutex
+	pluginReadyRepos map[string]bool
 }
 
 func main() {
@@ -85,17 +86,29 @@ func newService() (*service, error) {
 	}
 
 	stateDir := filepath.Join(dataDir, stateDirName)
-	libraryDir := filepath.Join(dataDir, libraryDirName)
-	libraryDir, err = filepath.Abs(libraryDir)
-	if err != nil {
-		return nil, fmt.Errorf("解析知识库目录失败: %w", err)
-	}
+	reposDir := filepath.Join(dataDir, reposDirName)
+	legacyLibraryDir := filepath.Join(dataDir, legacyLibraryName)
 	stateDir, err = filepath.Abs(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("解析状态目录失败: %w", err)
 	}
+	reposDir, err = filepath.Abs(reposDir)
+	if err != nil {
+		return nil, fmt.Errorf("解析仓库池目录失败: %w", err)
+	}
+	legacyLibraryDir, err = filepath.Abs(legacyLibraryDir)
+	if err != nil {
+		return nil, fmt.Errorf("解析历史知识库目录失败: %w", err)
+	}
 
-	return &service{dataDir: dataDir, stateDir: stateDir, libraryDir: libraryDir, uploadTasks: newAssetUploadTaskStore()}, nil
+	return &service{
+		dataDir:          dataDir,
+		stateDir:         stateDir,
+		reposDir:         reposDir,
+		legacyLibraryDir: legacyLibraryDir,
+		uploadTasks:      newAssetUploadTaskStore(),
+		pluginReadyRepos: map[string]bool{},
+	}, nil
 }
 
 func mustGetwd() string {
@@ -150,7 +163,7 @@ func writeReady(port int) {
 }
 
 func (svc *service) ensureRoots() error {
-	for _, dir := range []string{svc.dataDir, svc.stateDir, svc.libraryDir} {
+	for _, dir := range []string{svc.dataDir, svc.stateDir, svc.reposDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -158,15 +171,7 @@ func (svc *service) ensureRoots() error {
 	if err := svc.runDataMigrations(); err != nil {
 		return err
 	}
-	for _, dir := range []string{notesDir, assetsDir, trashDir, filepath.Join(assetsDir, "images"), filepath.Join(assetsDir, "videos"), filepath.Join(assetsDir, "docs")} {
-		if err := os.MkdirAll(filepath.Join(svc.libraryDir, dir), 0o755); err != nil {
-			return err
-		}
-	}
-	if err := svc.ensurePluginDataState(); err != nil {
-		return err
-	}
-	return nil
+	return svc.ensureRepoPool()
 }
 
 func (svc *service) dispatch(method string, params json.RawMessage) (any, error) {
@@ -188,22 +193,30 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return nil, svc.writeRawJSON("data", metadataFile, payload["meta"])
 
 	case "hypercortex.favorites.tryLoad":
-		doc, changed, err := svc.tryLoadFavorites()
+		scope := requireScope(params)
+		doc, changed, err := svc.tryLoadFavorites(scope)
 		if err != nil || doc.Version != 1 {
 			return nil, err
 		}
 		if changed {
-			if err := svc.saveFavoritesDoc(doc); err != nil {
+			if err := svc.saveFavoritesDoc(scope, doc); err != nil {
 				return nil, err
 			}
 		}
 		return doc, nil
 	case "hypercortex.favorites.ensure":
-		return svc.ensureFavorites()
+		return svc.ensureFavorites(requireScope(params))
 	case "hypercortex.favorites.save":
 		payload := map[string]json.RawMessage{}
 		_ = json.Unmarshal(params, &payload)
-		return nil, svc.saveFavorites(payload["doc"])
+		return nil, svc.saveFavorites(requireScope(params), payload["doc"])
+
+	case "hypercortex.repos.list":
+		return svc.listRepos()
+	case "hypercortex.repos.create":
+		return svc.createRepo(stringField(params, "title"))
+	case "hypercortex.repos.activate":
+		return svc.activateRepo(stringField(params, "repoId"))
 
 	case "hypercortex.repoState.tryLoad":
 		return svc.tryLoadJSON(requireScope(params), repoStateFile)
@@ -295,8 +308,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.trash.maybeAutoCleanup":
 		return svc.maybeAutoCleanupTrash(requireScope(params), numberField(params, "days"))
 
-	case "hypercortex.host.getLibraryDir":
-		return svc.libraryDir, nil
 	case "hypercortex.host.openDir":
 		return nil, svc.openDir(stringField(params, "dir"))
 	case "hypercortex.host.openVaultDir":

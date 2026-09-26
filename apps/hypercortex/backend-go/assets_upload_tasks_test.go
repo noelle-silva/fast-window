@@ -17,12 +17,12 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputs := []assetUploadFileInput{{Path: source, DisplayName: "Hello Upload"}}
-	task := svc.uploadTasks.create("library", newAssetUploadTaskFiles(inputs))
+	task := svc.uploadTasks.create(testRepoID(t, svc), newAssetUploadTaskFiles(inputs))
 	if err := task.markRunning(); err != nil {
 		t.Fatalf("markRunning failed: %v", err)
 	}
 
-	result, err := svc.runAssetUploadPipeline("library", inputs, task)
+	result, err := svc.runAssetUploadPipeline(testRepoID(t, svc), inputs, task)
 	if err != nil {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	if result[0].AssetID != expectedID {
 		t.Fatalf("asset id = %q, want %q", result[0].AssetID, expectedID)
 	}
-	idx, err := svc.ensureAssetIndex("library")
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureAssetIndex failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	if entry.MetadataVersion != assetMetadataVersion || entry.AssetID != expectedID || entry.Ext != "txt" || entry.UploadedAtMs <= 0 || entry.UpdatedAtMs <= 0 {
 		t.Fatalf("metadata entry = %#v, want v2 metadata with upload timestamps", entry)
 	}
-	target, err := svc.resolvePath("library", entry.Path)
+	target, err := svc.resolvePath(testRepoID(t, svc), entry.Path)
 	if err != nil {
 		t.Fatalf("resolve target failed: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 func TestRunAssetUploadPipelineCommitsStagedPastedFileAndDeletesSource(t *testing.T) {
 	svc := newTestService(t)
 	content := []byte("hello pasted upload")
-	stagingDir, err := svc.pastedAssetUploadStagingDir("library")
+	stagingDir, err := svc.pastedAssetUploadStagingDir(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,12 +84,12 @@ func TestRunAssetUploadPipelineCommitsStagedPastedFileAndDeletesSource(t *testin
 		t.Fatal(err)
 	}
 	inputs := []assetUploadFileInput{{Path: source, Name: "paste.txt", DisplayName: "Pasted Upload", Size: int64(len(content)), DeleteSourceAfterUpload: true}}
-	task := svc.uploadTasks.create("library", newAssetUploadTaskFiles(inputs))
+	task := svc.uploadTasks.create(testRepoID(t, svc), newAssetUploadTaskFiles(inputs))
 	if err := task.markRunning(); err != nil {
 		t.Fatalf("markRunning failed: %v", err)
 	}
 
-	result, err := svc.runAssetUploadPipeline("library", inputs, task)
+	result, err := svc.runAssetUploadPipeline(testRepoID(t, svc), inputs, task)
 	if err != nil {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestRunAssetUploadPipelineCommitsStagedPastedFileAndDeletesSource(t *testin
 	if len(result) != 1 || result[0].AssetID != expectedID || result[0].Ext != "txt" || result[0].Name != "Pasted Upload" {
 		t.Fatalf("result = %#v, want pasted txt resource", result)
 	}
-	idx, err := svc.ensureAssetIndex("library")
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureAssetIndex failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRunAssetUploadPipelineCommitsStagedPastedFileAndDeletesSource(t *testin
 	if !ok {
 		t.Fatalf("asset index missing %q", assetKey(expectedID, "txt"))
 	}
-	target, err := svc.resolvePath("library", entry.Path)
+	target, err := svc.resolvePath(testRepoID(t, svc), entry.Path)
 	if err != nil {
 		t.Fatalf("resolve target failed: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestRunAssetUploadPipelineDoesNotDeleteExternalSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: "External", Size: int64(len(content)), DeleteSourceAfterUpload: true}}, nil)
+	_, err := svc.runAssetUploadPipeline(testRepoID(t, svc), []assetUploadFileInput{{Path: source, DisplayName: "External", Size: int64(len(content)), DeleteSourceAfterUpload: true}}, nil)
 	if err != nil {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestRunAssetUploadPipelineSupportsMainstreamDocumentFormats(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: tc.name}}, nil)
+			result, err := svc.runAssetUploadPipeline(testRepoID(t, svc), []assetUploadFileInput{{Path: source, DisplayName: tc.name}}, nil)
 			if err != nil {
 				t.Fatalf("runAssetUploadPipeline failed: %v", err)
 			}
@@ -177,7 +177,7 @@ func TestRunAssetUploadPipelineSupportsMainstreamDocumentFormats(t *testing.T) {
 func TestRunAssetUploadPipelineUsesStagedPastedFileExtension(t *testing.T) {
 	svc := newTestService(t)
 	content := []byte("epub pasted content")
-	stagingDir, err := svc.pastedAssetUploadStagingDir("library")
+	stagingDir, err := svc.pastedAssetUploadStagingDir(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestRunAssetUploadPipelineUsesStagedPastedFileExtension(t *testing.T) {
 	}
 	input := assetUploadFileInput{Path: source, DisplayName: "Pasted EPUB", Size: int64(len(content)), DeleteSourceAfterUpload: true}
 
-	result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{input}, nil)
+	result, err := svc.runAssetUploadPipeline(testRepoID(t, svc), []assetUploadFileInput{input}, nil)
 	if err != nil {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestRunAssetUploadPipelineUsesStagedPastedFileExtension(t *testing.T) {
 func TestEnsureAssetIndexMigratesV1ToV2Metadata(t *testing.T) {
 	svc := newTestService(t)
 	rel := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", "asset.txt"))
-	target, err := svc.resolvePath("library", rel)
+	target, err := svc.resolvePath(testRepoID(t, svc), rel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestEnsureAssetIndexMigratesV1ToV2Metadata(t *testing.T) {
 	if err := os.WriteFile(target, []byte("legacy asset"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	idxPath, err := svc.resolvePath("library", assetsIndexFile)
+	idxPath, err := svc.resolvePath(testRepoID(t, svc), assetsIndexFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestEnsureAssetIndexMigratesV1ToV2Metadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	idx, err := svc.ensureAssetIndex("library")
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureAssetIndex failed: %v", err)
 	}
@@ -240,18 +240,18 @@ func TestUpdateAssetUserMetadataPersistsEditableFields(t *testing.T) {
 	if err := os.WriteFile(source, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: "Editable"}}, nil)
+	result, err := svc.runAssetUploadPipeline(testRepoID(t, svc), []assetUploadFileInput{{Path: source, DisplayName: "Editable"}}, nil)
 	if err != nil {
 		t.Fatalf("runAssetUploadPipeline failed: %v", err)
 	}
-	updated, err := svc.updateAssetUserMetadata("library", result[0].AssetID, result[0].Ext, []byte(`{"displayName":"Renamed","remark":"Important context","tags":["alpha","beta","alpha"]}`))
+	updated, err := svc.updateAssetUserMetadata(testRepoID(t, svc), result[0].AssetID, result[0].Ext, []byte(`{"displayName":"Renamed","remark":"Important context","tags":["alpha","beta","alpha"]}`))
 	if err != nil {
 		t.Fatalf("updateAssetUserMetadata failed: %v", err)
 	}
 	if updated.DisplayName != "Renamed" || updated.Remark != "Important context" || len(updated.Tags) != 2 {
 		t.Fatalf("updated = %#v, want editable metadata", updated)
 	}
-	idx, err := svc.ensureAssetIndex("library")
+	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestUpdateAssetUserMetadataPersistsEditableFields(t *testing.T) {
 }
 
 func TestAssetUploadTaskFailureMarksUnfinishedFilesFailed(t *testing.T) {
-	task := newAssetUploadTaskStore().create("library", []assetUploadTaskFile{
+	task := newAssetUploadTaskStore().create("test-repo", []assetUploadTaskFile{
 		{ID: "file-1", Name: "bad.txt", Size: 10, Status: assetUploadFileStatusPending},
 		{ID: "file-2", Name: "later.txt", Size: 10, Status: assetUploadFileStatusPending},
 	})
@@ -288,7 +288,7 @@ func TestAssetUploadTaskFailureMarksUnfinishedFilesFailed(t *testing.T) {
 }
 
 func TestAssetUploadTaskCancelDoesNotOverrideFailedTask(t *testing.T) {
-	task := newAssetUploadTaskStore().create("library", []assetUploadTaskFile{{ID: "file-1", Name: "bad.txt", Size: 10, Status: assetUploadFileStatusPending}})
+	task := newAssetUploadTaskStore().create("test-repo", []assetUploadTaskFile{{ID: "file-1", Name: "bad.txt", Size: 10, Status: assetUploadFileStatusPending}})
 	task.markFailed(errors.New("boom"))
 
 	snap := task.cancel()
@@ -304,7 +304,7 @@ func TestAssetUploadTaskCancelDoesNotOverrideFailedTask(t *testing.T) {
 }
 
 func TestAssetUploadTaskCancelBeforeRunPreventsRunningState(t *testing.T) {
-	task := newAssetUploadTaskStore().create("library", []assetUploadTaskFile{{ID: "file-1", Name: "cancel.txt", Size: 10, Status: assetUploadFileStatusPending}})
+	task := newAssetUploadTaskStore().create("test-repo", []assetUploadTaskFile{{ID: "file-1", Name: "cancel.txt", Size: 10, Status: assetUploadFileStatusPending}})
 	snap := task.cancel()
 	if snap.Status != assetUploadStatusCanceled {
 		t.Fatalf("task status = %q, want canceled", snap.Status)

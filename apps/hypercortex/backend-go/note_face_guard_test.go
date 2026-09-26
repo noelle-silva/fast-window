@@ -12,7 +12,7 @@ func TestSaveNoteFacesRejectsMismatchedPackageOwner(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.createNote("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.createNote(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "guard-owner-a",
 		"title":     "A",
 		"faceKinds": []string{"markdown"},
@@ -22,7 +22,7 @@ func TestSaveNoteFacesRejectsMismatchedPackageOwner(t *testing.T) {
 	}
 	dirA := created.(map[string]any)["meta"].(noteMeta).Dir
 
-	_, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "guard-owner-b",
 		"packageDir": dirA,
 		"title":      "B",
@@ -33,7 +33,7 @@ func TestSaveNoteFacesRejectsMismatchedPackageOwner(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "归属不匹配") {
 		t.Fatalf("expected ownership rejection, got %v", err)
 	}
-	manifest, err := svc.loadNoteManifest("library", dirA)
+	manifest, err := svc.loadNoteManifest(testRepoID(t, svc), dirA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestSaveNoteFacesAllowsOwnerMatchedRename(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "legacy-dir-name")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "legacy-dir-name")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "legacy-rename-id",
 		Title:     "历史命名",
@@ -63,7 +63,7 @@ func TestSaveNoteFacesAllowsOwnerMatchedRename(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "old")
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "legacy-dir-name"))
 
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "legacy-rename-id",
 		"packageDir": rel,
 		"title":      "历史命名",
@@ -78,7 +78,7 @@ func TestSaveNoteFacesAllowsOwnerMatchedRename(t *testing.T) {
 	if filepath.ToSlash(savedDir) == rel {
 		t.Fatalf("expected package renamed to canonical dir, got %s", savedDir)
 	}
-	faceDoc, err := svc.loadNoteFace("library", savedDir, "text")
+	faceDoc, err := svc.loadNoteFace(testRepoID(t, svc), savedDir, "text")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestSaveNoteFacesRejectsFaceKindChange(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "guard-kind-1",
 		"title":     "类型守卫",
 		"faceKinds": []string{"markdown", "html"},
@@ -103,7 +103,7 @@ func TestSaveNoteFacesRejectsFaceKindChange(t *testing.T) {
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 
-	_, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "guard-kind-1",
 		"packageDir": packageDir,
 		"title":      "类型守卫",
@@ -122,7 +122,7 @@ func TestSaveNoteFacesRejectsDuplicateFaceFiles(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	created, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":        "guard-file-1",
 		"title":     "文件重名",
 		"faceKinds": []string{"markdown"},
@@ -132,7 +132,7 @@ func TestSaveNoteFacesRejectsDuplicateFaceFiles(t *testing.T) {
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 
-	_, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "guard-file-1",
 		"packageDir": packageDir,
 		"title":      "文件重名",
@@ -151,11 +151,11 @@ func TestSaveNoteFacesRejectsCorruptManifest(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "guard-corrupt")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "guard-corrupt")
 	mustWriteFile(t, filepath.Join(noteDir, manifestFile), "{not-json")
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "guard-corrupt"))
 
-	_, err := svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "guard-corrupt-id",
 		"packageDir": rel,
 		"title":      "损坏",
@@ -181,7 +181,7 @@ func TestSaveNoteFacesRollsBackOnWriteFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, filepath.FromSlash(rel))
+	noteDir := filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(rel))
 	manifest := normalizeManifest(noteManifest{
 		ID:        "guard-rollback-id",
 		Title:     "回滚",
@@ -198,7 +198,7 @@ func TestSaveNoteFacesRollsBackOnWriteFailure(t *testing.T) {
 	// 用同名文件占住目录位置，使第二个面的写入必然失败。
 	mustWriteFile(t, filepath.Join(noteDir, "blocked"), "placeholder")
 
-	_, err = svc.saveNoteFaces("library", mustJSONRaw(t, map[string]any{
+	_, err = svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":         "guard-rollback-id",
 		"packageDir": rel,
 		"title":      "回滚",
@@ -213,7 +213,7 @@ func TestSaveNoteFacesRollsBackOnWriteFailure(t *testing.T) {
 	if got := readFileText(t, filepath.Join(noteDir, "text.md")); got != "old" {
 		t.Fatalf("text.md not rolled back: %q", got)
 	}
-	onDisk, err := svc.loadNoteManifest("library", rel)
+	onDisk, err := svc.loadNoteManifest(testRepoID(t, svc), rel)
 	if err != nil {
 		t.Fatal(err)
 	}

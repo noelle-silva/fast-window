@@ -20,7 +20,7 @@ func createVersionedTestNote(t *testing.T, svc *service) string {
 			{"faceId": "text", "kind": "markdown", "content": "# Alpha\n\nfirst body"},
 		},
 	}
-	result, err := svc.saveNoteFaces("library", mustJSONRaw(t, input))
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, input))
 	if err != nil {
 		t.Fatalf("save note failed: %v", err)
 	}
@@ -32,18 +32,18 @@ func TestNoteVersionPublishListLoadAndRejectDuplicate(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
 
-	first, err := svc.publishNoteVersion("library", packageDir, "First release")
+	first, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "First release")
 	if err != nil {
 		t.Fatalf("publish version failed: %v", err)
 	}
 	if first.CommitName != "First release" || first.VersionID == "" || first.ContentHash == "" {
 		t.Fatalf("unexpected version summary: %+v", first)
 	}
-	if _, err := svc.publishNoteVersion("library", packageDir, "Duplicate release"); err == nil || !strings.Contains(err.Error(), "无需重复发布") {
+	if _, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "Duplicate release"); err == nil || !strings.Contains(err.Error(), "无需重复发布") {
 		t.Fatalf("expected duplicate publish rejection, got %v", err)
 	}
 
-	versions, err := svc.listNoteVersions("library", packageDir)
+	versions, err := svc.listNoteVersions(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatalf("list versions failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestNoteVersionPublishListLoadAndRejectDuplicate(t *testing.T) {
 		t.Fatalf("versions = %+v, want first version only", versions)
 	}
 
-	snapshot, err := svc.loadNoteVersion("library", packageDir, first.VersionID)
+	snapshot, err := svc.loadNoteVersion(testRepoID(t, svc), packageDir, first.VersionID)
 	if err != nil {
 		t.Fatalf("load version failed: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestNoteVersionPublishListLoadAndRejectDuplicate(t *testing.T) {
 	}
 
 	var idx noteVersionIndex
-	if err := readJSONFile(filepath.Join(svc.libraryDir, filepath.FromSlash(noteVersionsRel(packageDir, versionsIndexFile))), &idx); err != nil {
+	if err := readJSONFile(filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(noteVersionsRel(packageDir, versionsIndexFile))), &idx); err != nil {
 		t.Fatalf("read version index failed: %v", err)
 	}
 	if idx.NoteID != "20260522010101001" || len(idx.Versions) != 1 {
@@ -75,7 +75,7 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
 
-	first, err := svc.publishNoteVersion("library", packageDir, "Stable release")
+	first, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "Stable release")
 	if err != nil {
 		t.Fatalf("publish version failed: %v", err)
 	}
@@ -89,28 +89,28 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 			{"faceId": "text", "kind": "markdown", "content": "# Beta\n\n[[note_id=missing-target]]\nchanged body"},
 		},
 	}
-	if _, err := svc.saveNoteFaces("library", mustJSONRaw(t, update)); err != nil {
+	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, update)); err != nil {
 		t.Fatalf("update note failed: %v", err)
 	}
 
-	if _, err := svc.restoreNoteVersion("library", packageDir, first.VersionID); err != nil {
+	if _, err := svc.restoreNoteVersion(testRepoID(t, svc), packageDir, first.VersionID); err != nil {
 		t.Fatalf("restore version failed: %v", err)
 	}
-	manifest, err := svc.loadNoteManifest("library", packageDir)
+	manifest, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
 	if err != nil {
 		t.Fatalf("load restored manifest failed: %v", err)
 	}
 	if manifest.Title != "Versioned Note" || manifest.UpdatedAtMs <= 0 {
 		t.Fatalf("restored manifest = %+v", manifest)
 	}
-	restoredFace, err := svc.loadNoteFace("library", packageDir, "text")
+	restoredFace, err := svc.loadNoteFace(testRepoID(t, svc), packageDir, "text")
 	if err != nil {
 		t.Fatalf("load restored face failed: %v", err)
 	}
 	if !strings.Contains(restoredFace.Content, "first body") {
 		t.Fatalf("restored text = %q, want original content", restoredFace.Content)
 	}
-	refs, err := svc.loadRefIndex("library")
+	refs, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("load refs failed: %v", err)
 	}
@@ -123,10 +123,10 @@ func TestLoadNoteVersionRejectsCorruptIndex(t *testing.T) {
 	svc := newTestService(t)
 	packageDir := createVersionedTestNote(t, svc)
 	bad := noteVersionIndex{Version: noteVersionIndexVersion, NoteID: "other-note", Versions: []noteVersionSummary{}}
-	if err := svc.writeJSON("library", noteVersionsRel(packageDir, versionsIndexFile), bad); err != nil {
+	if err := svc.writeJSON(testRepoID(t, svc), noteVersionsRel(packageDir, versionsIndexFile), bad); err != nil {
 		t.Fatalf("write bad version index failed: %v", err)
 	}
-	if _, err := svc.listNoteVersions("library", packageDir); err == nil || !strings.Contains(err.Error(), "归属不匹配") {
+	if _, err := svc.listNoteVersions(testRepoID(t, svc), packageDir); err == nil || !strings.Contains(err.Error(), "归属不匹配") {
 		t.Fatalf("expected ownership mismatch, got %v", err)
 	}
 }

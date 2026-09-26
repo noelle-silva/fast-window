@@ -7,8 +7,10 @@ import (
 )
 
 const (
-	stateDirName        = "state"
-	libraryDirName      = "library"
+	stateDirName = "state"
+	// legacyLibraryName 是历史知识库的目录名，也是迁移链内部使用的作用域名：
+	// 运行时的仓库数据一律以仓库 ID 为作用域，客户端请求不允许使用该值。
+	legacyLibraryName   = "library"
 	notesDir            = "Notes"
 	assetsDir           = "Assets"
 	trashDir            = "Trash"

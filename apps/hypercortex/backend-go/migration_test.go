@@ -12,11 +12,39 @@ func newTestService(t *testing.T) *service {
 	t.Helper()
 	dataDir := t.TempDir()
 	return &service{
-		dataDir:     dataDir,
-		stateDir:    filepath.Join(dataDir, stateDirName),
-		libraryDir:  filepath.Join(dataDir, libraryDirName),
-		uploadTasks: newAssetUploadTaskStore(),
+		dataDir:          dataDir,
+		stateDir:         filepath.Join(dataDir, stateDirName),
+		reposDir:         filepath.Join(dataDir, reposDirName),
+		legacyLibraryDir: filepath.Join(dataDir, legacyLibraryName),
+		uploadTasks:      newAssetUploadTaskStore(),
+		pluginReadyRepos: map[string]bool{},
 	}
+}
+
+// testRepoID 返回测试服务的唯一仓库标识；没有仓库时按需创建一个。
+func testRepoID(t *testing.T, svc *service) string {
+	t.Helper()
+	repos, err := svc.listRepos()
+	if err != nil {
+		t.Fatalf("listRepos failed: %v", err)
+	}
+	if len(repos) == 0 {
+		identity, err := svc.createRepo("测试仓库")
+		if err != nil {
+			t.Fatalf("createRepo failed: %v", err)
+		}
+		return identity.ID
+	}
+	return repos[0].ID
+}
+
+func testRepoRoot(t *testing.T, svc *service) string {
+	t.Helper()
+	root, err := svc.repoRoot(testRepoID(t, svc))
+	if err != nil {
+		t.Fatalf("repoRoot failed: %v", err)
+	}
+	return root
 }
 
 func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
@@ -35,21 +63,24 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 		t.Fatalf("ensureRoots failed: %v", err)
 	}
 
+	repoRoot := testRepoRoot(t, svc)
 	mustExist(t, filepath.Join(svc.stateDir, metadataFile))
-	mustExist(t, filepath.Join(svc.libraryDir, favoritesFile))
-	mustExist(t, filepath.Join(svc.libraryDir, indexFile))
-	mustExist(t, filepath.Join(svc.libraryDir, refsIndexFile))
-	mustExist(t, filepath.Join(svc.libraryDir, assetsIndexFile))
-	mustExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "note-1", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "Note_note-1"))
-	mustExist(t, filepath.Join(svc.libraryDir, assetsDir, "images", "asset.txt"))
-	mustExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "note-2", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "Trash_note-2"))
+	mustExist(t, filepath.Join(repoRoot, favoritesFile))
+	mustExist(t, filepath.Join(repoRoot, indexFile))
+	mustExist(t, filepath.Join(repoRoot, refsIndexFile))
+	mustExist(t, filepath.Join(repoRoot, assetsIndexFile))
+	mustExist(t, filepath.Join(repoRoot, notesDir, "2026-05", "note-1", manifestFile))
+	mustNotExist(t, filepath.Join(repoRoot, notesDir, "2026-05", "Note_note-1"))
+	mustExist(t, filepath.Join(repoRoot, assetsDir, "images", "asset.txt"))
+	mustExist(t, filepath.Join(repoRoot, trashDir, "2026-05", "note-2", manifestFile))
+	mustNotExist(t, filepath.Join(repoRoot, trashDir, "2026-05", "Trash_note-2"))
 	mustNotExist(t, filepath.Join(svc.dataDir, metadataFile))
 	mustNotExist(t, filepath.Join(svc.dataDir, notesDir))
+	mustNotExist(t, svc.legacyLibraryDir)
+	mustExist(t, filepath.Join(repoRoot, repoIdentityFile))
 
 	var idx noteIndex
-	if err := readJSONFile(filepath.Join(svc.libraryDir, indexFile), &idx); err != nil {
+	if err := readJSONFile(filepath.Join(repoRoot, indexFile), &idx); err != nil {
 		t.Fatalf("read index failed: %v", err)
 	}
 	if got := idx.Notes["note-1"].Dir; got != "Notes/2026-05/note-1" {
@@ -57,7 +88,7 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	}
 
 	var trash trashMeta
-	if err := readJSONFile(filepath.Join(svc.libraryDir, trashDir, "2026-05", "note-2", trashMetaFile), &trash); err != nil {
+	if err := readJSONFile(filepath.Join(repoRoot, trashDir, "2026-05", "note-2", trashMetaFile), &trash); err != nil {
 		t.Fatalf("read trash meta failed: %v", err)
 	}
 	if got := trash.OriginalDir; got != "Notes/2026-05/note-2" {
@@ -68,8 +99,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 8 {
-		t.Fatalf("applied count = %d, want 8", len(ledger.Applied))
+	if len(ledger.Applied) != 9 {
+		t.Fatalf("applied count = %d, want 9", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -95,6 +126,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.Applied[7].ID != dataIdentitySplitMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[7].ID, dataIdentitySplitMigration)
 	}
+	if ledger.Applied[8].ID != repoPoolLayoutMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[8].ID, repoPoolLayoutMigration)
+	}
 }
 
 func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
@@ -111,8 +145,8 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 8 {
-		t.Fatalf("applied count = %d, want 8", len(ledger.Applied))
+	if len(ledger.Applied) != 9 {
+		t.Fatalf("applied count = %d, want 9", len(ledger.Applied))
 	}
 }
 
@@ -163,8 +197,9 @@ func TestMigrateDataIdentitySplitSeparatesSettingsAndRepoData(t *testing.T) {
 		t.Fatalf("shortcuts missing from app settings: %#v", meta)
 	}
 
+	repoRoot := testRepoRoot(t, svc)
 	var repoState map[string]any
-	if err := readJSONFile(filepath.Join(svc.libraryDir, repoStateFile), &repoState); err != nil {
+	if err := readJSONFile(filepath.Join(repoRoot, repoStateFile), &repoState); err != nil {
 		t.Fatalf("read repo state failed: %v", err)
 	}
 	if repoState["activeWorkspaceId"] != "ws-1" || repoState["currentFolderId"] != "folder-a" || repoState["activeTabKey"] != "note:n-1" {
@@ -174,25 +209,26 @@ func TestMigrateDataIdentitySplitSeparatesSettingsAndRepoData(t *testing.T) {
 		t.Fatalf("workspaces missing from repo state: %#v", repoState)
 	}
 
-	mustExist(t, filepath.Join(svc.libraryDir, favoritesFile))
+	mustExist(t, filepath.Join(repoRoot, favoritesFile))
 	mustNotExist(t, filepath.Join(svc.stateDir, favoritesFile))
-	mustExist(t, filepath.Join(svc.libraryDir, facePluginsStateFile))
+	mustExist(t, filepath.Join(repoRoot, facePluginsStateFile))
 	mustNotExist(t, filepath.Join(svc.stateDir, facePluginsStateFile))
-	mustExist(t, filepath.Join(svc.libraryDir, thumbnailCacheDir, thumbnailCacheSubdir, thumbnailIndexFile))
+	mustExist(t, filepath.Join(repoRoot, thumbnailCacheDir, thumbnailCacheSubdir, thumbnailIndexFile))
 	mustNotExist(t, filepath.Join(svc.stateDir, thumbnailCacheDir))
+	mustNotExist(t, svc.legacyLibraryDir)
 }
 
 func TestSplitMetadataIdentityDoesNotOverwriteExistingRepoState(t *testing.T) {
 	svc := newTestService(t)
 	mustWriteFile(t, filepath.Join(svc.stateDir, metadataFile), `{"version":1,"activeTabKey":"note:legacy","colorPresetId":"claude-paper"}`)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, repoStateFile), `{"version":1,"activeTabKey":"note:current"}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, repoStateFile), `{"version":1,"activeTabKey":"note:current"}`)
 
 	if err := svc.splitMetadataIdentity(); err != nil {
 		t.Fatalf("splitMetadataIdentity failed: %v", err)
 	}
 
 	var repoState map[string]any
-	if err := readJSONFile(filepath.Join(svc.libraryDir, repoStateFile), &repoState); err != nil {
+	if err := readJSONFile(filepath.Join(svc.legacyLibraryDir, repoStateFile), &repoState); err != nil {
 		t.Fatalf("read repo state failed: %v", err)
 	}
 	if repoState["activeTabKey"] != "note:current" {
@@ -214,8 +250,8 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 		t.Fatalf("ensureRoots failed: %v", err)
 	}
 
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-05", "202609010001")
-	htmlOnlyDir := filepath.Join(svc.libraryDir, notesDir, "2026-05", "202609010002")
+	noteDir := filepath.Join(svc.legacyLibraryDir, notesDir, "2026-05", "202609010001")
+	htmlOnlyDir := filepath.Join(svc.legacyLibraryDir, notesDir, "2026-05", "202609010002")
 	mustWriteFile(t, filepath.Join(noteDir, manifestFile), `{
   "schemaVersion": 2,
   "id": "202609010001",
@@ -363,7 +399,7 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 	}
 
 	noteRel := filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001"))
-	loaded, err := svc.loadNoteManifest("library", noteRel)
+	loaded, err := svc.loadNoteManifest(legacyLibraryName, noteRel)
 	if err != nil {
 		t.Fatalf("load migrated manifest failed: %v", err)
 	}
@@ -373,14 +409,14 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 	if len(loaded.Faces) != 3 || len(loaded.FaceOrder) != 3 {
 		t.Fatalf("faces lost after migration: %+v", loaded.Faces)
 	}
-	legacyDoc, err := svc.loadNoteFace("library", noteRel, "legacy")
+	legacyDoc, err := svc.loadNoteFace(legacyLibraryName, noteRel, "legacy")
 	if err != nil {
 		t.Fatalf("load unknown face failed: %v", err)
 	}
 	if !legacyDoc.Exists || legacyDoc.Content != "legacy payload" {
 		t.Fatalf("unknown face content lost: %+v", legacyDoc)
 	}
-	textFaceDoc, err := svc.loadNoteFace("library", noteRel, "text")
+	textFaceDoc, err := svc.loadNoteFace(legacyLibraryName, noteRel, "text")
 	if err != nil {
 		t.Fatalf("load migrated text face failed: %v", err)
 	}
@@ -388,7 +424,7 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 		t.Fatalf("text face body lost: %q", textFaceDoc.Content)
 	}
 
-	refs, err := svc.loadRefIndex("library")
+	refs, err := svc.loadRefIndex(legacyLibraryName)
 	if err != nil {
 		t.Fatalf("load refs failed: %v", err)
 	}
@@ -402,7 +438,7 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 		t.Fatalf("html only note without refs should not be in refs: %+v", refs)
 	}
 
-	snapshot, err := svc.loadNoteVersion("library", filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "v_20260101_000000_00000000")
+	snapshot, err := svc.loadNoteVersion(legacyLibraryName, filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "v_20260101_000000_00000000")
 	if err != nil {
 		t.Fatalf("load migrated version snapshot failed: %v", err)
 	}
@@ -412,7 +448,7 @@ func TestMigrateNoteFaceSystemUnificationUnifiesManifestsAndRebuildsRefs(t *test
 	if snapshot.Manifest.Title != "Legacy Note" {
 		t.Fatalf("snapshot manifest lost: %+v", snapshot.Manifest)
 	}
-	idx, err := svc.loadNoteVersionIndex("library", filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "202609010001")
+	idx, err := svc.loadNoteVersionIndex(legacyLibraryName, filepath.ToSlash(filepath.Join(notesDir, "2026-05", "202609010001")), "202609010001")
 	if err != nil {
 		t.Fatalf("load migrated version index failed: %v", err)
 	}
@@ -579,22 +615,22 @@ func TestMigrateHTMLFaceLegacySettingsNoopCases(t *testing.T) {
 
 func TestMigrateNotePackageDirsToIDsRenamesPackagesAndReferences(t *testing.T) {
 	svc := newTestService(t)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, indexFile), `{"version":1,"notes":{"202605130001":{"id":"202605130001","title":"Named","description":"","dir":"Notes/2026-05/Named_202605130001","createdAtMs":1,"updatedAtMs":2}}}`)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "Named_202605130001", manifestFile), `{"schemaVersion":2,"id":"202605130001","title":"Named"}`)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "Deleted_202605130002", manifestFile), `{"schemaVersion":2,"id":"202605130002","title":"Deleted"}`)
-	mustWriteFile(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "Deleted_202605130002", trashMetaFile), `{"version":1,"deletedAtMs":3,"originalDir":"Notes/2026-05/Deleted_202605130002"}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, indexFile), `{"version":1,"notes":{"202605130001":{"id":"202605130001","title":"Named","description":"","dir":"Notes/2026-05/Named_202605130001","createdAtMs":1,"updatedAtMs":2}}}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, notesDir, "2026-05", "Named_202605130001", manifestFile), `{"schemaVersion":2,"id":"202605130001","title":"Named"}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, trashDir, "2026-05", "Deleted_202605130002", manifestFile), `{"schemaVersion":2,"id":"202605130002","title":"Deleted"}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, trashDir, "2026-05", "Deleted_202605130002", trashMetaFile), `{"version":1,"deletedAtMs":3,"originalDir":"Notes/2026-05/Deleted_202605130002"}`)
 
 	if err := svc.migrateNotePackageDirsToIDs(); err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}
 
-	mustExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "202605130001", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "Named_202605130001"))
-	mustExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "202605130002", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "Deleted_202605130002"))
+	mustExist(t, filepath.Join(svc.legacyLibraryDir, notesDir, "2026-05", "202605130001", manifestFile))
+	mustNotExist(t, filepath.Join(svc.legacyLibraryDir, notesDir, "2026-05", "Named_202605130001"))
+	mustExist(t, filepath.Join(svc.legacyLibraryDir, trashDir, "2026-05", "202605130002", manifestFile))
+	mustNotExist(t, filepath.Join(svc.legacyLibraryDir, trashDir, "2026-05", "Deleted_202605130002"))
 
 	var idx noteIndex
-	if err := readJSONFile(filepath.Join(svc.libraryDir, indexFile), &idx); err != nil {
+	if err := readJSONFile(filepath.Join(svc.legacyLibraryDir, indexFile), &idx); err != nil {
 		t.Fatalf("read index failed: %v", err)
 	}
 	if got := idx.Notes["202605130001"].Dir; got != "Notes/2026-05/202605130001" {
@@ -602,7 +638,7 @@ func TestMigrateNotePackageDirsToIDsRenamesPackagesAndReferences(t *testing.T) {
 	}
 
 	var trash trashMeta
-	if err := readJSONFile(filepath.Join(svc.libraryDir, trashDir, "2026-05", "202605130002", trashMetaFile), &trash); err != nil {
+	if err := readJSONFile(filepath.Join(svc.legacyLibraryDir, trashDir, "2026-05", "202605130002", trashMetaFile), &trash); err != nil {
 		t.Fatalf("read trash meta failed: %v", err)
 	}
 	if got := trash.OriginalDir; got != "Notes/2026-05/202605130002" {
@@ -621,17 +657,25 @@ func TestImportLegacyDataNormalizesImportedNotePackageDirs(t *testing.T) {
 	mustWriteFile(t, filepath.Join(source, trashDir, "2026-05", "ImportedTrash_202605130004", manifestFile), `{"schemaVersion":2,"id":"202605130004","title":"ImportedTrash"}`)
 	mustWriteFile(t, filepath.Join(source, trashDir, "2026-05", "ImportedTrash_202605130004", trashMetaFile), `{"version":1,"deletedAtMs":3,"originalDir":"Notes/2026-05/ImportedTrash_202605130004"}`)
 
-	if _, err := svc.importLegacyData(source); err != nil {
+	report, err := svc.importLegacyData(source)
+	if err != nil {
 		t.Fatalf("import failed: %v", err)
 	}
+	if report.RepoID == "" || report.RepoTitle != "导入仓库" {
+		t.Fatalf("import report repo = %#v", report)
+	}
+	repoRoot, err := svc.repoRoot(report.RepoID)
+	if err != nil {
+		t.Fatalf("imported repo missing: %v", err)
+	}
 
-	mustExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "202605130003", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, notesDir, "2026-05", "Imported_202605130003"))
-	mustExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "202605130004", manifestFile))
-	mustNotExist(t, filepath.Join(svc.libraryDir, trashDir, "2026-05", "ImportedTrash_202605130004"))
+	mustExist(t, filepath.Join(repoRoot, notesDir, "2026-05", "202605130003", manifestFile))
+	mustNotExist(t, filepath.Join(repoRoot, notesDir, "2026-05", "Imported_202605130003"))
+	mustExist(t, filepath.Join(repoRoot, trashDir, "2026-05", "202605130004", manifestFile))
+	mustNotExist(t, filepath.Join(repoRoot, trashDir, "2026-05", "ImportedTrash_202605130004"))
 
 	var idx noteIndex
-	if err := readJSONFile(filepath.Join(svc.libraryDir, indexFile), &idx); err != nil {
+	if err := readJSONFile(filepath.Join(repoRoot, indexFile), &idx); err != nil {
 		t.Fatalf("read index failed: %v", err)
 	}
 	if got := idx.Notes["202605130003"].Dir; got != "Notes/2026-05/202605130003" {
@@ -639,12 +683,14 @@ func TestImportLegacyDataNormalizesImportedNotePackageDirs(t *testing.T) {
 	}
 
 	var trash trashMeta
-	if err := readJSONFile(filepath.Join(svc.libraryDir, trashDir, "2026-05", "202605130004", trashMetaFile), &trash); err != nil {
+	if err := readJSONFile(filepath.Join(repoRoot, trashDir, "2026-05", "202605130004", trashMetaFile), &trash); err != nil {
 		t.Fatalf("read trash meta failed: %v", err)
 	}
 	if got := trash.OriginalDir; got != "Notes/2026-05/202605130004" {
 		t.Fatalf("trash originalDir = %q, want Notes/2026-05/202605130004", got)
 	}
+	// 导入前的默认仓库保持为空，不被导入内容污染。
+	mustNotExist(t, filepath.Join(testRepoRoot(t, svc), notesDir, "2026-05", "202605130003"))
 }
 
 func TestRunMigrationsWritesRecoveryOnFailure(t *testing.T) {

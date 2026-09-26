@@ -8,24 +8,30 @@ import (
 	"strings"
 )
 
+// migrateNotePackageDirsToIDs 对历史知识库执行目录规范化（迁移链入口）。
 func (svc *service) migrateNotePackageDirsToIDs() error {
-	noteDirsByID, err := svc.renamePackageDirsUnder(notesDir)
+	return svc.migrateNotePackageDirsToIDsAt(svc.legacyLibraryDir)
+}
+
+// migrateNotePackageDirsToIDsAt 在指定仓库根内把笔记/回收站包目录规范化为笔记 ID。
+func (svc *service) migrateNotePackageDirsToIDsAt(root string) error {
+	noteDirsByID, err := renamePackageDirsUnder(root, notesDir)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.renamePackageDirsUnder(trashDir); err != nil {
+	if _, err := renamePackageDirsUnder(root, trashDir); err != nil {
 		return err
 	}
-	if err := svc.rewriteNoteIndexDirs(noteDirsByID); err != nil {
+	if err := rewriteNoteIndexDirs(root, noteDirsByID); err != nil {
 		return err
 	}
-	return svc.rewriteTrashOriginalDirs()
+	return rewriteTrashOriginalDirs(root)
 }
 
-func (svc *service) renamePackageDirsUnder(rootName string) (map[string]string, error) {
-	root := filepath.Join(svc.libraryDir, rootName)
+func renamePackageDirsUnder(root string, rootName string) (map[string]string, error) {
+	base := filepath.Join(root, rootName)
 	dirsByID := map[string]string{}
-	months, err := os.ReadDir(root)
+	months, err := os.ReadDir(base)
 	if errors.Is(err, os.ErrNotExist) {
 		return dirsByID, nil
 	}
@@ -37,7 +43,7 @@ func (svc *service) renamePackageDirsUnder(rootName string) (map[string]string, 
 		if !month.IsDir() {
 			continue
 		}
-		monthDir := filepath.Join(root, month.Name())
+		monthDir := filepath.Join(base, month.Name())
 		packages, err := os.ReadDir(monthDir)
 		if err != nil {
 			return dirsByID, err
@@ -74,11 +80,11 @@ func (svc *service) renamePackageDirsUnder(rootName string) (map[string]string, 
 	return dirsByID, nil
 }
 
-func (svc *service) rewriteNoteIndexDirs(dirsByID map[string]string) error {
+func rewriteNoteIndexDirs(root string, dirsByID map[string]string) error {
 	if len(dirsByID) == 0 {
 		return nil
 	}
-	path := filepath.Join(svc.libraryDir, indexFile)
+	path := filepath.Join(root, indexFile)
 	var idx noteIndex
 	if err := readJSONFile(path, &idx); err != nil {
 		return nil
@@ -103,9 +109,9 @@ func (svc *service) rewriteNoteIndexDirs(dirsByID map[string]string) error {
 	return writeJSONFile(path, idx)
 }
 
-func (svc *service) rewriteTrashOriginalDirs() error {
-	root := filepath.Join(svc.libraryDir, trashDir)
-	months, err := os.ReadDir(root)
+func rewriteTrashOriginalDirs(root string) error {
+	base := filepath.Join(root, trashDir)
+	months, err := os.ReadDir(base)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -116,7 +122,7 @@ func (svc *service) rewriteTrashOriginalDirs() error {
 		if !month.IsDir() {
 			continue
 		}
-		monthDir := filepath.Join(root, month.Name())
+		monthDir := filepath.Join(base, month.Name())
 		packages, err := os.ReadDir(monthDir)
 		if err != nil {
 			return err

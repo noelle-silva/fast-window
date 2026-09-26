@@ -71,7 +71,7 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "delete-face-refs")
+	noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", "delete-face-refs")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "delete-face-refs-note",
 		Title:     "Referer",
@@ -87,12 +87,12 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "[[note_id=target-a]]")
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "[[note_id=target-b|face=text]]")
 
-	if _, err := svc.refreshDerivedIndexesForNote("library", filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs")), manifest); err != nil {
+	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs")), manifest); err != nil {
 		t.Fatal(err)
 	}
 
 	rel := filepath.ToSlash(filepath.Join(notesDir, "2026-09", "delete-face-refs"))
-	result, err := svc.deleteNoteFace("library", rel, "html", "trash")
+	result, err := svc.deleteNoteFace(testRepoID(t, svc), rel, "html", "trash")
 	if err != nil {
 		t.Fatalf("deleteNoteFace failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	if next.Faces["text"].ID != "text" || len(next.FaceOrder) != 1 {
 		t.Fatalf("manifest after delete = %#v", next)
 	}
-	idx, err := svc.loadRefIndex("library")
+	idx, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,31 +114,31 @@ func TestDeleteNoteFaceCleansFaceRefs(t *testing.T) {
 	}
 
 	// Q21：删除的面进入回收站，可恢复回原笔记
-	items, err := svc.listTrash("library")
+	items, err := svc.listTrash(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Kind != "face" || items[0].FaceID != "html" || items[0].NoteID != "delete-face-refs-note" {
 		t.Fatalf("trash items = %#v", items)
 	}
-	if _, err := svc.restoreTrashItem("library", mustJSONRaw(t, items[0])); err != nil {
+	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatalf("restore face failed: %v", err)
 	}
-	restored, err := svc.loadNoteManifest("library", rel)
+	restored, err := svc.loadNoteManifest(testRepoID(t, svc), rel)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := restored.Faces["html"]; !ok || len(restored.FaceOrder) != 2 || restored.FaceOrder[1] != "html" {
 		t.Fatalf("manifest after restore = %#v", restored)
 	}
-	faceDoc, err := svc.loadNoteFace("library", rel, "html")
+	faceDoc, err := svc.loadNoteFace(testRepoID(t, svc), rel, "html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !faceDoc.Exists || !strings.Contains(faceDoc.Content, "target-b") {
 		t.Fatalf("restored face content = %#v", faceDoc)
 	}
-	afterRestore, err := svc.loadRefIndex("library")
+	afterRestore, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,17 +163,17 @@ func TestRefsIndexRoundTripPersistsJSONStructure(t *testing.T) {
 			"text": {{NoteID: "note-b"}, {NoteID: "note-c", FaceID: "html"}},
 		},
 	}
-	if err := svc.saveRefIndex("library", idx); err != nil {
+	if err := svc.saveRefIndex(testRepoID(t, svc), idx); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(svc.libraryDir, refsIndexFile))
+	raw, err := os.ReadFile(filepath.Join(testRepoRoot(t, svc), refsIndexFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := string(raw); got != "{\n  \"note-a\": {\n    \"text\": [\n      {\n        \"noteId\": \"note-b\"\n      },\n      {\n        \"noteId\": \"note-c\",\n        \"faceId\": \"html\"\n      }\n    ]\n  }\n}\n" {
 		t.Fatalf("refs json = %s", got)
 	}
-	loaded, err := svc.loadRefIndex("library")
+	loaded, err := svc.loadRefIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,10 +184,7 @@ func TestRefsIndexRoundTripPersistsJSONStructure(t *testing.T) {
 
 func TestMigrationNoteFaceRefsV2RebuildsAndIsIdempotent(t *testing.T) {
 	svc := newTestService(t)
-	if err := svc.ensureRoots(); err != nil {
-		t.Fatal(err)
-	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "refs-note-1")
+	noteDir := filepath.Join(svc.legacyLibraryDir, notesDir, "2026-09", "refs-note-1")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "refs-note-1",
 		Title:     "Referer",
@@ -202,12 +199,12 @@ func TestMigrationNoteFaceRefsV2RebuildsAndIsIdempotent(t *testing.T) {
 	}
 	mustWriteFile(t, filepath.Join(noteDir, "text.md"), "[[note_id=target-a|face=html]]\n\n[[note_id=target-a]]")
 	mustWriteFile(t, filepath.Join(noteDir, "html-view.html"), "<div>[[note_id=target-b|face=text]]</div>")
-	mustWriteFile(t, filepath.Join(svc.libraryDir, refsIndexFile), `{"refs-note-1":["stale-a"]}`)
+	mustWriteFile(t, filepath.Join(svc.legacyLibraryDir, refsIndexFile), `{"refs-note-1":["stale-a"]}`)
 
 	if err := svc.migrateNoteFaceRefsV2(); err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}
-	idx, err := svc.loadRefIndex("library")
+	idx, err := svc.loadRefIndex(legacyLibraryName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +218,7 @@ func TestMigrationNoteFaceRefsV2RebuildsAndIsIdempotent(t *testing.T) {
 		t.Fatalf("refs = %#v, want %#v", idx, want)
 	}
 
-	refsPath := filepath.Join(svc.libraryDir, refsIndexFile)
+	refsPath := filepath.Join(svc.legacyLibraryDir, refsIndexFile)
 	before, err := os.ReadFile(refsPath)
 	if err != nil {
 		t.Fatal(err)
@@ -240,10 +237,7 @@ func TestMigrationNoteFaceRefsV2RebuildsAndIsIdempotent(t *testing.T) {
 
 func TestRefsMigrationSkipsUnknownFaceKinds(t *testing.T) {
 	svc := newTestService(t)
-	if err := svc.ensureRoots(); err != nil {
-		t.Fatal(err)
-	}
-	noteDir := filepath.Join(svc.libraryDir, notesDir, "2026-09", "refs-note-2")
+	noteDir := filepath.Join(svc.legacyLibraryDir, notesDir, "2026-09", "refs-note-2")
 	manifest := normalizeManifest(noteManifest{
 		ID:        "refs-note-2",
 		Title:     "Unknown Face",
@@ -259,7 +253,7 @@ func TestRefsMigrationSkipsUnknownFaceKinds(t *testing.T) {
 	if err := svc.migrateNoteFaceRefsV2(); err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}
-	idx, err := svc.loadRefIndex("library")
+	idx, err := svc.loadRefIndex(legacyLibraryName)
 	if err != nil {
 		t.Fatal(err)
 	}
