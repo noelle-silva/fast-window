@@ -1019,17 +1019,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [applySidebarState],
   )
 
-  const updateTabGrouping = React.useCallback(
-    (updater: (prev: { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => {
-      setTabGrouping(prev => {
-        const next = updater(prev)
-        commitActiveWorkspacePatch({ tabGroups: next.groups, tabGroupByTabKey: next.byTabKey })
-        return next
-      })
-    },
-    [commitActiveWorkspacePatch],
-  )
-
   const isHoverTabsMode = tabsMode === 'hover'
   const sidebarRailWidth = isHoverTabsMode ? 52 : tabsCollapsed ? 52 : 220
   const sidebarPanelExpanded = isHoverTabsMode ? tabsHoverOpen : !tabsCollapsed

@@ -387,12 +387,17 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   }, [])
 
   // 工作区切换、现场装载与现场可见化时恢复列表滚动位置。
+  // 目标值经「最新值」ref 读取：同工作区内的滚动上报与普通重渲染不触发恢复，不与用户操作抢位置。
+  const sidebarScrollTopValueRef = React.useRef(sidebarScrollTop)
+  React.useLayoutEffect(() => {
+    sidebarScrollTopValueRef.current = sidebarScrollTop
+  })
   React.useLayoutEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    const target = Math.max(0, Math.floor(Number(sidebarScrollTop) || 0))
+    const target = Math.max(0, Math.floor(Number(sidebarScrollTopValueRef.current) || 0))
     if (container.scrollTop !== target) container.scrollTop = target
-  }, [activeWorkspaceId, sidebarScrollRestoreSignal, sidebarScrollTop])
+  }, [activeWorkspaceId, sidebarScrollRestoreSignal])
 
   React.useLayoutEffect(() => {
     if (activeTabScrollSignal <= 0) return
