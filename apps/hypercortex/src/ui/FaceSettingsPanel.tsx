@@ -42,7 +42,7 @@ export function FaceSettingsPanel(props: FaceSettingsPanelProps) {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
         <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'var(--hc-text)' }}>面排序规则</Typography>
         <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
-          新建笔记的默认面按此顺序排列；笔记没有自己的面顺序时，打开笔记也按此顺序定位第一个面。
+          新建笔记的默认面按此顺序排列；已有笔记的顺序以笔记自己的设置为准（在笔记设置里调整）。
         </Typography>
         <FaceOrderList
           order={faceKindOrder}

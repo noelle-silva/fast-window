@@ -69,7 +69,15 @@ export function MarkdownReadView({ content, visible, context }: FaceReadViewProp
       if (!targetId) return
       e.preventDefault()
       const meta = context.getNoteMeta(targetId)
-      if (!meta) return
+      if (!meta) {
+        // 失效引用明确反馈，不静默吞掉点击。
+        void context.gateway.host.toast('此笔记不存在')
+        return
+      }
+      if (link.classList.contains('hc-note-ref--face-gone')) {
+        void context.gateway.host.toast('引用的面已失效')
+        return
+      }
       const faceId = String(link.getAttribute('data-face-id') || '').trim()
       context.onOpenNote(meta, faceId || undefined)
     }
