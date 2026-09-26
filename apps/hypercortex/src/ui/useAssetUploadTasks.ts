@@ -7,6 +7,8 @@ const ASSET_UPLOAD_TASK_POLL_MS = 500
 
 type Params = {
   gateway: HyperCortexGateway
+  // 上传任务属于具体仓库：只呈现当前仓库的任务，避免跨仓库误看与误操作。
+  activeRepoId: string
   onTasksSettled?: () => Promise<void> | void
 }
 
@@ -14,7 +16,7 @@ function isSettledUploadTask(task: AssetUploadTaskSnapshot): boolean {
   return task.status === 'completed' || task.status === 'failed' || task.status === 'canceled'
 }
 
-export function useAssetUploadTasks({ gateway, onTasksSettled }: Params) {
+export function useAssetUploadTasks({ gateway, activeRepoId, onTasksSettled }: Params) {
   const [tasks, setTasks] = React.useState<AssetUploadTaskSnapshot[]>([])
   const handledSettledTaskIdsRef = React.useRef<Set<string>>(new Set())
 
@@ -32,17 +34,19 @@ export function useAssetUploadTasks({ gateway, onTasksSettled }: Params) {
   }, [onTasksSettled])
 
   const refreshTasks = React.useCallback(async () => {
-    const nextTasks = await gateway.assets.listUploadTasks()
-    setTasks(prev => mergeUploadTasks(prev, nextTasks))
+    const allTasks = await gateway.assets.listUploadTasks()
+    const nextTasks = activeRepoId ? allTasks.filter(task => task.scope === activeRepoId) : []
+    setTasks(prev => mergeUploadTasks(prev.filter(task => task.scope === activeRepoId), nextTasks))
     const hasNewSettledTask = nextTasks.some(markSettledTaskHandled)
     if (hasNewSettledTask) {
       await notifyTasksSettled()
     }
-  }, [gateway, markSettledTaskHandled, notifyTasksSettled])
+  }, [activeRepoId, gateway, markSettledTaskHandled, notifyTasksSettled])
 
   React.useEffect(() => {
+    setTasks(prev => prev.filter(task => task.scope === activeRepoId))
     void refreshTasks().catch(() => {})
-  }, [refreshTasks])
+  }, [activeRepoId, refreshTasks])
 
   React.useEffect(() => {
     if (!hasPollingTasks) return
@@ -53,9 +57,10 @@ export function useAssetUploadTasks({ gateway, onTasksSettled }: Params) {
   }, [hasPollingTasks, refreshTasks])
 
   const upsertTask = React.useCallback((task: AssetUploadTaskSnapshot) => {
+    if (activeRepoId && task.scope !== activeRepoId) return
     setTasks(prev => upsertUploadTask(prev, task))
     if (markSettledTaskHandled(task)) void notifyTasksSettled().catch(() => {})
-  }, [markSettledTaskHandled, notifyTasksSettled])
+  }, [activeRepoId, markSettledTaskHandled, notifyTasksSettled])
 
   const pauseTask = React.useCallback(async (taskId: string) => {
     const task = await gateway.assets.pauseUploadTask(taskId)

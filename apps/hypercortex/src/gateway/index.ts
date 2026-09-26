@@ -4,6 +4,7 @@ import { createMetadataService } from '../services/metadataService'
 import { createNotesService } from '../services/notesService'
 import { createRefsService } from '../services/refsService'
 import { createRepoStateService } from '../services/repoStateService'
+import { createReposService } from '../services/reposService'
 import { createSearchService } from '../services/searchService'
 import { createTrashService } from '../services/trashService'
 import { invoke } from '@tauri-apps/api/core'
@@ -11,6 +12,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createBackgroundClient } from './backgroundClient'
 import { createClipboardGateway } from './clipboardGateway'
 import { createHostGateway } from './hostGateway'
+import { withRepoScope, setActiveRepoScope } from './repoScope'
 import { HyperCortexRpc } from '../shared/rpcMethods'
 import type { BackgroundClient } from './backgroundClient'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from './types'
@@ -21,21 +23,23 @@ let gatewayPromise: Promise<HyperCortexGateway> | null = null
 export async function createHyperCortexGateway(): Promise<HyperCortexGateway> {
   const baseApi = createHyperCortexAppHostApi()
   const background = await createBackgroundClient(baseApi)
+  const scopedBackground = withRepoScope(background)
   const hostApi = withAppHostMethods(baseApi, background)
-  const host = createHostGateway(hostApi, background)
+  const host = createHostGateway(hostApi, scopedBackground)
   const clipboard = createClipboardGateway(hostApi)
 
   return {
     host,
     clipboard,
-    refs: createRefsService(background),
-    search: createSearchService(background),
-    metadata: createMetadataService(background),
-    repoState: createRepoStateService(background),
-    notes: createNotesService(background),
-    assets: createAssetsService(background),
-    favorites: createFavoritesService(background),
-    trash: createTrashService(background),
+    repos: createReposService(scopedBackground),
+    refs: createRefsService(scopedBackground),
+    search: createSearchService(scopedBackground),
+    metadata: createMetadataService(scopedBackground),
+    notes: createNotesService(scopedBackground),
+    assets: createAssetsService(scopedBackground),
+    favorites: createFavoritesService(scopedBackground),
+    repoState: createRepoStateService(scopedBackground),
+    trash: createTrashService(scopedBackground),
   }
 }
 
@@ -94,4 +98,6 @@ export function resetHyperCortexGateway() {
   gatewayPromise = null
 }
 
-export type { DataDirStatus, HyperCortexGateway, HyperCortexTrashItem, LegacyDataImportResult } from './types'
+export { setActiveRepoScope }
+
+export type { DataDirStatus, HyperCortexGateway, HyperCortexRepo, HyperCortexTrashItem, LegacyDataImportResult } from './types'

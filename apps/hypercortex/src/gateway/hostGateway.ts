@@ -37,9 +37,6 @@ export function createHostGateway(baseApi: any, background: BackgroundClient): H
       if (typeof base?.host?.importLegacyData === 'function') return base.host.importLegacyData()
       throw new Error('旧数据导入能力不可用')
     },
-    async getLibraryDir() {
-      return background.invoke(HyperCortexRpc.host.getLibraryDir, {})
-    },
     async openDir(dir: string) {
       const s = String(dir || '').trim()
       if (!s) throw new Error('dir 不能为空')

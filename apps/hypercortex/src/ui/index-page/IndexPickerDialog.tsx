@@ -13,6 +13,7 @@ type Props = {
   open: boolean
   kind: 'note' | 'asset'
   gateway: HyperCortexGateway
+  activeRepoId: string
   folderId: string
   doc: HyperCortexFavoritesDocV1
   noteIndex?: Record<string, NoteMeta>
@@ -21,7 +22,7 @@ type Props = {
 }
 
 export function IndexPickerDialog(props: Props): React.ReactNode {
-  const { open, kind, gateway, folderId, doc, noteIndex, onClose, onPick } = props
+  const { open, kind, gateway, activeRepoId, folderId, doc, noteIndex, onClose, onPick } = props
   const [search, setSearch] = React.useState('')
   const [noteLayout, setNoteLayout] = React.useState<AllNotesLayout>('grid')
 
@@ -94,6 +95,7 @@ export function IndexPickerDialog(props: Props): React.ReactNode {
             <AssetPoolPanel
               gateway={gateway}
               scope="library"
+              activeRepoId={activeRepoId}
               filterText={search}
               picker={{
                 alreadyKeys,

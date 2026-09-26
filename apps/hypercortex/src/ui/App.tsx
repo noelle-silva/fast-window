@@ -40,6 +40,7 @@ import { isModalCapablePageId, normalizePageDisplayModes, visiblePageId, type Mo
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
+import { RepoCreateDialog, RepoSwitcher, pickNextRepoTitle } from './RepoSwitcher'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
 import { colorPresetCssVars, createHyperCortexTheme, DEFAULT_COLOR_PRESET_ID, getColorPreset, normalizeColorPresetId } from './colorPresets'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -67,7 +68,8 @@ import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoade
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
-import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
+import type { DataDirStatus, HyperCortexGateway, HyperCortexRepo, LegacyDataImportResult } from '../gateway'
+import { setActiveRepoScope } from '../gateway'
 import { normalizeFacePluginSettingsContainer, normalizeFaceSettingValue } from '../facePlugins/settings'
 import {
   normalizeDefaultFaceKinds,
@@ -523,9 +525,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     try {
       const result = await gateway.host.importLegacyData()
       if (result) {
+        const repoList = await gateway.repos.listRepos().catch(() => null)
+        if (repoList) setRepos(repoList)
         const importedCount = result.files.length
         const skippedCount = result.skipped.length
-        void gateway.host.toast(`旧数据导入完成：已导入 ${importedCount} 项，跳过 ${skippedCount} 项`)
+        const repoHint = result.repoTitle ? `，已导入为新仓库「${result.repoTitle}」` : ''
+        void gateway.host.toast(`旧数据导入完成：已导入 ${importedCount} 项，跳过 ${skippedCount} 项${repoHint}`)
       }
       return result
     } catch (e: any) {
@@ -539,8 +544,20 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     void refreshDataDirStatus().catch(() => {})
   }, [refreshDataDirStatus, visiblePage])
 
+  // ---- 仓库池：当前仓库决定此后所有仓库数据的归属
+  const [repos, setRepos] = React.useState<HyperCortexRepo[]>([])
+  const [activeRepoId, setActiveRepoId] = React.useState('')
+  const activeRepoIdRef = React.useRef('')
+  const repoSwitchBusyRef = React.useRef(false)
+  const [repoSwitchBusy, setRepoSwitchBusy] = React.useState(false)
+  const [repoCreateOpen, setRepoCreateOpen] = React.useState(false)
+  const [repoCreateBusy, setRepoCreateBusy] = React.useState(false)
+  React.useEffect(() => {
+    activeRepoIdRef.current = activeRepoId
+  }, [activeRepoId])
+
   // ---- 全部笔记列表
-  const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway)
+  const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway, activeRepoId)
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
@@ -661,6 +678,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
+  const tabsInitReadyRef = React.useRef(false)
+  React.useEffect(() => {
+    tabsInitReadyRef.current = tabsInitReady
+  }, [tabsInitReady])
   const [initError, setInitError] = React.useState<string | null>(null)
   const [initRetryBusy, setInitRetryBusy] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
@@ -1450,138 +1471,269 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [updateSidebarItems],
   )
 
-  // 初始化：应用设置与仓库状态装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
+  // applyRepoStateToUi 把仓库工作状态装载为界面现场；返回归一化结果供持久化判断。
+  const applyRepoStateToUi = React.useCallback(
+    (normalizedRepoState: HyperCortexRepoStateV1) => {
+      repoStateRef.current = normalizedRepoState
+      setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
+      const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
+      restoreActiveTabKeyRef.current = activeKey
+
+      const legacyTabsDetected =
+        Array.isArray((normalizedRepoState as any).openNoteIds) ||
+        typeof (normalizedRepoState as any).activeNoteId === 'string' ||
+        ((normalizedRepoState as any).tabGroupByNoteId && typeof (normalizedRepoState as any).tabGroupByNoteId === 'object')
+      const v2TabsDetected =
+        Array.isArray((normalizedRepoState as any).openTabKeys) ||
+        typeof (normalizedRepoState as any).activeTabKey === 'string' ||
+        ((normalizedRepoState as any).tabGroupByTabKey && typeof (normalizedRepoState as any).tabGroupByTabKey === 'object') ||
+        Array.isArray(normalizedRepoState.workspaces)
+      if (legacyTabsDetected && !v2TabsDetected) {
+        void gateway.host.toast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
+      }
+
+      let nextWorkspaces = normalizeWorkspaces(normalizedRepoState.workspaces, {
+        sidebarItems: normalizedRepoState.sidebarItems,
+        openTabKeys: normalizedRepoState.openTabKeys,
+        activeTabKey: normalizedRepoState.activeTabKey,
+        tabGroups: normalizedRepoState.tabGroups,
+        tabGroupByTabKey: normalizedRepoState.tabGroupByTabKey,
+      })
+      const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedRepoState.activeWorkspaceId, nextWorkspaces)
+      let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
+
+      let didMutateActiveWorkspace = false
+      if (activeWs && activeKey) {
+        const openKeys = activeWs.openTabKeys
+        if (!openKeys.includes(activeKey)) {
+          const nextSidebarItems = insertTabAsUngrouped(ensureSidebarItems(activeWs), activeKey, ensureSidebarItems(activeWs).length)
+          const nextWs = applySidebarItemsToWorkspace({ ...activeWs, activeTabKey: activeKey }, nextSidebarItems)
+          nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, () => nextWs)
+          activeWs = nextWs
+          didMutateActiveWorkspace = true
+        }
+      }
+
+      activeWorkspaceIdRef.current = nextActiveWorkspaceId
+      setWorkspaces(nextWorkspaces)
+      setActiveWorkspaceId(nextActiveWorkspaceId)
+      if (activeWs) applyWorkspaceSidebarState(activeWs)
+      return { nextWorkspaces, nextActiveWorkspaceId, didMutateActiveWorkspace }
+    },
+    [applyWorkspaceSidebarState, gateway],
+  )
+
+  // loadRepoData 装载当前仓库的完整工作现场：仓库状态 + 收藏夹 + 附件索引。
+  const loadRepoData = React.useCallback(async () => {
+    const [normalizedRepoState, nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
+      gateway.repoState.ensureRepoState('library'),
+      gateway.favorites.ensureFavorites('library'),
+      gateway.assets.ensureAssetsIndex('library'),
+    ])
+    const applied = applyRepoStateToUi(normalizedRepoState)
+    setFavoritesDoc(nextFavoritesDoc)
+    setAssetPoolIndex(nextAssetPoolIndex as any)
+    return { normalizedRepoState, ...applied }
+  }, [applyRepoStateToUi, gateway])
+
+  // 仓库状态在装载时被归一化（补工作区、补当前标签）时写回，避免每次装载重复归一化。
+  const persistRepoStateNormalization = React.useCallback(
+    (
+      normalizedRepoState: HyperCortexRepoStateV1,
+      applied: { nextWorkspaces: HyperCortexWorkspaceV1[]; nextActiveWorkspaceId: string; didMutateActiveWorkspace: boolean },
+    ) => {
+      const shouldPersist =
+        !Array.isArray(normalizedRepoState.workspaces) ||
+        normalizedRepoState.activeWorkspaceId !== applied.nextActiveWorkspaceId ||
+        applied.didMutateActiveWorkspace
+      if (shouldPersist) {
+        void persistRepoStatePatch(buildRepoStateSnapshot(applied.nextWorkspaces, applied.nextActiveWorkspaceId)).catch(() => {})
+      }
+    },
+    [persistRepoStatePatch],
+  )
+
+  const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
+
+  // resetRepoScopedState 清空上一个仓库留下的全部界面现场，等待新仓库装载。
+  const resetRepoScopedState = React.useCallback(() => {
+    setOpenNoteTabs([])
+    setOpenAssetTabs([])
+    setPlayingTabKeys(new Set())
+    setWorkspaces([])
+    setActiveWorkspaceId('')
+    activeWorkspaceIdRef.current = ''
+    setSidebarItems([])
+    setTabGrouping({ groups: [], byTabKey: {} })
+    setOpenTabKeys([] as any)
+    setActiveTabKey('' as any)
+    setActiveNoteId('')
+    draftNoteMetaRef.current = {}
+    noteInitSnapshotsRef.current = {}
+    noteSessionHandlesRef.current = {}
+    noteScrollTopByIdRef.current = {}
+    setNoteCardInfoById({})
+    setFavoritesDoc(null)
+    setAssetPoolIndex(null)
+    setCurrentFolderId('root')
+    repoStateRef.current = null
+    autoCleanupRanForDaysRef.current = null
+    navHistoryRef.current = []
+    fwdNavHistoryRef.current = []
+    syncNavStackCounts()
+    setOpenModalPage(null)
+    navigatePage('home', { recordHistory: false })
+  }, [navigatePage, syncNavStackCounts])
+
+  // handleSwitchRepo 切换仓库：先锁写路径，再换作用域、清现场、装载新仓库。
+  const handleSwitchRepo = React.useCallback(
+    async (repoId: string) => {
+      const id = String(repoId || '').trim()
+      if (!id || id === activeRepoIdRef.current || repoSwitchBusyRef.current) return
+      repoSwitchBusyRef.current = true
+      setRepoSwitchBusy(true)
+      const wasMetaReady = metaReadyRef.current
+      const wasTabsReady = tabsInitReadyRef.current
+      // 写路径立即上锁（ref 同步生效，不等渲染提交），防止切换过程中旧现场写入新仓库。
+      metaReadyRef.current = false
+      tabsInitReadyRef.current = false
+      setMetaReady(false)
+      setTabsInitReady(false)
+      let scopeSwitched = false
+      try {
+        const activeRepo = await gateway.repos.activateRepo(id)
+        scopeSwitched = true
+        setActiveRepoScope(activeRepo.id)
+        activeRepoIdRef.current = activeRepo.id
+        await persistAppSettingsPatch({ activeRepoId: activeRepo.id })
+        resetRepoScopedState()
+        setActiveRepoId(activeRepo.id)
+        const { normalizedRepoState, ...applied } = await loadRepoData()
+        persistRepoStateNormalization(normalizedRepoState, applied)
+        metaReadyRef.current = true
+        tabsInitReadyRef.current = true
+        setTabsInitReady(true)
+        setMetaReady(true)
+        void gateway.host.toast(`已切换到仓库：${activeRepo.title}`)
+      } catch (e: any) {
+        void gateway.host.toast(String(e?.message || e || '切换仓库失败'))
+        if (!scopeSwitched) {
+          metaReadyRef.current = wasMetaReady
+          tabsInitReadyRef.current = wasTabsReady
+          setMetaReady(wasMetaReady)
+          setTabsInitReady(wasTabsReady)
+        }
+      } finally {
+        repoSwitchBusyRef.current = false
+        setRepoSwitchBusy(false)
+      }
+    },
+    [gateway, loadRepoData, persistAppSettingsPatch, persistRepoStateNormalization, resetRepoScopedState],
+  )
+
+  const handleCreateRepo = React.useCallback(
+    async (title: string) => {
+      const nextTitle = String(title || '').trim() || pickNextRepoTitle(repos)
+      setRepoCreateBusy(true)
+      try {
+        const created = await gateway.repos.createRepo(nextTitle)
+        setRepos(prev => (prev.some(repo => repo.id === created.id) ? prev : [...prev, created]))
+        setRepoCreateOpen(false)
+        await handleSwitchRepo(created.id)
+      } catch (e: any) {
+        void gateway.host.toast(String(e?.message || e || '新建仓库失败'))
+      } finally {
+        setRepoCreateBusy(false)
+      }
+    },
+    [gateway, handleSwitchRepo, repos],
+  )
+
+  // 初始化：应用设置与当前仓库装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
   // 面声明为独立失败域，不阻断核心数据，面系统可在重试后恢复。
   const runAppInitialization = React.useCallback(async () => {
     setInitError(null)
     try {
       const loadAppSettings = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
-      const loadRepoState = async () => (await gateway.repoState.tryLoadRepoState('library')) || (await gateway.repoState.ensureRepoState('library'))
-      const [normalizedSettings, normalizedRepoState] = await Promise.all([loadAppSettings(), loadRepoState()])
+      const [normalizedSettings, repoList] = await Promise.all([loadAppSettings(), gateway.repos.listRepos()])
       appSettingsRef.current = normalizedSettings
-      repoStateRef.current = normalizedRepoState
+      // 当前仓库：优先上次使用的仓库，其次仓库池中的第一个可用仓库。
+      const preferredRepo = repoList.find(repo => repo.id === normalizedSettings.activeRepoId) || repoList[0]
+      if (!preferredRepo) throw new Error('仓库池为空')
+      const activeRepo = await gateway.repos.activateRepo(preferredRepo.id)
+      setActiveRepoScope(activeRepo.id)
+      setRepos(repoList)
+      setActiveRepoId(activeRepo.id)
+
       setShortcutBindings(normalizeShortcutBindings(normalizedSettings.shortcuts))
-        const nextPageDisplayModes = normalizePageDisplayModes(normalizedSettings.pageDisplayModes)
-        pageDisplayModesRef.current = nextPageDisplayModes
-        setPageDisplayModes(nextPageDisplayModes)
-        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedSettings as any).shortcutHintsEnabled)
-        setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
-        setAllNotesLayout(normalizeAllNotesLayout(normalizedSettings.allNotesLayout))
-        setTabsCollapsed(normalizeBoolean(normalizedSettings.tabsCollapsed))
-        setTabsMode(normalizeTabsMode(normalizedSettings.tabsMode))
-        setSidebarSortMode(normalizeSidebarSortMode(normalizedSettings.sidebarSortMode))
-        const normalizedTrashEnabled = normalizeTrashEnabled(normalizedSettings.trashEnabled)
-        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedSettings.trashAutoDeleteDays)
-        setTrashEnabled(normalizedTrashEnabled)
-        setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
+      const nextPageDisplayModes = normalizePageDisplayModes(normalizedSettings.pageDisplayModes)
+      pageDisplayModesRef.current = nextPageDisplayModes
+      setPageDisplayModes(nextPageDisplayModes)
+      const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedSettings as any).shortcutHintsEnabled)
+      setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
+      setAllNotesLayout(normalizeAllNotesLayout(normalizedSettings.allNotesLayout))
+      setTabsCollapsed(normalizeBoolean(normalizedSettings.tabsCollapsed))
+      setTabsMode(normalizeTabsMode(normalizedSettings.tabsMode))
+      setSidebarSortMode(normalizeSidebarSortMode(normalizedSettings.sidebarSortMode))
+      const normalizedTrashEnabled = normalizeTrashEnabled(normalizedSettings.trashEnabled)
+      const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedSettings.trashAutoDeleteDays)
+      setTrashEnabled(normalizedTrashEnabled)
+      setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
 
-        // 声明单源：取后端面插件声明并写入运行时仓库；失败不阻断核心数据（面系统本会话降级）。
-        let declarations: FaceDeclaration[] = []
-        let declarationsReady = false
-        try {
-          declarations = await gateway.notes.listFacePlugins()
-          setFaceDeclarations(declarations)
-          declarationsReady = true
-        } catch (e: any) {
-          setInitError(`面插件声明加载失败：${String(e?.message || e || '未知错误')}`)
-        }
-        const knownFaceKinds = declarations.map(declaration => declaration.kind)
-        const creatableFaceKinds = filterCreatableFaceDeclarations(declarations).map(declaration => declaration.kind)
+      // 声明单源：取后端面插件声明并写入运行时仓库；失败不阻断核心数据（面系统本会话降级）。
+      let declarations: FaceDeclaration[] = []
+      let declarationsReady = false
+      try {
+        declarations = await gateway.notes.listFacePlugins()
+        setFaceDeclarations(declarations)
+        declarationsReady = true
+      } catch (e: any) {
+        setInitError(`面插件声明加载失败：${String(e?.message || e || '未知错误')}`)
+      }
+      const knownFaceKinds = declarations.map(declaration => declaration.kind)
+      const creatableFaceKinds = filterCreatableFaceDeclarations(declarations).map(declaration => declaration.kind)
 
-        const normalizedFacePluginSettings = normalizeFacePluginSettingsContainer(normalizedSettings.facePluginSettings)
-        facePluginSettingsRef.current = normalizedFacePluginSettings
-        setFacePluginSettings(normalizedFacePluginSettings)
-        // 声明未就绪时保持用户既有面偏好原值，避免用空清单清空偏好（重试成功后按声明重新收敛）。
-        const normalizedFaceKindOrder = declarationsReady
-          ? normalizeFaceKindOrder(normalizedSettings.faceKindOrder, knownFaceKinds)
-          : (Array.isArray(normalizedSettings.faceKindOrder) ? normalizedSettings.faceKindOrder : [])
-        const normalizedDefaultFaceKinds = declarationsReady
-          ? normalizeDefaultFaceKinds(normalizedSettings.defaultFaceKinds, creatableFaceKinds)
-          : (Array.isArray(normalizedSettings.defaultFaceKinds) ? normalizedSettings.defaultFaceKinds : [])
-        setFaceKindOrder(normalizedFaceKindOrder)
-        setDefaultFaceKinds(normalizedDefaultFaceKinds)
-        const normalizedColorPresetId = normalizeColorPresetId(normalizedSettings.colorPresetId)
-        setColorPresetId(normalizedColorPresetId)
-        setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
-        const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
-        restoreActiveTabKeyRef.current = activeKey
+      const normalizedFacePluginSettings = normalizeFacePluginSettingsContainer(normalizedSettings.facePluginSettings)
+      facePluginSettingsRef.current = normalizedFacePluginSettings
+      setFacePluginSettings(normalizedFacePluginSettings)
+      // 声明未就绪时保持用户既有面偏好原值，避免用空清单清空偏好（重试成功后按声明重新收敛）。
+      const normalizedFaceKindOrder = declarationsReady
+        ? normalizeFaceKindOrder(normalizedSettings.faceKindOrder, knownFaceKinds)
+        : (Array.isArray(normalizedSettings.faceKindOrder) ? normalizedSettings.faceKindOrder : [])
+      const normalizedDefaultFaceKinds = declarationsReady
+        ? normalizeDefaultFaceKinds(normalizedSettings.defaultFaceKinds, creatableFaceKinds)
+        : (Array.isArray(normalizedSettings.defaultFaceKinds) ? normalizedSettings.defaultFaceKinds : [])
+      setFaceKindOrder(normalizedFaceKindOrder)
+      setDefaultFaceKinds(normalizedDefaultFaceKinds)
+      const normalizedColorPresetId = normalizeColorPresetId(normalizedSettings.colorPresetId)
+      setColorPresetId(normalizedColorPresetId)
 
-        const [nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
-          gateway.favorites.ensureFavorites(),
-          gateway.assets.ensureAssetsIndex('library'),
-        ])
-        setFavoritesDoc(nextFavoritesDoc)
-        setAssetPoolIndex(nextAssetPoolIndex as any)
+      const { normalizedRepoState, ...applied } = await loadRepoData()
+      persistRepoStateNormalization(normalizedRepoState, applied)
 
-        const legacyTabsDetected =
-          Array.isArray((normalizedRepoState as any).openNoteIds) ||
-          typeof (normalizedRepoState as any).activeNoteId === 'string' ||
-          ((normalizedRepoState as any).tabGroupByNoteId && typeof (normalizedRepoState as any).tabGroupByNoteId === 'object')
-        const v2TabsDetected =
-          Array.isArray((normalizedRepoState as any).openTabKeys) ||
-          typeof (normalizedRepoState as any).activeTabKey === 'string' ||
-          ((normalizedRepoState as any).tabGroupByTabKey && typeof (normalizedRepoState as any).tabGroupByTabKey === 'object') ||
-          Array.isArray(normalizedRepoState.workspaces)
-        if (legacyTabsDetected && !v2TabsDetected) {
-          void gateway.host.toast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
-        }
-
-        let nextWorkspaces = normalizeWorkspaces(normalizedRepoState.workspaces, {
-          sidebarItems: normalizedRepoState.sidebarItems,
-          openTabKeys: normalizedRepoState.openTabKeys,
-          activeTabKey: normalizedRepoState.activeTabKey,
-          tabGroups: normalizedRepoState.tabGroups,
-          tabGroupByTabKey: normalizedRepoState.tabGroupByTabKey,
-        })
-        const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedRepoState.activeWorkspaceId, nextWorkspaces)
-        let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
-
-        let didMutateActiveWorkspace = false
-        if (activeWs && activeKey) {
-          const openKeys = activeWs.openTabKeys
-          if (!openKeys.includes(activeKey)) {
-            const nextSidebarItems = insertTabAsUngrouped(ensureSidebarItems(activeWs), activeKey, ensureSidebarItems(activeWs).length)
-            const nextWs = applySidebarItemsToWorkspace({ ...activeWs, activeTabKey: activeKey }, nextSidebarItems)
-            nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, () => nextWs)
-            activeWs = nextWs
-            didMutateActiveWorkspace = true
-          }
-        }
-
-        activeWorkspaceIdRef.current = nextActiveWorkspaceId
-        setWorkspaces(nextWorkspaces)
-        setActiveWorkspaceId(nextActiveWorkspaceId)
-        if (activeWs) applyWorkspaceSidebarState(activeWs)
-
-        const shouldPersistRepoState =
-          !Array.isArray(normalizedRepoState.workspaces) ||
-          normalizedRepoState.activeWorkspaceId !== nextActiveWorkspaceId ||
-          didMutateActiveWorkspace
-        if (shouldPersistRepoState) {
-          void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, nextActiveWorkspaceId)).catch(() => {})
-        }
-
-        const shouldPersistAppSettings =
-          (normalizedSettings as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
-          normalizedSettings.trashEnabled !== normalizedTrashEnabled ||
-          normalizedSettings.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
-          JSON.stringify(normalizedSettings.facePluginSettings || {}) !== JSON.stringify(normalizedFacePluginSettings) ||
-          JSON.stringify(normalizedSettings.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
-          JSON.stringify(normalizedSettings.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
-          normalizedSettings.colorPresetId !== normalizedColorPresetId ||
-          JSON.stringify(normalizedSettings.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes)
-        if (shouldPersistAppSettings) {
-          void persistAppSettingsPatch({
-            shortcutHintsEnabled: normalizedShortcutHintsEnabled,
-            trashEnabled: normalizedTrashEnabled,
-            trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
-            facePluginSettings: normalizedFacePluginSettings,
-            faceKindOrder: normalizedFaceKindOrder,
-            defaultFaceKinds: normalizedDefaultFaceKinds,
-            colorPresetId: normalizedColorPresetId,
-            pageDisplayModes: nextPageDisplayModes,
-          }).catch(() => {})
-        }
+      const shouldPersistAppSettings =
+        (normalizedSettings as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
+        normalizedSettings.trashEnabled !== normalizedTrashEnabled ||
+        normalizedSettings.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
+        JSON.stringify(normalizedSettings.facePluginSettings || {}) !== JSON.stringify(normalizedFacePluginSettings) ||
+        JSON.stringify(normalizedSettings.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
+        JSON.stringify(normalizedSettings.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
+        normalizedSettings.colorPresetId !== normalizedColorPresetId ||
+        JSON.stringify(normalizedSettings.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes) ||
+        normalizedSettings.activeRepoId !== activeRepo.id
+      if (shouldPersistAppSettings) {
+        void persistAppSettingsPatch({
+          shortcutHintsEnabled: normalizedShortcutHintsEnabled,
+          trashEnabled: normalizedTrashEnabled,
+          trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
+          facePluginSettings: normalizedFacePluginSettings,
+          faceKindOrder: normalizedFaceKindOrder,
+          defaultFaceKinds: normalizedDefaultFaceKinds,
+          colorPresetId: normalizedColorPresetId,
+          pageDisplayModes: nextPageDisplayModes,
+          activeRepoId: activeRepo.id,
+        }).catch(() => {})
+      }
       setTabsInitReady(true)
       setMetaReady(true)
     } catch (e: any) {
@@ -1589,13 +1741,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setInitError(message)
       void gateway.host.toast(message)
     }
-  }, [gateway, persistAppSettingsPatch, persistRepoStatePatch, applyWorkspaceSidebarState])
+  }, [gateway, loadRepoData, persistAppSettingsPatch, persistRepoStateNormalization])
 
   React.useEffect(() => {
     void runAppInitialization()
   }, [runAppInitialization])
 
-  const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
   React.useEffect(() => {
     if (!metaReady) return
     const days = trashAutoDeleteDaysRef.current
@@ -1684,7 +1835,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     (nextDoc: HyperCortexFavoritesDocV1) => {
       const normalizedDoc = normalizeFavoritesDoc(nextDoc).doc
       setFavoritesDoc(normalizedDoc)
-      void gateway.favorites.saveFavorites(normalizedDoc).catch(() => {})
+      void gateway.favorites.saveFavorites('library', normalizedDoc).catch(() => {})
     },
     [gateway],
   )
@@ -2678,6 +2829,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         return (
           <IndexPage
             gateway={gateway}
+            activeRepoId={activeRepoId}
             doc={favoritesDoc}
             currentFolderId={currentFolderId}
             noteIndex={noteIndex?.notes}
@@ -2704,6 +2856,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           <AssetPoolPanel
             gateway={gateway}
             scope="library"
+            activeRepoId={activeRepoId}
             onOpenAsset={asset => {
               setOpenModalPage(null)
               void handleOpenAssetTab(asset)
@@ -2818,6 +2971,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 6 }}>
+                  <RepoSwitcher
+                    repos={repos}
+                    activeRepoId={activeRepoId}
+                    disabled={repoSwitchBusy}
+                    onSwitch={repoId => void handleSwitchRepo(repoId)}
+                    onCreateRequest={() => setRepoCreateOpen(true)}
+                  />
                   <NavIconButton title="后退" ariaLabel="后退" disabled={navStackSizes.back <= 0 || !!openModalPage} onClick={() => void goBackPage()}>
                     <ArrowBackRoundedIcon fontSize="small" />
                   </NavIconButton>
@@ -3090,7 +3250,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onOpenNote={note => void handleOpenNote(note)}
                 />
               ) : null}
-              {page === 'attachments' ? <AssetPoolPanel gateway={gateway} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
+              {page === 'attachments' ? <AssetPoolPanel gateway={gateway} scope="library" activeRepoId={activeRepoId} onOpenAsset={handleOpenAssetTab} /> : null}
               {page === 'all-notes' ? (
                 <AllNotesPage
                   notes={allNotes}
@@ -3166,6 +3326,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               {page === 'index' && favoritesDoc ? (
                 <IndexPage
                   gateway={gateway}
+                  activeRepoId={activeRepoId}
                   doc={favoritesDoc}
                   currentFolderId={currentFolderId}
                   noteIndex={noteIndex?.notes}
@@ -3340,6 +3501,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           <Button variant="contained" color="error" onClick={handleCloseTabPromptDiscardAndClose} disabled={closeTabPromptTargetSaving}>放弃改动并关闭</Button>
         </DialogActions>
       </Dialog>
+
+      <RepoCreateDialog
+        open={repoCreateOpen}
+        busy={repoCreateBusy}
+        defaultTitle={pickNextRepoTitle(repos)}
+        onClose={() => {
+          if (!repoCreateBusy) setRepoCreateOpen(false)
+        }}
+        onConfirm={title => void handleCreateRepo(title)}
+      />
 
       <Dialog open={!!initError} onClose={() => {}} maxWidth="xs" fullWidth>
         <DialogTitle>初始化失败</DialogTitle>

@@ -38,6 +38,8 @@ type AssetInteractionMode = 'browse' | 'select'
 type Props = {
   gateway: HyperCortexGateway
   scope: VaultScope
+  // 当前仓库标识：用于把上传任务面板限制在当前仓库。
+  activeRepoId: string
   onOpenAsset?: (asset: AssetEntry) => void
   filterText?: string
   picker?: {
@@ -724,7 +726,7 @@ function AssetGlobalToolbar({
   )
 }
 
-export function AssetPoolPanel({ gateway, scope, onOpenAsset, filterText = '', picker }: Props) {
+export function AssetPoolPanel({ gateway, scope, activeRepoId, onOpenAsset, filterText = '', picker }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -805,7 +807,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset, filterText = '', p
     pauseTask: pauseUploadTask,
     resumeTask: resumeUploadTask,
     cancelTask: cancelUploadTask,
-  } = useAssetUploadTasks({ gateway, onTasksSettled: loadAssets })
+  } = useAssetUploadTasks({ gateway, activeRepoId, onTasksSettled: loadAssets })
   const thumbnailTargets = React.useMemo(() => visibleAssets.filter(canHaveThumbnail), [visibleAssets])
   const hasAnyThumbnailTargets = React.useMemo(() => assets.some(canHaveThumbnail), [assets])
   const activeUploadCount = React.useMemo(() => uploadTaskSnapshots.filter(isActiveUploadTask).length, [uploadTaskSnapshots])

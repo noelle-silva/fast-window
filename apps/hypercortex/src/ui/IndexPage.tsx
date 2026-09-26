@@ -56,6 +56,7 @@ type VoidMenuEntries = ContextMenuEntry[]
 
 type Props = {
   gateway: HyperCortexGateway
+  activeRepoId: string
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
   noteIndex?: Record<string, NoteMeta>
@@ -120,6 +121,7 @@ function buildAssetLookup(assetIndex?: Record<string, any>): {
 export function IndexPage(props: Props): React.ReactNode {
   const {
     gateway,
+    activeRepoId,
     doc,
     currentFolderId,
     noteIndex,
@@ -675,6 +677,7 @@ export function IndexPage(props: Props): React.ReactNode {
           open
           kind={addPickerKind}
           gateway={gateway}
+          activeRepoId={activeRepoId}
           folderId={currentFolderId}
           doc={doc}
           noteIndex={noteIndex}

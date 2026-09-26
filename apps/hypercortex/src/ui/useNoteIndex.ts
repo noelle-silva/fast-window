@@ -2,12 +2,14 @@ import * as React from 'react'
 import type { HyperCortexIndexV1 } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 
-export function useNoteIndex(gateway: HyperCortexGateway) {
+// 笔记索引随当前仓库装载：仓库切换时丢弃旧索引与在途请求，重新加载。
+export function useNoteIndex(gateway: HyperCortexGateway, activeRepoId: string) {
   const [index, setIndexState] = React.useState<HyperCortexIndexV1 | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const indexRef = React.useRef<HyperCortexIndexV1 | null>(null)
   const loadPromiseRef = React.useRef<Promise<HyperCortexIndexV1> | null>(null)
+  const loadSeqRef = React.useRef(0)
 
   const setIndex = React.useCallback<React.Dispatch<React.SetStateAction<HyperCortexIndexV1 | null>>>(nextValue => {
     const current = indexRef.current
@@ -18,27 +20,38 @@ export function useNoteIndex(gateway: HyperCortexGateway) {
 
   const ensureLoaded = React.useCallback(async () => {
     if (indexRef.current) return indexRef.current
+    const seq = loadSeqRef.current
     setLoading(true)
     setError(null)
     if (!loadPromiseRef.current) loadPromiseRef.current = gateway.notes.loadNoteIndex('library')
 
     try {
       const next = await loadPromiseRef.current
+      if (loadSeqRef.current !== seq) return next
       indexRef.current = next
       setIndex(next)
       return next
     } catch (cause: any) {
+      if (loadSeqRef.current !== seq) throw cause
       loadPromiseRef.current = null
       setError(String(cause?.message || cause || '加载全部笔记失败'))
       throw cause
     } finally {
-      setLoading(false)
+      if (loadSeqRef.current === seq) setLoading(false)
     }
   }, [gateway, setIndex])
 
   React.useEffect(() => {
+    loadSeqRef.current += 1
+    indexRef.current = null
+    loadPromiseRef.current = null
+    setIndexState(null)
+    if (!activeRepoId) {
+      setLoading(true)
+      return
+    }
     void ensureLoaded().catch(() => {})
-  }, [ensureLoaded])
+  }, [activeRepoId, ensureLoaded])
 
   return { index, setIndex, loading, error }
 }

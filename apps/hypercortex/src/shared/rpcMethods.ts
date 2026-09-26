@@ -41,6 +41,11 @@ export const HyperCortexRpc = {
     kinds: 'hypercortex.search.kinds',
     query: 'hypercortex.search.query',
   },
+  repos: {
+    list: 'hypercortex.repos.list',
+    create: 'hypercortex.repos.create',
+    activate: 'hypercortex.repos.activate',
+  },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',
     ensure: 'hypercortex.metadata.ensure',
@@ -66,7 +71,6 @@ export const HyperCortexRpc = {
     maybeAutoCleanup: 'hypercortex.trash.maybeAutoCleanup',
   },
   host: {
-    getLibraryDir: 'hypercortex.host.getLibraryDir',
     openDir: 'hypercortex.host.openDir',
     openVaultDir: 'hypercortex.host.openVaultDir',
     importLegacyData: 'hypercortex.host.importLegacyData',

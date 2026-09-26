@@ -31,7 +31,6 @@ export type HostGateway = {
   getDataDirStatus: () => Promise<DataDirStatus>
   pickDataDir: () => Promise<DataDirStatus | null>
   importLegacyData: () => Promise<LegacyDataImportResult | null>
-  getLibraryDir: () => Promise<string>
   openDir: (dir: string) => Promise<void>
   openVaultDir: (scope: VaultScope, dir: string) => Promise<void>
 }
@@ -46,9 +45,24 @@ export type DataDirStatus = {
 
 export type LegacyDataImportResult = {
   imported: boolean
+  repoId?: string
+  repoTitle?: string
   sourceDir: string
   files: string[]
   skipped: string[]
+}
+
+// 仓库身份：名称属于仓库自身，标识只用于物理定位。
+export type HyperCortexRepo = {
+  id: string
+  title: string
+  createdAtMs: number
+}
+
+export type ReposService = {
+  listRepos: () => Promise<HyperCortexRepo[]>
+  createRepo: (title: string) => Promise<HyperCortexRepo>
+  activateRepo: (repoId: string) => Promise<HyperCortexRepo>
 }
 
 export type ClipboardGateway = {
@@ -144,7 +158,7 @@ export type AssetUploadFileStatus = 'pending' | 'running' | 'completed' | 'faile
 
 export type AssetUploadTaskSnapshot = {
   id: string
-  scope: VaultScope
+  scope: string
   status: AssetUploadTaskStatus
   files: AssetUploadFileSnapshot[]
   result?: HyperCortexNoteResourceRef[]
@@ -192,9 +206,9 @@ export type ThumbnailRebuildReport = {
 }
 
 export type FavoritesService = {
-  ensureFavorites: () => Promise<HyperCortexFavoritesDocV1>
-  tryLoadFavorites: () => Promise<HyperCortexFavoritesDocV1 | null>
-  saveFavorites: (doc: HyperCortexFavoritesDocV1) => Promise<void>
+  ensureFavorites: (scope: VaultScope) => Promise<HyperCortexFavoritesDocV1>
+  tryLoadFavorites: (scope: VaultScope) => Promise<HyperCortexFavoritesDocV1 | null>
+  saveFavorites: (scope: VaultScope, doc: HyperCortexFavoritesDocV1) => Promise<void>
 }
 
 export type TrashService = {
@@ -259,6 +273,7 @@ export type RepoStateService = {
 export type HyperCortexGateway = {
   host: HostGateway
   clipboard: ClipboardGateway
+  repos: ReposService
   notes: NotesService
   assets: AssetsService
   favorites: FavoritesService

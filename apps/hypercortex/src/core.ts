@@ -99,6 +99,8 @@ export type HyperCortexAppSettingsV1 = {
   pageDisplayModes?: PageDisplayModesV1
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
+  // 上次使用的仓库标识（应用行为状态，不随仓库切换变化）。
+  activeRepoId?: string
 }
 
 // 笔记仓库数据身份：指向具体笔记/附件内容的工作状态，随仓库走。

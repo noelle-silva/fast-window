@@ -4,8 +4,8 @@ import { HyperCortexRpc } from '../shared/rpcMethods'
 
 export function createFavoritesService(background: BackgroundClient): FavoritesService {
   return {
-    ensureFavorites: () => background.invoke(HyperCortexRpc.favorites.ensure, {}),
-    tryLoadFavorites: () => background.invoke(HyperCortexRpc.favorites.tryLoad, {}),
-    saveFavorites: doc => background.invoke(HyperCortexRpc.favorites.save, { doc }),
+    ensureFavorites: scope => background.invoke(HyperCortexRpc.favorites.ensure, { scope }),
+    tryLoadFavorites: scope => background.invoke(HyperCortexRpc.favorites.tryLoad, { scope }),
+    saveFavorites: (scope, doc) => background.invoke(HyperCortexRpc.favorites.save, { scope, doc }),
   }
 }
