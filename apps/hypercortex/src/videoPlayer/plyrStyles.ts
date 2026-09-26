@@ -46,10 +46,14 @@ const customPlyrCss = `
   border-radius: 12px;
 }
 
-.hc-video-player .plyr__control--overlaid {
+/* 中央大按钮：播放器整体行高 1.7 会把块级按钮内的图标行撑高（竖椭圆），
+   这里以更高特异性恢复弹性居中布局、正圆与紧凑行高。 */
+.hc-video-player .plyr--video .plyr__control--overlaid {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border-radius: 100%;
+  line-height: 1;
   background: var(--hc-asset-video);
   box-shadow: 0 18px 38px rgba(47, 51, 45, .24);
 }
