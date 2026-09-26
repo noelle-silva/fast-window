@@ -232,6 +232,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.listDeletedRepos()
 	case "hypercortex.repos.restore":
 		return svc.restoreRepo(stringField(params, "repoId"))
+	case "hypercortex.repos.purge":
+		return nil, svc.purgeDeletedRepo(stringField(params, "repoId"))
 
 	case "hypercortex.repoState.tryLoad":
 		return svc.tryLoadJSON(requireScope(params), repoStateFile)

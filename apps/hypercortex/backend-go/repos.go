@@ -336,3 +336,23 @@ func (svc *service) restoreRepo(repoID string) (repoIdentity, error) {
 	_ = os.Remove(filepath.Join(target, repoTrashMetaFile))
 	return identity, nil
 }
+
+// purgeDeletedRepo 从仓库回收站真实删除仓库（不可恢复）；仅允许对回收站中的条目执行。
+func (svc *service) purgeDeletedRepo(repoID string) error {
+	id := strings.TrimSpace(repoID)
+	if !isRepoID(id) {
+		return fmt.Errorf("非法仓库标识：%s", id)
+	}
+	if exists(filepath.Join(svc.reposDir, id)) {
+		return errors.New("仓库仍在仓库池中，无法永久删除")
+	}
+	root := filepath.Join(svc.repoTrashDir, id)
+	identity, err := svc.readRepoIdentity(root)
+	if err != nil || identity.ID != id {
+		return fmt.Errorf("仓库回收站中不存在该仓库：%s", id)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return fmt.Errorf("永久删除仓库失败：%w", err)
+	}
+	return nil
+}

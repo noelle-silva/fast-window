@@ -345,3 +345,49 @@ func TestListDeletedReposAndRestore(t *testing.T) {
 		t.Fatalf("pool after restore = %#v, want 2 repos (keep=%s)", repos, keep)
 	}
 }
+
+func TestPurgeDeletedRepoRemovesTrashedRepoOnly(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	keep := testRepoID(t, svc)
+	second, err := svc.createRepo("待清除仓库")
+	if err != nil {
+		t.Fatalf("createRepo failed: %v", err)
+	}
+
+	// 池中仓库不允许直接永久删除。
+	if err := svc.purgeDeletedRepo(second.ID); err == nil {
+		t.Fatal("pool repo must not be purgeable")
+	}
+	if err := svc.deleteRepo(second.ID); err != nil {
+		t.Fatalf("deleteRepo failed: %v", err)
+	}
+	if err := svc.purgeDeletedRepo(second.ID); err != nil {
+		t.Fatalf("purgeDeletedRepo failed: %v", err)
+	}
+	mustNotExist(t, filepath.Join(svc.repoTrashDir, second.ID))
+
+	deleted, err := svc.listDeletedRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 0 {
+		t.Fatalf("repo trash after purge = %#v", deleted)
+	}
+	if _, err := svc.restoreRepo(second.ID); err == nil {
+		t.Fatal("purged repo must not be restorable")
+	}
+	if err := svc.purgeDeletedRepo(strings.Repeat("c", 32)); err == nil {
+		t.Fatal("purging a missing entry should fail")
+	}
+
+	repos, err := svc.listRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || repos[0].ID != keep {
+		t.Fatalf("pool after purge = %#v, want only %s", repos, keep)
+	}
+}
