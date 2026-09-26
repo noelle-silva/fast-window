@@ -11,5 +11,6 @@ export function createReposService(background: BackgroundClient): ReposService {
     deleteRepo: repoId => background.invoke(HyperCortexRpc.repos.delete, { repoId }),
     listDeletedRepos: () => background.invoke(HyperCortexRpc.repos.listDeleted, {}),
     restoreRepo: repoId => background.invoke(HyperCortexRpc.repos.restore, { repoId }),
+    purgeDeletedRepo: repoId => background.invoke(HyperCortexRpc.repos.purge, { repoId }),
   }
 }

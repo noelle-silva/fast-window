@@ -92,15 +92,15 @@ export function RepoManagementSettingsPanel(props: Props) {
                 key={repo.id}
                 sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.75, borderRadius: 2, bgcolor: 'var(--hc-surface)' }}
               >
-                <Tooltip title="重命名仓库" placement="top">
-                  <IconButton size="small" aria-label={`重命名仓库 ${repo.title}`} onClick={() => setRenameTarget({ id: repo.id, title: repo.title })}>
-                    <EditRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
                 <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: active ? 900 : 700, color: 'var(--hc-text)' }}>
                   {repo.title}
                 </Typography>
                 {active ? <Chip size="small" label="当前" sx={{ height: 20, fontSize: 11, fontWeight: 800 }} /> : null}
+                <Tooltip title="编辑" placement="top">
+                  <IconButton size="small" aria-label={`编辑仓库 ${repo.title}`} onClick={() => setRenameTarget({ id: repo.id, title: repo.title })}>
+                    <EditRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="更多操作" placement="top">
                   <IconButton
                     size="small"

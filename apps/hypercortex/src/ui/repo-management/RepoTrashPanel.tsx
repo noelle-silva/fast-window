@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import type { HyperCortexDeletedRepo, HyperCortexGateway, HyperCortexRepo } from '../../gateway'
-import { softButtonSx } from '../pluginUiStyles'
+import { softButtonSx, softDangerButtonSx } from '../pluginUiStyles'
+import { PermanentDeleteRepoDialog } from './PermanentDeleteRepoDialog'
 
 function formatDateTime(ms: number): string {
   if (!(Number(ms) > 0)) return ''
@@ -19,6 +20,8 @@ export function RepoTrashPanel(props: {
   const [error, setError] = React.useState<string | null>(null)
   const [items, setItems] = React.useState<HyperCortexDeletedRepo[]>([])
   const [restoringId, setRestoringId] = React.useState('')
+  const [purgeTarget, setPurgeTarget] = React.useState<HyperCortexDeletedRepo | null>(null)
+  const [purging, setPurging] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -53,6 +56,22 @@ export function RepoTrashPanel(props: {
     },
     [gateway, onRestored, restoringId],
   )
+
+  const confirmPurge = React.useCallback(async () => {
+    const target = purgeTarget
+    if (!target || purging) return
+    setPurging(true)
+    setError(null)
+    try {
+      await gateway.repos.purgeDeletedRepo(target.id)
+      setItems(prev => prev.filter(entry => entry.id !== target.id))
+      setPurgeTarget(null)
+    } catch (e: any) {
+      setError(String(e?.message || e || '永久删除仓库失败'))
+    } finally {
+      setPurging(false)
+    }
+  }, [gateway, purgeTarget, purging])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 860 }}>
@@ -99,20 +118,40 @@ export function RepoTrashPanel(props: {
                     删除时间：{formatDateTime(item.deletedAtMs) || '未知'}
                   </Typography>
                 </Box>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={() => void handleRestore(item)}
-                  disabled={restoring}
-                  sx={{ ...softButtonSx, borderRadius: 2, px: 1.5 }}
-                >
-                  {restoring ? '恢复中…' : '恢复'}
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => void handleRestore(item)}
+                    disabled={restoring}
+                    sx={{ ...softButtonSx, borderRadius: 2, px: 1.5 }}
+                  >
+                    {restoring ? '恢复中…' : '恢复'}
+                  </Button>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setPurgeTarget(item)}
+                    disabled={purging}
+                    sx={{ ...softDangerButtonSx, borderRadius: 2, px: 1.5 }}
+                  >
+                    永久删除
+                  </Button>
+                </Box>
               </Box>
             )
           })}
         </Box>
       ) : null}
+
+      <PermanentDeleteRepoDialog
+        target={purgeTarget}
+        busy={purging}
+        onClose={() => {
+          if (!purging) setPurgeTarget(null)
+        }}
+        onConfirm={() => void confirmPurge()}
+      />
     </Box>
   )
 }

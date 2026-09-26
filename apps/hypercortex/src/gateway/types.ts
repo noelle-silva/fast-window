@@ -75,6 +75,7 @@ export type ReposService = {
   deleteRepo: (repoId: string) => Promise<void>
   listDeletedRepos: () => Promise<HyperCortexDeletedRepo[]>
   restoreRepo: (repoId: string) => Promise<HyperCortexRepo>
+  purgeDeletedRepo: (repoId: string) => Promise<void>
 }
 
 export type ClipboardGateway = {

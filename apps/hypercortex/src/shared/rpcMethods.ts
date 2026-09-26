@@ -49,6 +49,7 @@ export const HyperCortexRpc = {
     delete: 'hypercortex.repos.delete',
     listDeleted: 'hypercortex.repos.listDeleted',
     restore: 'hypercortex.repos.restore',
+    purge: 'hypercortex.repos.purge',
   },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',
