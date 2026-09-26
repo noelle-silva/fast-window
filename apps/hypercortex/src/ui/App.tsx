@@ -67,7 +67,6 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
-import { migrateLegacyHtmlFaceSettings } from '../legacy/htmlFaceSettingsMigration'
 import { normalizeFacePluginSettingsContainer, normalizeFaceSettingValue } from '../facePlugins/settings'
 import {
   normalizeDefaultFaceKinds,
@@ -1467,7 +1466,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const knownFaceKinds = declarations.map(declaration => declaration.kind)
         const creatableFaceKinds = filterCreatableFaceDeclarations(declarations).map(declaration => declaration.kind)
 
-        const normalizedFacePluginSettings = migrateLegacyHtmlFaceSettings(normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings), normalizedMeta)
+        const normalizedFacePluginSettings = normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings)
         facePluginSettingsRef.current = normalizedFacePluginSettings
         setFacePluginSettings(normalizedFacePluginSettings)
         // 声明未就绪时保持用户既有面偏好原值，避免用空清单清空偏好（重试成功后按声明重新收敛）。
