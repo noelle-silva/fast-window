@@ -29,7 +29,7 @@ func TestPluginDataStateRebuildsOnFirstRunAndSkipsWhenUnchanged(t *testing.T) {
 	if _, ok := idx.Notes["ghost"]; ok {
 		t.Fatal("first run should rebuild stale search index")
 	}
-	if _, err := os.Stat(filepath.Join(svc.stateDir, facePluginsStateFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(svc.libraryDir, facePluginsStateFile)); err != nil {
 		t.Fatalf("plugin state file not written: %v", err)
 	}
 

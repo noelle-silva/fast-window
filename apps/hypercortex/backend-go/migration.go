@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	currentDataVersion                 = 7
+	currentDataVersion                 = 8
 	migrationsLedgerFile               = "_migrations.json"
 	migrationRecoveryDir               = "_migration-recovery"
 	migrationRecoveryFile              = "recovery.json"
@@ -23,7 +23,20 @@ const (
 	noteFaceSearchIndexMigration       = "2026-09-09-note-face-search-index-v1"
 	noteFaceTimestampsMigration        = "2026-09-14-note-face-timestamps"
 	htmlFaceLegacySettingsMigration    = "2026-09-26-html-face-legacy-global-settings"
+	dataIdentitySplitMigration         = "2026-09-26-data-identity-split"
 )
+
+// repoStateFieldKeys 是从元数据中拆出、归属笔记仓库身份的工作状态字段。
+var repoStateFieldKeys = []string{
+	"sidebarItems",
+	"openTabKeys",
+	"tabGroupByTabKey",
+	"activeTabKey",
+	"tabGroups",
+	"workspaces",
+	"activeWorkspaceId",
+	"currentFolderId",
+}
 
 type dataMigration struct {
 	ID          string
@@ -209,6 +222,56 @@ func mergeHTMLFaceLegacySettings(meta map[string]any) (map[string]any, bool) {
 	return meta, true
 }
 
+// migrateDataIdentitySplit 按身份归位数据：
+// 元数据只保留应用设置，指向笔记内容的工作状态、收藏夹、派生缓存与派生索引指纹全部归入知识库。
+func (svc *service) migrateDataIdentitySplit() error {
+	if err := svc.splitMetadataIdentity(); err != nil {
+		return err
+	}
+	for _, file := range []string{favoritesFile, facePluginsStateFile} {
+		if err := moveFileIfTargetMissing(filepath.Join(svc.stateDir, file), filepath.Join(svc.libraryDir, file)); err != nil {
+			return err
+		}
+	}
+	return moveDirIfTargetMissing(filepath.Join(svc.stateDir, thumbnailCacheDir), filepath.Join(svc.libraryDir, thumbnailCacheDir))
+}
+
+// splitMetadataIdentity 把元数据中的仓库工作状态字段搬入 library/hypercortex-repo-state.json。
+// 幂等设计：仓库状态目标已存在时不覆盖；元数据缺少仓库字段时不产生任何写入。
+func (svc *service) splitMetadataIdentity() error {
+	metaPath := filepath.Join(svc.stateDir, metadataFile)
+	var meta map[string]any
+	if err := readJSONFile(metaPath, &meta); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("读取元数据失败：%w", err)
+	}
+
+	repoState := map[string]any{}
+	for _, key := range repoStateFieldKeys {
+		value, ok := meta[key]
+		if !ok {
+			continue
+		}
+		repoState[key] = value
+		delete(meta, key)
+	}
+	if len(repoState) == 0 {
+		return nil
+	}
+
+	repoState["version"] = 1
+	repoStatePath := filepath.Join(svc.libraryDir, repoStateFile)
+	if !exists(repoStatePath) {
+		if err := writeJSONFile(repoStatePath, repoState); err != nil {
+			return fmt.Errorf("写入仓库状态失败：%w", err)
+		}
+	}
+	meta["version"] = 1
+	return writeJSONFile(metaPath, meta)
+}
+
 // migrateNoteManifestsToUnifiedFaceProtocol 把旧清单收敛为统一面协议形态（去掉角色字段并补齐能力快照）。
 func (svc *service) migrateNoteManifestsToUnifiedFaceProtocol() error {
 	root, err := svc.resolvePath("library", notesDir)
@@ -294,6 +357,12 @@ func (svc *service) runDataMigrations() error {
 			FromVersion: 6,
 			ToVersion:   7,
 			Run:         (*service).migrateHTMLFaceLegacySettings,
+		},
+		{
+			ID:          dataIdentitySplitMigration,
+			FromVersion: 7,
+			ToVersion:   8,
+			Run:         (*service).migrateDataIdentitySplit,
 		},
 	}
 	return svc.runMigrations(migrations)
@@ -417,12 +486,19 @@ func (svc *service) importLegacyData(sourceDir string) (migrationReport, error) 
 	}
 
 	report := migrationReport{Imported: true}
-	for _, file := range []string{metadataFile, favoritesFile} {
-		copied, err := copyFileIfTargetMissing(filepath.Join(source, file), filepath.Join(svc.stateDir, file))
+	rootFileTargets := []struct {
+		name   string
+		target string
+	}{
+		{metadataFile, svc.stateDir},
+		{favoritesFile, svc.libraryDir},
+	}
+	for _, file := range rootFileTargets {
+		copied, err := copyFileIfTargetMissing(filepath.Join(source, file.name), filepath.Join(file.target, file.name))
 		if err != nil {
 			return report, err
 		}
-		report.record(file, copied)
+		report.record(file.name, copied)
 	}
 	for _, dir := range []string{notesDir, assetsDir, trashDir} {
 		copied, err := copyDirMissingEntries(filepath.Join(source, dir), filepath.Join(svc.libraryDir, dir))
@@ -437,6 +513,9 @@ func (svc *service) importLegacyData(sourceDir string) (migrationReport, error) 
 			return report, err
 		}
 		report.record(file, copied)
+	}
+	if err := svc.splitMetadataIdentity(); err != nil {
+		return report, err
 	}
 	if err := svc.migrateNotePackageDirsToIDs(); err != nil {
 		return report, err

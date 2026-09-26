@@ -205,6 +205,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		_ = json.Unmarshal(params, &payload)
 		return nil, svc.saveFavorites(payload["doc"])
 
+	case "hypercortex.repoState.tryLoad":
+		return svc.tryLoadJSON(requireScope(params), repoStateFile)
+	case "hypercortex.repoState.ensure":
+		return svc.ensureJSON(requireScope(params), repoStateFile, map[string]any{"version": 1})
+	case "hypercortex.repoState.save":
+		payload := map[string]json.RawMessage{}
+		_ = json.Unmarshal(params, &payload)
+		return nil, svc.writeRawJSON(requireScope(params), repoStateFile, payload["state"])
+
 	case "hypercortex.notes.loadIndex":
 		return svc.loadNoteIndex(requireScope(params))
 	case "hypercortex.notes.rebuildIndex":

@@ -36,7 +36,7 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	}
 
 	mustExist(t, filepath.Join(svc.stateDir, metadataFile))
-	mustExist(t, filepath.Join(svc.stateDir, favoritesFile))
+	mustExist(t, filepath.Join(svc.libraryDir, favoritesFile))
 	mustExist(t, filepath.Join(svc.libraryDir, indexFile))
 	mustExist(t, filepath.Join(svc.libraryDir, refsIndexFile))
 	mustExist(t, filepath.Join(svc.libraryDir, assetsIndexFile))
@@ -68,8 +68,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 7 {
-		t.Fatalf("applied count = %d, want 7", len(ledger.Applied))
+	if len(ledger.Applied) != 8 {
+		t.Fatalf("applied count = %d, want 8", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -92,6 +92,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.Applied[6].ID != htmlFaceLegacySettingsMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[6].ID, htmlFaceLegacySettingsMigration)
 	}
+	if ledger.Applied[7].ID != dataIdentitySplitMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[7].ID, dataIdentitySplitMigration)
+	}
 }
 
 func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
@@ -108,8 +111,100 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 7 {
-		t.Fatalf("applied count = %d, want 7", len(ledger.Applied))
+	if len(ledger.Applied) != 8 {
+		t.Fatalf("applied count = %d, want 8", len(ledger.Applied))
+	}
+}
+
+func TestMigrateDataIdentitySplitSeparatesSettingsAndRepoData(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.writeMigrationsLedger(migrationsLedger{SchemaVersion: 1, DataVersion: 7, Applied: []migrationEntry{}}); err != nil {
+		t.Fatalf("write ledger failed: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(svc.stateDir, metadataFile), `{
+  "version": 1,
+  "shortcuts": {"toggleQuickSearch": "Ctrl+K"},
+  "colorPresetId": "claude-paper",
+  "workspaces": [{"id": "ws-1", "title": "默认工作区"}],
+  "activeWorkspaceId": "ws-1",
+  "openTabKeys": ["note:n-1"],
+  "sidebarItems": [{"type": "tab", "tabKey": "note:n-1"}],
+  "tabGroups": [{"id": "g-1", "title": "组", "color": "#fff"}],
+  "tabGroupByTabKey": {"note:n-1": "g-1"},
+  "activeTabKey": "note:n-1",
+  "currentFolderId": "folder-a"
+}`)
+	mustWriteFile(t, filepath.Join(svc.stateDir, favoritesFile), `{"version":1,"rootFolderId":"root","folders":{"root":{"id":"root","title":"根目录"}},"refsByFolderId":{"root":[]}}`)
+	mustWriteFile(t, filepath.Join(svc.stateDir, facePluginsStateFile), `{"version":1,"declarationFingerprint":"fp-keep"}`)
+	mustWriteFile(t, filepath.Join(svc.stateDir, thumbnailCacheDir, thumbnailCacheSubdir, thumbnailIndexFile), `{"version":1,"entries":{}}`)
+
+	if err := svc.runDataMigrations(); err != nil {
+		t.Fatalf("runDataMigrations failed: %v", err)
+	}
+
+	ledger := readLedger(t, svc)
+	if ledger.DataVersion != currentDataVersion {
+		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
+	}
+
+	var meta map[string]any
+	if err := readJSONFile(filepath.Join(svc.stateDir, metadataFile), &meta); err != nil {
+		t.Fatalf("read metadata failed: %v", err)
+	}
+	for _, key := range repoStateFieldKeys {
+		if _, ok := meta[key]; ok {
+			t.Fatalf("metadata still contains repo field %q", key)
+		}
+	}
+	if meta["colorPresetId"] != "claude-paper" {
+		t.Fatalf("colorPresetId = %v, want claude-paper", meta["colorPresetId"])
+	}
+	if _, ok := meta["shortcuts"]; !ok {
+		t.Fatalf("shortcuts missing from app settings: %#v", meta)
+	}
+
+	var repoState map[string]any
+	if err := readJSONFile(filepath.Join(svc.libraryDir, repoStateFile), &repoState); err != nil {
+		t.Fatalf("read repo state failed: %v", err)
+	}
+	if repoState["activeWorkspaceId"] != "ws-1" || repoState["currentFolderId"] != "folder-a" || repoState["activeTabKey"] != "note:n-1" {
+		t.Fatalf("repo state identity fields = %#v", repoState)
+	}
+	if _, ok := repoState["workspaces"]; !ok {
+		t.Fatalf("workspaces missing from repo state: %#v", repoState)
+	}
+
+	mustExist(t, filepath.Join(svc.libraryDir, favoritesFile))
+	mustNotExist(t, filepath.Join(svc.stateDir, favoritesFile))
+	mustExist(t, filepath.Join(svc.libraryDir, facePluginsStateFile))
+	mustNotExist(t, filepath.Join(svc.stateDir, facePluginsStateFile))
+	mustExist(t, filepath.Join(svc.libraryDir, thumbnailCacheDir, thumbnailCacheSubdir, thumbnailIndexFile))
+	mustNotExist(t, filepath.Join(svc.stateDir, thumbnailCacheDir))
+}
+
+func TestSplitMetadataIdentityDoesNotOverwriteExistingRepoState(t *testing.T) {
+	svc := newTestService(t)
+	mustWriteFile(t, filepath.Join(svc.stateDir, metadataFile), `{"version":1,"activeTabKey":"note:legacy","colorPresetId":"claude-paper"}`)
+	mustWriteFile(t, filepath.Join(svc.libraryDir, repoStateFile), `{"version":1,"activeTabKey":"note:current"}`)
+
+	if err := svc.splitMetadataIdentity(); err != nil {
+		t.Fatalf("splitMetadataIdentity failed: %v", err)
+	}
+
+	var repoState map[string]any
+	if err := readJSONFile(filepath.Join(svc.libraryDir, repoStateFile), &repoState); err != nil {
+		t.Fatalf("read repo state failed: %v", err)
+	}
+	if repoState["activeTabKey"] != "note:current" {
+		t.Fatalf("existing repo state was overwritten: %#v", repoState)
+	}
+
+	var meta map[string]any
+	if err := readJSONFile(filepath.Join(svc.stateDir, metadataFile), &meta); err != nil {
+		t.Fatalf("read metadata failed: %v", err)
+	}
+	if _, ok := meta["activeTabKey"]; ok {
+		t.Fatalf("legacy repo field still in metadata: %#v", meta)
 	}
 }
 

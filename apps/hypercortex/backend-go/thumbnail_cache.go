@@ -287,7 +287,7 @@ func (svc *service) generateThumbnailCache(source string, cachePath string, spec
 }
 
 func (svc *service) thumbnailCacheRoot() string {
-	return filepath.Join(svc.stateDir, thumbnailCacheDir, thumbnailCacheSubdir)
+	return filepath.Join(svc.libraryDir, thumbnailCacheDir, thumbnailCacheSubdir)
 }
 
 func (svc *service) readThumbnailIndex() (thumbnailIndex, error) {

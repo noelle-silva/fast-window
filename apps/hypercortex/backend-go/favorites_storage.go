@@ -220,7 +220,7 @@ func normalizeFavoritesDoc(raw any) (favoritesDoc, bool) {
 }
 
 func (svc *service) tryLoadFavorites() (favoritesDoc, bool, error) {
-	target, err := svc.resolvePath("data", favoritesFile)
+	target, err := svc.resolvePath("library", favoritesFile)
 	if err != nil {
 		return favoritesDoc{}, false, err
 	}
@@ -253,7 +253,7 @@ func (svc *service) ensureFavorites() (any, error) {
 	}
 	now := nowMs()
 	fresh := freshFavoritesDoc(now)
-	target, err := svc.resolvePath("data", favoritesFile)
+	target, err := svc.resolvePath("library", favoritesFile)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,7 @@ func (svc *service) ensureFavorites() (any, error) {
 }
 
 func (svc *service) saveFavoritesDoc(doc favoritesDoc) error {
-	target, err := svc.resolvePath("data", favoritesFile)
+	target, err := svc.resolvePath("library", favoritesFile)
 	if err != nil {
 		return err
 	}

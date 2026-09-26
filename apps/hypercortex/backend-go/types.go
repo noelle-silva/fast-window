@@ -14,6 +14,7 @@ const (
 	trashDir            = "Trash"
 	indexFile           = "hypercortex-index.json"
 	metadataFile        = "hypercortex-metadata.json"
+	repoStateFile       = "hypercortex-repo-state.json"
 	favoritesFile       = "hypercortex-favorites.json"
 	refsIndexFile       = "hypercortex-refs.json"
 	searchIndexFile     = "hypercortex-search.json"

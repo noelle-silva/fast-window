@@ -8,7 +8,7 @@ import (
 
 func TestEnsureFavoritesNormalizesDirtyDocumentAndWritesBack(t *testing.T) {
 	svc := newTestService(t)
-	mustWriteFile(t, filepath.Join(svc.stateDir, favoritesFile), `{
+	mustWriteFile(t, filepath.Join(svc.libraryDir, favoritesFile), `{
   "version": 1,
   "rootFolderId": "legacy-root",
   "folders": {
@@ -41,7 +41,7 @@ func TestEnsureFavoritesNormalizesDirtyDocumentAndWritesBack(t *testing.T) {
 	assertNormalizedDirtyFavorites(t, doc)
 
 	var saved favoritesDoc
-	if err := readJSONFile(filepath.Join(svc.stateDir, favoritesFile), &saved); err != nil {
+	if err := readJSONFile(filepath.Join(svc.libraryDir, favoritesFile), &saved); err != nil {
 		t.Fatalf("read saved favorites failed: %v", err)
 	}
 	assertNormalizedDirtyFavorites(t, saved)
@@ -60,7 +60,7 @@ func TestSaveFavoritesNormalizesPayloadBeforeWriting(t *testing.T) {
 	}
 
 	var saved favoritesDoc
-	if err := readJSONFile(filepath.Join(svc.stateDir, favoritesFile), &saved); err != nil {
+	if err := readJSONFile(filepath.Join(svc.libraryDir, favoritesFile), &saved); err != nil {
 		t.Fatalf("read saved favorites failed: %v", err)
 	}
 	if saved.Version != 1 || saved.RootFolderID != "root" || saved.Folders["root"].ID != "root" {
@@ -77,7 +77,7 @@ func TestSaveFavoritesNormalizesPayloadBeforeWriting(t *testing.T) {
 
 func TestEnsureFavoritesRecreatesUnsupportedDocumentVersion(t *testing.T) {
 	svc := newTestService(t)
-	mustWriteFile(t, filepath.Join(svc.stateDir, favoritesFile), `{"version":2,"folders":{"future":{"title":"Future"}},"refsByFolderId":{"future":[{"kind":"note","targetId":"n-future"}]}}`)
+	mustWriteFile(t, filepath.Join(svc.libraryDir, favoritesFile), `{"version":2,"folders":{"future":{"title":"Future"}},"refsByFolderId":{"future":[{"kind":"note","targetId":"n-future"}]}}`)
 
 	result, err := svc.ensureFavorites()
 	if err != nil {

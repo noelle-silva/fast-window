@@ -54,7 +54,7 @@ func (svc *service) ensurePluginDataState() error {
 
 func (svc *service) reconcilePluginDataState() error {
 	fingerprint := faceDeclarationFingerprint()
-	path := filepath.Join(svc.stateDir, facePluginsStateFile)
+	path := filepath.Join(svc.libraryDir, facePluginsStateFile)
 	var state facePluginsState
 	if err := readJSONFile(path, &state); err == nil && state.DeclarationFingerprint != "" && state.DeclarationFingerprint == fingerprint {
 		return nil
