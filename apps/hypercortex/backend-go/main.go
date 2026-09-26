@@ -21,6 +21,7 @@ type service struct {
 	dataDir          string
 	stateDir         string
 	reposDir         string
+	repoTrashDir     string
 	legacyLibraryDir string
 	mu               sync.Mutex
 	uploadTasks      *assetUploadTaskStore
@@ -87,6 +88,7 @@ func newService() (*service, error) {
 
 	stateDir := filepath.Join(dataDir, stateDirName)
 	reposDir := filepath.Join(dataDir, reposDirName)
+	repoTrashDir := filepath.Join(dataDir, repoTrashDirName)
 	legacyLibraryDir := filepath.Join(dataDir, legacyLibraryName)
 	stateDir, err = filepath.Abs(stateDir)
 	if err != nil {
@@ -95,6 +97,10 @@ func newService() (*service, error) {
 	reposDir, err = filepath.Abs(reposDir)
 	if err != nil {
 		return nil, fmt.Errorf("解析仓库池目录失败: %w", err)
+	}
+	repoTrashDir, err = filepath.Abs(repoTrashDir)
+	if err != nil {
+		return nil, fmt.Errorf("解析仓库回收站目录失败: %w", err)
 	}
 	legacyLibraryDir, err = filepath.Abs(legacyLibraryDir)
 	if err != nil {
@@ -105,6 +111,7 @@ func newService() (*service, error) {
 		dataDir:          dataDir,
 		stateDir:         stateDir,
 		reposDir:         reposDir,
+		repoTrashDir:     repoTrashDir,
 		legacyLibraryDir: legacyLibraryDir,
 		uploadTasks:      newAssetUploadTaskStore(),
 		pluginReadyRepos: map[string]bool{},
@@ -217,6 +224,14 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.createRepo(stringField(params, "title"))
 	case "hypercortex.repos.activate":
 		return svc.activateRepo(stringField(params, "repoId"))
+	case "hypercortex.repos.rename":
+		return svc.renameRepo(stringField(params, "repoId"), stringField(params, "title"))
+	case "hypercortex.repos.delete":
+		return nil, svc.deleteRepo(stringField(params, "repoId"))
+	case "hypercortex.repos.listDeleted":
+		return svc.listDeletedRepos()
+	case "hypercortex.repos.restore":
+		return svc.restoreRepo(stringField(params, "repoId"))
 
 	case "hypercortex.repoState.tryLoad":
 		return svc.tryLoadJSON(requireScope(params), repoStateFile)

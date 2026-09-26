@@ -15,6 +15,7 @@ func newTestService(t *testing.T) *service {
 		dataDir:          dataDir,
 		stateDir:         filepath.Join(dataDir, stateDirName),
 		reposDir:         filepath.Join(dataDir, reposDirName),
+		repoTrashDir:     filepath.Join(dataDir, repoTrashDirName),
 		legacyLibraryDir: filepath.Join(dataDir, legacyLibraryName),
 		uploadTasks:      newAssetUploadTaskStore(),
 		pluginReadyRepos: map[string]bool{},

@@ -15,6 +15,10 @@ const (
 	reposDirName = "repos"
 	// repoIdentityFile 是仓库身份文件：记录仓库标识、名称与创建时间。
 	repoIdentityFile = "hypercortex-repo.json"
+	// repoTrashDirName 是全局仓库回收站：被删除的仓库整包存放于此，与知识库内部的回收站互不相干。
+	repoTrashDirName = "repo-trash"
+	// repoTrashMetaFile 记录仓库的删除时间，随仓库一起被移出/移回。
+	repoTrashMetaFile = "repo-trash-meta.json"
 )
 
 // repoIdentity 是仓库的身份数据，与仓库工作状态（hypercortex-repo-state.json）分离。
@@ -23,6 +27,19 @@ type repoIdentity struct {
 	ID          string  `json:"id"`
 	Title       string  `json:"title"`
 	CreatedAtMs float64 `json:"createdAtMs"`
+}
+
+// deletedRepo 是仓库回收站中的条目：仓库身份 + 删除时间。
+type deletedRepo struct {
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	CreatedAtMs float64 `json:"createdAtMs"`
+	DeletedAtMs float64 `json:"deletedAtMs"`
+}
+
+type repoTrashMeta struct {
+	Version     int     `json:"version"`
+	DeletedAtMs float64 `json:"deletedAtMs"`
 }
 
 // repoRoot 把仓库标识解析为仓库根目录；标识格式非法或仓库不存在时快速失败。
@@ -208,5 +225,114 @@ func (svc *service) activateRepo(repoID string) (repoIdentity, error) {
 	if err := svc.ensureRepoPluginState(identity.ID); err != nil {
 		return repoIdentity{}, err
 	}
+	return identity, nil
+}
+
+// renameRepo 只更新仓库身份中的名称；标识与文件夹保持不变。
+func (svc *service) renameRepo(repoID string, title string) (repoIdentity, error) {
+	root, err := svc.repoRoot(repoID)
+	if err != nil {
+		return repoIdentity{}, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return repoIdentity{}, errors.New("仓库名称不能为空")
+	}
+	identity, err := svc.readRepoIdentity(root)
+	if err != nil {
+		return repoIdentity{}, err
+	}
+	identity.Title = normalizeRepoTitle(title)
+	if err := svc.writeRepoIdentity(root, identity); err != nil {
+		return repoIdentity{}, err
+	}
+	return identity, nil
+}
+
+// deleteRepo 把仓库整包移入全局仓库回收站；池中至少保留一个仓库。
+func (svc *service) deleteRepo(repoID string) error {
+	root, err := svc.repoRoot(repoID)
+	if err != nil {
+		return err
+	}
+	repos, err := svc.listRepos()
+	if err != nil {
+		return err
+	}
+	if len(repos) <= 1 {
+		return errors.New("至少保留一个仓库，无法删除")
+	}
+	if err := os.MkdirAll(svc.repoTrashDir, 0o755); err != nil {
+		return err
+	}
+	target := filepath.Join(svc.repoTrashDir, repoID)
+	if exists(target) {
+		return fmt.Errorf("仓库回收站已存在同标识条目：%s", repoID)
+	}
+	if err := os.Rename(root, target); err != nil {
+		return fmt.Errorf("移入仓库回收站失败：%w", err)
+	}
+	meta := repoTrashMeta{Version: 1, DeletedAtMs: nowMs()}
+	if err := writeJSONFile(filepath.Join(target, repoTrashMetaFile), meta); err != nil {
+		_ = os.Rename(target, root)
+		return err
+	}
+	return nil
+}
+
+// listDeletedRepos 列出仓库回收站中可恢复的仓库，按删除时间倒序。
+func (svc *service) listDeletedRepos() ([]deletedRepo, error) {
+	entries, err := os.ReadDir(svc.repoTrashDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return []deletedRepo{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []deletedRepo{}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		root := filepath.Join(svc.repoTrashDir, entry.Name())
+		identity, err := svc.readRepoIdentity(root)
+		if err != nil || identity.ID != entry.Name() {
+			continue
+		}
+		var meta repoTrashMeta
+		_ = readJSONFile(filepath.Join(root, repoTrashMetaFile), &meta)
+		deletedAt := meta.DeletedAtMs
+		if deletedAt <= 0 {
+			if info, err := entry.Info(); err == nil {
+				deletedAt = float64(info.ModTime().UnixMilli())
+			}
+		}
+		out = append(out, deletedRepo{ID: identity.ID, Title: identity.Title, CreatedAtMs: identity.CreatedAtMs, DeletedAtMs: deletedAt})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeletedAtMs > out[j].DeletedAtMs })
+	return out, nil
+}
+
+// restoreRepo 把仓库从全局回收站移回仓库池。
+func (svc *service) restoreRepo(repoID string) (repoIdentity, error) {
+	id := strings.TrimSpace(repoID)
+	if !isRepoID(id) {
+		return repoIdentity{}, fmt.Errorf("非法仓库标识：%s", id)
+	}
+	from := filepath.Join(svc.repoTrashDir, id)
+	identity, err := svc.readRepoIdentity(from)
+	if err != nil || identity.ID != id {
+		return repoIdentity{}, fmt.Errorf("仓库回收站中不存在该仓库：%s", id)
+	}
+	target := filepath.Join(svc.reposDir, id)
+	if exists(target) {
+		return repoIdentity{}, fmt.Errorf("仓库池已存在同标识仓库：%s", id)
+	}
+	if err := os.MkdirAll(svc.reposDir, 0o755); err != nil {
+		return repoIdentity{}, err
+	}
+	if err := os.Rename(from, target); err != nil {
+		return repoIdentity{}, fmt.Errorf("恢复仓库失败：%w", err)
+	}
+	_ = os.Remove(filepath.Join(target, repoTrashMetaFile))
 	return identity, nil
 }

@@ -46,6 +46,7 @@ func TestPluginDataStateRebuildsOnActivateAndSkipsWhenUnchanged(t *testing.T) {
 		dataDir:          svc.dataDir,
 		stateDir:         svc.stateDir,
 		reposDir:         svc.reposDir,
+		repoTrashDir:     svc.repoTrashDir,
 		legacyLibraryDir: svc.legacyLibraryDir,
 		uploadTasks:      newAssetUploadTaskStore(),
 		pluginReadyRepos: map[string]bool{},

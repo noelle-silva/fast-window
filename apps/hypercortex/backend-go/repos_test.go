@@ -213,3 +213,135 @@ func TestActivateRepoReconcilesPluginStatePerRepo(t *testing.T) {
 		t.Fatal("activate missing repo should fail")
 	}
 }
+
+func TestRenameRepoUpdatesIdentityOnly(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	repoID := testRepoID(t, svc)
+	before, err := svc.readRepoIdentity(testRepoRoot(t, svc))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := svc.renameRepo(repoID, "  资料库  ")
+	if err != nil {
+		t.Fatalf("renameRepo failed: %v", err)
+	}
+	if renamed.ID != repoID || renamed.Title != "资料库" || renamed.CreatedAtMs != before.CreatedAtMs {
+		t.Fatalf("renamed identity = %#v, want id/创建时间不变、名称更新", renamed)
+	}
+
+	persisted, err := svc.readRepoIdentity(testRepoRoot(t, svc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Title != "资料库" || persisted.ID != repoID {
+		t.Fatalf("persisted identity = %#v", persisted)
+	}
+	repos, err := svc.listRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || repos[0].Title != "资料库" {
+		t.Fatalf("listRepos after rename = %#v", repos)
+	}
+}
+
+func TestRenameRepoRejectsEmptyTitle(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	if _, err := svc.renameRepo(testRepoID(t, svc), "   "); err == nil {
+		t.Fatal("empty title must be rejected")
+	}
+}
+
+func TestDeleteRepoMovesToTrashAndKeepsLastRepo(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	first := testRepoID(t, svc)
+	if err := svc.deleteRepo(first); err == nil {
+		t.Fatal("the only repo must not be deletable")
+	}
+
+	second, err := svc.createRepo("第二仓库")
+	if err != nil {
+		t.Fatalf("createRepo failed: %v", err)
+	}
+	if err := svc.deleteRepo(first); err != nil {
+		t.Fatalf("deleteRepo failed: %v", err)
+	}
+	if _, err := svc.repoRoot(first); err == nil {
+		t.Fatal("deleted repo still reachable in pool")
+	}
+	mustExist(t, filepath.Join(svc.repoTrashDir, first, repoIdentityFile))
+	mustExist(t, filepath.Join(svc.repoTrashDir, first, repoTrashMetaFile))
+	repos, err := svc.listRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || repos[0].ID != second.ID {
+		t.Fatalf("pool after delete = %#v, want only %s", repos, second.ID)
+	}
+	if err := svc.deleteRepo(first); err == nil {
+		t.Fatal("deleting a repo missing from the pool should fail")
+	}
+}
+
+func TestListDeletedReposAndRestore(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	keep := testRepoID(t, svc)
+	second, err := svc.createRepo("要删的仓库")
+	if err != nil {
+		t.Fatalf("createRepo failed: %v", err)
+	}
+	if err := svc.deleteRepo(second.ID); err != nil {
+		t.Fatalf("deleteRepo failed: %v", err)
+	}
+
+	deleted, err := svc.listDeletedRepos()
+	if err != nil {
+		t.Fatalf("listDeletedRepos failed: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0].ID != second.ID || deleted[0].Title != "要删的仓库" || deleted[0].DeletedAtMs <= 0 {
+		t.Fatalf("deleted list = %#v", deleted)
+	}
+
+	restored, err := svc.restoreRepo(second.ID)
+	if err != nil {
+		t.Fatalf("restoreRepo failed: %v", err)
+	}
+	if restored.ID != second.ID || restored.Title != "要删的仓库" {
+		t.Fatalf("restored identity = %#v", restored)
+	}
+	if _, err := svc.repoRoot(second.ID); err != nil {
+		t.Fatalf("restored repo not reachable: %v", err)
+	}
+	mustNotExist(t, filepath.Join(svc.reposDir, second.ID, repoTrashMetaFile))
+	left, err := svc.listDeletedRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("repo trash after restore = %#v", left)
+	}
+	if _, err := svc.restoreRepo(second.ID); err == nil {
+		t.Fatal("restoring a repo missing from trash should fail")
+	}
+
+	repos, err := svc.listRepos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("pool after restore = %#v, want 2 repos (keep=%s)", repos, keep)
+	}
+}
