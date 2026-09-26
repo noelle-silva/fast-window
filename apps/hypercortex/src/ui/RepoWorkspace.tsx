@@ -2653,10 +2653,15 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       aria-hidden={!visible}
       sx={{
         position: 'absolute',
-        inset: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         minHeight: 0,
         display: 'flex',
         alignItems: 'stretch',
+        // 现场边界：每个仓库现场的溢出只在本现场内消化，常驻的隐藏现场不得撑开全局布局。
+        overflow: 'hidden',
         visibility: visible ? 'visible' : 'hidden',
         pointerEvents: visible ? 'auto' : 'none',
       }}
@@ -2678,7 +2683,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             />
           ) : null}
 
-          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
             <Box
               onMouseEnter={onSidebarMouseEnter}
               onMouseLeave={onSidebarMouseLeave}

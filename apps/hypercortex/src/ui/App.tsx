@@ -372,7 +372,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       <GlobalStyles styles={{ ':root': colorPresetVars }} />
 
       <ErrorBoundary>
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'var(--hc-app-bg)' }}>
+        {/* 应用壳固定不自滚动：内容滚动一律发生在内层滚动容器，防止任一现场溢出撑开整个窗口。 */}
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'var(--hc-app-bg)' }}>
           <AppBar position="static" elevation={0} sx={{ bgcolor: 'var(--hc-surface)', color: 'var(--hc-text)' }}>
             <Toolbar
               variant="dense"
