@@ -33,6 +33,13 @@ const CM6_CSS = `
 .hc-cm6-editor-container .cm-content{
   padding:0;
 }
+/* 换行模式（lineWrapping）下允许内容收缩回编辑器宽度：
+   .cm-content 是 flex 子项，默认 min-width:auto 会被大图/宽块级预览的固有宽度
+   撑到编辑器之外（图片随之溢出、右上角预览按钮被推出窗口，只能横向滚动）。
+   放开最小宽度后，.hc-render img 等的 max-width:100% 才能按编辑器宽度正确缩放。 */
+.hc-cm6-editor-container .cm-content.cm-lineWrapping{
+  min-width:0;
+}
 .hc-cm6-editor-container .cm-line{
   padding:0;
 }
