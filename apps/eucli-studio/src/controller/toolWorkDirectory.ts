@@ -1,7 +1,8 @@
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 // 本地记忆键：主人是否见过一次「工具默认工作目录」引导。
-export const TOOL_WORK_DIRECTORY_PROMPTED_KEY = 'tool-work-directory-prompted'
+// 走 client-state/ 前缀的客户端状态区，随客户端数据持久化（进程重启不丢）。
+export const TOOL_WORK_DIRECTORY_PROMPTED_KEY = 'client-state/tool-work-directory-prompted'
 
 export function defaultToolWorkDirectoryState() {
   return {
@@ -19,7 +20,7 @@ export function defaultToolWorkDirectoryState() {
 export function createToolWorkDirectoryController(deps: {
   getState: () => any
   netRequest: (req: any) => Promise<any>
-  rtStorage?: { get: (key: string) => Promise<any>; set: (key: string, value: any) => Promise<any> }
+  storage?: { get: (key: string) => Promise<any>; set: (key: string, value: any) => Promise<any> }
   emit: () => void
   showToast?: AiChatShowToast
 }) {
@@ -98,7 +99,7 @@ export function createToolWorkDirectoryController(deps: {
 
   async function readPrompted(): Promise<boolean> {
     try {
-      const value = await deps.rtStorage?.get?.(TOOL_WORK_DIRECTORY_PROMPTED_KEY)
+      const value = await deps.storage?.get?.(TOOL_WORK_DIRECTORY_PROMPTED_KEY)
       return String(value ?? '') === '1'
     } catch (_) {
       return false
@@ -107,7 +108,7 @@ export function createToolWorkDirectoryController(deps: {
 
   async function markPrompted() {
     try {
-      await deps.rtStorage?.set?.(TOOL_WORK_DIRECTORY_PROMPTED_KEY, '1')
+      await deps.storage?.set?.(TOOL_WORK_DIRECTORY_PROMPTED_KEY, '1')
     } catch (_) {
       // 本地记忆失败不阻断关闭：最坏情况是下次再引导一次。
     }

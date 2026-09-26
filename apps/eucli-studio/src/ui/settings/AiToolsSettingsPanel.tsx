@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import BuildIcon from '@mui/icons-material/Build'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
@@ -107,6 +108,9 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
             <SettingsHeading title="AI 工具管理" description="从 e-b 工具目录加载工具，并编辑工具的用户配置。" descriptionVariant="body2" />
           </Stack>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button startIcon={<FolderOutlinedIcon />} variant="outlined" onClick={() => controller.actions.showToolWorkDirectoryView?.()}>
+              默认工作目录
+            </Button>
             <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => setStoreOpen(true)}>
               商店
             </Button>
@@ -120,8 +124,6 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
         </Stack>
 
         <ToolBusyPromptDialog controller={controller} tools={tools} />
-
-        <ToolWorkDirectorySection controller={controller} state={toolWorkDirectory} />
 
         {tools?.error ? (
           <Typography variant="body2" color="error">
@@ -170,7 +172,9 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
 
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
             <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
-              {selectedTool ? (
+              {tools?.workDirectoryView ? (
+                <ToolWorkDirectorySection controller={controller} state={toolWorkDirectory} />
+              ) : selectedTool ? (
                 <Stack spacing={1.25}>
                   {tools?.detailLoading ? <Typography variant="body2" color="text.secondary">工具详情加载中…</Typography> : null}
                   {tools?.detailError ? <Typography variant="body2" color="error">{String(tools.detailError || '')}</Typography> : null}

@@ -96,7 +96,7 @@ export function createToolCatalog(deps: {
   async function openToolConfig(toolIdRaw: any) {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
-    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, saveError: '' })
+    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, workDirectoryView: false, saveError: '' })
     deps.emit()
     try {
       const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}`, timeoutMs: 15000 })
@@ -117,6 +117,12 @@ export function createToolCatalog(deps: {
 
   function closeToolConfig() {
     patchCatalog({ selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, detailError: '', saveError: '' })
+    deps.emit()
+  }
+
+  // showToolWorkDirectoryView 让右侧区域切换到「工具默认工作目录」设置视图。
+  function showToolWorkDirectoryView() {
+    patchCatalog({ workDirectoryView: true, selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, detailError: '', saveError: '' })
     deps.emit()
   }
 
@@ -294,7 +300,7 @@ export function createToolCatalog(deps: {
     installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
+  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {
@@ -307,6 +313,7 @@ function defaultToolCatalogState() {
     detailError: '',
     selectedToolId: '',
     selectedTool: null as any,
+    workDirectoryView: false,
     configDraft: {} as Record<string, any>,
     promptDescriptionDraft: '',
     capabilityGrantsDraft: {} as Record<string, boolean>,

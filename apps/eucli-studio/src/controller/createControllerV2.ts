@@ -542,18 +542,18 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
+  const { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
 
   const installSourceClient = createInstallSourceClient({
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
   })
   const { get: getInstallSource, set: setInstallSource } = installSourceClient
 
-  // 「AI 工具默认工作目录」：配置在业务端，是否引导过由客户端本地记忆。
+  // 「AI 工具默认工作目录」：配置在业务端，是否引导过由客户端持久化记忆。
   const toolWorkDirectory = createToolWorkDirectoryController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    rtStorage: runtimeStorage,
+    storage,
     emit,
     showToast: api.ui?.showToast,
   })
@@ -928,6 +928,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     refreshTools,
     openToolConfig,
     closeToolConfig,
+    showToolWorkDirectoryView,
     setToolConfigValue,
     removeToolConfigValue,
     setToolPromptDescriptionDraft,

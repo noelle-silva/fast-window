@@ -8,6 +8,7 @@ export function createToolActions(deps: {
   refreshTools: (force: boolean) => any
   openToolConfig: (toolId: any) => any
   closeToolConfig: () => any
+  showToolWorkDirectoryView: () => any
   setToolConfigValue: (path: any, value: any) => any
   removeToolConfigValue: (path: any) => any
   setToolPromptDescriptionDraft: (value: any) => any
@@ -22,12 +23,13 @@ export function createToolActions(deps: {
   getInstallSource: () => any
   setInstallSource: (kind: 'official' | 'local') => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource } = deps
+  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
     openToolConfig: (toolId: any) => openToolConfig(toolId),
     closeToolConfig: () => closeToolConfig(),
+    showToolWorkDirectoryView: () => showToolWorkDirectoryView(),
     setToolConfigValue: (path: any, value: any) => setToolConfigValue(path, value),
     removeToolConfigValue: (path: any) => removeToolConfigValue(path),
     setToolPromptDescriptionDraft: (value: any) => setToolPromptDescriptionDraft(value),
