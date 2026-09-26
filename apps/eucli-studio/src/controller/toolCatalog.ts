@@ -376,7 +376,7 @@ function normalizeToolCapabilities(value: any): any[] {
     const id = String((item as any).id || '').trim()
     const access = String((item as any).access || '').trim()
     if (!id || !access) continue
-    out.push({ id, access, name: String((item as any).name || '').trim(), description: String((item as any).description || '').trim() })
+    out.push({ id, access, name: String((item as any).name || '').trim(), description: String((item as any).description || '').trim(), grantRequired: (item as any).grantRequired === true })
   }
   return out
 }

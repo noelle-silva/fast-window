@@ -9,10 +9,11 @@ type ToolCapabilityGrantsSectionProps = {
 }
 
 // ToolCapabilityGrantsSection 按工具的能力声明渲染授权开关：
-// 每条声明对应一个开关，读取与写入分别授权，界面不含任何工具名判断。
+// 只渲染需要用户授权的能力（宿主主动提供的注入类能力不出现在此处），
+// 读取与写入分别授权，界面不含任何工具名判断。
 export function ToolCapabilityGrantsSection(props: ToolCapabilityGrantsSectionProps) {
   const { controller, tool, tools } = props
-  const capabilities = Array.isArray(tool?.capabilities) ? tool.capabilities : []
+  const capabilities = (Array.isArray(tool?.capabilities) ? tool.capabilities : []).filter((capability: any) => capability?.grantRequired === true)
   if (!capabilities.length) return null
   const grants = tools?.capabilityGrantsDraft && typeof tools.capabilityGrantsDraft === 'object' ? tools.capabilityGrantsDraft : {}
   return (
