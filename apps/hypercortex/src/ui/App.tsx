@@ -41,6 +41,7 @@ import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
 import { RepoCreateDialog, RepoSwitcher, pickNextRepoTitle } from './RepoSwitcher'
+import { RepoTrashPanel } from './repo-management/RepoTrashPanel'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
 import { colorPresetCssVars, createHyperCortexTheme, DEFAULT_COLOR_PRESET_ID, getColorPreset, normalizeColorPresetId } from './colorPresets'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -80,7 +81,7 @@ import {
 import { faceManifestFromDeclaration, filterCreatableFaceDeclarations, getCreatableFaceDeclarations, getFaceDeclaration, getFaceKindOrder, requireFaceDeclaration, setFaceDeclarations, type FaceDeclaration } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
 
-type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
+type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash' | 'repo-trash'
 
 type TabsMode = 'manual' | 'hover'
 
@@ -1653,6 +1654,34 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [gateway, handleSwitchRepo, repos],
   )
 
+  const handleOpenRepoTrashPage = React.useCallback(() => navigatePage('repo-trash'), [navigatePage])
+
+  const handleRenameRepo = React.useCallback(
+    async (repoId: string, title: string) => {
+      const renamed = await gateway.repos.renameRepo(repoId, title)
+      setRepos(prev => prev.map(repo => (repo.id === renamed.id ? { ...repo, title: renamed.title } : repo)))
+    },
+    [gateway],
+  )
+
+  const handleDeleteRepo = React.useCallback(
+    async (repoId: string) => {
+      await gateway.repos.deleteRepo(repoId)
+      setRepos(prev => prev.filter(repo => repo.id !== repoId))
+      void gateway.host.toast('已将仓库移入仓库回收站')
+    },
+    [gateway],
+  )
+
+  const handleRepoRestored = React.useCallback(
+    async (repo: HyperCortexRepo) => {
+      const list = await gateway.repos.listRepos().catch(() => null)
+      if (list) setRepos(list)
+      void gateway.host.toast(`已恢复仓库：${repo.title}`)
+    },
+    [gateway],
+  )
+
   // 初始化：应用设置与当前仓库装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
   // 面声明为独立失败域，不阻断核心数据，面系统可在重试后恢复。
   const runAppInitialization = React.useCallback(async () => {
@@ -2913,6 +2942,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             onFaceKindOrderChange={handleFaceKindOrderChange}
             defaultFaceKinds={defaultFaceKinds}
             onDefaultFaceKindsChange={handleDefaultFaceKindsChange}
+            repos={repos}
+            activeRepoId={activeRepoId}
+            onRenameRepo={handleRenameRepo}
+            onDeleteRepo={handleDeleteRepo}
+            onOpenRepoTrash={handleOpenRepoTrashPage}
           />
         )
       default:
@@ -3384,6 +3418,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   }}
                 />
               ) : null}
+              {page === 'repo-trash' ? (
+                <RepoTrashPanel gateway={gateway} onRestored={repo => void handleRepoRestored(repo)} />
+              ) : null}
               {page === 'settings' ? (
                 <SettingsPage
                   dataDirStatus={dataDirStatus}
@@ -3412,6 +3449,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onFaceKindOrderChange={handleFaceKindOrderChange}
                   defaultFaceKinds={defaultFaceKinds}
                   onDefaultFaceKindsChange={handleDefaultFaceKindsChange}
+                  repos={repos}
+                  activeRepoId={activeRepoId}
+                  onRenameRepo={handleRenameRepo}
+                  onDeleteRepo={handleDeleteRepo}
+                  onOpenRepoTrash={handleOpenRepoTrashPage}
                 />
               ) : null}
             </Box>

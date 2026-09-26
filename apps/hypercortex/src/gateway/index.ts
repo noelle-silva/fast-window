@@ -100,4 +100,4 @@ export function resetHyperCortexGateway() {
 
 export { setActiveRepoScope }
 
-export type { DataDirStatus, HyperCortexGateway, HyperCortexRepo, HyperCortexTrashItem, LegacyDataImportResult } from './types'
+export type { DataDirStatus, HyperCortexDeletedRepo, HyperCortexGateway, HyperCortexRepo, HyperCortexTrashItem, LegacyDataImportResult } from './types'

@@ -59,10 +59,22 @@ export type HyperCortexRepo = {
   createdAtMs: number
 }
 
+// 仓库回收站条目：仓库身份 + 删除时间。
+export type HyperCortexDeletedRepo = {
+  id: string
+  title: string
+  createdAtMs: number
+  deletedAtMs: number
+}
+
 export type ReposService = {
   listRepos: () => Promise<HyperCortexRepo[]>
   createRepo: (title: string) => Promise<HyperCortexRepo>
   activateRepo: (repoId: string) => Promise<HyperCortexRepo>
+  renameRepo: (repoId: string, title: string) => Promise<HyperCortexRepo>
+  deleteRepo: (repoId: string) => Promise<void>
+  listDeletedRepos: () => Promise<HyperCortexDeletedRepo[]>
+  restoreRepo: (repoId: string) => Promise<HyperCortexRepo>
 }
 
 export type ClipboardGateway = {

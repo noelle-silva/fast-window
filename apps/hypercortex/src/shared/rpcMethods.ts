@@ -45,6 +45,10 @@ export const HyperCortexRpc = {
     list: 'hypercortex.repos.list',
     create: 'hypercortex.repos.create',
     activate: 'hypercortex.repos.activate',
+    rename: 'hypercortex.repos.rename',
+    delete: 'hypercortex.repos.delete',
+    listDeleted: 'hypercortex.repos.listDeleted',
+    restore: 'hypercortex.repos.restore',
   },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',

@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Switch, Tab, Tabs, Typography } from '@mui/material'
 import type { HyperCortexColorPresetIdV1, HyperCortexSidebarSortModeV1 } from '../core'
-import type { DataDirStatus, LegacyDataImportResult } from '../gateway'
+import type { DataDirStatus, HyperCortexRepo, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import { useFaceDeclarations } from '../facePlugins'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
@@ -12,15 +12,17 @@ import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
 import { PageDisplaySettingsPanel } from './PageDisplaySettingsPanel'
+import { RepoManagementSettingsPanel } from './repo-management/RepoManagementSettingsPanel'
 import type { ModalCapablePageId, PageDisplayMode, PageDisplayModesV1 } from '../pageDisplay'
 import { settingsTabSx } from './settingsUiStyles'
 
-type SettingsCategoryId = 'data' | 'actions' | 'display'
+type SettingsCategoryId = 'data' | 'actions' | 'display' | 'repos'
 
 const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string }[] = [
   { id: 'data', label: '数据' },
   { id: 'actions', label: '操作' },
   { id: 'display', label: '显示' },
+  { id: 'repos', label: '仓库管理' },
 ]
 
 export type SettingsPageProps = {
@@ -50,6 +52,11 @@ export type SettingsPageProps = {
   onFaceKindOrderChange: (next: string[]) => void
   defaultFaceKinds: string[]
   onDefaultFaceKindsChange: (next: string[]) => void
+  repos: HyperCortexRepo[]
+  activeRepoId: string
+  onRenameRepo: (repoId: string, title: string) => Promise<void> | void
+  onDeleteRepo: (repoId: string) => Promise<void> | void
+  onOpenRepoTrash: () => void
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -174,6 +181,26 @@ export function SettingsPage(props: SettingsPageProps) {
             <ColorPresetSettingsPanel
               value={props.colorPresetId}
               onChange={props.onColorPresetChange}
+            />
+          </SettingsPanelStack>
+        ) : null}
+      </Box>
+
+      <Box
+        role="tabpanel"
+        hidden={category !== 'repos'}
+        id="hypercortex-settings-tabpanel-repos"
+        aria-labelledby="hypercortex-settings-tab-repos"
+        sx={{ pt: 0.5 }}
+      >
+        {category === 'repos' ? (
+          <SettingsPanelStack>
+            <RepoManagementSettingsPanel
+              repos={props.repos}
+              activeRepoId={props.activeRepoId}
+              onRenameRepo={props.onRenameRepo}
+              onDeleteRepo={props.onDeleteRepo}
+              onOpenRepoTrash={props.onOpenRepoTrash}
             />
           </SettingsPanelStack>
         ) : null}
