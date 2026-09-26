@@ -2,6 +2,8 @@ import React from 'react'
 import { ensureHyperCodeMirrorEditorStyles } from '../../editor/styles'
 import { formatAssetMarkerInsertion } from '../../assetMarker'
 import { parseNotePlaceholderBody } from '../../notePlaceholder'
+import { katex } from './render/vendor'
+import type { MarkdownRenderEngine } from './render/engine'
 
 // CM6（新一代编辑器核心）
 import { basicSetup } from 'codemirror'
@@ -30,6 +32,10 @@ export interface UnifiedEditorProps {
   writeClipboardText?: (text: string) => Promise<void>
   showToast?: (message: string) => Promise<void> | void
   onPasteFiles?: (files: File[], insertText: (text: string) => void) => Promise<void> | void
+  /** 面渲染引擎（面插件私有）：块级预览与资源占位符由它渲染。 */
+  engine: MarkdownRenderEngine
+  /** 引用索引：用于引用标题与失效状态渲染。 */
+  noteIndexMap?: Record<string, { title: string }>
 }
 
 type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
@@ -237,12 +243,6 @@ type NoteRefRange = { from: number; to: number; noteId: string; title: string; r
 
 const NOTE_REF_PATTERN = /\[\[([^\]\n]+?)\]\]/g
 
-function getGlobalNoteIndexMap(): NoteIndexMap | null {
-  const engine = (window as any)?.__hcRenderEngine
-  const ni = engine?.noteIndex
-  return ni && typeof ni === 'object' ? (ni as NoteIndexMap) : null
-}
-
 function findNoteRefRanges(lineText: string, codeRanges: Array<[number, number]>): NoteRefRange[] {
   const out: NoteRefRange[] = []
   NOTE_REF_PATTERN.lastIndex = 0
@@ -391,8 +391,6 @@ class InlineMathWidget extends WidgetType {
     span.appendChild(inner)
     span.appendChild(btn)
 
-    const w = window as any
-    const katex = w?.katex
     if (katex && typeof katex.render === 'function') {
       try { katex.render(this.tex, inner, { displayMode: false, throwOnError: false }) } catch (_) { inner.textContent = this.tex }
     } else {
@@ -439,227 +437,229 @@ class InlineNoteRefWidget extends WidgetType {
   }
 }
 
-const syntaxHighlightPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
+function syntaxHighlightExtension(opts: { getNoteIndexMap: () => NoteIndexMap | null }) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
 
-    constructor(view: EditorView) {
-      this.decorations = this.build(view)
-    }
-
-    update(update: ViewUpdate) {
-      const hasRefresh = update.transactions.some(tr => tr.effects.some(e => e.is(refreshEffect)))
-      if (update.docChanged || update.selectionSet || hasRefresh) {
-        this.decorations = this.build(update.view)
-      }
-    }
-
-    private build(view: EditorView): DecorationSet {
-      const doc = view.state.doc
-      const decos: Range<Decoration>[] = []
-
-      const sel = view.state.selection.main
-      const cursorLine = doc.lineAt(sel.head).number
-      const noteIndexMap = getGlobalNoteIndexMap()
-
-      const mark = (from: number, to: number, cls: string) => {
-        if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to))
-      }
-      const lineDeco = (pos: number, cls: string) => {
-        decos.push(Decoration.line({ class: cls }).range(pos))
+      constructor(view: EditorView) {
+        this.decorations = this.build(view)
       }
 
-      const liveBlocks = scanLiveBlocks(doc)
-
-      const lineInfo = new Map<number, string>()
-      for (const b of liveBlocks) {
-        const focused = selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)
-        const startLn = doc.lineAt(b.from).number
-        const endLn = doc.lineAt(b.focusTo).number
-        for (let ln = startLn; ln <= endLn; ln++) {
-          if (!focused) {
-            lineInfo.set(ln, 'skip')
-          } else if (b.kind === 'code') {
-            if (ln === startLn) lineInfo.set(ln, 'fence-open')
-            else if (ln === endLn) lineInfo.set(ln, 'fence-close')
-            else lineInfo.set(ln, 'fence-body')
-          } else {
-            lineInfo.set(ln, 'raw')
-          }
+      update(update: ViewUpdate) {
+        const hasRefresh = update.transactions.some(tr => tr.effects.some(e => e.is(refreshEffect)))
+        if (update.docChanged || update.selectionSet || hasRefresh) {
+          this.decorations = this.build(update.view)
         }
       }
 
-      const boldRe = /\*\*(.+?)\*\*/g
-      const italicRe = /(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g
-      const inlineCodeRe = /`([^`]*?)`/g
-      const strikeRe = /~~(.+?)~~/g
-      const imageRe = /!\[([^\]]*)\]\(([^)]*)\)/g
-      const linkRe = /\[([^\]]*)\]\(([^)]*)\)/g
+      private build(view: EditorView): DecorationSet {
+        const doc = view.state.doc
+        const decos: Range<Decoration>[] = []
 
-      for (let ln = 1; ln <= doc.lines; ln++) {
-        const info = lineInfo.get(ln)
-        if (info === 'skip' || info === 'raw') continue
+        const sel = view.state.selection.main
+        const cursorLine = doc.lineAt(sel.head).number
+        const noteIndexMap = opts.getNoteIndexMap()
 
-        const line = doc.line(ln)
-        const base = line.from
-        const focused = ln === cursorLine
-
-        if (info === 'fence-open') {
-          lineDeco(base, 'cm-hc-fence-open')
-          continue
+        const mark = (from: number, to: number, cls: string) => {
+          if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to))
         }
-        if (info === 'fence-close') {
-          lineDeco(base, 'cm-hc-fence-close')
-          continue
-        }
-        if (info === 'fence-body') {
-          lineDeco(base, 'cm-hc-fence-body')
-          continue
+        const lineDeco = (pos: number, cls: string) => {
+          decos.push(Decoration.line({ class: cls }).range(pos))
         }
 
-        const t = line.text
-        const dimOrHide = focused ? 'cm-hc-dim' : 'cm-hc-hide'
+        const liveBlocks = scanLiveBlocks(doc)
 
-        // 标题：非聚焦行隐藏 # 和空格
-        const hm = /^(#{1,6}) (.*)$/.exec(t)
-        if (hm) {
-          const level = hm[1].length
-          mark(base, base + level + 1, dimOrHide)
-          const cls = level <= 3
-            ? (level === 1 ? 'cm-hc-h1' : level === 2 ? 'cm-hc-h2' : 'cm-hc-h3')
-            : 'cm-hc-h4'
-          mark(base + level + 1, base + t.length, cls)
-        }
-
-        // 水平线
-        if (/^([-*_]{3,})\s*$/.test(t)) {
-          lineDeco(base, 'cm-hc-hr-line')
-          if (!focused) mark(base, base + t.length, 'cm-hc-hr-text-hidden')
-          continue
-        }
-
-        // 引用
-        const bqm = /^(>\s?)(.*)$/.exec(t)
-        if (bqm) {
-          mark(base, base + (bqm[1] ?? '').length, 'cm-hc-blockquote-marker')
-          mark(base, base + t.length, 'cm-hc-blockquote')
-        }
-
-        // 列表标记
-        const ulm = /^(\s*)([-*+])(\s)/.exec(t)
-        if (ulm) {
-          const markerFrom = base
-          const markerTo = base + ulm[0].length
-          if (focused) {
-            mark(markerFrom, markerTo, 'cm-hc-list-marker')
-          } else {
-            const indent = Math.floor((ulm[1] ?? '').length / 2)
-            decos.push(Decoration.replace({ widget: new BulletWidget(indent) }).range(markerFrom, markerTo))
-          }
-        }
-        const olm = /^(\s*\d+\.\s)/.exec(t)
-        if (olm) mark(base, base + olm[1].length, 'cm-hc-list-marker')
-
-        // 加粗
-        boldRe.lastIndex = 0
-        for (let m = boldRe.exec(t); m; m = boldRe.exec(t)) {
-          const o = base + m.index
-          const inner = m[1] ?? ''
-          mark(o, o + 2, dimOrHide)
-          mark(o + 2, o + 2 + inner.length, 'cm-hc-bold')
-          mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
-        }
-
-        // 斜体
-        italicRe.lastIndex = 0
-        for (let m = italicRe.exec(t); m; m = italicRe.exec(t)) {
-          const prefix = m[1] ?? ''
-          const inner = m[2] ?? ''
-          const s = base + m.index + prefix.length
-          mark(s, s + 1, dimOrHide)
-          mark(s + 1, s + 1 + inner.length, 'cm-hc-italic')
-          mark(s + 1 + inner.length, s + 1 + inner.length + 1, dimOrHide)
-        }
-
-        // 行内代码
-        inlineCodeRe.lastIndex = 0
-        for (let m = inlineCodeRe.exec(t); m; m = inlineCodeRe.exec(t)) {
-          const o = base + m.index
-          const inner = m[1] ?? ''
-          mark(o, o + 1, dimOrHide)
-          mark(o + 1, o + 1 + inner.length, 'cm-hc-inline-code')
-          mark(o + 1 + inner.length, o + 1 + inner.length + 1, dimOrHide)
-        }
-
-        // 删除线
-        strikeRe.lastIndex = 0
-        for (let m = strikeRe.exec(t); m; m = strikeRe.exec(t)) {
-          const o = base + m.index
-          const inner = m[1] ?? ''
-          mark(o, o + 2, dimOrHide)
-          mark(o + 2, o + 2 + inner.length, 'cm-hc-strikethrough')
-          mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
-        }
-
-        // 图片
-        const imgRanges: Array<[number, number]> = []
-        imageRe.lastIndex = 0
-        for (let m = imageRe.exec(t); m; m = imageRe.exec(t)) {
-          const f = base + m.index, tt = f + m[0].length
-          imgRanges.push([f, tt])
-          mark(f, tt, focused ? 'cm-hc-image-marker' : 'cm-hc-hide')
-        }
-
-        // 链接
-        linkRe.lastIndex = 0
-        for (let m = linkRe.exec(t); m; m = linkRe.exec(t)) {
-          const f = base + m.index, tt = f + m[0].length
-          if (imgRanges.some(([a, b]) => f < b && tt > a)) continue
-          const text = m[1] ?? '', url = m[2] ?? ''
-          const ob = f
-          mark(ob, ob + 1, dimOrHide)
-          mark(ob + 1, ob + 1 + text.length, 'cm-hc-link-text')
-          mark(ob + 1 + text.length, ob + 1 + text.length + 1, dimOrHide)
-          const op = ob + 1 + text.length + 1
-          mark(op, op + 1 + url.length + 1, focused ? 'cm-hc-link-url' : 'cm-hc-link-url-hide')
-        }
-
-        // 行内公式：仅在“非聚焦行”渲染成 KaTeX，避免打断正在编辑的那一行
-        if (!focused && t.includes('$')) {
-          const codeRanges = findInlineCodeRanges(t)
-          const mathRanges = findInlineMathRanges(t, codeRanges)
-          for (const r of mathRanges) {
-            const from = base + r.from
-            const to = base + r.to
-            decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex, () => globalWriteClipboardText, () => globalShowToast) }).range(from, to))
-          }
-        }
-
-        // 笔记引用占位符：仅在“非聚焦行”替换渲染，点击即可回到源码编辑
-        if (!focused && t.includes('[[')) {
-          const codeRanges = findInlineCodeRanges(t)
-          const refs = findNoteRefRanges(t, codeRanges)
-          if (refs.length) {
-            for (const r of refs) {
-              const from = base + r.from
-              const to = base + r.to
-              const meta = noteIndexMap ? noteIndexMap[r.noteId] : undefined
-              const hasIndex = !!noteIndexMap
-              const broken = hasIndex && !meta
-              const label = String(r.title || '').trim()
-                || String(meta?.title || '').trim()
-                || '未知笔记'
-              decos.push(Decoration.replace({ widget: new InlineNoteRefWidget(r.noteId, label, broken, r.remarks) }).range(from, to))
+        const lineInfo = new Map<number, string>()
+        for (const b of liveBlocks) {
+          const focused = selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)
+          const startLn = doc.lineAt(b.from).number
+          const endLn = doc.lineAt(b.focusTo).number
+          for (let ln = startLn; ln <= endLn; ln++) {
+            if (!focused) {
+              lineInfo.set(ln, 'skip')
+            } else if (b.kind === 'code') {
+              if (ln === startLn) lineInfo.set(ln, 'fence-open')
+              else if (ln === endLn) lineInfo.set(ln, 'fence-close')
+              else lineInfo.set(ln, 'fence-body')
+            } else {
+              lineInfo.set(ln, 'raw')
             }
           }
         }
-      }
 
-      return Decoration.set(decos, true)
-    }
-  },
-  { decorations: (v) => v.decorations },
-)
+        const boldRe = /\*\*(.+?)\*\*/g
+        const italicRe = /(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g
+        const inlineCodeRe = /`([^`]*?)`/g
+        const strikeRe = /~~(.+?)~~/g
+        const imageRe = /!\[([^\]]*)\]\(([^)]*)\)/g
+        const linkRe = /\[([^\]]*)\]\(([^)]*)\)/g
+
+        for (let ln = 1; ln <= doc.lines; ln++) {
+          const info = lineInfo.get(ln)
+          if (info === 'skip' || info === 'raw') continue
+
+          const line = doc.line(ln)
+          const base = line.from
+          const focused = ln === cursorLine
+
+          if (info === 'fence-open') {
+            lineDeco(base, 'cm-hc-fence-open')
+            continue
+          }
+          if (info === 'fence-close') {
+            lineDeco(base, 'cm-hc-fence-close')
+            continue
+          }
+          if (info === 'fence-body') {
+            lineDeco(base, 'cm-hc-fence-body')
+            continue
+          }
+
+          const t = line.text
+          const dimOrHide = focused ? 'cm-hc-dim' : 'cm-hc-hide'
+
+          // 标题：非聚焦行隐藏 # 和空格
+          const hm = /^(#{1,6}) (.*)$/.exec(t)
+          if (hm) {
+            const level = hm[1].length
+            mark(base, base + level + 1, dimOrHide)
+            const cls = level <= 3
+              ? (level === 1 ? 'cm-hc-h1' : level === 2 ? 'cm-hc-h2' : 'cm-hc-h3')
+              : 'cm-hc-h4'
+            mark(base + level + 1, base + t.length, cls)
+          }
+
+          // 水平线
+          if (/^([-*_]{3,})\s*$/.test(t)) {
+            lineDeco(base, 'cm-hc-hr-line')
+            if (!focused) mark(base, base + t.length, 'cm-hc-hr-text-hidden')
+            continue
+          }
+
+          // 引用
+          const bqm = /^(>\s?)(.*)$/.exec(t)
+          if (bqm) {
+            mark(base, base + (bqm[1] ?? '').length, 'cm-hc-blockquote-marker')
+            mark(base, base + t.length, 'cm-hc-blockquote')
+          }
+
+          // 列表标记
+          const ulm = /^(\s*)([-*+])(\s)/.exec(t)
+          if (ulm) {
+            const markerFrom = base
+            const markerTo = base + ulm[0].length
+            if (focused) {
+              mark(markerFrom, markerTo, 'cm-hc-list-marker')
+            } else {
+              const indent = Math.floor((ulm[1] ?? '').length / 2)
+              decos.push(Decoration.replace({ widget: new BulletWidget(indent) }).range(markerFrom, markerTo))
+            }
+          }
+          const olm = /^(\s*\d+\.\s)/.exec(t)
+          if (olm) mark(base, base + olm[1].length, 'cm-hc-list-marker')
+
+          // 加粗
+          boldRe.lastIndex = 0
+          for (let m = boldRe.exec(t); m; m = boldRe.exec(t)) {
+            const o = base + m.index
+            const inner = m[1] ?? ''
+            mark(o, o + 2, dimOrHide)
+            mark(o + 2, o + 2 + inner.length, 'cm-hc-bold')
+            mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
+          }
+
+          // 斜体
+          italicRe.lastIndex = 0
+          for (let m = italicRe.exec(t); m; m = italicRe.exec(t)) {
+            const prefix = m[1] ?? ''
+            const inner = m[2] ?? ''
+            const s = base + m.index + prefix.length
+            mark(s, s + 1, dimOrHide)
+            mark(s + 1, s + 1 + inner.length, 'cm-hc-italic')
+            mark(s + 1 + inner.length, s + 1 + inner.length + 1, dimOrHide)
+          }
+
+          // 行内代码
+          inlineCodeRe.lastIndex = 0
+          for (let m = inlineCodeRe.exec(t); m; m = inlineCodeRe.exec(t)) {
+            const o = base + m.index
+            const inner = m[1] ?? ''
+            mark(o, o + 1, dimOrHide)
+            mark(o + 1, o + 1 + inner.length, 'cm-hc-inline-code')
+            mark(o + 1 + inner.length, o + 1 + inner.length + 1, dimOrHide)
+          }
+
+          // 删除线
+          strikeRe.lastIndex = 0
+          for (let m = strikeRe.exec(t); m; m = strikeRe.exec(t)) {
+            const o = base + m.index
+            const inner = m[1] ?? ''
+            mark(o, o + 2, dimOrHide)
+            mark(o + 2, o + 2 + inner.length, 'cm-hc-strikethrough')
+            mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
+          }
+
+          // 图片
+          const imgRanges: Array<[number, number]> = []
+          imageRe.lastIndex = 0
+          for (let m = imageRe.exec(t); m; m = imageRe.exec(t)) {
+            const f = base + m.index, tt = f + m[0].length
+            imgRanges.push([f, tt])
+            mark(f, tt, focused ? 'cm-hc-image-marker' : 'cm-hc-hide')
+          }
+
+          // 链接
+          linkRe.lastIndex = 0
+          for (let m = linkRe.exec(t); m; m = linkRe.exec(t)) {
+            const f = base + m.index, tt = f + m[0].length
+            if (imgRanges.some(([a, b]) => f < b && tt > a)) continue
+            const text = m[1] ?? '', url = m[2] ?? ''
+            const ob = f
+            mark(ob, ob + 1, dimOrHide)
+            mark(ob + 1, ob + 1 + text.length, 'cm-hc-link-text')
+            mark(ob + 1 + text.length, ob + 1 + text.length + 1, dimOrHide)
+            const op = ob + 1 + text.length + 1
+            mark(op, op + 1 + url.length + 1, focused ? 'cm-hc-link-url' : 'cm-hc-link-url-hide')
+          }
+
+          // 行内公式：仅在“非聚焦行”渲染成 KaTeX，避免打断正在编辑的那一行
+          if (!focused && t.includes('$')) {
+            const codeRanges = findInlineCodeRanges(t)
+            const mathRanges = findInlineMathRanges(t, codeRanges)
+            for (const r of mathRanges) {
+              const from = base + r.from
+              const to = base + r.to
+              decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex, () => globalWriteClipboardText, () => globalShowToast) }).range(from, to))
+            }
+          }
+
+          // 笔记引用占位符：仅在“非聚焦行”替换渲染，点击即可回到源码编辑
+          if (!focused && t.includes('[[')) {
+            const codeRanges = findInlineCodeRanges(t)
+            const refs = findNoteRefRanges(t, codeRanges)
+            if (refs.length) {
+              for (const r of refs) {
+                const from = base + r.from
+                const to = base + r.to
+                const meta = noteIndexMap ? noteIndexMap[r.noteId] : undefined
+                const hasIndex = !!noteIndexMap
+                const broken = hasIndex && !meta
+                const label = String(r.title || '').trim()
+                  || String(meta?.title || '').trim()
+                  || '未知笔记'
+                decos.push(Decoration.replace({ widget: new InlineNoteRefWidget(r.noteId, label, broken, r.remarks) }).range(from, to))
+              }
+            }
+          }
+        }
+
+        return Decoration.set(decos, true)
+      }
+    },
+    { decorations: (v) => v.decorations },
+  )
+}
 
 class HyperBlockWidget extends WidgetType {
   private cleanup?: () => void
@@ -668,6 +668,7 @@ class HyperBlockWidget extends WidgetType {
     readonly kind: LiveBlockKind,
     readonly source: string,
     readonly onBlockRendered: (() => UnifiedEditorProps['onBlockRendered']) | undefined,
+    readonly engine: MarkdownRenderEngine,
   ) { super() }
 
   eq(other: WidgetType) {
@@ -691,12 +692,7 @@ class HyperBlockWidget extends WidgetType {
       if (typeof cleanup === 'function') this.cleanup = cleanup
     }
 
-    const engine = (window as any).__hcRenderEngine
-    if (engine && typeof engine.renderInto === 'function') {
-      engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() } })
-    } else {
-      inner.textContent = this.source
-    }
+    this.engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() } })
 
     runPostRender()
 
@@ -726,6 +722,7 @@ class AssetPlaceholderWidget extends WidgetType {
     readonly source: string,
     readonly onBlockRendered: (() => UnifiedEditorProps['onBlockRendered']) | undefined,
     readonly inline: boolean,
+    readonly engine: MarkdownRenderEngine,
   ) { super() }
 
   eq(other: WidgetType) {
@@ -749,12 +746,7 @@ class AssetPlaceholderWidget extends WidgetType {
       if (typeof cleanup === 'function') this.cleanup = cleanup
     }
 
-    const engine = (window as any).__hcRenderEngine
-    if (engine && typeof engine.renderInto === 'function') {
-      engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() }, assetInline: this.inline })
-    } else {
-      inner.textContent = this.source
-    }
+    this.engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() }, assetInline: this.inline })
 
     runPostRender()
 
@@ -775,7 +767,7 @@ class AssetPlaceholderWidget extends WidgetType {
   }
 }
 
-function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered'] }) {
+function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered']; getEngine: () => MarkdownRenderEngine }) {
   function buildDecos(state: EditorState): DecorationSet {
     const doc = state.doc
     const sel = state.selection.main
@@ -783,7 +775,7 @@ function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorPr
     const decos: Range<Decoration>[] = []
     for (const b of blocks) {
       if (selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)) continue
-      const widget = new HyperBlockWidget(b.kind, b.source, opts.getOnBlockRendered)
+      const widget = new HyperBlockWidget(b.kind, b.source, opts.getOnBlockRendered, opts.getEngine())
       decos.push(Decoration.replace({ widget, block: true }).range(b.from, b.to))
     }
     return Decoration.set(decos, true)
@@ -803,7 +795,7 @@ function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorPr
   })
 }
 
-function assetPreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered'] }) {
+function assetPreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered']; getEngine: () => MarkdownRenderEngine }) {
   function buildDecos(state: EditorState): DecorationSet {
     const doc = state.doc
     const sel = state.selection.main
@@ -816,7 +808,7 @@ function assetPreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorP
       if (selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, { from: a.from, focusTo: a.to })) continue
 
       const forceBlock = IMAGE_EXTS.has(a.ext)
-      const widget = new AssetPlaceholderWidget(a.source, opts.getOnBlockRendered, a.inline && !forceBlock)
+      const widget = new AssetPlaceholderWidget(a.source, opts.getOnBlockRendered, a.inline && !forceBlock, opts.getEngine())
 
       if (a.inline && !forceBlock) {
         decos.push(Decoration.replace({ widget }).range(a.from, a.to))
@@ -889,6 +881,8 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   writeClipboardText,
   showToast,
   onPasteFiles,
+  engine,
+  noteIndexMap,
 }: UnifiedEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
   const viewRef = React.useRef<EditorView | null>(null)
@@ -896,19 +890,27 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   const onChangeRef = React.useRef(onChange)
   const onBlockRenderedRef = React.useRef(onBlockRendered)
   const onPasteFilesRef = React.useRef(onPasteFiles)
+  const engineRef = React.useRef(engine)
+  const noteIndexMapRef = React.useRef(noteIndexMap)
 
   onChangeRef.current = onChange
   onBlockRenderedRef.current = onBlockRendered
   onPasteFilesRef.current = onPasteFiles
+  engineRef.current = engine
+  noteIndexMapRef.current = noteIndexMap
   globalWriteClipboardText = writeClipboardText
   globalShowToast = showToast
 
+  const syntaxExt = React.useMemo(() => {
+    return syntaxHighlightExtension({ getNoteIndexMap: () => noteIndexMapRef.current ?? null })
+  }, [])
+
   const liveExt = React.useMemo(() => {
-    return livePreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current })
+    return livePreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current, getEngine: () => engineRef.current })
   }, [])
 
   const assetExt = React.useMemo(() => {
-    return assetPreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current })
+    return assetPreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current, getEngine: () => engineRef.current })
   }, [])
 
   React.useLayoutEffect(() => {
@@ -946,7 +948,7 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
         placeholder ? cmPlaceholder(placeholder) : [],
         updateListener,
         pasteFilesHandler,
-        syntaxHighlightPlugin,
+        syntaxExt,
         assetExt,
         liveExt,
       ],

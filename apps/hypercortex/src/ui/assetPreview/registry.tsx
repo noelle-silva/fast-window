@@ -7,7 +7,7 @@ import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import type { SvgIconProps } from '@mui/material/SvgIcon'
 import type { AssetEntry } from '../../assetTypes'
-import type { PreviewController } from '../preview/usePreviewController'
+import type { ImageViewController } from '../preview/useImageViewerController'
 import { ImageAssetReader } from './ImageAssetReader'
 import { VideoAssetReader } from './VideoAssetReader'
 import { PdfAssetReader } from './PdfAssetReader'
@@ -22,7 +22,7 @@ export type AssetPreviewContext = {
   asset: AssetEntry
   blobUrl: string
   title: string
-  previewController: PreviewController
+  previewController: ImageViewController
   onPlayingChange?: (playing: boolean) => void
   toolbarHost?: AssetPreviewToolbarHost
 }

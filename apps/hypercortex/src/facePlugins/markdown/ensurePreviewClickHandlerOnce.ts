@@ -1,9 +1,9 @@
-import type { PreviewController } from '../../ui/preview/usePreviewController'
+import type { MarkdownPreviewController } from './useMarkdownPreview'
 
 export function ensurePreviewClickHandlerOnce(
   el: HTMLElement,
   opts: {
-    controller: PreviewController
+    controller: MarkdownPreviewController
     stopPropagation?: boolean
     getRoot?: (current: HTMLElement) => Element | null
   },

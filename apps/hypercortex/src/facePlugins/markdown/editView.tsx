@@ -14,7 +14,7 @@ export function MarkdownEditView({ content, visible, onChange, viewState, contex
   const [uploading, setUploading] = React.useState(false)
   const uploadingRef = React.useRef(false)
 
-  const { engineRef, preview } = useMarkdownFaceRuntime(context)
+  const { engine, engineRef, preview } = useMarkdownFaceRuntime(context)
 
   const onPlayingChangeRef = React.useRef(context.onPlayingChange)
   React.useEffect(() => {
@@ -126,6 +126,8 @@ export function MarkdownEditView({ content, visible, onChange, viewState, contex
         onBlockRendered={handleBlockRendered}
         active={visible}
         refreshToken={context.noteIndexMap}
+        noteIndexMap={context.noteIndexMap}
+        engine={engine}
         writeClipboardText={context.gateway.clipboard.writeText}
         showToast={context.gateway.host.toast}
         onPasteFiles={handlePasteFiles}

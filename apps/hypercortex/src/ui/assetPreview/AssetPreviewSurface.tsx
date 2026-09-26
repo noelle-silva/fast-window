@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Typography } from '@mui/material'
 import type { AssetEntry } from '../../assetTypes'
-import type { PreviewController } from '../preview/usePreviewController'
+import type { ImageViewController } from '../preview/useImageViewerController'
 import { getAssetPreviewDescriptor } from './registry'
 import type { AssetPreviewToolbarHost } from './assetPreviewToolbar'
 
@@ -16,7 +16,7 @@ export function AssetPreviewSurface({
   asset: AssetEntry
   blobUrl: string
   title: string
-  previewController: PreviewController
+  previewController: ImageViewController
   onPlayingChange?: (playing: boolean) => void
   toolbarHost?: AssetPreviewToolbarHost
 }) {

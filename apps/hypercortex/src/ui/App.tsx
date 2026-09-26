@@ -21,7 +21,6 @@ import {
   type NoteMeta,
 } from '../core'
 import { type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
-import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
@@ -685,9 +684,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId])
 
-  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ clipboard: gateway.clipboard, host: gateway.host, assets: gateway.assets, scope: 'library' }))
-  ;(window as any).__hcRenderEngine = renderEngineRef.current
-
   const consumeInitSnapshot = React.useCallback((noteId: string): NoteDetailSnapshotV1 | null => {
     const nid = String(noteId || '').trim()
     if (!nid) return null
@@ -866,10 +862,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     }
     return map
   }, [allNotes, noteCardInfoById])
-
-  React.useEffect(() => {
-    renderEngineRef.current.noteIndex = noteIndexMap
-  }, [noteIndexMap])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: MetadataPatch) => {

@@ -2,10 +2,10 @@ import * as React from 'react'
 
 import { ImageDialog } from '../../ui/preview/ImageDialog'
 import { MermaidDialog } from './MermaidDialog'
-import type { usePreviewController } from '../../ui/preview/usePreviewController'
+import type { useMarkdownPreview } from './useMarkdownPreview'
 
 /** markdown 面的预览弹窗集合（图片 / Mermaid），阅读态与编辑态共用。 */
-export function MarkdownPreviewDialogs({ preview }: { preview: ReturnType<typeof usePreviewController> }): React.ReactNode {
+export function MarkdownPreviewDialogs({ preview }: { preview: ReturnType<typeof useMarkdownPreview> }): React.ReactNode {
   return (
     <>
       <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />

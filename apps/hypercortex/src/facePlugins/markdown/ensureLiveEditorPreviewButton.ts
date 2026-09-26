@@ -1,4 +1,4 @@
-import type { PreviewController } from '../../ui/preview/usePreviewController'
+import type { MarkdownPreviewController } from './useMarkdownPreview'
 
 function pickFirstMermaidBlock(root: Element): HTMLElement | null {
   const el = root.querySelector('.mermaid-block[data-mermaid="1"]')
@@ -30,7 +30,7 @@ function hasAssetImagePlaceholder(root: Element): boolean {
 export function ensureLiveEditorPreviewButton(
   renderedEl: HTMLElement,
   opts: {
-    controller: PreviewController
+    controller: MarkdownPreviewController
     getRoot?: (current: HTMLElement) => Element | null
     /** 仅当存在可预览内容时才显示按钮（默认 true） */
     onlyIfHasPreview?: boolean

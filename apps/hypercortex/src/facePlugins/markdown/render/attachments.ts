@@ -1,7 +1,7 @@
-import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
-import { pickAssetDisplayName } from '../assetDisplayName'
-import { buildVideoPlayer } from '../videoPlayer'
-import type { AssetsService } from '../gateway/types'
+import { type VaultScope, kindFromMime, mimeFromExt } from '../../../core'
+import { pickAssetDisplayName } from '../../../assetDisplayName'
+import { buildVideoPlayer } from '../../../videoPlayer'
+import type { AssetsService } from '../../../gateway/types'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
 

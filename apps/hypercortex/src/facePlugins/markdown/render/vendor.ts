@@ -1,7 +1,5 @@
 import * as markedMod from 'marked'
-import dompurifyMod from 'dompurify'
 import * as katexMod from 'katex'
-import * as autoRenderMod from 'katex/contrib/auto-render'
 import * as mermaidMod from 'mermaid'
 import katexCss from 'katex/dist/katex.min.css?raw'
 import katexAmsRegularWoff2 from 'katex/dist/fonts/KaTeX_AMS-Regular.woff2'
@@ -25,6 +23,11 @@ import katexSize3RegularWoff2 from 'katex/dist/fonts/KaTeX_Size3-Regular.woff2'
 import katexSize4RegularWoff2 from 'katex/dist/fonts/KaTeX_Size4-Regular.woff2'
 import katexTypewriterRegularWoff2 from 'katex/dist/fonts/KaTeX_Typewriter-Regular.woff2'
 
+/**
+ * 文字面渲染依赖（面插件私有）：Markdown / 数学公式 / 流程图的第三方库与 KaTeX 样式。
+ * 只做模块导出，不挂载任何全局变量；宿主与其它面均不感知这些库。
+ */
+
 function pickExport(mod: any, keys: string[]) {
   if (!mod) return null
   for (const k of keys) {
@@ -32,6 +35,10 @@ function pickExport(mod: any, keys: string[]) {
   }
   return mod
 }
+
+export const marked = pickExport(markedMod as any, ['marked', 'default'])
+export const katex = pickExport(katexMod as any, ['default'])
+export const mermaid = pickExport(mermaidMod as any, ['default'])
 
 function ensureStyle(id: string, cssText: string) {
   if (!cssText) return
@@ -43,7 +50,7 @@ function ensureStyle(id: string, cssText: string) {
 }
 
 function inlineKatexFonts(cssText: string) {
-  // 插件运行在 sandbox iframe 的 srcDoc 中，CSS 里的相对路径 fonts/*.woff2 无法加载。
+  // 渲染产物可能运行在 sandbox iframe 的 srcDoc 中，CSS 里的相对路径 fonts/*.woff2 无法加载。
   // 这里把 KaTeX 的 woff2 字体内联成 data URL，避免符号尺寸/字形退化。
   const woff2ByName: Record<string, string> = {
     'KaTeX_AMS-Regular.woff2': String(katexAmsRegularWoff2 || ''),
@@ -85,29 +92,4 @@ function inlineKatexFonts(cssText: string) {
   return out
 }
 
-function attachGlobals() {
-  const w = window as any
-
-  const marked = pickExport(markedMod as any, ['marked', 'default'])
-  if (marked) w.marked = marked
-
-  const katex = pickExport(katexMod as any, ['default'])
-  if (katex) w.katex = katex
-
-  const renderMathInElement = pickExport(autoRenderMod as any, ['renderMathInElement', 'default'])
-  if (renderMathInElement) w.renderMathInElement = renderMathInElement
-
-  const mermaid = pickExport(mermaidMod as any, ['default'])
-  if (mermaid) w.mermaid = mermaid
-
-  const dompurifyFactory = pickExport(dompurifyMod as any, ['default'])
-  try {
-    const DOMPurify = typeof dompurifyFactory === 'function' ? dompurifyFactory(w) : dompurifyFactory
-    if (DOMPurify) w.DOMPurify = DOMPurify
-  } catch {
-    // ignore
-  }
-}
-
 ensureStyle('katex-css', inlineKatexFonts(String(katexCss || '')))
-attachGlobals()

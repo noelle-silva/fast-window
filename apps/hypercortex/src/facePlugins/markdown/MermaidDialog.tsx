@@ -10,7 +10,7 @@ import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import { MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../../ui/preview/viewerZoom'
 import { useEvent } from '../../ui/preview/useEvent'
 import { clampOffset } from '../../ui/preview/clampOffset'
-import type { PreviewController } from '../../ui/preview/usePreviewController'
+import type { MarkdownPreviewController } from './useMarkdownPreview'
 import { darkFloatingControlSx } from '../../ui/pluginUiStyles'
 
 function clampNum(n: number, min: number, max: number) {
@@ -119,7 +119,7 @@ async function writeImageToClipboard(dataUrl: string) {
   await (navigator as any).clipboard.write([item])
 }
 
-export function MermaidDialog(props: { open: boolean; controller: PreviewController; mermaid: any }) {
+export function MermaidDialog(props: { open: boolean; controller: MarkdownPreviewController; mermaid: any }) {
   const { open, controller, mermaid } = props
   const items = Array.isArray(mermaid?.items) ? mermaid.items : []
   const len = items.length

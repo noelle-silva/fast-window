@@ -10,7 +10,7 @@ import { revokeAssetBlobUrl } from '../assetBlobUrl'
 import { AssetPreviewSurface } from './assetPreview/AssetPreviewSurface'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { ImageDialog } from './preview/ImageDialog'
-import { usePreviewController } from './preview/usePreviewController'
+import { useImageViewerController } from './preview/useImageViewerController'
 import { AssetInfoSidebar } from './AssetInfoSidebar'
 import { softButtonSx } from './pluginUiStyles'
 
@@ -41,7 +41,7 @@ export function AssetDetailSession({
   const [editTags, setEditTags] = React.useState((asset.tags || []).join(', '))
   const [previewToolbarHost, setPreviewToolbarHost] = React.useState<HTMLDivElement | null>(null)
   const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
-  const imagePreview = usePreviewController({ toast: gateway.host.toast })
+  const imagePreview = useImageViewerController({ toast: gateway.host.toast })
   const previewToolbarHostRef = React.useRef<HTMLDivElement | null>(null)
   // 元素替换检测：渲染后对比引用，仅真实挂载/卸载时同步状态（避免函数 ref 在提交阶段反复 setState）。
   React.useEffect(() => {

@@ -1,7 +1,10 @@
 import * as React from 'react'
 import { useEvent } from './useEvent'
 
-type PreviewModal = '' | 'image' | 'mermaid'
+/**
+ * 图片查看器（宿主共享预览设施）：资产预览与面插件的渲染产物共用。
+ * 只负责图片集合的收集、翻页与缩放状态；不包含任何面类型知识。
+ */
 
 export type ImageViewerState = {
   items: { src: string; alt: string }[]
@@ -9,24 +12,14 @@ export type ImageViewerState = {
   scale: number
 }
 
-export type MermaidViewerState = {
-  items: { svg: string }[]
-  index: number
-  scale: number
-}
-
-export type PreviewController = {
+export type ImageViewController = {
   toast: (message: string) => Promise<void> | void
   actions: {
     closeModal: () => void
     openImageViewer: (rootEl: unknown, srcEl: unknown) => void
-    openMermaidViewer: (rootEl: unknown, srcEl: unknown) => void
     imagePrev: () => void
     imageNext: () => void
     imageSetScale: (scale: number) => void
-    mermaidPrev: () => void
-    mermaidNext: () => void
-    mermaidSetScale: (scale: number) => void
   }
 }
 
@@ -46,26 +39,16 @@ function listPreviewImages(root: Element): HTMLImageElement[] {
   return list.filter((x): x is HTMLImageElement => x instanceof HTMLImageElement)
 }
 
-function listPreviewMermaids(root: Element): HTMLElement[] {
-  const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid="1"]') || [])
-  return blocks.filter((x): x is HTMLElement => x instanceof HTMLElement)
-}
-
-export function usePreviewController(opts: { toast: (message: string) => Promise<void> | void; sanitizeSvg?: (svg: unknown) => string }): {
-  modal: PreviewModal
+export function useImageViewerController(opts: { toast: (message: string) => Promise<void> | void }): {
+  modal: '' | 'image'
   imageViewer: ImageViewerState
-  mermaid: MermaidViewerState
-  controller: PreviewController
+  controller: ImageViewController
 } {
   const toastRef = React.useRef(opts.toast)
   toastRef.current = opts.toast
 
-  const sanitizeSvgRef = React.useRef(opts.sanitizeSvg)
-  sanitizeSvgRef.current = opts.sanitizeSvg
-
-  const [modal, setModal] = React.useState<PreviewModal>('')
+  const [modal, setModal] = React.useState<'' | 'image'>('')
   const [imageViewer, setImageViewer] = React.useState<ImageViewerState>({ items: [], index: 0, scale: 1 })
-  const [mermaid, setMermaid] = React.useState<MermaidViewerState>({ items: [], index: 0, scale: 1 })
 
   const closeModal = useEvent(() => setModal(''))
 
@@ -96,30 +79,6 @@ export function usePreviewController(opts: { toast: (message: string) => Promise
     setModal('image')
   })
 
-  const openMermaidViewer = useEvent((rootEl: unknown, srcEl: unknown) => {
-    const root = rootEl instanceof Element ? rootEl : document.body
-    const blocks = listPreviewMermaids(root)
-    const items: { svg: string }[] = []
-    const sanitize = sanitizeSvgRef.current
-    for (const b of blocks) {
-      const svg = String(b.innerHTML || '')
-      if (!svg) continue
-      const safe = typeof sanitize === 'function' ? sanitize(svg) : svg
-      if (safe) items.push({ svg: safe })
-    }
-    if (!items.length) return
-
-    let idx = 0
-    const src = srcEl instanceof Element ? srcEl : null
-    if (src) {
-      const i = blocks.findIndex((b) => b === src || b.contains(src))
-      if (i >= 0) idx = i
-    }
-
-    setMermaid({ items, index: clampIndex(idx, items.length), scale: 1 })
-    setModal('mermaid')
-  })
-
   const imagePrev = useEvent(() => {
     setImageViewer((prev) => {
       const len = Array.isArray(prev.items) ? prev.items.length : 0
@@ -142,45 +101,18 @@ export function usePreviewController(opts: { toast: (message: string) => Promise
     setImageViewer((prev) => ({ ...prev, scale: Number(scale || 1) }))
   })
 
-  const mermaidPrev = useEvent(() => {
-    setMermaid((prev) => {
-      const len = Array.isArray(prev.items) ? prev.items.length : 0
-      if (!len) return prev
-      const nextIndex = (Number(prev.index || 0) - 1 + len) % len
-      return { ...prev, index: nextIndex, scale: 1 }
-    })
-  })
-
-  const mermaidNext = useEvent(() => {
-    setMermaid((prev) => {
-      const len = Array.isArray(prev.items) ? prev.items.length : 0
-      if (!len) return prev
-      const nextIndex = (Number(prev.index || 0) + 1) % len
-      return { ...prev, index: nextIndex, scale: 1 }
-    })
-  })
-
-  const mermaidSetScale = useEvent((scale: number) => {
-    setMermaid((prev) => ({ ...prev, scale: Number(scale || 1) }))
-  })
-
-  const controller: PreviewController = React.useMemo(() => {
+  const controller: ImageViewController = React.useMemo(() => {
     return {
       toast: (message: string) => toastRef.current(message),
       actions: {
         closeModal,
         openImageViewer,
-        openMermaidViewer,
         imagePrev,
         imageNext,
         imageSetScale,
-        mermaidPrev,
-        mermaidNext,
-        mermaidSetScale,
       },
-    } as any
-  }, [closeModal, imageNext, imagePrev, imageSetScale, mermaidNext, mermaidPrev, mermaidSetScale, openImageViewer, openMermaidViewer])
+    }
+  }, [closeModal, imageNext, imagePrev, imageSetScale, openImageViewer])
 
-  return { modal, imageViewer, mermaid, controller }
+  return { modal, imageViewer, controller }
 }
-

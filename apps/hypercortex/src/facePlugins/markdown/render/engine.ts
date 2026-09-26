@@ -1,20 +1,20 @@
 /**
- * HyperCortex Markdown/HTML 渲染引擎
+ * 文字面 Markdown/HTML 渲染引擎（面插件私有）
  *
  * 从 ai-chat 的 assistantEngineDefault.ts 裁剪而来。
- * 保留：Markdown 渲染、数学公式 (KaTeX)、流程图 (Mermaid)、代码块复制、HTML 消毒 (DOMPurify)
+ * 保留：Markdown 渲染、数学公式 (KaTeX)、流程图 (Mermaid)、代码块复制
  * 移除：工具调用卡片、贴纸系统、AI 修复 Mermaid
+ * HTML/SVG 消毒复用宿主共享的通用安全设施（htmlSanitizer），不在本引擎内重复实现。
  */
 
-import './vendor'
-import { type VaultScope } from '../core'
-import { bindMediaPlaybackReporterInElement, type MediaPlaybackCleanup } from '../mediaPlayback'
-import { parseNotePlaceholderBody } from '../notePlaceholder'
+import { sanitizeHtml as sanitizeRenderHtml, sanitizeSvg as sanitizeRenderSvg, type RenderSafetyPolicy } from '../../../htmlSanitizer'
+import { katex, marked, mermaid } from './vendor'
+import { type VaultScope } from '../../../core'
+import { bindMediaPlaybackReporterInElement, type MediaPlaybackCleanup } from '../../../mediaPlayback'
+import { parseNotePlaceholderBody } from '../../../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
-import { pickAssetDisplayName } from '../assetDisplayName'
-import type { AssetsService, ClipboardGateway, HostGateway } from '../gateway/types'
-
-type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
+import { pickAssetDisplayName } from '../../../assetDisplayName'
+import type { AssetsService, ClipboardGateway, HostGateway } from '../../../gateway/types'
 
 export type MarkdownRenderEngine = {
   ensureRenderer: () => Promise<void>
@@ -318,7 +318,7 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
   /* ---------- Mermaid 初始化与渲染 ---------- */
 
   function initMermaidOnce() {
-    const m = (window as any).mermaid
+    const m = mermaid
     if (mermaidInited || !m || !m.initialize) return
     try {
       mermaidInited = true
@@ -348,7 +348,7 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
   async function renderMermaidInto(el: unknown, policy?: RenderSafetyPolicy) {
     if (!(el instanceof HTMLElement)) return
     const renderSafetyPolicy: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
-    const m = (window as any).mermaid
+    const m = mermaid
     if (!m || !m.render) return
 
     const codes = Array.from(el.querySelectorAll?.('pre>code') || []).filter((c) => {
@@ -449,170 +449,14 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     }
   }
 
-  /* ---------- HTML 消毒 ---------- */
+  /* ---------- HTML 消毒（复用宿主共享的安全设施） ---------- */
 
   function sanitizeHtml(html: unknown, policy?: RenderSafetyPolicy): string {
-    const raw = String(html || '')
-    const mode: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
-
-    function isSafeHref(href: unknown) {
-      const s = String(href || '').trim().toLowerCase()
-      if (mode === 'unsafe') return true
-      if (mode === 'baseline') return !s.startsWith('javascript:')
-      return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('mailto:')
-    }
-
-    function isAllowedAttr(tag: unknown, name: unknown) {
-      const n = String(name || '').toLowerCase()
-      const t = String(tag || '').toUpperCase()
-      if (!n) return false
-      if (n.startsWith('on')) return false
-      if (mode === 'unsafe') return true
-      if (mode === 'baseline') {
-        if (n === 'id' || n === 'class' || n === 'style') return true
-        if (n.startsWith('data-')) return true
-        if (n.startsWith('aria-') || n === 'role' || n === 'tabindex' || n === 'title') return true
-        if (t === 'A') return n === 'href' || n === 'target' || n === 'rel' || n === 'download'
-        return true
-      }
-      if (n === 'id') return true
-      if (n === 'class' || n === 'style') return true
-      if (n.startsWith('data-')) return true
-      if (n.startsWith('aria-') || n === 'role' || n === 'tabindex') return true
-      if (t === 'A') return n === 'href' || n === 'target' || n === 'rel' || n === 'title'
-      if (t === 'BUTTON') return n === 'type' || n === 'disabled' || n === 'title'
-      if (t === 'INPUT') return n === 'type' || n === 'value' || n === 'checked' || n === 'disabled' || n === 'placeholder' || n === 'title'
-      if (t === 'TD' || t === 'TH') return n === 'colspan' || n === 'rowspan' || n === 'title'
-      if (t === 'DETAILS') return n === 'open'
-      return false
-    }
-
-    function sanitizeStyleValue(style: unknown) {
-      const s = String(style || '')
-      if (!s.trim()) return ''
-      const out: string[] = []
-      const parts = s.split(';')
-      for (const part of parts) {
-        const p = part.trim()
-        if (!p) continue
-        const idx = p.indexOf(':')
-        if (idx <= 0) continue
-        const key = p.slice(0, idx).trim().toLowerCase()
-        const value = p.slice(idx + 1).trim()
-        if (!key || !value) continue
-        const v = value.toLowerCase()
-        if (mode === 'unsafe') return s
-        if (mode === 'baseline') {
-          if (v.includes('expression(') || v.includes('javascript:')) continue
-          if (value.includes('<') || value.includes('>')) continue
-          out.push(`${key}:${value}`)
-          continue
-        }
-        if (v.includes('expression(') || v.includes('javascript:') || v.includes('@import') || v.includes('url(')) continue
-        if (value.includes('<') || value.includes('>')) continue
-        out.push(`${key}:${value}`)
-      }
-      return out.join(';')
-    }
-
-    const w = window as any
-    if (w.DOMPurify && w.DOMPurify.sanitize) {
-      try {
-        if (!domPurifyHooked && w.DOMPurify.addHook) {
-          domPurifyHooked = true
-          w.DOMPurify.addHook('uponSanitizeAttribute', (_node: unknown, data: any) => {
-            try {
-              const name = String(data?.attrName || '').toLowerCase()
-              if (name.startsWith('on')) data.keepAttr = false
-              if (name === 'href' && data.attrValue && !isSafeHref(data.attrValue)) data.keepAttr = false
-              if (name === 'style') {
-                const v = sanitizeStyleValue(String(data.attrValue || ''))
-                if (!v) data.keepAttr = false
-                else data.attrValue = v
-              }
-            } catch (_) {}
-          })
-        }
-
-        if (mode === 'unsafe') return raw
-        if (mode === 'baseline') {
-          return w.DOMPurify.sanitize(raw, {
-            FORBID_TAGS: ['script'],
-            ALLOW_DATA_ATTR: true,
-            ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'video', 'audio', 'source', 'iframe', 'object', 'embed', 'style'],
-            ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan', 'href', 'target', 'rel', 'title', 'src', 'alt', 'controls', 'autoplay', 'muted', 'loop', 'playsinline', 'poster', 'download', 'open', 'type', 'value', 'checked', 'disabled', 'placeholder', 'name', 'for', 'width', 'height'],
-          })
-        }
-        return w.DOMPurify.sanitize(raw, {
-          FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
-          ALLOW_DATA_ATTR: true,
-          ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'audio', 'video', 'source'],
-          ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan', 'src', 'alt', 'controls', 'autoplay', 'muted', 'loop', 'playsinline', 'poster', 'type', 'width', 'height', 'href', 'target', 'rel', 'title', 'download'],
-        })
-      } catch (_) {}
-    }
-
-    // DOMPurify 不可用时的降级方案：TreeWalker 白名单过滤
-    const tpl = document.createElement('template')
-    tpl.innerHTML = raw
-
-    const allowedTags = new Set(
-      mode === 'baseline'
-        ? ['DIV', 'SPAN', 'P', 'BR', 'PRE', 'CODE', 'EM', 'STRONG', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BUTTON', 'DETAILS', 'SUMMARY', 'INPUT', 'LABEL', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'IMG', 'VIDEO', 'AUDIO', 'SOURCE', 'IFRAME', 'OBJECT', 'EMBED', 'STYLE']
-        : ['DIV', 'SPAN', 'P', 'BR', 'PRE', 'CODE', 'EM', 'STRONG', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BUTTON', 'DETAILS', 'SUMMARY', 'INPUT', 'LABEL', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'IMG', 'AUDIO', 'VIDEO', 'SOURCE'],
-    )
-
-    const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT, null)
-    const toRemove: Node[] = []
-
-    while (walker.nextNode()) {
-      const node = walker.currentNode
-      if (node.nodeType === Node.COMMENT_NODE) { toRemove.push(node); continue }
-
-      const el = node as Element
-      const tag = String(el.tagName || '')
-      if (!allowedTags.has(tag)) { el.replaceWith(document.createTextNode(el.textContent || '')); continue }
-
-      const attrs = Array.from(el.attributes || [])
-      for (const a of attrs) {
-        const name = String(a.name || '').toLowerCase()
-        if (!isAllowedAttr(tag, name)) { el.removeAttribute(a.name); continue }
-        if (name === 'style') {
-          const v = sanitizeStyleValue(el.getAttribute('style') || '')
-          if (!v) el.removeAttribute('style')
-          else el.setAttribute('style', v)
-        }
-      }
-
-      if (tag === 'A') {
-        const href = el.getAttribute('href') || ''
-        if (href && !isSafeHref(href)) el.removeAttribute('href')
-        const target = String(el.getAttribute('target') || '').toLowerCase()
-        if (target && target !== '_blank') el.removeAttribute('target')
-        if (target === '_blank') el.setAttribute('rel', 'noopener noreferrer')
-      }
-    }
-
-    for (const n of toRemove) n.parentNode?.removeChild(n)
-    return tpl.innerHTML
+    return sanitizeRenderHtml(html, policy)
   }
 
-  function sanitizeSvg(svg: unknown, policy?: RenderSafetyPolicy) {
-    const raw = String(svg || '')
-    if (!raw) return ''
-    const mode: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
-    if (mode === 'unsafe') return raw
-    if (mode === 'baseline') {
-      return raw
-        .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-        .replace(/\son[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-        .replace(/\shref\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]+)/gi, '')
-    }
-    const w = window as any
-    if (w.DOMPurify && w.DOMPurify.sanitize) {
-      try { return w.DOMPurify.sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } }) } catch (_) {}
-    }
-    return raw
+  function sanitizeSvg(svg: unknown, policy?: RenderSafetyPolicy): string {
+    return sanitizeRenderSvg(svg, policy)
   }
 
   /* ---------- 图片预览标记 ---------- */
@@ -732,16 +576,15 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     const pre = preprocessContent(noIndent)
     const src = String(pre.text || '')
 
-    const w = window as any
-    if (!w.marked || typeof w.marked.parse !== 'function') {
+    if (!marked || typeof marked.parse !== 'function') {
       html = `<pre>${esc(src)}</pre>`
     } else {
       try {
         if (!markedConfigured) {
           markedConfigured = true
-          w.marked.setOptions?.({ gfm: true, breaks: true })
+          marked.setOptions?.({ gfm: true, breaks: true })
         }
-        html = w.marked.parse(src)
+        html = marked.parse(src)
       } catch (_) {
         html = `<pre>${esc(src)}</pre>`
       }
@@ -814,7 +657,6 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     markPreviewImages(el)
 
     // KaTeX 公式渲染
-    const katex = w.katex
     if (katex && typeof katex.render === 'function') {
       const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
       for (const b of blocks) {
