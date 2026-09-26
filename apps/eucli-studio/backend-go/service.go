@@ -40,6 +40,10 @@ func newService(config *configStore, release clientRelease, hub *eventHub) (*ser
 }
 
 func (s *service) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	// 客户端状态读写只依赖本地数据，先于业务连接检查处理。
+	if handled, result, err := s.handleClientStateStorage(method, params); handled {
+		return result, err
+	}
 	switch method {
 	case "aiChat.healthCheck":
 		cfg, _ := s.config.load()

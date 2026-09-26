@@ -9,13 +9,18 @@ import (
 	"sync"
 )
 
-const configFileName = "eucli-studio-client-config.json"
+const (
+	configFileName = "eucli-studio-client-config.json"
+)
 
 type clientConfig struct {
 	EucliBoxURL          string           `json:"eucliBoxUrl"`
 	EucliBoxKey          string           `json:"eucliBoxKey"`
 	EucliBoxDisconnected bool             `json:"eucliBoxDisconnected,omitempty"`
 	Projection           projectionConfig `json:"projection"`
+	// ClientState 是客户端自己的本地状态（与 eucli-box 业务投影无关），
+	// 例如「是否引导过」这类只影响客户端体验的记忆；随客户端数据持久化。
+	ClientState map[string]any `json:"clientState,omitempty"`
 }
 
 type projectionConfig struct {
@@ -152,6 +157,43 @@ func normalizeProjection(value projectionConfig) projectionConfig {
 	}
 	if value.ActiveChatByGroup == nil {
 		value.ActiveChatByGroup = map[string]string{}
+	}
+	return value
+}
+
+func (s *configStore) loadClientState() (map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg, err := s.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	return normalizeClientState(cfg.ClientState), nil
+}
+
+func (s *configStore) updateClientState(fn func(map[string]any)) (map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg, err := s.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	state := normalizeClientState(cfg.ClientState)
+	fn(state)
+	cfg.ClientState = state
+	payload, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(s.path, append(payload, '\n'), 0o600); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func normalizeClientState(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
 	}
 	return value
 }
