@@ -192,4 +192,39 @@ const customPlyrCss = `
   max-width: 100%;
   background: #050507;
 }
+
+/* 控制栏防折行：进度条是唯一可伸缩项，其余控件不压缩、不折字。
+   否则窄容器下时间文本会被挤成两行，控制栏整体莫名其妙变高。 */
+.hc-video-player .plyr__controls > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.hc-video-player .plyr__controls > .plyr__progress__container {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 按视频容器实际宽度响应式精简控件（播放器自带响应式只看视口宽度、不看容器）：
+   依次收起总时长 → 播放速度 → 音量滑条与画中画，保证控制栏始终单行不变高。 */
+.hc-video-player {
+  container-type: inline-size;
+}
+@container (max-width: 620px) {
+  .hc-video-player .plyr__time--duration {
+    display: none;
+  }
+}
+@container (max-width: 520px) {
+  .hc-video-player .hc-plyr-speed {
+    display: none;
+  }
+}
+@container (max-width: 440px) {
+  .hc-video-player .plyr__volume__input {
+    display: none;
+  }
+  .hc-video-player .plyr__controls [data-plyr="pip"] {
+    display: none;
+  }
+}
 `
