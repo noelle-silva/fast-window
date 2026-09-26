@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 type Props = {
   open: boolean
@@ -11,6 +12,7 @@ type Props = {
 
 export function EditEntityInfoDialog(props: Props): React.ReactNode {
   const { open, title, description, onClose, onConfirm } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const [titleDraft, setTitleDraft] = React.useState(title)
   const [descriptionDraft, setDescriptionDraft] = React.useState(description)
@@ -29,7 +31,7 @@ export function EditEntityInfoDialog(props: Props): React.ReactNode {
   }, [cannotSave, descriptionDraft, onConfirm, titleDraft])
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>编辑信息</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 3 }}>

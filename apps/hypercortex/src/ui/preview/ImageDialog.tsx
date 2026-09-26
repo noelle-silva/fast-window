@@ -6,6 +6,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './viewerZoom'
 import { useEvent } from './useEvent'
 import { clampOffset } from './clampOffset'
 import { darkFloatingControlSx } from '../pluginUiStyles'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 function clampNum(n: number, min: number, max: number) {
   const x = Number(n)
@@ -17,6 +18,7 @@ function clampNum(n: number, min: number, max: number) {
 
 export function ImageDialog(props: { open: boolean; controller: any; viewer: any }) {
   const { open, controller, viewer } = props
+  const workspaceVisible = useWorkspaceVisible()
   const items = Array.isArray(viewer?.items) ? viewer.items : []
   const len = items.length
   const idx = Math.max(0, Math.min(len - 1, Number(viewer?.index || 0)))
@@ -285,8 +287,8 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
   })
 
   return (
-    <Dialog
-      open={open}
+      <Dialog
+        open={workspaceVisible && open}
       onClose={() => controller.actions.closeModal()}
       fullScreen
       PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}

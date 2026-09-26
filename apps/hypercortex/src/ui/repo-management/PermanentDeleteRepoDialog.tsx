@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
 import type { HyperCortexDeletedRepo } from '../../gateway'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 // 永久删除的确认句：带仓库名，强制看清删除对象。
 export function permanentDeletePhrase(repoTitle: string): string {
@@ -14,6 +15,7 @@ export function PermanentDeleteRepoDialog(props: {
   onConfirm: () => void
 }) {
   const { target, busy, onClose, onConfirm } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [typed, setTyped] = React.useState('')
   const phrase = target ? permanentDeletePhrase(target.title) : ''
   // 比对规则：忽略首尾空白，其余一字不差。
@@ -25,7 +27,7 @@ export function PermanentDeleteRepoDialog(props: {
 
   return (
     <Dialog
-      open={!!target}
+      open={workspaceVisible && !!target}
       onClose={busy ? undefined : onClose}
       maxWidth="sm"
       fullWidth

@@ -40,6 +40,7 @@ import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
 import { useFavoriteTargets } from './useFavoriteTargets'
 import { EditEntityInfoDialog } from './EditEntityInfoDialog'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 type EditEntityTarget =
   | { kind: 'folder'; folderId: string; title: string; description: string }
@@ -138,6 +139,7 @@ export function IndexPage(props: Props): React.ReactNode {
     onUpdateNoteInfo,
     onUpdateAssetInfo,
   } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
   const [addExistingAnchorEl, setAddExistingAnchorEl] = React.useState<HTMLElement | null>(null)
@@ -639,13 +641,13 @@ export function IndexPage(props: Props): React.ReactNode {
         onClose={closeContextMenu}
       />
 
-      <Menu open={!!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+      <Menu open={workspaceVisible && !!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('existing', 'folder')}>已有收藏夹</MenuItem>
         <MenuItem onClick={() => openExistingPicker('note')}>已有笔记</MenuItem>
         <MenuItem onClick={() => openExistingPicker('asset')}>已有附件</MenuItem>
       </Menu>
 
-      <Menu open={!!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+      <Menu open={workspaceVisible && !!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('create', 'folder')}>新收藏夹</MenuItem>
         <MenuItem onClick={createNewNote}>新笔记</MenuItem>
         <MenuItem onClick={uploadNewAssets}>上传附件</MenuItem>

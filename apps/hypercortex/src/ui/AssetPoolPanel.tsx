@@ -27,6 +27,7 @@ import { useAssetUploadTasks } from './useAssetUploadTasks'
 import { useAssetThumbnailLoader } from './useAssetThumbnailLoader'
 import { softButtonSx } from './pluginUiStyles'
 import { assetToneFromKind, FEATURE_TONES, toneChipSx, toneEmphasisButtonSx, toneFgVar, toneHoverActionSx, toneTabSx, type HyperCortexToneId } from './uiTones'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -727,6 +728,7 @@ function AssetGlobalToolbar({
 }
 
 export function AssetPoolPanel({ gateway, scope, activeRepoId, onOpenAsset, filterText = '', picker }: Props) {
+  const workspaceVisible = useWorkspaceVisible()
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -1216,7 +1218,7 @@ export function AssetPoolPanel({ gateway, scope, activeRepoId, onOpenAsset, filt
         )
       ) : null}
 
-      <Dialog open={deleteTargets.length > 0} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && deleteTargets.length > 0} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
         <DialogTitle>移入回收站</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>

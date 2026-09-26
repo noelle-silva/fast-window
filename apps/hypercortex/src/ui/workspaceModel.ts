@@ -20,6 +20,20 @@ export function normalizeOpenTabKeys(value: unknown): string[] {
   return out
 }
 
+// 侧边栏滚动浏览位置：按工作区一条，只保留有效正整数像素值。
+export function normalizeWorkspaceScrollTops(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, number> = {}
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const key = String(rawKey || '').trim()
+    if (!key) continue
+    const n = Math.floor(Number(rawValue))
+    if (!Number.isFinite(n) || n <= 0) continue
+    out[key] = n
+  }
+  return out
+}
+
 export type ActiveWorkspacePatch = Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'sidebarItems' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>
 
 export function applyActiveWorkspacePatch(current: HyperCortexWorkspaceV1, patch: ActiveWorkspacePatch): HyperCortexWorkspaceV1 {

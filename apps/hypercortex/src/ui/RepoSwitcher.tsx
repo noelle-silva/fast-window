@@ -3,7 +3,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
 import type { HyperCortexRepo } from '../gateway'
 
 const REPO_BUTTON_MAX_WIDTH = 230
@@ -21,13 +21,15 @@ export function pickNextRepoTitle(repos: HyperCortexRepo[]): string {
 type RepoSwitcherProps = {
   repos: HyperCortexRepo[]
   activeRepoId: string
+  // 已驻留的仓库现场数量（含当前仓库）。
+  residentCount: number
   disabled?: boolean
   onSwitch: (repoId: string) => void
   onCreateRequest: () => void
 }
 
 export function RepoSwitcher(props: RepoSwitcherProps) {
-  const { repos, activeRepoId, disabled, onSwitch, onCreateRequest } = props
+  const { repos, activeRepoId, residentCount, disabled, onSwitch, onCreateRequest } = props
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null)
   const menuOpen = !!anchorEl
   const activeRepo = repos.find(repo => repo.id === activeRepoId) || null
@@ -111,11 +113,16 @@ export function RepoSwitcher(props: RepoSwitcherProps) {
             closeMenu()
             onCreateRequest()
           }}
-          sx={{ gap: 0.75, borderRadius: 2, mx: 0.5, mb: 0.5 }}
+          sx={{ gap: 0.75, borderRadius: 2, mx: 0.5 }}
         >
           <AddRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />
           <Typography sx={{ fontSize: 13, fontWeight: 800 }}>新建仓库…</Typography>
         </MenuItem>
+        <Box sx={{ px: 2.25, pt: 0.25, pb: 0.75 }}>
+          <Typography sx={{ fontSize: 11, color: 'var(--hc-text-subtle)' }}>
+            已驻留 {residentCount} 个
+          </Typography>
+        </Box>
       </Menu>
     </>
   )

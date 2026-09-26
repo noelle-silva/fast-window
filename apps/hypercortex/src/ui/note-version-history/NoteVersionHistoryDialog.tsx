@@ -5,6 +5,7 @@ import type { VaultScope } from '../../core'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../../noteVersions'
 import { getFaceViewPlugin, resolveFaceKindLabel } from '../../facePlugins'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 type Props = {
   open: boolean
@@ -43,6 +44,7 @@ function orderedFaceIds(snapshot: HyperCortexNoteVersionSnapshot | null): string
 
 export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
   const { open, gateway, scope, packageDir, dirty, onClose, onSaveCurrent, onRestoreVersion } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [versions, setVersions] = React.useState<HyperCortexNoteVersionSummary[]>([])
   const [selectedVersionId, setSelectedVersionId] = React.useState('')
   const [snapshot, setSnapshot] = React.useState<HyperCortexNoteVersionSnapshot | null>(null)
@@ -137,7 +139,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
   const hasRichPreview = !!FaceContentPreview
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 4, minHeight: 620 } }}>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 4, minHeight: 620 } }}>
       <DialogTitle sx={{ pb: 1 }}>
         <Typography sx={{ fontSize: 22, lineHeight: 1.2, fontWeight: 900 }}>版本历史</Typography>
         <Typography sx={{ mt: 0.75, fontSize: 13, color: 'rgba(0,0,0,.55)' }}>发布当前笔记的正式版本，并浏览过去版本。</Typography>
@@ -261,7 +263,7 @@ export function NoteVersionHistoryDialog(props: Props): React.ReactNode {
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
 
-      <Dialog open={restoreConfirmOpen} onClose={() => setRestoreConfirmOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && restoreConfirmOpen} onClose={() => setRestoreConfirmOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>恢复此版本</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>

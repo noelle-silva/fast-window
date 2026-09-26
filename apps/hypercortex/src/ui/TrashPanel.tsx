@@ -7,6 +7,7 @@ import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
 import { softButtonSx } from './pluginUiStyles'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 function formatDateTime(ms: number): string {
   if (!(Number(ms) > 0)) return ''
@@ -23,6 +24,7 @@ export function TrashPanel(props: {
   onPermanentlyDeleted?: (item: HyperCortexTrashItem) => void
 }) {
   const { gateway, scope, onRestored, onAssetRestored, onPermanentlyDeleted } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [items, setItems] = React.useState<HyperCortexTrashItem[]>([])
@@ -145,7 +147,7 @@ export function TrashPanel(props: {
         </Box>
       ) : null}
 
-      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && !!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>永久删除</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>

@@ -20,6 +20,7 @@ import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
+import { useWorkspaceVisible } from './workspaceVisibility'
 import {
   faceManifestFromDeclaration,
   filterCreatableFaceDeclarations,
@@ -186,6 +187,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     facePluginGlobalSettings = {},
     globalFaceKindOrder = [],
   } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const noteId = String(note.id || '').trim()
   const isDraft = isDraftNoteId(noteId) || !String(note.dir || '').trim()
@@ -1122,7 +1124,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         </Box>
       ) : null}
 
-      <Dialog open={deleteNoteConfirmOpen} onClose={() => setDeleteNoteConfirmOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && deleteNoteConfirmOpen} onClose={() => setDeleteNoteConfirmOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{isDraft ? '删除草稿' : trashEnabled ? '移入回收站' : '永久删除'}</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
@@ -1146,7 +1148,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!deleteFaceTarget} onClose={() => setDeleteFaceTarget(null)} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && !!deleteFaceTarget} onClose={() => setDeleteFaceTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>{trashEnabled ? '移入回收站' : '永久删除面'}</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>

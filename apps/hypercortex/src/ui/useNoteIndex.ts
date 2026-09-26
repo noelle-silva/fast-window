@@ -3,7 +3,8 @@ import type { HyperCortexIndexV1 } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 
 // 笔记索引随当前仓库装载：仓库切换时丢弃旧索引与在途请求，重新加载。
-export function useNoteIndex(gateway: HyperCortexGateway, activeRepoId: string) {
+// enabled 用于让装载等待仓库激活完成（骨架与派生索引调和），避免并发读到中间态。
+export function useNoteIndex(gateway: HyperCortexGateway, activeRepoId: string, enabled = true) {
   const [index, setIndexState] = React.useState<HyperCortexIndexV1 | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -46,12 +47,12 @@ export function useNoteIndex(gateway: HyperCortexGateway, activeRepoId: string) 
     indexRef.current = null
     loadPromiseRef.current = null
     setIndexState(null)
-    if (!activeRepoId) {
+    if (!activeRepoId || !enabled) {
       setLoading(true)
       return
     }
     void ensureLoaded().catch(() => {})
-  }, [activeRepoId, ensureLoaded])
+  }, [activeRepoId, enabled, ensureLoaded])
 
   return { index, setIndex, loading, error }
 }

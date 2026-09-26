@@ -18,6 +18,7 @@ import {
   uploadTaskViewEmptyText,
   uploadTaskViewLabel,
 } from './assetUploadTasks'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 type Props = {
   anchorEl: HTMLElement | null
@@ -111,6 +112,7 @@ function TaskViewTabLabel({ view, count, unseenFailedTaskCount }: {
 
 export function AssetUploadTaskPanel(props: Props) {
   const { anchorEl, open, tasks, view, unseenFailedTaskCount, onViewChange, onClose, onPause, onResume, onCancel } = props
+  const workspaceVisible = useWorkspaceVisible()
   const taskCounts = React.useMemo(() => {
     return ASSET_UPLOAD_TASK_VIEWS.reduce<Record<AssetUploadTaskView, number>>((counts, nextView) => {
       counts[nextView] = filterUploadTasksByView(tasks, nextView).length
@@ -120,7 +122,7 @@ export function AssetUploadTaskPanel(props: Props) {
   const visibleTasks = React.useMemo(() => filterUploadTasksByView(tasks, view), [tasks, view])
 
   return (
-    <Popper open={open} anchorEl={anchorEl} placement="bottom-end" sx={{ zIndex: 1400 }} modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}>
+    <Popper open={workspaceVisible && open} anchorEl={anchorEl} placement="bottom-end" sx={{ zIndex: 1400 }} modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}>
       <Box sx={{ width: 380, maxWidth: 'calc(100vw - 24px)', borderRadius: 4, overflow: 'hidden', bgcolor: 'var(--hc-surface)', boxShadow: '0 24px 60px var(--hc-shadow-strong)', backdropFilter: 'blur(18px)' }}>
         <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, bgcolor: 'var(--hc-surface-soft)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

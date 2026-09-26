@@ -101,6 +101,8 @@ export type HyperCortexAppSettingsV1 = {
   trashAutoDeleteDays?: number
   // 上次使用的仓库标识（应用行为状态，不随仓库切换变化）。
   activeRepoId?: string
+  // 仓库现场常驻上限：打开过的仓库各保留一份常驻现场，超过上限回收最久未使用的。
+  repoCacheLimit?: number
 }
 
 // 笔记仓库数据身份：指向具体笔记/附件内容的工作状态，随仓库走。
@@ -114,6 +116,8 @@ export type HyperCortexRepoStateV1 = {
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
   currentFolderId?: string
+  // 侧边栏列表的滚动浏览位置：工作区标识 → 像素值（随仓库持久化）。
+  sidebarScrollTops?: Record<string, number>
 }
 
 export function monthFolder(now = new Date()): string {

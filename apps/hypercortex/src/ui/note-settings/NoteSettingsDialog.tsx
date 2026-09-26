@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Box, Dialog, DialogContent, DialogTitle, Divider, IconButton, Typography } from '@mui/material'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 
 import type { VaultScope } from '../../core'
@@ -38,6 +39,7 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     facePluginGlobalSettings,
     onManifestSaved,
   } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const [busy, setBusy] = React.useState(false)
   const faceDeclarations = useFaceDeclarations()
@@ -87,7 +89,7 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
   const faceLabel = React.useCallback((faceId: string) => resolveFaceLabel(faceId, faceManifests), [faceManifests])
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle
         sx={{
           display: 'flex',

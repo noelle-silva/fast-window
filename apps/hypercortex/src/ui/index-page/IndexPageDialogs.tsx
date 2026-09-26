@@ -3,6 +3,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextFie
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
 import type { AddKind, AddMode, DeleteEntityTarget } from './types'
 import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 type Props = {
   doc: HyperCortexFavoritesDocV1
@@ -50,10 +51,11 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     onCloseDeleteEntity,
     onConfirmDeleteEntity,
   } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   return (
     <>
-      <Dialog open={addMode === 'create' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+      <Dialog open={workspaceVisible && addMode === 'create' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
         <DialogTitle>创建新收藏夹</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>会先创建一个真实收藏夹，再把它作为卡片放进当前索引页。</Typography>
@@ -76,7 +78,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={addMode === 'existing' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+      <Dialog open={workspaceVisible && addMode === 'existing' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
         <DialogTitle>添加已有收藏夹</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>这里只会引用已有收藏夹，不代表真实父子归属。</Typography>
@@ -103,7 +105,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!deleteFolderConfirmId} onClose={onCloseDeleteFolder} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && !!deleteFolderConfirmId} onClose={onCloseDeleteFolder} maxWidth="xs" fullWidth>
         <DialogTitle>删除当前收藏夹实体</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>{folderDeleteHelperText(deleteFolderConfirmId)}</Typography>
@@ -115,7 +117,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!deleteEntityTarget} onClose={onCloseDeleteEntity} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && !!deleteEntityTarget} onClose={onCloseDeleteEntity} maxWidth="xs" fullWidth>
         <DialogTitle>删除目标实体</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>

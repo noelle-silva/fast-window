@@ -12,6 +12,7 @@ import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
 import { PageDisplaySettingsPanel } from './PageDisplaySettingsPanel'
+import { RepoCacheSettingsPanel } from './RepoCacheSettingsPanel'
 import { RepoManagementSettingsPanel } from './repo-management/RepoManagementSettingsPanel'
 import type { ModalCapablePageId, PageDisplayMode, PageDisplayModesV1 } from '../pageDisplay'
 import { settingsTabSx } from './settingsUiStyles'
@@ -48,6 +49,8 @@ export type SettingsPageProps = {
   onColorPresetChange: (presetId: HyperCortexColorPresetIdV1) => void
   pageDisplayModes: PageDisplayModesV1
   onPageDisplayModeChange: (pageId: ModalCapablePageId, mode: PageDisplayMode) => void
+  repoCacheLimit: number
+  onRepoCacheLimitChange: (limit: number) => void
   faceKindOrder: string[]
   onFaceKindOrderChange: (next: string[]) => void
   defaultFaceKinds: string[]
@@ -158,6 +161,10 @@ export function SettingsPage(props: SettingsPageProps) {
             <SidebarSortSettingsPanel
               mode={props.sidebarSortMode}
               onChange={props.onSidebarSortModeChange}
+            />
+            <RepoCacheSettingsPanel
+              limit={props.repoCacheLimit}
+              onLimitChange={props.onRepoCacheLimitChange}
             />
             <FaceSettingsPanel
               faceKindOrder={props.faceKindOrder}

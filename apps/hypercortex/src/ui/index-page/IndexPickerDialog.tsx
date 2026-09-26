@@ -8,6 +8,7 @@ import type { HyperCortexGateway } from '../../gateway'
 import type { NoteCardInfo } from '../noteCardInfo'
 import { AssetPoolPanel } from '../AssetPoolPanel'
 import { AllNotesPage, type AllNotesLayout } from '../AllNotesPage'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 type Props = {
   open: boolean
@@ -23,6 +24,7 @@ type Props = {
 
 export function IndexPickerDialog(props: Props): React.ReactNode {
   const { open, kind, gateway, activeRepoId, folderId, doc, noteIndex, onClose, onPick } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [search, setSearch] = React.useState('')
   const [noteLayout, setNoteLayout] = React.useState<AllNotesLayout>('grid')
 
@@ -50,7 +52,7 @@ export function IndexPickerDialog(props: Props): React.ReactNode {
   }, [])
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>{kind === 'note' ? '添加已有笔记' : '添加已有附件'}</DialogTitle>
       <DialogContent>
         <Box

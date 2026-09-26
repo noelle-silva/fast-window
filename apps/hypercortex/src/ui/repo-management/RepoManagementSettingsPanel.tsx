@@ -6,6 +6,7 @@ import RestoreFromTrashRoundedIcon from '@mui/icons-material/RestoreFromTrashRou
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
 import type { HyperCortexRepo } from '../../gateway'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from '../pluginUiStyles'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 type Props = {
   repos: HyperCortexRepo[]
@@ -17,6 +18,7 @@ type Props = {
 
 export function RepoManagementSettingsPanel(props: Props) {
   const { repos, activeRepoId, onRenameRepo, onDeleteRepo, onOpenRepoTrash } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [renameTarget, setRenameTarget] = React.useState<{ id: string; title: string } | null>(null)
   const [renameBusy, setRenameBusy] = React.useState(false)
   const [menuState, setMenuState] = React.useState<{ anchorEl: HTMLElement; repo: HyperCortexRepo } | null>(null)
@@ -123,7 +125,7 @@ export function RepoManagementSettingsPanel(props: Props) {
 
       <Menu
         anchorEl={menuState?.anchorEl || null}
-        open={!!menuState}
+        open={workspaceVisible && !!menuState}
         onClose={() => setMenuState(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
@@ -145,7 +147,7 @@ export function RepoManagementSettingsPanel(props: Props) {
       </Menu>
 
       <Dialog
-        open={!!renameTarget}
+        open={workspaceVisible && !!renameTarget}
         onClose={renameBusy ? undefined : () => setRenameTarget(null)}
         maxWidth="xs"
         fullWidth
@@ -180,7 +182,7 @@ export function RepoManagementSettingsPanel(props: Props) {
       </Dialog>
 
       <Dialog
-        open={!!deleteTarget}
+        open={workspaceVisible && !!deleteTarget}
         onClose={deleteBusy ? undefined : () => setDeleteTarget(null)}
         maxWidth="xs"
         fullWidth

@@ -4,6 +4,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getFolderById, getFolderRefs, getRefsByFolderId } from '../favorites'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 type FolderTreeNode = {
   key: string
@@ -79,6 +80,7 @@ type Props = {
 
 export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
   const { open, doc, kind, targetId, onClose, onSave } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const nodes = React.useMemo(() => buildFolderTree(doc), [doc])
   const allTreeKeys = React.useMemo(() => collectTreeKeys(nodes), [nodes])
@@ -176,7 +178,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>收藏到收藏夹</DialogTitle>
       <DialogContent>
         {nodes.length === 0 ? (

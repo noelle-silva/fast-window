@@ -14,6 +14,7 @@ import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRou
 import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
 import { resolveFaceLabel, type FaceDeclaration, type FaceToolbarProps, type FaceViewContext } from '../../facePlugins'
 import { menuDangerItemSx, menuPaperSx } from '../pluginUiStyles'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 /**
  * 笔记详情顶栏：左侧通用动作、右侧菜单与面标签条。
@@ -123,6 +124,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
     onCopyFaceRef,
   } = props
 
+  const workspaceVisible = useWorkspaceVisible()
   const toolbarReady = !loading && !loadError && loaded
 
   return (
@@ -277,7 +279,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
           </Tooltip>
 
           <Menu
-            open={moreMenuOpen}
+            open={workspaceVisible && moreMenuOpen}
             onClose={onMoreMenuClose}
             anchorEl={moreMenuAnchorEl}
             PaperProps={{ sx: menuPaperSx }}
@@ -327,7 +329,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
           </Menu>
 
           <Menu
-            open={deleteFaceMenuOpen}
+            open={workspaceVisible && deleteFaceMenuOpen}
             onClose={onDeleteFaceMenuClose}
             anchorEl={deleteFaceMenuAnchorEl}
             PaperProps={{ sx: menuPaperSx }}

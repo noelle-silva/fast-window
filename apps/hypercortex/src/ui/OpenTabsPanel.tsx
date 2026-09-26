@@ -38,6 +38,7 @@ import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
+import { useWorkspaceVisible } from './workspaceVisibility'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -191,6 +192,12 @@ export type OpenTabsPanelProps = {
   activeTabKey?: string
   tabSelectionVisible?: boolean
   activeTabScrollSignal?: number
+  /** 当前工作区列表的滚动记忆值（像素）；工作区切换、现场装载与现场可见化时恢复。 */
+  sidebarScrollTop?: number
+  /** 现场可见化恢复信号：变化即重新应用滚动记忆（覆盖常驻期间可能的视图丢失）。 */
+  sidebarScrollRestoreSignal?: number
+  /** 列表滚动上报：现场据此记忆当前工作区的浏览位置。 */
+  onSidebarScrollTopChange?: (scrollTop: number) => void
   openNoteTabs: NoteMeta[]
   openAssetTabs?: AssetEntry[]
   playingTabKeys?: ReadonlySet<string>
@@ -277,6 +284,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     activeTabKey,
     tabSelectionVisible = true,
     activeTabScrollSignal = 0,
+    sidebarScrollTop = 0,
+    sidebarScrollRestoreSignal = 0,
+    onSidebarScrollTopChange,
     openNoteTabs,
     openAssetTabs,
     playingTabKeys,
@@ -310,6 +320,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onMoveTabToGroupIndex,
     onMoveGroupToIndex,
   } = props
+  const workspaceVisible = useWorkspaceVisible()
 
   const showTitle = panelWidth > 52
   const disableTopTooltips = tabsMode === 'hover'
@@ -355,6 +366,33 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = React.useState<{ id: string; title: string } | null>(null)
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null)
   const activeTabRowRef = React.useRef<HTMLElement | null>(null)
+
+  // 列表滚动上报：rAF 节流，现场据此记忆当前工作区的浏览位置。
+  const scrollReportRafRef = React.useRef<number | null>(null)
+  const handleSidebarScroll = React.useCallback(() => {
+    if (!onSidebarScrollTopChange) return
+    if (scrollReportRafRef.current != null) return
+    scrollReportRafRef.current = requestAnimationFrame(() => {
+      scrollReportRafRef.current = null
+      const container = scrollContainerRef.current
+      if (!container) return
+      onSidebarScrollTopChange(container.scrollTop)
+    })
+  }, [onSidebarScrollTopChange])
+  React.useEffect(() => {
+    return () => {
+      if (scrollReportRafRef.current != null) cancelAnimationFrame(scrollReportRafRef.current)
+      scrollReportRafRef.current = null
+    }
+  }, [])
+
+  // 工作区切换、现场装载与现场可见化时恢复列表滚动位置。
+  React.useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const target = Math.max(0, Math.floor(Number(sidebarScrollTop) || 0))
+    if (container.scrollTop !== target) container.scrollTop = target
+  }, [activeWorkspaceId, sidebarScrollRestoreSignal, sidebarScrollTop])
 
   React.useLayoutEffect(() => {
     if (activeTabScrollSignal <= 0) return
@@ -1087,6 +1125,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       <Box
         ref={scrollContainerRef}
         {...dnd.containerProps}
+        onScroll={handleSidebarScroll}
         sx={{
           flex: 1,
           minHeight: 0,
@@ -1111,7 +1150,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       </Box>
 
       <Menu
-        open={menuOpen}
+        open={workspaceVisible && menuOpen}
         onClose={closeMenu}
         anchorReference="anchorPosition"
         anchorPosition={groupMenu ? { top: groupMenu.mouseY, left: groupMenu.mouseX } : undefined}
@@ -1185,7 +1224,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       </Menu>
 
       <Menu
-        open={workspaceMenuOpen}
+        open={workspaceVisible && workspaceMenuOpen}
         onClose={closeWorkspaceMenu}
         anchorEl={workspaceMenuAnchorEl}
         PaperProps={{ sx: menuPaperSx }}
@@ -1234,7 +1273,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </MenuItem>
       </Menu>
 
-      <Dialog open={!!workspaceDeleteTarget} onClose={() => setWorkspaceDeleteTarget(null)} maxWidth="xs" fullWidth>
+      <Dialog open={workspaceVisible && !!workspaceDeleteTarget} onClose={() => setWorkspaceDeleteTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>删除工作区</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)' }}>
@@ -1259,7 +1298,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       </Dialog>
 
       <Dialog
-        open={!!workspaceEditor}
+        open={workspaceVisible && !!workspaceEditor}
         onClose={() => setWorkspaceEditor(null)}
         maxWidth="xs"
         fullWidth
@@ -1317,7 +1356,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 7 } }}>
+      <Dialog open={workspaceVisible && !!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 7 } }}>
         <DialogTitle>重命名分组</DialogTitle>
         <DialogContent>
           <TextField

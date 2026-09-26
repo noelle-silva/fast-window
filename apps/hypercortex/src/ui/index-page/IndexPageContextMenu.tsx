@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { ListItemIcon, ListItemText, Menu, MenuItem } from '@mui/material'
 import KeyboardArrowRightRoundedIcon from '@mui/icons-material/KeyboardArrowRightRounded'
+import { useWorkspaceVisible } from '../workspaceVisibility'
 
 const CONTEXT_MENU_PAPER_ATTR = 'data-hc-index-context-menu-paper'
 
@@ -70,6 +71,7 @@ type Props = {
 
 export function IndexPageContextMenu(props: Props): React.ReactNode {
   const { open, x, y, entries, onClose } = props
+  const workspaceVisible = useWorkspaceVisible()
   const [subMenu, setSubMenu] = React.useState<SubMenuState>(null)
 
   React.useEffect(() => {
@@ -150,7 +152,7 @@ export function IndexPageContextMenu(props: Props): React.ReactNode {
   return (
     <>
       <Menu
-        open={open}
+        open={workspaceVisible && open}
         onClose={onClose}
         anchorReference="anchorPosition"
         anchorPosition={open ? { top: y, left: x } : { top: 0, left: 0 }}
@@ -160,7 +162,7 @@ export function IndexPageContextMenu(props: Props): React.ReactNode {
         {entries.map(renderRootEntry)}
       </Menu>
       <Menu
-        open={Boolean(subMenu)}
+        open={workspaceVisible && Boolean(subMenu)}
         anchorEl={subMenu?.anchorEl ?? null}
         onClose={closeSubMenu}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
