@@ -5,7 +5,7 @@ import type { NoteRefEntryMap, NoteRefIndex } from '../noteRefs'
 import type { HyperCortexNoteFaceDoc } from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
-import type { HyperCortexIndexV1, HyperCortexMetadataV1, NoteMeta } from '../core'
+import type { HyperCortexIndexV1, HyperCortexAppSettingsV1, HyperCortexRepoStateV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
 import type { FaceDeclaration } from '../shared/faceDeclarations'
 
@@ -245,9 +245,15 @@ export type SearchService = {
 }
 
 export type MetadataService = {
-  tryLoadMetadata: () => Promise<HyperCortexMetadataV1 | null>
-  ensureMetadata: () => Promise<HyperCortexMetadataV1>
-  saveMetadata: (meta: HyperCortexMetadataV1) => Promise<void>
+  tryLoadMetadata: () => Promise<HyperCortexAppSettingsV1 | null>
+  ensureMetadata: () => Promise<HyperCortexAppSettingsV1>
+  saveMetadata: (meta: HyperCortexAppSettingsV1) => Promise<void>
+}
+
+export type RepoStateService = {
+  tryLoadRepoState: (scope: VaultScope) => Promise<HyperCortexRepoStateV1 | null>
+  ensureRepoState: (scope: VaultScope) => Promise<HyperCortexRepoStateV1>
+  saveRepoState: (scope: VaultScope, state: HyperCortexRepoStateV1) => Promise<void>
 }
 
 export type HyperCortexGateway = {
@@ -260,4 +266,5 @@ export type HyperCortexGateway = {
   refs: RefsService
   search: SearchService
   metadata: MetadataService
+  repoState: RepoStateService
 }

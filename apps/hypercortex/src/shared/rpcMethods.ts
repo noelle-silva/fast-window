@@ -46,6 +46,11 @@ export const HyperCortexRpc = {
     ensure: 'hypercortex.metadata.ensure',
     save: 'hypercortex.metadata.save',
   },
+  repoState: {
+    tryLoad: 'hypercortex.repoState.tryLoad',
+    ensure: 'hypercortex.repoState.ensure',
+    save: 'hypercortex.repoState.save',
+  },
   favorites: {
     tryLoad: 'hypercortex.favorites.tryLoad',
     ensure: 'hypercortex.favorites.ensure',

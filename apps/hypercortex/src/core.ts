@@ -78,19 +78,14 @@ export type HyperCortexWorkspaceV1 = {
 
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
 export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
-export type HyperCortexMetadataV1 = {
+
+// 应用设置身份：只描述「这个 App 怎么用」，全局唯一，所有仓库共用。
+export type HyperCortexAppSettingsV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
-  sidebarItems?: HyperCortexSidebarItemV1[]
-  openTabKeys?: string[]
-  tabGroupByTabKey?: Record<string, string>
-  activeTabKey?: string
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
   sidebarSortMode?: HyperCortexSidebarSortModeV1
-  tabGroups?: HyperCortexTabGroupV1[]
-  workspaces?: HyperCortexWorkspaceV1[]
-  activeWorkspaceId?: string
   shortcuts?: HyperCortexShortcutBindingsV1
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.
   shortcutHintsEnabled?: boolean
@@ -102,9 +97,21 @@ export type HyperCortexMetadataV1 = {
   defaultFaceKinds?: string[]
   colorPresetId?: HyperCortexColorPresetIdV1
   pageDisplayModes?: PageDisplayModesV1
-  currentFolderId?: string
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
+}
+
+// 笔记仓库数据身份：指向具体笔记/附件内容的工作状态，随仓库走。
+export type HyperCortexRepoStateV1 = {
+  version: 1
+  sidebarItems?: HyperCortexSidebarItemV1[]
+  openTabKeys?: string[]
+  tabGroupByTabKey?: Record<string, string>
+  activeTabKey?: string
+  tabGroups?: HyperCortexTabGroupV1[]
+  workspaces?: HyperCortexWorkspaceV1[]
+  activeWorkspaceId?: string
+  currentFolderId?: string
 }
 
 export function monthFolder(now = new Date()): string {

@@ -3,6 +3,7 @@ import { createFavoritesService } from '../services/favoritesService'
 import { createMetadataService } from '../services/metadataService'
 import { createNotesService } from '../services/notesService'
 import { createRefsService } from '../services/refsService'
+import { createRepoStateService } from '../services/repoStateService'
 import { createSearchService } from '../services/searchService'
 import { createTrashService } from '../services/trashService'
 import { invoke } from '@tauri-apps/api/core'
@@ -30,6 +31,7 @@ export async function createHyperCortexGateway(): Promise<HyperCortexGateway> {
     refs: createRefsService(background),
     search: createSearchService(background),
     metadata: createMetadataService(background),
+    repoState: createRepoStateService(background),
     notes: createNotesService(background),
     assets: createAssetsService(background),
     favorites: createFavoritesService(background),

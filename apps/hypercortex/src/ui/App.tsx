@@ -13,7 +13,8 @@ import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
   kindFromMime,
   mimeFromExt,
-  type HyperCortexMetadataV1,
+  type HyperCortexAppSettingsV1,
+  type HyperCortexRepoStateV1,
   type HyperCortexSidebarSortModeV1,
   type HyperCortexColorPresetIdV1,
   type HyperCortexTabGroupV1,
@@ -44,7 +45,7 @@ import { colorPresetCssVars, createHyperCortexTheme, DEFAULT_COLOR_PRESET_ID, ge
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
+import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys } from './workspaceModel'
 import {
   applySidebarItemsToWorkspace,
   closeTabsInSidebar,
@@ -157,33 +158,39 @@ function stripDraftTabKeyMap(value: any): Record<string, string> {
   return out
 }
 
-function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
+function sanitizeAppSettingsForSave(settings: HyperCortexAppSettingsV1): HyperCortexAppSettingsV1 {
+  const next: HyperCortexAppSettingsV1 = { ...settings, version: 1 }
+  if ('shortcuts' in next) next.shortcuts = normalizeShortcutBindings((next as any).shortcuts)
+  next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
+  next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
+  next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
+  next.facePluginSettings = normalizeFacePluginSettingsContainer(next.facePluginSettings)
+  next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
+  return next
+}
+
+function sanitizeRepoStateForSave(state: HyperCortexRepoStateV1): HyperCortexRepoStateV1 {
+  const next: HyperCortexRepoStateV1 = { ...state, version: 1 }
 
   delete (next as any).openNoteIds
   delete (next as any).activeNoteId
   delete (next as any).tabGroupByNoteId
 
-  if (typeof (next as any).activeTabKey === 'string') {
-    const k = String((next as any).activeTabKey || '').trim()
-    if (k && tabKind(k) === 'note' && isDraftNoteId(noteIdFromTabKey(k))) (next as any).activeTabKey = ''
+  if (typeof next.activeTabKey === 'string') {
+    const k = String(next.activeTabKey || '').trim()
+    if (k && tabKind(k) === 'note' && isDraftNoteId(noteIdFromTabKey(k))) next.activeTabKey = ''
   }
-  if (Array.isArray((next as any).sidebarItems)) {
-    ;(next as any).sidebarItems = ensureSidebarItems({
-      sidebarItems: (next as any).sidebarItems,
-      openTabKeys: stripDraftTabKeys((next as any).openTabKeys),
-      tabGroups: Array.isArray((next as any).tabGroups) ? (next as any).tabGroups : [],
-      tabGroupByTabKey: stripDraftTabKeyMap((next as any).tabGroupByTabKey),
+  if (Array.isArray(next.sidebarItems)) {
+    next.sidebarItems = ensureSidebarItems({
+      sidebarItems: next.sidebarItems,
+      openTabKeys: stripDraftTabKeys(next.openTabKeys) as any,
+      tabGroups: Array.isArray(next.tabGroups) ? next.tabGroups : [],
+      tabGroupByTabKey: stripDraftTabKeyMap(next.tabGroupByTabKey),
     })
   }
-  if ('openTabKeys' in next) (next as any).openTabKeys = stripDraftTabKeys((next as any).openTabKeys)
-  if ('tabGroupByTabKey' in next) (next as any).tabGroupByTabKey = stripDraftTabKeyMap((next as any).tabGroupByTabKey)
-  if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
-  next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
-  next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
-  next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
-  next.facePluginSettings = normalizeFacePluginSettingsContainer(next.facePluginSettings)
+  if ('openTabKeys' in next) next.openTabKeys = stripDraftTabKeys(next.openTabKeys)
+  if ('tabGroupByTabKey' in next) next.tabGroupByTabKey = stripDraftTabKeyMap(next.tabGroupByTabKey)
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
-  next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -191,7 +198,7 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
       const tabGroupByTabKey = stripDraftTabKeyMap((ws as any).tabGroupByTabKey)
       const sidebarItems = ensureSidebarItems({
         sidebarItems: (ws as any).sidebarItems,
-        openTabKeys,
+        openTabKeys: openTabKeys as any,
         tabGroups: Array.isArray((ws as any).tabGroups) ? ((ws as any).tabGroups as any) : [],
         tabGroupByTabKey,
       })
@@ -375,7 +382,8 @@ function buildNoteInitSnapshot(input: {
 
 export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialCommand?: string | null; windowControls?: HyperCortexWindowControls }) {
   const { gateway, initialCommand, windowControls } = props
-  type MetadataPatch = Partial<HyperCortexMetadataV1>
+  type AppSettingsPatch = Partial<HyperCortexAppSettingsV1>
+  type RepoStatePatch = Partial<HyperCortexRepoStateV1>
 
   // ---- 核心 UI 状态
   const [page, setPageState] = React.useState<PageId>('home')
@@ -446,7 +454,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   )
 
   // ---- 元数据（持久化）
-  const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
+  const appSettingsRef = React.useRef<HyperCortexAppSettingsV1 | null>(null)
+  const repoStateRef = React.useRef<HyperCortexRepoStateV1 | null>(null)
   const [metaReady, setMetaReady] = React.useState(false)
   const restoreActiveTabKeyRef = React.useRef<string>('')
 
@@ -862,13 +871,24 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     return map
   }, [allNotes, noteCardInfoById])
 
-  const persistMetadataPatch = React.useCallback(
-    async (patch: MetadataPatch) => {
-      const current = metaRef.current || { version: 1 }
-      const next: HyperCortexMetadataV1 = { ...current, ...patch, version: 1 }
-      const sanitized = sanitizeMetadataForSave(next)
-      metaRef.current = sanitized
+  const persistAppSettingsPatch = React.useCallback(
+    async (patch: AppSettingsPatch) => {
+      const current = appSettingsRef.current || { version: 1 }
+      const next: HyperCortexAppSettingsV1 = { ...current, ...patch, version: 1 }
+      const sanitized = sanitizeAppSettingsForSave(next)
+      appSettingsRef.current = sanitized
       await gateway.metadata.saveMetadata(sanitized)
+    },
+    [gateway],
+  )
+
+  const persistRepoStatePatch = React.useCallback(
+    async (patch: RepoStatePatch) => {
+      const current = repoStateRef.current || { version: 1 }
+      const next: HyperCortexRepoStateV1 = { ...current, ...patch, version: 1 }
+      const sanitized = sanitizeRepoStateForSave(next)
+      repoStateRef.current = sanitized
+      await gateway.repoState.saveRepoState('library', sanitized)
     },
     [gateway],
   )
@@ -878,9 +898,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const normalized = normalizeShortcutBindings(next)
       setShortcutBindings(normalized)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ shortcuts: normalized }).catch(() => {})
+      void persistAppSettingsPatch({ shortcuts: normalized }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handleShortcutHintsEnabledChange = React.useCallback(
@@ -889,9 +909,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setShortcutHintsEnabled(next)
       if (!next) setShortcutHintsOpen(false)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ shortcutHintsEnabled: next }).catch(() => {})
+      void persistAppSettingsPatch({ shortcutHintsEnabled: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handlePageDisplayModeChange = React.useCallback(
@@ -911,9 +931,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       }
 
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ pageDisplayModes: nextModes }).catch(() => {})
+      void persistAppSettingsPatch({ pageDisplayModes: nextModes }).catch(() => {})
     },
-    [navigatePage, persistMetadataPatch, syncNavStackCounts],
+    [navigatePage, persistAppSettingsPatch, syncNavStackCounts],
   )
 
   // 快捷键打开页面的统一动作：模态窗=同名关层/异名替换，独立页=切页（先收浮层）。
@@ -934,9 +954,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const next = normalizeColorPresetId(presetId)
       setColorPresetId(next)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ colorPresetId: next }).catch(() => {})
+      void persistAppSettingsPatch({ colorPresetId: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const commitActiveWorkspacePatch = React.useCallback(
@@ -953,13 +973,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         nextList[idx] = nextWs
 
         if (metaReadyRef.current) {
-          void persistMetadataPatch(buildWorkspacesMetadataSnapshot(nextList, wid)).catch(() => {})
+          void persistRepoStatePatch(buildRepoStateSnapshot(nextList, wid)).catch(() => {})
         }
 
         return nextList
       })
     },
-    [persistMetadataPatch],
+    [persistRepoStatePatch],
   )
 
   const applySidebarState = React.useCallback(
@@ -1153,43 +1173,43 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const toggleAllNotesLayout = React.useCallback(() => {
     setAllNotesLayout(prev => {
       const next = prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'
-      if (metaReady) void persistMetadataPatch({ allNotesLayout: next }).catch(() => {})
+      if (metaReady) void persistAppSettingsPatch({ allNotesLayout: next }).catch(() => {})
       return next
     })
-  }, [metaReady, persistMetadataPatch])
+  }, [metaReady, persistAppSettingsPatch])
 
   const toggleTabsCollapsed = React.useCallback(() => {
     setTabsCollapsed(prev => {
       const next = !prev
-      if (metaReady) void persistMetadataPatch({ tabsCollapsed: next }).catch(() => {})
+      if (metaReady) void persistAppSettingsPatch({ tabsCollapsed: next }).catch(() => {})
       return next
     })
-  }, [metaReady, persistMetadataPatch])
+  }, [metaReady, persistAppSettingsPatch])
 
   const toggleTabsMode = React.useCallback(() => {
     setTabsMode(prev => {
       const next: TabsMode = prev === 'manual' ? 'hover' : 'manual'
       setTabsHoverOpen(false)
-      if (metaReady) void persistMetadataPatch({ tabsMode: next }).catch(() => {})
+      if (metaReady) void persistAppSettingsPatch({ tabsMode: next }).catch(() => {})
       return next
     })
-  }, [metaReady, persistMetadataPatch])
+  }, [metaReady, persistAppSettingsPatch])
 
   const handleSidebarSortModeChange = React.useCallback(
     (mode: HyperCortexSidebarSortModeV1) => {
       const next = normalizeSidebarSortMode(mode)
       setSidebarSortMode(next)
-      if (metaReadyRef.current) void persistMetadataPatch({ sidebarSortMode: next }).catch(() => {})
+      if (metaReadyRef.current) void persistAppSettingsPatch({ sidebarSortMode: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const persistWorkspacesSnapshot = React.useCallback(
     (nextWorkspaces: HyperCortexWorkspaceV1[], nextActiveWorkspaceId: string) => {
       if (!metaReadyRef.current) return
-      void persistMetadataPatch(buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId)).catch(() => {})
+      void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, nextActiveWorkspaceId)).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistRepoStatePatch],
   )
 
   const applyWorkspaceSidebarState = React.useCallback(
@@ -1291,10 +1311,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setActiveWorkspaceId(wid)
       applyWorkspaceSidebarState(ws)
       if (metaReadyRef.current) {
-        void persistMetadataPatch(buildWorkspacesMetadataSnapshot(workspaces, wid)).catch(() => {})
+        void persistRepoStatePatch(buildRepoStateSnapshot(workspaces, wid)).catch(() => {})
       }
     },
-    [applyWorkspaceSidebarState, persistMetadataPatch, workspaces],
+    [applyWorkspaceSidebarState, persistRepoStatePatch, workspaces],
   )
 
   const handleCreateWorkspace = React.useCallback(
@@ -1430,30 +1450,32 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [updateSidebarItems],
   )
 
-  // 初始化：核心元数据装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
-  // 面声明为独立失败域，不阻断核心元数据，面系统可在重试后恢复。
+  // 初始化：应用设置与仓库状态装载成功前不置就绪标志（写路径保持锁定），失败时提供显式重试；
+  // 面声明为独立失败域，不阻断核心数据，面系统可在重试后恢复。
   const runAppInitialization = React.useCallback(async () => {
     setInitError(null)
     try {
-      const loadMetadata = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
-      const normalizedMeta = await loadMetadata()
-      metaRef.current = normalizedMeta
-      setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
-        const nextPageDisplayModes = normalizePageDisplayModes(normalizedMeta.pageDisplayModes)
+      const loadAppSettings = async () => (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
+      const loadRepoState = async () => (await gateway.repoState.tryLoadRepoState('library')) || (await gateway.repoState.ensureRepoState('library'))
+      const [normalizedSettings, normalizedRepoState] = await Promise.all([loadAppSettings(), loadRepoState()])
+      appSettingsRef.current = normalizedSettings
+      repoStateRef.current = normalizedRepoState
+      setShortcutBindings(normalizeShortcutBindings(normalizedSettings.shortcuts))
+        const nextPageDisplayModes = normalizePageDisplayModes(normalizedSettings.pageDisplayModes)
         pageDisplayModesRef.current = nextPageDisplayModes
         setPageDisplayModes(nextPageDisplayModes)
-        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedMeta as any).shortcutHintsEnabled)
+        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedSettings as any).shortcutHintsEnabled)
         setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
-        setAllNotesLayout(normalizeAllNotesLayout(normalizedMeta.allNotesLayout))
-        setTabsCollapsed(normalizeBoolean(normalizedMeta.tabsCollapsed))
-        setTabsMode(normalizeTabsMode(normalizedMeta.tabsMode))
-        setSidebarSortMode(normalizeSidebarSortMode(normalizedMeta.sidebarSortMode))
-        const normalizedTrashEnabled = normalizeTrashEnabled(normalizedMeta.trashEnabled)
-        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
+        setAllNotesLayout(normalizeAllNotesLayout(normalizedSettings.allNotesLayout))
+        setTabsCollapsed(normalizeBoolean(normalizedSettings.tabsCollapsed))
+        setTabsMode(normalizeTabsMode(normalizedSettings.tabsMode))
+        setSidebarSortMode(normalizeSidebarSortMode(normalizedSettings.sidebarSortMode))
+        const normalizedTrashEnabled = normalizeTrashEnabled(normalizedSettings.trashEnabled)
+        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedSettings.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
 
-        // 声明单源：取后端面插件声明并写入运行时仓库；失败不阻断核心元数据（面系统本会话降级）。
+        // 声明单源：取后端面插件声明并写入运行时仓库；失败不阻断核心数据（面系统本会话降级）。
         let declarations: FaceDeclaration[] = []
         let declarationsReady = false
         try {
@@ -1466,22 +1488,22 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         const knownFaceKinds = declarations.map(declaration => declaration.kind)
         const creatableFaceKinds = filterCreatableFaceDeclarations(declarations).map(declaration => declaration.kind)
 
-        const normalizedFacePluginSettings = normalizeFacePluginSettingsContainer(normalizedMeta.facePluginSettings)
+        const normalizedFacePluginSettings = normalizeFacePluginSettingsContainer(normalizedSettings.facePluginSettings)
         facePluginSettingsRef.current = normalizedFacePluginSettings
         setFacePluginSettings(normalizedFacePluginSettings)
         // 声明未就绪时保持用户既有面偏好原值，避免用空清单清空偏好（重试成功后按声明重新收敛）。
         const normalizedFaceKindOrder = declarationsReady
-          ? normalizeFaceKindOrder(normalizedMeta.faceKindOrder, knownFaceKinds)
-          : (Array.isArray(normalizedMeta.faceKindOrder) ? normalizedMeta.faceKindOrder : [])
+          ? normalizeFaceKindOrder(normalizedSettings.faceKindOrder, knownFaceKinds)
+          : (Array.isArray(normalizedSettings.faceKindOrder) ? normalizedSettings.faceKindOrder : [])
         const normalizedDefaultFaceKinds = declarationsReady
-          ? normalizeDefaultFaceKinds(normalizedMeta.defaultFaceKinds, creatableFaceKinds)
-          : (Array.isArray(normalizedMeta.defaultFaceKinds) ? normalizedMeta.defaultFaceKinds : [])
+          ? normalizeDefaultFaceKinds(normalizedSettings.defaultFaceKinds, creatableFaceKinds)
+          : (Array.isArray(normalizedSettings.defaultFaceKinds) ? normalizedSettings.defaultFaceKinds : [])
         setFaceKindOrder(normalizedFaceKindOrder)
         setDefaultFaceKinds(normalizedDefaultFaceKinds)
-        const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
+        const normalizedColorPresetId = normalizeColorPresetId(normalizedSettings.colorPresetId)
         setColorPresetId(normalizedColorPresetId)
-        setCurrentFolderId(String((normalizedMeta as any).currentFolderId || '').trim() || 'root')
-        const activeKey = typeof normalizedMeta.activeTabKey === 'string' ? normalizedMeta.activeTabKey.trim() : ''
+        setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
+        const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
 
         const [nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
@@ -1492,26 +1514,26 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         setAssetPoolIndex(nextAssetPoolIndex as any)
 
         const legacyTabsDetected =
-          Array.isArray((normalizedMeta as any).openNoteIds) ||
-          typeof (normalizedMeta as any).activeNoteId === 'string' ||
-          ((normalizedMeta as any).tabGroupByNoteId && typeof (normalizedMeta as any).tabGroupByNoteId === 'object')
+          Array.isArray((normalizedRepoState as any).openNoteIds) ||
+          typeof (normalizedRepoState as any).activeNoteId === 'string' ||
+          ((normalizedRepoState as any).tabGroupByNoteId && typeof (normalizedRepoState as any).tabGroupByNoteId === 'object')
         const v2TabsDetected =
-          Array.isArray((normalizedMeta as any).openTabKeys) ||
-          typeof (normalizedMeta as any).activeTabKey === 'string' ||
-          ((normalizedMeta as any).tabGroupByTabKey && typeof (normalizedMeta as any).tabGroupByTabKey === 'object') ||
-          Array.isArray(normalizedMeta.workspaces)
+          Array.isArray((normalizedRepoState as any).openTabKeys) ||
+          typeof (normalizedRepoState as any).activeTabKey === 'string' ||
+          ((normalizedRepoState as any).tabGroupByTabKey && typeof (normalizedRepoState as any).tabGroupByTabKey === 'object') ||
+          Array.isArray(normalizedRepoState.workspaces)
         if (legacyTabsDetected && !v2TabsDetected) {
           void gateway.host.toast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
         }
 
-        let nextWorkspaces = normalizeWorkspaces(normalizedMeta.workspaces, {
-          sidebarItems: normalizedMeta.sidebarItems,
-          openTabKeys: normalizedMeta.openTabKeys,
-          activeTabKey: normalizedMeta.activeTabKey,
-          tabGroups: normalizedMeta.tabGroups,
-          tabGroupByTabKey: normalizedMeta.tabGroupByTabKey,
+        let nextWorkspaces = normalizeWorkspaces(normalizedRepoState.workspaces, {
+          sidebarItems: normalizedRepoState.sidebarItems,
+          openTabKeys: normalizedRepoState.openTabKeys,
+          activeTabKey: normalizedRepoState.activeTabKey,
+          tabGroups: normalizedRepoState.tabGroups,
+          tabGroupByTabKey: normalizedRepoState.tabGroupByTabKey,
         })
-        const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedMeta.activeWorkspaceId, nextWorkspaces)
+        const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedRepoState.activeWorkspaceId, nextWorkspaces)
         let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
 
         let didMutateActiveWorkspace = false
@@ -1531,21 +1553,25 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         setActiveWorkspaceId(nextActiveWorkspaceId)
         if (activeWs) applyWorkspaceSidebarState(activeWs)
 
-        const shouldPersistNormalized =
-          !Array.isArray(normalizedMeta.workspaces) ||
-          normalizedMeta.activeWorkspaceId !== nextActiveWorkspaceId ||
-          didMutateActiveWorkspace ||
-          (normalizedMeta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
-          normalizedMeta.trashEnabled !== normalizedTrashEnabled ||
-          normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
-          JSON.stringify(normalizedMeta.facePluginSettings || {}) !== JSON.stringify(normalizedFacePluginSettings) ||
-          JSON.stringify(normalizedMeta.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
-          JSON.stringify(normalizedMeta.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
-          normalizedMeta.colorPresetId !== normalizedColorPresetId ||
-          JSON.stringify(normalizedMeta.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes)
-        if (shouldPersistNormalized) {
-          void persistMetadataPatch({
-            ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
+        const shouldPersistRepoState =
+          !Array.isArray(normalizedRepoState.workspaces) ||
+          normalizedRepoState.activeWorkspaceId !== nextActiveWorkspaceId ||
+          didMutateActiveWorkspace
+        if (shouldPersistRepoState) {
+          void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, nextActiveWorkspaceId)).catch(() => {})
+        }
+
+        const shouldPersistAppSettings =
+          (normalizedSettings as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
+          normalizedSettings.trashEnabled !== normalizedTrashEnabled ||
+          normalizedSettings.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
+          JSON.stringify(normalizedSettings.facePluginSettings || {}) !== JSON.stringify(normalizedFacePluginSettings) ||
+          JSON.stringify(normalizedSettings.faceKindOrder || []) !== JSON.stringify(normalizedFaceKindOrder) ||
+          JSON.stringify(normalizedSettings.defaultFaceKinds || []) !== JSON.stringify(normalizedDefaultFaceKinds) ||
+          normalizedSettings.colorPresetId !== normalizedColorPresetId ||
+          JSON.stringify(normalizedSettings.pageDisplayModes || {}) !== JSON.stringify(nextPageDisplayModes)
+        if (shouldPersistAppSettings) {
+          void persistAppSettingsPatch({
             shortcutHintsEnabled: normalizedShortcutHintsEnabled,
             trashEnabled: normalizedTrashEnabled,
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
@@ -1563,7 +1589,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       setInitError(message)
       void gateway.host.toast(message)
     }
-  }, [gateway, persistMetadataPatch, applyWorkspaceSidebarState])
+  }, [gateway, persistAppSettingsPatch, persistRepoStatePatch, applyWorkspaceSidebarState])
 
   React.useEffect(() => {
     void runAppInitialization()
@@ -1588,9 +1614,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const next = enabled === true
       setTrashEnabled(next)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ trashEnabled: next }).catch(() => {})
+      void persistAppSettingsPatch({ trashEnabled: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handleTrashAutoDeleteDaysChange = React.useCallback(
@@ -1598,9 +1624,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const next = normalizeTrashAutoDeleteDays(days)
       setTrashAutoDeleteDays(next)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ trashAutoDeleteDays: next }).catch(() => {})
+      void persistAppSettingsPatch({ trashAutoDeleteDays: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   /** 面插件全局设置写回：按「类型标识 + 字段键」写入统一容器并持久化。 */
@@ -1621,9 +1647,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       facePluginSettingsRef.current = next
       setFacePluginSettings(next)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ facePluginSettings: next }).catch(() => {})
+      void persistAppSettingsPatch({ facePluginSettings: next }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handleFaceKindOrderChange = React.useCallback(
@@ -1631,9 +1657,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const normalized = normalizeFaceKindOrder(next, getFaceKindOrder())
       setFaceKindOrder(normalized)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ faceKindOrder: normalized }).catch(() => {})
+      void persistAppSettingsPatch({ faceKindOrder: normalized }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handleDefaultFaceKindsChange = React.useCallback(
@@ -1641,17 +1667,17 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const normalized = normalizeDefaultFaceKinds(next, getCreatableFaceDeclarations().map(declaration => declaration.kind))
       setDefaultFaceKinds(normalized)
       if (!metaReadyRef.current) return
-      void persistMetadataPatch({ defaultFaceKinds: normalized }).catch(() => {})
+      void persistAppSettingsPatch({ defaultFaceKinds: normalized }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistAppSettingsPatch],
   )
 
   const handleNavigateFolder = React.useCallback(
     (folderId: string) => {
       setCurrentFolderId(folderId)
-      if (metaReadyRef.current) void persistMetadataPatch({ currentFolderId: folderId }).catch(() => {})
+      if (metaReadyRef.current) void persistRepoStatePatch({ currentFolderId: folderId }).catch(() => {})
     },
-    [persistMetadataPatch],
+    [persistRepoStatePatch],
   )
 
   const handleFavoritesDocChange = React.useCallback(
@@ -1870,10 +1896,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       if (!id) return
       if (currentFolderId === id) {
         setCurrentFolderId('root')
-        if (metaReadyRef.current) void persistMetadataPatch({ currentFolderId: 'root' }).catch(() => {})
+        if (metaReadyRef.current) void persistRepoStatePatch({ currentFolderId: 'root' }).catch(() => {})
       }
     },
-    [currentFolderId, persistMetadataPatch],
+    [currentFolderId, persistRepoStatePatch],
   )
 
   const confirmDeleteNoteFromCard = React.useCallback(async () => {
@@ -2271,7 +2297,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', clearTabSwitchHold, true)
     }
-  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta, faceId?: string) => {
@@ -2462,13 +2488,13 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         setActiveNoteId('')
         if (pageRef.current === 'note-detail') navigatePage('home', { recordHistory: false })
         if (pageRef.current === 'asset-detail') navigatePage('attachments', { recordHistory: false })
-        if (metaReady) void persistMetadataPatch({ activeTabKey: '' }).catch(() => {})
+        if (metaReady) void persistRepoStatePatch({ activeTabKey: '' }).catch(() => {})
         return
       }
 
       activateExistingTabKey(nextActive, { recordHistory: false })
     },
-    [activateExistingTabKey, metaReady, navigatePage, persistMetadataPatch, updateSidebarItems],
+    [activateExistingTabKey, metaReady, navigatePage, persistRepoStatePatch, updateSidebarItems],
   )
 
   React.useEffect(() => {

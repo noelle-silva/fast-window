@@ -1,4 +1,4 @@
-import type { HyperCortexMetadataV1, HyperCortexSidebarItemV1, HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
+import type { HyperCortexRepoStateV1, HyperCortexSidebarItemV1, HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
 import { normalizeTabGroupByTabKey } from './tabGroups'
 import { deriveSidebarFields, normalizeSidebarItems } from './sidebarModel'
 
@@ -45,7 +45,7 @@ export function applyActiveWorkspacePatch(current: HyperCortexWorkspaceV1, patch
   return { ...current, ...patch, title: nextTitle, sidebarItems, openTabKeys, tabGroups, tabGroupByTabKey, activeTabKey }
 }
 
-export function buildWorkspacesMetadataSnapshot(workspaces: HyperCortexWorkspaceV1[], activeWorkspaceId: string): Partial<HyperCortexMetadataV1> {
+export function buildRepoStateSnapshot(workspaces: HyperCortexWorkspaceV1[], activeWorkspaceId: string): Partial<HyperCortexRepoStateV1> {
   const wid = String(activeWorkspaceId || '').trim()
   const activeWs = workspaces.find(w => w.id === wid) || workspaces[0]
   if (!activeWs) return { workspaces, activeWorkspaceId: wid }
