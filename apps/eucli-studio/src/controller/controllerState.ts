@@ -1,5 +1,6 @@
 import { defaultModelGroupsState } from './modelGroups'
 import { defaultModelRequestConfigState } from './modelRequestConfig'
+import { defaultToolWorkDirectoryState } from './toolWorkDirectory'
 import { emptyRoleToolPolicy } from '../domain/toolPolicy'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -21,6 +22,7 @@ export function createInitialControllerState() {
     placeholders: { loading: false, error: '', library: { placeholders: [], folders: [] } as PlaceholderLibrary, preview: { text: '', problems: [] as any[] }, problems: [] as any[], dependencyTree: { name: '' } as any },
     systemPlugins: { loading: false, error: '', items: [] as any[], selectedPluginId: '', selectedPlugin: null as any, detailLoading: false, detailError: '', saving: false, saveError: '', togglingId: '', availableInterfaces: [] as any[], installStates: {} as Record<string, any> },
     tools: { loading: false, error: '', items: [] as any[], fetchedAt: 0, detailLoading: false, detailError: '', selectedToolId: '', selectedTool: null as any, configDraft: {} as Record<string, any>, promptDescriptionDraft: '', saving: false, saveError: '', installStates: {} as Record<string, any> },
+    toolWorkDirectory: defaultToolWorkDirectoryState(),
     modelRequestConfig: defaultModelRequestConfigState(),
     chatSettings: { savingByTarget: {} as Record<string, any> },
     pendingChat: null as any,

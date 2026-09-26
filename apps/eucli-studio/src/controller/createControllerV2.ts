@@ -48,6 +48,7 @@ import { createAccessSettingsController } from './accessSettingsController'
 import { updateGroupSessionTitle, updateRoleSessionTitle } from './ebRoleSession'
 import { createEbRunEventConsumer } from './ebRunEvents'
 import { createToolCatalog } from './toolCatalog'
+import { createToolWorkDirectoryController } from './toolWorkDirectory'
 import { createInstallSourceClient } from './installSourceClient'
 import { createModelRequestConfigController } from './modelRequestConfig'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
@@ -548,6 +549,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { get: getInstallSource, set: setInstallSource } = installSourceClient
 
+  // 「AI 工具默认工作目录」：配置在业务端，是否引导过由客户端本地记忆。
+  const toolWorkDirectory = createToolWorkDirectoryController({
+    getState: () => state,
+    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    rtStorage: runtimeStorage,
+    emit,
+    showToast: api.ui?.showToast,
+  })
+  const toolWorkDirectoryActions = { ...toolWorkDirectory }
+
   const modelRequestConfigController = createModelRequestConfigController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -1038,6 +1049,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ...favoriteActions,
     ...entityActions,
     ...toolActions,
+    ...toolWorkDirectoryActions,
     ...modelActions,
     ...accessActions,
     ...libraryActions,

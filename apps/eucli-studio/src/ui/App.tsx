@@ -21,6 +21,7 @@ import { RoleDialog } from './dialogs/RoleDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
 import { WorkspaceDialog } from './dialogs/WorkspaceDialog'
 import { ConfirmDialog } from './dialogs/ConfirmDialog'
+import { ToolWorkDirectoryPromptDialog } from './dialogs/ToolWorkDirectoryPromptDialog'
 import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { FavoriteFoldersDialogs } from './dialogs/FavoriteFoldersDialogs'
@@ -615,6 +616,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       ro.disconnect()
     }
   }, [page])
+
+  // 首次引导：由客户端本地记忆决定是否弹出「工具默认工作目录」引导；
+  // 它只影响体验，工具的实际落点始终由业务端配置决定。
+  React.useEffect(() => {
+    void controller.actions.checkToolWorkDirectoryPrompt?.()
+  }, [controller])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -1248,6 +1255,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             modelGroups={(s as any).modelGroups}
             models={s.models}
             tools={(s as any).tools}
+            toolWorkDirectory={(s as any).toolWorkDirectory}
             modelRequestConfig={(s as any).modelRequestConfig}
             bootstrap={bootstrap}
             releaseView={releaseView}
@@ -1272,6 +1280,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
         <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
         <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} />
+        <ToolWorkDirectoryPromptDialog controller={controller} state={(s as any).toolWorkDirectory} />
         <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} workspaces={workspaces} />
         <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
         <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />

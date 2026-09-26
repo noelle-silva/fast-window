@@ -21,6 +21,7 @@ import { ConfigFieldsForm } from './ConfigFieldsForm'
 import { SettingsHeading, SettingsListItem, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { ToolCapabilityGrantsSection } from './ToolCapabilityGrantsSection'
 import { ToolPromptDescriptionSection } from './ToolPromptDescriptionSection'
+import { ToolWorkDirectorySection } from './ToolWorkDirectorySection'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { plainObject, stringField } from './schemaFieldValues'
 import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, type CompatibilityStatus, type EucliBoxCompatibility, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
@@ -29,6 +30,7 @@ type AiToolsSettingsPanelProps = {
   controller: any
   loading: boolean
   tools: any
+  toolWorkDirectory?: any
   releaseView: ReleaseCandidatesView | null
   onReleaseRefresh: (kind?: string) => Promise<void> | void
 }
@@ -47,13 +49,14 @@ type ToolSummary = {
 }
 
 export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
-  const { controller, loading, tools, releaseView, onReleaseRefresh } = props
+  const { controller, loading, tools, toolWorkDirectory, releaseView, onReleaseRefresh } = props
   const [filter, setFilter] = React.useState('')
   const [storeOpen, setStoreOpen] = React.useState(false)
 
   React.useEffect(() => {
     controller.actions.refreshTools?.(false)
     controller.actions.syncToolInstallStates?.()
+    controller.actions.refreshToolWorkDirectory?.()
   }, [controller])
 
   // 安装任务终态时静默对齐商店清单；监听器仅在面板打开期间注册。
@@ -117,6 +120,8 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
         </Stack>
 
         <ToolBusyPromptDialog controller={controller} tools={tools} />
+
+        <ToolWorkDirectorySection controller={controller} state={toolWorkDirectory} />
 
         {tools?.error ? (
           <Typography variant="body2" color="error">

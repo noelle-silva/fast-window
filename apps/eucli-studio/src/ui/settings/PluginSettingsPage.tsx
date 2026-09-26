@@ -34,6 +34,7 @@ export function PluginSettingsPage(props: {
   modelGroups: any
   models: any
   tools: any
+  toolWorkDirectory?: any
   modelRequestConfig: any
   bootstrap?: StudioBootstrap
   releaseView: ReleaseCandidatesView | null
@@ -51,7 +52,7 @@ export function PluginSettingsPage(props: {
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
@@ -127,7 +128,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'tools') {
-    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} toolWorkDirectory={toolWorkDirectory} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
   }
 
   if (tab === 'hookPrompts') {
