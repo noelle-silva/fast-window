@@ -5,6 +5,8 @@ package html
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"fast-window-hypercortex-backend/faceplugin"
@@ -92,6 +94,74 @@ func normalizeSettings(value map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// NormalizeLegacyDisplayMode 归一化旧版全局字段（htmlFaceDisplayMode）的显示方式：
+// 合法枚举保留，非法值回落到声明默认（值域从设置声明派生，避免双事实源）。
+func NormalizeLegacyDisplayMode(value any) string {
+	field, ok := settingFieldByKey("displayMode")
+	if !ok {
+		return ""
+	}
+	mode := strings.TrimSpace(asString(value))
+	for _, option := range field.Options {
+		if option.Value == mode {
+			return mode
+		}
+	}
+	fallback, _ := field.Default.(string)
+	return fallback
+}
+
+// NormalizeLegacyFixedScale 归一化旧版全局字段（htmlFaceFixedScaleDefault）的缩放比例：
+// 数值或数字字符串解析后收敛到声明范围，无效值回落到声明默认。
+func NormalizeLegacyFixedScale(value any) float64 {
+	field, ok := settingFieldByKey("fixedScale")
+	if !ok {
+		return 0
+	}
+	fallback, _ := field.Default.(float64)
+	n, valid := legacyNumber(value)
+	if !valid || math.IsNaN(n) || math.IsInf(n, 0) {
+		return fallback
+	}
+	if n < field.Min {
+		return field.Min
+	}
+	if n > field.Max {
+		return field.Max
+	}
+	return n
+}
+
+// settingFieldByKey 按键取设置声明字段。
+func settingFieldByKey(key string) (faceplugin.SettingField, bool) {
+	for _, field := range settingsDeclaration() {
+		if field.Key == key {
+			return field, true
+		}
+	}
+	return faceplugin.SettingField{}, false
+}
+
+// legacyNumber 解析旧字段里的数值：接受数值与数字字符串，其余视为无效。
+func legacyNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func asFloat(value any) float64 {

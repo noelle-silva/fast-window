@@ -68,8 +68,8 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 6 {
-		t.Fatalf("applied count = %d, want 6", len(ledger.Applied))
+	if len(ledger.Applied) != 7 {
+		t.Fatalf("applied count = %d, want 7", len(ledger.Applied))
 	}
 	if ledger.Applied[0].ID != stateLibraryLayoutMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[0].ID, stateLibraryLayoutMigration)
@@ -89,6 +89,9 @@ func TestRunDataMigrationsMovesLegacyLayoutAndWritesLedger(t *testing.T) {
 	if ledger.Applied[5].ID != noteFaceTimestampsMigration {
 		t.Fatalf("migration id = %q, want %q", ledger.Applied[5].ID, noteFaceTimestampsMigration)
 	}
+	if ledger.Applied[6].ID != htmlFaceLegacySettingsMigration {
+		t.Fatalf("migration id = %q, want %q", ledger.Applied[6].ID, htmlFaceLegacySettingsMigration)
+	}
 }
 
 func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
@@ -105,8 +108,8 @@ func TestRunDataMigrationsIsIdempotentAfterLedgerExists(t *testing.T) {
 	if ledger.DataVersion != currentDataVersion {
 		t.Fatalf("dataVersion = %d, want %d", ledger.DataVersion, currentDataVersion)
 	}
-	if len(ledger.Applied) != 6 {
-		t.Fatalf("applied count = %d, want 6", len(ledger.Applied))
+	if len(ledger.Applied) != 7 {
+		t.Fatalf("applied count = %d, want 7", len(ledger.Applied))
 	}
 }
 
@@ -345,6 +348,138 @@ func readManifestJSON(t *testing.T, path string) map[string]any {
 		t.Fatalf("read manifest failed: %v", err)
 	}
 	return out
+}
+
+func readMetadataJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := readJSONFile(path, &out); err != nil {
+		t.Fatalf("read metadata failed: %v", err)
+	}
+	return out
+}
+
+func TestMigrateHTMLFaceLegacySettingsMergesIntoContainer(t *testing.T) {
+	svc := newTestService(t)
+	if err := os.MkdirAll(svc.stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(svc.stateDir, metadataFile)
+	mustWriteFile(t, path, `{"version":1,"htmlFaceDisplayMode":"natural","htmlFaceFixedScaleDefault":"1.25"}`)
+
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	meta := readMetadataJSON(t, path)
+	container := meta["facePluginSettings"].(map[string]any)
+	html := container["html"].(map[string]any)
+	if html["displayMode"] != "natural" {
+		t.Fatalf("displayMode = %v, want natural", html["displayMode"])
+	}
+	if html["fixedScale"] != 1.25 {
+		t.Fatalf("fixedScale = %v, want 1.25", html["fixedScale"])
+	}
+	// 旧字段保持只读保留，保证版本回退时设置不丢。
+	if meta["htmlFaceDisplayMode"] != "natural" || meta["htmlFaceFixedScaleDefault"] != "1.25" {
+		t.Fatalf("legacy fields must be preserved: %+v", meta)
+	}
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("second migration failed: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("idempotent merge failed:\nbefore: %s\nafter: %s", before, after)
+	}
+}
+
+func TestMigrateHTMLFaceLegacySettingsKeepsContainerPrecedence(t *testing.T) {
+	svc := newTestService(t)
+	if err := os.MkdirAll(svc.stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(svc.stateDir, metadataFile)
+	// 容器已有显示方式：优先保留容器值；旧缩放超出范围：收敛到边界。
+	mustWriteFile(t, path, `{
+  "version": 1,
+  "htmlFaceDisplayMode": "fit-window",
+  "htmlFaceFixedScaleDefault": 9,
+  "facePluginSettings": {"html": {"displayMode": "fixed-fit"}}
+}`)
+
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	meta := readMetadataJSON(t, path)
+	html := meta["facePluginSettings"].(map[string]any)["html"].(map[string]any)
+	if html["displayMode"] != "fixed-fit" {
+		t.Fatalf("displayMode = %v, want container value fixed-fit", html["displayMode"])
+	}
+	if html["fixedScale"] != 2.0 {
+		t.Fatalf("fixedScale = %v, want clamped 2", html["fixedScale"])
+	}
+}
+
+func TestMigrateHTMLFaceLegacySettingsFallsBackForInvalidValues(t *testing.T) {
+	svc := newTestService(t)
+	if err := os.MkdirAll(svc.stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(svc.stateDir, metadataFile)
+	mustWriteFile(t, path, `{"version":1,"htmlFaceDisplayMode":"bogus","htmlFaceFixedScaleDefault":"NaN"}`)
+
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	meta := readMetadataJSON(t, path)
+	html := meta["facePluginSettings"].(map[string]any)["html"].(map[string]any)
+	if html["displayMode"] != "fixed-fit" {
+		t.Fatalf("displayMode = %v, want fallback fixed-fit", html["displayMode"])
+	}
+	if html["fixedScale"] != 0.95 {
+		t.Fatalf("fixedScale = %v, want fallback 0.95", html["fixedScale"])
+	}
+}
+
+func TestMigrateHTMLFaceLegacySettingsNoopCases(t *testing.T) {
+	svc := newTestService(t)
+	if err := os.MkdirAll(svc.stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(svc.stateDir, metadataFile)
+
+	// 元数据不存在：无操作且不报错（新用户首次运行在前端创建元数据）。
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("missing metadata should be a no-op: %v", err)
+	}
+	mustNotExist(t, path)
+
+	// 无旧字段：不物化容器，文件内容不变。
+	mustWriteFile(t, path, `{"version":1}`)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.migrateHTMLFaceLegacySettings(); err != nil {
+		t.Fatalf("no legacy fields should be a no-op: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("metadata rewritten without legacy fields:\nbefore: %s\nafter: %s", before, after)
+	}
 }
 
 func TestMigrateNotePackageDirsToIDsRenamesPackagesAndReferences(t *testing.T) {

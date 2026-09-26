@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	htmlplugin "fast-window-hypercortex-backend/faceplugins/html"
 )
 
 const (
-	currentDataVersion                 = 6
+	currentDataVersion                 = 7
 	migrationsLedgerFile               = "_migrations.json"
 	migrationRecoveryDir               = "_migration-recovery"
 	migrationRecoveryFile              = "recovery.json"
@@ -20,6 +22,7 @@ const (
 	noteFaceRefsV2Migration            = "2026-09-01-note-face-refs-v2"
 	noteFaceSearchIndexMigration       = "2026-09-09-note-face-search-index-v1"
 	noteFaceTimestampsMigration        = "2026-09-14-note-face-timestamps"
+	htmlFaceLegacySettingsMigration    = "2026-09-26-html-face-legacy-global-settings"
 )
 
 type dataMigration struct {
@@ -145,6 +148,68 @@ func (svc *service) migrateNoteFaceTimestamps() error {
 	return nil
 }
 
+// migrateHTMLFaceLegacySettings 把旧版 HTML 面全局字段（htmlFaceDisplayMode / htmlFaceFixedScaleDefault）
+// 搬入面插件设置统一容器（facePluginSettings.html），版本 6 → 7 的一次性数据升级。
+// 规则与早期前端临时迁移一致：容器已有值优先；旧字段原样保留（版本回退时设置不丢失）。
+func (svc *service) migrateHTMLFaceLegacySettings() error {
+	path := filepath.Join(svc.stateDir, metadataFile)
+	var meta map[string]any
+	if err := readJSONFile(path, &meta); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("读取元数据失败：%w", err)
+	}
+	next, changed := mergeHTMLFaceLegacySettings(meta)
+	if !changed {
+		return nil
+	}
+	return writeJSONFile(path, next)
+}
+
+// mergeHTMLFaceLegacySettings 执行旧字段到设置容器的合并（纯函数）：返回合并结果与是否发生变化。
+func mergeHTMLFaceLegacySettings(meta map[string]any) (map[string]any, bool) {
+	if meta == nil {
+		return meta, false
+	}
+	legacyMode, hasMode := meta["htmlFaceDisplayMode"]
+	legacyScale, hasScale := meta["htmlFaceFixedScaleDefault"]
+	if !hasMode && !hasScale {
+		return meta, false
+	}
+
+	container, _ := meta["facePluginSettings"].(map[string]any)
+	htmlRaw, _ := container["html"].(map[string]any)
+	html := map[string]any{}
+	for key, value := range htmlRaw {
+		html[key] = value
+	}
+
+	changed := false
+	if hasMode {
+		if _, exists := html["displayMode"]; !exists {
+			html["displayMode"] = htmlplugin.NormalizeLegacyDisplayMode(legacyMode)
+			changed = true
+		}
+	}
+	if hasScale {
+		if _, exists := html["fixedScale"]; !exists {
+			html["fixedScale"] = htmlplugin.NormalizeLegacyFixedScale(legacyScale)
+			changed = true
+		}
+	}
+	if !changed {
+		return meta, false
+	}
+	if container == nil {
+		container = map[string]any{}
+	}
+	container["html"] = html
+	meta["facePluginSettings"] = container
+	return meta, true
+}
+
+// migrateNoteManifestsToUnifiedFaceProtocol 把旧清单收敛为统一面协议形态（去掉角色字段并补齐能力快照）。
 func (svc *service) migrateNoteManifestsToUnifiedFaceProtocol() error {
 	root, err := svc.resolvePath("library", notesDir)
 	if err != nil {
@@ -223,6 +288,12 @@ func (svc *service) runDataMigrations() error {
 			FromVersion: 5,
 			ToVersion:   6,
 			Run:         (*service).migrateNoteFaceTimestamps,
+		},
+		{
+			ID:          htmlFaceLegacySettingsMigration,
+			FromVersion: 6,
+			ToVersion:   7,
+			Run:         (*service).migrateHTMLFaceLegacySettings,
 		},
 	}
 	return svc.runMigrations(migrations)
