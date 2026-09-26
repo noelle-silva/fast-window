@@ -1,5 +1,6 @@
 import { defaultModelGroupsState } from './modelGroups'
 import { defaultModelRequestConfigState } from './modelRequestConfig'
+import { defaultRequestRecordsState } from './requestRecords'
 import { defaultToolWorkDirectoryState } from './toolWorkDirectory'
 import { emptyRoleToolPolicy } from '../domain/toolPolicy'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
@@ -24,6 +25,7 @@ export function createInitialControllerState() {
     tools: { loading: false, error: '', items: [] as any[], fetchedAt: 0, detailLoading: false, detailError: '', selectedToolId: '', selectedTool: null as any, configDraft: {} as Record<string, any>, promptDescriptionDraft: '', saving: false, saveError: '', installStates: {} as Record<string, any> },
     toolWorkDirectory: defaultToolWorkDirectoryState(),
     modelRequestConfig: defaultModelRequestConfigState(),
+    requestRecords: defaultRequestRecordsState(),
     chatSettings: { savingByTarget: {} as Record<string, any> },
     pendingChat: null as any,
     pendingGroupChat: null as any,

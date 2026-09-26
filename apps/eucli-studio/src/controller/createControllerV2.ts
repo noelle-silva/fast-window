@@ -51,6 +51,7 @@ import { createToolCatalog } from './toolCatalog'
 import { createToolWorkDirectoryController } from './toolWorkDirectory'
 import { createInstallSourceClient } from './installSourceClient'
 import { createModelRequestConfigController } from './modelRequestConfig'
+import { createRequestRecordsController } from './requestRecords'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { readActiveEbRunCardsForTarget } from '../domain/activeRunCards'
 import { loadWorkspaceSession } from './workspaceBridge'
@@ -567,6 +568,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig } = modelRequestConfigController
 
+  const requestRecordsController = createRequestRecordsController({
+    getState: () => state,
+    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    emit,
+    showToast: api.ui?.showToast,
+  })
+  const requestRecordActions = { ...requestRecordsController }
+
   const accessSettingsController = createAccessSettingsController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -1051,6 +1060,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ...entityActions,
     ...toolActions,
     ...toolWorkDirectoryActions,
+    ...requestRecordActions,
     ...modelActions,
     ...accessActions,
     ...libraryActions,

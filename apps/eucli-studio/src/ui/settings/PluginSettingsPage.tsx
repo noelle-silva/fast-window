@@ -19,6 +19,7 @@ import { SystemPluginSettingsPanel } from './SystemPluginSettingsPanel'
 import { EbSettingsPanel, type AiChatEucliBoxConnection } from './EbSettingsPanel'
 import { AccessSettingsPanel } from './AccessSettingsPanel'
 import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
+import { RequestRecordsSettingsPanel } from './RequestRecordsSettingsPanel'
 import type { ReleaseCandidatesView, StudioBootstrap } from '../../domain/release'
 
 type SettingsTab = SettingsTabValue
@@ -36,6 +37,7 @@ export function PluginSettingsPage(props: {
   tools: any
   toolWorkDirectory?: any
   modelRequestConfig: any
+  requestRecords?: any
   bootstrap?: StudioBootstrap
   releaseView: ReleaseCandidatesView | null
   onReleaseRefresh: (kind?: string) => Promise<void> | void
@@ -52,7 +54,7 @@ export function PluginSettingsPage(props: {
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, requestRecords, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
@@ -158,6 +160,10 @@ export function PluginSettingsPage(props: {
         section={accessSettings}
       />,
     )
+  }
+
+  if (tab === 'requestRecords') {
+    return wrapSettingsPanel(<RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} />)
   }
 
   if (tab === 'stickers') {

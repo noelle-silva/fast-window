@@ -1,4 +1,4 @@
-export type SettingsTabValue = 'appearance' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access'
+export type SettingsTabValue = 'appearance' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access' | 'requestRecords'
 
 export type SettingsNavigationItem = {
   value: SettingsTabValue
@@ -22,6 +22,7 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'stickers', label: '表情包' },
   { value: 'commandSystem', label: '命令系统管理' },
   { value: 'access', label: '端口开放设置' },
+  { value: 'requestRecords', label: '请求记录' },
   { value: 'data', label: '客户端数据' },
 ]
 
