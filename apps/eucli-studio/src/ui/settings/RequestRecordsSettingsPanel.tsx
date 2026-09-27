@@ -4,7 +4,11 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { formatJsonText } from './requestRecordFormat'
+import { KeyValueView, RecordTextView, RequestPayloadView, ResponseStreamView } from './RequestRecordViews'
+import { parseRequestPayloadText, parseResponseStreamText, type RequestPayloadView as RequestPayloadViewModel, type ResponseStreamView as ResponseStreamViewModel } from './requestRecordParse'
 import { REQUEST_RECORD_LIMIT_MAX, REQUEST_RECORD_LIMIT_MIN } from '../../controller/requestRecords'
+
+type HeaderEntry = { key: string; value: string }
 
 type RequestRecordsSettingsPanelProps = {
   controller: any
@@ -101,7 +105,7 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
                 <RequestRecordDetail record={detail} />
               ) : (
                 <SettingsSection sx={{ p: 2 }}>
-                  <Typography variant="body2" color="text.secondary">选择一条记录查看请求与响应原文。</Typography>
+                  <Typography variant="body2" color="text.secondary">选择一条记录查看请求与响应。</Typography>
                 </SettingsSection>
               )}
             </CustomScrollArea>
@@ -113,6 +117,13 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
 }
 
 function RequestRecordDetail({ record }: { record: any }) {
+  const requestHeaders = headerEntries(record?.headers)
+  const responseHeaders = responseHeaderEntries(record?.responseHeaders)
+  const bodyText = String(record?.body || '')
+  const responseText = String(record?.responseBody || '')
+  const payload = React.useMemo(() => parseRequestPayloadText(bodyText), [bodyText])
+  const stream = React.useMemo(() => parseResponseStreamText(responseText), [responseText])
+  const bodyFormatted = React.useMemo(() => formatJsonText(bodyText), [bodyText])
   const error = String(record?.error || '')
   return (
     <SettingsSection>
@@ -120,17 +131,88 @@ function RequestRecordDetail({ record }: { record: any }) {
         <Typography variant="body2" sx={{ fontWeight: 900 }}>请求</Typography>
         <RecordField label="时间" text={formatRecordTime(record?.createdAt)} />
         <RecordField label="方法 / 地址" text={`${String(record?.method || '')} ${String(record?.url || '')}`} />
-        <RecordTextBlock label="请求头" text={formatHeaders(record?.headers)} />
-        <RecordTextBlock label="请求体" text={String(record?.body || '')} />
+        <HeaderDetailBlock label="请求头" entries={requestHeaders} />
+        <PayloadDetailBlock label="请求体" payload={payload} bodyText={bodyText} formattedText={bodyFormatted} />
 
         <Typography variant="body2" sx={{ fontWeight: 900 }}>响应</Typography>
         <RecordField label="状态" text={formatRecordStatus({ status: record?.responseStatus })} />
         {typeof record?.durationMs === 'number' ? <RecordField label="耗时" text={`${record.durationMs} ms`} /> : null}
-        {error ? <RecordTextBlock label="错误" text={error} /> : null}
-        <RecordTextBlock label="响应头" text={formatHeaders(record?.responseHeaders)} />
-        <RecordTextBlock label="响应体" text={String(record?.responseBody || '')} />
+        {error ? <RecordField label="错误" text={error} /> : null}
+        <HeaderDetailBlock label="响应头" entries={responseHeaders} />
+        <StreamDetailBlock label="响应体" stream={stream} responseText={responseText} />
       </Stack>
     </SettingsSection>
+  )
+}
+
+function DetailBlock({ label, toggle, children }: { label: string; toggle?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Typography variant="body2" sx={{ fontWeight: 800 }}>{label}</Typography>
+        {toggle}
+      </Box>
+      {children}
+    </Box>
+  )
+}
+
+function DetailToggle({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button
+      size="small"
+      variant="text"
+      onClick={onClick}
+      sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12, textTransform: 'none' }}
+    >
+      {label}
+    </Button>
+  )
+}
+
+function HeaderDetailBlock({ label, entries }: { label: string; entries: HeaderEntry[] }) {
+  const [showRaw, setShowRaw] = React.useState(false)
+  const rawText = entries.map((entry) => `${entry.key}: ${entry.value}`).join('\n')
+  React.useEffect(() => {
+    setShowRaw(false)
+  }, [rawText])
+  if (!entries.length) {
+    return <DetailBlock label={label}><RecordTextView text="" /></DetailBlock>
+  }
+  return (
+    <DetailBlock label={label} toggle={<DetailToggle label={showRaw ? '界面渲染' : '查看原文'} onClick={() => setShowRaw((current) => !current)} />}>
+      {showRaw ? <RecordTextView text={rawText} /> : <KeyValueView entries={entries} />}
+    </DetailBlock>
+  )
+}
+
+function PayloadDetailBlock({ label, payload, bodyText, formattedText }: { label: string; payload: RequestPayloadViewModel | null; bodyText: string; formattedText: string | null }) {
+  const [showFormatted, setShowFormatted] = React.useState(false)
+  React.useEffect(() => {
+    setShowFormatted(false)
+  }, [bodyText])
+  if (!payload) {
+    return <DetailBlock label={label}><RecordTextView text={formattedText ?? bodyText} /></DetailBlock>
+  }
+  return (
+    <DetailBlock label={label} toggle={<DetailToggle label={showFormatted ? '界面渲染' : '查看格式化'} onClick={() => setShowFormatted((current) => !current)} />}>
+      {showFormatted ? <RecordTextView text={formattedText ?? bodyText} /> : <RequestPayloadView view={payload} />}
+    </DetailBlock>
+  )
+}
+
+function StreamDetailBlock({ label, stream, responseText }: { label: string; stream: ResponseStreamViewModel | null; responseText: string }) {
+  const [showRaw, setShowRaw] = React.useState(false)
+  React.useEffect(() => {
+    setShowRaw(false)
+  }, [responseText])
+  if (!stream) {
+    return <DetailBlock label={label}><RecordTextView text={responseText} /></DetailBlock>
+  }
+  return (
+    <DetailBlock label={label} toggle={<DetailToggle label={showRaw ? '界面渲染' : '查看原文'} onClick={() => setShowRaw((current) => !current)} />}>
+      {showRaw ? <RecordTextView text={responseText} /> : <ResponseStreamView view={stream} />}
+    </DetailBlock>
   )
 }
 
@@ -143,65 +225,17 @@ function RecordField({ label, text }: { label: string; text: string }) {
   )
 }
 
-const RECORD_TEXT_CHUNK = 200_000
+function headerEntries(headers: any): HeaderEntry[] {
+  if (!headers || typeof headers !== 'object') return []
+  return Object.entries(headers).map(([key, value]) => ({ key, value: String(value ?? '') }))
+}
 
-function RecordTextBlock({ label, text }: { label: string; text: string }) {
-  const full = String(text || '')
-  const formatted = React.useMemo(() => formatJsonText(full), [full])
-  const [showRaw, setShowRaw] = React.useState(false)
-  const display = formatted && !showRaw ? formatted : full
-  const [visibleLength, setVisibleLength] = React.useState(RECORD_TEXT_CHUNK)
-  React.useEffect(() => {
-    setShowRaw(false)
-  }, [full])
-  React.useEffect(() => {
-    setVisibleLength(RECORD_TEXT_CHUNK)
-  }, [display])
-  const visible = visibleLength < display.length ? display.slice(0, visibleLength) : display
-  const hasMore = visible.length < display.length
-  const handleScroll = (event: React.UIEvent<HTMLElement>) => {
-    if (!hasMore) return
-    const element = event.currentTarget
-    if (element.scrollHeight - element.scrollTop - element.clientHeight < 120) {
-      setVisibleLength((current) => current + RECORD_TEXT_CHUNK)
-    }
-  }
-  return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-        <Typography variant="body2" sx={{ fontWeight: 800 }}>{label}</Typography>
-        {formatted ? (
-          <Button
-            size="small"
-            variant="text"
-            onClick={() => setShowRaw((current) => !current)}
-            sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12, textTransform: 'none' }}
-          >
-            {showRaw ? '格式化显示' : '查看原文'}
-          </Button>
-        ) : null}
-      </Box>
-      <Box
-        component="pre"
-        onScroll={handleScroll}
-        sx={{
-          m: 0,
-          p: 1.5,
-          borderRadius: 1,
-          bgcolor: 'action.hover',
-          fontSize: 12,
-          fontFamily: 'monospace',
-          whiteSpace: 'pre-wrap',
-          overflowWrap: 'break-word',
-          maxHeight: 320,
-          overflow: 'auto',
-        }}
-      >
-        {display ? visible : '（空）'}
-        {hasMore ? '\n\n…（滚动到底部继续加载）' : ''}
-      </Box>
-    </Box>
-  )
+function responseHeaderEntries(headers: any): HeaderEntry[] {
+  if (!headers || typeof headers !== 'object') return []
+  return Object.entries(headers).map(([key, value]) => ({
+    key,
+    value: Array.isArray(value) ? value.map((item) => String(item)).join('\n') : String(value ?? ''),
+  }))
 }
 
 function formatRecordTime(value: any) {
@@ -214,17 +248,4 @@ function formatRecordStatus(item: any) {
   const status = Number(item?.status ?? item?.responseStatus ?? 0)
   if (status > 0) return String(status)
   return item?.error ? '失败' : '—'
-}
-
-function formatHeaders(headers: any) {
-  if (!headers || typeof headers !== 'object') return ''
-  const lines: string[] = []
-  for (const [name, value] of Object.entries(headers)) {
-    if (Array.isArray(value)) {
-      for (const item of value) lines.push(`${name}: ${String(item)}`)
-    } else {
-      lines.push(`${name}: ${String(value)}`)
-    }
-  }
-  return lines.join('\n')
 }
