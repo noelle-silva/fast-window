@@ -33,9 +33,19 @@ function createRuntimeBridge(getRuntime: () => AiChatAppRuntime | null): () => R
     const runtime = getRuntime()
     if (!runtime) return null
     return {
-      resolveSource: async () => {
-        const resolved = await runtime.controller?.actions?.getInstallSource?.()
-        return resolved === 'official' || resolved === 'local' ? resolved : null
+      resolveSources: async () => {
+        const status = await runtime.controller?.actions?.getInstallSource?.()
+        const source = typeof status?.source === 'string' ? status.source.trim() : ''
+        // 来源配置不可用时不解析来源：商店读取会从业务端拿到失败事实。
+        if (!source) return null
+        const shelfView = await Promise.resolve()
+          .then(() => runtime.controller?.actions?.getShelves?.())
+          .catch(() => null)
+        const shelfList = shelfView && Array.isArray(shelfView.shelves) ? shelfView.shelves : null
+        return {
+          source,
+          shelves: shelfList ? shelfList.map((item: any) => String(item?.name || '')).filter(Boolean) : null,
+        }
       },
       listInstallations: async () => (await runtime.listArtifactInstallations()).artifacts,
       listCandidates: (kind) => runtime.listReleaseCandidates(kind),

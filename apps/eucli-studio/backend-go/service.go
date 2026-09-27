@@ -203,9 +203,6 @@ func decodeArtifactCandidateList(raw any) (ebcontract.ArtifactCandidateList, err
 	if err := json.Unmarshal(payload, &list); err != nil {
 		return ebcontract.ArtifactCandidateList{}, fmt.Errorf("读取发行候选失败：%w", err)
 	}
-	if list.SourceKind != string(ebcontract.KindOfficial) && list.SourceKind != string(ebcontract.KindLocal) {
-		return ebcontract.ArtifactCandidateList{}, fmt.Errorf("发行候选返回了无效来源")
-	}
 	if list.Candidates == nil {
 		list.Candidates = []ebcontract.ArtifactReleaseCandidate{}
 	}

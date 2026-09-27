@@ -53,17 +53,35 @@ export type ArtifactReleaseCandidate = {
 }
 
 export type ArtifactCandidateList = {
-  source: 'official' | 'local' | string
+  source: string
   candidates: ArtifactReleaseCandidate[]
 }
 
-export type ReleaseSourceKind = 'official' | 'local'
+// ReleaseSourceKind 是来源键：官方保留字 official 或货架名字。
+export type ReleaseSourceKind = string
 
 export type ReleaseArtifactKind = 'tool' | 'plugin'
 
-export const RELEASE_SOURCE_KINDS: ReleaseSourceKind[] = ['official', 'local']
-
 export const RELEASE_ARTIFACT_KINDS: ReleaseArtifactKind[] = ['tool', 'plugin']
+
+// Shelf 是用户注册的一条货架记录：名字是对外身份，路径是货架落点。
+export type Shelf = {
+  name: string
+  path: string
+}
+
+// ShelfOutcome 是一次货架管理操作的结果：成功后带回最新注册表。
+export type ShelfOutcome = {
+  ok: boolean
+  shelves: Shelf[]
+  error?: string
+}
+
+// InstallSourceStatus 是当前安装来源状态；problem 非空表示来源配置不可用，可按提示重建。
+export type InstallSourceStatus = {
+  source: string
+  problem: string
+}
 
 export type ReleaseOperationProgress = {
   receivedBytes: number
@@ -251,7 +269,7 @@ export function normalizeArtifactInstallationList(value: unknown): ArtifactInsta
 }
 
 // ---------------------------------------------------------------------------
-// 客户端发行缓存：按「来源 × 分类」各自成格；本地与官方互不覆盖。
+// 客户端发行缓存：按「来源键 × 分类」各自成格；来源键是官方保留字或货架名字。
 // ---------------------------------------------------------------------------
 
 // RELEASE_CACHE_FRESHNESS_MS 是客户端复用已有缓存的有效期；期内不重新读取。
@@ -263,21 +281,18 @@ export type ReleaseCacheCell = {
   failure: string
 }
 
-export type ReleaseCache = Record<ReleaseSourceKind, Record<ReleaseArtifactKind, ReleaseCacheCell>>
+export type ReleaseCache = Record<string, Partial<Record<ReleaseArtifactKind, ReleaseCacheCell>>>
 
 export function emptyReleaseCacheCell(): ReleaseCacheCell {
   return { checkedAt: '', candidates: [], failure: '' }
 }
 
 export function emptyReleaseCache(): ReleaseCache {
-  return {
-    official: { tool: emptyReleaseCacheCell(), plugin: emptyReleaseCacheCell() },
-    local: { tool: emptyReleaseCacheCell(), plugin: emptyReleaseCacheCell() },
-  }
+  return {}
 }
 
 export function releaseCacheCell(cache: ReleaseCache, sourceKind: ReleaseSourceKind, artifactKind: ReleaseArtifactKind): ReleaseCacheCell {
-  return cache[sourceKind][artifactKind]
+  return cache[sourceKind]?.[artifactKind] || emptyReleaseCacheCell()
 }
 
 export function isReleaseCacheFresh(cache: ReleaseCache, sourceKind: ReleaseSourceKind, artifactKind: ReleaseArtifactKind): boolean {
@@ -308,7 +323,20 @@ export function writeReleaseCache(
     candidates: result.candidates.filter((item) => String(item.artifact?.kind || '') === artifactKind),
     failure: result.failure,
   }
-  return { ...cache, [sourceKind]: { ...cache[sourceKind], [artifactKind]: cell } }
+  return { ...cache, [sourceKind]: { ...(cache[sourceKind] || {}), [artifactKind]: cell } }
+}
+
+// pruneReleaseCache 清掉不在「官方 + 现存货架名字」内的来源键缓存；
+// 改名 / 删除货架后旧来源键的缓存就此淘汰。
+export function pruneReleaseCache(cache: ReleaseCache, shelfNames: string[]): ReleaseCache {
+  const valid = new Set<string>(['official', ...shelfNames])
+  const keys = Object.keys(cache)
+  if (keys.every((key) => valid.has(key))) return cache
+  const next: ReleaseCache = {}
+  for (const key of keys) {
+    if (valid.has(key)) next[key] = cache[key]
+  }
+  return next
 }
 
 export type ReleaseCandidatesView = {
@@ -320,8 +348,8 @@ export type ReleaseCandidatesView = {
   failing: string[]
   candidates: ArtifactReleaseCandidate[]
   installations: ArtifactInstallation[]
-  sourceCandidates: Record<ReleaseSourceKind, ArtifactReleaseCandidate[]>
-  sourceCheckedAts: Record<ReleaseSourceKind, Record<ReleaseArtifactKind, string>>
+  sourceCandidates: Record<string, ArtifactReleaseCandidate[]>
+  sourceCheckedAts: Record<string, Record<ReleaseArtifactKind, string>>
 }
 
 export function composeReleaseCandidatesView(
@@ -334,7 +362,7 @@ export function composeReleaseCandidatesView(
   const failing: string[] = []
   const candidates: ArtifactReleaseCandidate[] = []
   for (const kind of options.kinds) {
-    const cell = cache[sourceKind][kind]
+    const cell = releaseCacheCell(cache, sourceKind, kind)
     checkedAts[kind] = cell.candidates.length ? cell.checkedAt : ''
     if (options.checking) {
       statuses[kind] = 'checking'
@@ -352,12 +380,22 @@ export function composeReleaseCandidatesView(
     return leftKey.localeCompare(rightKey)
   })
   const hasCandidates = candidates.length > 0
-  const hasFailure = options.kinds.some((kind) => cache[sourceKind][kind].failure !== '')
+  const hasFailure = options.kinds.some((kind) => releaseCacheCell(cache, sourceKind, kind).failure !== '')
   const status = options.checking
     ? 'checking'
     : hasCandidates
       ? (hasFailure ? 'failed' : 'completed')
       : 'not_checked'
+  const sourceKeys = Array.from(new Set([...Object.keys(cache), sourceKind]))
+  const sourceCandidates: Record<string, ArtifactReleaseCandidate[]> = {}
+  const sourceCheckedAts: Record<string, Record<ReleaseArtifactKind, string>> = {}
+  for (const key of sourceKeys) {
+    sourceCandidates[key] = collectSourceCandidates(cache, key)
+    sourceCheckedAts[key] = {
+      tool: releaseCacheCell(cache, key, 'tool').checkedAt,
+      plugin: releaseCacheCell(cache, key, 'plugin').checkedAt,
+    }
+  }
   return {
     status,
     statuses,
@@ -367,21 +405,15 @@ export function composeReleaseCandidatesView(
     failing,
     candidates,
     installations: options.installations ? [...options.installations] : [],
-    sourceCandidates: {
-      official: collectSourceCandidates(cache, 'official'),
-      local: collectSourceCandidates(cache, 'local'),
-    },
-    sourceCheckedAts: {
-      official: { tool: cache.official.tool.checkedAt, plugin: cache.official.plugin.checkedAt },
-      local: { tool: cache.local.tool.checkedAt, plugin: cache.local.plugin.checkedAt },
-    },
+    sourceCandidates,
+    sourceCheckedAts,
   }
 }
 
 function collectSourceCandidates(cache: ReleaseCache, sourceKind: ReleaseSourceKind): ArtifactReleaseCandidate[] {
   return [
-    ...cache[sourceKind].tool.candidates,
-    ...cache[sourceKind].plugin.candidates,
+    ...releaseCacheCell(cache, sourceKind, 'tool').candidates,
+    ...releaseCacheCell(cache, sourceKind, 'plugin').candidates,
   ]
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createReleaseStore, type ReleaseStoreRuntime } from './releaseStore'
-import type { ArtifactCandidateList, ArtifactReleaseCandidate, ReleaseArtifactKind, ReleaseSourceKind } from '../domain/release'
+import { releaseCacheCell, type ArtifactCandidateList, type ArtifactReleaseCandidate, type ReleaseArtifactKind } from '../domain/release'
 
 function candidate(kind: string, id: string, version: string): ArtifactReleaseCandidate {
   return {
@@ -22,11 +22,11 @@ function candidate(kind: string, id: string, version: string): ArtifactReleaseCa
 }
 
 function createFakeRuntime(overrides: Partial<ReleaseStoreRuntime> = {}) {
-  const calls = { resolveSource: 0, listInstallations: 0, listCandidates: [] as string[] }
+  const calls = { resolveSources: 0, listInstallations: 0, listCandidates: [] as string[] }
   const runtime: ReleaseStoreRuntime = {
-    resolveSource: async () => {
-      calls.resolveSource += 1
-      return 'official'
+    resolveSources: async () => {
+      calls.resolveSources += 1
+      return { source: 'official', shelves: [] as string[] }
     },
     listInstallations: async () => {
       calls.listInstallations += 1
@@ -61,8 +61,8 @@ describe('release store core', () => {
     const snapshot = store.getSnapshot()
     expect(snapshot.source).toBe('official')
     expect(snapshot.busy).toBe(false)
-    expect(snapshot.cache.official.tool.candidates.map((item) => item.artifact.id)).toEqual(['tool-demo'])
-    expect(snapshot.cache.local.tool.candidates).toHaveLength(0)
+    expect(releaseCacheCell(snapshot.cache, 'official', 'tool').candidates.map((item) => item.artifact.id)).toEqual(['tool-demo'])
+    expect(releaseCacheCell(snapshot.cache, '甲', 'tool').candidates).toHaveLength(0)
     expect(busyStates).toEqual([true, false])
     expect(errors).toEqual([])
   })
@@ -91,32 +91,64 @@ describe('release store core', () => {
     expect(store.getSnapshot().busy).toBe(false)
   })
 
-  it('keeps official and local caches isolated when the source changes', async () => {
-    let source: ReleaseSourceKind = 'official'
+  it('keeps caches for different sources isolated when the source changes', async () => {
+    let source = 'official'
+    let shelves: string[] | null = []
     const { runtime } = createFakeRuntime({
-      resolveSource: async () => source,
+      resolveSources: async () => ({ source, shelves }),
       listCandidates: async (kind) => ({ source, candidates: [candidate(kind, `${source}-${kind}`, '0.1.0')] }),
     })
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
-    source = 'local'
+    source = '甲'
+    shelves = ['甲']
     await store.read('tool')
 
-    expect(store.getSnapshot().cache.official.tool.candidates[0].artifact.id).toBe('official-tool')
-    expect(store.getSnapshot().cache.local.tool.candidates[0].artifact.id).toBe('local-tool')
-    expect(store.getSnapshot().source).toBe('local')
+    expect(releaseCacheCell(store.getSnapshot().cache, 'official', 'tool').candidates[0].artifact.id).toBe('official-tool')
+    expect(releaseCacheCell(store.getSnapshot().cache, '甲', 'tool').candidates[0].artifact.id).toBe('甲-tool')
+    expect(store.getSnapshot().source).toBe('甲')
+  })
+
+  it('prunes caches of renamed or removed shelves on the next read', async () => {
+    let resolved: { source: string; shelves: string[] | null } = { source: '甲', shelves: ['甲'] }
+    const { runtime } = createFakeRuntime({
+      resolveSources: async () => resolved,
+      listCandidates: async (kind) => ({ source: resolved.source, candidates: [candidate(kind, `${resolved.source}-${kind}`, '0.1.0')] }),
+    })
+    const store = createReleaseStore(() => runtime, () => {})
+
+    await store.read('tool')
+    resolved = { source: '甲改', shelves: ['甲改'] }
+    await store.read('tool')
+
+    expect(Object.keys(store.getSnapshot().cache)).toEqual(['甲改'])
+  })
+
+  it('keeps shelf caches when the registry cannot be checked', async () => {
+    let resolved: { source: string; shelves: string[] | null } = { source: '甲', shelves: ['甲'] }
+    const { runtime } = createFakeRuntime({
+      resolveSources: async () => resolved,
+      listCandidates: async (kind) => ({ source: resolved.source, candidates: [candidate(kind, `${resolved.source}-${kind}`, '0.1.0')] }),
+    })
+    const store = createReleaseStore(() => runtime, () => {})
+
+    await store.read('tool')
+    resolved = { source: 'official', shelves: null }
+    await store.read('tool')
+
+    expect(Object.keys(store.getSnapshot().cache).sort()).toEqual(['official', '甲'])
   })
 
   it('keeps the current source when the source cannot be resolved', async () => {
-    const { runtime, calls } = createFakeRuntime({ resolveSource: async () => null })
+    const { runtime, calls } = createFakeRuntime({ resolveSources: async () => null })
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
 
     expect(calls.listCandidates).toEqual(['tool'])
     expect(store.getSnapshot().source).toBe('official')
-    expect(store.getSnapshot().cache.official.tool.candidates).toHaveLength(1)
+    expect(releaseCacheCell(store.getSnapshot().cache, 'official', 'tool').candidates).toHaveLength(1)
   })
 
   it('records a candidate failure in its cell and retries it on the next read', async () => {
@@ -130,7 +162,7 @@ describe('release store core', () => {
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
-    expect(store.getSnapshot().cache.official.tool.failure).toContain('候选读取失败')
+    expect(releaseCacheCell(store.getSnapshot().cache, 'official', 'tool').failure).toContain('候选读取失败')
     expect(store.getSnapshot().busy).toBe(false)
 
     await store.read('tool')

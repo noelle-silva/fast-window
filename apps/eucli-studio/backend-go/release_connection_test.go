@@ -276,9 +276,9 @@ func TestReleaseCandidateReadsFailClearly(t *testing.T) {
 	}
 }
 
-func TestReleaseCandidateRejectsInvalidSource(t *testing.T) {
+func TestReleaseCandidateAcceptsUnavailableSource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": ebcontract.ArtifactCandidateList{SourceKind: "bogus", Candidates: []ebcontract.ArtifactReleaseCandidate{}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": ebcontract.ArtifactCandidateList{SourceKind: "", Candidates: []ebcontract.ArtifactReleaseCandidate{}}})
 	}))
 	defer server.Close()
 	svc, err := newService(configuredTestStore(t, server.URL), testClientRelease(), nil)
@@ -286,8 +286,12 @@ func TestReleaseCandidateRejectsInvalidSource(t *testing.T) {
 		t.Fatalf("newService() error = %v", err)
 	}
 	svc.setConnectionState(runtimeBootstrap{EucliBoxReachable: true})
-	if _, err := svc.listReleaseCandidates(context.Background(), "tool"); err == nil {
-		t.Fatal("invalid source error = nil")
+	list, err := svc.listReleaseCandidates(context.Background(), "tool")
+	if err != nil {
+		t.Fatalf("unavailable source error = %v", err)
+	}
+	if list.SourceKind != "" || list.Candidates == nil {
+		t.Fatalf("list = %#v", list)
 	}
 }
 

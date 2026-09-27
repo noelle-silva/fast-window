@@ -1,5 +1,6 @@
 import {
   emptyReleaseCache,
+  pruneReleaseCache,
   releaseKindsToLoad,
   RELEASE_ARTIFACT_KINDS,
   writeReleaseCache,
@@ -10,9 +11,10 @@ import {
   type ReleaseSourceKind,
 } from '../domain/release'
 
-// ReleaseStoreRuntime 是核心执行一次读取所需的最小外部能力；来源解析失败返回 null。
+// ReleaseStoreRuntime 是核心执行一次读取所需的最小外部能力；
+// resolveSources 解析失败返回 null；货架名字列表为 null 表示本次无法核对（跳过缓存淘汰）。
 export type ReleaseStoreRuntime = {
-  resolveSource: () => Promise<ReleaseSourceKind | null>
+  resolveSources: () => Promise<{ source: ReleaseSourceKind; shelves: string[] | null } | null>
   listInstallations: () => Promise<ArtifactInstallation[]>
   listCandidates: (kind: ReleaseArtifactKind) => Promise<ArtifactCandidateList>
 }
@@ -36,7 +38,8 @@ function emptyReleaseStoreSnapshot(): ReleaseStoreSnapshot {
 }
 
 // createReleaseStore 是发行数据的唯一编排与缓存核心（不依赖 React）：
-// 按「来源 × 分类」缓存，新鲜缓存复用，读取失败保留旧缓存并记录失败原因。
+// 按「来源键 × 分类」缓存，新鲜缓存复用，读取失败保留旧缓存并记录失败原因；
+// 每次读取按现存货架注册表淘汰旧来源键的缓存。
 export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null, onError: (message: string) => void): ReleaseStore {
   let snapshot = emptyReleaseStoreSnapshot()
   const listeners = new Set<() => void>()
@@ -52,8 +55,14 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
     const runtime = getRuntime()
     if (!runtime) return
     try {
-      const resolvedSource = (await runtime.resolveSource()) || snapshot.source
-      update((current) => (current.source === resolvedSource ? current : { ...current, source: resolvedSource }))
+      const resolved = await runtime.resolveSources()
+      const resolvedSource = resolved?.source || snapshot.source
+      const shelfNames = resolved?.shelves ?? null
+      update((current) => {
+        const cache = shelfNames ? pruneReleaseCache(current.cache, shelfNames) : current.cache
+        if (current.source === resolvedSource && cache === current.cache) return current
+        return { ...current, source: resolvedSource, cache }
+      })
       const pending = releaseKindsToLoad(snapshot.cache, resolvedSource, kinds, force)
       if (!pending.length) return
       update((current) => (current.busy ? current : { ...current, busy: true }))

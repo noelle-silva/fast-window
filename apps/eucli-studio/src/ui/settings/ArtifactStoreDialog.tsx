@@ -6,10 +6,9 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import DownloadIcon from '@mui/icons-material/Download'
 import UpdateIcon from '@mui/icons-material/Update'
 import CancelIcon from '@mui/icons-material/Cancel'
-import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, isArtifactCancelable, type ArtifactInstallState, type ArtifactReleaseCandidate, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
+import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, isArtifactCancelable, type ArtifactInstallState, type ArtifactReleaseCandidate, type InstallSourceStatus, type ReleaseArtifactIdentity, type ReleaseCandidatesView, type Shelf, type ShelfOutcome } from '../../domain/release'
 import { SettingsPill } from './SettingsSurfaces'
-
-type StoreSourceKind = 'official' | 'local'
+import { ShelfManagerDialog } from './ShelfManagerDialog'
 
 type ArtifactStoreDialogProps = {
   open: boolean
@@ -22,42 +21,57 @@ type ArtifactStoreDialogProps = {
   onCancel: (artifact: ReleaseArtifactIdentity) => Promise<void> | void
   onSync: () => Promise<void> | void
   onRefresh: (kind?: string) => Promise<void> | void
-  getInstallSource?: () => Promise<string | null>
-  setInstallSource?: (kind: StoreSourceKind) => Promise<{ ok: boolean; error?: string }>
+  getInstallSource?: () => Promise<InstallSourceStatus | null>
+  setInstallSource?: (source: string) => Promise<{ ok: boolean; error?: string }>
+  getShelves?: () => Promise<{ shelves: Shelf[]; problem: string } | null>
+  addShelf?: (name: string, path: string) => Promise<ShelfOutcome | null | undefined>
+  updateShelf?: (name: string, newName?: string, newPath?: string) => Promise<ShelfOutcome | null | undefined>
+  removeShelf?: (name: string) => Promise<ShelfOutcome | null | undefined>
 }
 
 export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
-  const { open, onClose, kind, title, releaseView, installStates, onAction, onCancel, onSync, onRefresh, getInstallSource, setInstallSource } = props
+  const { open, onClose, kind, title, releaseView, installStates, onAction, onCancel, onSync, onRefresh, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = props
   const [refreshing, setRefreshing] = React.useState(false)
-  const [sourceKind, setSourceKind] = React.useState<StoreSourceKind>('official')
-  const [pendingSource, setPendingSource] = React.useState<StoreSourceKind | null>(null)
+  const [sourceKey, setSourceKey] = React.useState('official')
+  const [sourceProblem, setSourceProblem] = React.useState('')
+  const [shelves, setShelves] = React.useState<Shelf[]>([])
+  const [pendingSource, setPendingSource] = React.useState<string | null>(null)
   const [sourceError, setSourceError] = React.useState('')
+  const [manageOpen, setManageOpen] = React.useState(false)
   // 回调统一经引用读取最新值：父级重渲染不会更换副作用依赖，打开读取只触发一次。
-  const callbacksRef = React.useRef({ onSync, onRefresh, getInstallSource })
-  callbacksRef.current = { onSync, onRefresh, getInstallSource }
+  const callbacksRef = React.useRef({ onSync, onRefresh, getInstallSource, getShelves })
+  callbacksRef.current = { onSync, onRefresh, getInstallSource, getShelves }
 
-  const sourceCandidates = releaseView?.sourceCandidates?.[sourceKind] || []
+  const sourceOptions = React.useMemo(() => ['official', ...shelves.map((item) => item.name)], [shelves])
+  const sourceCandidates = sourceKey
+    ? releaseView?.sourceCandidates?.[sourceKey] || []
+    : releaseView?.candidates || []
   const items = sourceCandidates
     .filter((candidate) => String(candidate.artifact?.kind || '') === kind)
     .sort((a, b) => String(a.artifact?.id || '').localeCompare(String(b.artifact?.id || '')))
   const busy = pendingSource !== null || refreshing
 
-  // 打开弹窗时：恢复进行中任务事实，并强制刷新当前分类清单，保证已装状态最新。
+  const loadShelves = async () => {
+    const view = await Promise.resolve(callbacksRef.current.getShelves?.()).catch(() => null)
+    setShelves(view && Array.isArray(view.shelves) ? view.shelves : [])
+  }
+
+  // 打开弹窗时：恢复进行中任务事实，读取当前来源与货架注册表，并强制刷新当前分类清单。
   React.useEffect(() => {
     if (!open) return
     let cancelled = false
     setSourceError('')
     void Promise.resolve(callbacksRef.current.onSync?.()).catch(() => {})
     Promise.resolve(callbacksRef.current.getInstallSource?.())
-      .then((source) => {
-        if (cancelled || (source !== 'official' && source !== 'local')) return
-        setSourceKind(source)
+      .then(async (status) => {
+        if (cancelled || !status) return
+        setSourceKey(String(status.source || ''))
+        setSourceProblem(String(status.problem || ''))
+        await loadShelves()
+        if (cancelled) return
         setRefreshing(true)
-        void Promise.resolve(callbacksRef.current.onRefresh(kind))
-          .catch(() => {})
-          .finally(() => {
-            if (!cancelled) setRefreshing(false)
-          })
+        await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
+        if (!cancelled) setRefreshing(false)
       })
       .catch(() => {})
     return () => {
@@ -76,17 +90,18 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
 
   // switchSource 的时序：切换即刻进入加载态；切换成功后读该来源缓存，
   // 只有该来源该分类没有缓存时才发起读取。等待期间不展示上一个来源的清单。
-  const switchSource = async (next: StoreSourceKind) => {
-    if (next === sourceKind || busy) return
+  const switchSource = async (next: string) => {
+    if (next === sourceKey || busy) return
     setPendingSource(next)
     setSourceError('')
     try {
       const outcome = await Promise.resolve(setInstallSource?.(next))
       if (!outcome || !outcome.ok) {
-        setSourceError(outcome?.error || '切换商店源失败')
+        setSourceError(outcome?.error || '切换商店来源失败')
         return
       }
-      setSourceKind(next)
+      setSourceKey(next)
+      setSourceProblem('')
       // 该来源该分类已有缓存则直接展示；没有才发起读取（读取端点自带新鲜度判定）。
       if (!hasSourceKind(releaseView, next, kind)) {
         await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
@@ -96,25 +111,39 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
     }
   }
 
+  // 货架注册表变更后：重建列表、跟随业务端回落的选择值，并刷新清单（淘汰旧来源键缓存）。
+  const handleShelvesChanged = async () => {
+    const status = await Promise.resolve(callbacksRef.current.getInstallSource?.()).catch(() => null)
+    if (status) {
+      setSourceKey(String(status.source || ''))
+      setSourceProblem(String(status.problem || ''))
+    }
+    await loadShelves()
+    await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
+  }
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <StorefrontIcon fontSize="small" />
         {title}
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={0.5}>
-          {(['official', 'local'] as const).map((value) => (
+        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+          {sourceOptions.map((value) => (
             <Button
               key={value}
               size="small"
-              variant={(pendingSource ?? sourceKind) === value ? 'contained' : 'outlined'}
+              variant={(pendingSource ?? sourceKey) === value ? 'contained' : 'outlined'}
               disabled={busy}
               startIcon={pendingSource === value ? <CircularProgress size={12} color="inherit" /> : undefined}
               onClick={() => void switchSource(value)}
             >
-              {value === 'official' ? '官方源' : '本地源'}
+              {sourceLabel(value)}
             </Button>
           ))}
+          <Button size="small" variant="text" disabled={busy} onClick={() => setManageOpen(true)}>
+            管理货架
+          </Button>
         </Stack>
         <Button startIcon={<RefreshIcon />} size="small" variant="text" onClick={() => void refresh()} disabled={busy}>
           {refreshing ? '刷新中…' : '刷新'}
@@ -127,10 +156,15 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
         <Stack spacing={1}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
             <Typography variant="caption" color="text.secondary">
-              当前商店源：{sourceKind === 'local' ? '本地源（programs/local-store 货架）' : '官方源（线上正式发行）'}
+              当前商店来源：{sourceKey === 'official' ? '官方源（线上正式发行）' : sourceKey ? `货架「${sourceKey}」` : '配置不可用'}
             </Typography>
             {refreshing ? <CircularProgress size={12} /> : null}
           </Stack>
+          {sourceProblem ? (
+            <Typography variant="caption" color="error" sx={{ overflowWrap: 'anywhere' }}>
+              安装来源配置不可用：{sourceProblem}。重新设置官方源或注册一个货架即可重建配置。
+            </Typography>
+          ) : null}
           {sourceError ? (
             <Typography variant="caption" color="error">
               {sourceError}
@@ -144,14 +178,14 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
                 installState={installStates[String(result.artifact?.id || '')] || null}
                 onAction={onAction}
                 onCancel={onCancel}
-                sourceKind={sourceKind}
+                sourceKey={sourceKey}
               />
             ))
           ) : busy ? (
             <Stack spacing={1} alignItems="center" sx={{ p: 3 }}>
               <CircularProgress size={22} />
               <Typography variant="body2" color="text.secondary">
-                {pendingSource ? `正在切换到${pendingSource === 'local' ? '本地源' : '官方源'}…` : '正在获取商店清单…'}
+                {pendingSource ? `正在切换到${sourceLabel(pendingSource)}…` : '正在获取商店清单…'}
               </Typography>
             </Stack>
           ) : (
@@ -167,8 +201,21 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
         </Typography>
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
+      <ShelfManagerDialog
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        shelves={shelves}
+        addShelf={addShelf}
+        updateShelf={updateShelf}
+        removeShelf={removeShelf}
+        onChanged={handleShelvesChanged}
+      />
     </Dialog>
   )
+}
+
+function sourceLabel(value: string): string {
+  return value === 'official' ? '官方源' : value
 }
 
 function StoreItem(props: {
@@ -176,9 +223,9 @@ function StoreItem(props: {
   installState: ArtifactInstallState | null
   onAction: (artifact: ReleaseArtifactIdentity, action: 'install' | 'update') => Promise<void> | void
   onCancel: (artifact: ReleaseArtifactIdentity) => Promise<void> | void
-  sourceKind: StoreSourceKind
+  sourceKey: string
 }) {
-  const { result, installState, onAction, onCancel, sourceKind } = props
+  const { result, installState, onAction, onCancel, sourceKey } = props
   const artifact = result.artifact
   const id = String(artifact?.id || '')
   const compatibility = result.compatibility
@@ -236,7 +283,7 @@ function StoreItem(props: {
             当前：<Box component="span" sx={{ color: 'text.primary', fontWeight: 800 }}>{installed ? result.currentVersion || '版本资料无效' : '未安装'}</Box>
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {sourceKind === 'local' ? '货架' : '官方'}：<Box component="span" sx={{ color: 'text.primary', fontWeight: 800 }}>{result.latestVersion || '暂无'}</Box>
+            {sourceKey === 'official' ? '官方' : sourceKey}：<Box component="span" sx={{ color: 'text.primary', fontWeight: 800 }}>{result.latestVersion || '暂无'}</Box>
           </Typography>
           {result.downloadSize > 0 ? (
             <Typography variant="caption" color="text.secondary">
@@ -322,7 +369,7 @@ function itemTitle(kind: string) {
   return kind === 'plugin' ? '系统插件' : 'AI 工具'
 }
 
-function hasSourceKind(view: ReleaseCandidatesView | null | undefined, source: StoreSourceKind, kind: string): boolean {
+function hasSourceKind(view: ReleaseCandidatesView | null | undefined, source: string, kind: string): boolean {
   if (!view?.sourceCandidates) return false
   return (view.sourceCandidates[source] || []).some((candidate) => String(candidate.artifact?.kind || '') === kind)
 }

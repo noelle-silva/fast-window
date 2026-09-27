@@ -216,7 +216,11 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         onSync={handleStoreSync}
         onRefresh={(kind) => onReleaseRefresh?.(kind)}
         getInstallSource={() => controller.actions.getInstallSource?.()}
-        setInstallSource={(kind) => controller.actions.setInstallSource?.(kind)}
+        setInstallSource={(source) => controller.actions.setInstallSource?.(source)}
+        getShelves={() => controller.actions.getShelves?.()}
+        addShelf={(name, path) => controller.actions.addShelf?.(name, path)}
+        updateShelf={(name, newName, newPath) => controller.actions.updateShelf?.(name, newName, newPath)}
+        removeShelf={(name) => controller.actions.removeShelf?.(name)}
       />
     </SettingsSurface>
   )

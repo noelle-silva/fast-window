@@ -21,9 +21,13 @@ export function createToolActions(deps: {
   syncToolInstallStates: () => any
   setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => any
   getInstallSource: () => any
-  setInstallSource: (kind: 'official' | 'local') => any
+  setInstallSource: (source: string) => any
+  getShelves: () => any
+  addShelf: (name: any, path: any) => any
+  updateShelf: (name: any, newName?: any, newPath?: any) => any
+  removeShelf: (name: any) => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource } = deps
+  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
@@ -42,7 +46,11 @@ export function createToolActions(deps: {
     syncToolInstallStates: () => syncToolInstallStates(),
     setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),
     getInstallSource: () => getInstallSource(),
-    setInstallSource: (kind: 'official' | 'local') => setInstallSource(kind),
+    setInstallSource: (source: string) => setInstallSource(source),
+    getShelves: () => getShelves(),
+    addShelf: (name: any, path: any) => addShelf(name, path),
+    updateShelf: (name: any, newName?: any, newPath?: any) => updateShelf(name, newName, newPath),
+    removeShelf: (name: any) => removeShelf(name),
     openRoleToolAdd: () => {
       state.draft.roleToolAddOpen = true
       state.draft.roleToolSearch = ''

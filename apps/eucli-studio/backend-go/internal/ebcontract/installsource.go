@@ -1,10 +1,9 @@
 package ebcontract
 
-// InstallSourceKind 是 eucli-box 发布物安装来源类别。
-// official 读取固定官方发行；local 读取本地商店货架。
+// InstallSourceKind 是 eucli-box 发布物安装来源标识。
+// official 是官方发行保留字；其余非空值是用户注册的货架名字。
 type InstallSourceKind string
 
 const (
 	KindOfficial InstallSourceKind = "official"
-	KindLocal    InstallSourceKind = "local"
 )
