@@ -93,7 +93,7 @@ func TestCreateNoteCreatesPackageWithFaces(t *testing.T) {
 	}
 
 	// 派生索引已刷新：标题可被搜索命中；空内容笔记不产生引用条目。
-	hits, err := svc.queryNoteSearch(testRepoID(t, svc), "创建空笔记", nil)
+	hits, err := svc.queryNoteSearch(testRepoID(t, svc), "创建空笔记", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

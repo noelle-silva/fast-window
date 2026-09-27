@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,7 +57,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 	}
 
 	// 面内容命中：返回该笔记 + 文本面命中 + 摘要
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "量子纠缠", nil)
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "量子纠缠", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 		t.Fatalf("snippet empty: %#v", hit.FaceHits[0])
 	}
 	// 标题单独命中时标记 title
-	byTitle, err := svc.queryNoteSearch(testRepoID(t, svc), "搜索目标", nil)
+	byTitle, err := svc.queryNoteSearch(testRepoID(t, svc), "搜索目标", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestSearchQueryTitleHitForEmptyTextFace(t *testing.T) {
 	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-2")), manifest); err != nil {
 		t.Fatal(err)
 	}
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "空内容", nil)
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "空内容", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 范围仅文本面内容：标题字段不参与，本笔记应被过滤掉
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", []string{"markdown"})
+	res, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", []string{"markdown"}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 		t.Fatalf("filtered items = %#v", res.Items)
 	}
 	// 不限定范围时标题可命中
-	all, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", nil)
+	all, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +264,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), rel, manifest); err != nil {
 		t.Fatal(err)
 	}
-	before, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
+	before, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +276,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.moveNoteToTrash(testRepoID(t, svc), mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel})); err != nil {
 		t.Fatal(err)
 	}
-	trashed, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
+	trashed, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil)
+	restored, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,5 +335,77 @@ func TestSearchMethodsDispatch(t *testing.T) {
 	kinds, ok := kindsOut.([]noteSearchFaceKindInfo)
 	if !ok || len(kinds) != 1 || kinds[0].Kind != "markdown" {
 		t.Fatalf("kinds result = %#v", kindsOut)
+	}
+}
+
+func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	// 建 5 篇标题都含「分页目标」的笔记：分页切片时排序稳定、命中数量明确。
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("paging-note-%d", i)
+		noteDir := filepath.Join(testRepoRoot(t, svc), notesDir, "2026-09", id)
+		manifest := normalizeManifest(noteManifest{
+			ID:        id,
+			Title:     fmt.Sprintf("分页目标 %d", i),
+			FaceOrder: []string{"text"},
+			Faces: map[string]noteFaceManifest{
+				"text": {ID: "text", Kind: "markdown", Title: "文本", File: "text.md"},
+			},
+		})
+		if err := writeJSONFile(filepath.Join(noteDir, manifestFile), manifest); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(noteDir, "text.md"), "分页目标 正文内容\n")
+		if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", id)), manifest); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 2 {
+		t.Fatalf("first page items = %d, want 2", len(first.Items))
+	}
+	second, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 2 {
+		t.Fatalf("second page items = %d, want 2", len(second.Items))
+	}
+	seen := map[string]bool{}
+	for _, hit := range first.Items {
+		seen[hit.NoteID] = true
+	}
+	for _, hit := range second.Items {
+		if seen[hit.NoteID] {
+			t.Fatalf("pages overlap on %s: first=%#v second=%#v", hit.NoteID, first.Items, second.Items)
+		}
+	}
+	third, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.Items) != 1 {
+		t.Fatalf("third page items = %d, want 1", len(third.Items))
+	}
+	beyond, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(beyond.Items) != 0 {
+		t.Fatalf("beyond items = %#v, want empty", beyond.Items)
+	}
+	all, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Items) != 5 {
+		t.Fatalf("default items = %d, want 5", len(all.Items))
 	}
 }
