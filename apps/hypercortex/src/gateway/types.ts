@@ -295,9 +295,20 @@ export type NoteSearchResult = {
   items: NoteSearchHit[]
 }
 
+// 笔记搜索条件：匹配维度、面类型、更新时间范围与分段均可自由组合；缺省为全量 / 不限。
+export type NoteSearchQuery = {
+  query: string
+  fields?: string[]
+  faceKinds?: string[]
+  updatedFromMs?: number
+  updatedToMs?: number
+  limit?: number
+  offset?: number
+}
+
 export type SearchService = {
   listFaceKinds: () => Promise<NoteSearchFaceKind[]>
-  queryNotes: (scope: VaultScope, query: string, faceKinds?: string[], limit?: number, offset?: number) => Promise<NoteSearchResult>
+  queryNotes: (scope: VaultScope, query: NoteSearchQuery) => Promise<NoteSearchResult>
 }
 
 export type MetadataService = {

@@ -409,7 +409,13 @@ export function QuickSearchPopover(props: Props) {
       setSearchLoading(true)
       setSearchError(null)
       gateway.search
-        .queryNotes(scope, q, faceKindFilter ? [faceKindFilter] : [], SEARCH_PAGE_SIZE, 0)
+        .queryNotes(scope, {
+          query: q,
+          fields: faceKindFilter ? ['content'] : undefined,
+          faceKinds: faceKindFilter ? [faceKindFilter] : undefined,
+          limit: SEARCH_PAGE_SIZE,
+          offset: 0,
+        })
         .then(result => {
           if (searchSeqRef.current !== seq) return
           const items = Array.isArray(result?.items) ? result.items : []
@@ -437,7 +443,13 @@ export function QuickSearchPopover(props: Props) {
     const seq = searchSeqRef.current
     setSearchLoadingMore(true)
     gateway.search
-      .queryNotes(scope, q, faceKindFilter ? [faceKindFilter] : [], SEARCH_PAGE_SIZE, searchItems.length)
+      .queryNotes(scope, {
+        query: q,
+        fields: faceKindFilter ? ['content'] : undefined,
+        faceKinds: faceKindFilter ? [faceKindFilter] : undefined,
+        limit: SEARCH_PAGE_SIZE,
+        offset: searchItems.length,
+      })
       .then(result => {
         if (searchSeqRef.current !== seq) return
         const items = Array.isArray(result?.items) ? result.items : []
