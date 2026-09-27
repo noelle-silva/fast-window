@@ -11,6 +11,8 @@ export type HyperCortexNoteResourceRef = {
   ext?: string
   kind?: string
   name?: string
+  // marker 是可直接写入笔记正文的引用标记语法；上传结果携带，笔记资源清单不持久化。
+  marker?: string
 }
 
 export type HyperCortexNoteManifestV2 = {
