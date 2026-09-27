@@ -51,6 +51,13 @@ export const HyperCortexRpc = {
     restore: 'hypercortex.repos.restore',
     purge: 'hypercortex.repos.purge',
   },
+  access: {
+    load: 'hypercortex.access.load',
+    createKey: 'hypercortex.access.createKey',
+    updateKey: 'hypercortex.access.updateKey',
+    deleteKey: 'hypercortex.access.deleteKey',
+    savePort: 'hypercortex.access.savePort',
+  },
   metadata: {
     tryLoad: 'hypercortex.metadata.tryLoad',
     ensure: 'hypercortex.metadata.ensure',

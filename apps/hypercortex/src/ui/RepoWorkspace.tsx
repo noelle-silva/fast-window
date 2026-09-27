@@ -2606,6 +2606,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       onRenameRepo={shell.onRenameRepo}
       onDeleteRepo={shell.onDeleteRepo}
       onOpenRepoTrash={handleOpenRepoTrashPage}
+      access={shell.reposGateway.access}
+      onCopyAccessKey={text => {
+        void gateway.clipboard.writeText(text)
+        void gateway.host.toast('已复制访问密钥')
+      }}
     />
   )
 

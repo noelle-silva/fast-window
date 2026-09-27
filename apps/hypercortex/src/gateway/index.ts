@@ -1,3 +1,4 @@
+import { createAccessService } from '../services/accessService'
 import { createAssetsService } from '../services/assetsService'
 import { createFavoritesService } from '../services/favoritesService'
 import { createMetadataService } from '../services/metadataService'
@@ -51,6 +52,7 @@ function assembleHyperCortexGateway(transport: GatewayTransport, repoId: string)
     host,
     clipboard,
     repos: createReposService(scopedBackground),
+    access: createAccessService(scopedBackground),
     refs: createRefsService(scopedBackground),
     search: createSearchService(scopedBackground),
     metadata: createMetadataService(scopedBackground),
@@ -117,4 +119,4 @@ export function resetHyperCortexGateway() {
   gatewayPromise = null
 }
 
-export type { DataDirStatus, HyperCortexDeletedRepo, HyperCortexGateway, HyperCortexRepo, HyperCortexTrashItem, LegacyDataImportResult } from './types'
+export type { AccessService, DataDirStatus, HyperCortexAccessKey, HyperCortexAccessKeyInput, HyperCortexAccessState, HyperCortexDeletedRepo, HyperCortexGateway, HyperCortexRepo, HyperCortexTrashItem, LegacyDataImportResult } from './types'

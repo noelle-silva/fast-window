@@ -1,10 +1,11 @@
 import * as React from 'react'
 import { Box, Switch, Tab, Tabs, Typography } from '@mui/material'
 import type { HyperCortexColorPresetIdV1, HyperCortexSidebarSortModeV1 } from '../core'
-import type { DataDirStatus, HyperCortexRepo, LegacyDataImportResult } from '../gateway'
+import type { AccessService, DataDirStatus, HyperCortexRepo, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import { useFaceDeclarations } from '../facePlugins'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
+import { ExternalAccessSettingsPanel } from './ExternalAccessSettingsPanel'
 import { FacePluginSettingsPanel } from './face-settings/FacePluginSettingsPanel'
 import { FaceSettingsPanel } from './FaceSettingsPanel'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
@@ -17,13 +18,14 @@ import { RepoManagementSettingsPanel } from './repo-management/RepoManagementSet
 import type { ModalCapablePageId, PageDisplayMode, PageDisplayModesV1 } from '../pageDisplay'
 import { settingsTabSx } from './settingsUiStyles'
 
-type SettingsCategoryId = 'data' | 'actions' | 'display' | 'repos'
+type SettingsCategoryId = 'data' | 'actions' | 'display' | 'repos' | 'access'
 
 const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string }[] = [
   { id: 'data', label: '数据' },
   { id: 'actions', label: '操作' },
   { id: 'display', label: '显示' },
   { id: 'repos', label: '仓库管理' },
+  { id: 'access', label: '外部访问管理' },
 ]
 
 export type SettingsPageProps = {
@@ -60,6 +62,8 @@ export type SettingsPageProps = {
   onRenameRepo: (repoId: string, title: string) => Promise<void> | void
   onDeleteRepo: (repoId: string) => Promise<void> | void
   onOpenRepoTrash: () => void
+  access: AccessService
+  onCopyAccessKey: (text: string) => void
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -208,6 +212,25 @@ export function SettingsPage(props: SettingsPageProps) {
               onRenameRepo={props.onRenameRepo}
               onDeleteRepo={props.onDeleteRepo}
               onOpenRepoTrash={props.onOpenRepoTrash}
+            />
+          </SettingsPanelStack>
+        ) : null}
+      </Box>
+
+      <Box
+        role="tabpanel"
+        hidden={category !== 'access'}
+        id="hypercortex-settings-tabpanel-access"
+        aria-labelledby="hypercortex-settings-tab-access"
+        sx={{ pt: 0.5 }}
+      >
+        {category === 'access' ? (
+          <SettingsPanelStack>
+            <ExternalAccessSettingsPanel
+              access={props.access}
+              repos={props.repos}
+              activeRepoId={props.activeRepoId}
+              onCopyKey={props.onCopyAccessKey}
             />
           </SettingsPanelStack>
         ) : null}

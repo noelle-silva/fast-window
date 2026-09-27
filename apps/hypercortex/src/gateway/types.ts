@@ -78,6 +78,35 @@ export type ReposService = {
   purgeDeletedRepo: (repoId: string) => Promise<void>
 }
 
+// 访问密钥的身份信息：名称与默认仓库（创建时间由后端记录）。
+export type HyperCortexAccessKeyInput = {
+  name: string
+  repoId: string
+}
+
+// 外部访问密钥：name 为身份名称，key 为访问凭据本体，repoId 是这把密钥的默认仓库。
+export type HyperCortexAccessKey = {
+  name: string
+  key: string
+  repoId: string
+  createdAtMs: number
+}
+
+// 外部访问配置：port 为 0 表示尚未配置开放端口。
+export type HyperCortexAccessState = {
+  version: 1
+  port: number
+  keys: HyperCortexAccessKey[]
+}
+
+export type AccessService = {
+  loadAccess: () => Promise<HyperCortexAccessState>
+  createAccessKey: (input: HyperCortexAccessKeyInput) => Promise<HyperCortexAccessState>
+  updateAccessKey: (key: string, input: HyperCortexAccessKeyInput) => Promise<HyperCortexAccessState>
+  deleteAccessKey: (key: string) => Promise<HyperCortexAccessState>
+  saveAccessPort: (port: number) => Promise<HyperCortexAccessState>
+}
+
 export type ClipboardGateway = {
   writeText: (text: string) => Promise<void>
 }
@@ -287,6 +316,7 @@ export type HyperCortexGateway = {
   host: HostGateway
   clipboard: ClipboardGateway
   repos: ReposService
+  access: AccessService
   notes: NotesService
   assets: AssetsService
   favorites: FavoritesService
