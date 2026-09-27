@@ -325,6 +325,17 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.trash.maybeAutoCleanup":
 		return svc.maybeAutoCleanupTrash(requireScope(params), numberField(params, "days"))
 
+	case "hypercortex.access.load":
+		return svc.loadExternalAccess()
+	case "hypercortex.access.createKey":
+		return svc.createExternalAccessKey(stringField(params, "repoId"), stringField(params, "name"))
+	case "hypercortex.access.updateKey":
+		return svc.updateExternalAccessKey(stringField(params, "key"), stringField(params, "repoId"), stringField(params, "name"))
+	case "hypercortex.access.deleteKey":
+		return svc.deleteExternalAccessKey(stringField(params, "key"))
+	case "hypercortex.access.savePort":
+		return svc.saveExternalAccessPort(numberField(params, "port"))
+
 	case "hypercortex.host.openDir":
 		return nil, svc.openDir(stringField(params, "dir"))
 	case "hypercortex.host.openVaultDir":
