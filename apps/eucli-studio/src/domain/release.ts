@@ -269,7 +269,7 @@ export function normalizeArtifactInstallationList(value: unknown): ArtifactInsta
 }
 
 // ---------------------------------------------------------------------------
-// 客户端发行缓存：按「来源键 × 分类」各自成格；来源键是官方保留字或货架名字。
+// 客户端发行缓存：按「类别 → 来源键」各自成格；来源键是官方保留字或该类货架名字。
 // ---------------------------------------------------------------------------
 
 // RELEASE_CACHE_FRESHNESS_MS 是客户端复用已有缓存的有效期；期内不重新读取。
@@ -281,7 +281,7 @@ export type ReleaseCacheCell = {
   failure: string
 }
 
-export type ReleaseCache = Record<string, Partial<Record<ReleaseArtifactKind, ReleaseCacheCell>>>
+export type ReleaseCache = Partial<Record<ReleaseArtifactKind, Record<ReleaseSourceKind, ReleaseCacheCell>>>
 
 export function emptyReleaseCacheCell(): ReleaseCacheCell {
   return { checkedAt: '', candidates: [], failure: '' }
@@ -291,143 +291,108 @@ export function emptyReleaseCache(): ReleaseCache {
   return {}
 }
 
-export function releaseCacheCell(cache: ReleaseCache, sourceKind: ReleaseSourceKind, artifactKind: ReleaseArtifactKind): ReleaseCacheCell {
-  return cache[sourceKind]?.[artifactKind] || emptyReleaseCacheCell()
+export function releaseCacheCell(cache: ReleaseCache, kind: ReleaseArtifactKind, sourceKind: ReleaseSourceKind): ReleaseCacheCell {
+  return cache[kind]?.[sourceKind] || emptyReleaseCacheCell()
 }
 
-export function isReleaseCacheFresh(cache: ReleaseCache, sourceKind: ReleaseSourceKind, artifactKind: ReleaseArtifactKind): boolean {
-  const cell = releaseCacheCell(cache, sourceKind, artifactKind)
+export function isReleaseCacheFresh(cache: ReleaseCache, kind: ReleaseArtifactKind, sourceKind: ReleaseSourceKind): boolean {
+  const cell = releaseCacheCell(cache, kind, sourceKind)
   if (!cell.candidates.length || cell.failure) return false
   const time = Date.parse(cell.checkedAt)
   return Number.isFinite(time) && time > 0 && Date.now() - time < RELEASE_CACHE_FRESHNESS_MS
 }
 
-// releaseKindsToLoad 返回本次需要读取的分类：强制刷新时全读，否则只读没有新鲜缓存的分类。
+// releaseKindsToLoad 返回本次需要读取的类别：强制刷新时全读，否则只读「来源已解析且没有新鲜缓存」的类别。
 export function releaseKindsToLoad(
   cache: ReleaseCache,
-  sourceKind: ReleaseSourceKind,
+  sources: Partial<Record<ReleaseArtifactKind, ReleaseSourceKind>>,
   kinds: ReleaseArtifactKind[],
   force: boolean,
 ): ReleaseArtifactKind[] {
-  return kinds.filter((kind) => force || !isReleaseCacheFresh(cache, sourceKind, kind))
+  return kinds.filter((kind) => {
+    const sourceKind = sources[kind]
+    if (!sourceKind) return false
+    return force || !isReleaseCacheFresh(cache, kind, sourceKind)
+  })
 }
 
 export function writeReleaseCache(
   cache: ReleaseCache,
+  kind: ReleaseArtifactKind,
   sourceKind: ReleaseSourceKind,
-  artifactKind: ReleaseArtifactKind,
   result: { candidates: ArtifactReleaseCandidate[]; failure: string },
 ): ReleaseCache {
   const cell: ReleaseCacheCell = {
     checkedAt: new Date().toISOString(),
-    candidates: result.candidates.filter((item) => String(item.artifact?.kind || '') === artifactKind),
+    candidates: result.candidates.filter((item) => String(item.artifact?.kind || '') === kind),
     failure: result.failure,
   }
-  return { ...cache, [sourceKind]: { ...(cache[sourceKind] || {}), [artifactKind]: cell } }
+  return { ...cache, [kind]: { ...(cache[kind] || {}), [sourceKind]: cell } }
 }
 
-// pruneReleaseCache 清掉不在「官方 + 现存货架名字」内的来源键缓存；
+// pruneReleaseCache 清掉该类别下不在「官方 + 现存货架名字」内的来源键缓存；
 // 改名 / 删除货架后旧来源键的缓存就此淘汰。
-export function pruneReleaseCache(cache: ReleaseCache, shelfNames: string[]): ReleaseCache {
+export function pruneReleaseCache(cache: ReleaseCache, kind: ReleaseArtifactKind, shelfNames: string[]): ReleaseCache {
+  const cells = cache[kind]
+  if (!cells) return cache
   const valid = new Set<string>(['official', ...shelfNames])
-  const keys = Object.keys(cache)
+  const keys = Object.keys(cells)
   if (keys.every((key) => valid.has(key))) return cache
-  const next: ReleaseCache = {}
+  const next: Record<ReleaseSourceKind, ReleaseCacheCell> = {}
   for (const key of keys) {
-    if (valid.has(key)) next[key] = cache[key]
+    if (valid.has(key)) next[key] = cells[key]
   }
-  return next
+  return { ...cache, [kind]: next }
 }
 
 export type ReleaseCandidatesView = {
   status: 'not_checked' | 'checking' | 'completed' | 'failed'
-  statuses: Record<string, 'not_checked' | 'checking' | 'completed' | 'failed'>
   source: ReleaseSourceKind
   checkedAt: string
-  checkedAts: Record<string, string>
   failing: string[]
   candidates: ArtifactReleaseCandidate[]
   installations: ArtifactInstallation[]
   sourceCandidates: Record<string, ArtifactReleaseCandidate[]>
-  sourceCheckedAts: Record<string, Record<ReleaseArtifactKind, string>>
+  sourceCheckedAt: Record<string, string>
 }
 
+// ReleaseCandidatesViews 是两类的商店视图集合：工具窗口读工具视图，插件窗口读插件视图。
+export type ReleaseCandidatesViews = Record<ReleaseArtifactKind, ReleaseCandidatesView>
+
+// composeReleaseCandidatesView 按类别组装商店视图：当前来源的候选、各来源缓存总览与失败原因。
 export function composeReleaseCandidatesView(
   cache: ReleaseCache,
-  sourceKind: ReleaseSourceKind,
-  options: { kinds: ReleaseArtifactKind[]; checking: boolean; installations?: ArtifactInstallation[] },
+  kind: ReleaseArtifactKind,
+  options: { source: ReleaseSourceKind; checking: boolean; installations?: ArtifactInstallation[] },
 ): ReleaseCandidatesView {
-  const statuses: Record<string, 'not_checked' | 'checking' | 'completed' | 'failed'> = {}
-  const checkedAts: Record<string, string> = {}
-  const failing: string[] = []
-  const candidates: ArtifactReleaseCandidate[] = []
-  for (const kind of options.kinds) {
-    const cell = releaseCacheCell(cache, sourceKind, kind)
-    checkedAts[kind] = cell.candidates.length ? cell.checkedAt : ''
-    if (options.checking) {
-      statuses[kind] = 'checking'
-    } else if (cell.candidates.length) {
-      statuses[kind] = cell.failure ? 'failed' : 'completed'
-    } else {
-      statuses[kind] = 'not_checked'
-    }
-    if (cell.failure) failing.push(cell.failure)
-    candidates.push(...cell.candidates)
-  }
-  candidates.sort((left, right) => {
-    const leftKey = `${left.artifact.kind}:${left.artifact.id}`
-    const rightKey = `${right.artifact.kind}:${right.artifact.id}`
-    return leftKey.localeCompare(rightKey)
-  })
-  const hasCandidates = candidates.length > 0
-  const hasFailure = options.kinds.some((kind) => releaseCacheCell(cache, sourceKind, kind).failure !== '')
+  const source = options.source
+  const cell = releaseCacheCell(cache, kind, source)
+  const candidates = [...cell.candidates].sort((left, right) =>
+    String(left.artifact?.id || '').localeCompare(String(right.artifact?.id || '')),
+  )
   const status = options.checking
     ? 'checking'
-    : hasCandidates
-      ? (hasFailure ? 'failed' : 'completed')
+    : candidates.length
+      ? (cell.failure ? 'failed' : 'completed')
       : 'not_checked'
-  const sourceKeys = Array.from(new Set([...Object.keys(cache), sourceKind]))
+  const sourceKeys = Array.from(new Set([...Object.keys(cache[kind] || {}), source])).filter(Boolean)
   const sourceCandidates: Record<string, ArtifactReleaseCandidate[]> = {}
-  const sourceCheckedAts: Record<string, Record<ReleaseArtifactKind, string>> = {}
+  const sourceCheckedAt: Record<string, string> = {}
   for (const key of sourceKeys) {
-    sourceCandidates[key] = collectSourceCandidates(cache, key)
-    sourceCheckedAts[key] = {
-      tool: releaseCacheCell(cache, key, 'tool').checkedAt,
-      plugin: releaseCacheCell(cache, key, 'plugin').checkedAt,
-    }
+    const sourceCell = releaseCacheCell(cache, kind, key)
+    sourceCandidates[key] = sourceCell.candidates
+    sourceCheckedAt[key] = sourceCell.candidates.length ? sourceCell.checkedAt : ''
   }
   return {
     status,
-    statuses,
-    source: sourceKind,
-    checkedAt: newestCheckedAt(checkedAts),
-    checkedAts,
-    failing,
+    source,
+    checkedAt: candidates.length ? cell.checkedAt : '',
+    failing: cell.failure ? [cell.failure] : [],
     candidates,
     installations: options.installations ? [...options.installations] : [],
     sourceCandidates,
-    sourceCheckedAts,
+    sourceCheckedAt,
   }
-}
-
-function collectSourceCandidates(cache: ReleaseCache, sourceKind: ReleaseSourceKind): ArtifactReleaseCandidate[] {
-  return [
-    ...releaseCacheCell(cache, sourceKind, 'tool').candidates,
-    ...releaseCacheCell(cache, sourceKind, 'plugin').candidates,
-  ]
-}
-
-function newestCheckedAt(checkedAts: Record<string, string>): string {
-  let newest = ''
-  let newestTime = 0
-  for (const value of Object.values(checkedAts)) {
-    const time = Date.parse(value)
-    if (Number.isFinite(time) && time > newestTime) {
-      newest = value
-      newestTime = time
-    }
-  }
-  return newest
 }
 
 export function compatibilityRangeText(value: EucliBoxCompatibility | null | undefined): string {

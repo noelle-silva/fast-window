@@ -84,138 +84,169 @@ describe('artifact install state guards', () => {
 })
 
 describe('release cache', () => {
-  it('writes one source-kind cell without touching other cells', () => {
-    const cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+  it('writes one kind-source cell without touching other cells', () => {
+    const cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    expect(releaseCacheCell(cache, 'official', 'tool').candidates).toHaveLength(1)
-    expect(releaseCacheCell(cache, 'official', 'plugin').candidates).toHaveLength(0)
-    expect(releaseCacheCell(cache, '甲', 'tool').candidates).toHaveLength(0)
-    expect(isReleaseCacheFresh(cache, 'official', 'tool')).toBe(true)
-    expect(isReleaseCacheFresh(cache, '甲', 'tool')).toBe(false)
-    expect(isReleaseCacheFresh(cache, 'official', 'plugin')).toBe(false)
+    expect(releaseCacheCell(cache, 'tool', 'official').candidates).toHaveLength(1)
+    expect(releaseCacheCell(cache, 'plugin', 'official').candidates).toHaveLength(0)
+    expect(releaseCacheCell(cache, 'tool', '甲').candidates).toHaveLength(0)
+    expect(isReleaseCacheFresh(cache, 'tool', 'official')).toBe(true)
+    expect(isReleaseCacheFresh(cache, 'tool', '甲')).toBe(false)
+    expect(isReleaseCacheFresh(cache, 'plugin', 'official')).toBe(false)
   })
 
   it('rejects an expired cell or a cell without candidates', () => {
-    const cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+    const cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    const cell = releaseCacheCell(cache, 'official', 'tool')
+    const cell = releaseCacheCell(cache, 'tool', 'official')
     cell.checkedAt = new Date(Date.now() - RELEASE_CACHE_FRESHNESS_MS - 1000).toISOString()
-    expect(isReleaseCacheFresh(cache, 'official', 'tool')).toBe(false)
+    expect(isReleaseCacheFresh(cache, 'tool', 'official')).toBe(false)
     cell.checkedAt = new Date().toISOString()
     cell.candidates = []
-    expect(isReleaseCacheFresh(cache, 'official', 'tool')).toBe(false)
+    expect(isReleaseCacheFresh(cache, 'tool', 'official')).toBe(false)
   })
 
   it('keeps caches for different sources independent', () => {
-    let cache = writeReleaseCache(emptyReleaseCache(), 'official', 'plugin', {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'plugin', 'official', {
       candidates: [candidate('plugin', 'time-plugin', '0.1.0')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, '甲', 'plugin', {
+    cache = writeReleaseCache(cache, 'plugin', '甲', {
       candidates: [candidate('plugin', 'time-plugin', '0.0.9')],
       failure: '',
     })
-    expect(releaseCacheCell(cache, 'official', 'plugin').candidates[0].latestVersion).toBe('0.1.0')
-    expect(releaseCacheCell(cache, '甲', 'plugin').candidates[0].latestVersion).toBe('0.0.9')
+    expect(releaseCacheCell(cache, 'plugin', 'official').candidates[0].latestVersion).toBe('0.1.0')
+    expect(releaseCacheCell(cache, 'plugin', '甲').candidates[0].latestVersion).toBe('0.0.9')
   })
 
-  it('prunes source keys that are no longer in the shelf registry', () => {
-    let cache = writeReleaseCache(emptyReleaseCache(), '甲', 'tool', {
+  it('prunes source keys that are no longer in the kind registry', () => {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', '甲', {
       candidates: [candidate('tool', 'a', '0.1.0')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, '乙', 'tool', {
+    cache = writeReleaseCache(cache, 'tool', '乙', {
       candidates: [candidate('tool', 'b', '0.1.0')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, 'official', 'tool', {
+    cache = writeReleaseCache(cache, 'tool', 'official', {
       candidates: [candidate('tool', 'c', '0.1.0')],
       failure: '',
     })
-    const pruned = pruneReleaseCache(cache, ['乙'])
-    expect(Object.keys(pruned).sort()).toEqual(['official', '乙'])
-    expect(pruneReleaseCache(cache, ['甲', '乙'])).toBe(cache)
+    const pruned = pruneReleaseCache(cache, 'tool', ['乙'])
+    expect(Object.keys(pruned.tool!).sort()).toEqual(['official', '乙'])
+    expect(pruneReleaseCache(cache, 'tool', ['甲', '乙'])).toBe(cache)
+  })
+
+  it('prunes only the requested kind', () => {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', '甲', {
+      candidates: [candidate('tool', 'a', '0.1.0')],
+      failure: '',
+    })
+    cache = writeReleaseCache(cache, 'plugin', '甲', {
+      candidates: [candidate('plugin', 'p', '0.1.0')],
+      failure: '',
+    })
+    cache = writeReleaseCache(cache, 'plugin', '乙', {
+      candidates: [candidate('plugin', 'q', '0.1.0')],
+      failure: '',
+    })
+    const pruned = pruneReleaseCache(cache, 'tool', ['乙'])
+    expect(pruned.tool).toEqual({})
+    expect(Object.keys(pruned.plugin!).sort()).toEqual(['乙', '甲'])
   })
 })
 
 describe('releaseKindsToLoad', () => {
   it('loads every requested kind when nothing is cached', () => {
     const cache = emptyReleaseCache()
-    expect(releaseKindsToLoad(cache, 'official', ['tool', 'plugin'], false)).toEqual(['tool', 'plugin'])
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool', 'plugin'], false)).toEqual(['tool', 'plugin'])
   })
 
   it('skips fresh cells and keeps expired or failed ones', () => {
-    let cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, 'official', 'plugin', {
+    cache = writeReleaseCache(cache, 'plugin', 'official', {
       candidates: [candidate('plugin', 'time-plugin', '0.1.0')],
       failure: '',
     })
-    releaseCacheCell(cache, 'official', 'plugin').checkedAt = new Date(Date.now() - RELEASE_CACHE_FRESHNESS_MS - 1000).toISOString()
-    expect(releaseKindsToLoad(cache, 'official', ['tool', 'plugin'], false)).toEqual(['plugin'])
+    releaseCacheCell(cache, 'plugin', 'official').checkedAt = new Date(Date.now() - RELEASE_CACHE_FRESHNESS_MS - 1000).toISOString()
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool', 'plugin'], false)).toEqual(['plugin'])
   })
 
   it('reloads failed cells even when freshly checked', () => {
-    const cache = writeReleaseCache(emptyReleaseCache(), 'official', 'plugin', {
+    const cache = writeReleaseCache(emptyReleaseCache(), 'plugin', 'official', {
       candidates: [],
       failure: '插件候选读取失败',
     })
-    expect(releaseKindsToLoad(cache, 'official', ['tool', 'plugin'], false)).toEqual(['tool', 'plugin'])
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool', 'plugin'], false)).toEqual(['tool', 'plugin'])
+  })
+
+  it('skips kinds without a resolved source', () => {
+    const cache = emptyReleaseCache()
+    expect(releaseKindsToLoad(cache, { tool: 'official' }, ['tool', 'plugin'], false)).toEqual(['tool'])
   })
 
   it('loads every requested kind on force refresh', () => {
-    const cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+    const cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    expect(releaseKindsToLoad(cache, 'official', ['tool'], true)).toEqual(['tool'])
+    expect(releaseKindsToLoad(cache, { tool: 'official' }, ['tool'], true)).toEqual(['tool'])
   })
 })
 
 describe('composeReleaseCandidatesView', () => {
-  it('merges requested kinds and reports per-kind status', () => {
-    let cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+  it('composes one kind from its own cells only', () => {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, 'official', 'plugin', { candidates: [], failure: 'plugin: 索引读取失败' })
-    const view = composeReleaseCandidatesView(cache, 'official', { kinds: ['tool', 'plugin'], checking: false })
+    cache = writeReleaseCache(cache, 'plugin', 'official', { candidates: [], failure: 'plugin: 索引读取失败' })
+    const view = composeReleaseCandidatesView(cache, 'tool', { source: 'official', checking: false })
     expect(view.candidates.map((item) => item.artifact.id)).toEqual(['context7'])
-    expect(view.statuses.tool).toBe('completed')
-    expect(view.statuses.plugin).toBe('not_checked')
-    expect(view.failing).toEqual(['plugin: 索引读取失败'])
-    expect(view.checkedAts.tool).not.toBe('')
+    expect(view.status).toBe('completed')
+    expect(view.failing).toEqual([])
+    expect(view.checkedAt).not.toBe('')
+
+    const pluginView = composeReleaseCandidatesView(cache, 'plugin', { source: 'official', checking: false })
+    expect(pluginView.candidates).toEqual([])
+    expect(pluginView.status).toBe('not_checked')
+    expect(pluginView.failing).toEqual(['plugin: 索引读取失败'])
   })
 
   it('reports checking without losing cached candidates', () => {
-    const cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+    const cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    const view = composeReleaseCandidatesView(cache, 'official', { kinds: ['tool'], checking: true })
+    const view = composeReleaseCandidatesView(cache, 'tool', { source: 'official', checking: true })
     expect(view.status).toBe('checking')
-    expect(view.statuses.tool).toBe('checking')
     expect(view.candidates).toHaveLength(1)
   })
 
-  it('exposes every cached source for store switching', () => {
-    let cache = writeReleaseCache(emptyReleaseCache(), 'official', 'tool', {
+  it('exposes every cached source of the kind for store switching', () => {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    cache = writeReleaseCache(cache, '甲', 'tool', {
+    cache = writeReleaseCache(cache, 'tool', '甲', {
       candidates: [candidate('tool', 'context7', '0.1.1')],
       failure: '',
     })
-    const view = composeReleaseCandidatesView(cache, 'official', { kinds: ['tool'], checking: false })
+    cache = writeReleaseCache(cache, 'plugin', '甲', {
+      candidates: [candidate('plugin', 'time-plugin', '0.1.0')],
+      failure: '',
+    })
+    const view = composeReleaseCandidatesView(cache, 'tool', { source: 'official', checking: false })
     expect(view.sourceCandidates.official[0].latestVersion).toBe('0.1.2')
     expect(view.sourceCandidates['甲'][0].latestVersion).toBe('0.1.1')
-    expect(view.sourceCheckedAts['甲'].tool).not.toBe('')
+    expect(view.sourceCandidates['甲']).toHaveLength(1)
+    expect(view.sourceCheckedAt['甲']).not.toBe('')
   })
 })

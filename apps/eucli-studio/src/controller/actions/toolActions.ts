@@ -20,12 +20,12 @@ export function createToolActions(deps: {
   cancelToolInstall: (toolId: any) => any
   syncToolInstallStates: () => any
   setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => any
-  getInstallSource: () => any
-  setInstallSource: (source: string) => any
-  getShelves: () => any
-  addShelf: (name: any, path: any) => any
-  updateShelf: (name: any, newName?: any, newPath?: any) => any
-  removeShelf: (name: any) => any
+  getInstallSource: (kind: any) => any
+  setInstallSource: (kind: any, source: string) => any
+  getShelves: (kind: any) => any
+  addShelf: (kind: any, name: any, path: any) => any
+  updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => any
+  removeShelf: (kind: any, name: any) => any
 }) {
   const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
 
@@ -45,12 +45,12 @@ export function createToolActions(deps: {
     cancelToolInstall: (toolId: any) => cancelToolInstall(toolId),
     syncToolInstallStates: () => syncToolInstallStates(),
     setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),
-    getInstallSource: () => getInstallSource(),
-    setInstallSource: (source: string) => setInstallSource(source),
-    getShelves: () => getShelves(),
-    addShelf: (name: any, path: any) => addShelf(name, path),
-    updateShelf: (name: any, newName?: any, newPath?: any) => updateShelf(name, newName, newPath),
-    removeShelf: (name: any) => removeShelf(name),
+    getInstallSource: (kind: any) => getInstallSource(kind),
+    setInstallSource: (kind: any, source: string) => setInstallSource(kind, source),
+    getShelves: (kind: any) => getShelves(kind),
+    addShelf: (kind: any, name: any, path: any) => addShelf(kind, name, path),
+    updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => updateShelf(kind, name, newName, newPath),
+    removeShelf: (kind: any, name: any) => removeShelf(kind, name),
     openRoleToolAdd: () => {
       state.draft.roleToolAddOpen = true
       state.draft.roleToolSearch = ''

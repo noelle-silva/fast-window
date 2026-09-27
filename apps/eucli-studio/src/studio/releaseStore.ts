@@ -12,16 +12,16 @@ import {
 } from '../domain/release'
 
 // ReleaseStoreRuntime 是核心执行一次读取所需的最小外部能力；
-// resolveSources 解析失败返回 null；货架名字列表为 null 表示本次无法核对（跳过缓存淘汰）。
+// resolveSource 按类别解析来源，解析失败返回 null；货架名字列表为 null 表示本次无法核对（跳过缓存淘汰）。
 export type ReleaseStoreRuntime = {
-  resolveSources: () => Promise<{ source: ReleaseSourceKind; shelves: string[] | null } | null>
+  resolveSource: (kind: ReleaseArtifactKind) => Promise<{ source: ReleaseSourceKind; shelves: string[] | null } | null>
   listInstallations: () => Promise<ArtifactInstallation[]>
   listCandidates: (kind: ReleaseArtifactKind) => Promise<ArtifactCandidateList>
 }
 
 export type ReleaseStoreSnapshot = {
   cache: ReleaseCache
-  source: ReleaseSourceKind
+  sources: Partial<Record<ReleaseArtifactKind, ReleaseSourceKind>>
   installations: ArtifactInstallation[]
   busy: boolean
 }
@@ -34,12 +34,12 @@ export type ReleaseStore = {
 }
 
 function emptyReleaseStoreSnapshot(): ReleaseStoreSnapshot {
-  return { cache: emptyReleaseCache(), source: 'official', installations: [], busy: false }
+  return { cache: emptyReleaseCache(), sources: { tool: 'official', plugin: 'official' }, installations: [], busy: false }
 }
 
 // createReleaseStore 是发行数据的唯一编排与缓存核心（不依赖 React）：
-// 按「来源键 × 分类」缓存，新鲜缓存复用，读取失败保留旧缓存并记录失败原因；
-// 每次读取按现存货架注册表淘汰旧来源键的缓存。
+// 按「类别 → 来源键」缓存，新鲜缓存复用，读取失败保留旧缓存并记录失败原因；
+// 每次读取按该类别现存货架注册表淘汰旧来源键的缓存。
 export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null, onError: (message: string) => void): ReleaseStore {
   let snapshot = emptyReleaseStoreSnapshot()
   const listeners = new Set<() => void>()
@@ -55,27 +55,44 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
     const runtime = getRuntime()
     if (!runtime) return
     try {
-      const resolved = await runtime.resolveSources()
-      const resolvedSource = resolved?.source || snapshot.source
-      const shelfNames = resolved?.shelves ?? null
+      const resolvedList = await Promise.all(
+        kinds.map(async (kind) => ({ kind, resolved: await runtime.resolveSource(kind).catch(() => null) })),
+      )
       update((current) => {
-        const cache = shelfNames ? pruneReleaseCache(current.cache, shelfNames) : current.cache
-        if (current.source === resolvedSource && cache === current.cache) return current
-        return { ...current, source: resolvedSource, cache }
+        let cache = current.cache
+        let changed = false
+        const sources = { ...current.sources }
+        for (const { kind, resolved } of resolvedList) {
+          if (!resolved) continue
+          const source = String(resolved.source || '')
+          if (source && sources[kind] !== source) {
+            sources[kind] = source
+            changed = true
+          }
+          if (resolved.shelves) {
+            const pruned = pruneReleaseCache(cache, kind, resolved.shelves)
+            if (pruned !== cache) {
+              cache = pruned
+              changed = true
+            }
+          }
+        }
+        if (!changed) return current
+        return { ...current, sources, cache }
       })
-      const pending = releaseKindsToLoad(snapshot.cache, resolvedSource, kinds, force)
+      const pending = releaseKindsToLoad(snapshot.cache, snapshot.sources, kinds, force)
       if (!pending.length) return
       update((current) => (current.busy ? current : { ...current, busy: true }))
       const installations = await runtime.listInstallations().catch(() => null)
-      const results = await Promise.all(pending.map((kind) => loadCandidates(runtime, kind)))
+      const results = await Promise.all(pending.map((kind) => loadCandidates(runtime, kind, snapshot.sources[kind] || '')))
       update((current) => {
         let cache = current.cache
         for (const result of results) {
-          cache = writeReleaseCache(cache, resolvedSource, result.kind, { candidates: result.candidates, failure: result.failure })
+          cache = writeReleaseCache(cache, result.kind, result.source, { candidates: result.candidates, failure: result.failure })
         }
         return {
+          ...current,
           cache,
-          source: resolvedSource,
           installations: installations ?? current.installations,
           busy: false,
         }
@@ -86,7 +103,7 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
     }
   }
 
-  // read 是打开商店或按分类读取：缓存新鲜时复用，不发起读取。
+  // read 是打开商店或按类别读取：缓存新鲜时复用，不发起读取。
   const read = (kind?: string) => load([(kind || 'tool') as ReleaseArtifactKind], false)
 
   // refresh 是手动刷新入口：无论缓存是否新鲜都重新读取。
@@ -105,15 +122,15 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
   }
 }
 
-async function loadCandidates(runtime: ReleaseStoreRuntime, kind: ReleaseArtifactKind): Promise<{ kind: ReleaseArtifactKind; candidates: ArtifactCandidateList['candidates']; failure: string }> {
+async function loadCandidates(runtime: ReleaseStoreRuntime, kind: ReleaseArtifactKind, source: ReleaseSourceKind): Promise<{ kind: ReleaseArtifactKind; source: ReleaseSourceKind; candidates: ArtifactCandidateList['candidates']; failure: string }> {
   try {
     const list = await runtime.listCandidates(kind)
-    return { kind, candidates: list.candidates, failure: '' }
+    return { kind, source, candidates: list.candidates, failure: '' }
   } catch (error: any) {
-    return { kind, candidates: [], failure: String(error?.message || error || `读取 ${kind} 发行候选失败`) }
+    return { kind, source, candidates: [], failure: String(error?.message || error || `读取 ${kind} 发行候选失败`) }
   }
 }
 
 function sameSnapshot(left: ReleaseStoreSnapshot, right: ReleaseStoreSnapshot): boolean {
-  return left.cache === right.cache && left.source === right.source && left.installations === right.installations && left.busy === right.busy
+  return left.cache === right.cache && left.sources === right.sources && left.installations === right.installations && left.busy === right.busy
 }

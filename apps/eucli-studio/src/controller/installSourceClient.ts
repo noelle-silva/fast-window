@@ -1,11 +1,13 @@
 import type { InstallSourceStatus, Shelf, ShelfOutcome } from '../domain/release'
 
+// createInstallSourceClient 按发布物类别读写安装来源与货架注册表；
+// 工具与插件各有一份独立配置，接口按类别参数化。
 export function createInstallSourceClient(deps: {
   netRequest: (req: any) => Promise<any>
 }) {
-  async function get(): Promise<InstallSourceStatus | null> {
+  async function get(kind: string): Promise<InstallSourceStatus | null> {
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/install-source', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/install-source/${encodeURIComponent(kind)}`, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return {
@@ -17,10 +19,10 @@ export function createInstallSourceClient(deps: {
     }
   }
 
-  async function set(sourceRaw: string): Promise<{ ok: boolean; error?: string }> {
+  async function set(kind: string, sourceRaw: string): Promise<{ ok: boolean; error?: string }> {
     const source = String(sourceRaw || '').trim()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/install-source', body: { source }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/install-source/${encodeURIComponent(kind)}`, body: { source }, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { ok: true }
@@ -29,9 +31,9 @@ export function createInstallSourceClient(deps: {
     }
   }
 
-  async function listShelves(): Promise<{ shelves: Shelf[]; problem: string } | null> {
+  async function listShelves(kind: string): Promise<{ shelves: Shelf[]; problem: string } | null> {
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/shelves', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/shelves/${encodeURIComponent(kind)}`, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { shelves: readShelves(response?.body), problem: String(response?.body?.problem || '').trim() }
@@ -40,24 +42,24 @@ export function createInstallSourceClient(deps: {
     }
   }
 
-  async function addShelf(name: string, path: string): Promise<ShelfOutcome> {
-    return shelvesRequest('POST', { name, path })
+  async function addShelf(kind: string, name: string, path: string): Promise<ShelfOutcome> {
+    return shelvesRequest(kind, 'POST', { name, path })
   }
 
-  async function updateShelf(name: string, newName?: string, newPath?: string): Promise<ShelfOutcome> {
+  async function updateShelf(kind: string, name: string, newName?: string, newPath?: string): Promise<ShelfOutcome> {
     const body: Record<string, unknown> = { name }
     if (newName !== undefined) body.newName = newName
     if (newPath !== undefined) body.newPath = newPath
-    return shelvesRequest('PATCH', body)
+    return shelvesRequest(kind, 'PATCH', body)
   }
 
-  async function removeShelf(name: string): Promise<ShelfOutcome> {
-    return shelvesRequest('DELETE', { name })
+  async function removeShelf(kind: string, name: string): Promise<ShelfOutcome> {
+    return shelvesRequest(kind, 'DELETE', { name })
   }
 
-  async function shelvesRequest(method: string, body: Record<string, unknown>): Promise<ShelfOutcome> {
+  async function shelvesRequest(kind: string, method: string, body: Record<string, unknown>): Promise<ShelfOutcome> {
     try {
-      const response = await deps.netRequest({ method, path: '/api/shelves', body, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method, path: `/api/shelves/${encodeURIComponent(kind)}`, body, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { ok: true, shelves: readShelves(response?.body) }
