@@ -208,17 +208,12 @@ function formatBytes(value: number) {
 function emptyView(): ReleaseCandidatesView {
   return {
     status: 'not_checked',
-    statuses: {},
     source: 'official',
     checkedAt: '',
-    checkedAts: {},
     failing: [],
     candidates: [],
     installations: [],
-    sourceCandidates: { official: [], local: [] },
-    sourceCheckedAts: {
-      official: { tool: '', plugin: '' },
-      local: { tool: '', plugin: '' },
-    },
+    sourceCandidates: { official: [] },
+    sourceCheckedAt: { official: '' },
   }
 }

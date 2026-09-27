@@ -281,7 +281,7 @@ export function App() {
               standalone: launchInfo.standalone,
                 actions: windowControlActions,
              }}
-             releaseView={release.view}
+             releaseViews={release.views}
              onReleaseRefresh={release.refresh}
             />
           {needsEucliBoxConnection && runtimeBootstrap ? (

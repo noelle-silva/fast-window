@@ -21,7 +21,7 @@ import { AccessSettingsPanel } from './AccessSettingsPanel'
 import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
 import { RequestRecordsSettingsPanel } from './RequestRecordsSettingsPanel'
 import { normalizeRequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
-import type { ReleaseCandidatesView, StudioBootstrap } from '../../domain/release'
+import type { ReleaseCandidatesViews, StudioBootstrap } from '../../domain/release'
 
 type SettingsTab = SettingsTabValue
 
@@ -40,7 +40,7 @@ export function PluginSettingsPage(props: {
   modelRequestConfig: any
   requestRecords?: any
   bootstrap?: StudioBootstrap
-  releaseView: ReleaseCandidatesView | null
+  releaseViews: ReleaseCandidatesViews
   onReleaseRefresh: (kind?: string) => Promise<void> | void
   accessSettings?: any
   hookPrompts: any
@@ -55,7 +55,7 @@ export function PluginSettingsPage(props: {
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, requestRecords, bootstrap, releaseView, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
@@ -132,7 +132,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'tools') {
-    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} toolWorkDirectory={toolWorkDirectory} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} toolWorkDirectory={toolWorkDirectory} releaseView={releaseViews.tool} onReleaseRefresh={onReleaseRefresh} />)
   }
 
   if (tab === 'hookPrompts') {
@@ -144,7 +144,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'systemPlugins') {
-    return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseView} onReleaseRefresh={onReleaseRefresh} />)
+    return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseViews.plugin} onReleaseRefresh={onReleaseRefresh} />)
   }
 
   if (tab === 'commandSystem') {

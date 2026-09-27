@@ -50,7 +50,7 @@ import { normalizeReasoningDisplayMode } from '../domain/reasoningDisplay'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
-import type { ReleaseCandidatesView, StudioBootstrap } from '../domain/release'
+import type { ReleaseCandidatesViews, StudioBootstrap } from '../domain/release'
 import { resolveColorThemePreset } from '../domain/colorTheme'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
@@ -72,8 +72,8 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   return Math.ceil(gap) <= thresholdPx
 }
 
-export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseView: ReleaseCandidatesView | null; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
-  const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseView, onReleaseRefresh } = props
+export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseViews: ReleaseCandidatesViews; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
+  const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseViews, onReleaseRefresh } = props
   const s = useAiChatState(controller)
   const data = s.data
   const colorThemePreset = resolveColorThemePreset(data?.settings?.colorTheme)
@@ -1259,7 +1259,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             modelRequestConfig={(s as any).modelRequestConfig}
             requestRecords={(s as any).requestRecords}
             bootstrap={bootstrap}
-            releaseView={releaseView}
+            releaseViews={releaseViews}
             onReleaseRefresh={onReleaseRefresh}
             accessSettings={(s as any)?.accessSettings}
             hookPrompts={hookPrompts}
