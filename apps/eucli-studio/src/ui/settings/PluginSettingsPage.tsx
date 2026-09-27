@@ -20,6 +20,7 @@ import { EbSettingsPanel, type AiChatEucliBoxConnection } from './EbSettingsPane
 import { AccessSettingsPanel } from './AccessSettingsPanel'
 import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
 import { RequestRecordsSettingsPanel } from './RequestRecordsSettingsPanel'
+import { normalizeRequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
 import type { ReleaseCandidatesView, StudioBootstrap } from '../../domain/release'
 
 type SettingsTab = SettingsTabValue
@@ -58,6 +59,7 @@ export function PluginSettingsPage(props: {
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
+  const requestRecordViewOptions = normalizeRequestRecordViewOptions((data?.settings as any)?.requestRecordViewOptions)
 
   const wrapSettingsPanel = (children: React.ReactNode) => (
     <SettingsPageLayout
@@ -163,7 +165,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'requestRecords') {
-    return wrapSettingsPanel(<RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} />)
+    return wrapSettingsPanel(<RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} requestRecordViewOptions={requestRecordViewOptions} />)
   }
 
   if (tab === 'stickers') {

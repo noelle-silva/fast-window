@@ -64,6 +64,7 @@ import { createSystemPluginController } from './systemPluginController'
 import { createChatSessionSettingsBridge } from './chatSessionSettingsBridge'
 import { createControllerBootstrap } from './controllerBootstrap'
 import { createAppearanceActions } from './actions/appearanceActions'
+import { createRequestRecordViewActions } from './actions/requestRecordViewActions'
 import { createAiServiceActions } from './actions/aiServiceActions'
 import { createStickerActions } from './actions/stickerActions'
 import { createWallpaperActions } from './actions/wallpaperActions'
@@ -872,6 +873,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 20. ACTIONS — complete controller.actions object
   // ============================================================
   const appearanceActions = createAppearanceActions({ state, emit, saveMeta, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
+  const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta })
   const aiServiceActionSet = createAiServiceActions({ state, emit, saveMeta, showToast: api.ui?.showToast })
   const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, loadStickersFromSource, setStickersEnabled })
   const wallpaperActions = createWallpaperActions({
@@ -1061,6 +1063,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ...toolActions,
     ...toolWorkDirectoryActions,
     ...requestRecordActions,
+    ...requestRecordViewActions,
     ...modelActions,
     ...accessActions,
     ...libraryActions,

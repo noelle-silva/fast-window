@@ -129,12 +129,31 @@ export function parseResponseStreamText(text: string): ResponseStreamView | null
       used = true
     }
     if (!used) {
+      if (isMeaninglessStreamEvent(event as any, choice, delta)) {
+        continue
+      }
       segments.push({ kind: 'other', text: payload })
     }
   }
 
   if (recognized === 0) return null
   return { segments, done }
+}
+
+// isMeaninglessStreamEvent 判断无内容的控制事件（角色声明、空 delta 等）：
+// 事件 delta 中除 role / logprobs 控制键外没有任何有效内容，且无结束原因与用量时忽略。
+function isMeaninglessStreamEvent(event: any, choice: any, delta: any): boolean {
+  if (!choice || typeof choice !== 'object') return false
+  if (choice.finish_reason) return false
+  if (event?.usage) return false
+  if (!delta || typeof delta !== 'object') return true
+  for (const [key, value] of Object.entries(delta)) {
+    if (key === 'role' || key === 'logprobs') continue
+    if (typeof value === 'string' && value !== '') return false
+    if (Array.isArray(value) && value.length > 0) return false
+    if (value && typeof value === 'object') return false
+  }
+  return true
 }
 
 function parsePayloadMessage(raw: any): RequestPayloadMessage {

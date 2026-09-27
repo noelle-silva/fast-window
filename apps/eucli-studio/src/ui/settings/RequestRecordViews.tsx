@@ -3,6 +3,7 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import { colorMixVar } from '../colorThemeStyles'
 import { formatJsonText } from './requestRecordFormat'
 import type { RequestPayloadMessage, RequestPayloadTool, RequestPayloadView, ResponseSegment, ResponseStreamView } from './requestRecordParse'
+import type { RequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
 
 export const RECORD_TEXT_CHUNK = 200_000
 
@@ -88,6 +89,26 @@ export function RecordTextView({ text, boxed = true }: { text: string; boxed?: b
   )
 }
 
+function CollapsibleBlock({ label, badgeColor, background, defaultOpen = false, children }: { label: string; badgeColor: string; background?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(defaultOpen)
+  React.useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
+  return (
+    <Box sx={{ borderRadius: 1.5, bgcolor: background, p: 0.75 }}>
+      <Button
+        size="small"
+        variant="text"
+        onClick={() => setOpen((current) => !current)}
+        sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12, fontWeight: 900, textTransform: 'none', color: badgeColor }}
+      >
+        {open ? `${label}（点击收起）` : `${label}（点击展开）`}
+      </Button>
+      {open ? <Box sx={{ mt: 0.25 }}>{children}</Box> : null}
+    </Box>
+  )
+}
+
 export function KeyValueView({ entries }: { entries: Array<{ key: string; value: string }> }) {
   return (
     <Box sx={{ borderRadius: 1.5, bgcolor: 'var(--studio-paper-muted)', p: 1 }}>
@@ -103,7 +124,7 @@ export function KeyValueView({ entries }: { entries: Array<{ key: string; value:
   )
 }
 
-export function RequestPayloadView({ view }: { view: RequestPayloadView }) {
+export function RequestPayloadView({ view, viewOptions }: { view: RequestPayloadView; viewOptions: RequestRecordViewOptions }) {
   return (
     <Stack spacing={1.5}>
       {view.params.length ? (
@@ -120,15 +141,15 @@ export function RequestPayloadView({ view }: { view: RequestPayloadView }) {
       ) : null}
       <Stack spacing={1}>
         {view.messages.map((message, index) => (
-          <PayloadMessageBlock key={index} message={message} />
+          <PayloadMessageBlock key={index} message={message} viewOptions={viewOptions} />
         ))}
       </Stack>
-      {view.tools.length ? <PayloadToolsBlock tools={view.tools} /> : null}
+      {view.tools.length ? <PayloadToolsBlock tools={view.tools} defaultOpen={viewOptions.requestToolsOpen} /> : null}
     </Stack>
   )
 }
 
-function PayloadMessageBlock({ message }: { message: RequestPayloadMessage }) {
+function PayloadMessageBlock({ message, viewOptions }: { message: RequestPayloadMessage; viewOptions: RequestRecordViewOptions }) {
   const style = roleStyle(message.role)
   return (
     <Box sx={{ borderRadius: 1.5, bgcolor: style.background, p: 1 }}>
@@ -140,18 +161,26 @@ function PayloadMessageBlock({ message }: { message: RequestPayloadMessage }) {
         {message.toolCallId ? <Typography variant="caption" color="text.secondary">call {message.toolCallId}</Typography> : null}
       </Box>
       {message.reasoning ? (
-        <Box sx={{ mb: 0.5, borderRadius: 1.5, bgcolor: colorMixVar('--studio-secondary', 10), p: 0.75 }}>
-          <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-secondary)' }}>思考</Typography>
-          <RecordTextView text={message.reasoning} boxed={false} />
+        <Box sx={{ mb: 0.5 }}>
+          <CollapsibleBlock label="思考" badgeColor="var(--studio-secondary)" background={colorMixVar('--studio-secondary', 10)} defaultOpen={viewOptions.requestReasoningOpen}>
+            <RecordTextView text={message.reasoning} boxed={false} />
+          </CollapsibleBlock>
         </Box>
       ) : null}
-      {message.content ? <RecordTextView text={message.content} boxed={false} /> : null}
+      {message.content ? (
+        message.role === 'tool' ? (
+          <CollapsibleBlock label="工具返回" badgeColor="var(--studio-warning)" defaultOpen={viewOptions.requestToolResultsOpen}>
+            <RecordTextView text={message.content} boxed={false} />
+          </CollapsibleBlock>
+        ) : (
+          <RecordTextView text={message.content} boxed={false} />
+        )
+      ) : null}
       {message.toolCalls.map((toolCall, index) => (
-        <Box key={index} sx={{ mt: 0.75, borderRadius: 1.5, bgcolor: colorMixVar('--studio-warning', 16), p: 0.75 }}>
-          <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-warning)' }}>
-            工具调用 {toolCall.name || '未命名'}
-          </Typography>
-          <RecordTextView text={formatJsonText(toolCall.arguments) ?? toolCall.arguments} boxed={false} />
+        <Box key={index} sx={{ mt: 0.75 }}>
+          <CollapsibleBlock label={`工具调用 ${toolCall.name || '未命名'}`} badgeColor="var(--studio-warning)" background={colorMixVar('--studio-warning', 16)} defaultOpen={viewOptions.requestToolCallsOpen}>
+            <RecordTextView text={formatJsonText(toolCall.arguments) ?? toolCall.arguments} boxed={false} />
+          </CollapsibleBlock>
         </Box>
       ))}
       {!message.content && !message.toolCalls.length ? (
@@ -161,8 +190,11 @@ function PayloadMessageBlock({ message }: { message: RequestPayloadMessage }) {
   )
 }
 
-function PayloadToolsBlock({ tools }: { tools: RequestPayloadTool[] }) {
-  const [open, setOpen] = React.useState(true)
+function PayloadToolsBlock({ tools, defaultOpen }: { tools: RequestPayloadTool[]; defaultOpen: boolean }) {
+  const [open, setOpen] = React.useState(defaultOpen)
+  React.useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
   return (
     <Box>
       <Button
@@ -190,23 +222,23 @@ function PayloadToolsBlock({ tools }: { tools: RequestPayloadTool[] }) {
   )
 }
 
-export function ResponseStreamView({ view }: { view: ResponseStreamView }) {
+export function ResponseStreamView({ view, viewOptions }: { view: ResponseStreamView; viewOptions: RequestRecordViewOptions }) {
   return (
     <Stack spacing={1}>
       {view.segments.map((segment, index) => (
-        <ResponseSegmentBlock key={index} segment={segment} />
+        <ResponseSegmentBlock key={index} segment={segment} viewOptions={viewOptions} />
       ))}
       {view.done ? <Typography variant="caption" color="text.secondary">流已结束</Typography> : null}
     </Stack>
   )
 }
 
-function ResponseSegmentBlock({ segment }: { segment: ResponseSegment }) {
+function ResponseSegmentBlock({ segment, viewOptions }: { segment: ResponseSegment; viewOptions: RequestRecordViewOptions }) {
   if (segment.kind === 'reasoning') {
     return (
-      <SegmentFrame label="思考" background={colorMixVar('--studio-secondary', 10)} badgeColor="var(--studio-secondary)">
+      <CollapsibleBlock label="思考" badgeColor="var(--studio-secondary)" background={colorMixVar('--studio-secondary', 10)} defaultOpen={viewOptions.responseReasoningOpen}>
         <RecordTextView text={segment.text} boxed={false} />
-      </SegmentFrame>
+      </CollapsibleBlock>
     )
   }
   if (segment.kind === 'content') {
@@ -218,9 +250,9 @@ function ResponseSegmentBlock({ segment }: { segment: ResponseSegment }) {
   }
   if (segment.kind === 'toolCall') {
     return (
-      <SegmentFrame label={`工具调用 ${segment.name || '未命名'}`} background={colorMixVar('--studio-warning', 14)} badgeColor="var(--studio-warning)">
+      <CollapsibleBlock label={`工具调用 ${segment.name || '未命名'}`} badgeColor="var(--studio-warning)" background={colorMixVar('--studio-warning', 14)} defaultOpen={viewOptions.responseToolCallsOpen}>
         <RecordTextView text={formatJsonText(segment.arguments) ?? segment.arguments} boxed={false} />
-      </SegmentFrame>
+      </CollapsibleBlock>
     )
   }
   if (segment.kind === 'finish') {

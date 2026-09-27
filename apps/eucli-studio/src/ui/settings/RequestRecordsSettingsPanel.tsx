@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Switch, TextField, Typography } from '@mui/material'
+import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -7,6 +8,7 @@ import { formatJsonText } from './requestRecordFormat'
 import { KeyValueView, RecordTextView, RequestPayloadView, ResponseStreamView } from './RequestRecordViews'
 import { parseRequestPayloadText, parseResponseStreamText, type RequestPayloadView as RequestPayloadViewModel, type ResponseStreamView as ResponseStreamViewModel } from './requestRecordParse'
 import { REQUEST_RECORD_LIMIT_MAX, REQUEST_RECORD_LIMIT_MIN } from '../../controller/requestRecords'
+import { REQUEST_RECORD_VIEW_OPTION_ITEMS, normalizeRequestRecordViewOptions, type RequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
 
 type HeaderEntry = { key: string; value: string }
 
@@ -14,15 +16,18 @@ type RequestRecordsSettingsPanelProps = {
   controller: any
   loading: boolean
   requestRecords: any
+  requestRecordViewOptions?: any
 }
 
 export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelProps) {
-  const { controller, loading, requestRecords } = props
+  const { controller, loading, requestRecords, requestRecordViewOptions } = props
   const box = requestRecords || {}
   const config = box.config || {}
   const items = Array.isArray(box.items) ? box.items : []
   const selectedId = String(box.selectedId || '')
   const detail = box.detail
+  const viewOptions = React.useMemo(() => normalizeRequestRecordViewOptions(requestRecordViewOptions), [requestRecordViewOptions])
+  const [optionsOpen, setOptionsOpen] = React.useState(false)
 
   React.useEffect(() => {
     controller.actions.refreshRequestRecordConfig?.(false)
@@ -55,6 +60,9 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
             sx={{ width: 120 }}
           />
           {box.configError ? <Typography variant="body2" color="error">{String(box.configError)}</Typography> : null}
+          <Button startIcon={<SettingsIcon fontSize="small" />} variant="text" onClick={() => setOptionsOpen(true)} disabled={loading}>
+            视图配置
+          </Button>
         </Stack>
 
         {box.error ? <Typography variant="body2" color="error">{String(box.error)}</Typography> : null}
@@ -102,7 +110,7 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
                   <Typography variant="body2" color="error">{String(box.detailError)}</Typography>
                 </SettingsSection>
               ) : detail ? (
-                <RequestRecordDetail record={detail} />
+                <RequestRecordDetail key={String(detail?.id || '')} record={detail} viewOptions={viewOptions} />
               ) : (
                 <SettingsSection sx={{ p: 2 }}>
                   <Typography variant="body2" color="text.secondary">选择一条记录查看请求与响应。</Typography>
@@ -112,11 +120,32 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
           </Box>
         </Stack>
       </Stack>
+
+      <Dialog open={optionsOpen} onClose={() => setOptionsOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>请求记录视图配置</DialogTitle>
+        <DialogContent>
+          <Stack spacing={0.5}>
+            {REQUEST_RECORD_VIEW_OPTION_ITEMS.map((item) => (
+              <Stack key={item.key} direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                <Typography variant="body2">{item.label}</Typography>
+                <Switch
+                  size="small"
+                  checked={!!viewOptions[item.key]}
+                  onChange={(e) => controller.actions.setRequestRecordViewOption?.(item.key, e.target.checked)}
+                />
+              </Stack>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setOptionsOpen(false)}>完成</Button>
+        </DialogActions>
+      </Dialog>
     </SettingsSurface>
   )
 }
 
-function RequestRecordDetail({ record }: { record: any }) {
+function RequestRecordDetail({ record, viewOptions }: { record: any; viewOptions: RequestRecordViewOptions }) {
   const requestHeaders = headerEntries(record?.headers)
   const responseHeaders = responseHeaderEntries(record?.responseHeaders)
   const bodyText = String(record?.body || '')
@@ -132,14 +161,14 @@ function RequestRecordDetail({ record }: { record: any }) {
         <RecordField label="时间" text={formatRecordTime(record?.createdAt)} />
         <RecordField label="方法 / 地址" text={`${String(record?.method || '')} ${String(record?.url || '')}`} />
         <HeaderDetailBlock label="请求头" entries={requestHeaders} />
-        <PayloadDetailBlock label="请求体" payload={payload} bodyText={bodyText} formattedText={bodyFormatted} />
+        <PayloadDetailBlock label="请求体" payload={payload} bodyText={bodyText} formattedText={bodyFormatted} viewOptions={viewOptions} />
 
         <Typography variant="body2" sx={{ fontWeight: 900 }}>响应</Typography>
         <RecordField label="状态" text={formatRecordStatus({ status: record?.responseStatus })} />
         {typeof record?.durationMs === 'number' ? <RecordField label="耗时" text={`${record.durationMs} ms`} /> : null}
         {error ? <RecordField label="错误" text={error} /> : null}
         <HeaderDetailBlock label="响应头" entries={responseHeaders} />
-        <StreamDetailBlock label="响应体" stream={stream} responseText={responseText} />
+        <StreamDetailBlock label="响应体" stream={stream} responseText={responseText} viewOptions={viewOptions} />
       </Stack>
     </SettingsSection>
   )
@@ -186,7 +215,7 @@ function HeaderDetailBlock({ label, entries }: { label: string; entries: HeaderE
   )
 }
 
-function PayloadDetailBlock({ label, payload, bodyText, formattedText }: { label: string; payload: RequestPayloadViewModel | null; bodyText: string; formattedText: string | null }) {
+function PayloadDetailBlock({ label, payload, bodyText, formattedText, viewOptions }: { label: string; payload: RequestPayloadViewModel | null; bodyText: string; formattedText: string | null; viewOptions: RequestRecordViewOptions }) {
   const [showFormatted, setShowFormatted] = React.useState(false)
   React.useEffect(() => {
     setShowFormatted(false)
@@ -196,12 +225,12 @@ function PayloadDetailBlock({ label, payload, bodyText, formattedText }: { label
   }
   return (
     <DetailBlock label={label} toggle={<DetailToggle label={showFormatted ? '界面渲染' : '查看格式化'} onClick={() => setShowFormatted((current) => !current)} />}>
-      {showFormatted ? <RecordTextView text={formattedText ?? bodyText} /> : <RequestPayloadView view={payload} />}
+      {showFormatted ? <RecordTextView text={formattedText ?? bodyText} /> : <RequestPayloadView view={payload} viewOptions={viewOptions} />}
     </DetailBlock>
   )
 }
 
-function StreamDetailBlock({ label, stream, responseText }: { label: string; stream: ResponseStreamViewModel | null; responseText: string }) {
+function StreamDetailBlock({ label, stream, responseText, viewOptions }: { label: string; stream: ResponseStreamViewModel | null; responseText: string; viewOptions: RequestRecordViewOptions }) {
   const [showRaw, setShowRaw] = React.useState(false)
   React.useEffect(() => {
     setShowRaw(false)
@@ -211,7 +240,7 @@ function StreamDetailBlock({ label, stream, responseText }: { label: string; str
   }
   return (
     <DetailBlock label={label} toggle={<DetailToggle label={showRaw ? '界面渲染' : '查看原文'} onClick={() => setShowRaw((current) => !current)} />}>
-      {showRaw ? <RecordTextView text={responseText} /> : <ResponseStreamView view={stream} />}
+      {showRaw ? <RecordTextView text={responseText} /> : <ResponseStreamView view={stream} viewOptions={viewOptions} />}
     </DetailBlock>
   )
 }

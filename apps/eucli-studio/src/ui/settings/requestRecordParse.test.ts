@@ -107,6 +107,16 @@ describe('parseResponseStreamText', () => {
     expect(objectOnly?.segments).toEqual([{ kind: 'reasoning', text: '对象' }])
   })
 
+  it('ignores role-only and empty control events', () => {
+    const lines = [
+      'data: {"id":"gen_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"logprobs":null,"finish_reason":null}]}',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":null}]}',
+      'data: {"choices":[{"index":0,"delta":{"content":"好"},"finish_reason":null}]}',
+    ].join('\n')
+    const view = parseResponseStreamText(lines)
+    expect(view?.segments).toEqual([{ kind: 'content', text: '好' }])
+  })
+
   it('collects unknown events into other segments', () => {
     const lines = [
       'event: ping',
