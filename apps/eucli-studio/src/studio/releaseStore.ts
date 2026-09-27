@@ -21,7 +21,7 @@ export type ReleaseStoreRuntime = {
 
 export type ReleaseStoreSnapshot = {
   cache: ReleaseCache
-  sources: Partial<Record<ReleaseArtifactKind, ReleaseSourceKind>>
+  sources: Record<ReleaseArtifactKind, ReleaseSourceKind>
   installations: ArtifactInstallation[]
   busy: boolean
 }
@@ -84,7 +84,7 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
       if (!pending.length) return
       update((current) => (current.busy ? current : { ...current, busy: true }))
       const installations = await runtime.listInstallations().catch(() => null)
-      const results = await Promise.all(pending.map((kind) => loadCandidates(runtime, kind, snapshot.sources[kind] || '')))
+      const results = await Promise.all(pending.map((kind) => loadCandidates(runtime, kind, snapshot.sources[kind])))
       update((current) => {
         let cache = current.cache
         for (const result of results) {

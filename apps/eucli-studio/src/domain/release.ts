@@ -302,18 +302,14 @@ export function isReleaseCacheFresh(cache: ReleaseCache, kind: ReleaseArtifactKi
   return Number.isFinite(time) && time > 0 && Date.now() - time < RELEASE_CACHE_FRESHNESS_MS
 }
 
-// releaseKindsToLoad 返回本次需要读取的类别：强制刷新时全读，否则只读「来源已解析且没有新鲜缓存」的类别。
+// releaseKindsToLoad 返回本次需要读取的类别：强制刷新时全读，否则只读没有新鲜缓存的类别。
 export function releaseKindsToLoad(
   cache: ReleaseCache,
-  sources: Partial<Record<ReleaseArtifactKind, ReleaseSourceKind>>,
+  sources: Record<ReleaseArtifactKind, ReleaseSourceKind>,
   kinds: ReleaseArtifactKind[],
   force: boolean,
 ): ReleaseArtifactKind[] {
-  return kinds.filter((kind) => {
-    const sourceKind = sources[kind]
-    if (!sourceKind) return false
-    return force || !isReleaseCacheFresh(cache, kind, sourceKind)
-  })
+  return kinds.filter((kind) => force || !isReleaseCacheFresh(cache, kind, sources[kind]))
 }
 
 export function writeReleaseCache(

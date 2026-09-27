@@ -22,8 +22,8 @@ export function useReleaseStore(getRuntime: () => AiChatAppRuntime | null, showT
     const checking = state.busy
     const installations = state.installations
     return {
-      tool: composeReleaseCandidatesView(state.cache, 'tool', { source: state.sources.tool || 'official', checking, installations }),
-      plugin: composeReleaseCandidatesView(state.cache, 'plugin', { source: state.sources.plugin || 'official', checking, installations }),
+      tool: composeReleaseCandidatesView(state.cache, 'tool', { source: state.sources.tool, checking, installations }),
+      plugin: composeReleaseCandidatesView(state.cache, 'plugin', { source: state.sources.plugin, checking, installations }),
     }
   }, [state])
 

@@ -102,8 +102,8 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
       }
       setSourceKey(next)
       setSourceProblem('')
-      // 该来源该分类已有缓存则直接展示；没有才发起读取（读取端点自带新鲜度判定）。
-      if (!hasSourceKind(releaseView, next, kind)) {
+      // 该来源已有缓存则直接展示；没有才发起读取（读取端点自带新鲜度判定）。
+      if (!hasSourceCandidates(releaseView, next)) {
         await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
       }
     } finally {
@@ -369,9 +369,8 @@ function itemTitle(kind: string) {
   return kind === 'plugin' ? '系统插件' : 'AI 工具'
 }
 
-function hasSourceKind(view: ReleaseCandidatesView | null | undefined, source: string, kind: string): boolean {
-  if (!view?.sourceCandidates) return false
-  return (view.sourceCandidates[source] || []).some((candidate) => String(candidate.artifact?.kind || '') === kind)
+function hasSourceCandidates(view: ReleaseCandidatesView | null | undefined, source: string): boolean {
+  return (view?.sourceCandidates?.[source]?.length ?? 0) > 0
 }
 
 function formatBytes(value: number) {

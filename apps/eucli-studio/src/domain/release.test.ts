@@ -187,9 +187,17 @@ describe('releaseKindsToLoad', () => {
     expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool', 'plugin'], false)).toEqual(['tool', 'plugin'])
   })
 
-  it('skips kinds without a resolved source', () => {
-    const cache = emptyReleaseCache()
-    expect(releaseKindsToLoad(cache, { tool: 'official' }, ['tool', 'plugin'], false)).toEqual(['tool'])
+  it('judges freshness against each kind own source', () => {
+    let cache = writeReleaseCache(emptyReleaseCache(), 'tool', 'official', {
+      candidates: [candidate('tool', 'context7', '0.1.2')],
+      failure: '',
+    })
+    cache = writeReleaseCache(cache, 'plugin', '甲', {
+      candidates: [candidate('plugin', 'time-plugin', '0.1.0')],
+      failure: '',
+    })
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: '甲' }, ['tool', 'plugin'], false)).toEqual([])
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool', 'plugin'], false)).toEqual(['plugin'])
   })
 
   it('loads every requested kind on force refresh', () => {
@@ -197,7 +205,7 @@ describe('releaseKindsToLoad', () => {
       candidates: [candidate('tool', 'context7', '0.1.2')],
       failure: '',
     })
-    expect(releaseKindsToLoad(cache, { tool: 'official' }, ['tool'], true)).toEqual(['tool'])
+    expect(releaseKindsToLoad(cache, { tool: 'official', plugin: 'official' }, ['tool'], true)).toEqual(['tool'])
   })
 })
 
