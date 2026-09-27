@@ -25,6 +25,7 @@ type service struct {
 	legacyLibraryDir string
 	mu               sync.Mutex
 	uploadTasks      *assetUploadTaskStore
+	accessServer     *accessServer
 	// 插件声明指纹调和：每个仓库进程内只执行一次，保证派生索引与插件声明一致。
 	pluginMu         sync.Mutex
 	pluginReadyRepos map[string]bool
@@ -49,6 +50,9 @@ func run() error {
 	}
 	if err := svc.ensureRoots(); err != nil {
 		return err
+	}
+	if err := svc.startExternalAccessServer(); err != nil {
+		log.Printf("外部访问服务未启动：%v", err)
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -107,7 +111,7 @@ func newService() (*service, error) {
 		return nil, fmt.Errorf("解析历史知识库目录失败: %w", err)
 	}
 
-	return &service{
+	svc := &service{
 		dataDir:          dataDir,
 		stateDir:         stateDir,
 		reposDir:         reposDir,
@@ -115,7 +119,9 @@ func newService() (*service, error) {
 		legacyLibraryDir: legacyLibraryDir,
 		uploadTasks:      newAssetUploadTaskStore(),
 		pluginReadyRepos: map[string]bool{},
-	}, nil
+	}
+	svc.accessServer = newAccessServer(svc)
+	return svc, nil
 }
 
 func mustGetwd() string {

@@ -11,7 +11,7 @@ import (
 func newTestService(t *testing.T) *service {
 	t.Helper()
 	dataDir := t.TempDir()
-	return &service{
+	svc := &service{
 		dataDir:          dataDir,
 		stateDir:         filepath.Join(dataDir, stateDirName),
 		reposDir:         filepath.Join(dataDir, reposDirName),
@@ -20,6 +20,9 @@ func newTestService(t *testing.T) *service {
 		uploadTasks:      newAssetUploadTaskStore(),
 		pluginReadyRepos: map[string]bool{},
 	}
+	svc.accessServer = newAccessServer(svc)
+	t.Cleanup(svc.accessServer.stop)
+	return svc
 }
 
 // testRepoID 返回测试服务的唯一仓库标识；没有仓库时按需创建一个。

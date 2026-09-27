@@ -159,12 +159,13 @@ func TestSaveExternalAccessPortValidatesRange(t *testing.T) {
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatalf("ensureRoots failed: %v", err)
 	}
-	doc, err := svc.saveExternalAccessPort(8765)
+	port := freePort(t)
+	doc, err := svc.saveExternalAccessPort(float64(port))
 	if err != nil {
 		t.Fatalf("saveExternalAccessPort failed: %v", err)
 	}
-	if doc.Port != 8765 {
-		t.Fatalf("port = %d, want 8765", doc.Port)
+	if doc.Port != port {
+		t.Fatalf("port = %d, want %d", doc.Port, port)
 	}
 	for _, bad := range []float64{0, -1, 65536, 80.5} {
 		if _, err := svc.saveExternalAccessPort(bad); err == nil {
@@ -175,7 +176,7 @@ func TestSaveExternalAccessPortValidatesRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Port != 8765 {
-		t.Fatalf("persisted port = %d, want 8765", persisted.Port)
+	if persisted.Port != port {
+		t.Fatalf("persisted port = %d, want %d", persisted.Port, port)
 	}
 }

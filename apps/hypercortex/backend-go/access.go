@@ -165,7 +165,8 @@ func (svc *service) deleteExternalAccessKey(key string) (externalAccessDoc, erro
 	return doc, nil
 }
 
-// saveExternalAccessPort 保存开放端口；端口必须是 1~65535 的整数。
+// saveExternalAccessPort 保存开放端口并让外部访问服务真实监听该端口；
+// 端口必须是 1~65535 的整数，新端口监听失败时不改变配置与既有监听。
 func (svc *service) saveExternalAccessPort(port float64) (externalAccessDoc, error) {
 	if port != math.Trunc(port) || port < 1 || port > maxAccessPort {
 		return externalAccessDoc{}, fmt.Errorf("端口必须是 1 到 %d 之间的整数", maxAccessPort)
@@ -174,8 +175,18 @@ func (svc *service) saveExternalAccessPort(port float64) (externalAccessDoc, err
 	if err != nil {
 		return externalAccessDoc{}, err
 	}
+	if _, err := svc.accessServer.listen(int(port)); err != nil {
+		return externalAccessDoc{}, err
+	}
+	previousPort := doc.Port
 	doc.Port = int(port)
 	if err := svc.saveExternalAccess(doc); err != nil {
+		// 落盘失败：尽量恢复原有监听，保持配置与运行一致。
+		if previousPort > 0 {
+			_, _ = svc.accessServer.listen(previousPort)
+		} else {
+			svc.accessServer.stop()
+		}
 		return externalAccessDoc{}, err
 	}
 	return doc, nil
