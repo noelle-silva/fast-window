@@ -325,6 +325,19 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			Limit:         intField(params, "limit"),
 			Offset:        intField(params, "offset"),
 		})
+	case "hypercortex.search.queryAssets":
+		return svc.queryAssetSearch(assetSearchQuery{
+			Scope:         requireScope(params),
+			Query:         stringField(params, "query"),
+			Fields:        stringSliceField(params, "fields"),
+			Kind:          stringField(params, "kind"),
+			SizeFrom:      numberField(params, "sizeFrom"),
+			SizeTo:        numberField(params, "sizeTo"),
+			UpdatedFromMs: numberField(params, "updatedFromMs"),
+			UpdatedToMs:   numberField(params, "updatedToMs"),
+			Limit:         intField(params, "limit"),
+			Offset:        intField(params, "offset"),
+		})
 
 	case "hypercortex.trash.list":
 		return svc.listTrash(requireScope(params))
