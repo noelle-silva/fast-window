@@ -106,7 +106,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 	}
 
 	// 搜索索引同触发点刷新：文本面新内容可被搜到。
-	hits, err := svc.queryNoteSearch(testRepoID(t, svc), "new text", nil, 0, 0)
+	hits, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "new text"})
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}

@@ -314,7 +314,16 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.search.kinds":
 		return listSearchableFaceKinds(), nil
 	case "hypercortex.search.query":
-		return svc.queryNoteSearch(requireScope(params), stringField(params, "query"), stringSliceField(params, "faceKinds"), intField(params, "limit"), intField(params, "offset"))
+		return svc.queryNoteSearch(noteSearchQuery{
+			Scope:         requireScope(params),
+			Query:         stringField(params, "query"),
+			Fields:        stringSliceField(params, "fields"),
+			FaceKinds:     stringSliceField(params, "faceKinds"),
+			UpdatedFromMs: numberField(params, "updatedFromMs"),
+			UpdatedToMs:   numberField(params, "updatedToMs"),
+			Limit:         intField(params, "limit"),
+			Offset:        intField(params, "offset"),
+		})
 
 	case "hypercortex.trash.list":
 		return svc.listTrash(requireScope(params))

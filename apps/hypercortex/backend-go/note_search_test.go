@@ -57,7 +57,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 	}
 
 	// 面内容命中：返回该笔记 + 文本面命中 + 摘要
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "量子纠缠", nil, 0, 0)
+	res, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "量子纠缠"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestSearchIndexCollectedForSearchableFacesOnly(t *testing.T) {
 		t.Fatalf("snippet empty: %#v", hit.FaceHits[0])
 	}
 	// 标题单独命中时标记 title
-	byTitle, err := svc.queryNoteSearch(testRepoID(t, svc), "搜索目标", nil, 0, 0)
+	byTitle, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "搜索目标"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestSearchQueryTitleHitForEmptyTextFace(t *testing.T) {
 	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-2")), manifest); err != nil {
 		t.Fatal(err)
 	}
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "空内容", nil, 0, 0)
+	res, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "空内容"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,16 +135,16 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), filepath.ToSlash(filepath.Join(notesDir, "2026-09", "search-note-3")), manifest); err != nil {
 		t.Fatal(err)
 	}
-	// 范围仅文本面内容：标题字段不参与，本笔记应被过滤掉
-	res, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", []string{"markdown"}, 0, 0)
+	// 匹配维度仅正文 + 面类型限定：标题字段不参与，本笔记应被过滤掉
+	res, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "过滤目标", Fields: []string{"content"}, FaceKinds: []string{"markdown"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Items) != 0 {
 		t.Fatalf("filtered items = %#v", res.Items)
 	}
-	// 不限定范围时标题可命中
-	all, err := svc.queryNoteSearch(testRepoID(t, svc), "过滤目标", nil, 0, 0)
+	// 未限定匹配维度（全量）+ 面类型限定：标题仍参与匹配，本笔记命中
+	all, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "过滤目标", FaceKinds: []string{"markdown"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.refreshDerivedIndexesForNote(testRepoID(t, svc), rel, manifest); err != nil {
 		t.Fatal(err)
 	}
-	before, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
+	before, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "恢复关键词X"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.moveNoteToTrash(testRepoID(t, svc), mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel})); err != nil {
 		t.Fatal(err)
 	}
-	trashed, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
+	trashed, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "恢复关键词X"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	if _, err := svc.restoreTrashItem(testRepoID(t, svc), mustJSONRaw(t, items[0])); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := svc.queryNoteSearch(testRepoID(t, svc), "恢复关键词X", nil, 0, 0)
+	restored, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "恢复关键词X"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,14 +364,14 @@ func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
 		}
 	}
 
-	first, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 0)
+	first, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "分页目标", Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Items) != 2 {
 		t.Fatalf("first page items = %d, want 2", len(first.Items))
 	}
-	second, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 2)
+	second, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "分页目标", Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,21 +387,21 @@ func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
 			t.Fatalf("pages overlap on %s: first=%#v second=%#v", hit.NoteID, first.Items, second.Items)
 		}
 	}
-	third, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 4)
+	third, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "分页目标", Limit: 2, Offset: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(third.Items) != 1 {
 		t.Fatalf("third page items = %d, want 1", len(third.Items))
 	}
-	beyond, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 2, 99)
+	beyond, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "分页目标", Limit: 2, Offset: 99})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(beyond.Items) != 0 {
 		t.Fatalf("beyond items = %#v, want empty", beyond.Items)
 	}
-	all, err := svc.queryNoteSearch(testRepoID(t, svc), "分页目标", nil, 0, 0)
+	all, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "分页目标"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,18 +425,78 @@ func TestSearchQueryDefaultLimitIs100AndCustomLimitIsFree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	def, err := svc.queryNoteSearch(testRepoID(t, svc), "上限目标", nil, 0, 0)
+	def, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "上限目标"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(def.Items) != 100 {
 		t.Fatalf("default items = %d, want 100", len(def.Items))
 	}
-	free, err := svc.queryNoteSearch(testRepoID(t, svc), "上限目标", nil, 200, 0)
+	free, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "上限目标", Limit: 200})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(free.Items) != 101 {
 		t.Fatalf("custom limit items = %d, want 101", len(free.Items))
+	}
+}
+
+func TestSearchQueryCombinesFieldsAndFilters(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	// 预置搜索索引：标题/标签/正文各自命中的三条笔记，更新时间递增。
+	idx := noteSearchIndex{Version: noteSearchIndexVersion, Notes: map[string]noteSearchEntry{
+		"combo-title":   {Title: "组合冒烟", UpdatedAtMs: 100},
+		"combo-tags":    {Title: "其他", Tags: []string{"组合冒烟"}, UpdatedAtMs: 200},
+		"combo-content": {Title: "其他", UpdatedAtMs: 300, Faces: []noteSearchFaceEntry{{FaceID: "text", Kind: "markdown", Title: "文本", Text: "组合冒烟"}}},
+	}}
+	if err := svc.saveNoteSearchIndex(testRepoID(t, svc), idx); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+
+	count := func(query noteSearchQuery) int {
+		query.Scope = scope
+		res, err := svc.queryNoteSearch(query)
+		if err != nil {
+			t.Fatalf("query %#v failed: %v", query, err)
+		}
+		return len(res.Items)
+	}
+
+	// 单独入口：仅标题 / 仅标签 / 仅正文
+	if got := count(noteSearchQuery{Query: "组合冒烟", Fields: []string{"title"}}); got != 1 {
+		t.Fatalf("title-only = %d, want 1", got)
+	}
+	if got := count(noteSearchQuery{Query: "组合冒烟", Fields: []string{"tags"}}); got != 1 {
+		t.Fatalf("tags-only = %d, want 1", got)
+	}
+	if got := count(noteSearchQuery{Query: "组合冒烟", Fields: []string{"content"}}); got != 1 {
+		t.Fatalf("content-only = %d, want 1", got)
+	}
+	// 自由组合：标题 + 标签
+	if got := count(noteSearchQuery{Query: "组合冒烟", Fields: []string{"title", "tags"}}); got != 2 {
+		t.Fatalf("title+tags = %d, want 2", got)
+	}
+	// 缺省维度：全量（标题/标签/正文均参与）
+	if got := count(noteSearchQuery{Query: "组合冒烟"}); got != 3 {
+		t.Fatalf("default fields = %d, want 3", got)
+	}
+	// 面类型限定：正文命中的是 markdown，限定 html 应为 0
+	if got := count(noteSearchQuery{Query: "组合冒烟", Fields: []string{"content"}, FaceKinds: []string{"html"}}); got != 0 {
+		t.Fatalf("content+html = %d, want 0", got)
+	}
+	// 更新时间范围
+	if got := count(noteSearchQuery{Query: "组合冒烟", UpdatedFromMs: 250}); got != 1 {
+		t.Fatalf("updatedFrom = %d, want 1", got)
+	}
+	if got := count(noteSearchQuery{Query: "组合冒烟", UpdatedToMs: 150}); got != 1 {
+		t.Fatalf("updatedTo = %d, want 1", got)
+	}
+	// 未知维度快速失败
+	if _, err := svc.queryNoteSearch(noteSearchQuery{Scope: scope, Query: "组合冒烟", Fields: []string{"unknown"}}); err == nil {
+		t.Fatal("unknown field must be rejected")
 	}
 }

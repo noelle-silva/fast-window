@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,6 +68,18 @@ type noteSearchHit struct {
 type noteSearchResult struct {
 	Kinds []noteSearchFaceKindInfo `json:"kinds"`
 	Items []noteSearchHit          `json:"items"`
+}
+
+// noteSearchQuery 是一次搜索请求的全部条件：匹配维度、面类型、更新时间范围与分段。
+type noteSearchQuery struct {
+	Scope         string
+	Query         string
+	Fields        []string
+	FaceKinds     []string
+	UpdatedFromMs float64
+	UpdatedToMs   float64
+	Limit         int
+	Offset        int
 }
 
 // noteSearchDefaultLimit 是未指定条数时每次搜索返回的默认上限；调用方可自由指定其他条数。
@@ -286,70 +299,98 @@ func makeSearchSnippet(text string, tokens []string) string {
 }
 
 // queryNoteSearch 按笔记聚合返回搜索结果：
-// 范围不限时命中笔记字段（标题/简介/标签/ID，无面笔记因此仍可搜）或任意可搜面内容；
-// 传入 faceKinds 时仅在该些面类型的内容中搜索（Q5 面类型范围筛选）；
+// fields 选择参与匹配的维度（title/description/tags/content 可自由组合；缺省为全量：笔记字段 + ID + 面内容）；
+// faceKinds 限定 content 匹配的面类型（缺省为全部可搜面）；
+// updatedFromMs/updatedToMs 按笔记更新时间过滤（0 表示不限）；
 // limit 为本次返回条数（<=0 时取默认上限 100，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
-func (svc *service) queryNoteSearch(scope string, rawQuery string, faceKinds []string, limit int, offset int) (noteSearchResult, error) {
+func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, error) {
 	result := noteSearchResult{Kinds: listSearchableFaceKinds()}
+	limit := query.Limit
 	if limit <= 0 {
 		limit = noteSearchDefaultLimit
 	}
+	offset := query.Offset
 	if offset < 0 {
 		offset = 0
 	}
-	tokens := normalizeSearchTokens(rawQuery)
+	fieldSet := map[string]bool{}
+	for _, field := range query.Fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		switch field {
+		case "title", "description", "tags", "content":
+			fieldSet[field] = true
+		default:
+			return result, fmt.Errorf("未知的搜索维度：%s", field)
+		}
+	}
+	explicitFields := len(fieldSet) > 0
+	matchTitle := !explicitFields || fieldSet["title"]
+	matchDescription := !explicitFields || fieldSet["description"]
+	matchTags := !explicitFields || fieldSet["tags"]
+	matchContent := !explicitFields || fieldSet["content"]
+	matchID := !explicitFields
+
+	tokens := normalizeSearchTokens(query.Query)
 	if len(tokens) == 0 {
 		result.Items = []noteSearchHit{}
 		return result, nil
 	}
-	idx, err := svc.loadNoteSearchIndex(scope)
+	idx, err := svc.loadNoteSearchIndex(query.Scope)
 	if err != nil {
 		return result, err
 	}
 	kindSet := map[string]bool{}
-	for _, kind := range faceKinds {
+	for _, kind := range query.FaceKinds {
 		kind = strings.TrimSpace(kind)
 		if kind != "" {
 			kindSet[kind] = true
 		}
 	}
-	filterFaces := len(kindSet) > 0
 
 	hits := []noteSearchHit{}
 	for noteID, entry := range idx.Notes {
-		hit := noteSearchHit{NoteID: noteID, Title: entry.Title, Description: entry.Description, Dir: entry.Dir, CreatedAtMs: entry.CreatedAtMs, UpdatedAtMs: entry.UpdatedAtMs}
-		if !filterFaces {
-			if textMatchesTokens(entry.Title, tokens) {
-				hit.NoteFields = append(hit.NoteFields, "title")
-				hit.score += 12
-			}
-			if textMatchesTokens(entry.Description, tokens) {
-				hit.NoteFields = append(hit.NoteFields, "description")
-				hit.score += 6
-			}
-			if len(entry.Tags) > 0 && textMatchesTokens(strings.Join(entry.Tags, " "), tokens) {
-				hit.NoteFields = append(hit.NoteFields, "tags")
-				hit.score += 6
-			}
-			if textMatchesTokens(noteID, tokens) {
-				hit.NoteFields = append(hit.NoteFields, "id")
-				hit.score += 4
-			}
+		if query.UpdatedFromMs > 0 && entry.UpdatedAtMs < query.UpdatedFromMs {
+			continue
 		}
-		for _, face := range entry.Faces {
-			if filterFaces && !kindSet[face.Kind] {
-				continue
+		if query.UpdatedToMs > 0 && entry.UpdatedAtMs > query.UpdatedToMs {
+			continue
+		}
+		hit := noteSearchHit{NoteID: noteID, Title: entry.Title, Description: entry.Description, Dir: entry.Dir, CreatedAtMs: entry.CreatedAtMs, UpdatedAtMs: entry.UpdatedAtMs}
+		if matchTitle && textMatchesTokens(entry.Title, tokens) {
+			hit.NoteFields = append(hit.NoteFields, "title")
+			hit.score += 12
+		}
+		if matchDescription && textMatchesTokens(entry.Description, tokens) {
+			hit.NoteFields = append(hit.NoteFields, "description")
+			hit.score += 6
+		}
+		if matchTags && len(entry.Tags) > 0 && textMatchesTokens(strings.Join(entry.Tags, " "), tokens) {
+			hit.NoteFields = append(hit.NoteFields, "tags")
+			hit.score += 6
+		}
+		if matchID && textMatchesTokens(noteID, tokens) {
+			hit.NoteFields = append(hit.NoteFields, "id")
+			hit.score += 4
+		}
+		if matchContent {
+			for _, face := range entry.Faces {
+				if len(kindSet) > 0 && !kindSet[face.Kind] {
+					continue
+				}
+				if !textMatchesTokens(face.Text, tokens) {
+					continue
+				}
+				hit.FaceHits = append(hit.FaceHits, noteSearchFaceHit{
+					FaceID:  face.FaceID,
+					Kind:    face.Kind,
+					Title:   face.Title,
+					Snippet: makeSearchSnippet(face.Text, tokens),
+				})
+				hit.score += 8
 			}
-			if !textMatchesTokens(face.Text, tokens) {
-				continue
-			}
-			hit.FaceHits = append(hit.FaceHits, noteSearchFaceHit{
-				FaceID:  face.FaceID,
-				Kind:    face.Kind,
-				Title:   face.Title,
-				Snippet: makeSearchSnippet(face.Text, tokens),
-			})
-			hit.score += 8
 		}
 		if len(hit.NoteFields) == 0 && len(hit.FaceHits) == 0 {
 			continue
