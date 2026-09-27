@@ -26,6 +26,9 @@ import type { AllNotesLayout } from './AllNotesPage'
 
 type Mode = 'notes' | 'assets'
 
+// SEARCH_PAGE_SIZE 是搜索每次请求的条数：首次加载与下滑懒加载共用。
+const SEARCH_PAGE_SIZE = 48
+
 type Props = {
   gateway: HyperCortexGateway
   scope: VaultScope
@@ -367,6 +370,8 @@ export function QuickSearchPopover(props: Props) {
   const [faceKindFilter, setFaceKindFilter] = React.useState('')
   const [searchItems, setSearchItems] = React.useState<NoteSearchHit[]>([])
   const [searchLoading, setSearchLoading] = React.useState(false)
+  const [searchLoadingMore, setSearchLoadingMore] = React.useState(false)
+  const [searchHasMore, setSearchHasMore] = React.useState(false)
   const [searchError, setSearchError] = React.useState<string | null>(null)
   const searchSeqRef = React.useRef(0)
 
@@ -395,6 +400,7 @@ export function QuickSearchPopover(props: Props) {
     const q = query.trim()
     if (!q) {
       setSearchItems([])
+      setSearchHasMore(false)
       setSearchError(null)
       return
     }
@@ -403,15 +409,18 @@ export function QuickSearchPopover(props: Props) {
       setSearchLoading(true)
       setSearchError(null)
       gateway.search
-        .queryNotes(scope, q, faceKindFilter ? [faceKindFilter] : [])
+        .queryNotes(scope, q, faceKindFilter ? [faceKindFilter] : [], SEARCH_PAGE_SIZE, 0)
         .then(result => {
           if (searchSeqRef.current !== seq) return
-          setSearchItems(Array.isArray(result?.items) ? result.items : [])
+          const items = Array.isArray(result?.items) ? result.items : []
+          setSearchItems(items)
+          setSearchHasMore(items.length >= SEARCH_PAGE_SIZE)
         })
         .catch((e: any) => {
           if (searchSeqRef.current !== seq) return
           setSearchError(String(e?.message || e || '搜索失败'))
           setSearchItems([])
+          setSearchHasMore(false)
         })
         .finally(() => {
           if (searchSeqRef.current === seq) setSearchLoading(false)
@@ -419,6 +428,40 @@ export function QuickSearchPopover(props: Props) {
     }, 200)
     return () => window.clearTimeout(timer)
   }, [faceKindFilter, gateway, mode, open, query, scope])
+
+  // 下滑懒加载：以已加载条数为起点再请求一页，追加到现有结果。
+  const loadMoreSearch = React.useCallback(() => {
+    if (mode !== 'notes' || searchLoading || searchLoadingMore || !searchHasMore) return
+    const q = query.trim()
+    if (!q) return
+    const seq = searchSeqRef.current
+    setSearchLoadingMore(true)
+    gateway.search
+      .queryNotes(scope, q, faceKindFilter ? [faceKindFilter] : [], SEARCH_PAGE_SIZE, searchItems.length)
+      .then(result => {
+        if (searchSeqRef.current !== seq) return
+        const items = Array.isArray(result?.items) ? result.items : []
+        if (items.length) setSearchItems(prev => [...prev, ...items])
+        setSearchHasMore(items.length >= SEARCH_PAGE_SIZE)
+      })
+      .catch((e: any) => {
+        if (searchSeqRef.current !== seq) return
+        setSearchError(String(e?.message || e || '搜索失败'))
+      })
+      .finally(() => {
+        if (searchSeqRef.current === seq) setSearchLoadingMore(false)
+      })
+  }, [faceKindFilter, gateway, mode, query, scope, searchHasMore, searchItems.length, searchLoading, searchLoadingMore])
+
+  const handleSearchScroll = React.useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (mode !== 'notes') return
+      const el = event.currentTarget
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
+      loadMoreSearch()
+    },
+    [loadMoreSearch, mode],
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -639,7 +682,7 @@ export function QuickSearchPopover(props: Props) {
               </Box>
             ) : null}
 
-            <Box sx={{ maxHeight: 360, overflowY: 'auto' }}>
+            <Box onScroll={handleSearchScroll} sx={{ maxHeight: 360, overflowY: 'auto' }}>
               {showEmptyHint ? (
                 <Box sx={{ px: 1.5, py: 1.5 }}>
                   <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', fontWeight: 900 }}>输入关键词开始匹配</Typography>

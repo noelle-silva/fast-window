@@ -297,7 +297,7 @@ export type NoteSearchResult = {
 
 export type SearchService = {
   listFaceKinds: () => Promise<NoteSearchFaceKind[]>
-  queryNotes: (scope: VaultScope, query: string, faceKinds?: string[]) => Promise<NoteSearchResult>
+  queryNotes: (scope: VaultScope, query: string, faceKinds?: string[], limit?: number, offset?: number) => Promise<NoteSearchResult>
 }
 
 export type MetadataService = {
