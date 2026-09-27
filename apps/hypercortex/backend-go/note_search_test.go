@@ -500,3 +500,76 @@ func TestSearchQueryCombinesFieldsAndFilters(t *testing.T) {
 		t.Fatal("unknown field must be rejected")
 	}
 }
+
+func TestSearchQueryScopesToFavoriteFolder(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+	// 搜索索引：4 篇都命中关键词。
+	idx := noteSearchIndex{Version: noteSearchIndexVersion, Notes: map[string]noteSearchEntry{
+		"note-a": {Title: "范围目标 A"},
+		"note-b": {Title: "范围目标 B"},
+		"note-c": {Title: "范围目标 C"},
+		"note-d": {Title: "范围目标 D"},
+	}}
+	if err := svc.saveNoteSearchIndex(scope, idx); err != nil {
+		t.Fatal(err)
+	}
+	// 收藏夹：甲直接收藏 A、B，并嵌套乙；乙收藏 C；D 不在任何收藏夹。
+	// 甲还收藏了一个附件与一个指向乙的子收藏夹引用，验证非笔记条目不影响结果。
+	doc := favoritesDoc{
+		Version:      1,
+		RootFolderID: "root",
+		Folders: map[string]favoriteFolder{
+			"root": {ID: "root", Title: "根目录"},
+			"jia":  {ID: "jia", Title: "甲"},
+			"yi":   {ID: "yi", Title: "乙"},
+		},
+		RefsByFolderID: map[string][]favoriteItemRef{
+			"root": {},
+			"jia": {
+				{ID: "r1", FolderID: "jia", Kind: "note", TargetID: "note-a"},
+				{ID: "r2", FolderID: "jia", Kind: "note", TargetID: "note-b"},
+				{ID: "r3", FolderID: "jia", Kind: "folder", TargetID: "yi"},
+				{ID: "r4", FolderID: "jia", Kind: "asset", TargetID: "asset-x"},
+			},
+			"yi": {
+				{ID: "r5", FolderID: "yi", Kind: "note", TargetID: "note-c"},
+			},
+		},
+	}
+	if err := svc.saveFavoritesDoc(scope, doc); err != nil {
+		t.Fatal(err)
+	}
+
+	// 甲（含嵌套乙）：A、B、C 三篇。
+	res, err := svc.queryNoteSearch(noteSearchQuery{Scope: scope, Query: "范围目标", FolderID: "jia"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 3 {
+		t.Fatalf("folder jia items = %d, want 3", len(res.Items))
+	}
+	// 乙：仅 C。
+	res, err = svc.queryNoteSearch(noteSearchQuery{Scope: scope, Query: "范围目标", FolderID: "yi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 || res.Items[0].NoteID != "note-c" {
+		t.Fatalf("folder yi items = %#v, want note-c", res.Items)
+	}
+	// 不传收藏夹：全量 4 篇。
+	res, err = svc.queryNoteSearch(noteSearchQuery{Scope: scope, Query: "范围目标"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 4 {
+		t.Fatalf("no folder items = %d, want 4", len(res.Items))
+	}
+	// 不存在的收藏夹快速失败。
+	if _, err := svc.queryNoteSearch(noteSearchQuery{Scope: scope, Query: "范围目标", FolderID: "missing"}); err == nil {
+		t.Fatal("missing folder must be rejected")
+	}
+}

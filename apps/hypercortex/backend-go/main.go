@@ -319,6 +319,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			Query:         stringField(params, "query"),
 			Fields:        stringSliceField(params, "fields"),
 			FaceKinds:     stringSliceField(params, "faceKinds"),
+			FolderID:      stringField(params, "folderId"),
 			UpdatedFromMs: numberField(params, "updatedFromMs"),
 			UpdatedToMs:   numberField(params, "updatedToMs"),
 			Limit:         intField(params, "limit"),

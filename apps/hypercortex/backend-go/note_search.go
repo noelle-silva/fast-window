@@ -70,12 +70,13 @@ type noteSearchResult struct {
 	Items []noteSearchHit          `json:"items"`
 }
 
-// noteSearchQuery 是一次搜索请求的全部条件：匹配维度、面类型、更新时间范围与分段。
+// noteSearchQuery 是一次搜索请求的全部条件：匹配维度、面类型、收藏夹范围、更新时间范围与分段。
 type noteSearchQuery struct {
 	Scope         string
 	Query         string
 	Fields        []string
 	FaceKinds     []string
+	FolderID      string
 	UpdatedFromMs float64
 	UpdatedToMs   float64
 	Limit         int
@@ -349,9 +350,25 @@ func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, er
 			kindSet[kind] = true
 		}
 	}
+	// 收藏夹范围：非空时只在「该收藏夹（含嵌套子收藏夹）所含笔记」中搜索。
+	var folderNoteIDs map[string]bool
+	if folderID := strings.TrimSpace(query.FolderID); folderID != "" {
+		doc, _, err := svc.tryLoadFavorites(query.Scope)
+		if err != nil {
+			return result, err
+		}
+		ids, err := collectFavoriteNoteIDs(doc, folderID)
+		if err != nil {
+			return result, err
+		}
+		folderNoteIDs = ids
+	}
 
 	hits := []noteSearchHit{}
 	for noteID, entry := range idx.Notes {
+		if folderNoteIDs != nil && !folderNoteIDs[noteID] {
+			continue
+		}
 		if query.UpdatedFromMs > 0 && entry.UpdatedAtMs < query.UpdatedFromMs {
 			continue
 		}

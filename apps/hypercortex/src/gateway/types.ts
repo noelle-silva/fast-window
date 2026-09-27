@@ -295,11 +295,12 @@ export type NoteSearchResult = {
   items: NoteSearchHit[]
 }
 
-// 笔记搜索条件：匹配维度、面类型、更新时间范围与分段均可自由组合；缺省为全量 / 不限。
+// 笔记搜索条件：匹配维度、面类型、收藏夹范围、更新时间范围与分段均可自由组合；缺省为全量 / 不限。
 export type NoteSearchQuery = {
   query: string
   fields?: string[]
   faceKinds?: string[]
+  folderId?: string
   updatedFromMs?: number
   updatedToMs?: number
   limit?: number

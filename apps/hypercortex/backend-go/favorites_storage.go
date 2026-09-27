@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -280,4 +281,35 @@ func (svc *service) saveFavorites(scope string, raw json.RawMessage) error {
 	}
 	doc, _ := normalizeFavoritesDoc(value)
 	return svc.saveFavoritesDoc(scope, doc)
+}
+
+// collectFavoriteNoteIDs 递归收集收藏夹（含嵌套子收藏夹）中的笔记标识；
+// 未知收藏夹快速失败，环引用安全跳过。
+func collectFavoriteNoteIDs(doc favoritesDoc, folderID string) (map[string]bool, error) {
+	if _, ok := doc.Folders[folderID]; !ok {
+		return nil, fmt.Errorf("收藏夹不存在：%s", folderID)
+	}
+	noteIDs := map[string]bool{}
+	visited := map[string]bool{}
+	var walk func(id string)
+	walk = func(id string) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+		for _, ref := range doc.RefsByFolderID[id] {
+			switch ref.Kind {
+			case "note":
+				if target := strings.TrimSpace(ref.TargetID); target != "" {
+					noteIDs[target] = true
+				}
+			case "folder":
+				if target := strings.TrimSpace(ref.TargetID); target != "" {
+					walk(target)
+				}
+			}
+		}
+	}
+	walk(folderID)
+	return noteIDs, nil
 }
