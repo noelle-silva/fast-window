@@ -3,6 +3,7 @@ import { Box, Button, Stack, Switch, TextField, Typography } from '@mui/material
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { formatJsonText } from './requestRecordFormat'
 import { REQUEST_RECORD_LIMIT_MAX, REQUEST_RECORD_LIMIT_MIN } from '../../controller/requestRecords'
 
 type RequestRecordsSettingsPanelProps = {
@@ -146,12 +147,18 @@ const RECORD_TEXT_CHUNK = 200_000
 
 function RecordTextBlock({ label, text }: { label: string; text: string }) {
   const full = String(text || '')
+  const formatted = React.useMemo(() => formatJsonText(full), [full])
+  const [showRaw, setShowRaw] = React.useState(false)
+  const display = formatted && !showRaw ? formatted : full
   const [visibleLength, setVisibleLength] = React.useState(RECORD_TEXT_CHUNK)
   React.useEffect(() => {
-    setVisibleLength(RECORD_TEXT_CHUNK)
+    setShowRaw(false)
   }, [full])
-  const visible = visibleLength < full.length ? full.slice(0, visibleLength) : full
-  const hasMore = visible.length < full.length
+  React.useEffect(() => {
+    setVisibleLength(RECORD_TEXT_CHUNK)
+  }, [display])
+  const visible = visibleLength < display.length ? display.slice(0, visibleLength) : display
+  const hasMore = visible.length < display.length
   const handleScroll = (event: React.UIEvent<HTMLElement>) => {
     if (!hasMore) return
     const element = event.currentTarget
@@ -161,7 +168,19 @@ function RecordTextBlock({ label, text }: { label: string; text: string }) {
   }
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>{label}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Typography variant="body2" sx={{ fontWeight: 800 }}>{label}</Typography>
+        {formatted ? (
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => setShowRaw((current) => !current)}
+            sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12, textTransform: 'none' }}
+          >
+            {showRaw ? '格式化显示' : '查看原文'}
+          </Button>
+        ) : null}
+      </Box>
       <Box
         component="pre"
         onScroll={handleScroll}
@@ -178,7 +197,7 @@ function RecordTextBlock({ label, text }: { label: string; text: string }) {
           overflow: 'auto',
         }}
       >
-        {full ? visible : '（空）'}
+        {display ? visible : '（空）'}
         {hasMore ? '\n\n…（滚动到底部继续加载）' : ''}
       </Box>
     </Box>
