@@ -69,8 +69,8 @@ type noteSearchResult struct {
 	Items []noteSearchHit          `json:"items"`
 }
 
-// noteSearchDefaultLimit 是未指定条数时每次搜索返回的默认条数。
-const noteSearchDefaultLimit = 48
+// noteSearchDefaultLimit 是未指定条数时每次搜索返回的默认上限；调用方可自由指定其他条数。
+const noteSearchDefaultLimit = 100
 
 func (svc *service) loadNoteSearchIndex(scope string) (noteSearchIndex, error) {
 	path, err := svc.resolvePath(scope, searchIndexFile)
@@ -288,7 +288,7 @@ func makeSearchSnippet(text string, tokens []string) string {
 // queryNoteSearch 按笔记聚合返回搜索结果：
 // 范围不限时命中笔记字段（标题/简介/标签/ID，无面笔记因此仍可搜）或任意可搜面内容；
 // 传入 faceKinds 时仅在该些面类型的内容中搜索（Q5 面类型范围筛选）；
-// limit 为本次返回条数（<=0 时取默认 48），offset 为在排序结果中的起始位置（懒加载续读）。
+// limit 为本次返回条数（<=0 时取默认上限 100，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
 func (svc *service) queryNoteSearch(scope string, rawQuery string, faceKinds []string, limit int, offset int) (noteSearchResult, error) {
 	result := noteSearchResult{Kinds: listSearchableFaceKinds()}
 	if limit <= 0 {

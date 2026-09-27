@@ -409,3 +409,34 @@ func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
 		t.Fatalf("default items = %d, want 5", len(all.Items))
 	}
 }
+
+func TestSearchQueryDefaultLimitIs100AndCustomLimitIsFree(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	// 直接构造搜索索引（101 条命中项）：验证「不指定时默认上限 100」与「可自由指定上限」。
+	idx := noteSearchIndex{Version: noteSearchIndexVersion, Notes: map[string]noteSearchEntry{}}
+	for i := 0; i < 101; i++ {
+		id := fmt.Sprintf("limit-note-%03d", i)
+		idx.Notes[id] = noteSearchEntry{Title: fmt.Sprintf("上限目标 %d", i), Faces: []noteSearchFaceEntry{}}
+	}
+	if err := svc.saveNoteSearchIndex(testRepoID(t, svc), idx); err != nil {
+		t.Fatal(err)
+	}
+
+	def, err := svc.queryNoteSearch(testRepoID(t, svc), "上限目标", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.Items) != 100 {
+		t.Fatalf("default items = %d, want 100", len(def.Items))
+	}
+	free, err := svc.queryNoteSearch(testRepoID(t, svc), "上限目标", nil, 200, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(free.Items) != 101 {
+		t.Fatalf("custom limit items = %d, want 101", len(free.Items))
+	}
+}
