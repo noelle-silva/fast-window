@@ -137,17 +137,34 @@ function RecordField({ label, text }: { label: string; text: string }) {
   return (
     <Box>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>{label}</Typography>
-      <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{text}</Typography>
+      <Typography variant="body2" sx={{ overflowWrap: 'break-word' }}>{text}</Typography>
     </Box>
   )
 }
 
+const RECORD_TEXT_CHUNK = 200_000
+
 function RecordTextBlock({ label, text }: { label: string; text: string }) {
+  const full = String(text || '')
+  const [visibleLength, setVisibleLength] = React.useState(RECORD_TEXT_CHUNK)
+  React.useEffect(() => {
+    setVisibleLength(RECORD_TEXT_CHUNK)
+  }, [full])
+  const visible = visibleLength < full.length ? full.slice(0, visibleLength) : full
+  const hasMore = visible.length < full.length
+  const handleScroll = (event: React.UIEvent<HTMLElement>) => {
+    if (!hasMore) return
+    const element = event.currentTarget
+    if (element.scrollHeight - element.scrollTop - element.clientHeight < 120) {
+      setVisibleLength((current) => current + RECORD_TEXT_CHUNK)
+    }
+  }
   return (
     <Box>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>{label}</Typography>
       <Box
         component="pre"
+        onScroll={handleScroll}
         sx={{
           m: 0,
           p: 1.5,
@@ -156,12 +173,13 @@ function RecordTextBlock({ label, text }: { label: string; text: string }) {
           fontSize: 12,
           fontFamily: 'monospace',
           whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
+          overflowWrap: 'break-word',
           maxHeight: 320,
           overflow: 'auto',
         }}
       >
-        {text || '（空）'}
+        {full ? visible : '（空）'}
+        {hasMore ? '\n\n…（滚动到底部继续加载）' : ''}
       </Box>
     </Box>
   )
