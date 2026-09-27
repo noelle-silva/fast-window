@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Stack, Typography } from '@mui/material'
 import { colorMixVar } from '../colorThemeStyles'
+import { CustomScrollArea } from '../components/CustomScrollArea'
 import { formatJsonText } from './requestRecordFormat'
 import type { RequestPayloadMessage, RequestPayloadTool, RequestPayloadView, ResponseSegment, ResponseStreamView } from './requestRecordParse'
 import type { RequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
@@ -52,7 +53,7 @@ function roleStyle(role: string): RoleStyle {
   return ROLE_STYLES[role] || { ...FALLBACK_ROLE_STYLE, label: role || FALLBACK_ROLE_STYLE.label }
 }
 
-// RecordTextView 渐进文本视图：初始渲染一块，滚动到底部继续加载下一块。
+// RecordTextView 渐进文本视图：初始渲染一块，滚动到底部继续加载下一块；滚动条使用项目自绘样式。
 export function RecordTextView({ text, boxed = true }: { text: string; boxed?: boolean }) {
   const full = String(text ?? '')
   const [visibleLength, setVisibleLength] = React.useState(RECORD_TEXT_CHUNK)
@@ -61,31 +62,34 @@ export function RecordTextView({ text, boxed = true }: { text: string; boxed?: b
   }, [full])
   const visible = visibleLength < full.length ? full.slice(0, visibleLength) : full
   const hasMore = visible.length < full.length
-  const handleScroll = (event: React.UIEvent<HTMLElement>) => {
-    if (!hasMore) return
-    const element = event.currentTarget
-    if (element.scrollHeight - element.scrollTop - element.clientHeight < 120) {
-      setVisibleLength((current) => current + RECORD_TEXT_CHUNK)
-    }
-  }
   return (
-    <Box
-      component="pre"
-      onScroll={handleScroll}
-      sx={{
-        m: 0,
-        fontSize: 12,
-        fontFamily: 'monospace',
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'break-word',
+    <CustomScrollArea
+      hostSx={{
         maxHeight: 320,
-        overflow: 'auto',
-        ...(boxed ? { p: 1.5, borderRadius: 1.5, bgcolor: 'var(--studio-paper-muted)' } : {}),
+        ...(boxed ? { borderRadius: 1.5, bgcolor: 'var(--studio-paper-muted)', overflow: 'hidden' } : {}),
+      }}
+      scrollSx={{ maxHeight: 320, ...(boxed ? { p: 1.5 } : {}) }}
+      onScrollPositionChange={(element) => {
+        if (!hasMore) return
+        if (element.scrollHeight - element.scrollTop - element.clientHeight < 120) {
+          setVisibleLength((current) => current + RECORD_TEXT_CHUNK)
+        }
       }}
     >
-      {full ? visible : '（空）'}
-      {hasMore ? '\n\n…（滚动到底部继续加载）' : ''}
-    </Box>
+      <Box
+        component="pre"
+        sx={{
+          m: 0,
+          fontSize: 12,
+          fontFamily: 'monospace',
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'break-word',
+        }}
+      >
+        {full ? visible : '（空）'}
+        {hasMore ? '\n\n…（滚动到底部继续加载）' : ''}
+      </Box>
+    </CustomScrollArea>
   )
 }
 
