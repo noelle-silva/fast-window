@@ -1,13 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
-
-// assetSearchDefaultLimit 是未指定条数时附件搜索返回的默认上限。
-const assetSearchDefaultLimit = 100
 
 // assetSearchQuery 是一次附件搜索请求的全部条件：文本维度、类型、大小、时间范围与分段。
 type assetSearchQuery struct {
@@ -24,30 +20,14 @@ type assetSearchQuery struct {
 }
 
 // queryAssetSearch 在附件元信息上搜索附件：
-// fields 选择参与文本匹配的维度（name/remark/tags 可自由组合；缺省为全部三项，name 覆盖显示名/来源名/文件名）；
+// fields 选择参与文本匹配的维度（name/remark/tags 可自由组合；缺省为全部三项，name 覆盖显示名/来源名）；
 // kind/sizeFrom/sizeTo/updatedFromMs/updatedToMs 为过滤条件；
 // 未提供关键词时按过滤条件列出附件（按更新时间倒序），提供关键词时按命中维度计分排序。
 func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = assetSearchDefaultLimit
-	}
-	offset := query.Offset
-	if offset < 0 {
-		offset = 0
-	}
-	fieldSet := map[string]bool{}
-	for _, field := range query.Fields {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		switch field {
-		case "name", "remark", "tags":
-			fieldSet[field] = true
-		default:
-			return nil, fmt.Errorf("未知的搜索维度：%s", field)
-		}
+	limit, offset := normalizeSearchWindow(query.Limit, query.Offset)
+	fieldSet, err := normalizeSearchFields(query.Fields, assetSearchFields)
+	if err != nil {
+		return nil, err
 	}
 	explicitFields := len(fieldSet) > 0
 	matchName := !explicitFields || fieldSet["name"]
@@ -123,10 +103,10 @@ func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, e
 	return out, nil
 }
 
-// assetSearchNameText 汇总附件的「名字」文本：显示名 / 来源名 / 文件名。
+// assetSearchNameText 汇总附件的「名字」文本：显示名 / 来源名（不含系统编号）。
 func assetSearchNameText(item assetPoolItem) string {
-	parts := make([]string, 0, 3)
-	for _, part := range []string{item.DisplayName, item.SourceName, item.Name} {
+	parts := make([]string, 0, 2)
+	for _, part := range []string{item.DisplayName, item.SourceName} {
 		if text := strings.TrimSpace(part); text != "" {
 			parts = append(parts, text)
 		}

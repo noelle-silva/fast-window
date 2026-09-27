@@ -71,6 +71,8 @@ type resourceRef struct {
 	Ext     string `json:"ext,omitempty"`
 	Kind    string `json:"kind,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// Marker 是可直接写入笔记正文的引用标记语法；仅上传结果携带，不随笔记资源清单持久化。
+	Marker string `json:"marker,omitempty"`
 }
 
 // noteRef 与 faceCapabilities 是协议层类型在宿主内的别名：引用语法与能力画像都属于系统级协议。

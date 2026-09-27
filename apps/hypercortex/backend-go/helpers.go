@@ -229,6 +229,54 @@ func numberField(raw json.RawMessage, key string) float64 {
 	return asFloat(payload[key])
 }
 
+func boolField(raw json.RawMessage, key string) bool {
+	payload := map[string]any{}
+	_ = json.Unmarshal(raw, &payload)
+	value, _ := payload[key].(bool)
+	return value
+}
+
+// rawStringField 原样提取字符串字段（不做修剪）：替换类操作的文本必须保持逐字一致。
+func rawStringField(raw json.RawMessage, key string) string {
+	payload := map[string]any{}
+	_ = json.Unmarshal(raw, &payload)
+	return asString(payload[key])
+}
+
+// searchDefaultLimit 是搜索未指定条数时的统一默认上限（笔记搜索与附件搜索共用）。
+const searchDefaultLimit = 100
+
+// noteSearchFields 与 assetSearchFields 是两类搜索各自允许的匹配维度集合。
+var noteSearchFields = map[string]bool{"title": true, "description": true, "tags": true, "content": true}
+var assetSearchFields = map[string]bool{"name": true, "remark": true, "tags": true}
+
+// normalizeSearchWindow 归一化搜索的条数与起始位置：条数 <=0 取统一默认上限，偏移 <0 归 0。
+func normalizeSearchWindow(limit int, offset int) (int, int) {
+	if limit <= 0 {
+		limit = searchDefaultLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+// normalizeSearchFields 把提交的匹配维度收敛为集合；未知维度快速失败。
+func normalizeSearchFields(fields []string, allowed map[string]bool) (map[string]bool, error) {
+	set := map[string]bool{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if !allowed[field] {
+			return nil, fmt.Errorf("未知的搜索维度：%s", field)
+		}
+		set[field] = true
+	}
+	return set, nil
+}
+
 func intField(raw json.RawMessage, key string) int {
 	value := numberField(raw, key)
 	if value <= 0 {
@@ -383,6 +431,24 @@ func assetKey(assetID string, ext string) string {
 		return assetID
 	}
 	return assetID + "." + ext
+}
+
+// assetMarker 生成可直接写入笔记正文的资产引用标记。
+// 协议双实现：前端 src/assetMarker.ts 是界面侧实现（复制/插入用），这里是数据侧实现
+// （上传结果携带的 marker）；默认宽度规则（图片 320、视频 480）改动时两端必须同步。
+func assetMarker(assetID string, ext string, kind string) string {
+	ref := assetKey(assetID, ext)
+	if ref == "" {
+		return ""
+	}
+	switch strings.TrimSpace(kind) {
+	case "image":
+		return "{{asset:" + ref + "||320}}"
+	case "video":
+		return "{{asset:" + ref + "||480}}"
+	default:
+		return "{{asset:" + ref + "}}"
+	}
 }
 
 func openSystemDir(dir string) error {

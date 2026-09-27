@@ -64,6 +64,10 @@ func TestAssetSearchMatchesAndFilters(t *testing.T) {
 	if len(items) != 1 || items[0].AssetID != idB {
 		t.Fatalf("remark-only = %#v", items)
 	}
+	// 名字维度不含系统编号：按编号片段搜索不应命中
+	if items := count(assetSearchQuery{Query: strings.Repeat("a", 8)}); len(items) != 0 {
+		t.Fatalf("asset id must not match name dimension: %#v", items)
+	}
 	// 类型过滤：image 只命中 B
 	items = count(assetSearchQuery{Kind: "image"})
 	if len(items) != 1 || items[0].AssetID != idB {

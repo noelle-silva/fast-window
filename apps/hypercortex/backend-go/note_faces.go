@@ -255,6 +255,12 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, err
 	}
+	return svc.saveNoteFacesInput(scope, input)
+}
+
+// saveNoteFacesInput 是保存逻辑的结构化入口：接受已解析的输入对象，供 RPC 入口与内部调用共用；
+// 字段存在性语义（缺失沿用旧值、显式提供采用提交值）由调用方在输入对象中表达。
+func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any, error) {
 	if err := svc.ensureRoots(); err != nil {
 		return nil, err
 	}
@@ -405,6 +411,45 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error
 		return nil, err
 	}
 	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
+}
+
+// patchNoteFace 对笔记某个面的内容做增量替换编辑（Q24 之外的增量通道）：
+// oldString 必须存在于面内容中；默认要求唯一（出现多次时需提供更多上下文），replaceAll 时全部替换。
+// 前端仍使用 saveFaces 的全量覆盖语义，本接口专供工具或其他调用者做安全的增量修改。
+func (svc *service) patchNoteFace(scope string, packageDir string, faceID string, oldString string, newString string, replaceAll bool) (any, error) {
+	dir := strings.TrimSpace(packageDir)
+	face := strings.TrimSpace(faceID)
+	if dir == "" || face == "" {
+		return nil, errors.New("缺少笔记目录或面标识")
+	}
+	if oldString == "" {
+		return nil, errors.New("待替换的旧文本不能为空")
+	}
+	doc, err := svc.loadNoteFace(scope, dir, face)
+	if err != nil {
+		return nil, err
+	}
+	content := doc.Content
+	count := strings.Count(content, oldString)
+	if count == 0 {
+		return nil, errors.New("未找到要替换的旧文本")
+	}
+	if count > 1 && !replaceAll {
+		return nil, fmt.Errorf("旧文本在面内容中不唯一（出现 %d 次），请提供更多上下文或使用 replaceAll", count)
+	}
+	next := strings.Replace(content, oldString, newString, 1)
+	if replaceAll {
+		next = strings.ReplaceAll(content, oldString, newString)
+	}
+	// 标题显式回填原值：保存接口对缺失标题的语义是归一为「未命名」，patch 必须保持标题不变。
+	return svc.saveNoteFacesInput(scope, map[string]any{
+		"id":         doc.NoteID,
+		"title":      doc.NoteTitle,
+		"packageDir": dir,
+		"faces": []any{
+			map[string]any{"faceId": nonEmpty(strings.TrimSpace(doc.Face.ID), face), "kind": doc.Face.Kind, "content": next},
+		},
+	})
 }
 
 // saveNoteFaceOrder 保存笔记级面顺序（Q35 统一优先级机制的笔记级覆盖）。

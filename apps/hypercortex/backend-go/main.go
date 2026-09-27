@@ -270,6 +270,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.loadNoteFace(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"))
 	case "hypercortex.notes.saveFaces":
 		return svc.saveNoteFaces(requireScope(params), rawField(params, "input"))
+	case "hypercortex.notes.patchFace":
+		return svc.patchNoteFace(
+			requireScope(params),
+			stringField(params, "packageDir"),
+			stringField(params, "faceId"),
+			rawStringField(params, "oldString"),
+			rawStringField(params, "newString"),
+			boolField(params, "replaceAll"),
+		)
 	case "hypercortex.notes.saveFaceOrder":
 		return svc.saveNoteFaceOrder(requireScope(params), stringField(params, "packageDir"), stringSliceField(params, "faceOrder"))
 	case "hypercortex.notes.deleteFace":

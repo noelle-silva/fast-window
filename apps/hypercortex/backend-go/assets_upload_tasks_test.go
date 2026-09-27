@@ -35,6 +35,10 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	if result[0].AssetID != expectedID {
 		t.Fatalf("asset id = %q, want %q", result[0].AssetID, expectedID)
 	}
+	// 上传结果携带可直接写入笔记正文的引用标记语法。
+	if result[0].Marker != "{{asset:"+expectedID+".txt}}" {
+		t.Fatalf("marker = %q, want asset marker", result[0].Marker)
+	}
 	idx, err := svc.ensureAssetIndex(testRepoID(t, svc))
 	if err != nil {
 		t.Fatalf("ensureAssetIndex failed: %v", err)
@@ -314,5 +318,17 @@ func TestAssetUploadTaskCancelBeforeRunPreventsRunningState(t *testing.T) {
 	}
 	if err := task.markRunning(); !errors.Is(err, errAssetUploadCanceled) {
 		t.Fatalf("markRunning err = %v, want errAssetUploadCanceled", err)
+	}
+}
+
+func TestAssetMarkerFollowsFrontendDefaults(t *testing.T) {
+	if got := assetMarker("abc", "png", "image"); got != "{{asset:abc.png||320}}" {
+		t.Fatalf("image marker = %q", got)
+	}
+	if got := assetMarker("abc", "mp4", "video"); got != "{{asset:abc.mp4||480}}" {
+		t.Fatalf("video marker = %q", got)
+	}
+	if got := assetMarker("abc", "pdf", "document"); got != "{{asset:abc.pdf}}" {
+		t.Fatalf("document marker = %q", got)
 	}
 }

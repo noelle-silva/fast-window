@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -82,9 +81,6 @@ type noteSearchQuery struct {
 	Limit         int
 	Offset        int
 }
-
-// noteSearchDefaultLimit 是未指定条数时每次搜索返回的默认上限；调用方可自由指定其他条数。
-const noteSearchDefaultLimit = 100
 
 func (svc *service) loadNoteSearchIndex(scope string) (noteSearchIndex, error) {
 	path, err := svc.resolvePath(scope, searchIndexFile)
@@ -303,29 +299,13 @@ func makeSearchSnippet(text string, tokens []string) string {
 // fields 选择参与匹配的维度（title/description/tags/content 可自由组合；缺省为全量：笔记字段 + ID + 面内容）；
 // faceKinds 限定 content 匹配的面类型（缺省为全部可搜面）；
 // updatedFromMs/updatedToMs 按笔记更新时间过滤（0 表示不限）；
-// limit 为本次返回条数（<=0 时取默认上限 100，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
+// limit 为本次返回条数（<=0 时取默认上限，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
 func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, error) {
 	result := noteSearchResult{Kinds: listSearchableFaceKinds()}
-	limit := query.Limit
-	if limit <= 0 {
-		limit = noteSearchDefaultLimit
-	}
-	offset := query.Offset
-	if offset < 0 {
-		offset = 0
-	}
-	fieldSet := map[string]bool{}
-	for _, field := range query.Fields {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		switch field {
-		case "title", "description", "tags", "content":
-			fieldSet[field] = true
-		default:
-			return result, fmt.Errorf("未知的搜索维度：%s", field)
-		}
+	limit, offset := normalizeSearchWindow(query.Limit, query.Offset)
+	fieldSet, err := normalizeSearchFields(query.Fields, noteSearchFields)
+	if err != nil {
+		return result, err
 	}
 	explicitFields := len(fieldSet) > 0
 	matchTitle := !explicitFields || fieldSet["title"]

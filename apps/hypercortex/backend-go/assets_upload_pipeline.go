@@ -220,7 +220,7 @@ func (svc *service) runAssetUploadPipeline(scope string, inputs []assetUploadFil
 			Remark:       previous.Remark,
 			Tags:         previous.Tags,
 		})
-		ref := resourceRef{AssetID: item.assetID, Mime: item.mimeType, Ext: item.ext, Kind: item.kind, Name: item.displayName}
+		ref := resourceRef{AssetID: item.assetID, Mime: item.mimeType, Ext: item.ext, Kind: item.kind, Name: item.displayName, Marker: assetMarker(item.assetID, item.ext, item.kind)}
 		out = append(out, ref)
 		committedFiles = append(committedFiles, committedAssetUploadFile{fileIndex: item.fileIndex, resource: ref})
 	}
