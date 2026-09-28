@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import BuildIcon from '@mui/icons-material/Build'
+import FileUploadOutlinedIcon from '@mui/icons-material/FileUploadOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
@@ -113,6 +114,12 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
             </Button>
             <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => setStoreOpen(true)}>
               商店
+            </Button>
+            <Button startIcon={<FileUploadOutlinedIcon />} variant="outlined" onClick={() => void controller.actions.importToolPackage?.()}>
+              导入安装包
+            </Button>
+            <Button startIcon={<FolderOutlinedIcon />} variant="outlined" onClick={() => void controller.actions.importToolFolder?.()}>
+              导入文件夹
             </Button>
             <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshTools?.(true)} disabled={loading || !!tools?.loading}>
               {tools?.loading ? '刷新中…' : '刷新工具'}

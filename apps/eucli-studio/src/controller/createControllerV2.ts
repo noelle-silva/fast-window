@@ -431,6 +431,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const systemPluginController = createSystemPluginController({
     getState: () => state,
     getNetRequest: () => capabilities.net?.request,
+    pickArchiveFile: api.files?.pickArchiveFile,
+    pickArchiveFolder: api.files?.pickArchiveFolder,
+    importArtifactPackage: api.artifacts?.import,
     emit,
     showToast: api.ui?.showToast,
     refreshPlaceholderLibrary,
@@ -442,6 +445,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     refreshAvailableSystemPluginPlaceholderInterfaces,
     installSystemPluginAction,
     updateSystemPluginAction,
+    importSystemPluginPackage,
+    importSystemPluginFolder,
     cancelSystemPluginInstall,
     syncSystemPluginInstallStates,
     setInstallTerminalListener: setSystemPluginInstallTerminalListener,
@@ -541,10 +546,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const toolCatalog = createToolCatalog({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    pickArchiveFile: api.files?.pickArchiveFile,
+    pickArchiveFolder: api.files?.pickArchiveFolder,
+    importArtifactPackage: api.artifacts?.import,
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
+  const { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
 
   const installSourceClient = createInstallSourceClient({
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -948,6 +956,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveSelectedToolConfig,
     installTool,
     updateTool,
+    importToolPackage,
+    importToolFolder,
     cancelToolInstall,
     syncToolInstallStates,
     setToolInstallTerminalListener,
@@ -996,6 +1006,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     setSystemPluginInstallTerminalListener,
     installSystemPluginAction,
     updateSystemPluginAction,
+    importSystemPluginPackage,
+    importSystemPluginFolder,
     selectHookPromptForActiveChat,
   })
   const chatNavigationActions = createChatNavigationActions({

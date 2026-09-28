@@ -9,6 +9,9 @@ type InstallTerminalListener = (id: string, state: ArtifactInstallState) => void
 export function createToolCatalog(deps: {
   getState: () => any
   netRequest: (req: any) => Promise<any>
+  pickArchiveFile?: () => Promise<string | null>
+  pickArchiveFolder?: () => Promise<string | null>
+  importArtifactPackage?: (req: { kind: string; filePath: string }) => Promise<any>
   emit: () => void
   showToast?: AiChatShowToast
 }) {
@@ -210,6 +213,57 @@ export function createToolCatalog(deps: {
     return startToolOperation(toolIdRaw, 'update')
   }
 
+  // importToolSource 选择本地来源（安装包或成品目录）并直接导入：
+  // 同步阻止（如兼容拒绝）展示原因；运行态交给任务跟踪，完成后刷新列表。
+  async function importToolSource(picker: (() => Promise<string | null>) | undefined) {
+    if (typeof picker !== 'function') {
+      deps.showToast?.('当前客户端不支持选择导入来源', { kind: 'error' })
+      return null
+    }
+    if (typeof deps.importArtifactPackage !== 'function') {
+      deps.showToast?.('当前客户端不支持导入安装包', { kind: 'error' })
+      return null
+    }
+    let filePath = ''
+    try {
+      filePath = String((await picker()) || '').trim()
+    } catch (e: any) {
+      deps.showToast?.(String(e?.message || e || '选择导入来源失败'), { kind: 'error' })
+      return null
+    }
+    if (!filePath) return null
+    try {
+      const state = normalizeArtifactInstallState(await deps.importArtifactPackage({ kind: 'tool', filePath }))
+      const toolId = String(state.artifact?.id || '').trim()
+      if (toolId) applyInstallState(toolId, state)
+      if (isArtifactBusy(state)) {
+        if (toolId) installTracker.track(toolId)
+        return state
+      }
+      if (state.status === 'blocked') {
+        deps.showToast?.(`导入被阻止：${state.error.message || '未知原因'}`, { kind: 'error' })
+        return state
+      }
+      await refreshTools(true).catch(() => {})
+      if (state.status === 'active') deps.showToast?.('安装包已导入', { kind: 'success' })
+      return state
+    } catch (e: any) {
+      const error = String(e?.message || e || '安装包导入失败')
+      deps.showToast?.(error, { kind: 'error' })
+      return null
+    } finally {
+      deps.emit()
+    }
+  }
+
+  function importToolPackage() {
+    return importToolSource(deps.pickArchiveFile)
+  }
+
+  function importToolFolder() {
+    return importToolSource(deps.pickArchiveFolder)
+  }
+
   // startToolOperation 发起安装或更新：请求立即返回运行态并交给任务跟踪；
   // 同步返回的阻止事实按工具占用交互处理。
   async function startToolOperation(toolIdRaw: any, action: 'install' | 'update') {
@@ -300,7 +354,7 @@ export function createToolCatalog(deps: {
     installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
+  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {

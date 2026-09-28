@@ -2,6 +2,8 @@ import * as React from 'react'
 import { Box, Button, Stack, Switch, TextField, Typography } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
+import FileUploadOutlinedIcon from '@mui/icons-material/FileUploadOutlined'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import StorefrontIcon from '@mui/icons-material/Storefront'
 import { hostingLabel, pluginStatusLabel, systemPluginLocatorId, type SystemPluginDetail } from '../../domain/systemPlugin'
 import { compatibilityRangeText, artifactStatusLabels, isArtifactBusy, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
@@ -94,6 +96,8 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <SettingsHeading title="系统插件管理" description="管理本地系统插件、占位符接口名字和插件用户配置。" />
           <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => setStoreOpen(true)}>商店</Button>
+          <Button startIcon={<FileUploadOutlinedIcon />} variant="outlined" onClick={() => void controller.actions.importSystemPluginPackage?.()}>导入安装包</Button>
+          <Button startIcon={<FolderOutlinedIcon />} variant="outlined" onClick={() => void controller.actions.importSystemPluginFolder?.()}>导入文件夹</Button>
           <Button startIcon={<RefreshIcon />} variant="text" onClick={() => controller.actions.refreshSystemPlugins?.(true)} disabled={busy}>{systemPlugins?.loading ? '刷新中…' : '刷新'}</Button>
           <Button startIcon={<SaveIcon />} variant="contained" onClick={save} disabled={busy || unavailable || !selectedPlugin?.id}>{systemPlugins?.saving ? '保存中…' : '保存设置'}</Button>
         </Stack>

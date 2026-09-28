@@ -78,6 +78,8 @@ function createEucliStudioHostApi(options: AiChatAppHostOptions) {  return {
     },
     files: {
       pickImages: pickImageFiles,
+      pickArchiveFile: pickArchiveFile,
+      pickArchiveFolder: pickArchiveFolder,
     },
     ui: {
       showToast: options.showToast,
@@ -106,6 +108,22 @@ async function createBackendEndpoint() {
     url: endpoint.url,
     token: endpoint.token,
   }
+}
+
+// pickArchiveFile 通过原生文件对话框选择安装包，只返回本机路径；
+// 文件读取与上传由客户端后台完成，二进制不经过界面层。
+async function pickArchiveFile(): Promise<string | null> {
+  const path = await invoke<string | null>('pick_archive_file')
+  const value = String(path || '').trim()
+  return value || null
+}
+
+// pickArchiveFolder 通过原生文件对话框选择成品目录，只返回本机路径；
+// 目录会在客户端后台自动打包后再上传。
+async function pickArchiveFolder(): Promise<string | null> {
+  const path = await invoke<string | null>('pick_archive_folder')
+  const value = String(path || '').trim()
+  return value || null
 }
 
 async function pickImageFiles(maxCount?: number): Promise<Array<{ name: string; dataUrl: string }>> {

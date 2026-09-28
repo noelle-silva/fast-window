@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -58,6 +59,15 @@ func (s *service) dispatch(ctx context.Context, method string, params json.RawMe
 		return s.listReleaseCandidates(ctx, listReq.Kind)
 	case "artifacts.installations":
 		return s.listArtifactInstallations(ctx)
+	case "artifacts.import":
+		var importReq struct {
+			Kind     string `json:"kind"`
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal(paramsOrEmpty(params), &importReq); err != nil {
+			return nil, err
+		}
+		return s.importArtifact(ctx, importReq.Kind, importReq.FilePath)
 	case "eucli.config.get":
 		return s.config.load()
 	case "eucli.config.set":
@@ -184,6 +194,40 @@ func (s *service) listArtifactInstallations(ctx context.Context) (ebcontract.Art
 		return ebcontract.ArtifactInstallationList{}, err
 	}
 	return decodeArtifactInstallationList(raw)
+}
+
+// importArtifact 把本机安装包直传业务端导入接口；客户端不保存任何结果。
+// 选择的是目录时先在本地打包成临时 zip 再直传，业务端始终只收标准压缩包。
+func (s *service) importArtifact(ctx context.Context, kind string, filePath string) (any, error) {
+	kind = strings.TrimSpace(kind)
+	var path string
+	switch kind {
+	case ebcontract.ReleaseArtifactKindTool:
+		path = "/api/tools/import"
+	case ebcontract.ReleaseArtifactKindPlugin:
+		path = "/api/system-plugins/import"
+	default:
+		return nil, newError("BAD_REQUEST", fmt.Sprintf("不支持的导入分类 %q", kind))
+	}
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return nil, newError("BAD_REQUEST", "缺少安装包文件路径")
+	}
+	if err := s.requireReachableBusiness(); err != nil {
+		return nil, err
+	}
+	archivePath := filePath
+	cleanup := func() {}
+	if info, err := os.Stat(filePath); err == nil && info.IsDir() {
+		packed, packedCleanup, packErr := packDirectoryArchive(filePath)
+		if packErr != nil {
+			return nil, newError("BAD_REQUEST", packErr.Error())
+		}
+		archivePath = packed
+		cleanup = packedCleanup
+	}
+	defer cleanup()
+	return s.eb.upload(ctx, path, archivePath)
 }
 
 func (s *service) requireReachableBusiness() error {

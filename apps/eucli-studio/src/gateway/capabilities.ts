@@ -21,7 +21,14 @@ export type AiChatImageFilesGateway = {
 
 export type AiChatFilesGateway = {
   pickImages?: (maxCount?: number) => Promise<any[]>
+  pickArchiveFile?: () => Promise<string | null>
+  pickArchiveFolder?: () => Promise<string | null>
   images: AiChatImageFilesGateway
+}
+
+// AiChatArtifactGateway 是安装包导入通道：本机文件由客户端后台直传业务端。
+export type AiChatArtifactGateway = {
+  import?: (req: { kind: string; filePath: string }) => Promise<any>
 }
 
 export type AiChatToastKind = 'info' | 'success' | 'error'
@@ -54,6 +61,7 @@ export type AiChatCapabilities = {
   runtimeStorage: AiChatRuntimeStorageGateway
   net: AiChatNetAdapter
   files: AiChatFilesGateway
+  artifacts: AiChatArtifactGateway
   ui: AiChatUiGateway
   clipboard: AiChatClipboardGateway
   host?: any
@@ -108,6 +116,7 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string)
   const net = requireObject(api.net, 'net')
   const files = api.files && typeof api.files === 'object' ? api.files : {}
   const images = files.images && typeof files.images === 'object' ? files.images : {}
+  const artifacts = api.artifacts && typeof api.artifacts === 'object' ? api.artifacts : {}
   const ui = api.ui && typeof api.ui === 'object' ? api.ui : {}
   const clipboard = api.clipboard && typeof api.clipboard === 'object' ? api.clipboard : {}
   const runtime = String(api?.__meta?.runtime || 'ui') === 'background' ? 'background' : 'ui'
@@ -136,11 +145,16 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string)
     },
     files: {
       pickImages: optionalFunction(files.pickImages),
+      pickArchiveFile: optionalFunction(files.pickArchiveFile),
+      pickArchiveFolder: optionalFunction(files.pickArchiveFolder),
       images: {
         writeBase64: optionalFunction(images.writeBase64),
         read: optionalFunction(images.read),
         delete: optionalFunction(images.delete),
       },
+    },
+    artifacts: {
+      import: optionalFunction(artifacts.import),
     },
     ui: {
       showToast: optionalFunction(ui.showToast),

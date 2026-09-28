@@ -71,6 +71,33 @@ async fn pick_data_dir(
 }
 
 #[tauri::command]
+async fn pick_archive_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择 AI 工具或系统插件安装包")
+            .add_filter("安装包", &["zip"])
+            .pick_file()
+    })?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+async fn pick_archive_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择 AI 工具或系统插件目录")
+            .pick_folder()
+    })?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
 async fn restart_backend(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
@@ -142,6 +169,8 @@ fn main() {
             backend_endpoint,
             data_dir_status,
             pick_data_dir,
+            pick_archive_file,
+            pick_archive_folder,
             restart_backend,
             hide_to_tray,
             exit_app,

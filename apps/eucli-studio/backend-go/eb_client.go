@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -92,6 +93,42 @@ func (c *ebClient) request(ctx context.Context, req ebRequest) (any, error) {
 	}
 	c.release.applyHeaders(httpReq.Header)
 
+	return c.do(httpReq)
+}
+
+// upload 把本机文件作为原始字节直传业务端；用于安装包导入。
+func (c *ebClient) upload(ctx context.Context, path string, filePath string) (any, error) {
+	connection, err := c.connection()
+	if err != nil {
+		return nil, err
+	}
+	path = strings.TrimSpace(path)
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return nil, newError("BAD_REQUEST", "e-b request path must start with /")
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, newError("BAD_REQUEST", "无法读取安装包文件："+err.Error())
+	}
+	defer file.Close()
+	target, err := url.Parse(strings.TrimRight(connection.BaseURL, "/") + path)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), file)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/zip")
+	if connection.Credential != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+connection.Credential)
+	}
+	c.release.applyHeaders(httpReq.Header)
+
+	return c.do(httpReq)
+}
+
+func (c *ebClient) do(httpReq *http.Request) (any, error) {
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
 		return nil, err

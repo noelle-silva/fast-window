@@ -10,6 +10,9 @@ type InstallTerminalListener = (id: string, state: ArtifactInstallState) => void
 export function createSystemPluginController(deps: {
   getState: () => any
   getNetRequest: () => ((req: any) => Promise<any>) | undefined
+  pickArchiveFile?: () => Promise<string | null>
+  pickArchiveFolder?: () => Promise<string | null>
+  importArtifactPackage?: (req: { kind: string; filePath: string }) => Promise<any>
   emit: () => void
   showToast?: AiChatShowToast
   refreshPlaceholderLibrary: (force?: boolean) => Promise<any>
@@ -190,6 +193,57 @@ export function createSystemPluginController(deps: {
     return startSystemPluginOperation(pluginIdRaw, 'update')
   }
 
+  // importSystemPluginSource 选择本地来源（安装包或成品目录）并直接导入：
+  // 同步阻止（如兼容拒绝）展示原因；运行态交给任务跟踪，完成后刷新列表。
+  async function importSystemPluginSource(picker: (() => Promise<string | null>) | undefined) {
+    if (typeof picker !== 'function') {
+      showToast?.('当前客户端不支持选择导入来源', { kind: 'error' })
+      return null
+    }
+    if (typeof deps.importArtifactPackage !== 'function') {
+      showToast?.('当前客户端不支持导入安装包', { kind: 'error' })
+      return null
+    }
+    let filePath = ''
+    try {
+      filePath = String((await picker()) || '').trim()
+    } catch (e: any) {
+      showToast?.(String(e?.message || e || '选择导入来源失败'), { kind: 'error' })
+      return null
+    }
+    if (!filePath) return null
+    try {
+      const state = normalizeArtifactInstallState(await deps.importArtifactPackage({ kind: 'plugin', filePath }))
+      const pluginId = String(state.artifact?.id || '').trim()
+      if (pluginId) applyInstallState(pluginId, state)
+      if (isArtifactBusy(state)) {
+        if (pluginId) installTracker.track(pluginId)
+        return state
+      }
+      if (state.status === 'blocked') {
+        showToast?.(`导入被阻止：${state.error.message || '未知原因'}`, { kind: 'error' })
+        return state
+      }
+      await refreshSystemPlugins(true).catch(() => null)
+      if (state.status === 'active') showToast?.('安装包已导入', { kind: 'success' })
+      return state
+    } catch (e: any) {
+      const message = String(e?.message || e || '安装包导入失败')
+      showToast?.(message, { kind: 'error' })
+      return null
+    } finally {
+      emit()
+    }
+  }
+
+  function importSystemPluginPackage() {
+    return importSystemPluginSource(deps.pickArchiveFile)
+  }
+
+  function importSystemPluginFolder() {
+    return importSystemPluginSource(deps.pickArchiveFolder)
+  }
+
   // startSystemPluginOperation 发起安装或更新：请求立即返回运行态并交给任务跟踪。
   async function startSystemPluginOperation(pluginIdRaw: any, action: 'install' | 'update') {
     const pluginId = String(pluginIdRaw || '').trim()
@@ -255,6 +309,8 @@ export function createSystemPluginController(deps: {
     setSystemPluginEnabled,
     installSystemPluginAction,
     updateSystemPluginAction,
+    importSystemPluginPackage,
+    importSystemPluginFolder,
     cancelSystemPluginInstall,
     syncSystemPluginInstallStates,
     setInstallTerminalListener,

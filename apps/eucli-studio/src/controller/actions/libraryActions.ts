@@ -14,12 +14,14 @@ export function createLibraryActions(deps: {
   setSystemPluginEnabled: (pluginId: any, enabled: boolean) => Promise<any>
   installSystemPluginAction: (pluginId: any) => Promise<any>
   updateSystemPluginAction: (pluginId: any) => Promise<any>
+  importSystemPluginPackage: () => Promise<any>
+  importSystemPluginFolder: () => Promise<any>
   cancelSystemPluginInstall: (pluginId: any) => Promise<any>
   syncSystemPluginInstallStates: () => Promise<any>
   setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => void
   selectHookPromptForActiveChat: (mode: any, presetId: any) => Promise<any>
 }) {
-  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, importSystemPluginPackage, importSystemPluginFolder, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
 
   return {
     refreshHookPromptLibrary: (force: any) => refreshHookPromptLibrary(!!force),
@@ -37,6 +39,8 @@ export function createLibraryActions(deps: {
     setSystemPluginEnabled: (pluginId: any, enabled: boolean) => setSystemPluginEnabled(pluginId, !!enabled),
     installSystemPlugin: (pluginId: any) => installSystemPluginAction(pluginId),
     updateSystemPlugin: (pluginId: any) => updateSystemPluginAction(pluginId),
+    importSystemPluginPackage: () => importSystemPluginPackage(),
+    importSystemPluginFolder: () => importSystemPluginFolder(),
     cancelSystemPluginInstall: (pluginId: any) => cancelSystemPluginInstall(pluginId),
     syncSystemPluginInstallStates: () => syncSystemPluginInstallStates(),
     setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setSystemPluginInstallTerminalListener(listener),

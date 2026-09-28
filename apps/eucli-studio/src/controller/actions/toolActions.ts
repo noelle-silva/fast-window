@@ -17,6 +17,8 @@ export function createToolActions(deps: {
   saveSelectedToolConfig: () => any
   installTool: (toolId: any) => any
   updateTool: (toolId: any) => any
+  importToolPackage: () => any
+  importToolFolder: () => any
   cancelToolInstall: (toolId: any) => any
   syncToolInstallStates: () => any
   setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => any
@@ -27,7 +29,7 @@ export function createToolActions(deps: {
   updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => any
   removeShelf: (kind: any, name: any) => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
+  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
@@ -42,6 +44,8 @@ export function createToolActions(deps: {
     saveSelectedToolConfig: () => saveSelectedToolConfig(),
     installTool: (toolId: any) => installTool(toolId),
     updateTool: (toolId: any) => updateTool(toolId),
+    importToolPackage: () => importToolPackage(),
+    importToolFolder: () => importToolFolder(),
     cancelToolInstall: (toolId: any) => cancelToolInstall(toolId),
     syncToolInstallStates: () => syncToolInstallStates(),
     setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),

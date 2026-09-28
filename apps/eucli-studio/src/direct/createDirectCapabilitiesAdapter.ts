@@ -40,6 +40,12 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
       pickImages: typeof (baseApi as any)?.files?.pickImages === 'function'
         ? (maxCount?: number) => (baseApi as any).files.pickImages(maxCount)
         : undefined,
+      pickArchiveFile: typeof (baseApi as any)?.files?.pickArchiveFile === 'function'
+        ? () => (baseApi as any).files.pickArchiveFile()
+        : undefined,
+      pickArchiveFolder: typeof (baseApi as any)?.files?.pickArchiveFolder === 'function'
+        ? () => (baseApi as any).files.pickArchiveFolder()
+        : undefined,
       images: {
         read: async (req: unknown) => {
           const path = String((req as any)?.path || (req as any)?.relPath || '').trim()
@@ -54,6 +60,10 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
         delete: async (req: unknown) =>
           directClient.invoke(AI_CHAT_DIRECT_METHOD.imageDelete, req),
       },
+    },
+
+    artifacts: {
+      import: async (req: { kind: string; filePath: string }) => directClient.invoke('artifacts.import', req),
     },
 
     ui: {
