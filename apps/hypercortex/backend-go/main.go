@@ -278,6 +278,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			rawStringField(params, "oldString"),
 			rawStringField(params, "newString"),
 			boolField(params, "replaceAll"),
+			numberField(params, "expectedVersion"),
 		)
 	case "hypercortex.notes.saveFaceOrder":
 		return svc.saveNoteFaceOrder(requireScope(params), stringField(params, "packageDir"), stringSliceField(params, "faceOrder"))
