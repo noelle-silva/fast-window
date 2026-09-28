@@ -32,7 +32,8 @@ type refRelationResult struct {
 
 // queryRefRelations 以 noteID 为关注点按 radius 跳扩展关系子图：
 // direction 为 both（缺省）时向出链与被引用两侧展开，outgoing 只看主动引用，incoming 只看被引用；
-// radius 缺省（<=0）按 1 跳。返回子图包含关注点自身与子图内诱导出的全部引用边。
+// radius 缺省（<=0）按 1 跳。关注笔记必须真实存在，否则快速失败并明示；
+// 返回子图包含关注点自身与子图内诱导出的全部引用边。
 func (svc *service) queryRefRelations(scope string, noteID string, radius int, direction string) (refRelationResult, error) {
 	focus := strings.TrimSpace(noteID)
 	if focus == "" {
@@ -51,6 +52,13 @@ func (svc *service) queryRefRelations(scope string, noteID string, radius int, d
 		return refRelationResult{}, fmt.Errorf("未知关系方向：%s（可选 both/outgoing/incoming）", direction)
 	}
 
+	noteIdx, err := svc.loadNoteIndex(scope)
+	if err != nil {
+		return refRelationResult{}, err
+	}
+	if _, ok := noteIdx.Notes[focus]; !ok {
+		return refRelationResult{}, fmt.Errorf("笔记不存在：%s", focus)
+	}
 	idx, err := svc.loadRefIndex(scope)
 	if err != nil {
 		return refRelationResult{}, err

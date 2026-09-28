@@ -2,8 +2,20 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+// seedRelationNotes 把笔记登记进笔记索引：关系查询要求关注笔记真实存在。
+func seedRelationNotes(t *testing.T, svc *service, ids ...string) {
+	t.Helper()
+	scope := testRepoID(t, svc)
+	for _, id := range ids {
+		if err := svc.upsertNoteMeta(scope, noteMeta{ID: id, Title: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 // seedRelationIndex 构造固定的引用事实图（全仓库唯一事实源：谁引用了谁）：
 // a→b、b→c、c→a（环）、d→a、e→f（无关子图）、g→g（自环）。
@@ -24,6 +36,7 @@ func seedRelationIndex(t *testing.T, svc *service) string {
 	if err := svc.saveRefIndex(scope, idx); err != nil {
 		t.Fatal(err)
 	}
+	seedRelationNotes(t, svc, "a", "b", "c", "d", "e", "f", "g")
 	return scope
 }
 
@@ -73,6 +86,7 @@ func TestQueryRefRelationsCarriesSourceAndTargetFaces(t *testing.T) {
 	if err := svc.saveRefIndex(scope, idx); err != nil {
 		t.Fatal(err)
 	}
+	seedRelationNotes(t, svc, "p", "q", "r")
 
 	outgoing, err := svc.queryRefRelations(scope, "p", 1, "outgoing")
 	if err != nil {
@@ -232,4 +246,26 @@ func TestQueryRefRelationsDispatch(t *testing.T) {
 			{FromNoteID: "d", FromFaceID: "text", ToNoteID: "a"},
 		},
 	})
+}
+
+// 关注笔记必须真实存在：存在但没有任何引用关系的笔记返回正常空图；不存在的笔记快速失败并明示。
+func TestQueryRefRelationsMissingNoteAndRelationlessNote(t *testing.T) {
+	svc := newTestService(t)
+	scope := seedRelationIndex(t, svc)
+	seedRelationNotes(t, svc, "lonely")
+
+	lonely, err := svc.queryRefRelations(scope, "lonely", 1, "both")
+	if err != nil {
+		t.Fatalf("relationless note query failed: %v", err)
+	}
+	assertRelationResult(t, lonely, refRelationResult{
+		Nodes: []refRelationNode{{NoteID: "lonely"}},
+		Edges: []refRelationEdge{},
+	})
+
+	if _, err := svc.queryRefRelations(scope, "ghost", 1, "both"); err == nil {
+		t.Fatal("missing note must be rejected")
+	} else if !strings.Contains(err.Error(), "笔记不存在") {
+		t.Fatalf("missing note error = %v", err)
+	}
 }
