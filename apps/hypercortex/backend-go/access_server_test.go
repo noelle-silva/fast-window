@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -78,7 +79,7 @@ func TestAccessServerRejectsMissingOrInvalidKey(t *testing.T) {
 	}
 }
 
-func TestAccessServerRoutesToKeyDefaultRepo(t *testing.T) {
+func TestAccessServerRoutesExplicitScopeOrKeyDefault(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatalf("ensureRoots failed: %v", err)
@@ -88,7 +89,10 @@ func TestAccessServerRoutesToKeyDefaultRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createRepo failed: %v", err)
 	}
-	if _, err := svc.createNote(secondRepo.ID, json.RawMessage(`{"title":"外部可见笔记"}`)); err != nil {
+	if _, err := svc.createNote(firstRepo, json.RawMessage(`{"title":"第一仓库笔记"}`)); err != nil {
+		t.Fatalf("createNote failed: %v", err)
+	}
+	if _, err := svc.createNote(secondRepo.ID, json.RawMessage(`{"title":"第二仓库笔记"}`)); err != nil {
 		t.Fatalf("createNote failed: %v", err)
 	}
 	created, err := svc.createExternalAccessKey(secondRepo.ID, "第二仓库密钥")
@@ -100,31 +104,44 @@ func TestAccessServerRoutesToKeyDefaultRepo(t *testing.T) {
 		t.Fatalf("listen failed: %v", err)
 	}
 
-	// 请求故意带上别的仓库作用域：路由必须仍按密钥的默认仓库（第二仓库）。
-	body := fmt.Sprintf(`{"method":"hypercortex.notes.loadIndex","params":{"scope":%q}}`, firstRepo)
-	response := postAccessRPC(t, port, created.Keys[0].Key, body)
-	if response.StatusCode != http.StatusOK {
-		response.Body.Close()
-		t.Fatalf("status = %d, want 200", response.StatusCode)
-	}
-	ok, message, result := decodeAccessResponse(t, response)
-	if !ok {
-		t.Fatalf("response not ok: %s", message)
-	}
-	var index struct {
-		Version int                 `json:"version"`
-		Notes   map[string]noteMeta `json:"notes"`
-	}
-	if err := json.Unmarshal(result, &index); err != nil {
-		t.Fatalf("decode index failed: %v", err)
-	}
-	if len(index.Notes) != 1 {
-		t.Fatalf("index notes = %#v, want 1 note from the key's default repo", index.Notes)
-	}
-	for _, meta := range index.Notes {
-		if meta.Title != "外部可见笔记" {
-			t.Fatalf("note title = %q, want 外部可见笔记", meta.Title)
+	loadNoteTitles := func(params string) []string {
+		t.Helper()
+		body := `{"method":"hypercortex.notes.loadIndex","params":` + params + `}`
+		response := postAccessRPC(t, port, created.Keys[0].Key, body)
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			t.Fatalf("status = %d, want 200", response.StatusCode)
 		}
+		ok, message, result := decodeAccessResponse(t, response)
+		if !ok {
+			t.Fatalf("response not ok: %s", message)
+		}
+		var index struct {
+			Version int                 `json:"version"`
+			Notes   map[string]noteMeta `json:"notes"`
+		}
+		if err := json.Unmarshal(result, &index); err != nil {
+			t.Fatalf("decode index failed: %v", err)
+		}
+		titles := []string{}
+		for _, meta := range index.Notes {
+			titles = append(titles, meta.Title)
+		}
+		sort.Strings(titles)
+		return titles
+	}
+
+	// 未指定作用域：按密钥的默认仓库（第二仓库）路由。
+	if titles := loadNoteTitles(`{}`); len(titles) != 1 || titles[0] != "第二仓库笔记" {
+		t.Fatalf("default routing titles = %v, want [第二仓库笔记]", titles)
+	}
+	// 空白作用域同样视为未指定。
+	if titles := loadNoteTitles(`{"scope":""}`); len(titles) != 1 || titles[0] != "第二仓库笔记" {
+		t.Fatalf("blank scope titles = %v, want [第二仓库笔记]", titles)
+	}
+	// 显式指定其他仓库：按指定仓库路由（动作指定的仓库最优先）。
+	if titles := loadNoteTitles(fmt.Sprintf(`{"scope":%q}`, firstRepo)); len(titles) != 1 || titles[0] != "第一仓库笔记" {
+		t.Fatalf("explicit scope titles = %v, want [第一仓库笔记]", titles)
 	}
 }
 

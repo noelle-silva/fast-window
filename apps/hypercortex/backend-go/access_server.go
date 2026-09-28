@@ -167,8 +167,8 @@ func matchAccessKey(doc externalAccessDoc, key string) (string, bool) {
 	return "", false
 }
 
-// injectAccessScope 把请求参数的作用域强制解析为密钥的默认仓库：
-// 外部调用者不能指定其他仓库，数据路由由密钥决定。
+// injectAccessScope 解析请求参数中的仓库作用域：调用者已指定非空 scope 时原样保留
+// （动作指定的仓库最优先），未指定时才补上密钥的默认仓库作为兜底。
 func injectAccessScope(params json.RawMessage, repoID string) json.RawMessage {
 	record := map[string]json.RawMessage{}
 	if len(params) > 0 {
@@ -177,12 +177,26 @@ func injectAccessScope(params json.RawMessage, repoID string) json.RawMessage {
 	if record == nil {
 		record = map[string]json.RawMessage{}
 	}
-	record["scope"] = json.RawMessage(strconv.Quote(repoID))
+	if !hasExplicitScope(record["scope"]) {
+		record["scope"] = json.RawMessage(strconv.Quote(repoID))
+	}
 	out, err := json.Marshal(record)
 	if err != nil {
 		return json.RawMessage("{}")
 	}
 	return out
+}
+
+// hasExplicitScope 判断参数中的 scope 是否为调用者明确指定的非空字符串。
+func hasExplicitScope(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var scope string
+	if err := json.Unmarshal(raw, &scope); err != nil {
+		return false
+	}
+	return strings.TrimSpace(scope) != ""
 }
 
 func accessSuccess(result any) accessResponse {
