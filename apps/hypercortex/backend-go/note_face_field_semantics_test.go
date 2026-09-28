@@ -15,7 +15,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 		"description": "原简介",
 		"resources":   []map[string]any{{"assetId": "asset-a", "ext": "png"}},
 		"faceKinds":   []string{"markdown"},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "y"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save without fields failed: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "z"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save with invalid resources failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestSaveNoteFacesPreservesFieldsOnMissingOrInvalidInput(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "w"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save with empty description failed: %v", err)
 	}

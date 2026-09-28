@@ -17,7 +17,7 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 		"id":          "faceless-note-1",
 		"title":       "只有标题",
 		"description": "无面笔记",
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save faceless note failed: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestSaveFaceLessNoteRequiresTitle(t *testing.T) {
 	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
 		"id":    "faceless-note-2",
 		"title": "",
-	})); err == nil || !strings.Contains(err.Error(), "标题") {
+	}), 0); err == nil || !strings.Contains(err.Error(), "标题") {
 		t.Fatalf("expected title rejection for faceless note, got %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "hello"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("first save failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "hello again"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("second save failed: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestNoteFaceTimestampLifecycle(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>x</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRestoreNoteVersionResurrectsDeletedFace(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>[[note_id=html-target]]</div>"},
 		},
-	})); err != nil {
+	}), 0); err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
 	version, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "With html")
@@ -234,7 +234,7 @@ func TestPublishVersionIgnoresTimestampOnlyChanges(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "# Alpha\n\nfirst body"},
 		},
-	})); err != nil {
+	}), 0); err != nil {
 		t.Fatalf("re-save note failed: %v", err)
 	}
 	if _, err := svc.publishNoteVersion(testRepoID(t, svc), packageDir, "Same content"); err == nil || !strings.Contains(err.Error(), "无需重复发布") {

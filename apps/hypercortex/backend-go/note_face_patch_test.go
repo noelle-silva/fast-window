@@ -13,7 +13,7 @@ func TestPatchNoteFaceReplacesTextIncrementally(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"补丁目标","faces":[{"kind":"markdown","content":"第一段\n目标文本\n第三段"}]}`))
+	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"补丁目标","faces":[{"kind":"markdown","content":"第一段\n目标文本\n第三段"}]}`), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestPatchNoteFaceUniquenessAndReplaceAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"补丁目标","faces":[{"kind":"markdown","content":"重复 重复 保留"}]}`))
+	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"补丁目标","faces":[{"kind":"markdown","content":"重复 重复 保留"}]}`), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestPatchNoteFaceExpectedVersionGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"保险丝","faces":[{"kind":"markdown","content":"原始内容"}]}`))
+	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"保险丝","faces":[{"kind":"markdown","content":"原始内容"}]}`), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestPatchFaceDispatchHonorsExpectedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"RPC 保险丝","faces":[{"kind":"markdown","content":"RPC 内容"}]}`))
+	created, err := svc.saveNoteFaces(scope, json.RawMessage(`{"title":"RPC 保险丝","faces":[{"kind":"markdown","content":"RPC 内容"}]}`), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

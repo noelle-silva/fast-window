@@ -20,7 +20,7 @@ func createVersionedTestNote(t *testing.T, svc *service) string {
 			{"faceId": "text", "kind": "markdown", "content": "# Alpha\n\nfirst body"},
 		},
 	}
-	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, input))
+	result, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, input), 0)
 	if err != nil {
 		t.Fatalf("save note failed: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRestoreNoteVersionReplacesCurrentContentAndRefs(t *testing.T) {
 			{"faceId": "text", "kind": "markdown", "content": "# Beta\n\n[[note_id=missing-target]]\nchanged body"},
 		},
 	}
-	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, update)); err != nil {
+	if _, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, update), 0); err != nil {
 		t.Fatalf("update note failed: %v", err)
 	}
 

@@ -248,14 +248,33 @@ func faceContentsFromAny(value any) ([]noteFaceContentInput, error) {
 }
 
 // saveNoteFaces 一次保存整篇笔记的所有面内容与笔记级元数据（Q24）。
+// expectedVersion 为防覆盖保险丝：非零时必须与笔记当前版本一致才允许写入，不一致说明读取后
+// 笔记已被其他修改更新，直接拒绝并回报当前版本；写入成功后结果显式携带新版本标记。
 // 提交的面内容全部写盘成功后再写 manifest、更新笔记索引并刷新派生索引，
 // 不使用多面逐次保存，避免出现“部分面已保存”的中间状态。
-func (svc *service) saveNoteFaces(scope string, raw json.RawMessage) (any, error) {
+func (svc *service) saveNoteFaces(scope string, raw json.RawMessage, expectedVersion float64) (any, error) {
 	input := map[string]any{}
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, err
 	}
-	return svc.saveNoteFacesInput(scope, input)
+	if expectedVersion > 0 {
+		packageDir := strings.TrimSpace(asString(input["packageDir"]))
+		manifest, err := svc.loadNoteManifest(scope, packageDir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("笔记版本不匹配：期望版本 %.0f，但目标笔记不存在", expectedVersion)
+			}
+			return nil, err
+		}
+		if err := checkNoteVersion(expectedVersion, manifest.UpdatedAtMs); err != nil {
+			return nil, err
+		}
+	}
+	saved, err := svc.saveNoteFacesInput(scope, input)
+	if err != nil {
+		return nil, err
+	}
+	return attachSaveVersion(saved), nil
 }
 
 // saveNoteFacesInput 是保存逻辑的结构化入口：接受已解析的输入对象，供 RPC 入口与内部调用共用；
@@ -413,10 +432,29 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
 }
 
+// checkNoteVersion 是写入侧统一的防覆盖保险丝：expectedVersion 非零时必须与当前版本一致；
+// 不一致说明读取后笔记已被其他修改更新，拒绝写入并回报当前版本。
+func checkNoteVersion(expectedVersion float64, currentVersion float64) error {
+	if expectedVersion > 0 && currentVersion != expectedVersion {
+		return fmt.Errorf("笔记版本不匹配：期望版本 %.0f，当前版本 %.0f；笔记已被其他修改更新，请重新读取后再写入", expectedVersion, currentVersion)
+	}
+	return nil
+}
+
+// attachSaveVersion 把保存结果中的新版本标记显式附在结果上，供调用者下一次修改时作为期望版本回传。
+func attachSaveVersion(saved any) any {
+	if record, ok := saved.(map[string]any); ok {
+		if manifest, ok := record["manifest"].(noteManifest); ok {
+			record["version"] = manifest.UpdatedAtMs
+		}
+	}
+	return saved
+}
+
 // patchNoteFace 对笔记某个面的内容做增量替换编辑（Q24 之外的增量通道）：
 // oldString 必须存在于面内容中；默认要求唯一（出现多次时需提供更多上下文），replaceAll 时全部替换。
-// expectedVersion 为防覆盖保险丝：非零时必须与笔记当前版本一致才允许写入，不一致说明读取后
-// 笔记已被其他修改更新，直接拒绝并回报当前版本；写入成功后结果携带本次产生的新版本标记。
+// expectedVersion 与 saveNoteFaces 共用同一防覆盖保险丝语义：不一致时拒绝写入并回报当前版本；
+// 写入成功后结果显式携带新版本标记。
 // 前端仍使用 saveFaces 的全量覆盖语义，本接口专供工具或其他调用者做安全的增量修改。
 func (svc *service) patchNoteFace(scope string, packageDir string, faceID string, oldString string, newString string, replaceAll bool, expectedVersion float64) (any, error) {
 	dir := strings.TrimSpace(packageDir)
@@ -431,9 +469,9 @@ func (svc *service) patchNoteFace(scope string, packageDir string, faceID string
 	if err != nil {
 		return nil, err
 	}
-	// 防覆盖保险丝：调用者声明期望版本时，笔记必须仍是该版本，否则拒绝写入并回报真实版本。
-	if expectedVersion > 0 && doc.UpdatedAtMs != expectedVersion {
-		return nil, fmt.Errorf("笔记版本不匹配：期望版本 %.0f，当前版本 %.0f；笔记已被其他修改更新，请重新读取后再写入", expectedVersion, doc.UpdatedAtMs)
+	// 防覆盖保险丝：版本不一致时拒绝写入并回报当前版本。
+	if err := checkNoteVersion(expectedVersion, doc.UpdatedAtMs); err != nil {
+		return nil, err
 	}
 	content := doc.Content
 	count := strings.Count(content, oldString)
@@ -459,13 +497,7 @@ func (svc *service) patchNoteFace(scope string, packageDir string, faceID string
 	if err != nil {
 		return nil, err
 	}
-	// 结果显式携带写入后的新版本标记，供调用者在下一次修改时作为期望版本回传。
-	if record, ok := saved.(map[string]any); ok {
-		if manifest, ok := record["manifest"].(noteManifest); ok {
-			record["version"] = manifest.UpdatedAtMs
-		}
-	}
-	return saved, nil
+	return attachSaveVersion(saved), nil
 }
 
 // saveNoteFaceOrder 保存笔记级面顺序（Q35 统一优先级机制的笔记级覆盖）。

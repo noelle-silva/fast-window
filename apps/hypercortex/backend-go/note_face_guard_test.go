@@ -29,7 +29,7 @@ func TestSaveNoteFacesRejectsMismatchedPackageOwner(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "stolen"},
 		},
-	}))
+	}), 0)
 	if err == nil || !strings.Contains(err.Error(), "归属不匹配") {
 		t.Fatalf("expected ownership rejection, got %v", err)
 	}
@@ -70,7 +70,7 @@ func TestSaveNoteFacesAllowsOwnerMatchedRename(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "new"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("owner-matched rename save failed: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSaveNoteFacesRejectsFaceKindChange(t *testing.T) {
 		"id":        "guard-kind-1",
 		"title":     "类型守卫",
 		"faceKinds": []string{"markdown", "html"},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestSaveNoteFacesRejectsFaceKindChange(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "html", "content": "<div>hijack</div>"},
 		},
-	}))
+	}), 0)
 	if err == nil || !strings.Contains(err.Error(), "类型不匹配") {
 		t.Fatalf("expected kind mismatch rejection, got %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSaveNoteFacesRejectsDuplicateFaceFiles(t *testing.T) {
 		"id":        "guard-file-1",
 		"title":     "文件重名",
 		"faceKinds": []string{"markdown"},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestSaveNoteFacesRejectsDuplicateFaceFiles(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text2", "kind": "markdown", "content": "dup"},
 		},
-	}))
+	}), 0)
 	if err == nil || !strings.Contains(err.Error(), "重名") {
 		t.Fatalf("expected duplicate file rejection, got %v", err)
 	}
@@ -162,7 +162,7 @@ func TestSaveNoteFacesRejectsCorruptManifest(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "x"},
 		},
-	}))
+	}), 0)
 	if err == nil || !strings.Contains(err.Error(), "读取笔记清单失败") {
 		t.Fatalf("expected corrupt manifest rejection, got %v", err)
 	}
@@ -206,7 +206,7 @@ func TestSaveNoteFacesRollsBackOnWriteFailure(t *testing.T) {
 			{"faceId": "text", "kind": "markdown", "content": "new"},
 			{"faceId": "blocked", "kind": "html", "content": "<div>new</div>"},
 		},
-	}))
+	}), 0)
 	if err == nil {
 		t.Fatal("expected face write failure")
 	}

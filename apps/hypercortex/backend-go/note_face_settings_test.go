@@ -19,7 +19,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>hi</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "hello"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save note with faceKinds failed: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "hello again"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("second save failed: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestSaveNoteFaceFaceKindsCreatesMissingFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>draft</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face with faceKinds failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestFaceKindsDoNotReorderExistingNote(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "updated"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save note face failed: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestSaveHtmlFaceKeepsDisplayModeSettings(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>one</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestSaveHtmlFaceKeepsDisplayModeSettings(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>two</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face content failed: %v", err)
 	}

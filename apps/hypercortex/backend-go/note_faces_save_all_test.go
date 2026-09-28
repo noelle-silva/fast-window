@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "old text"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
 	}
@@ -47,7 +48,7 @@ func TestSaveNoteFacesSavesAllFaceContentsInOneCall(t *testing.T) {
 			{"faceId": "text", "kind": "markdown", "content": "new text [[note_id=other-note]]"},
 			{"faceId": "html", "kind": "html", "content": "<div>new html</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save all faces failed: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "html", "kind": "html", "content": "<div>keep</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save html face failed: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestSaveNoteFacesKeepsUnsubmittedFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": "only text"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save all faces failed: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestSaveNoteFacesCreatesNoteWithAllFaces(t *testing.T) {
 			{"faceId": "text", "kind": "markdown", "content": "draft text"},
 			{"faceId": "html", "kind": "html", "content": "<div>draft html</div>"},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("save all faces failed: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestSaveNoteFacesRejectsUnknownFaceKindWithoutSideEffects(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "weird", "kind": "weird", "content": "x"},
 		},
-	}))
+	}), 0)
 	if err == nil {
 		t.Fatal("expected error for unknown face kind")
 	}
@@ -247,7 +248,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 		"faces": []map[string]any{
 			{"faceId": "text", "kind": "markdown", "content": ""},
 		},
-	}))
+	}), 0)
 	if err != nil {
 		t.Fatalf("create note failed: %v", err)
 	}
@@ -281,5 +282,167 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	}
 	if got := strings.Join(onDisk.FaceOrder, ","); got != "html,text" {
 		t.Fatalf("manifest on disk faceOrder = %q", got)
+	}
+}
+
+// 全量覆盖写的防覆盖保险丝：与 patch 共用同一版本语义——期望版本不一致时拒绝写入并回报当前版本，
+// 一致时写入成功且结果携带新版本，可闭环用于下一次写入。
+func TestSaveNoteFacesExpectedVersionGuard(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+	created, err := svc.saveNoteFaces(scope, mustJSONRaw(t, map[string]any{
+		"id":    "fuse-save-note-1",
+		"title": "全量保险丝",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "原始正文"},
+		},
+	}), 0)
+	if err != nil {
+		t.Fatalf("create note failed: %v", err)
+	}
+	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
+	version := created.(map[string]any)["meta"].(noteMeta).UpdatedAtMs
+
+	saveInput := func() map[string]any {
+		return map[string]any{
+			"id":         "fuse-save-note-1",
+			"packageDir": packageDir,
+			"title":      "全量保险丝（改）",
+			"faces": []map[string]any{
+				{"faceId": "text", "kind": "markdown", "content": "被拒绝的正文"},
+			},
+		}
+	}
+
+	// 期望版本不一致：拒绝写入，内容与版本保持不变，错误回报当前版本。
+	_, err = svc.saveNoteFaces(scope, mustJSONRaw(t, saveInput()), version+1000)
+	if err == nil {
+		t.Fatal("mismatching expectedVersion must be rejected")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("%.0f", version)) {
+		t.Fatalf("rejection must report current version %.0f: %v", version, err)
+	}
+	manifest, err := svc.loadNoteManifest(scope, packageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Title != "全量保险丝" || manifest.UpdatedAtMs != version {
+		t.Fatalf("rejected save must not write: title = %q, version = %.0f", manifest.Title, manifest.UpdatedAtMs)
+	}
+
+	// 期望版本一致：写入成功，结果携带写入后的新版本。
+	result, err := svc.saveNoteFaces(scope, mustJSONRaw(t, saveInput()), version)
+	if err != nil {
+		t.Fatalf("matching expectedVersion must be accepted: %v", err)
+	}
+	nextVersion, ok := result.(map[string]any)["version"].(float64)
+	if !ok {
+		t.Fatalf("save result must carry new version: %#v", result)
+	}
+	manifest, err = svc.loadNoteManifest(scope, packageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.UpdatedAtMs != nextVersion || manifest.Title != "全量保险丝（改）" {
+		t.Fatalf("saved manifest = %#v", manifest)
+	}
+
+	// 闭环：用返回的新版本继续修改被接受。
+	if _, err := svc.saveNoteFaces(scope, mustJSONRaw(t, map[string]any{
+		"id":         "fuse-save-note-1",
+		"packageDir": packageDir,
+		"title":      "全量保险丝（再改）",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "第二次正文"},
+		},
+	}), nextVersion); err != nil {
+		t.Fatalf("closed-loop save with returned version failed: %v", err)
+	}
+
+	// 目标笔记不存在而声明了期望版本：快速失败。
+	if _, err := svc.saveNoteFaces(scope, mustJSONRaw(t, map[string]any{
+		"id":         "fuse-save-missing",
+		"packageDir": "Notes/2099-01/fuse-save-missing",
+		"title":      "不存在",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "x"},
+		},
+	}), version); err == nil {
+		t.Fatal("expectedVersion for a missing note must be rejected")
+	}
+}
+
+// RPC 入口必须把 saveFaces 的 expectedVersion 参数交给防覆盖保险丝，且不传该参数时保持原有语义。
+func TestSaveFacesDispatchHonorsExpectedVersion(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+	created, err := svc.saveNoteFaces(scope, mustJSONRaw(t, map[string]any{
+		"id":    "fuse-rpc-note-1",
+		"title": "RPC 全量保险丝",
+		"faces": []map[string]any{
+			{"faceId": "text", "kind": "markdown", "content": "RPC 原始正文"},
+		},
+	}), 0)
+	if err != nil {
+		t.Fatalf("create note failed: %v", err)
+	}
+	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
+	version := created.(map[string]any)["meta"].(noteMeta).UpdatedAtMs
+
+	// 期望版本不一致：RPC 调用被拒绝。
+	if _, err := svc.dispatch("hypercortex.notes.saveFaces", mustJSONRaw(t, map[string]any{
+		"scope":           scope,
+		"expectedVersion": version + 1000,
+		"input": map[string]any{
+			"id":         "fuse-rpc-note-1",
+			"packageDir": packageDir,
+			"title":      "被拒绝",
+			"faces": []map[string]any{
+				{"faceId": "text", "kind": "markdown", "content": "被拒绝的正文"},
+			},
+		},
+	})); err == nil {
+		t.Fatal("dispatch must reject mismatching expectedVersion")
+	}
+
+	// 期望版本一致：写入成功，结果携带新版本。
+	result, err := svc.dispatch("hypercortex.notes.saveFaces", mustJSONRaw(t, map[string]any{
+		"scope":           scope,
+		"expectedVersion": version,
+		"input": map[string]any{
+			"id":         "fuse-rpc-note-1",
+			"packageDir": packageDir,
+			"title":      "RPC 已改",
+			"faces": []map[string]any{
+				{"faceId": "text", "kind": "markdown", "content": "RPC 新正文"},
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("dispatch with matching expectedVersion failed: %v", err)
+	}
+	if _, ok := result.(map[string]any)["version"].(float64); !ok {
+		t.Fatalf("dispatch result must carry new version: %#v", result)
+	}
+
+	// 不提供 expectedVersion：保险丝关闭，写入照常成功。
+	if _, err := svc.dispatch("hypercortex.notes.saveFaces", mustJSONRaw(t, map[string]any{
+		"scope": scope,
+		"input": map[string]any{
+			"id":         "fuse-rpc-note-1",
+			"packageDir": packageDir,
+			"title":      "RPC 再改",
+			"faces": []map[string]any{
+				{"faceId": "text", "kind": "markdown", "content": "RPC 再改正文"},
+			},
+		},
+	})); err != nil {
+		t.Fatalf("saveFaces without expectedVersion must keep working: %v", err)
 	}
 }
