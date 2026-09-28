@@ -9,7 +9,6 @@ import {
   type NoteMeta,
 } from '../core'
 import type { HyperCortexRepo } from '../gateway'
-import { type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
@@ -614,8 +613,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     return noteSessionHandlesRef.current[nid]?.isSaving?.() === true
   }, [])
 
-  // ---- 引用索引（反向链接）
-  const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
+  // ---- 引用关系版本号：任何笔记保存/删除/恢复后自增，打开的会话据此重取反向引用。
+  const [refRelationsEpoch, setRefRelationsEpoch] = React.useState(0)
+  const bumpRefRelationsEpoch = React.useCallback(() => {
+    setRefRelationsEpoch(prev => prev + 1)
+  }, [])
   const allNotesById = React.useMemo(() => {
     const map: Record<string, NoteMeta> = {}
     for (const n of allNotes) map[n.id] = n
@@ -636,11 +638,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     return workspaces.find(w => w.id === wid)?.title || workspaces[0]?.title || ''
   }, [activeWorkspaceId, workspaces])
 
-  const refIndexRef = React.useRef<NoteRefIndex>({})
-  React.useEffect(() => {
-    refIndexRef.current = refIndex
-  }, [refIndex])
-
   // ---- 面切换请求（点击引用跳转指定面：复用同一标签页）
   const faceSwitchSeqRef = React.useRef(0)
   const [faceSwitchLatestSeq, setFaceSwitchLatestSeq] = React.useState(0)
@@ -649,25 +646,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const handleFaceSwitchConsumed = React.useCallback((seq: number) => {
     setFaceSwitchRequest(prev => (prev && prev.seq === seq ? null : prev))
   }, [])
-
-  const refIndexLoadPromiseRef = React.useRef<Promise<NoteRefIndex> | null>(null)
-  const ensureRefIndexLoaded = React.useCallback(async () => {
-    if (refIndexRef.current && Object.keys(refIndexRef.current).length) return refIndexRef.current
-    if (!refIndexLoadPromiseRef.current) {
-      refIndexLoadPromiseRef.current = gateway.refs.loadRefIndex('library').catch(err => {
-        refIndexLoadPromiseRef.current = null
-        throw err
-      })
-    }
-    const idx = await refIndexLoadPromiseRef.current
-    setRefIndex(idx)
-    return idx
-  }, [gateway])
-
-  React.useEffect(() => {
-    if (!visible) return
-    void ensureRefIndexLoaded().catch(() => {})
-  }, [ensureRefIndexLoaded, visible])
 
   // ---- 全部笔记：卡片摘要（tags / faces）
   const [noteCardInfoById, setNoteCardInfoById] = React.useState<Record<string, NoteCardInfo>>({})
@@ -1651,11 +1629,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           delete nextNotes[nid]
           return { ...current, notes: nextNotes }
         })
-        setRefIndex(prev => {
-          const next = { ...(prev || {}) }
-          delete next[nid]
-          return next
-        })
+        bumpRefRelationsEpoch()
         return
       }
 
@@ -1670,17 +1644,13 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           delete nextNotes[nid]
           return { ...current, notes: nextNotes }
         })
-        setRefIndex(prev => {
-          const next = { ...(prev || {}) }
-          delete next[nid]
-          return next
-        })
+        bumpRefRelationsEpoch()
       } catch (e: any) {
         // 失败向上抛出：由调用方保留确认界面并提示，避免「删除失败但对话框已关」。
         throw e
       }
     },
-    [gateway],
+    [bumpRefRelationsEpoch, gateway],
   )
 
   const handleDeleteAssetEntity = React.useCallback(
@@ -1789,6 +1759,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         return { ...current, notes: nextNotes }
       })
       void refreshNoteCardInfo(meta).catch(() => {})
+      // 恢复会带回该笔记（或其面）发出的引用，反向引用需重取。
+      bumpRefRelationsEpoch()
       if (kind === 'face') {
         const handle = noteSessionHandlesRef.current[meta.id]
         if (handle && !handle.isDirty() && !handle.isSaving()) {
@@ -1797,7 +1769,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       }
       void gateway.host.toast(kind === 'face' ? '已恢复笔记面' : '已恢复笔记')
     },
-    [gateway, refreshNoteCardInfo],
+    [bumpRefRelationsEpoch, gateway, refreshNoteCardInfo],
   )
 
   const handleTrashAssetRestored = React.useCallback(
@@ -2140,7 +2112,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       if (!nid) return
       // 打开笔记统一收浮层：无论从模态页、侧栏、引用还是创建流程进入。
       setOpenModalPage(null)
-      void ensureRefIndexLoaded().catch(() => {})
       const nextKey = noteTabKey(nid)
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
@@ -2161,7 +2132,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         setFaceSwitchRequest({ noteId: nid, faceId: targetFace, seq })
       }
     },
-    [ensureRefIndexLoaded, navigatePage, recordNewNavLocation, updateSidebarItems],
+    [navigatePage, recordNewNavLocation, updateSidebarItems],
   )
 
   const handleCreateNoteInIndex = React.useCallback(
@@ -2393,7 +2364,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
-    refsForIndex?: NoteRefEntryMap
   }) => {
     const originalId = String(payload.originalId || '').trim()
     const meta = payload.meta
@@ -2429,19 +2399,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
     void refreshNoteCardInfo(meta).catch(() => {})
 
-    setRefIndex(prev => {
-      const next = { ...(prev || {}) }
-      if (didMigrateId) delete next[originalId]
-
-      const refs = payload.refsForIndex
-      if (refs && Object.keys(refs).length) {
-        next[meta.id] = refs
-      } else {
-        delete next[meta.id]
-      }
-
-      return next
-    })
+    // 保存（含面删除、版本恢复）会改变该笔记发出的引用，打开的会话重取反向引用。
+    bumpRefRelationsEpoch()
 
     setOpenNoteTabs(prev => {
       const replaced = prev.map(t => (t.id === originalId ? meta : t))
@@ -2457,7 +2416,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     })
 
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
-  }, [activeNoteId, refreshNoteCardInfo, updateSidebarItems])
+  }, [activeNoteId, bumpRefRelationsEpoch, refreshNoteCardInfo, updateSidebarItems])
 
   const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
 
@@ -2823,7 +2782,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                         bodyScrollRef={page === 'note-detail' && tab.id === activeNoteId ? mainScrollElRef : undefined}
                         noteIndexMap={noteIndexMap}
                         allNotesById={allNotesById}
-                        refIndex={refIndex}
+                        refRelationsEpoch={refRelationsEpoch}
                         faceSwitchRequest={faceSwitchRequest}
                         faceSwitchLatestSeq={faceSwitchLatestSeq}
                         onFaceSwitchConsumed={handleFaceSwitchConsumed}
@@ -2911,11 +2870,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                         delete nextNotes[nid]
                         return { ...current, notes: nextNotes }
                       })
-                      setRefIndex(prev => {
-                        const next = { ...(prev || {}) }
-                        delete next[nid]
-                        return next
-                      })
+                      bumpRefRelationsEpoch()
                     }}
                   />
                 ) : null}

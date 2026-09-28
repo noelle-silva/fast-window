@@ -3,7 +3,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconBut
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
-import { getBacklinksFor, getFaceBacklinksFor, isBacklinkStaleFor, type NoteRefEntryMap, type NoteRefIndex } from '../noteRefs'
+import { backlinksFromRelations, faceBacklinksFromRelations, isBacklinkStaleFromRelations, type NoteRefRelationEdge } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
@@ -138,7 +138,7 @@ export type NoteDetailSessionProps = {
   bodyScrollRef?: React.Ref<HTMLDivElement>
   noteIndexMap: Record<string, { title: string; faceIds?: string[] }>
   allNotesById: Record<string, NoteMeta>
-  refIndex: NoteRefIndex
+  refRelationsEpoch: number
   faceSwitchRequest?: { noteId: string; faceId: string; seq: number } | null
   faceSwitchLatestSeq?: number
   onFaceSwitchConsumed?: (seq: number) => void
@@ -150,7 +150,6 @@ export type NoteDetailSessionProps = {
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
-    refsForIndex?: NoteRefEntryMap
   }) => void
   trashEnabled: boolean
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
@@ -171,7 +170,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     bodyScrollRef,
     noteIndexMap,
     allNotesById,
-    refIndex,
+    refRelationsEpoch,
     faceSwitchRequest,
     faceSwitchLatestSeq,
     onFaceSwitchConsumed,
@@ -461,7 +460,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setAddFaceSelectorVisible(false)
       setPendingAddFace(null)
       setDeleteFaceTarget(null)
-      onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
+      onSaved({ originalId: noteId, meta: result.meta })
       void gateway.host.toast(mode === 'trash' ? '已移入回收站（可在回收站恢复）' : '已删除面')
     } catch (e: any) {
       void gateway.host.toast(String(e?.message || e || '删除面失败'))
@@ -599,10 +598,28 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [allNotesById, draftRefIds, loaded, onEnsureNoteCardInfoLoaded])
 
+  // 反向引用来自后端关系查询（引用边）：仅可见会话请求，任何笔记保存/删除/恢复后重取（refRelationsEpoch）。
+  const [backlinkEdges, setBacklinkEdges] = React.useState<NoteRefRelationEdge[]>([])
+  React.useEffect(() => {
+    if (!visible || !noteId) return
+    let cancelled = false
+    void gateway.refs
+      .queryRelations(scope, noteId, 1, 'incoming')
+      .then(result => {
+        if (!cancelled) setBacklinkEdges(Array.isArray(result?.edges) ? result.edges : [])
+      })
+      .catch(() => {
+        if (!cancelled) setBacklinkEdges([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [gateway, noteId, refRelationsEpoch, scope, visible])
+
   const allBacklinks = React.useMemo(() => {
     if (!noteId) return []
-    return getBacklinksFor(refIndex, noteId)
-  }, [noteId, refIndex])
+    return backlinksFromRelations(backlinkEdges, noteId)
+  }, [noteId, backlinkEdges])
 
   const faceBacklinkGroups = React.useMemo(() => {
     if (!noteId) return []
@@ -610,10 +627,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       .map(faceId => ({
         faceId,
         label: `${resolveFaceLabel(faceId, faceManifests)}面引用`,
-        refs: getFaceBacklinksFor(refIndex, noteId, faceId),
+        refs: faceBacklinksFromRelations(backlinkEdges, noteId, faceId),
       }))
       .filter(group => group.refs.length > 0)
-  }, [faces, faceManifests, noteId, refIndex])
+  }, [faces, faceManifests, noteId, backlinkEdges])
 
   const handleAddTag = React.useCallback(() => {
     setEditTags(prev => appendTag(prev, tagInput))
@@ -751,7 +768,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         ? buildSessionSnapshot({ baseFields: nextBaseFields, manifest: result.manifest, title, description, tags, updatedAtMs: nextUpdatedAtMs })
         : undefined
 
-      onSaved({ originalId, meta: result.meta, snapshotForNewId, refsForIndex: result.refs })
+      onSaved({ originalId, meta: result.meta, snapshotForNewId })
       await gateway.host.toast(mode === 'current' ? '笔记已保存' : '笔记所有面已保存')
       return true
     } catch (e: any) {
@@ -782,7 +799,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditing(false)
     resetFaceViewState()
 
-    onSaved({ originalId: noteId, meta: result.meta, refsForIndex: result.refs })
+    onSaved({ originalId: noteId, meta: result.meta })
   }, [applyLoadedNote, gateway, note.dir, noteId, onSaved, readNotePackage, resetFaceViewState, scope])
 
   const handleCycleFace = React.useCallback(() => {
@@ -1117,7 +1134,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   const meta = allNotesById[ref.noteId]
                   if (meta) onOpenNote(meta, ref.faceId || undefined)
                 }}
-                isBacklinkStale={ref => isBacklinkStaleFor(refIndex, noteId, ref.noteId, faceId => !!faceManifests[String(faceId || '').trim()])}
+                isBacklinkStale={ref => isBacklinkStaleFromRelations(backlinkEdges, noteId, ref.noteId, faceId => !!faceManifests[String(faceId || '').trim()])}
               />
             </Box>
           ) : null}

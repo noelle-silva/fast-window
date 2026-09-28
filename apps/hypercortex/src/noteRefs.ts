@@ -17,6 +17,26 @@ export type NoteBacklinkRef = {
   fromFaceId?: string
 }
 
+// 引用关系查询（refs.queryRelations）的请求方向与结果类型，与后端结构对齐。
+export type NoteRefRelationDirection = 'both' | 'outgoing' | 'incoming'
+
+export type NoteRefRelationNode = {
+  noteId: string
+  distance: number
+}
+
+export type NoteRefRelationEdge = {
+  fromNoteId: string
+  fromFaceId?: string
+  toNoteId: string
+  toFaceId?: string
+}
+
+export type NoteRefRelationResult = {
+  nodes: NoteRefRelationNode[]
+  edges: NoteRefRelationEdge[]
+}
+
 /**
  * 纯语法解析：从文本提取系统引用占位符（按 noteId+faceId 去重）。
  * 不感知任何面语言的代码区域；代码区域遮蔽由各面插件的 extractRefs 实现自行完成。
@@ -35,57 +55,46 @@ export function extractRefsFromText(body: string): NoteRef[] {
   return Array.from(byKey.values())
 }
 
-function* traverseBacklinkSources(
-  index: NoteRefIndex,
-  match: (ref: NoteRef) => boolean,
-): Generator<{ from: string; fromFaceId?: string; ref: NoteRef }> {
-  for (const [from, faces] of Object.entries(index || {})) {
-    if (!faces || typeof faces !== 'object') continue
-    for (const [fromFace, refs] of Object.entries(faces)) {
-      if (!Array.isArray(refs)) continue
-      for (const ref of refs) {
-        if (!ref || !match(ref)) continue
-        yield { from, fromFaceId: String(fromFace || '').trim() || undefined, ref }
-      }
-    }
-  }
-}
+// 反向引用视图：全部由后端关系查询结果（引用边）推导，前端不再自算全表。
 
-export function getBacklinksFor(index: NoteRefIndex, noteId: string): NoteBacklinkRef[] {
+export function backlinksFromRelations(edges: NoteRefRelationEdge[], noteId: string): NoteBacklinkRef[] {
   const id = String(noteId || '').trim()
   if (!id) return []
 
   const byFrom = new Map<string, NoteBacklinkRef>()
-  for (const { from, fromFaceId, ref } of traverseBacklinkSources(index, ref => String(ref.noteId || '').trim() === id)) {
+  for (const edge of edges || []) {
+    const from = String(edge?.fromNoteId || '').trim()
+    if (!from || String(edge?.toNoteId || '').trim() !== id) continue
     const existing = byFrom.get(from)
     if (existing && !existing.faceId) continue
-    const refFace = String(ref.faceId || '').trim()
-    if (!refFace) {
+    const fromFaceId = String(edge?.fromFaceId || '').trim() || undefined
+    const toFaceId = String(edge?.toFaceId || '').trim()
+    if (!toFaceId) {
       byFrom.set(from, { noteId: from, fromFaceId })
       continue
     }
-    if (!existing) byFrom.set(from, { noteId: from, faceId: refFace, fromFaceId })
+    if (!existing) byFrom.set(from, { noteId: from, faceId: toFaceId, fromFaceId })
   }
   return Array.from(byFrom.values())
 }
 
-export function getFaceBacklinksFor(index: NoteRefIndex, noteId: string, faceId: string): NoteBacklinkRef[] {
+export function faceBacklinksFromRelations(edges: NoteRefRelationEdge[], noteId: string, faceId: string): NoteBacklinkRef[] {
   const id = String(noteId || '').trim()
   const targetFace = String(faceId || '').trim()
   if (!id || !targetFace) return []
 
   const byFrom = new Map<string, NoteBacklinkRef>()
-  for (const { from, fromFaceId } of traverseBacklinkSources(
-    index,
-    ref => String(ref.noteId || '').trim() === id && String(ref.faceId || '').trim() === targetFace,
-  )) {
-    byFrom.set(from, { noteId: from, faceId: targetFace, fromFaceId })
+  for (const edge of edges || []) {
+    const from = String(edge?.fromNoteId || '').trim()
+    if (!from || String(edge?.toNoteId || '').trim() !== id) continue
+    if (String(edge?.toFaceId || '').trim() !== targetFace) continue
+    byFrom.set(from, { noteId: from, faceId: targetFace, fromFaceId: String(edge?.fromFaceId || '').trim() || undefined })
   }
   return Array.from(byFrom.values())
 }
 
-export function isBacklinkStaleFor(
-  index: NoteRefIndex,
+export function isBacklinkStaleFromRelations(
+  edges: NoteRefRelationEdge[],
   targetNoteId: string,
   fromNoteId: string,
   faceExists: (faceId: string) => boolean,
@@ -93,18 +102,14 @@ export function isBacklinkStaleFor(
   const targetId = String(targetNoteId || '').trim()
   const from = String(fromNoteId || '').trim()
   if (!targetId || !from) return false
-  const faces = index?.[from]
-  if (!faces || typeof faces !== 'object') return false
 
   let matchedAny = false
-  for (const refs of Object.values(faces)) {
-    if (!Array.isArray(refs)) continue
-    for (const ref of refs) {
-      if (!ref || String(ref.noteId || '').trim() !== targetId) continue
-      matchedAny = true
-      const refFace = String(ref.faceId || '').trim()
-      if (!refFace || faceExists(refFace)) return false
-    }
+  for (const edge of edges || []) {
+    if (String(edge?.fromNoteId || '').trim() !== from) continue
+    if (String(edge?.toNoteId || '').trim() !== targetId) continue
+    matchedAny = true
+    const toFaceId = String(edge?.toFaceId || '').trim()
+    if (!toFaceId || faceExists(toFaceId)) return false
   }
   return matchedAny
 }

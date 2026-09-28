@@ -36,6 +36,7 @@ export const HyperCortexRpc = {
   },
   refs: {
     loadIndex: 'hypercortex.refs.loadIndex',
+    queryRelations: 'hypercortex.refs.queryRelations',
   },
   search: {
     kinds: 'hypercortex.search.kinds',

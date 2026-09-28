@@ -1,7 +1,7 @@
 import type { VaultScope } from '../core'
 import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
-import type { NoteRefEntryMap, NoteRefIndex } from '../noteRefs'
+import type { NoteRefEntryMap, NoteRefIndex, NoteRefRelationDirection, NoteRefRelationResult } from '../noteRefs'
 import type { HyperCortexNoteFaceDoc } from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexNoteVersionSnapshot, HyperCortexNoteVersionSummary } from '../noteVersions'
@@ -265,6 +265,12 @@ export type TrashService = {
 
 export type RefsService = {
   loadRefIndex: (scope: VaultScope) => Promise<NoteRefIndex>
+  queryRelations: (
+    scope: VaultScope,
+    noteId: string,
+    radius: number,
+    direction: NoteRefRelationDirection,
+  ) => Promise<NoteRefRelationResult>
 }
 
 export type NoteSearchFaceKind = {
