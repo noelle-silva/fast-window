@@ -236,6 +236,15 @@ func boolField(raw json.RawMessage, key string) bool {
 	return value
 }
 
+// checkVersionConflict 是写入侧统一的防覆盖保险丝：期望版本非零时必须与当前版本一致；
+// 不一致说明读取后目标已被其他修改更新，拒绝写入并回报当前版本。
+func checkVersionConflict(subject string, expectedVersion float64, currentVersion float64) error {
+	if expectedVersion > 0 && currentVersion != expectedVersion {
+		return fmt.Errorf("%s版本不匹配：期望版本 %.0f，当前版本 %.0f；%s已被其他修改更新，请重新读取后再写入", subject, expectedVersion, currentVersion, subject)
+	}
+	return nil
+}
+
 // rawStringField 原样提取字符串字段（不做修剪）：替换类操作的文本必须保持逐字一致。
 func rawStringField(raw json.RawMessage, key string) string {
 	payload := map[string]any{}

@@ -40,6 +40,8 @@ type favoritesDoc struct {
 	RootFolderID   string                       `json:"rootFolderId"`
 	Folders        map[string]favoriteFolder    `json:"folders"`
 	RefsByFolderID map[string][]favoriteItemRef `json:"refsByFolderId"`
+	// UpdatedAtMs 是收藏夹文档的版本标记：唯一写入点每次写入时刷新，供防覆盖保险丝比对。
+	UpdatedAtMs float64 `json:"updatedAtMs"`
 }
 
 func defaultFavoriteLayout() favoriteGridLayout {
@@ -48,7 +50,7 @@ func defaultFavoriteLayout() favoriteGridLayout {
 
 func freshFavoritesDoc(now float64) favoritesDoc {
 	root := favoriteFolder{ID: "root", Title: "根目录", Description: "", CreatedAtMs: now, UpdatedAtMs: now}
-	return favoritesDoc{Version: 1, RootFolderID: "root", Folders: map[string]favoriteFolder{"root": root}, RefsByFolderID: map[string][]favoriteItemRef{"root": []favoriteItemRef{}}}
+	return favoritesDoc{Version: 1, RootFolderID: "root", Folders: map[string]favoriteFolder{"root": root}, RefsByFolderID: map[string][]favoriteItemRef{"root": []favoriteItemRef{}}, UpdatedAtMs: now}
 }
 
 func favoriteObject(value any) map[string]any {
@@ -208,7 +210,8 @@ func normalizeFavoritesDoc(raw any) (favoritesDoc, bool) {
 		}
 	}
 
-	normalized := favoritesDoc{Version: 1, RootFolderID: "root", Folders: nextFolders, RefsByFolderID: nextRefsByFolderID}
+	updated := positiveTimestamp(docRec["updatedAtMs"], now)
+	normalized := favoritesDoc{Version: 1, RootFolderID: "root", Folders: nextFolders, RefsByFolderID: nextRefsByFolderID, UpdatedAtMs: updated}
 	var normalizedValue any
 	normalizedPayload, normalizedErr := json.Marshal(normalized)
 	if normalizedErr == nil {
@@ -246,41 +249,64 @@ func (svc *service) ensureFavorites(scope string) (any, error) {
 	}
 	if existing.Version == 1 {
 		if changed {
-			if err := svc.saveFavoritesDoc(scope, existing); err != nil {
+			version, err := svc.saveFavoritesDoc(scope, existing)
+			if err != nil {
 				return nil, err
 			}
+			existing.UpdatedAtMs = version
 		}
 		return existing, nil
 	}
-	now := nowMs()
-	fresh := freshFavoritesDoc(now)
-	target, err := svc.resolvePath(scope, favoritesFile)
+	fresh := freshFavoritesDoc(nowMs())
+	version, err := svc.saveFavoritesDoc(scope, fresh)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeJSONFile(target, fresh); err != nil {
-		return nil, err
-	}
+	fresh.UpdatedAtMs = version
 	return fresh, nil
 }
 
-func (svc *service) saveFavoritesDoc(scope string, doc favoritesDoc) error {
+// saveFavoritesDoc 是收藏夹文档的唯一写入点：写入前统一刷新版本标记，并返回新标记。
+func (svc *service) saveFavoritesDoc(scope string, doc favoritesDoc) (float64, error) {
 	target, err := svc.resolvePath(scope, favoritesFile)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return writeJSONFile(target, doc)
+	doc.UpdatedAtMs = nowMs()
+	if err := writeJSONFile(target, doc); err != nil {
+		return 0, err
+	}
+	return doc.UpdatedAtMs, nil
 }
 
-func (svc *service) saveFavorites(scope string, raw json.RawMessage) error {
+// saveFavorites 保存整份收藏夹文档（提交内容先规范化）。
+// expectedVersion 为防覆盖保险丝：非零时必须与当前收藏夹版本一致才允许写入，不一致说明读取后
+// 收藏夹已被其他修改更新，直接拒绝并回报当前版本；写入成功后返回本次产生的新版本标记。
+func (svc *service) saveFavorites(scope string, raw json.RawMessage, expectedVersion float64) (any, error) {
 	var value any
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
 		value = nil
 	} else if err := json.Unmarshal(raw, &value); err != nil {
-		return err
+		return nil, err
 	}
 	doc, _ := normalizeFavoritesDoc(value)
-	return svc.saveFavoritesDoc(scope, doc)
+	if expectedVersion > 0 {
+		current, _, err := svc.tryLoadFavorites(scope)
+		if err != nil {
+			return nil, err
+		}
+		if current.Version != 1 {
+			return nil, fmt.Errorf("收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
+		}
+		if err := checkVersionConflict("收藏夹", expectedVersion, current.UpdatedAtMs); err != nil {
+			return nil, err
+		}
+	}
+	version, err := svc.saveFavoritesDoc(scope, doc)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"version": version}, nil
 }
 
 // collectFavoriteNoteIDs 递归收集收藏夹（含嵌套子收藏夹）中的笔记标识；

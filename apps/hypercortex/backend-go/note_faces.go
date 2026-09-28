@@ -266,7 +266,7 @@ func (svc *service) saveNoteFaces(scope string, raw json.RawMessage, expectedVer
 			}
 			return nil, err
 		}
-		if err := checkNoteVersion(expectedVersion, manifest.UpdatedAtMs); err != nil {
+		if err := checkVersionConflict("笔记", expectedVersion, manifest.UpdatedAtMs); err != nil {
 			return nil, err
 		}
 	}
@@ -432,15 +432,6 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 	return map[string]any{"meta": meta, "manifest": manifest, "refs": refs}, nil
 }
 
-// checkNoteVersion 是写入侧统一的防覆盖保险丝：expectedVersion 非零时必须与当前版本一致；
-// 不一致说明读取后笔记已被其他修改更新，拒绝写入并回报当前版本。
-func checkNoteVersion(expectedVersion float64, currentVersion float64) error {
-	if expectedVersion > 0 && currentVersion != expectedVersion {
-		return fmt.Errorf("笔记版本不匹配：期望版本 %.0f，当前版本 %.0f；笔记已被其他修改更新，请重新读取后再写入", expectedVersion, currentVersion)
-	}
-	return nil
-}
-
 // attachSaveVersion 把保存结果中的新版本标记显式附在结果上，供调用者下一次修改时作为期望版本回传。
 func attachSaveVersion(saved any) any {
 	if record, ok := saved.(map[string]any); ok {
@@ -470,7 +461,7 @@ func (svc *service) patchNoteFace(scope string, packageDir string, faceID string
 		return nil, err
 	}
 	// 防覆盖保险丝：版本不一致时拒绝写入并回报当前版本。
-	if err := checkNoteVersion(expectedVersion, doc.UpdatedAtMs); err != nil {
+	if err := checkVersionConflict("笔记", expectedVersion, doc.UpdatedAtMs); err != nil {
 		return nil, err
 	}
 	content := doc.Content

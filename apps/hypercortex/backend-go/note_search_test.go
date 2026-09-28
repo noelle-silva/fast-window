@@ -540,7 +540,7 @@ func TestSearchQueryScopesToFavoriteFolder(t *testing.T) {
 			},
 		},
 	}
-	if err := svc.saveFavoritesDoc(scope, doc); err != nil {
+	if _, err := svc.saveFavoritesDoc(scope, doc); err != nil {
 		t.Fatal(err)
 	}
 

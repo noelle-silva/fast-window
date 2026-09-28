@@ -212,9 +212,12 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, err
 		}
 		if changed {
-			if err := svc.saveFavoritesDoc(scope, doc); err != nil {
+			version, err := svc.saveFavoritesDoc(scope, doc)
+			if err != nil {
 				return nil, err
 			}
+			// 规范化落盘已刷新版本标记：返回值必须与磁盘一致，供调用者写回时对暗号。
+			doc.UpdatedAtMs = version
 		}
 		return doc, nil
 	case "hypercortex.favorites.ensure":
@@ -222,7 +225,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.favorites.save":
 		payload := map[string]json.RawMessage{}
 		_ = json.Unmarshal(params, &payload)
-		return nil, svc.saveFavorites(requireScope(params), payload["doc"])
+		return svc.saveFavorites(requireScope(params), payload["doc"], numberField(params, "expectedVersion"))
 
 	case "hypercortex.repos.list":
 		return svc.listRepos()
