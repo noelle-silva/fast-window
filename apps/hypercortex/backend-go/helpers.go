@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -292,6 +293,22 @@ func intField(raw json.RawMessage, key string) int {
 		return 0
 	}
 	return int(value)
+}
+
+// optionalPositiveIntField 读取可选正整数参数：缺省或空值返回 present=false；
+// 显式提供时必须是不小于 1 的整数，否则快速失败。
+func optionalPositiveIntField(raw json.RawMessage, key string) (int, bool, error) {
+	payload := map[string]any{}
+	_ = json.Unmarshal(raw, &payload)
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return 0, false, nil
+	}
+	number := asFloat(value)
+	if number != math.Trunc(number) || number < 1 {
+		return 0, false, fmt.Errorf("参数 %s 必须是大于零的整数", key)
+	}
+	return int(number), true, nil
 }
 
 func asString(value any) string {

@@ -126,7 +126,7 @@ func (a *accessServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := a.svc.dispatchSafe(method, scopedParams)
 	if err != nil {
-		writeAccessResponse(w, http.StatusOK, accessFailure(err.Error()))
+		writeAccessResponse(w, http.StatusOK, accessFailure(convergeErrorMessage(method, err)))
 		return
 	}
 	writeAccessResponse(w, http.StatusOK, accessSuccess(result))

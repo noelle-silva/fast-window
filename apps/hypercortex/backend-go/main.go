@@ -146,7 +146,7 @@ func handleConnection(conn *websocket.Conn, svc *service) {
 		result, err := svc.dispatchSafe(frame.Method, frame.Params)
 		response := responseFrame{ID: frame.ID, Type: "response", OK: err == nil, Result: result}
 		if err != nil {
-			response.Error = map[string]any{"message": err.Error()}
+			response.Error = map[string]any{"message": convergeErrorMessage(frame.Method, err)}
 		}
 		_ = conn.WriteJSON(response)
 	}
@@ -324,7 +324,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.refs.loadIndex":
 		return svc.loadRefIndex(requireScope(params))
 	case "hypercortex.refs.queryRelations":
-		return svc.queryRefRelations(requireScope(params), stringField(params, "noteId"), intField(params, "radius"), stringField(params, "direction"))
+		radius, present, err := optionalPositiveIntField(params, "radius")
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			// 缺省不传：交给关系查询按默认半径（1 跳）处理。
+			radius = 0
+		}
+		return svc.queryRefRelations(requireScope(params), stringField(params, "noteId"), radius, stringField(params, "direction"))
 
 	case "hypercortex.search.kinds":
 		return listSearchableFaceKinds(), nil

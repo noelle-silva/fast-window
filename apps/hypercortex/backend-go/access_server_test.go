@@ -178,6 +178,35 @@ func TestAccessServerForbidsAccessManagement(t *testing.T) {
 	response.Body.Close()
 }
 
+// 外部出口的错误一律收敛为接口语言：不出现磁盘路径、目录名与内部编号。
+func TestAccessServerConvergesFilesystemErrors(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	created, err := svc.createExternalAccessKey(testRepoID(t, svc), "测试密钥")
+	if err != nil {
+		t.Fatalf("createExternalAccessKey failed: %v", err)
+	}
+	port, err := svc.accessServer.listen(0)
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	body := `{"method":"hypercortex.notes.loadManifest","params":{"packageDir":"Notes/2099-01/missing"}}`
+	response := postAccessRPC(t, port, created.Keys[0].Key, body)
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+	ok, message, _ := decodeAccessResponse(t, response)
+	if ok {
+		t.Fatalf("missing note must fail, message = %q", message)
+	}
+	if message != "笔记不存在" {
+		t.Fatalf("message = %q, want 笔记不存在", message)
+	}
+}
+
 func TestStartExternalAccessServerFromSavedConfig(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {

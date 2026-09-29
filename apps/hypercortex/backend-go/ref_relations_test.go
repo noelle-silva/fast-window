@@ -269,3 +269,31 @@ func TestQueryRefRelationsMissingNoteAndRelationlessNote(t *testing.T) {
 		t.Fatalf("missing note error = %v", err)
 	}
 }
+
+// RPC 入口对显式半径做大于零校验：0、负数与非整数都快速失败；缺省不传仍按 1 跳。
+func TestQueryRefRelationsDispatchRejectsNonPositiveRadius(t *testing.T) {
+	svc := newTestService(t)
+	scope := seedRelationIndex(t, svc)
+
+	for _, radius := range []any{0, -1, 1.5} {
+		_, err := svc.dispatch("hypercortex.refs.queryRelations", mustJSONRaw(t, map[string]any{
+			"scope":  scope,
+			"noteId": "a",
+			"radius": radius,
+		}))
+		if err == nil || !strings.Contains(err.Error(), "radius") {
+			t.Fatalf("radius %v err = %v", radius, err)
+		}
+	}
+
+	result, err := svc.dispatch("hypercortex.refs.queryRelations", mustJSONRaw(t, map[string]any{
+		"scope":  scope,
+		"noteId": "a",
+	}))
+	if err != nil {
+		t.Fatalf("default radius dispatch failed: %v", err)
+	}
+	if relations, ok := result.(refRelationResult); !ok || len(relations.Nodes) == 0 {
+		t.Fatalf("default radius result = %#v", result)
+	}
+}
