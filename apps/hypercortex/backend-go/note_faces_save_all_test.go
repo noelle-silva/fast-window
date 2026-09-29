@@ -254,7 +254,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 
-	saved, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html", "text", "html", "ghost"})
+	saved, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html", "text", "html", "ghost"}, 0)
 	if err != nil {
 		t.Fatalf("save face order failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestSaveNoteFaceOrderNormalizesAndKeepsAllFaces(t *testing.T) {
 	}
 
 	// 未列出的面自动补齐，不因排序丢失。
-	again, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html"})
+	again, err := svc.saveNoteFaceOrder(testRepoID(t, svc), packageDir, []string{"html"}, 0)
 	if err != nil {
 		t.Fatalf("save partial order failed: %v", err)
 	}

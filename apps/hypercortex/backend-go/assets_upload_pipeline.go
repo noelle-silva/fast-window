@@ -50,6 +50,9 @@ func (svc *service) dispatchAssetUploadTask(method string, params json.RawMessag
 	case "hypercortex.assets.upload.start":
 		result, err := svc.startAssetUploadTask(requireScope(params), rawField(params, "files"))
 		return result, true, err
+	case "hypercortex.assets.upload.sync":
+		result, err := svc.uploadAssetsSync(requireScope(params), rawField(params, "files"))
+		return result, true, err
 	case "hypercortex.assets.upload.list":
 		return svc.listAssetUploadTasks(), true, nil
 	case "hypercortex.assets.upload.pause":
@@ -77,6 +80,20 @@ func (svc *service) startAssetUploadTask(scope string, raw json.RawMessage) (ass
 	task := svc.uploadTasks.create(scope, newAssetUploadTaskFiles(inputs))
 	go svc.runAssetUploadTask(task, inputs)
 	return task.snapshot(), nil
+}
+
+// uploadAssetsSync 是附件的同步上传入口：复用同一条上传管道，等待全部文件落盘后
+// 直接返回附件引用清单（含附件编号与引用标记）；任何一步失败都快速失败并如实报告。
+// 它不创建界面用的上传任务记录，供工具与外部访问等调用者使用。
+func (svc *service) uploadAssetsSync(scope string, raw json.RawMessage) ([]resourceRef, error) {
+	var inputs []assetUploadFileInput
+	if err := json.Unmarshal(raw, &inputs); err != nil {
+		return nil, err
+	}
+	if len(inputs) == 0 {
+		return nil, errors.New("没有选择任何附件")
+	}
+	return svc.runAssetUploadPipeline(scope, inputs, nil)
 }
 
 func (svc *service) runAssetUploadTask(task *assetUploadTask, inputs []assetUploadFileInput) {

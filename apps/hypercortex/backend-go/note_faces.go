@@ -493,9 +493,14 @@ func (svc *service) patchNoteFace(scope string, packageDir string, faceID string
 
 // saveNoteFaceOrder 保存笔记级面顺序（Q35 统一优先级机制的笔记级覆盖）。
 // 只接受笔记内已存在的面，未列出的面由规范化逻辑补齐，任何面都不会因排序而丢失。
-func (svc *service) saveNoteFaceOrder(scope string, packageDir string, faceOrder []string) (any, error) {
+// expectedVersion 与保存接口共用同一防覆盖保险丝语义：不一致时拒绝写入并回报当前版本；
+// 写入成功后结果显式携带新版本标记。
+func (svc *service) saveNoteFaceOrder(scope string, packageDir string, faceOrder []string, expectedVersion float64) (any, error) {
 	manifest, err := svc.loadNoteManifest(scope, packageDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkVersionConflict("笔记", expectedVersion, manifest.UpdatedAtMs); err != nil {
 		return nil, err
 	}
 	manifest.FaceOrder = faceOrder
@@ -508,15 +513,20 @@ func (svc *service) saveNoteFaceOrder(scope string, packageDir string, faceOrder
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	return map[string]any{"meta": meta, "manifest": manifest}, nil
+	return attachSaveVersion(map[string]any{"meta": meta, "manifest": manifest}), nil
 }
 
 // saveNoteFaceSettings 以补丁语义更新笔记级面设置：
 // 补丁中值为 null 表示删除该字段，其余字段与既有设置合并后按面协议规范化。
 // 这是笔记包内面设置的唯一写入通道，优先级解析由前端统一机制负责。
-func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID string, rawSettings json.RawMessage) (any, error) {
+// expectedVersion 与保存接口共用同一防覆盖保险丝语义：不一致时拒绝写入并回报当前版本；
+// 写入成功后结果显式携带新版本标记。
+func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID string, rawSettings json.RawMessage, expectedVersion float64) (any, error) {
 	manifest, err := svc.loadNoteManifest(scope, packageDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkVersionConflict("笔记", expectedVersion, manifest.UpdatedAtMs); err != nil {
 		return nil, err
 	}
 	id := strings.TrimSpace(faceID)
@@ -563,7 +573,7 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	return map[string]any{"meta": meta, "manifest": manifest}, nil
+	return attachSaveVersion(map[string]any{"meta": meta, "manifest": manifest}), nil
 }
 
 // validateUniqueFaceFiles 校验笔记内所有面的落盘文件名唯一，防止两个面互写同一文件。

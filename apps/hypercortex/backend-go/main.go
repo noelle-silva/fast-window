@@ -226,6 +226,16 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		payload := map[string]json.RawMessage{}
 		_ = json.Unmarshal(params, &payload)
 		return svc.saveFavorites(requireScope(params), payload["doc"], numberField(params, "expectedVersion"))
+	case "hypercortex.favorites.createFolder":
+		return svc.createFavoriteFolder(requireScope(params), stringField(params, "parentId"), stringField(params, "title"), stringField(params, "description"), numberField(params, "expectedVersion"))
+	case "hypercortex.favorites.updateFolder":
+		return svc.updateFavoriteFolder(requireScope(params), stringField(params, "folderId"), rawField(params, "patch"), numberField(params, "expectedVersion"))
+	case "hypercortex.favorites.addItem":
+		return svc.addFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
+	case "hypercortex.favorites.removeItem":
+		return svc.removeFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
+	case "hypercortex.favorites.moveItem":
+		return svc.moveFavoriteItem(requireScope(params), stringField(params, "fromFolderId"), stringField(params, "toFolderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
 
 	case "hypercortex.repos.list":
 		return svc.listRepos()
@@ -273,6 +283,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.loadNoteFace(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"))
 	case "hypercortex.notes.saveFaces":
 		return svc.saveNoteFaces(requireScope(params), rawField(params, "input"), numberField(params, "expectedVersion"))
+	case "hypercortex.notes.updateMetadata":
+		return svc.updateNoteMetadata(requireScope(params), stringField(params, "packageDir"), rawField(params, "metadata"), numberField(params, "expectedVersion"))
 	case "hypercortex.notes.patchFace":
 		return svc.patchNoteFace(
 			requireScope(params),
@@ -284,11 +296,11 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			numberField(params, "expectedVersion"),
 		)
 	case "hypercortex.notes.saveFaceOrder":
-		return svc.saveNoteFaceOrder(requireScope(params), stringField(params, "packageDir"), stringSliceField(params, "faceOrder"))
+		return svc.saveNoteFaceOrder(requireScope(params), stringField(params, "packageDir"), stringSliceField(params, "faceOrder"), numberField(params, "expectedVersion"))
 	case "hypercortex.notes.deleteFace":
 		return svc.deleteNoteFace(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), optionalStringField(params, "mode"))
 	case "hypercortex.notes.saveFaceSettings":
-		return svc.saveNoteFaceSettings(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), rawField(params, "settings"))
+		return svc.saveNoteFaceSettings(requireScope(params), stringField(params, "packageDir"), stringField(params, "faceId"), rawField(params, "settings"), numberField(params, "expectedVersion"))
 	case "hypercortex.notes.versions.publish":
 		return svc.publishNoteVersion(requireScope(params), stringField(params, "packageDir"), stringField(params, "commitName"))
 	case "hypercortex.notes.versions.list":

@@ -25,7 +25,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
 	// 初始设置经统一设置通道写入，随后以补丁语义逐步调整。
-	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.8, "displayMode": "fit-window"})); err != nil {
+	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.8, "displayMode": "fit-window"}), 0); err != nil {
 		t.Fatalf("save face settings failed: %v", err)
 	}
 	manifest, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
@@ -41,7 +41,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	}
 
 	// 只改缩放：显示方式必须保留。
-	patched, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.5}))
+	patched, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.5}), 0)
 	if err != nil {
 		t.Fatalf("save face settings failed: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	}
 
 	// null 删除缩放：显示方式仍然保留。
-	cleared, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": nil}))
+	cleared, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": nil}), 0)
 	if err != nil {
 		t.Fatalf("clear fixedScale failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	}
 
 	// 非法显示方式被协议丢弃，合法值可改写。
-	invalid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "weird"}))
+	invalid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "weird"}), 0)
 	if err != nil {
 		t.Fatalf("save invalid displayMode failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	if _, ok := invalidFace.Settings["displayMode"]; ok {
 		t.Fatalf("invalid displayMode not rejected: %#v", invalidFace.Settings)
 	}
-	valid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}))
+	valid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}), 0)
 	if err != nil {
 		t.Fatalf("save displayMode failed: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestSaveHtmlFaceKeepsDisplayModeSettings(t *testing.T) {
 		t.Fatalf("save html face failed: %v", err)
 	}
 	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
-	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"})); err != nil {
+	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}), 0); err != nil {
 		t.Fatalf("save displayMode failed: %v", err)
 	}
 
