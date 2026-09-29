@@ -29,8 +29,8 @@ type Props = {
   onCopyKey: (text: string) => void
 }
 
-// 外部访问管理：配置开放端口；每把访问密钥拥有独立身份（名称、默认仓库、创建时间），
-// 支持打码显示、复制、编辑与删除。
+// 外部访问管理：配置开放端口；每把访问密钥拥有独立身份（名称、绑定仓库、创建时间），
+// 密钥只能访问所绑仓库；支持打码显示、复制、编辑与删除。
 export function ExternalAccessSettingsPanel(props: Props) {
   const { access, repos, activeRepoId, onCopyKey } = props
   const workspaceVisible = useWorkspaceVisible()
@@ -71,7 +71,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
     return () => { cancelled = true }
   }, [access])
 
-  // 仓库池变化时保证默认仓库选择始终指向现存仓库。
+  // 仓库池变化时保证绑定仓库选择始终指向现存仓库。
   const validRepoId = React.useCallback(
     (repoId: string) => (repos.some(repo => repo.id === repoId) ? repoId : repos[0]?.id || ''),
     [repos],
@@ -112,7 +112,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
       return
     }
     if (!createRepoId) {
-      setCreateError('请选择默认仓库')
+      setCreateError('请选择绑定仓库')
       return
     }
     setCreateBusy(true)
@@ -147,7 +147,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
       return
     }
     if (!editRepoId) {
-      setEditError('请选择默认仓库')
+      setEditError('请选择绑定仓库')
       return
     }
     setEditBusy(true)
@@ -195,7 +195,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>外部访问管理</Typography>
       <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
-        为外部工具开放访问入口：配置开放端口并创建访问密钥；外部工具凭访问地址与密钥访问本应用的数据。
+        为外部工具开放访问入口：配置开放端口并创建访问密钥；每把密钥绑定一个仓库，外部工具凭访问地址与密钥只能访问该仓库的数据。
       </Typography>
       {loadError ? <Typography sx={{ fontSize: 12.5, color: 'var(--hc-danger)' }}>{loadError}</Typography> : null}
 
@@ -262,7 +262,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
                     {revealed ? entry.key : MASKED_KEY_TEXT}
                   </Typography>
                   <Typography sx={{ fontSize: 12, color: 'var(--hc-text-subtle)' }}>
-                    默认仓库：{repoTitle(entry.repoId)} · 创建于 {formatDateTime(entry.createdAtMs) || '未知'}
+                    绑定仓库：{repoTitle(entry.repoId)} · 创建于 {formatDateTime(entry.createdAtMs) || '未知'}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flex: '0 0 auto' }}>
@@ -347,7 +347,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
           <TextField
             select
             margin="dense"
-            label="默认仓库"
+            label="绑定仓库"
             fullWidth
             value={createRepoId}
             disabled={createBusy || repos.length === 0}
@@ -393,7 +393,7 @@ export function ExternalAccessSettingsPanel(props: Props) {
           <TextField
             select
             margin="dense"
-            label="默认仓库"
+            label="绑定仓库"
             fullWidth
             value={editRepoId}
             disabled={editBusy || repos.length === 0}

@@ -78,13 +78,13 @@ export type ReposService = {
   purgeDeletedRepo: (repoId: string) => Promise<void>
 }
 
-// 访问密钥的身份信息：名称与默认仓库（创建时间由后端记录）。
+// 访问密钥的身份信息：名称与绑定仓库（创建时间由后端记录）。
 export type HyperCortexAccessKeyInput = {
   name: string
   repoId: string
 }
 
-// 外部访问密钥：name 为身份名称，key 为访问凭据本体，repoId 是这把密钥的默认仓库。
+// 外部访问密钥：name 为身份名称，key 为访问凭据本体，repoId 是这把密钥绑定的仓库（密钥只能访问它）。
 export type HyperCortexAccessKey = {
   name: string
   key: string
