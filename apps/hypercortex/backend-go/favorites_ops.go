@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -389,21 +388,36 @@ func (svc *service) moveFavoriteItem(scope string, fromFolderID string, toFolder
 	return map[string]any{"version": version, "refId": ref.ID, "fromFolderId": from.ID, "toFolderId": to.ID}, nil
 }
 
-// newFavoriteFolderID 生成收藏夹标识：时间前缀保证有序，随机后缀保证唯一。
+// newFavoriteFolderID 生成收藏夹标识；与界面侧 nowId 同格式（36 进制毫秒 + 随机后缀），
+// 两套入口产生的标识形态一致，避免存量与新建并存两套格式。
 func newFavoriteFolderID() string {
-	return "f_" + time.Now().Format("20060102150405") + "_" + randomIDToken(4)
+	return newFavoriteID()
 }
 
-// newFavoriteRefID 生成收藏条目标识。
+// newFavoriteRefID 生成收藏条目标识；与界面侧 nowId 同格式。
 func newFavoriteRefID() string {
-	return "ref_" + strconv.FormatInt(time.Now().UnixMilli(), 36) + "_" + randomIDToken(4)
+	return newFavoriteID()
 }
 
-// randomIDToken 生成指定字节数的随机十六进制串；随机源失败时退回时间戳。
-func randomIDToken(size int) string {
-	buf := make([]byte, size)
+// newFavoriteID 生成与界面侧一致的标识：36 进制毫秒时间前缀保证有序，随机后缀保证唯一。
+func newFavoriteID() string {
+	return strconv.FormatInt(time.Now().UnixMilli(), 36) + "_" + randomBase36Token(6)
+}
+
+// randomBase36Token 生成指定长度的 36 进制随机串；随机源失败时退回时间戳尾段。
+func randomBase36Token(length int) string {
+	buf := make([]byte, length)
 	if _, err := rand.Read(buf); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 36)
+		fallback := strconv.FormatInt(time.Now().UnixNano(), 36)
+		if len(fallback) > length {
+			fallback = fallback[len(fallback)-length:]
+		}
+		return fallback
 	}
-	return hex.EncodeToString(buf)
+	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	out := make([]byte, length)
+	for index, value := range buf {
+		out[index] = alphabet[int(value)%len(alphabet)]
+	}
+	return string(out)
 }

@@ -144,6 +144,7 @@ func faceIDForKind(faces map[string]noteFaceManifest, kind string) string {
 // ensureFaceKinds 确保 kinds 中每个类型的面都存在（缺失时补齐默认面并写入空内容文件）。
 // resetOrder 为 true（新建笔记）时按 kinds 顺序建立 FaceOrder；
 // 否则只把新补齐的面追加到既有 FaceOrder 末尾，不改动笔记级面顺序。
+// 任何未知面类型都在产生磁盘副作用之前快速失败，绝不静默丢弃。
 func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *noteManifest, kinds []string, resetOrder bool, now float64) error {
 	if len(kinds) == 0 {
 		return nil
@@ -151,12 +152,17 @@ func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *n
 	if manifest.Faces == nil {
 		manifest.Faces = map[string]noteFaceManifest{}
 	}
-	created := []string{}
+	// 先解析全部面类型：未知类型在写任何文件之前快速失败。
+	resolved := make([]faceplugin.Plugin, 0, len(kinds))
 	for _, kind := range kinds {
 		adapter, err := faceplugin.Require(kind)
 		if err != nil {
-			continue
+			return fmt.Errorf("未知笔记面类型：%s", kind)
 		}
+		resolved = append(resolved, adapter)
+	}
+	created := []string{}
+	for _, adapter := range resolved {
 		if faceKindExists(manifest.Faces, adapter.Kind) {
 			continue
 		}
@@ -172,11 +178,7 @@ func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *n
 	}
 	if resetOrder {
 		order := []string{}
-		for _, kind := range kinds {
-			adapter, err := faceplugin.Require(kind)
-			if err != nil {
-				continue
-			}
+		for _, adapter := range resolved {
 			id := faceIDForKind(manifest.Faces, adapter.Kind)
 			if id == "" {
 				id = adapter.DefaultFaceID

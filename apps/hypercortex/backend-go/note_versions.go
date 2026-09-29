@@ -233,7 +233,8 @@ func (svc *service) publishNoteVersion(scope string, packageDir string, commitNa
 	if len(idx.Versions) > 0 && idx.Versions[0].ContentHash == contentHash {
 		return noteVersionSummary{}, errors.New("当前内容与最新发布版本一致，无需重复发布")
 	}
-	now := time.Now().UTC()
+	// 版本标识内嵌时间采用本地时间：与界面展示（本地时间）一致，避免差时区误读。
+	now := time.Now()
 	createdAtMs := float64(now.UnixMilli())
 	shortHash := contentHash
 	if len(shortHash) > 8 {

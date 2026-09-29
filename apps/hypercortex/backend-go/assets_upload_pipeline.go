@@ -265,6 +265,9 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 	}
 	info, err := os.Stat(sourcePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return preparedAssetUploadFile{}, errors.New("源文件不存在：请检查上传的本地文件路径是否正确")
+		}
 		return preparedAssetUploadFile{}, fmt.Errorf("读取源文件失败：%w", err)
 	}
 	if info.IsDir() {
