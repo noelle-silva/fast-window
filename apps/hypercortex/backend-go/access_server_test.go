@@ -79,7 +79,7 @@ func TestAccessServerRejectsMissingOrInvalidKey(t *testing.T) {
 	}
 }
 
-func TestAccessServerRoutesExplicitScopeOrKeyDefault(t *testing.T) {
+func TestAccessServerBindsKeyToItsRepo(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatalf("ensureRoots failed: %v", err)
@@ -103,11 +103,12 @@ func TestAccessServerRoutesExplicitScopeOrKeyDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
 	}
+	key := created.Keys[0].Key
 
 	loadNoteTitles := func(params string) []string {
 		t.Helper()
 		body := `{"method":"hypercortex.notes.loadIndex","params":` + params + `}`
-		response := postAccessRPC(t, port, created.Keys[0].Key, body)
+		response := postAccessRPC(t, port, key, body)
 		if response.StatusCode != http.StatusOK {
 			response.Body.Close()
 			t.Fatalf("status = %d, want 200", response.StatusCode)
@@ -131,7 +132,7 @@ func TestAccessServerRoutesExplicitScopeOrKeyDefault(t *testing.T) {
 		return titles
 	}
 
-	// 未指定作用域：按密钥的默认仓库（第二仓库）路由。
+	// 未指定作用域：按密钥绑定的仓库（第二仓库）访问。
 	if titles := loadNoteTitles(`{}`); len(titles) != 1 || titles[0] != "第二仓库笔记" {
 		t.Fatalf("default routing titles = %v, want [第二仓库笔记]", titles)
 	}
@@ -139,9 +140,20 @@ func TestAccessServerRoutesExplicitScopeOrKeyDefault(t *testing.T) {
 	if titles := loadNoteTitles(`{"scope":""}`); len(titles) != 1 || titles[0] != "第二仓库笔记" {
 		t.Fatalf("blank scope titles = %v, want [第二仓库笔记]", titles)
 	}
-	// 显式指定其他仓库：按指定仓库路由（动作指定的仓库最优先）。
-	if titles := loadNoteTitles(fmt.Sprintf(`{"scope":%q}`, firstRepo)); len(titles) != 1 || titles[0] != "第一仓库笔记" {
-		t.Fatalf("explicit scope titles = %v, want [第一仓库笔记]", titles)
+	// 显式指定绑定仓库本身：允许，仍按该仓库访问。
+	if titles := loadNoteTitles(fmt.Sprintf(`{"scope":%q}`, secondRepo.ID)); len(titles) != 1 || titles[0] != "第二仓库笔记" {
+		t.Fatalf("same scope titles = %v, want [第二仓库笔记]", titles)
+	}
+	// 显式指定其他仓库：快速失败，密钥不允许跨仓。
+	body := fmt.Sprintf(`{"method":"hypercortex.notes.loadIndex","params":{"scope":%q}}`, firstRepo)
+	response := postAccessRPC(t, port, key, body)
+	if response.StatusCode != http.StatusForbidden {
+		response.Body.Close()
+		t.Fatalf("cross-repo status = %d, want 403", response.StatusCode)
+	}
+	ok, message, _ := decodeAccessResponse(t, response)
+	if ok || !strings.Contains(message, "只能访问") {
+		t.Fatalf("cross-repo response = ok:%v message:%q", ok, message)
 	}
 }
 

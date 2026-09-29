@@ -16,7 +16,8 @@ const accessFile = "hypercortex-access.json"
 // maxAccessPort 是开放端口的合法上限。
 const maxAccessPort = 65535
 
-// externalAccessKey 是一把访问密钥：name 为身份名称，key 为凭据本体，repoID 是这把密钥的默认仓库。
+// externalAccessKey 是一把访问密钥：name 为身份名称，key 为凭据本体，
+// repoID 是这把密钥绑定的仓库（密钥只能访问该仓库）。
 type externalAccessKey struct {
 	Name        string  `json:"name"`
 	Key         string  `json:"key"`
@@ -74,7 +75,7 @@ func (svc *service) saveExternalAccess(doc externalAccessDoc) error {
 	return writeJSONFile(target, normalizeExternalAccessDoc(doc))
 }
 
-// createExternalAccessKey 为指定默认仓库生成一把新密钥并持久化。
+// createExternalAccessKey 为指定仓库生成一把绑定该仓库的新密钥并持久化。
 func (svc *service) createExternalAccessKey(repoID string, name string) (externalAccessDoc, error) {
 	id := strings.TrimSpace(repoID)
 	if _, err := svc.repoRoot(id); err != nil {
@@ -99,7 +100,7 @@ func (svc *service) createExternalAccessKey(repoID string, name string) (externa
 	return doc, nil
 }
 
-// updateExternalAccessKey 更新指定密钥的名称与默认仓库；密钥本体与创建时间保持不变。
+// updateExternalAccessKey 更新指定密钥的名称与绑定仓库；密钥本体与创建时间保持不变。
 func (svc *service) updateExternalAccessKey(key string, repoID string, name string) (externalAccessDoc, error) {
 	target := strings.TrimSpace(key)
 	if target == "" {

@@ -31,7 +31,7 @@ type accessResponse struct {
 }
 
 // accessServer 是外部访问服务：在配置端口上监听 HTTP，校验访问密钥，
-// 并把请求按密钥的默认仓库路由到数据能力（后台 dispatch）。
+// 并把请求按密钥绑定的仓库路由到数据能力（后台 dispatch）；密钥只能访问所绑仓库。
 type accessServer struct {
 	svc      *service
 	mu       sync.Mutex
@@ -119,7 +119,12 @@ func (a *accessServer) handle(w http.ResponseWriter, r *http.Request) {
 		writeAccessResponse(w, http.StatusForbidden, accessFailure("外部访问无权管理访问设置"))
 		return
 	}
-	result, err := a.svc.dispatchSafe(method, injectAccessScope(request.Params, repoID))
+	scopedParams, err := bindAccessScope(request.Params, repoID)
+	if err != nil {
+		writeAccessResponse(w, http.StatusForbidden, accessFailure(err.Error()))
+		return
+	}
+	result, err := a.svc.dispatchSafe(method, scopedParams)
 	if err != nil {
 		writeAccessResponse(w, http.StatusOK, accessFailure(err.Error()))
 		return
@@ -154,7 +159,7 @@ func bearerKey(r *http.Request) string {
 	return strings.TrimSpace(header[len(prefix):])
 }
 
-// matchAccessKey 在配置中查找密钥，命中时返回该密钥的默认仓库；逐条常数时间比较。
+// matchAccessKey 在配置中查找密钥，命中时返回该密钥绑定的仓库；逐条常数时间比较。
 func matchAccessKey(doc externalAccessDoc, key string) (string, bool) {
 	if key == "" {
 		return "", false
@@ -167,9 +172,10 @@ func matchAccessKey(doc externalAccessDoc, key string) (string, bool) {
 	return "", false
 }
 
-// injectAccessScope 解析请求参数中的仓库作用域：调用者已指定非空 scope 时原样保留
-// （动作指定的仓库最优先），未指定时才补上密钥的默认仓库作为兜底。
-func injectAccessScope(params json.RawMessage, repoID string) json.RawMessage {
+// bindAccessScope 把请求参数中的仓库作用域收敛到密钥绑定的仓库：
+// 调用者显式指定了其他仓库时快速失败（密钥只能访问绑定的仓库），
+// 未指定或指定绑定仓库本身时统一补上绑定仓库。
+func bindAccessScope(params json.RawMessage, repoID string) (json.RawMessage, error) {
 	record := map[string]json.RawMessage{}
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &record)
@@ -177,26 +183,20 @@ func injectAccessScope(params json.RawMessage, repoID string) json.RawMessage {
 	if record == nil {
 		record = map[string]json.RawMessage{}
 	}
-	if !hasExplicitScope(record["scope"]) {
-		record["scope"] = json.RawMessage(strconv.Quote(repoID))
+	if raw, ok := record["scope"]; ok && len(raw) > 0 {
+		var scope string
+		if err := json.Unmarshal(raw, &scope); err == nil {
+			if scope = strings.TrimSpace(scope); scope != "" && scope != repoID {
+				return nil, fmt.Errorf("该访问密钥只能访问绑定仓库，不能访问仓库 %s", scope)
+			}
+		}
 	}
+	record["scope"] = json.RawMessage(strconv.Quote(repoID))
 	out, err := json.Marshal(record)
 	if err != nil {
-		return json.RawMessage("{}")
+		return nil, fmt.Errorf("构造请求参数失败：%w", err)
 	}
-	return out
-}
-
-// hasExplicitScope 判断参数中的 scope 是否为调用者明确指定的非空字符串。
-func hasExplicitScope(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var scope string
-	if err := json.Unmarshal(raw, &scope); err != nil {
-		return false
-	}
-	return strings.TrimSpace(scope) != ""
+	return out, nil
 }
 
 func accessSuccess(result any) accessResponse {
