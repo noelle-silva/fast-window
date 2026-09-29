@@ -80,6 +80,16 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
           : 'user'
   const createdAt = normalizeTimeMs((m as any).createdAt, normalizeTimeMs((m as any).updatedAt, 0) || now())
   const updatedAt = normalizeTimeMs((m as any).updatedAt, createdAt)
+  // 运行中消息是原始快照：附件要按角色分流——助手消息的附件是工具产物图，
+  // 进 toolImages；其他消息的附件照旧进 images。
+  const rawAttachmentImages = attachmentImagePaths((m as any).attachments)
+  const isAssistantRole = role === 'assistant'
+  const toolImages = isAssistantRole
+    ? (normImagePaths((m as any).toolImages).length ? normImagePaths((m as any).toolImages) : rawAttachmentImages)
+    : normImagePaths((m as any).toolImages)
+  const images = isAssistantRole
+    ? normImagePaths((m as any).images)
+    : (normImagePaths((m as any).images).length ? normImagePaths((m as any).images) : rawAttachmentImages)
   const out: any = {
     id: String((m as any).id || uid('m')),
     type: messageType,
@@ -87,7 +97,9 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
     speakerRoleId: String((m as any).speakerRoleId || '').trim(),
     content: String((m as any).content || ''),
     parts: normalizeMessageParts((m as any).parts),
-    images: normImagePaths((m as any).images),
+    images,
+    // toolImages 是工具产物图的独立通道：与用户素材图分开，单独渲染。
+    toolImages,
     tokenEstimate: normalizeMessageTokenEstimate((m as any).tokenEstimate),
     modelDurationMs: normalizeDurationMs((m as any).modelDurationMs),
     ...normalizeMessageGroup(m),
@@ -107,8 +119,20 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
   return out
 }
 
-export function normalizeMessageControl(input: any) {
-  const raw = input && typeof input === 'object' && !Array.isArray(input) ? input : null
+// attachmentImagePaths 从原始附件列表提取图片路径：只认 kind=image 且有 path 的项。
+function attachmentImagePaths(input: any): string[] {
+  const list = Array.isArray(input) ? input : []
+  const out: string[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    if (String((item as any).kind || '').trim().toLowerCase() !== 'image') continue
+    const path = String((item as any).path || '').trim()
+    if (path) out.push(path)
+  }
+  return out
+}
+
+export function normalizeMessageControl(input: any) {  const raw = input && typeof input === 'object' && !Array.isArray(input) ? input : null
   if (!raw) return null
   const kind = String(raw.kind || '').trim()
   if (!kind) return null

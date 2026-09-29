@@ -915,7 +915,7 @@ export function createEntityEditors(deps: {
     const out = new Set<string>()
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (const m of msgs) {
-      const paths = normImagePaths(m?.images)
+      const paths = normImagePaths(m?.images).concat(normImagePaths(m?.toolImages))
       for (const p of paths) {
         const s = String(p || '').trim()
         if (s) out.add(s)

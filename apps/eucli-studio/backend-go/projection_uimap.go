@@ -183,7 +183,14 @@ func toUIChat(session map[string]any) map[string]any {
 		if parts := objectList(msg["parts"]); len(parts) > 0 {
 			uiMessage["parts"] = anyList(parts)
 		}
-		if images := toUIMessageImages(objectList(msg["attachments"])); len(images) > 0 {
+		// 工具产物图与用户素材图分流：助手消息的附件是工具产物，
+		// 进独立的 toolImages 字段；其他消息的附件照旧进 images。
+		attachments := objectList(msg["attachments"])
+		if messageRole(msg) == "assistant" {
+			if images := toUIMessageImages(attachments); len(images) > 0 {
+				uiMessage["toolImages"] = images
+			}
+		} else if images := toUIMessageImages(attachments); len(images) > 0 {
 			uiMessage["images"] = images
 		}
 		messages = append(messages, uiMessage)

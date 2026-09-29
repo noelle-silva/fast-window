@@ -346,6 +346,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         // 耗时与时间移到操作按钮左侧：AI 消息显示「回复耗时 · 时间」，用户消息只显示时间。
         const actionMetaText = (isUser ? [time] : [replyDurationText, time]).filter(Boolean).join(' · ')
         const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
+        // toolImgPaths 是工具产物图：独立于工具卡片的附件块。
+        const toolImgPaths = !isUser ? (Array.isArray((m as any)?.toolImages) ? (m as any).toolImages : []) : []
         const activeRunCard = activeRunCardForAssistantMessage(activeVisibleRunCards, m)
         const messageGenerating = !!activeRunCard && isAssistantGenerating(m)
         const messageAwaitingFirstOutput = messageGenerating && isAssistantAwaitingFirstOutput(m)
@@ -509,6 +511,19 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   {messageAwaitingFirstOutput ? <AssistantReplyPendingIndicator /> : null}
                 </Stack>
               )}
+
+              {toolImgPaths.length ? (
+                <Stack spacing={0.75} sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+                    工具产物图片
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {toolImgPaths.slice(0, 8).map((p: string) => (
+                      <RefImageThumb key={p} controller={controller} path={String(p || '')} />
+                    ))}
+                  </Stack>
+                </Stack>
+              ) : null}
 
               {isDisplayOnlyPendingRunTail ? null : isEditing ? (
                 <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">

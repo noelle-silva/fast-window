@@ -53,8 +53,60 @@ func TestChatProjectionPreservesMessageParts(t *testing.T) {
 	}
 }
 
-func TestChatProjectionPreservesReasoningParts(t *testing.T) {
+// TestChatProjectionRoutesToolImagesToDedicatedField 钉住工具产物图分流：
+// 助手消息附件进 toolImages，用户消息附件仍进 images。
+func TestChatProjectionRoutesToolImagesToDedicatedField(t *testing.T) {
 	session := map[string]any{
+		"id":        "session-1",
+		"roleId":    "developer",
+		"title":     "Tool Images",
+		"createdAt": "2026-06-03T10:00:00Z",
+		"updatedAt": "2026-06-03T10:00:00Z",
+		"messages": []any{
+			map[string]any{
+				"id":      "a1",
+				"type":    "assistant",
+				"content": "画好了",
+				"attachments": []any{map[string]any{
+					"id": "att-9", "kind": "image", "name": "生成图", "mime": "image/png",
+					"path": "sessions/roles/developer/session-1/attachments/att-9/image.png",
+				}},
+			},
+			map[string]any{
+				"id":      "u1",
+				"type":    "user",
+				"content": "看这个",
+				"attachments": []any{map[string]any{
+					"id": "att-10", "kind": "image", "name": "素材", "mime": "image/png",
+					"path": "sessions/roles/developer/session-1/attachments/att-10/image.png",
+				}},
+			},
+		},
+	}
+	ui := toUIChat(session)
+	messages := objectList(ui["messages"])
+	if len(messages) != 2 {
+		t.Fatalf("messages = %#v", ui["messages"])
+	}
+	assistant := messages[0]
+	if _, ok := assistant["images"]; ok {
+		t.Fatalf("assistant must not carry plain images: %#v", assistant)
+	}
+	toolImages := stringSlice(assistant["toolImages"])
+	if len(toolImages) != 1 || toolImages[0] != "sessions/roles/developer/session-1/attachments/att-9/image.png" {
+		t.Fatalf("assistant toolImages = %#v", assistant["toolImages"])
+	}
+	user := messages[1]
+	if _, ok := user["toolImages"]; ok {
+		t.Fatalf("user must not carry toolImages: %#v", user)
+	}
+	userImages := stringSlice(user["images"])
+	if len(userImages) != 1 || userImages[0] != "sessions/roles/developer/session-1/attachments/att-10/image.png" {
+		t.Fatalf("user images = %#v", user["images"])
+	}
+}
+
+func TestChatProjectionPreservesReasoningParts(t *testing.T) {	session := map[string]any{
 		"id":        "session-1",
 		"roleId":    "developer",
 		"title":     "Reasoning Parts",

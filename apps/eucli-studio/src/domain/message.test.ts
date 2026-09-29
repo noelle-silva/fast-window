@@ -33,3 +33,27 @@ describe('message timing normalization', () => {
     expect(message.parts[0].durationMs).toBe(0)
   })
 })
+
+describe('tool produced image routing', () => {
+  it('routes assistant attachments into toolImages', () => {
+    const message = normalizeChatMessage({
+      id: 'a1',
+      type: 'assistant',
+      content: '画好了',
+      attachments: [{ id: 'att-9', kind: 'image', name: '生成图', path: 'sessions/roles/developer/s1/attachments/att-9/image.png' }],
+    })
+    expect(message.images).toEqual([])
+    expect(message.toolImages).toEqual(['sessions/roles/developer/s1/attachments/att-9/image.png'])
+  })
+
+  it('keeps user attachments in images', () => {
+    const message = normalizeChatMessage({
+      id: 'u1',
+      type: 'user',
+      content: '看这个',
+      attachments: [{ id: 'att-10', kind: 'image', name: '素材', path: 'sessions/roles/developer/s1/attachments/att-10/image.png' }],
+    })
+    expect(message.images).toEqual(['sessions/roles/developer/s1/attachments/att-10/image.png'])
+    expect(message.toolImages).toEqual([])
+  })
+})
