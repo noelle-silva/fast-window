@@ -299,6 +299,7 @@ func makeSearchSnippet(text string, tokens []string) string {
 // fields 选择参与匹配的维度（title/description/tags/content 可自由组合；缺省为全量：笔记字段 + ID + 面内容）；
 // faceKinds 限定 content 匹配的面类型（缺省为全部可搜面）；
 // updatedFromMs/updatedToMs 按笔记更新时间过滤（0 表示不限）；
+// 未提供关键词时与附件搜索同语义：按过滤条件列出全部笔记（按更新时间倒序）；
 // limit 为本次返回条数（<=0 时取默认上限，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
 func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, error) {
 	result := noteSearchResult{Kinds: listSearchableFaceKinds()}
@@ -315,10 +316,6 @@ func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, er
 	matchID := !explicitFields
 
 	tokens := normalizeSearchTokens(query.Query)
-	if len(tokens) == 0 {
-		result.Items = []noteSearchHit{}
-		return result, nil
-	}
 	idx, err := svc.loadNoteSearchIndex(query.Scope)
 	if err != nil {
 		return result, err
@@ -356,6 +353,11 @@ func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, er
 			continue
 		}
 		hit := noteSearchHit{NoteID: noteID, Title: entry.Title, Description: entry.Description, Dir: entry.Dir, CreatedAtMs: entry.CreatedAtMs, UpdatedAtMs: entry.UpdatedAtMs}
+		// 无关键词：不参与文本匹配，全部列入（排序落到更新时间倒序）。
+		if len(tokens) == 0 {
+			hits = append(hits, hit)
+			continue
+		}
 		if matchTitle && textMatchesTokens(entry.Title, tokens) {
 			hit.NoteFields = append(hit.NoteFields, "title")
 			hit.score += 12

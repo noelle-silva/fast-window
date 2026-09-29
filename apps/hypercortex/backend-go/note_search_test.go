@@ -410,6 +410,50 @@ func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
 	}
 }
 
+func TestSearchQueryWithoutKeywordsListsNotesByUpdatedTime(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	// 直接构造搜索索引：无关键词时按更新时间倒序列出全部笔记（与附件搜索同语义）。
+	idx := noteSearchIndex{Version: noteSearchIndexVersion, Notes: map[string]noteSearchEntry{
+		"note-old": {Title: "旧笔记", UpdatedAtMs: 1000},
+		"note-new": {Title: "新笔记", UpdatedAtMs: 3000},
+		"note-mid": {Title: "中间笔记", UpdatedAtMs: 2000},
+	}}
+	if err := svc.saveNoteSearchIndex(testRepoID(t, svc), idx); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) != 3 {
+		t.Fatalf("listed items = %#v", listed.Items)
+	}
+	order := []string{listed.Items[0].NoteID, listed.Items[1].NoteID, listed.Items[2].NoteID}
+	if order[0] != "note-new" || order[1] != "note-mid" || order[2] != "note-old" {
+		t.Fatalf("order = %v, want [note-new note-mid note-old]", order)
+	}
+
+	page, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].NoteID != "note-mid" {
+		t.Fatalf("page items = %#v", page.Items)
+	}
+
+	filtered, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), UpdatedFromMs: 1500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered.Items) != 2 || filtered.Items[0].NoteID != "note-new" || filtered.Items[1].NoteID != "note-mid" {
+		t.Fatalf("filtered items = %#v", filtered.Items)
+	}
+}
+
 func TestSearchQueryDefaultLimitIs100AndCustomLimitIsFree(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
