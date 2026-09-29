@@ -38,6 +38,7 @@ export function PluginSettingsPage(props: {
   tools: any
   toolWorkDirectory?: any
   modelRequestConfig: any
+  conversationImageConfig?: any
   requestRecords?: any
   bootstrap?: StudioBootstrap
   releaseViews: ReleaseCandidatesViews
@@ -55,7 +56,7 @@ export function PluginSettingsPage(props: {
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, conversationImageConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = !!data?.settings?.transparentChatBg
@@ -89,7 +90,7 @@ export function PluginSettingsPage(props: {
   }
 
   if (tab === 'session') {
-    return wrapSettingsPanel(<SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} />)
+    return wrapSettingsPanel(<SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} conversationImageConfig={conversationImageConfig} />)
   }
 
   if (tab === 'data') {

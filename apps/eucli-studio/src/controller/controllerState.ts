@@ -1,3 +1,4 @@
+import { defaultConversationImageConfigState } from './conversationImageConfig'
 import { defaultModelGroupsState } from './modelGroups'
 import { defaultModelRequestConfigState } from './modelRequestConfig'
 import { defaultRequestRecordsState } from './requestRecords'
@@ -25,6 +26,7 @@ export function createInitialControllerState() {
     tools: { loading: false, error: '', items: [] as any[], fetchedAt: 0, detailLoading: false, detailError: '', selectedToolId: '', selectedTool: null as any, configDraft: {} as Record<string, any>, promptDescriptionDraft: '', saving: false, saveError: '', installStates: {} as Record<string, any> },
     toolWorkDirectory: defaultToolWorkDirectoryState(),
     modelRequestConfig: defaultModelRequestConfigState(),
+    conversationImageConfig: defaultConversationImageConfigState(),
     requestRecords: defaultRequestRecordsState(),
     chatSettings: { savingByTarget: {} as Record<string, any> },
     pendingChat: null as any,

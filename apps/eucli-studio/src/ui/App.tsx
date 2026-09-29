@@ -1257,6 +1257,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             tools={(s as any).tools}
             toolWorkDirectory={(s as any).toolWorkDirectory}
             modelRequestConfig={(s as any).modelRequestConfig}
+            conversationImageConfig={(s as any).conversationImageConfig}
             requestRecords={(s as any).requestRecords}
             bootstrap={bootstrap}
             releaseViews={releaseViews}

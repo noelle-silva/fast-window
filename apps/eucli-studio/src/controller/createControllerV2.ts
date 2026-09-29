@@ -51,6 +51,7 @@ import { createToolCatalog } from './toolCatalog'
 import { createToolWorkDirectoryController } from './toolWorkDirectory'
 import { createInstallSourceClient } from './installSourceClient'
 import { createModelRequestConfigController } from './modelRequestConfig'
+import { createConversationImageConfigController } from './conversationImageConfig'
 import { createRequestRecordsController } from './requestRecords'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { readActiveEbRunCardsForTarget } from '../domain/activeRunCards'
@@ -577,6 +578,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig } = modelRequestConfigController
 
+  const conversationImageConfigController = createConversationImageConfigController({
+    getState: () => state,
+    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    emit,
+    showToast: api.ui?.showToast,
+  })
+  const { refreshConversationImageConfig, setConversationImageConfigDraft, resetConversationImageConfigDraftToDefaults, saveConversationImageConfig } = conversationImageConfigController
+
   const requestRecordsController = createRequestRecordsController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -977,6 +986,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     setModelRequestConfigDraft,
     resetModelRequestConfigDraftToDefaults,
     saveModelRequestConfig,
+    refreshConversationImageConfig,
+    setConversationImageConfigDraft,
+    resetConversationImageConfigDraftToDefaults,
+    saveConversationImageConfig,
     refreshModelGroups,
     saveModelGroups,
     createModelGroup,

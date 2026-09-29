@@ -3,6 +3,10 @@ export function createModelActions(deps: {
   setModelRequestConfigDraft: (key: any, value: any) => any
   resetModelRequestConfigDraftToDefaults: () => any
   saveModelRequestConfig: () => any
+  refreshConversationImageConfig: (force: boolean) => any
+  setConversationImageConfigDraft: (field: any, value: any) => any
+  resetConversationImageConfigDraftToDefaults: () => any
+  saveConversationImageConfig: () => any
   refreshModelGroups: (force: boolean) => any
   saveModelGroups: () => any
   createModelGroup: () => any
@@ -16,13 +20,17 @@ export function createModelActions(deps: {
   setModelGroupMemberField: (groupId: any, modelIndex: any, memberIndex: any, field: any, value: any) => any
   refreshModels: (providerId: string, force: boolean) => any
 }) {
-  const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig, refreshModelGroups, saveModelGroups, createModelGroup, deleteModelGroup, setModelGroupField, createModelGroupModel, deleteModelGroupModel, setModelGroupModelField, createModelGroupMember, deleteModelGroupMember, setModelGroupMemberField, refreshModels } = deps
+  const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig, refreshConversationImageConfig, setConversationImageConfigDraft, resetConversationImageConfigDraftToDefaults, saveConversationImageConfig, refreshModelGroups, saveModelGroups, createModelGroup, deleteModelGroup, setModelGroupField, createModelGroupModel, deleteModelGroupModel, setModelGroupModelField, createModelGroupMember, deleteModelGroupMember, setModelGroupMemberField, refreshModels } = deps
 
   return {
     refreshModelRequestConfig: (force: any) => refreshModelRequestConfig(!!force),
     setModelRequestConfigDraft: (key: any, value: any) => setModelRequestConfigDraft(key, value),
     resetModelRequestConfigDraftToDefaults: () => resetModelRequestConfigDraftToDefaults(),
     saveModelRequestConfig: () => saveModelRequestConfig(),
+    refreshConversationImageConfig: (force: any) => refreshConversationImageConfig(!!force),
+    setConversationImageConfigDraft: (field: any, value: any) => setConversationImageConfigDraft(field, value),
+    resetConversationImageConfigDraftToDefaults: () => resetConversationImageConfigDraftToDefaults(),
+    saveConversationImageConfig: () => saveConversationImageConfig(),
     refreshModelGroups: (force: any) => refreshModelGroups(!!force),
     saveModelGroups: () => saveModelGroups(),
     createModelGroup: () => createModelGroup(),

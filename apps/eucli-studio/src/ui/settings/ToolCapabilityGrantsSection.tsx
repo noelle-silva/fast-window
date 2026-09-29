@@ -8,9 +8,21 @@ type ToolCapabilityGrantsSectionProps = {
   tools: any
 }
 
+// capabilityAccessLabel 把能力访问方式翻译为界面标签。
+function capabilityAccessLabel(access: any) {
+  switch (String(access || '').trim()) {
+    case 'write':
+      return '写入'
+    case 'reference':
+      return '引用'
+    default:
+      return '读取'
+  }
+}
+
 // ToolCapabilityGrantsSection 按工具的能力声明渲染授权开关：
 // 只渲染需要用户授权的能力（宿主主动提供的注入类能力不出现在此处），
-// 读取与写入分别授权，界面不含任何工具名判断。
+// 读取、写入与引用分别授权，界面不含任何工具名判断。
 export function ToolCapabilityGrantsSection(props: ToolCapabilityGrantsSectionProps) {
   const { controller, tool, tools } = props
   const capabilities = (Array.isArray(tool?.capabilities) ? tool.capabilities : []).filter((capability: any) => capability?.grantRequired === true)
@@ -35,7 +47,7 @@ export function ToolCapabilityGrantsSection(props: ToolCapabilityGrantsSectionPr
                     <Stack spacing={0.25} sx={{ minWidth: 0 }}>
                       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
                         <Typography variant="body2" sx={{ fontWeight: 900 }}>{String(capability.name || capability.id || '')}</Typography>
-                        <SettingsPill>{capability.access === 'write' ? '写入' : '读取'}</SettingsPill>
+                        <SettingsPill>{capabilityAccessLabel(capability.access)}</SettingsPill>
                       </Stack>
                       {capability.description ? <Typography variant="caption" color="text.secondary">{String(capability.description)}</Typography> : null}
                     </Stack>
