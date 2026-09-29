@@ -85,3 +85,61 @@ describe('tool package import', () => {
     expect(harness.toasts[0].message).toContain('工具定义文件')
   })
 })
+
+describe('tool config files', () => {
+  function createConfigHarness(tool: any) {
+    const state: any = { tools: {} }
+    const requests: any[] = []
+    const netRequest = vi.fn(async (req: any) => {
+      requests.push(req)
+      if (req.method === 'GET') return { status: 200, body: tool }
+      return { status: 200, body: tool }
+    })
+    const catalog = createToolCatalog({
+      getState: () => state,
+      netRequest,
+      emit: () => {},
+      showToast: () => {},
+    })
+    return { catalog, state, requests }
+  }
+
+  it('loads config files into the draft and selects the first file', async () => {
+    const harness = createConfigHarness({ id: 'ai-image', name: 'ai-image', configFiles: [{ path: 'providers.json', content: '{}' }, { path: 'adapters/a.json', content: '{}' }] })
+    await harness.catalog.openToolConfig('ai-image')
+    expect(harness.state.tools.configFilesDraft).toEqual({ 'providers.json': '{}', 'adapters/a.json': '{}' })
+    expect(harness.state.tools.configFileSelected).toBe('adapters/a.json')
+  })
+
+  it('sends only changed files and deletions on save', async () => {
+    const harness = createConfigHarness({ id: 'ai-image', name: 'ai-image', configFiles: [{ path: 'providers.json', content: 'old' }] })
+    await harness.catalog.openToolConfig('ai-image')
+    harness.catalog.setConfigFileDraft('providers.json', 'new')
+    harness.catalog.addConfigFile('adapters/custom.json')
+    harness.catalog.setConfigFileDraft('adapters/custom.json', '{"id":"custom"}')
+    await harness.catalog.saveSelectedToolConfig()
+    const saveRequest = harness.requests.find((req) => req.method === 'PUT')
+    expect(saveRequest.body.configFiles).toEqual([
+      { path: 'adapters/custom.json', content: '{"id":"custom"}' },
+      { path: 'providers.json', content: 'new' },
+    ])
+  })
+
+  it('records a deletion intent when a file is removed', async () => {
+    const harness = createConfigHarness({ id: 'ai-image', name: 'ai-image', configFiles: [{ path: 'providers.json', content: '{}' }] })
+    await harness.catalog.openToolConfig('ai-image')
+    harness.catalog.removeConfigFile('providers.json')
+    expect(harness.state.tools.configFilesRemoved).toEqual(['providers.json'])
+    await harness.catalog.saveSelectedToolConfig()
+    const saveRequest = harness.requests.find((req) => req.method === 'PUT')
+    expect(saveRequest.body.configFiles).toEqual([{ path: 'providers.json', deleted: true }])
+  })
+
+  it('does not send unchanged files', async () => {
+    const harness = createConfigHarness({ id: 'ai-image', name: 'ai-image', configFiles: [{ path: 'providers.json', content: '{}' }] })
+    await harness.catalog.openToolConfig('ai-image')
+    await harness.catalog.saveSelectedToolConfig()
+    const saveRequest = harness.requests.find((req) => req.method === 'PUT')
+    expect(saveRequest.body.configFiles).toEqual([])
+  })
+})

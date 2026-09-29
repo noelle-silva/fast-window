@@ -14,6 +14,10 @@ export function createToolActions(deps: {
   setToolPromptDescriptionDraft: (value: any) => any
   resetToolPromptDescriptionDraftToDefault: () => any
   setToolCapabilityGrant: (key: any, granted: any) => any
+  selectConfigFile: (path: any) => any
+  setConfigFileDraft: (path: any, content: any) => any
+  addConfigFile: (path: any) => any
+  removeConfigFile: (path: any) => any
   saveSelectedToolConfig: () => any
   installTool: (toolId: any) => any
   updateTool: (toolId: any) => any
@@ -29,7 +33,7 @@ export function createToolActions(deps: {
   updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => any
   removeShelf: (kind: any, name: any) => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
+  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
@@ -41,6 +45,10 @@ export function createToolActions(deps: {
     setToolPromptDescriptionDraft: (value: any) => setToolPromptDescriptionDraft(value),
     resetToolPromptDescriptionDraftToDefault: () => resetToolPromptDescriptionDraftToDefault(),
     setToolCapabilityGrant: (key: any, granted: any) => setToolCapabilityGrant(key, granted),
+    selectConfigFile: (path: any) => selectConfigFile(path),
+    setConfigFileDraft: (path: any, content: any) => setConfigFileDraft(path, content),
+    addConfigFile: (path: any) => addConfigFile(path),
+    removeConfigFile: (path: any) => removeConfigFile(path),
     saveSelectedToolConfig: () => saveSelectedToolConfig(),
     installTool: (toolId: any) => installTool(toolId),
     updateTool: (toolId: any) => updateTool(toolId),

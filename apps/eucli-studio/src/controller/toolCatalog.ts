@@ -99,14 +99,15 @@ export function createToolCatalog(deps: {
   async function openToolConfig(toolIdRaw: any) {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
-    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, workDirectoryView: false, saveError: '' })
+    patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, configFilesDraft: {}, configFilesRemoved: [], configFileSelected: '', workDirectoryView: false, saveError: '' })
     deps.emit()
     try {
       const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}`, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
-      patchCatalog({ detailLoading: false, detailError: '', selectedToolId: String(tool.id || toolId), selectedTool: tool, configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants), saveError: '' })
+      const configFilesDraft = configFilesToDraft(tool.configFiles)
+      patchCatalog({ detailLoading: false, detailError: '', selectedToolId: String(tool.id || toolId), selectedTool: tool, configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants), configFilesDraft, configFilesRemoved: [], configFileSelected: firstConfigFilePath(configFilesDraft), saveError: '' })
       return tool
     } catch (e: any) {
       const error = String(e?.message || e || '工具详情加载失败')
@@ -119,13 +120,13 @@ export function createToolCatalog(deps: {
   }
 
   function closeToolConfig() {
-    patchCatalog({ selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, detailError: '', saveError: '' })
+    patchCatalog({ selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, configFilesDraft: {}, configFilesRemoved: [], configFileSelected: '', detailError: '', saveError: '' })
     deps.emit()
   }
 
   // showToolWorkDirectoryView 让右侧区域切换到「工具默认工作目录」设置视图。
   function showToolWorkDirectoryView() {
-    patchCatalog({ workDirectoryView: true, selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, detailError: '', saveError: '' })
+    patchCatalog({ workDirectoryView: true, selectedToolId: '', selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, configFilesDraft: {}, configFilesRemoved: [], configFileSelected: '', detailError: '', saveError: '' })
     deps.emit()
   }
 
@@ -175,6 +176,48 @@ export function createToolCatalog(deps: {
     deps.emit()
   }
 
+  // selectConfigFile 选择当前编辑的配置区文件。
+  function selectConfigFile(pathRaw: any) {
+    patchCatalog({ configFileSelected: String(pathRaw || '').trim(), saveError: '' })
+    deps.emit()
+  }
+
+  // setConfigFileDraft 更新配置区文件草稿内容。
+  function setConfigFileDraft(pathRaw: any, content: any) {
+    const path = String(pathRaw || '').trim()
+    if (!path) return
+    const { catalog } = currentCatalog()
+    const draft = { ...clonePlainObject(catalog.configFilesDraft) }
+    draft[path] = String(content ?? '')
+    patchCatalog({ configFilesDraft: draft, saveError: '' })
+    deps.emit()
+  }
+
+  // addConfigFile 新增一个配置区文件草稿；同名文件已存在时不重复添加。
+  function addConfigFile(pathRaw: any) {
+    const path = String(pathRaw || '').trim()
+    if (!path) return
+    const { catalog } = currentCatalog()
+    const draft = { ...clonePlainObject(catalog.configFilesDraft) }
+    if (draft[path] === undefined) draft[path] = ''
+    patchCatalog({ configFilesDraft: draft, configFileSelected: path, saveError: '' })
+    deps.emit()
+  }
+
+  // removeConfigFile 从草稿移除配置区文件；原本存在的文件记为删除意图。
+  function removeConfigFile(pathRaw: any) {
+    const path = String(pathRaw || '').trim()
+    if (!path) return
+    const { catalog } = currentCatalog()
+    const draft = { ...clonePlainObject(catalog.configFilesDraft) }
+    delete draft[path]
+    const originals = configFilesToDraft(catalog.selectedTool?.configFiles)
+    const removed = Array.isArray(catalog.configFilesRemoved) ? catalog.configFilesRemoved.map((item: any) => String(item || '').trim()).filter(Boolean) : []
+    if (originals[path] !== undefined && !removed.includes(path)) removed.push(path)
+    patchCatalog({ configFilesDraft: draft, configFilesRemoved: removed, configFileSelected: firstConfigFilePath(draft), saveError: '' })
+    deps.emit()
+  }
+
   async function saveSelectedToolConfig() {
     const { catalog } = currentCatalog()
     const toolId = String(catalog.selectedToolId || catalog.selectedTool?.id || '').trim()
@@ -183,15 +226,17 @@ export function createToolCatalog(deps: {
     const userConfig = clonePlainObject(catalog.configDraft)
     const promptDescriptionOverride = String(catalog.promptDescriptionDraft ?? '')
     const capabilityGrants = clonePlainObject(catalog.capabilityGrantsDraft)
+    const configFiles = configFileWriteIntents(catalog.configFilesDraft, catalog.configFilesRemoved, catalog.selectedTool?.configFiles)
 
     patchCatalog({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride, capabilityGrants }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride, capabilityGrants, configFiles }, timeoutMs: 15000 })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
-      patchCatalog({ saving: false, saveError: '', selectedTool: tool, selectedToolId: String(tool.id || toolId), configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants) })
+      const configFilesDraft = configFilesToDraft(tool.configFiles)
+      patchCatalog({ saving: false, saveError: '', selectedTool: tool, selectedToolId: String(tool.id || toolId), configDraft: clonePlainObject(tool.userConfig), promptDescriptionDraft: String(tool.promptDescriptionOverride ?? ''), capabilityGrantsDraft: normalizeCapabilityGrants(tool.capabilityGrants), configFilesDraft, configFilesRemoved: [], configFileSelected: firstConfigFilePath(configFilesDraft) })
       await refreshTools(true)
       deps.showToast?.('工具配置已保存', { kind: 'success' })
       return true
@@ -354,7 +399,7 @@ export function createToolCatalog(deps: {
     installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
+  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {
@@ -371,12 +416,53 @@ function defaultToolCatalogState() {
     configDraft: {} as Record<string, any>,
     promptDescriptionDraft: '',
     capabilityGrantsDraft: {} as Record<string, boolean>,
+    configFilesDraft: {} as Record<string, string>,
+    configFilesRemoved: [] as string[],
+    configFileSelected: '',
     saving: false,
     saveError: '',
     installStates: {} as ArtifactInstallStateMap,
     busyPrompt: null as { toolId: string; action: 'install' | 'update' } | null,
     stopping: false,
   }
+}
+
+// configFilesToDraft 把工具详情里的配置区文件转成编辑草稿（路径 → 内容）。
+function configFilesToDraft(value: any): Record<string, string> {
+  const list = Array.isArray(value) ? value : []
+  const draft: Record<string, string> = {}
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const path = String((item as any).path || '').trim()
+    if (!path) continue
+    draft[path] = String((item as any).content ?? '')
+  }
+  return draft
+}
+
+// firstConfigFilePath 返回草稿中的第一个文件路径，用于默认选中。
+function firstConfigFilePath(draft: Record<string, string>): string {
+  const paths = Object.keys(draft).sort()
+  return paths.length ? paths[0] : ''
+}
+
+// configFileWriteIntents 生成保存请求的配置区文件写入意图：
+// 草稿里每个文件整份写入，原本存在但已移除的文件记为删除。
+function configFileWriteIntents(draft: any, removed: any, original: any): Array<{ path: string; content?: string; deleted?: boolean }> {
+  const draftFiles = objectOrEmpty(draft)
+  const originalFiles = configFilesToDraft(original)
+  const intents: Array<{ path: string; content?: string; deleted?: boolean }> = []
+  for (const path of Object.keys(draftFiles).sort()) {
+    const content = String(draftFiles[path] ?? '')
+    if (originalFiles[path] === content) continue
+    intents.push({ path, content })
+  }
+  const removedPaths = Array.isArray(removed) ? removed.map((item: any) => String(item || '').trim()).filter(Boolean) : []
+  for (const path of removedPaths.sort()) {
+    if (originalFiles[path] === undefined) continue
+    intents.push({ path, deleted: true })
+  }
+  return intents
 }
 
 function normalizeToolSummaries(value: any): any[] {
@@ -426,7 +512,21 @@ function normalizeToolDefinition(value: any): any {
     defaultConfig: objectOrEmpty((source as any).defaultConfig),
     capabilities: normalizeToolCapabilities((source as any).capabilities),
     capabilityGrants: normalizeCapabilityGrants((source as any).capabilityGrants),
+    configFiles: normalizeToolConfigFiles((source as any).configFiles),
   }
+}
+
+// normalizeToolConfigFiles 归一配置区文件列表：路径必须非空，内容为原文。
+function normalizeToolConfigFiles(value: any): Array<{ path: string; content: string }> {
+  const list = Array.isArray(value) ? value : []
+  const out: Array<{ path: string; content: string }> = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const path = String((item as any).path || '').trim()
+    if (!path) continue
+    out.push({ path, content: String((item as any).content ?? '') })
+  }
+  return out
 }
 
 function normalizeToolCapabilities(value: any): any[] {
