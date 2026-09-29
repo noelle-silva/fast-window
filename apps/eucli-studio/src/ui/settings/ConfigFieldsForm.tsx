@@ -1,25 +1,18 @@
 import * as React from 'react'
-import { Box, Button, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material'
-import { SettingsSection } from './SettingsSurfaces'
-import { plainObject, stringField } from './schemaFieldValues'
-
-export type ConfigField = {
-  path: string[]
-  key: string
-  label: string
-  description: string
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array'
-  enumOptions: ConfigOption[]
-  required: boolean
-  currentValue: any
-  defaultValue: any
-  schema: Record<string, any>
-}
-
-type ConfigOption = {
-  value: string
-  label: string
-}
+import { Box, Button, FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import { SettingsListItem, SettingsSection } from './SettingsSurfaces'
+import { plainObject } from './schemaFieldValues'
+import {
+  arrayItemSeed,
+  buildArrayItemFields,
+  buildConfigFields,
+  buildObjectChildFields,
+  isBlankConfigValue,
+  type ConfigField,
+  type ConfigOption,
+} from './configFieldModel'
 
 export function ConfigFieldsForm(props: {
   schema: any
@@ -41,45 +34,11 @@ export function ConfigFieldsForm(props: {
   )
 }
 
-export function cloneConfigObject(value: any): Record<string, any> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? JSON.parse(JSON.stringify(value)) : {}
-}
-
-export function setConfigValueAtPath(source: Record<string, any>, path: string[], value: any): Record<string, any> {
-  const draft = cloneConfigObject(source)
-  const segments = normalizeConfigPath(path)
-  if (!segments.length) return draft
-  let cursor: Record<string, any> = draft
-  for (const segment of segments.slice(0, -1)) {
-    const next = cursor[segment]
-    if (!next || typeof next !== 'object' || Array.isArray(next)) cursor[segment] = {}
-    cursor = cursor[segment]
-  }
-  cursor[segments[segments.length - 1]] = value
-  return draft
-}
-
-export function removeConfigValueAtPath(source: Record<string, any>, path: string[]): Record<string, any> {
-  const draft = cloneConfigObject(source)
-  const segments = normalizeConfigPath(path)
-  if (!segments.length) return draft
-  let cursor: Record<string, any> = draft
-  for (const segment of segments.slice(0, -1)) {
-    const next = cursor[segment]
-    if (!next || typeof next !== 'object' || Array.isArray(next)) return draft
-    cursor = next
-  }
-  delete cursor[segments[segments.length - 1]]
-  return draft
-}
-
 function ConfigFieldControl(props: { field: ConfigField; onSetValue: (path: string[], value: any) => void; onRemoveValue: (path: string[]) => void }) {
   const { field, onSetValue, onRemoveValue } = props
   const hasValue = !isBlankConfigValue(field.currentValue)
   const displayValue = hasValue ? field.currentValue : field.defaultValue
   const helper = configFieldHelper(field, hasValue)
-  const setValue = (value: any) => onSetValue(field.path, value)
-  const removeValue = () => onRemoveValue(field.path)
 
   if (field.type === 'boolean') {
     return (
@@ -90,8 +49,8 @@ function ConfigFieldControl(props: { field: ConfigField; onSetValue: (path: stri
             {helper ? <Typography variant="caption" color="text.secondary">{helper}</Typography> : null}
           </Box>
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-            <FormControlLabel control={<Switch checked={!!displayValue} onChange={(event) => setValue(event.target.checked)} />} label={displayValue ? '开启' : '关闭'} />
-            <Button size="small" onClick={removeValue} disabled={!hasValue}>恢复默认</Button>
+            <FormControlLabel control={<Switch checked={!!displayValue} onChange={(event) => onSetValue(field.path, event.target.checked)} />} label={displayValue ? '开启' : '关闭'} />
+            <Button size="small" onClick={() => onRemoveValue(field.path)} disabled={!hasValue}>恢复默认</Button>
           </Stack>
         </Stack>
       </SettingsSection>
@@ -104,21 +63,29 @@ function ConfigFieldControl(props: { field: ConfigField; onSetValue: (path: stri
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
         <FormControl size="small" fullWidth>
           <InputLabel>{field.label}{field.required ? ' *' : ''}</InputLabel>
-          <Select label={`${field.label}${field.required ? ' *' : ''}`} value={String(displayValue ?? '')} onChange={(event) => event.target.value === '' ? removeValue() : setValue(event.target.value)}>
+          <Select label={`${field.label}${field.required ? ' *' : ''}`} value={String(displayValue ?? '')} onChange={(event) => event.target.value === '' ? onRemoveValue(field.path) : onSetValue(field.path, event.target.value)}>
             <MenuItem value=""><em>使用默认值</em></MenuItem>
             {selectOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
           </Select>
           {helper ? <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>{helper}</Typography> : null}
         </FormControl>
-        <Button size="small" onClick={removeValue} disabled={!hasValue} sx={{ mt: { sm: 0.5 } }}>恢复默认</Button>
+        <Button size="small" onClick={() => onRemoveValue(field.path)} disabled={!hasValue} sx={{ mt: { sm: 0.5 } }}>恢复默认</Button>
       </Stack>
     )
   }
 
-  if (field.type === 'object' || field.type === 'array') {
-    return field.type === 'array'
-      ? <ConfigArrayField field={field} hasValue={hasValue} value={displayValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
-      : <ConfigObjectField field={field} hasValue={hasValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+  if (field.type === 'object') {
+    return <ConfigObjectField field={field} hasValue={hasValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+  }
+
+  if (field.type === 'array') {
+    if (field.itemKind === 'object') {
+      return <ConfigObjectListField field={field} hasValue={hasValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+    }
+    if (field.itemKind === 'other') {
+      return <ConfigJsonField field={field} hasValue={hasValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+    }
+    return <ConfigStringListField field={field} hasValue={hasValue} helper={helper} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
   }
 
   return (
@@ -129,25 +96,25 @@ function ConfigFieldControl(props: { field: ConfigField; onSetValue: (path: stri
         type={field.type === 'number' ? 'number' : 'text'}
         value={displayValue ?? ''}
         onChange={(event) => {
-          if (field.type === 'number' && event.target.value.trim() === '') removeValue()
+          if (field.type === 'number' && event.target.value.trim() === '') onRemoveValue(field.path)
           else if (field.type === 'number') {
             const nextValue = numberFromInput(event.target.value)
-            if (nextValue === '') removeValue()
-            else setValue(nextValue)
-          } else setValue(event.target.value)
+            if (nextValue === '') onRemoveValue(field.path)
+            else onSetValue(field.path, nextValue)
+          } else onSetValue(field.path, event.target.value)
         }}
         placeholder={field.defaultValue == null ? '' : String(field.defaultValue)}
         helperText={helper}
         fullWidth
       />
-      <Button size="small" onClick={removeValue} disabled={!hasValue} sx={{ mt: { sm: 0.5 } }}>恢复默认</Button>
+      <Button size="small" onClick={() => onRemoveValue(field.path)} disabled={!hasValue} sx={{ mt: { sm: 0.5 } }}>恢复默认</Button>
     </Stack>
   )
 }
 
 function ConfigObjectField(props: { field: ConfigField; hasValue: boolean; helper: string; onSetValue: (path: string[], value: any) => void; onRemoveValue: (path: string[]) => void }) {
   const { field, hasValue, helper, onSetValue, onRemoveValue } = props
-  const childFields = buildNestedConfigFields(field)
+  const childFields = buildObjectChildFields(field.schema, field.currentValue, field.path, field.defaultValue)
   return (
     <SettingsSection tone={hasValue ? 'default' : 'muted'}>
       <Stack spacing={1.25}>
@@ -170,9 +137,9 @@ function ConfigObjectField(props: { field: ConfigField; hasValue: boolean; helpe
   )
 }
 
-function ConfigArrayField(props: { field: ConfigField; hasValue: boolean; value: any; helper: string; onSetValue: (path: string[], value: any) => void; onRemoveValue: (path: string[]) => void }) {
-  const { field, hasValue, value, helper, onSetValue, onRemoveValue } = props
-  const lines = Array.isArray(value) ? value.map((item) => String(item ?? '')).join('\n') : ''
+function ConfigStringListField(props: { field: ConfigField; hasValue: boolean; helper: string; onSetValue: (path: string[], value: any) => void; onRemoveValue: (path: string[]) => void }) {
+  const { field, hasValue, helper, onSetValue, onRemoveValue } = props
+  const lines = Array.isArray(field.currentValue) ? field.currentValue.map((item) => String(item ?? '')).join('\n') : ''
   return (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
       <TextField
@@ -190,57 +157,115 @@ function ConfigArrayField(props: { field: ConfigField; hasValue: boolean; value:
   )
 }
 
-function buildConfigFields(schemaRaw: any, defaultConfigRaw: any, userConfigRaw: any, draftConfigRaw: any): ConfigField[] {
-  const schema = plainObject(schemaRaw)
-  const defaultConfig = plainObject(defaultConfigRaw)
-  const userConfig = plainObject(userConfigRaw)
-  const draftConfig = plainObject(draftConfigRaw)
-  return buildConfigFieldsFromSources([], schema, defaultConfig, userConfig, draftConfig)
+// ConfigObjectListField 渲染「对象行列表」：行内字段按条目声明递归渲染，行可删、列表可增。
+function ConfigObjectListField(props: { field: ConfigField; hasValue: boolean; helper: string; onSetValue: (path: string[], value: any) => void; onRemoveValue: (path: string[]) => void }) {
+  const { field, hasValue, helper, onSetValue, onRemoveValue } = props
+  const itemSchema = plainObject(field.schema.items)
+  const itemTitle = field.itemTitle || '条目'
+  const items = Array.isArray(field.currentValue) ? field.currentValue : []
+  const malformed = !Array.isArray(field.currentValue) && !isBlankConfigValue(field.currentValue)
+  const addItem = () => onSetValue(field.path, [...items, arrayItemSeed(itemSchema)])
+  return (
+    <SettingsSection tone={hasValue ? 'default' : 'muted'}>
+      <Stack spacing={1.25}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography sx={{ fontWeight: 900 }}>{field.label}{field.required ? ' *' : ''}</Typography>
+            {helper ? <Typography variant="caption" color="text.secondary">{helper}</Typography> : null}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>共 {items.length} 条</Typography>
+          </Box>
+          <Button size="small" onClick={() => onRemoveValue(field.path)} disabled={!hasValue}>恢复默认</Button>
+        </Stack>
+
+        {malformed ? (
+          <Typography variant="body2" color="warning.main">当前值不是列表，可在下方按 JSON 原文修正。</Typography>
+        ) : items.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">暂无条目。</Typography>
+        ) : (
+          <Stack spacing={1}>
+            {items.map((item, index) => {
+              const rowPath = [...field.path, String(index)]
+              return (
+                <SettingsListItem key={index} sx={{ p: 1 }}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="space-between">
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{itemTitle} {index + 1}</Typography>
+                      <IconButton size="small" color="error" aria-label={`删除${itemTitle} ${index + 1}`} onClick={() => onRemoveValue(rowPath)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                    {isPlainObject(item) ? (
+                      buildArrayItemFields(itemSchema, item, rowPath).map((child) => (
+                        <ConfigFieldControl key={child.path.join('.')} field={child} onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+                      ))
+                    ) : (
+                      <ConfigJsonField
+                        field={{ ...field, path: rowPath, currentValue: item, required: false, label: `${itemTitle} ${index + 1} 的值` }}
+                        hasValue={true}
+                        helper=""
+                        onSetValue={onSetValue}
+                      />
+                    )}
+                  </Stack>
+                </SettingsListItem>
+              )
+            })}
+          </Stack>
+        )}
+
+        {malformed ? (
+          <ConfigJsonField field={{ ...field, currentValue: field.currentValue, label: `${field.label}（JSON 原文）` }} hasValue={hasValue} helper="" onSetValue={onSetValue} onRemoveValue={onRemoveValue} />
+        ) : (
+          <Box>
+            <Button size="small" startIcon={<AddIcon />} onClick={addItem}>新增{itemTitle}</Button>
+          </Box>
+        )}
+      </Stack>
+    </SettingsSection>
+  )
 }
 
-function buildNestedConfigFields(parent: ConfigField): ConfigField[] {
-  const schema = parent.schema
-  const defaultConfig = plainObject(parent.defaultValue)
-  const currentConfig = plainObject(parent.currentValue)
-  return buildConfigFieldsFromSources(parent.path, schema, defaultConfig, currentConfig, currentConfig)
-}
-
-function buildConfigFieldsFromSources(pathPrefix: string[], schema: Record<string, any>, defaultConfig: Record<string, any>, userConfig: Record<string, any>, draftConfig: Record<string, any>): ConfigField[] {
-  const required = new Set(stringArray(schema.required))
-  const properties = plainObject(schema.properties)
-  const keys = orderedUniqueStrings([...Object.keys(properties), ...Object.keys(defaultConfig), ...Object.keys(userConfig), ...Object.keys(draftConfig)])
-
-  return keys.map((key) => {
-    const fieldSchema = plainObject(properties[key])
-    const currentValue = draftConfig[key]
-    const defaultValue = hasOwn(defaultConfig, key) ? defaultConfig[key] : undefined
-    return {
-      path: [...pathPrefix, key],
-      key,
-      label: stringField(fieldSchema.title) || key,
-      description: stringField(fieldSchema.description),
-      type: inferConfigFieldType(fieldSchema, currentValue, defaultValue),
-      enumOptions: enumOptionsFromSchema(fieldSchema),
-      required: required.has(key),
-      currentValue,
-      defaultValue,
-      schema: fieldSchema,
+// ConfigJsonField 是表达力出口：任何无法按字段描述渲染的形状都以 JSON 原文编辑；
+// 解析成功才回写草稿，解析失败当场提示、不污染草稿。
+function ConfigJsonField(props: { field: ConfigField; hasValue: boolean; helper: string; onSetValue: (path: string[], value: any) => void; onRemoveValue?: (path: string[]) => void }) {
+  const { field, hasValue, helper, onSetValue, onRemoveValue } = props
+  const [text, setText] = React.useState(() => jsonText(field.currentValue))
+  const [error, setError] = React.useState('')
+  const lastEmittedRef = React.useRef('')
+  React.useEffect(() => {
+    const current = jsonText(field.currentValue)
+    if (current === lastEmittedRef.current) return
+    setText(current)
+    setError('')
+  }, [field.currentValue])
+  const handleChange = (next: string) => {
+    setText(next)
+    const parsed = parseJsonText(next)
+    if (!parsed.ok) {
+      setError(parsed.error)
+      return
     }
-  })
-}
-
-function inferConfigFieldType(schema: Record<string, any>, currentValue: any, defaultValue: any): ConfigField['type'] {
-  const rawType = String(schema.type || '').trim()
-  if (rawType === 'boolean') return 'boolean'
-  if (rawType === 'number' || rawType === 'integer') return 'number'
-  if (rawType === 'object') return 'object'
-  if (rawType === 'array') return 'array'
-  const value = currentValue != null ? currentValue : defaultValue
-  if (typeof value === 'boolean') return 'boolean'
-  if (typeof value === 'number') return 'number'
-  if (Array.isArray(value)) return 'array'
-  if (value && typeof value === 'object') return 'object'
-  return 'string'
+    setError('')
+    lastEmittedRef.current = jsonText(parsed.value)
+    onSetValue(field.path, parsed.value)
+  }
+  return (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+      <TextField
+        size="small"
+        label={`${field.label}${field.required ? ' *' : ''}`}
+        value={text}
+        onChange={(event) => handleChange(event.target.value)}
+        helperText={error || (helper ? `${helper}（JSON 原文编辑）` : 'JSON 原文编辑')}
+        error={!!error}
+        fullWidth
+        multiline
+        minRows={3}
+        slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 13 } } }}
+      />
+      {onRemoveValue ? <Button size="small" onClick={() => onRemoveValue(field.path)} disabled={!hasValue} sx={{ mt: { sm: 0.5 } }}>恢复默认</Button> : null}
+    </Stack>
+  )
 }
 
 function configFieldHelper(field: ConfigField, hasValue: boolean): string {
@@ -269,23 +294,6 @@ function numberFromInput(value: string): number | '' {
   return Number.isFinite(n) ? n : ''
 }
 
-function normalizeConfigPath(path: any): string[] {
-  return Array.isArray(path) ? path.map((segment) => String(segment || '').trim()).filter(Boolean) : []
-}
-
-function isBlankConfigValue(value: any): boolean {
-  return value === undefined || value === null
-}
-
-function stringArray(value: any): string[] {
-  return Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : []
-}
-
-function enumOptionsFromSchema(schema: Record<string, any>): ConfigOption[] {
-  const labels = plainObject(schema.enumLabels || schema['x-enumLabels'])
-  return stringArray(schema.enum).map((value) => ({ value, label: stringField(labels[value]) || value }))
-}
-
 function arrayFromLines(value: string): string[] {
   return String(value || '').split('\n').map((line) => line.trim()).filter(Boolean)
 }
@@ -302,6 +310,25 @@ function orderedUniqueStrings(values: string[]): string[] {
   return out
 }
 
-function hasOwn(obj: Record<string, any>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key)
+function isPlainObject(value: any): boolean {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function jsonText(value: any): string {
+  if (value === undefined) return ''
+  try {
+    return JSON.stringify(value, null, 2) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function parseJsonText(text: string): { ok: true; value: any } | { ok: false; error: string } {
+  const trimmed = text.trim()
+  if (!trimmed) return { ok: false, error: '请输入 JSON 内容；如需清空请用「恢复默认」。' }
+  try {
+    return { ok: true, value: JSON.parse(trimmed) }
+  } catch (e: any) {
+    return { ok: false, error: `JSON 解析失败：${String(e?.message || e)}` }
+  }
 }

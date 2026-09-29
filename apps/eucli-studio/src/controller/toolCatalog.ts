@@ -1,4 +1,5 @@
 import { now } from '../core/utils'
+import { removeConfigValueAtPath, setConfigValueAtPath } from '../domain/toolConfigDraft'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
 import { createArtifactInstallTracker, type ArtifactInstallStateMap } from './artifactInstallTracker'
@@ -131,22 +132,14 @@ export function createToolCatalog(deps: {
   }
 
   function setToolConfigValue(path: any, value: any) {
-    const segments = normalizeConfigPath(path)
-    if (!segments.length) return
     const { catalog } = currentCatalog()
-    const draft = clonePlainObject(catalog.configDraft)
-    setValueAtPath(draft, segments, value)
-    patchCatalog({ configDraft: draft, saveError: '' })
+    patchCatalog({ configDraft: setConfigValueAtPath(catalog.configDraft, path, value), saveError: '' })
     deps.emit()
   }
 
   function removeToolConfigValue(path: any) {
-    const segments = normalizeConfigPath(path)
-    if (!segments.length) return
     const { catalog } = currentCatalog()
-    const draft = clonePlainObject(catalog.configDraft)
-    removeValueAtPath(draft, segments)
-    patchCatalog({ configDraft: draft, saveError: '' })
+    patchCatalog({ configDraft: removeConfigValueAtPath(catalog.configDraft, path), saveError: '' })
     deps.emit()
   }
 
@@ -568,30 +561,4 @@ function clonePlainObject(value: any): Record<string, any> {
   } catch (_) {
     return { ...source }
   }
-}
-
-function normalizeConfigPath(path: any): string[] {
-  const parts = Array.isArray(path) ? path : String(path || '').split('.')
-  return parts.map((part: any) => String(part || '').trim()).filter((part: string) => !!part)
-}
-
-function setValueAtPath(target: Record<string, any>, path: string[], value: any) {
-  let cursor: Record<string, any> = target
-  for (const segment of path.slice(0, -1)) {
-    const next = cursor[segment]
-    if (!next || typeof next !== 'object' || Array.isArray(next)) cursor[segment] = {}
-    cursor = cursor[segment]
-  }
-  cursor[path[path.length - 1]] = value
-}
-
-function removeValueAtPath(target: Record<string, any>, path: string[]): boolean {
-  const key = path[0]
-  if (!key) return false
-  if (path.length === 1) return delete target[key]
-  const child = target[key]
-  if (!child || typeof child !== 'object' || Array.isArray(child)) return false
-  const removed = removeValueAtPath(child, path.slice(1))
-  if (removed && Object.keys(child).length === 0) delete target[key]
-  return removed
 }
