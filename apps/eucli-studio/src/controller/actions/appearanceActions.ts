@@ -6,6 +6,7 @@ import {
   normalizeColorThemeSettings,
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
+import { normalizeChatFontFamily, normalizeChatFontSize } from '../../domain/chatFont'
 import { normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
@@ -57,6 +58,18 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
       if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setChatFontSize: (size: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.chatFontSize = normalizeChatFontSize(size)
+      if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setChatFontFamily: (family: any) => {
+      if (!state.data) return
+      state.data.settings.chatFontFamily = normalizeChatFontFamily(family)
+      saveMeta().catch(() => {})
       emit()
     },
     setColorThemePreset: (presetId: any) => {
