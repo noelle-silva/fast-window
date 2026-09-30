@@ -16,6 +16,7 @@ import { useChatMessageView } from './hooks/useChatMessageView'
 import { clampNum } from './utils/numbers'
 import { TOPBAR_H } from './appConstants'
 import { createChatGlobalStyles } from './globalStyles'
+import { messageRefreshScope } from '../domain/uiRefreshScope'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
@@ -661,6 +662,25 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       } catch (_) {}
     })
   }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+
+  // 流式推进走范围刷新，不再触发整页渲染；这里单独订阅最后一条消息的范围，
+  // 只做“跟随到底部”的滚动副作用，不引起 React 重渲染。
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const mid = String(lastMsgId || '').trim()
+    if (!mid || typeof controller?.subscribeScope !== 'function') return
+    return controller.subscribeScope(messageRefreshScope(mid), () => {
+      const el = chatRootRef.current
+      if (!el) return
+      if (Date.now() < autoScrollBlockUntilRef.current) return
+      if (!stickToBottomRef.current) return
+      requestAnimationFrame(() => {
+        try {
+          el.scrollTop = el.scrollHeight
+        } catch (_) {}
+      })
+    })
+  }, [page, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
 
   React.useEffect(() => {
     if (page !== 'chat') return

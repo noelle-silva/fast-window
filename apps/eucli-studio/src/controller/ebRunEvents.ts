@@ -6,18 +6,27 @@ import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMes
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { activeEbRunCardsForTarget, isTerminalEbRunStatus, removeEbRoleRunCard, upsertEbRoleRunCard } from '../domain/activeRunCards'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { messageRefreshScope } from '../domain/uiRefreshScope'
 
 type DirectEventSubscription = (listener: (event: any) => void) => () => void
 type RunEventTargetKind = 'role' | 'group' | 'workspace'
 
+function messageHasToolParts(message: any) {
+  const parts = Array.isArray(message?.parts) ? message.parts : []
+  return parts.some((part: any) => String(part?.type || '') === 'tool')
+}
+
 export function createEbRunEventConsumer(deps: {
   getState: () => any
   emit: () => void
+  emitScope?: (scope: string) => void
   subscribeDirectEvents?: DirectEventSubscription
   onRuntimeChatChanged?: (targetKind: RunEventTargetKind, targetId: string, chat: any, options?: { urgent?: boolean }) => Promise<void> | void
 }) {
   let unsubscribe: (() => void) | null = null
   let renderRaf = 0
+  let scopeRaf = 0
+  const pendingScopes = new Set<string>()
   const pendingBySession = new Map<string, Map<string, any>>()
   const changedTimers = new Map<string, number>()
 
@@ -26,6 +35,22 @@ export function createEbRunEventConsumer(deps: {
     renderRaf = window.requestAnimationFrame(() => {
       renderRaf = 0
       deps.emit()
+    })
+  }
+
+  // 范围刷新同样按帧合并：一帧内的多次流式增量只通知一次，且只惊动对应范围。
+  function scheduleScope(scope: string) {
+    if (typeof deps.emitScope !== 'function') {
+      scheduleRender()
+      return
+    }
+    pendingScopes.add(scope)
+    if (scopeRaf) return
+    scopeRaf = window.requestAnimationFrame(() => {
+      scopeRaf = 0
+      const scopes = Array.from(pendingScopes)
+      pendingScopes.clear()
+      for (const item of scopes) deps.emitScope?.(item)
     })
   }
 
@@ -233,6 +258,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const branchId = normalizeBranchId(incomingMessage.branchId || parent?.branchId || CHAT_DEFAULT_BRANCH_ID)
 
     let message = chat.messages.find((item: any) => String(item?.id || '').trim() === messageId) || null
+    const isNewMessage = !message
     if (!message) {
       message = incomingMessage
       chat.messages.push(message)
@@ -296,7 +322,20 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, fallbackTitle), fallbackTitle)
 
     scheduleRuntimeChatChanged(targetKind, targetId, chat, messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)
-    scheduleRender()
+
+    // 范围分发：只有“纯流式增量（思考/正文推进）”这一种变化能说清它只动这一条消息，
+    // 走消息范围，不惊动整页；其余（新消息挂载、终止态、工具卡、异步返回）影响面更大，仍走全局。
+    const isPureStreamingIncrement =
+      !isNewMessage &&
+      messageType === 'assistant' &&
+      !isTerminalEbRunStatus(payload.status) &&
+      !hasSettledAssistantToolParts(message) &&
+      !messageHasToolParts(message)
+    if (isPureStreamingIncrement) {
+      scheduleScope(messageRefreshScope(messageId))
+    } else {
+      scheduleRender()
+    }
     return true
   }
 

@@ -98,7 +98,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 2. UI CORE
   // ============================================================
   const uiCore = createUiCore()
-  const { emit, subscribe, getVer } = uiCore
+  const { emit, emitScope, subscribe, subscribeScope, getVer, getScopeVer } = uiCore
 
   // ============================================================
   // 3. SPLIT META CACHE (shared across modules)
@@ -614,6 +614,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     activeGroup,
   })
 
+  // getMessageById 读取当前活动会话中指定消息的实时对象：
+  // 流式更新就地改写该对象，局部订阅者据此只重渲染那一条消息。
+  function getMessageById(messageId: any) {
+    const mid = String(messageId || '').trim()
+    if (!mid) return null
+    const chat = activeChat() || activeChatFromData()
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    return msgs.find((m: any) => String(m?.id || '') === mid) || null
+  }
+
   // ============================================================
   // 13. MERMAID UI
   // ============================================================
@@ -787,6 +797,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const ebRunEvents = createEbRunEventConsumer({
     getState: () => state,
     emit,
+    emitScope,
     subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
     // 视窗架构：运行事件只刷新画面，不把 UI 快照整包写回业务端。
     // 会话事实由业务端运行时持久化，终态由运行完成后的会话重读对账。
@@ -1187,6 +1198,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: getControllerState,
     getSnapshot: () => getVer(),
     subscribe,
+    getScopeVer,
+    subscribeScope,
+    emitScope,
+    getMessageById,
     fmtTime,
     activeRole,
     activeChat,

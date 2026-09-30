@@ -17,7 +17,7 @@ import { resolveReplyDurationMs } from '../../domain/messageTiming'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
-import { AssistantMessageBlocks } from './AssistantMessageBlocks'
+import { LiveAssistantBody } from './LiveAssistantBody'
 import { AssistantReplyPendingIndicator } from './AssistantReplyPendingIndicator'
 import { RefImageThumb, StickerText } from './MessageMedia'
 import { formatDurationMs } from '../utils/time'
@@ -480,10 +480,9 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   {messageError ? <AssistantErrorNotice error={messageError} /> : null}
                   {retryFailure ? <AssistantErrorNotice error={retryFailure} title="本次请求失败" /> : null}
                   {content || assistantParts.length ? (
-                    <AssistantMessageBlocks
+                    <LiveAssistantBody
                       controller={controller}
-                      text={content}
-                      parts={assistantParts}
+                      message={m}
                       mid={mid}
                       isGenerating={messageGenerating}
                       reasoningDisplayMode={reasoningDisplayMode}
@@ -497,10 +496,9 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                 <AssistantReplyPendingIndicator />
               ) : (
                 <Stack spacing={1}>
-                  <AssistantMessageBlocks
+                  <LiveAssistantBody
                     controller={controller}
-                    text={content}
-                    parts={assistantParts}
+                    message={m}
                     mid={mid}
                     isGenerating={messageGenerating}
                     reasoningDisplayMode={reasoningDisplayMode}
