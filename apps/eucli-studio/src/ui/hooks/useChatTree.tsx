@@ -83,6 +83,7 @@ export function useChatTree(deps: {
   const [treeSelectedMid, setTreeSelectedMid] = React.useState('')
   const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
+  const [treeFollowTick, setTreeFollowTick] = React.useState(0)
   const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const treeViewportRef = React.useRef<SVGGElement | null>(null)
   const treeViewRef = React.useRef<{ x: number; y: number; scale: number }>({ x: 18, y: 18, scale: 1 })
@@ -91,6 +92,8 @@ export function useChatTree(deps: {
   const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
   const treeFollowRafRef = React.useRef<number>(0)
   const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
+  const treeFollowSuspendedRef = React.useRef(false)
+  const treeRenderRef = React.useRef<any>(null)
   const treeOpenTokenRef = React.useRef(0)
   const treeInitialCenterRafRef = React.useRef<number>(0)
   const treeNeedInitialCenterRef = React.useRef(false)
@@ -147,6 +150,76 @@ export function useChatTree(deps: {
     }
   })
 
+  // 根据当前树布局，计算让某个节点落在视窗中心的平移目标
+  const computeTreeCenterTarget = useEvent((mid0: string) => {
+    const mid = String(mid0 || '').trim()
+    if (!mid) return null
+    const tr: any = treeRenderRef.current
+    if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return null
+    const node = tr.byId.get(mid) || null
+    if (!node) return null
+    const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+    if (!host) return null
+    const w = Number(host.clientWidth || 0)
+    const h = Number(host.clientHeight || 0)
+    if (w < 20 || h < 20) return null
+    const nodeW = Number(tr.nodeW || 168)
+    const nodeH = Number(tr.nodeH || 44)
+    const wx = Number(node?.x || 0) + nodeW / 2
+    const wy = Number(node?.y || 0) + nodeH / 2
+    const s = clampNum(Number(treeViewRef.current?.scale || 1), 0.35, 2.6)
+    return { x: w / 2 - wx * s, y: h / 2 - wy * s }
+  })
+
+  // 以固定速度平滑地把视角移动到目标平移位置
+  const startTreeFollowTo = useEvent((targetX: number, targetY: number) => {
+    const speed = 1800 // px / s（屏幕坐标）
+    const tick = (t: number) => {
+      treeFollowRafRef.current = 0
+      if (!treeOpen || !savedTreeFollowSelected || treeFollowSuspendedRef.current) {
+        treeFollowAnimRef.current = null
+        return
+      }
+      if (treeDragRef.current) {
+        treeFollowAnimRef.current = null
+        return
+      }
+
+      const a = treeFollowAnimRef.current
+      if (!a) return
+
+      const last = Number(a.lastT || 0) || t
+      const dt = Math.min(0.05, Math.max(0.001, (t - last) / 1000))
+      a.lastT = t
+
+      const v = treeViewRef.current
+      const x0 = Number(v?.x || 0)
+      const y0 = Number(v?.y || 0)
+      const dx = Number(a.targetX) - x0
+      const dy = Number(a.targetY) - y0
+      const dist = Math.hypot(dx, dy)
+
+      if (dist < 0.8) {
+        treeViewRef.current = { ...treeViewRef.current, x: Number(a.targetX), y: Number(a.targetY) }
+        scheduleTreeViewTransform()
+        setTreePan({ x: Number(a.targetX), y: Number(a.targetY) })
+        treeFollowAnimRef.current = null
+        return
+      }
+
+      const step = Math.min(dist, speed * dt)
+      const nx = x0 + (dx / dist) * step
+      const ny = y0 + (dy / dist) * step
+      treeViewRef.current = { ...treeViewRef.current, x: nx, y: ny }
+      scheduleTreeViewTransform()
+
+      treeFollowRafRef.current = requestAnimationFrame(tick)
+    }
+
+    treeFollowAnimRef.current = { targetX, targetY, lastT: performance.now() }
+    treeFollowRafRef.current = requestAnimationFrame(tick)
+  })
+
   React.useLayoutEffect(() => {
     treeViewRef.current = { x: treePan.x, y: treePan.y, scale: treeScale }
     applyTreeViewTransform()
@@ -169,6 +242,7 @@ export function useChatTree(deps: {
     treeSuppressClickRef.current = false
     setTreeDragging(false)
     setTreeViewOverride('')
+    treeFollowSuspendedRef.current = false
     stopTreeFollow()
   }, [treeOpen, stopTreeFollow])
 
@@ -295,6 +369,7 @@ export function useChatTree(deps: {
       if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
     } catch (_) {}
     stopTreeFollow()
+    treeFollowSuspendedRef.current = true
     treeSuppressClickRef.current = false
     const v = treeViewRef.current
     treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: Number(v?.x || 0), oy: Number(v?.y || 0), moved: false }
@@ -323,6 +398,8 @@ export function useChatTree(deps: {
     const dy = Number((e as any)?.deltaY || 0)
     if (!isFinite(dy) || dy === 0) return
     e.preventDefault()
+    stopTreeFollow()
+    treeFollowSuspendedRef.current = true
 
     const rect = el.getBoundingClientRect()
     const cx = Number(e.clientX) - Number(rect.left)
@@ -472,6 +549,10 @@ export function useChatTree(deps: {
 
   const treeFocusMid = String(treeSelectedMid || activeSendPathFollowMid || activeSendPathAnchorMid || '').trim()
 
+  React.useEffect(() => {
+    treeRenderRef.current = treeRender
+  }, [treeRender])
+
   const jumpToMessage = useEvent((mid0: string) => {
     // 重要：树视图的缩放/平移是用 ref 更新的（为了性能不频繁 setState）。
     // 但一旦触发 React render（比如点击节点），useLayoutEffect 会用 treePan/treeScale 覆盖 ref。
@@ -486,7 +567,9 @@ export function useChatTree(deps: {
     const msg = chatAllById.get(mid) || null
     if (!msg) return
     clearSendPathAnchor()
+    treeFollowSuspendedRef.current = false
     setTreeSelectedMid(mid)
+    setTreeFollowTick((t) => t + 1)
 
     const branching = (activeChat as any)?.branching
     const curBid = String(branching?.activeBranchId || 'main').trim() || 'main'
@@ -533,87 +616,32 @@ export function useChatTree(deps: {
   })
 
   // 选中节点 → 视角自动追踪到中心（可开关，全局持久化）
+  // 只在“焦点节点真正变化”时触发一次；流式输出导致的树重排不再反复拉回视角。
   React.useEffect(() => {
     stopTreeFollow()
     if (!treeOpen) return
     if (!savedTreeFollowSelected) return
+    if (treeFollowSuspendedRef.current) return
     const mid = String(treeFocusMid || '').trim()
     if (!mid) return
-    const tr: any = treeRender
-    if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return
 
-    const node = tr.byId.get(mid) || null
-    if (!node) return
-
-    const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
-    if (!host) return
-    const w = Number(host.clientWidth || 0)
-    const h = Number(host.clientHeight || 0)
-    if (w < 20 || h < 20) return
-
-    const nodeW = Number(tr.nodeW || 168)
-    const nodeH = Number(tr.nodeH || 44)
-    const wx = Number(node?.x || 0) + nodeW / 2
-    const wy = Number(node?.y || 0) + nodeH / 2
-
-    const v0 = treeViewRef.current
-    const s = clampNum(Number(v0?.scale || 1), 0.35, 2.6)
-    const cx = w / 2
-    const cy = h / 2
-    const targetX = cx - wx * s
-    const targetY = cy - wy * s
-
-    const start = () => {
-      const speed = 1800 // px / s（屏幕坐标）
-      const tick = (t: number) => {
-        treeFollowRafRef.current = 0
-        if (!treeOpen || !savedTreeFollowSelected) {
-          treeFollowAnimRef.current = null
-          return
-        }
-        if (treeDragRef.current) {
-          treeFollowAnimRef.current = null
-          return
-        }
-
-        const a = treeFollowAnimRef.current
-        if (!a) return
-
-        const last = Number(a.lastT || 0) || t
-        const dt = Math.min(0.05, Math.max(0.001, (t - last) / 1000))
-        a.lastT = t
-
-        const v = treeViewRef.current
-        const x0 = Number(v?.x || 0)
-        const y0 = Number(v?.y || 0)
-        const dx = Number(a.targetX) - x0
-        const dy = Number(a.targetY) - y0
-        const dist = Math.hypot(dx, dy)
-
-        if (dist < 0.8) {
-          treeViewRef.current = { ...treeViewRef.current, x: Number(a.targetX), y: Number(a.targetY) }
-          scheduleTreeViewTransform()
-          setTreePan({ x: Number(a.targetX), y: Number(a.targetY) })
-          treeFollowAnimRef.current = null
-          return
-        }
-
-        const step = Math.min(dist, speed * dt)
-        const nx = x0 + (dx / dist) * step
-        const ny = y0 + (dy / dist) * step
-        treeViewRef.current = { ...treeViewRef.current, x: nx, y: ny }
-        scheduleTreeViewTransform()
-
-        treeFollowRafRef.current = requestAnimationFrame(tick)
+    let tries = 0
+    const attempt = () => {
+      if (!treeOpen || !savedTreeFollowSelected) return
+      if (treeFollowSuspendedRef.current) return
+      const target = computeTreeCenterTarget(mid)
+      if (!target) {
+        tries++
+        if (tries > 14) return
+        treeFollowRafRef.current = requestAnimationFrame(attempt)
+        return
       }
-
-      treeFollowAnimRef.current = { targetX, targetY, lastT: performance.now() }
-      treeFollowRafRef.current = requestAnimationFrame(tick)
+      startTreeFollowTo(target.x, target.y)
     }
 
-    start()
+    treeFollowRafRef.current = requestAnimationFrame(attempt)
     return () => stopTreeFollow()
-  }, [treeOpen, effectiveTreeView, savedTreeFollowSelected, treeFocusMid, treeRender, scheduleTreeViewTransform, stopTreeFollow])
+  }, [treeOpen, effectiveTreeView, savedTreeFollowSelected, treeFocusMid, treeFollowTick, computeTreeCenterTarget, startTreeFollowTo, stopTreeFollow])
 
   useChatTreeKeyboardNav({
     treeOpen,
