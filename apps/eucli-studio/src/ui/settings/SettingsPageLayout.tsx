@@ -11,6 +11,13 @@ const SETTINGS_PAGE_GAP = 12
 const SETTINGS_PAGE_VERTICAL_PADDING = 16
 const SETTINGS_SIDEBAR_WIDTH = { xs: 132, sm: 184, md: 220 }
 
+// 已挂载的分类面板：value 决定归属分类，content 是该分类的常驻内容。
+// 面板一旦挂载便一直保留（切换分类只隐藏，不卸载），从而保住滚动位置与内部草稿。
+export type SettingsPanelEntry = {
+  value: SettingsTabValue
+  content: React.ReactNode
+}
+
 function SettingsNavigationSidebar(props: {
   value: SettingsTabValue
   onChange: (value: SettingsTabValue) => void
@@ -106,7 +113,7 @@ export function SettingsPageLayout(props: {
   navOrder: unknown
   onNavOrderChange: (order: SettingsTabValue[]) => void
   transparentBackground?: boolean
-  children: React.ReactNode
+  panels: SettingsPanelEntry[]
 }) {
   const items = React.useMemo(() => mergeSettingsNavigationItems(props.navOrder), [props.navOrder])
 
@@ -122,7 +129,30 @@ export function SettingsPageLayout(props: {
         }}
       >
         <SettingsNavigationSidebar value={props.value} onChange={props.onChange} items={items} onReorder={props.onNavOrderChange} />
-        <CustomScrollArea hostSx={{ flex: 1, minWidth: 0, minHeight: 0 }} scrollSx={{ height: '100%' }} contentSx={{ height: '100%' }}>{props.children}</CustomScrollArea>
+        <Box sx={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0 }}>
+          {props.panels.map((panel) => {
+            const active = panel.value === props.value
+            return (
+              <Box
+                key={panel.value}
+                aria-hidden={active ? undefined : true}
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  // 激活面板必须“继承”可见性，不能显式声明 visible：
+                  // 否则当整个设置页被隐藏（visibility:hidden）时，子级显式 visible 会穿透父级重新显形，与聊天页重叠。
+                  visibility: active ? 'inherit' : 'hidden',
+                  pointerEvents: active ? 'auto' : 'none',
+                  zIndex: active ? 1 : 0,
+                }}
+              >
+                <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }} contentSx={{ height: '100%' }}>
+                  {panel.content}
+                </CustomScrollArea>
+              </Box>
+            )
+          })}
+        </Box>
       </Box>
     </Box>
   )

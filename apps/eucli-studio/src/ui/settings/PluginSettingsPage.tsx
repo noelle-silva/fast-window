@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { Typography } from '@mui/material'
 import { TOPBAR_H } from '../appConstants'
-import { SettingsPageLayout } from './SettingsPageLayout'
-import type { SettingsTabValue } from './settingsNavigation'
+import { SettingsPageLayout, type SettingsPanelEntry } from './SettingsPageLayout'
+import { mergeSettingsNavigationItems, resolveSettingsTab, type SettingsTabValue } from './settingsNavigation'
 import { AiServicesSettingsPanel } from './AiServicesSettingsPanel'
 import { AppearanceSettingsPanel } from './AppearanceSettingsPanel'
 import { DataSettingsPanel, type AiChatDataDirectory } from './DataSettingsPanel'
@@ -23,7 +23,8 @@ import { RequestRecordsSettingsPanel } from './RequestRecordsSettingsPanel'
 import { normalizeRequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../../domain/release'
 
-type SettingsTab = SettingsTabValue
+// tab 为 'auto' 时表示尚未由用户点选，按导航排序解析出当前分类；其余情况为用户显式指定。
+export type SettingsTabSelection = SettingsTabValue | 'auto'
 
 export function PluginSettingsPage(props: {
   controller: any
@@ -51,8 +52,8 @@ export function PluginSettingsPage(props: {
   activeRoleId: string
   activeWorkspaceId: string
   activeTargetKind: string
-  tab: SettingsTab
-  onTabChange: (tab: SettingsTab) => void
+  tab: SettingsTabSelection
+  onTabChange: (tab: SettingsTabValue) => void
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
@@ -62,43 +63,28 @@ export function PluginSettingsPage(props: {
   const transparentChatBg = !!data?.settings?.transparentChatBg
   const requestRecordViewOptions = normalizeRequestRecordViewOptions((data?.settings as any)?.requestRecordViewOptions)
 
-  const wrapSettingsPanel = (children: React.ReactNode) => (
-    <SettingsPageLayout
-      topbarHeight={TOPBAR_H}
-      value={tab}
-      onChange={onTabChange}
-      navOrder={settingsNavOrder}
-      onNavOrderChange={(order) => controller.actions.setSettingsNavOrder?.(order)}
-      transparentBackground={transparentChatBg}
-    >
-      {children}
-    </SettingsPageLayout>
-  )
+  const navItems = React.useMemo(() => mergeSettingsNavigationItems(settingsNavOrder), [settingsNavOrder])
+  const activeTab = React.useMemo(() => resolveSettingsTab(tab, navItems), [tab, navItems])
 
-  if (!data) {
-    return wrapSettingsPanel(
+  // 懒挂载 + 常驻：第一次访问某分类才挂载它，之后一直保留（切换只隐藏），滚动位置与内部草稿不丢。
+  const [mountedTabs, setMountedTabs] = React.useState<SettingsTabValue[]>(() => [activeTab])
+  React.useEffect(() => {
+    setMountedTabs((current) => (current.includes(activeTab) ? current : current.concat(activeTab)))
+  }, [activeTab])
+
+  const renderPanel = (value: SettingsTabValue): React.ReactNode => {
+    if (!data) {
+      return (
         <Typography variant="body2" color="text.secondary">
           {loading ? '加载中…' : '未加载到数据'}
-        </Typography>,
-    )
-  }
+        </Typography>
+      )
+    }
 
-  if (tab === 'appearance') {
-    return wrapSettingsPanel(
-      <AppearanceSettingsPanel controller={controller} loading={loading} data={data} />,
-    )
-  }
-
-  if (tab === 'session') {
-    return wrapSettingsPanel(<SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} conversationImageConfig={conversationImageConfig} />)
-  }
-
-  if (tab === 'data') {
-    return wrapSettingsPanel(<DataSettingsPanel dataDirectory={dataDirectory} loading={loading} />)
-  }
-
-  if (tab === 'groups') {
-    return wrapSettingsPanel(
+    if (value === 'appearance') return <AppearanceSettingsPanel controller={controller} loading={loading} data={data} />
+    if (value === 'session') return <SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} conversationImageConfig={conversationImageConfig} />
+    if (value === 'data') return <DataSettingsPanel dataDirectory={dataDirectory} loading={loading} />
+    if (value === 'groups') return (
       <GroupsSettingsPanel
         controller={controller}
         loading={loading}
@@ -107,12 +93,9 @@ export function PluginSettingsPage(props: {
         draft={draft}
         activeGroupId={String((draft as any)?.activeGroupId || '')}
         activeTargetKind={activeTargetKind}
-      />,
+      />
     )
-  }
-
-  if (tab === 'workspaces') {
-    return wrapSettingsPanel(
+    if (value === 'workspaces') return (
       <WorkspacesSettingsPanel
         controller={controller}
         loading={loading}
@@ -120,66 +103,34 @@ export function PluginSettingsPage(props: {
         draft={draft}
         activeWorkspaceId={activeWorkspaceId}
         activeTargetKind={activeTargetKind}
-      />,
+      />
     )
+    if (value === 'roles') return <RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} draft={draft} activeRoleId={activeRoleId} />
+    if (value === 'modelGroups') return <ModelGroupsSettingsPanel controller={controller} loading={loading} modelGroups={modelGroups} providers={providers} />
+    if (value === 'tools') return <AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} toolWorkDirectory={toolWorkDirectory} releaseView={releaseViews.tool} onReleaseRefresh={onReleaseRefresh} />
+    if (value === 'hookPrompts') return <HookPromptsSettingsPanel controller={controller} loading={loading} hookPrompts={hookPrompts} />
+    if (value === 'placeholders') return <PlaceholderSettingsPanel controller={controller} loading={loading} placeholders={placeholders} systemPlugins={systemPlugins} />
+    if (value === 'systemPlugins') return <SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseViews.plugin} onReleaseRefresh={onReleaseRefresh} />
+    if (value === 'commandSystem') return null
+    if (value === 'eb') return <EbSettingsPanel bootstrap={bootstrap} connection={eucliBoxConnection} />
+    if (value === 'access') return <AccessSettingsPanel controller={controller} section={accessSettings} />
+    if (value === 'requestRecords') return <RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} requestRecordViewOptions={requestRecordViewOptions} />
+    if (value === 'stickers') return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
+    if (value === 'services') return <AiServicesSettingsPanel controller={controller} loading={loading} data={data} providers={providers} modelGroups={modelGroups} />
+    return <ProvidersSettingsPanel controller={controller} loading={loading} providers={providers} draft={draft} models={models} />
   }
 
-  if (tab === 'roles') {
-    return wrapSettingsPanel(<RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} modelGroups={Array.isArray(modelGroups?.items) ? modelGroups.items : []} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} draft={draft} activeRoleId={activeRoleId} />)
-  }
+  const panels: SettingsPanelEntry[] = mountedTabs.map((value) => ({ value, content: renderPanel(value) }))
 
-  if (tab === 'modelGroups') {
-    return wrapSettingsPanel(<ModelGroupsSettingsPanel controller={controller} loading={loading} modelGroups={modelGroups} providers={providers} />)
-  }
-
-  if (tab === 'tools') {
-    return wrapSettingsPanel(<AiToolsSettingsPanel controller={controller} loading={loading} tools={tools} toolWorkDirectory={toolWorkDirectory} releaseView={releaseViews.tool} onReleaseRefresh={onReleaseRefresh} />)
-  }
-
-  if (tab === 'hookPrompts') {
-    return wrapSettingsPanel(<HookPromptsSettingsPanel controller={controller} loading={loading} hookPrompts={hookPrompts} />)
-  }
-
-  if (tab === 'placeholders') {
-    return wrapSettingsPanel(<PlaceholderSettingsPanel controller={controller} loading={loading} placeholders={placeholders} systemPlugins={systemPlugins} />)
-  }
-
-  if (tab === 'systemPlugins') {
-    return wrapSettingsPanel(<SystemPluginSettingsPanel controller={controller} loading={loading} systemPlugins={systemPlugins} releaseView={releaseViews.plugin} onReleaseRefresh={onReleaseRefresh} />)
-  }
-
-  if (tab === 'commandSystem') {
-    return wrapSettingsPanel(null)
-  }
-
-  if (tab === 'eb') {
-    return wrapSettingsPanel(<EbSettingsPanel bootstrap={bootstrap} connection={eucliBoxConnection} />)
-  }
-
-  if (tab === 'access') {
-    return wrapSettingsPanel(
-      <AccessSettingsPanel
-        controller={controller}
-        section={accessSettings}
-      />,
-    )
-  }
-
-  if (tab === 'requestRecords') {
-    return wrapSettingsPanel(<RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} requestRecordViewOptions={requestRecordViewOptions} />)
-  }
-
-  if (tab === 'stickers') {
-    return wrapSettingsPanel(<StickersSettingsPanel controller={controller} loading={loading} data={data} />)
-  }
-
-  if (tab === 'services') {
-    return wrapSettingsPanel(
-      <AiServicesSettingsPanel controller={controller} loading={loading} data={data} providers={providers} modelGroups={modelGroups} />,
-    )
-  }
-
-  return wrapSettingsPanel(
-    <ProvidersSettingsPanel controller={controller} loading={loading} providers={providers} draft={draft} models={models} />,
+  return (
+    <SettingsPageLayout
+      topbarHeight={TOPBAR_H}
+      value={activeTab}
+      onChange={onTabChange}
+      navOrder={settingsNavOrder}
+      onNavOrderChange={(order) => controller.actions.setSettingsNavOrder?.(order)}
+      transparentBackground={transparentChatBg}
+      panels={panels}
+    />
   )
 }
