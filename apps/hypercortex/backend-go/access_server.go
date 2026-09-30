@@ -126,7 +126,7 @@ func (a *accessServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := a.svc.dispatchSafe(method, scopedParams)
 	if err != nil {
-		writeAccessResponse(w, http.StatusOK, accessFailure(convergeErrorMessage(method, err)))
+		writeAccessResponse(w, http.StatusOK, accessError(method, err))
 		return
 	}
 	writeAccessResponse(w, http.StatusOK, accessSuccess(result))
@@ -205,6 +205,15 @@ func accessSuccess(result any) accessResponse {
 
 func accessFailure(message string) accessResponse {
 	return accessResponse{OK: false, Error: map[string]any{"message": message}}
+}
+
+// accessError 构造带机器可读错误码的失败信封：码从错误链提取，无码时省略字段。
+func accessError(method string, err error) accessResponse {
+	payload := map[string]any{"message": convergeErrorMessage(method, err)}
+	if code := convergeErrorCode(method, err); code != "" {
+		payload["code"] = code
+	}
+	return accessResponse{OK: false, Error: payload}
 }
 
 func writeAccessResponse(w http.ResponseWriter, status int, payload accessResponse) {

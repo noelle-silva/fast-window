@@ -23,7 +23,7 @@ func (svc *service) loadFavoritesForWrite(scope string, expectedVersion float64)
 	}
 	if doc.Version != 1 {
 		if expectedVersion > 0 {
-			return favoritesDoc{}, fmt.Errorf("收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
+			return favoritesDoc{}, coded(codeVersionConflict, "收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
 		}
 		return freshFavoritesDoc(nowMs()), nil
 	}
@@ -41,7 +41,7 @@ func favoriteFolderOrFail(doc favoritesDoc, folderID string) (favoriteFolder, er
 	}
 	folder, ok := doc.Folders[id]
 	if !ok {
-		return favoriteFolder{}, fmt.Errorf("收藏夹不存在：%s", id)
+		return favoriteFolder{}, coded(codeFolderNotFound, "收藏夹不存在：%s", id)
 	}
 	return folder, nil
 }
@@ -154,7 +154,7 @@ func (svc *service) validateFavoriteTarget(scope string, doc favoritesDoc, sourc
 			return err
 		}
 		if _, ok := idx.Notes[targetID]; !ok {
-			return fmt.Errorf("笔记不存在：%s", targetID)
+			return coded(codeNoteNotFound, "笔记不存在：%s", targetID)
 		}
 	case "asset":
 		idx, err := svc.ensureAssetIndex(scope)
@@ -280,7 +280,7 @@ func (svc *service) addFavoriteItem(scope string, folderID string, kind string, 
 		return nil, errors.New("收藏目标标识不能为空")
 	}
 	if favoriteFolderHasRef(doc, folder.ID, itemKind, target) {
-		return nil, fmt.Errorf("收藏夹中已存在该条目：%s %s", itemKind, target)
+		return nil, coded(codeDuplicateFavorite, "收藏夹中已存在该条目：%s %s", itemKind, target)
 	}
 	if err := svc.validateFavoriteTarget(scope, doc, folder.ID, itemKind, target); err != nil {
 		return nil, err
@@ -373,7 +373,7 @@ func (svc *service) moveFavoriteItem(scope string, fromFolderID string, toFolder
 	}
 	doc.RefsByFolderID[from.ID] = next
 	if favoriteFolderHasRef(doc, to.ID, itemKind, target) {
-		return nil, fmt.Errorf("目标收藏夹中已存在该条目：%s %s", itemKind, target)
+		return nil, coded(codeDuplicateFavorite, "目标收藏夹中已存在该条目：%s %s", itemKind, target)
 	}
 	// 目标校验基于移除后的文档：环判定不受源引用影响。
 	if err := svc.validateFavoriteTarget(scope, doc, to.ID, itemKind, target); err != nil {

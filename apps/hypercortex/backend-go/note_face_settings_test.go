@@ -67,14 +67,15 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 		t.Fatalf("displayMode lost by clear: %q", got)
 	}
 
-	// 非法显示方式被协议丢弃，合法值可改写。
-	invalid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "weird"}), 0)
-	if err != nil {
-		t.Fatalf("save invalid displayMode failed: %v", err)
+	// 非法显示方式被协议拒绝：快速失败，不留下「写了但没生效」的假成功。
+	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "weird"}), 0); err == nil {
+		t.Fatal("invalid displayMode must fail fast")
 	}
-	invalidFace := invalid.(map[string]any)["manifest"].(noteManifest).Faces["html"]
-	if _, ok := invalidFace.Settings["displayMode"]; ok {
-		t.Fatalf("invalid displayMode not rejected: %#v", invalidFace.Settings)
+	// 未声明的设置项同样快速失败，并指明该面类型。
+	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"novaProbe": "SENTINEL"}), 0); err == nil {
+		t.Fatal("undeclared setting must fail fast")
+	} else if !strings.Contains(err.Error(), "novaProbe") || !strings.Contains(err.Error(), "html") {
+		t.Fatalf("undeclared setting error must name key and kind: %v", err)
 	}
 	valid, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}), 0)
 	if err != nil {

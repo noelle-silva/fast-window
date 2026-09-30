@@ -36,14 +36,14 @@ func cleanRelPath(input string) (string, error) {
 		return "", nil
 	}
 	if strings.ContainsRune(raw, 0) {
-		return "", errors.New("路径包含非法空字节")
+		return "", coded(codePathEscape, "路径包含非法空字节")
 	}
 	raw = strings.ReplaceAll(raw, "\\", "/")
 	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
-		return "", errors.New("不允许绝对路径")
+		return "", coded(codePathEscape, "不允许绝对路径")
 	}
 	if len(raw) >= 2 && raw[1] == ':' {
-		return "", errors.New("不允许 Windows 盘符路径")
+		return "", coded(codePathEscape, "不允许 Windows 盘符路径")
 	}
 	parts := []string{}
 	for _, part := range strings.Split(raw, "/") {
@@ -52,7 +52,7 @@ func cleanRelPath(input string) (string, error) {
 			continue
 		}
 		if part == ".." {
-			return "", errors.New("不允许路径越界")
+			return "", coded(codePathEscape, "不允许路径越界")
 		}
 		parts = append(parts, part)
 	}
@@ -81,7 +81,7 @@ func resolveUnderRoot(root string, rel string) (string, error) {
 		target = filepath.Join(root, clean)
 	}
 	if !isInside(root, target) {
-		return "", errors.New("路径越界")
+		return "", coded(codePathEscape, "路径越界")
 	}
 	return target, nil
 }
@@ -241,7 +241,7 @@ func boolField(raw json.RawMessage, key string) bool {
 // 不一致说明读取后目标已被其他修改更新，拒绝写入并回报当前版本。
 func checkVersionConflict(subject string, expectedVersion float64, currentVersion float64) error {
 	if expectedVersion > 0 && currentVersion != expectedVersion {
-		return fmt.Errorf("%s版本不匹配：期望版本 %.0f，当前版本 %.0f；%s已被其他修改更新，请重新读取后再写入", subject, expectedVersion, currentVersion, subject)
+		return coded(codeVersionConflict, "%s版本不匹配：期望版本 %.0f，当前版本 %.0f；%s已被其他修改更新，请重新读取后再写入", subject, expectedVersion, currentVersion, subject)
 	}
 	return nil
 }

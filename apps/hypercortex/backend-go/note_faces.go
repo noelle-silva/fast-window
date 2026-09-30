@@ -157,7 +157,7 @@ func (svc *service) ensureFaceKinds(scope string, packageDir string, manifest *n
 	for _, kind := range kinds {
 		adapter, err := faceplugin.Require(kind)
 		if err != nil {
-			return fmt.Errorf("未知笔记面类型：%s", kind)
+			return coded(codeUnknownFaceKind, "未知笔记面类型：%s", kind)
 		}
 		resolved = append(resolved, adapter)
 	}
@@ -299,7 +299,7 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 	for _, item := range submitted {
 		adapter, err := faceplugin.Require(item.Kind)
 		if err != nil {
-			return nil, err
+			return nil, coded(codeUnknownFaceKind, "未知笔记面类型：%s", item.Kind)
 		}
 		resolved = append(resolved, resolvedFaceInput{adapter: adapter, faceID: nonEmpty(item.FaceID, adapter.DefaultFaceID), content: adapter.NormalizeContent(item.Content)})
 	}
@@ -559,10 +559,22 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	}
 	adapter, err := faceplugin.Require(face.Kind)
 	if err != nil {
-		return nil, err
+		return nil, coded(codeUnknownFaceKind, "未知笔记面类型：%s", face.Kind)
 	}
 	updated := nowMs()
-	face.Settings = adapter.NormalizeSettings(settings)
+	normalized := adapter.NormalizeSettings(settings)
+	// 未生效校验：补丁里显式提供的非空设置项必须被面协议接受；
+	// 被协议静默丢弃的键快速失败，绝不留下「写了但没生效」的假成功。
+	for key, value := range patch {
+		key = strings.TrimSpace(key)
+		if key == "" || value == nil {
+			continue
+		}
+		if _, ok := normalized[key]; !ok {
+			return nil, fmt.Errorf("面设置项 %s 不被 %s 面支持（可用设置项见该面类型的设置声明）", key, face.Kind)
+		}
+	}
+	face.Settings = normalized
 	face.UpdatedAtMs = updated
 	face.CreatedAtMs = nonZeroFloat(face.CreatedAtMs, manifest.CreatedAtMs)
 	manifest.Faces[id] = face

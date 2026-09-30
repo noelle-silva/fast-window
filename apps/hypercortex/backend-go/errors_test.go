@@ -56,3 +56,40 @@ func TestErrorSubjectMapsMethodFamilies(t *testing.T) {
 		}
 	}
 }
+
+// 机器可读错误码：领域错误的码原样透出；文件系统不存在按对象归属给码；其余无码。
+func TestConvergeErrorCode(t *testing.T) {
+	conflict := coded(codeVersionConflict, "笔记版本不匹配：期望版本 1，当前版本 2")
+	if got := convergeErrorCode("hypercortex.notes.saveFaces", conflict); got != "VERSION_CONFLICT" {
+		t.Fatalf("version conflict code = %q", got)
+	}
+	unknown := coded(codeUnknownFaceKind, "未知笔记面类型：bogus")
+	if got := convergeErrorCode("hypercortex.notes.create", unknown); got != "UNKNOWN_FACE_KIND" {
+		t.Fatalf("unknown face kind code = %q", got)
+	}
+	duplicate := coded(codeDuplicateFavorite, "收藏夹中已存在该条目：note x")
+	if got := convergeErrorCode("hypercortex.favorites.addItem", duplicate); got != "DUPLICATE_FAVORITE" {
+		t.Fatalf("duplicate favorite code = %q", got)
+	}
+	escape := coded(codePathEscape, "不允许路径越界")
+	if got := convergeErrorCode("hypercortex.notes.loadManifest", escape); got != "PATH_ESCAPE" {
+		t.Fatalf("path escape code = %q", got)
+	}
+	if got := convergeErrorCode("hypercortex.notes.loadManifest", os.ErrNotExist); got != "NOTE_NOT_FOUND" {
+		t.Fatalf("not-exist code = %q", got)
+	}
+	if got := convergeErrorCode("hypercortex.favorites.updateFolder", os.ErrNotExist); got != "FAVORITE_NOT_FOUND" {
+		t.Fatalf("favorite not-exist code = %q", got)
+	}
+	if got := convergeErrorCode("hypercortex.notes.saveFaces", fmt.Errorf("普通错误")); got != "" {
+		t.Fatalf("plain error code = %q, want empty", got)
+	}
+}
+
+// 版本冲突与未知面类型经错误链透传：包装后的错误仍能提取出码。
+func TestCodedErrorSurvivesWrapping(t *testing.T) {
+	wrapped := fmt.Errorf("保存失败：%w", coded(codeVersionConflict, "版本不匹配"))
+	if got := errorCodeOf(wrapped); got != "VERSION_CONFLICT" {
+		t.Fatalf("wrapped code = %q", got)
+	}
+}

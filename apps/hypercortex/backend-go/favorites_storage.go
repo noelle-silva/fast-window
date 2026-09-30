@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -296,7 +295,7 @@ func (svc *service) saveFavorites(scope string, raw json.RawMessage, expectedVer
 			return nil, err
 		}
 		if current.Version != 1 {
-			return nil, fmt.Errorf("收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
+			return nil, coded(codeVersionConflict, "收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
 		}
 		if err := checkVersionConflict("收藏夹", expectedVersion, current.UpdatedAtMs); err != nil {
 			return nil, err
@@ -313,7 +312,7 @@ func (svc *service) saveFavorites(scope string, raw json.RawMessage, expectedVer
 // 未知收藏夹快速失败，环引用安全跳过。
 func collectFavoriteNoteIDs(doc favoritesDoc, folderID string) (map[string]bool, error) {
 	if _, ok := doc.Folders[folderID]; !ok {
-		return nil, fmt.Errorf("收藏夹不存在：%s", folderID)
+		return nil, coded(codeFolderNotFound, "收藏夹不存在：%s", folderID)
 	}
 	noteIDs := map[string]bool{}
 	visited := map[string]bool{}
