@@ -544,7 +544,8 @@ export function createWorkspaceManager(deps: {
         chat.updatedAt = now()
         box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '工作区会话'), '工作区会话')
       } else {
-        box.chatMetas = upsertChatMeta(box.chatMetas, { id: chatId, title: nextTitle, createdAt: now(), updatedAt: now(), lastMessagePreview: '', messageCount: 0, hasPending: false }, '工作区会话')
+        const old = (Array.isArray(box.chatMetas) ? box.chatMetas : []).find((item: any) => text(item?.id) === chatId) || null
+        box.chatMetas = upsertChatMeta(box.chatMetas, { id: chatId, title: nextTitle, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending }, '工作区会话')
       }
       render()
       return true
