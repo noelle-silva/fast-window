@@ -48,7 +48,7 @@ import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
-import { normalizeChatFontFamily, normalizeChatFontSize } from '../domain/chatFont'
+import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -97,6 +97,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const chatFontSize = normalizeChatFontSize(data?.settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(data?.settings?.chatFontFamily)
+  const chatLetterSpacing = normalizeChatLetterSpacing(data?.settings?.chatLetterSpacing)
+  const chatLineHeight = normalizeChatLineHeight(data?.settings?.chatLineHeight)
   const renderSafetyPolicy = (() => {
     const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
@@ -811,7 +813,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily })} />
+      <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily, chatLetterSpacing, chatLineHeight })} />
 
       <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', isolation: 'isolate', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
         {activeWallpaper ? (

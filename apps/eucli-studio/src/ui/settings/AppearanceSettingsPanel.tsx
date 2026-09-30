@@ -6,10 +6,16 @@ import {
   CHAT_FONT_OPTIONS,
   CHAT_FONT_SIZE_MAX,
   CHAT_FONT_SIZE_MIN,
+  CHAT_LETTER_SPACING_MAX,
+  CHAT_LETTER_SPACING_MIN,
+  CHAT_LINE_HEIGHT_MAX,
+  CHAT_LINE_HEIGHT_MIN,
   chatFontFamilyLabel,
   chatFontFamilyStack,
   normalizeChatFontFamily,
   normalizeChatFontSize,
+  normalizeChatLetterSpacing,
+  normalizeChatLineHeight,
 } from '../../domain/chatFont'
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
@@ -17,23 +23,87 @@ import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
+// useNumberDraft 管理「数字输入框 + 滑杆」组合的输入草稿：输入过程不打断，
+// 提交时归一化并复位显示；与设置值同步，滑杆拖动不会和输入框打架。
+function useNumberDraft(value: number, normalize: (raw: unknown) => number, commitValue: (next: number) => void) {
+  const [draft, setDraft] = React.useState(() => String(value))
+
+  React.useEffect(() => {
+    setDraft(String(value))
+  }, [value])
+
+  const commitDraft = () => {
+    const next = normalize(draft)
+    setDraft(String(next))
+    if (next !== value) commitValue(next)
+  }
+
+  return { draft, setDraft, commitDraft }
+}
+
+function ChatTextMetricRow(props: {
+  label: string
+  unit: string
+  min: number
+  max: number
+  step: number
+  value: number
+  draft: string
+  disabled: boolean
+  onDraftChange: (text: string) => void
+  onCommitDraft: () => void
+  onValueChange: (value: number, commit: boolean) => void
+}) {
+  const { label, unit, min, max, step, value, draft, disabled, onDraftChange, onCommitDraft, onValueChange } = props
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography variant="body2" sx={{ fontWeight: 900 }}>
+          {label}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <TextField
+          size="small"
+          type="number"
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onBlur={onCommitDraft}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onCommitDraft()
+          }}
+          inputProps={{ min, max, step }}
+          disabled={disabled}
+          sx={{ width: 84, '& input': { textAlign: 'right' } }}
+        />
+        <Typography variant="caption" color="text.secondary">
+          {unit}
+        </Typography>
+      </Stack>
+      <Slider
+        size="small"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(_e, v) => onValueChange(Number(v), false)}
+        onChangeCommitted={(_e, v) => onValueChange(Number(v), true)}
+        disabled={disabled}
+      />
+    </Box>
+  )
+}
+
 export function AppearanceSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
   const { controller, loading, data } = props
   const settings = data?.settings
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
   const chatFontSize = normalizeChatFontSize(settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(settings?.chatFontFamily)
-  const [chatFontSizeDraft, setChatFontSizeDraft] = React.useState(() => String(chatFontSize))
-
-  React.useEffect(() => {
-    setChatFontSizeDraft(String(chatFontSize))
-  }, [chatFontSize])
-
-  const commitChatFontSizeDraft = () => {
-    const next = normalizeChatFontSize(chatFontSizeDraft)
-    setChatFontSizeDraft(String(next))
-    if (next !== chatFontSize) controller.actions.setChatFontSize?.(next, true)
-  }
+  const chatLetterSpacing = normalizeChatLetterSpacing(settings?.chatLetterSpacing)
+  const chatLineHeight = normalizeChatLineHeight(settings?.chatLineHeight)
+  const fontSizeDraft = useNumberDraft(chatFontSize, normalizeChatFontSize, (next) => controller.actions.setChatFontSize?.(next, true))
+  const letterSpacingDraft = useNumberDraft(chatLetterSpacing, normalizeChatLetterSpacing, (next) => controller.actions.setChatLetterSpacing?.(next, true))
+  const lineHeightDraft = useNumberDraft(chatLineHeight, normalizeChatLineHeight, (next) => controller.actions.setChatLineHeight?.(next, true))
 
   React.useEffect(() => {
     if (!treeHotkeyRecording) return
@@ -120,40 +190,47 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               </Typography>
             </Box>
 
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  字体大小
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <TextField
-                  size="small"
-                  type="number"
-                  value={chatFontSizeDraft}
-                  onChange={(e) => setChatFontSizeDraft(e.target.value)}
-                  onBlur={commitChatFontSizeDraft}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitChatFontSizeDraft()
-                  }}
-                  inputProps={{ min: CHAT_FONT_SIZE_MIN, max: CHAT_FONT_SIZE_MAX, step: 1 }}
-                  disabled={loading}
-                  sx={{ width: 84, '& input': { textAlign: 'right' } }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  px
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={chatFontSize}
-                min={CHAT_FONT_SIZE_MIN}
-                max={CHAT_FONT_SIZE_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setChatFontSize?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setChatFontSize?.(v, true)}
-                disabled={loading}
-              />
-            </Box>
+            <ChatTextMetricRow
+              label="字体大小"
+              unit="px"
+              min={CHAT_FONT_SIZE_MIN}
+              max={CHAT_FONT_SIZE_MAX}
+              step={1}
+              value={chatFontSize}
+              draft={fontSizeDraft.draft}
+              disabled={loading}
+              onDraftChange={fontSizeDraft.setDraft}
+              onCommitDraft={fontSizeDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setChatFontSize?.(v, commit)}
+            />
+
+            <ChatTextMetricRow
+              label="字间距"
+              unit="px"
+              min={CHAT_LETTER_SPACING_MIN}
+              max={CHAT_LETTER_SPACING_MAX}
+              step={0.1}
+              value={chatLetterSpacing}
+              draft={letterSpacingDraft.draft}
+              disabled={loading}
+              onDraftChange={letterSpacingDraft.setDraft}
+              onCommitDraft={letterSpacingDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setChatLetterSpacing?.(v, commit)}
+            />
+
+            <ChatTextMetricRow
+              label="行间距"
+              unit="倍"
+              min={CHAT_LINE_HEIGHT_MIN}
+              max={CHAT_LINE_HEIGHT_MAX}
+              step={0.05}
+              value={chatLineHeight}
+              draft={lineHeightDraft.draft}
+              disabled={loading}
+              onDraftChange={lineHeightDraft.setDraft}
+              onCommitDraft={lineHeightDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setChatLineHeight?.(v, commit)}
+            />
 
             <Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
