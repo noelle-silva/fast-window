@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SETTINGS_NAVIGATION_ITEMS, mergeSettingsNavigationItems } from './settingsNavigation'
+import { SETTINGS_NAVIGATION_ITEMS, mergeSettingsNavigationItems, resolveSettingsTab } from './settingsNavigation'
 
 const DEFAULT_VALUES = SETTINGS_NAVIGATION_ITEMS.map((item) => item.value)
 
@@ -31,5 +31,25 @@ describe('mergeSettingsNavigationItems', () => {
   it('非数组输入回退默认顺序', () => {
     expect(mergeSettingsNavigationItems('not-an-order').map((item) => item.value)).toEqual(DEFAULT_VALUES)
     expect(mergeSettingsNavigationItems({ order: DEFAULT_VALUES }).map((item) => item.value)).toEqual(DEFAULT_VALUES)
+  })
+})
+
+describe('resolveSettingsTab', () => {
+  it('给定合法分类时原样返回', () => {
+    expect(resolveSettingsTab('appearance', mergeSettingsNavigationItems(undefined))).toBe('appearance')
+    expect(resolveSettingsTab('requestRecords', mergeSettingsNavigationItems(undefined))).toBe('requestRecords')
+  })
+
+  it('auto 或非法值回落到排序中的第一个分类', () => {
+    const items = mergeSettingsNavigationItems(['data', 'appearance'])
+    expect(resolveSettingsTab('auto', items)).toBe('data')
+    expect(resolveSettingsTab('', items)).toBe('data')
+    expect(resolveSettingsTab('not-a-tab', items)).toBe('data')
+    expect(resolveSettingsTab(undefined, items)).toBe('data')
+  })
+
+  it('排序变化时第一个分类随之变化', () => {
+    expect(resolveSettingsTab('auto', mergeSettingsNavigationItems(['tools']))).toBe('tools')
+    expect(resolveSettingsTab('auto', mergeSettingsNavigationItems(['appearance']))).toBe('appearance')
   })
 })

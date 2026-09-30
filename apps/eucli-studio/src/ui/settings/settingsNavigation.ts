@@ -26,6 +26,13 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'data', label: '客户端数据' },
 ]
 
+// 解析当前应显示的设置分类：给定值合法则用给定值，否则回落到排序中的第一个分类。
+export function resolveSettingsTab(value: unknown, items: SettingsNavigationItem[]): SettingsTabValue {
+  const candidate = String(value ?? '').trim()
+  if (SETTINGS_NAVIGATION_ITEMS.some((item) => item.value === candidate)) return candidate as SettingsTabValue
+  return items[0]?.value ?? SETTINGS_NAVIGATION_ITEMS[0].value
+}
+
 // 保存的顺序只作为“优先顺序”：未知条目忽略、重复忽略，未覆盖到的分类按默认顺序补在末尾。
 export function mergeSettingsNavigationItems(rawOrder: unknown): SettingsNavigationItem[] {
   const byValue = new Map<SettingsTabValue, SettingsNavigationItem>(SETTINGS_NAVIGATION_ITEMS.map((item) => [item.value, item]))
