@@ -83,7 +83,7 @@ func (p *projectionService) sessionsIndexForRole(ctx context.Context, roleID str
 		updatedAt := stableUpdatedAt(millisFromAnyOrZero(session["lastActive"]), millisFromAnyOrZero(session["updatedAt"]), millisFromAnyOrZero(session["createdAt"]))
 		chatIds = append(chatIds, id)
 		chatUpdatedAt[id] = updatedAt
-		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), "新聊天"), "updatedAt": updatedAt, "createdAt": updatedAt})
+		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), "新聊天"), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": updatedAt})
 		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
 	}
 	active := cfg.Projection.ActiveChatByRole[roleID]
@@ -123,7 +123,7 @@ func (p *projectionService) sessionsIndexForGroup(ctx context.Context, groupID s
 		updatedAt := stableUpdatedAt(millisFromAnyOrZero(session["lastActive"]), millisFromAnyOrZero(session["updatedAt"]), millisFromAnyOrZero(session["createdAt"]))
 		chatIds = append(chatIds, id)
 		chatUpdatedAt[id] = updatedAt
-		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), "群聊"), "updatedAt": updatedAt, "createdAt": updatedAt})
+		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), "群聊"), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": updatedAt})
 		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
 	}
 	active := cfg.Projection.ActiveChatByGroup[groupID]

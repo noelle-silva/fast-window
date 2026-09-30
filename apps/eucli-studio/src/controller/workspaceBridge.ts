@@ -112,7 +112,7 @@ export function workspaceSessionSummaryToMeta(raw: unknown) {
     title: text(summary.title) || '工作区会话',
     createdAt: timeMs(summary.createdAt, updatedAt),
     updatedAt,
-    lastMessagePreview: '',
+    lastMessagePreview: text(summary.lastMessagePreview),
     messageCount: 0,
     hasPending: status === 'running' || status === 'waiting_confirmation',
     runStatus: status === 'running' || status === 'waiting_confirmation' ? 'running' : 'idle',

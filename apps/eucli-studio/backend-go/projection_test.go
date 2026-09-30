@@ -430,6 +430,49 @@ func TestChatProjectionPreservesAssistantError(t *testing.T) {
 	}
 }
 
+func TestSessionIndexCarriesLastMessagePreview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/roles/developer/sessions" || r.Method != http.MethodGet {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{
+			"id":                 "session-1",
+			"roleId":             "developer",
+			"title":              "首条消息标题",
+			"lastMessagePreview": "最后的消息",
+			"status":             "completed",
+			"createdAt":          "2026-06-03T10:00:00Z",
+			"updatedAt":          "2026-06-03T10:00:00Z",
+			"lastActive":         "2026-06-03T10:00:00Z",
+		}}})
+	}))
+	defer server.Close()
+
+	store, err := newConfigStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("newConfigStore() error = %v", err)
+	}
+	if _, err := store.saveConnection(server.URL, "", false); err != nil {
+		t.Fatalf("save config error = %v", err)
+	}
+	projection := newProjectionService(store, newEBClient(store, testClientRelease()))
+
+	index, err := projection.sessionsIndexForRole(context.Background(), "developer")
+	if err != nil {
+		t.Fatalf("sessionsIndexForRole() error = %v", err)
+	}
+	metas := objectList(objectMap(index)["chatMetas"])
+	if len(metas) != 1 {
+		t.Fatalf("chatMetas = %#v", objectMap(index)["chatMetas"])
+	}
+	if got := stringField(metas[0], "lastMessagePreview"); got != "最后的消息" {
+		t.Fatalf("lastMessagePreview = %q", got)
+	}
+	if got := stringField(metas[0], "title"); got != "首条消息标题" {
+		t.Fatalf("title = %q", got)
+	}
+}
+
 func TestStableUpdatedAtUsesMaxPositiveValue(t *testing.T) {
 	if got := stableUpdatedAt(0, -1); got != 1 {
 		t.Fatalf("empty stable updatedAt = %d", got)
