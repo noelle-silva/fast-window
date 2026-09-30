@@ -318,12 +318,14 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
   const [expandedToolSessions, setExpandedToolSessions] = React.useState<Set<string>>(() => new Set())
   const [submittingConfirmation, setSubmittingConfirmation] = React.useState('')
 
+  // 只随消息身份重置编辑态：流式推进时正文/片段每字都在变，
+  // 若跟着它们重置状态，等于每个字白多渲染一遍，拖慢主线程。
   React.useEffect(() => {
     setEditing({ id: '', text: '' })
     setDeleting(null)
     setExpandedToolSessions(() => new Set())
     setSubmittingConfirmation('')
-  }, [mid, text, parts])
+  }, [mid])
 
   const toggleToolSession = (sessionId: string) => {
     setExpandedToolSessions((current) => {
@@ -389,7 +391,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
         if (block.kind === 'text') {
           return (
             <Box key={block.id} data-mid={mid} data-assistant-block-kind={block.kind} sx={{ minWidth: 0 }}>
-              <AssistantMessageHost controller={controller} className="prose" text={block.text} mid={mid} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} />
+              <AssistantMessageHost controller={controller} className="prose" text={block.text} mid={mid} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isGenerating} />
             </Box>
           )
         }

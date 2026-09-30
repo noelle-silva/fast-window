@@ -128,7 +128,7 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
             hostSx={{ maxHeight: REASONING_MAX_HEIGHT_PX }}
             scrollSx={{ maxHeight: REASONING_MAX_HEIGHT_PX, pr: 1.25 }}
           >
-            <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} />
+            <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isActive} />
           </CustomScrollArea>
         </Box>
       </Collapse>
