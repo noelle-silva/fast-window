@@ -326,7 +326,9 @@ func testService(t *testing.T) *service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &service{dataDir: t.TempDir(), packageDir: t.TempDir(), identity: identity, serviceOps: fakeGlobalServiceOps{}}
+	svc := &service{dataDir: t.TempDir(), packageDir: t.TempDir(), identity: identity, serviceOps: fakeGlobalServiceOps{}}
+	svc.accessServer = newAccessServer(svc)
+	return svc
 }
 
 type fakeGlobalServiceOps struct {

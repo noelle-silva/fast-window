@@ -16,6 +16,7 @@ import {
   type AppPhase,
   type AppView,
   type DataDirStatus,
+  type ExternalAccessState,
   type FwLaunchInfo,
   type HealthInfo,
   type RuntimeStatus,
@@ -76,6 +77,8 @@ export function App() {
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [health, setHealth] = React.useState<HealthInfo | null>(null)
   const [setup, setSetup] = React.useState<SetupInfo | null>(null)
+  const [access, setAccess] = React.useState<ExternalAccessState | null>(null)
+  const [accessError, setAccessError] = React.useState<string | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [query, setQuery] = React.useState('')
   const [searchScopePath, setSearchScopePath] = React.useState('')
@@ -115,6 +118,16 @@ export function App() {
     return { health: nextHealth, setup: nextSetup }
   }, [])
 
+  const refreshAccess = React.useCallback(async (active: DirectClient) => {
+    try {
+      const next = await active.request<ExternalAccessState>('everything.access.load')
+      setAccess(next)
+      setAccessError(null)
+    } catch (e) {
+      setAccessError(errorMessage(e, '加载外部访问信息失败'))
+    }
+  }, [])
+
   const runOperation = React.useCallback(async <T,>(nextOperation: UiOperation, action: () => Promise<T>): Promise<T> => {
     setOperation(nextOperation)
     setError(null)
@@ -146,6 +159,7 @@ export function App() {
       setClient(nextClient)
       setPhase('ready')
       await refreshStatus()
+      void refreshAccess(nextClient)
       if (state.setup.configured && !state.health.runtime.ready) {
         void startRuntimeAfterConnect(nextClient)
       }
@@ -154,7 +168,7 @@ export function App() {
       setError(errorMessage(e, '启动 Everything 后台失败'))
       await refreshStatus()
     }
-  }, [client, refreshBackendState, refreshStatus, startRuntimeAfterConnect])
+  }, [client, refreshBackendState, refreshStatus, refreshAccess, startRuntimeAfterConnect])
 
   React.useEffect(() => {
     markAppReady()
@@ -351,6 +365,42 @@ export function App() {
     await client.request('everything.revealPath', { path }).catch(e => setError(errorMessage(e, '打开所在位置失败')))
   }, [client])
 
+  const saveAccessPort = React.useCallback(async (port: number) => {
+    if (!client) throw new Error('后台未连接')
+    const next = await client.request<ExternalAccessState>('everything.access.savePort', { port })
+    setAccess(next)
+    setAccessError(null)
+  }, [client])
+
+  const createAccessKey = React.useCallback(async (name: string) => {
+    if (!client) throw new Error('后台未连接')
+    const next = await client.request<ExternalAccessState>('everything.access.createKey', { name })
+    setAccess(next)
+    setAccessError(null)
+  }, [client])
+
+  const updateAccessKey = React.useCallback(async (key: string, name: string) => {
+    if (!client) throw new Error('后台未连接')
+    const next = await client.request<ExternalAccessState>('everything.access.updateKey', { key, name })
+    setAccess(next)
+    setAccessError(null)
+  }, [client])
+
+  const deleteAccessKey = React.useCallback(async (key: string) => {
+    if (!client) throw new Error('后台未连接')
+    const next = await client.request<ExternalAccessState>('everything.access.deleteKey', { key })
+    setAccess(next)
+    setAccessError(null)
+  }, [client])
+
+  const copyText = React.useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (e) {
+      setError(errorMessage(e, '复制失败'))
+    }
+  }, [])
+
   return (
     <main className="everything-app">
       <TopBar
@@ -388,9 +438,16 @@ export function App() {
             runtimeCommand={runtimeCommand}
             searchLimit={searchLimit}
             searchLimitRange={{ min: SEARCH_LIMIT_MIN, max: SEARCH_LIMIT_MAX, step: SEARCH_LIMIT_STEP }}
+            access={access}
+            accessError={accessError}
             onEnableGlobal={enableGlobal}
             onRestartRuntime={restartRuntime}
             onSearchLimitChange={updateSearchLimit}
+            onSaveAccessPort={saveAccessPort}
+            onCreateAccessKey={createAccessKey}
+            onUpdateAccessKey={updateAccessKey}
+            onDeleteAccessKey={deleteAccessKey}
+            onCopyText={text => void copyText(text)}
           />
         ) : (
           <SearchPage

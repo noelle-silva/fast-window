@@ -1036,6 +1036,140 @@ body {
   font-size: 13px;
 }
 
+.everything-access-section {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.everything-access-section-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.everything-access-port-row,
+.everything-access-create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.everything-access-port-input,
+.everything-access-name-input {
+  box-sizing: border-box;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--surface-subtle);
+}
+
+.everything-access-port-input {
+  width: 130px;
+}
+
+.everything-access-name-input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.everything-access-port-input:focus,
+.everything-access-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.everything-access-endpoint {
+  display: block;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface-muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.everything-access-key-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.everything-access-key-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface-subtle);
+}
+
+.everything-access-key-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.everything-access-key-name {
+  color: var(--text);
+  font-weight: 800;
+  font-size: 13.5px;
+}
+
+.everything-access-key-value {
+  color: var(--text-muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+.everything-access-key-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.everything-access-key-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.everything-access-key-actions button {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.everything-access-inline-dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  background: var(--surface);
+  box-shadow: var(--lift-shadow);
+}
+
+.everything-access-danger-button {
+  color: #ffffff !important;
+  background: var(--danger) !important;
+}
+
+.everything-access-danger-button:hover:not(:disabled),
+.everything-access-danger-button:focus-visible:not(:disabled) {
+  background: #9f1239 !important;
+}
+
 .everything-trackless-slider {
   display: grid;
   gap: 14px;

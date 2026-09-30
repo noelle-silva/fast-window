@@ -18,6 +18,7 @@ type appIdentity struct {
 	ServiceName    string
 	SetupFile      string
 	RuntimeDirName string
+	AccessFile     string
 }
 
 func identityFromEnvironment() (appIdentity, error) {
@@ -36,6 +37,7 @@ func identityForChannel(value string) (appIdentity, error) {
 		ServiceName:    fmt.Sprintf("Everything (%s)", instanceName),
 		SetupFile:      fmt.Sprintf("everything-%s-global-setup.json", channel),
 		RuntimeDirName: fmt.Sprintf("everything-runtime-%s", channel),
+		AccessFile:     fmt.Sprintf("everything-access-%s.json", channel),
 	}, nil
 }
 

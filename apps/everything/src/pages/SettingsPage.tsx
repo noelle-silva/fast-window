@@ -2,15 +2,17 @@ import * as React from 'react'
 import { channelLabel, modeLabel } from '../format'
 import { SettingsTabs, type SettingsTabItem } from '../components/SettingsTabs'
 import { TracklessSlider } from '../components/TracklessSlider'
-import type { DataDirStatus, HealthInfo, SetupInfo } from '../types'
+import { ExternalAccessPanel } from './ExternalAccessPanel'
+import type { DataDirStatus, ExternalAccessState, HealthInfo, SetupInfo } from '../types'
 
-type SettingsTab = 'index' | 'runtime' | 'search' | 'commands'
+type SettingsTab = 'index' | 'runtime' | 'search' | 'commands' | 'access'
 
 const SETTINGS_TABS: Array<SettingsTabItem<SettingsTab>> = [
   { id: 'index', label: '索引' },
   { id: 'runtime', label: '运行' },
   { id: 'search', label: '搜索' },
   { id: 'commands', label: '命令' },
+  { id: 'access', label: '外部访问' },
 ]
 
 type SearchLimitRange = {
@@ -29,9 +31,16 @@ type SettingsPageProps = {
   runtimeCommand: string | null
   searchLimit: number
   searchLimitRange: SearchLimitRange
+  access: ExternalAccessState | null
+  accessError: string | null
   onEnableGlobal: () => void
   onRestartRuntime: () => void
   onSearchLimitChange: (value: number) => void
+  onSaveAccessPort: (port: number) => Promise<void>
+  onCreateAccessKey: (name: string) => Promise<void>
+  onUpdateAccessKey: (key: string, name: string) => Promise<void>
+  onDeleteAccessKey: (key: string) => Promise<void>
+  onCopyText: (text: string) => void
 }
 
 function ReadyText(props: { ready?: boolean; readyText: string; pendingText: string }) {
@@ -60,9 +69,16 @@ export function SettingsPage(props: SettingsPageProps) {
     runtimeCommand,
     searchLimit,
     searchLimitRange,
+    access,
+    accessError,
     onEnableGlobal,
     onRestartRuntime,
     onSearchLimitChange,
+    onSaveAccessPort,
+    onCreateAccessKey,
+    onUpdateAccessKey,
+    onDeleteAccessKey,
+    onCopyText,
   } = props
   const [activeTab, setActiveTab] = React.useState<SettingsTab>('index')
   const configured = Boolean(setup?.configured)
@@ -152,6 +168,19 @@ export function SettingsPage(props: SettingsPageProps) {
             </dl>
           </article>
         </div>
+      ))}
+
+      {renderPanel('access', (
+        <ExternalAccessPanel
+          access={access}
+          error={accessError}
+          clientReady={clientReady}
+          onSavePort={onSaveAccessPort}
+          onCreateKey={onCreateAccessKey}
+          onUpdateKey={onUpdateAccessKey}
+          onDeleteKey={onDeleteAccessKey}
+          onCopyText={onCopyText}
+        />
       ))}
     </section>
   )

@@ -22,6 +22,7 @@ type service struct {
 	packageDir          string
 	identity            appIdentity
 	serviceOps          globalServiceOps
+	accessServer        *accessServer
 	runtimeStartupError string
 	mu                  sync.Mutex
 }
@@ -55,7 +56,9 @@ func newService() (*service, error) {
 		return nil, err
 	}
 
-	return &service{dataDir: dataAbs, packageDir: packageAbs, identity: identity, serviceOps: windowsGlobalServiceOps{}}, nil
+	svc := &service{dataDir: dataAbs, packageDir: packageAbs, identity: identity, serviceOps: windowsGlobalServiceOps{}}
+	svc.accessServer = newAccessServer(svc)
+	return svc, nil
 }
 
 func (svc *service) ensureReady() error {
@@ -108,9 +111,45 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return nil, svc.copyPathLocked(params)
 	case "everything.revealPath":
 		return nil, svc.revealPathLocked(params)
+	case "everything.access.load":
+		return svc.loadExternalAccess()
+	case "everything.access.createKey":
+		return svc.createExternalAccessKey(stringField(params, "name"))
+	case "everything.access.updateKey":
+		return svc.updateExternalAccessKey(stringField(params, "key"), stringField(params, "name"))
+	case "everything.access.deleteKey":
+		return svc.deleteExternalAccessKey(stringField(params, "key"))
+	case "everything.access.savePort":
+		return svc.saveExternalAccessPort(numberField(params, "port"))
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}
+}
+
+// stringField 读取参数中的字符串字段；缺失或非字符串返回空串。
+func stringField(params json.RawMessage, key string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	record := map[string]any{}
+	if err := json.Unmarshal(params, &record); err != nil {
+		return ""
+	}
+	value, _ := record[key].(string)
+	return value
+}
+
+// numberField 读取参数中的数值字段；缺失或非数值返回 0。
+func numberField(params json.RawMessage, key string) float64 {
+	if len(params) == 0 {
+		return 0
+	}
+	record := map[string]any{}
+	if err := json.Unmarshal(params, &record); err != nil {
+		return 0
+	}
+	value, _ := record[key].(float64)
+	return value
 }
 
 func (svc *service) healthLocked() (map[string]any, error) {
@@ -178,6 +217,10 @@ func ensureWritable(path string) error {
 
 func nowText() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func nowMs() float64 {
+	return float64(time.Now().UnixMilli())
 }
 
 func errorString(err error) string {

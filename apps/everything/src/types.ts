@@ -89,6 +89,18 @@ export type SearchResponse = {
   results: SearchResult[]
 }
 
+export type ExternalAccessKey = {
+  name: string
+  key: string
+  createdAtMs: number
+}
+
+export type ExternalAccessState = {
+  version: number
+  port: number
+  keys: ExternalAccessKey[]
+}
+
 export const SEARCH_LAYOUTS = ['list', 'compact', 'detail', 'grid'] as const
 
 export type SearchLayout = typeof SEARCH_LAYOUTS[number]
