@@ -284,6 +284,11 @@ func (svc *service) loadNoteVersion(scope string, packageDir string, versionID s
 	}
 	var snapshot noteVersionSnapshot
 	if err := readJSONFile(target, &snapshot); err != nil {
+		// 笔记存在而版本快照缺失：这是「版本不存在」而非「笔记不存在」，
+		// 必须给独立错误码，避免把调用方引向错误的排查方向。
+		if errors.Is(err, os.ErrNotExist) {
+			return noteVersionSnapshot{}, coded(codeVersionNotFound, "版本不存在：%s", versionID)
+		}
 		return noteVersionSnapshot{}, err
 	}
 	if snapshot.SchemaVersion != noteVersionIndexVersion || snapshot.VersionID != versionID || snapshot.NoteID != manifest.ID {

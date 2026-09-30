@@ -207,6 +207,148 @@ func TestAccessServerConvergesFilesystemErrors(t *testing.T) {
 	}
 }
 
+// 外部出口的版本不存在与笔记不存在必须分开：笔记存在、版本不存在时报「版本不存在」+ VERSION_NOT_FOUND。
+func TestAccessServerDistinguishesMissingVersionFromMissingNote(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
+		"id":    "20260930000000001",
+		"title": "版本区分",
+		"faces": []map[string]any{{"faceId": "text", "kind": "markdown", "content": "正文"}},
+	}), 0)
+	if err != nil {
+		t.Fatalf("save note failed: %v", err)
+	}
+	dir := created.(map[string]any)["meta"].(noteMeta).Dir
+	key, err := svc.createExternalAccessKey(testRepoID(t, svc), "测试密钥")
+	if err != nil {
+		t.Fatalf("createExternalAccessKey failed: %v", err)
+	}
+	port, err := svc.accessServer.listen(0)
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+
+	// 笔记存在 + 版本不存在：错误必须是版本不存在，码为 VERSION_NOT_FOUND。
+	body := `{"method":"hypercortex.notes.versions.load","params":{"packageDir":"` + dir + `","versionId":"v_20260101_000000_00000000"}}`
+	response := postAccessRPC(t, port, key.Keys[0].Key, body)
+	ok, message, _ := decodeAccessResponse(t, response)
+	if ok {
+		t.Fatalf("missing version must fail, message = %q", message)
+	}
+	if message != "版本不存在：v_20260101_000000_00000000" {
+		t.Fatalf("message = %q, want 版本不存在", message)
+	}
+	// 笔记不存在时仍是 NOTE_NOT_FOUND。
+	body = `{"method":"hypercortex.notes.versions.load","params":{"packageDir":"Notes/2099-01/missing","versionId":"v_20260101_000000_00000000"}}`
+	response = postAccessRPC(t, port, key.Keys[0].Key, body)
+	ok, message, _ = decodeAccessResponse(t, response)
+	if ok || message != "笔记不存在" {
+		t.Fatalf("missing note message = %q", message)
+	}
+}
+
+// 搜索 total 经外部访问出口的 JSON 序列化必须保真：正文有结果时 total 不得为 0。
+func TestAccessServerSearchReportsTotal(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	scope := testRepoID(t, svc)
+	for index := 0; index < 3; index++ {
+		if _, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": fmt.Sprintf("总数笔记%d", index)})); err != nil {
+			t.Fatalf("createNote failed: %v", err)
+		}
+	}
+	key, err := svc.createExternalAccessKey(scope, "测试密钥")
+	if err != nil {
+		t.Fatalf("createExternalAccessKey failed: %v", err)
+	}
+	port, err := svc.accessServer.listen(0)
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+
+	body := `{"method":"hypercortex.search.query","params":{"limit":1}}`
+	response := postAccessRPC(t, port, key.Keys[0].Key, body)
+	ok, message, result := decodeAccessResponse(t, response)
+	if !ok {
+		t.Fatalf("search failed: %s", message)
+	}
+	var payload struct {
+		Total int               `json:"total"`
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("decode search result failed: %v", err)
+	}
+	if len(payload.Items) != 1 {
+		t.Fatalf("items = %d, want 1 (limit)", len(payload.Items))
+	}
+	if payload.Total != 3 {
+		t.Fatalf("total = %d, want 3", payload.Total)
+	}
+}
+
+// 空补丁经外部访问出口不推进版本：零副作用的读取通道在真实链路上成立。
+func TestAccessServerFaceSettingsNoOpKeepsVersion(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatalf("ensureRoots failed: %v", err)
+	}
+	scope := testRepoID(t, svc)
+	created, err := svc.saveNoteFaces(scope, mustJSONRaw(t, map[string]any{
+		"id":    "20260930000000002",
+		"title": "空操作出口",
+		"faces": []map[string]any{{"faceId": "html", "kind": "html", "content": "<div>x</div>"}},
+	}), 0)
+	if err != nil {
+		t.Fatalf("save note failed: %v", err)
+	}
+	dir := created.(map[string]any)["meta"].(noteMeta).Dir
+	before, err := svc.loadNoteManifest(scope, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := svc.createExternalAccessKey(scope, "测试密钥")
+	if err != nil {
+		t.Fatalf("createExternalAccessKey failed: %v", err)
+	}
+	port, err := svc.accessServer.listen(0)
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+
+	body := `{"method":"hypercortex.notes.saveFaceSettings","params":{"packageDir":"` + dir + `","faceId":"html","settings":{}}}`
+	response := postAccessRPC(t, port, key.Keys[0].Key, body)
+	ok, message, result := decodeAccessResponse(t, response)
+	if !ok {
+		t.Fatalf("empty patch failed: %s", message)
+	}
+	var payload struct {
+		Version float64 `json:"version"`
+		Changed bool    `json:"changed"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("decode result failed: %v", err)
+	}
+	if payload.Changed {
+		t.Fatalf("empty patch changed = true")
+	}
+	if payload.Version != before.UpdatedAtMs {
+		t.Fatalf("reported version = %v, want %v", payload.Version, before.UpdatedAtMs)
+	}
+	after, err := svc.loadNoteManifest(scope, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UpdatedAtMs != before.UpdatedAtMs {
+		t.Fatalf("version advanced by no-op: %v -> %v", before.UpdatedAtMs, after.UpdatedAtMs)
+	}
+}
+
 func TestStartExternalAccessServerFromSavedConfig(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {

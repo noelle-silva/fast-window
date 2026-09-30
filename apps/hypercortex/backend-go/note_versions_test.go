@@ -130,3 +130,23 @@ func TestLoadNoteVersionRejectsCorruptIndex(t *testing.T) {
 		t.Fatalf("expected ownership mismatch, got %v", err)
 	}
 }
+
+// 笔记存在而版本不存在：报「版本不存在」并给独立错误码，与 NOTE_NOT_FOUND 分开。
+func TestLoadNoteVersionMissingVersionFailsWithVersionCode(t *testing.T) {
+	svc := newTestService(t)
+	packageDir := createVersionedTestNote(t, svc)
+
+	_, err := svc.loadNoteVersion(testRepoID(t, svc), packageDir, "v_20260101_000000_00000000")
+	if err == nil || !strings.Contains(err.Error(), "版本不存在") {
+		t.Fatalf("missing version error = %v", err)
+	}
+	if code := errorCodeOf(err); code != codeVersionNotFound {
+		t.Fatalf("code = %q, want %q", code, codeVersionNotFound)
+	}
+	// 归属其他笔记的有效版本 id 同样归为「版本不存在」，不再误导为笔记缺失。
+	if _, err := svc.loadNoteVersion(testRepoID(t, svc), packageDir, "v_other_note_version"); err == nil {
+		t.Fatal("foreign version must fail")
+	} else if code := errorCodeOf(err); code != codeVersionNotFound {
+		t.Fatalf("foreign version code = %q, want %q", code, codeVersionNotFound)
+	}
+}

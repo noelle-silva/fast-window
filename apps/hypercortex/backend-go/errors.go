@@ -15,6 +15,7 @@ import (
 // 机器可读错误码：文案可改，码不变，供调用方程序化区分错误类型。
 const (
 	codeVersionConflict   = "VERSION_CONFLICT"
+	codeVersionNotFound   = "VERSION_NOT_FOUND"
 	codeUnknownFaceKind   = "UNKNOWN_FACE_KIND"
 	codeDuplicateFavorite = "DUPLICATE_FAVORITE"
 	codePathEscape        = "PATH_ESCAPE"
