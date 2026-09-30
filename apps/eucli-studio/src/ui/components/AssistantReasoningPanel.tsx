@@ -4,7 +4,11 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
+import { CustomScrollArea } from './CustomScrollArea'
 import { formatDurationMs } from '../utils/time'
+
+const REASONING_MAX_HEIGHT_PX = 320
+const FOLLOW_BOTTOM_THRESHOLD_PX = 24
 
 type AssistantReasoningPanelProps = {
   controller: any
@@ -23,6 +27,32 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
   // 用户手动开合后，这一段思考的展开状态只跟用户走，自动行为不再覆盖。
   const [manuallyToggled, setManuallyToggled] = React.useState(false)
   const wasActiveRef = React.useRef(isActive)
+  const scrollRef = React.useRef<HTMLDivElement | null>(null)
+  // 视窗是否吸附在底部；只认真实滚动事件，输出中内容自然增高不算用户上滚。
+  const stickToBottomRef = React.useRef(true)
+  const wasExpandedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !expanded) return
+    const onScroll = () => {
+      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [expanded])
+
+  React.useLayoutEffect(() => {
+    const justExpanded = expanded && !wasExpandedRef.current
+    wasExpandedRef.current = expanded
+    const el = scrollRef.current
+    if (!el || !expanded) return
+    // 展开瞬间：思考仍在输出就回到最新一行并恢复跟随；已结束则从开头阅读。
+    if (justExpanded) stickToBottomRef.current = isActive
+    if (!stickToBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [text, expanded, isActive])
 
   React.useEffect(() => {
     const wasActive = wasActiveRef.current
@@ -92,7 +122,13 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
       </Stack>
       <Collapse in={expanded} timeout={160} unmountOnExit>
         <Box sx={{ px: 1.1, pb: 1.05, pt: 0.1 }}>
-          <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} />
+          <CustomScrollArea
+            ref={scrollRef}
+            hostSx={{ maxHeight: REASONING_MAX_HEIGHT_PX }}
+            scrollSx={{ maxHeight: REASONING_MAX_HEIGHT_PX, pr: 1.25 }}
+          >
+            <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} />
+          </CustomScrollArea>
         </Box>
       </Collapse>
     </Paper>
