@@ -66,7 +66,10 @@ type noteSearchHit struct {
 
 type noteSearchResult struct {
 	Kinds []noteSearchFaceKindInfo `json:"kinds"`
-	Items []noteSearchHit          `json:"items"`
+	// AppliedFaceKinds 是本次实际生效的面类型筛选（规范化后的有序去重清单）；
+	// 未指定筛选时为空数组。调用方可据此判断筛选是否真实生效。
+	AppliedFaceKinds []string        `json:"appliedFaceKinds"`
+	Items            []noteSearchHit `json:"items"`
 }
 
 // noteSearchQuery 是一次搜索请求的全部条件：匹配维度、面类型、收藏夹范围、更新时间范围与分段。
@@ -302,7 +305,7 @@ func makeSearchSnippet(text string, tokens []string) string {
 // 未提供关键词时与附件搜索同语义：按过滤条件列出全部笔记（按更新时间倒序）；
 // limit 为本次返回条数（<=0 时取默认上限，可自由指定），offset 为在排序结果中的起始位置（懒加载续读）。
 func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, error) {
-	result := noteSearchResult{Kinds: listSearchableFaceKinds()}
+	result := noteSearchResult{Kinds: listSearchableFaceKinds(), AppliedFaceKinds: []string{}}
 	limit, offset := normalizeSearchWindow(query.Limit, query.Offset)
 	fieldSet, err := normalizeSearchFields(query.Fields, noteSearchFields)
 	if err != nil {
@@ -321,12 +324,17 @@ func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, er
 		return result, err
 	}
 	kindSet := map[string]bool{}
+	appliedKinds := []string{}
 	for _, kind := range query.FaceKinds {
 		kind = strings.TrimSpace(kind)
-		if kind != "" {
-			kindSet[kind] = true
+		if kind == "" || kindSet[kind] {
+			continue
 		}
+		kindSet[kind] = true
+		appliedKinds = append(appliedKinds, kind)
 	}
+	sort.Strings(appliedKinds)
+	result.AppliedFaceKinds = appliedKinds
 	// 收藏夹范围：非空时只在「该收藏夹（含嵌套子收藏夹）所含笔记」中搜索。
 	var folderNoteIDs map[string]bool
 	if folderID := strings.TrimSpace(query.FolderID); folderID != "" {

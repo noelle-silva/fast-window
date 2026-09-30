@@ -23,11 +23,12 @@ type assetSearchQuery struct {
 // fields 选择参与文本匹配的维度（name/remark/tags 可自由组合；缺省为全部三项，name 覆盖显示名/来源名）；
 // kind/sizeFrom/sizeTo/updatedFromMs/updatedToMs 为过滤条件；
 // 未提供关键词时按过滤条件列出附件（按更新时间倒序），提供关键词时按命中维度计分排序。
-func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, error) {
+// 返回结果同时给出过滤命中总数（与窗口无关），供调用方判断是否还有下一页。
+func (svc *service) queryAssetSearch(query assetSearchQuery) (assetPoolPage, error) {
 	limit, offset := normalizeSearchWindow(query.Limit, query.Offset)
 	fieldSet, err := normalizeSearchFields(query.Fields, assetSearchFields)
 	if err != nil {
-		return nil, err
+		return assetPoolPage{}, err
 	}
 	explicitFields := len(fieldSet) > 0
 	matchName := !explicitFields || fieldSet["name"]
@@ -39,7 +40,7 @@ func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, e
 
 	items, err := svc.listAssets(query.Scope)
 	if err != nil {
-		return nil, err
+		return assetPoolPage{}, err
 	}
 
 	type assetSearchHit struct {
@@ -89,8 +90,9 @@ func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, e
 		}
 		return hits[i].item.AssetID < hits[j].item.AssetID
 	})
-	if offset >= len(hits) {
-		return []assetPoolItem{}, nil
+	total := len(hits)
+	if offset >= total {
+		return assetPoolPage{Items: []assetPoolItem{}, Total: total}, nil
 	}
 	hits = hits[offset:]
 	if len(hits) > limit {
@@ -100,7 +102,7 @@ func (svc *service) queryAssetSearch(query assetSearchQuery) ([]assetPoolItem, e
 	for _, hit := range hits {
 		out = append(out, hit.item)
 	}
-	return out, nil
+	return assetPoolPage{Items: out, Total: total}, nil
 }
 
 // assetSearchNameText 汇总附件的「名字」文本：显示名 / 来源名（不含系统编号）。

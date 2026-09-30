@@ -43,11 +43,11 @@ func TestAssetSearchMatchesAndFilters(t *testing.T) {
 
 	count := func(query assetSearchQuery) []assetPoolItem {
 		query.Scope = scope
-		items, err := svc.queryAssetSearch(query)
+		page, err := svc.queryAssetSearch(query)
 		if err != nil {
 			t.Fatalf("query %#v failed: %v", query, err)
 		}
-		return items
+		return page.Items
 	}
 
 	// 关键词全维度（名字/备注/标签）：财务命中 A、C 的标签

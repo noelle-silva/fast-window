@@ -91,14 +91,37 @@ func assetIndexEntriesEqual(a assetIndexEntry, b assetIndexEntry) bool {
 }
 
 func (svc *service) listAssets(scope string) ([]assetPoolItem, error) {
+	items, _, err := svc.listAssetsPage(scope, 0, 0)
+	return items, err
+}
+
+// assetPoolPage 是附件清单的分页信封：items 为本页窗口，total 为过滤前总数。
+type assetPoolPage struct {
+	Items []assetPoolItem `json:"items"`
+	Total int             `json:"total"`
+}
+
+// listAssetsPageEnvelope 以分页信封返回附件清单：供工具分页续读，
+// limit<=0 时返回全部条目（total 仍为总数）。
+func (svc *service) listAssetsPageEnvelope(scope string, limit int, offset int) (assetPoolPage, error) {
+	items, total, err := svc.listAssetsPage(scope, limit, offset)
+	if err != nil {
+		return assetPoolPage{}, err
+	}
+	return assetPoolPage{Items: items, Total: total}, nil
+}
+
+// listAssetsPage 列出附件池：limit<=0 时返回全部；limit/offset 提供懒加载续读，
+// 返回本次窗口条目与过滤前总数（总数与窗口无关）。
+func (svc *service) listAssetsPage(scope string, limit int, offset int) ([]assetPoolItem, int, error) {
 	idx, err := svc.ensureAssetIndex(scope)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := []assetPoolItem{}
 	assetsRoot, err := svc.resolvePath(scope, assetsDir)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	_ = os.MkdirAll(assetsRoot, 0o755)
 	for _, cat := range []string{"images", "videos", "docs"} {
@@ -151,7 +174,21 @@ func (svc *service) listAssets(scope string) ([]assetPoolItem, error) {
 	}
 	_ = svc.saveAssetIndex(scope, idx)
 	sort.Slice(out, func(i, j int) bool { return out[i].ModifiedMs > out[j].ModifiedMs })
-	return out, nil
+	total := len(out)
+	if limit <= 0 {
+		return out, total, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []assetPoolItem{}, total, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, total, nil
 }
 
 func (svc *service) readAssetDataURL(scope string, assetID string, ext string) (string, error) {
