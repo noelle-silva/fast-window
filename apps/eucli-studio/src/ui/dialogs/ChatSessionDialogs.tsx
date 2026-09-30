@@ -1,10 +1,12 @@
 import * as React from 'react'
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 type EditingChatTitleState = { targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; text: string }
 type ConfirmDeleteChatState = { targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string }
 
-export function ChatSessionDialogs(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: {
   controller: any
   loading: boolean
   editingChatTitle: EditingChatTitleState
@@ -26,6 +28,9 @@ export function ChatSessionDialogs(props: {
     setConfirmDelChat,
     isSendingThisChat,
   } = props
+
+  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  useUiDataVersion(controller)
 
   return (
     <>
@@ -102,4 +107,4 @@ export function ChatSessionDialogs(props: {
       </Dialog>
     </>
   )
-}
+})

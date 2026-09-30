@@ -7,13 +7,15 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 type MessageRole = 'user' | 'assistant'
 type MessageMenuState = { mid: string; role: MessageRole; x: number; y: number }
 type ConfirmMessageState = { mid: string; role: MessageRole }
 type RegenState = { mid: string; role: MessageRole }
 
-export function MessageMenusDialogs(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props: {
   controller: any
   loading: boolean
   uiBusy: boolean
@@ -71,6 +73,9 @@ export function MessageMenusDialogs(props: {
     regenPathParentMid,
     beginRunPathFollow,
   } = props
+
+  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  useUiDataVersion(controller)
 
   return (
     <>
@@ -351,4 +356,4 @@ export function MessageMenusDialogs(props: {
       </Dialog>
     </>
   )
-}
+})

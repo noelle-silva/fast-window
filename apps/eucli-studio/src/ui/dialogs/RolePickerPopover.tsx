@@ -4,8 +4,10 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX, SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
-export function RolePickerPopover(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   controller: any
   rolePickerEl: HTMLElement | null
   closeRolePicker: () => void
@@ -39,6 +41,9 @@ export function RolePickerPopover(props: {
     formatModelRefText,
     openPluginSettings,
   } = props
+
+  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  useUiDataVersion(controller)
 
   return (
     <Popover
@@ -247,4 +252,4 @@ export function RolePickerPopover(props: {
       </CustomScrollArea>
     </Popover>
   )
-}
+})

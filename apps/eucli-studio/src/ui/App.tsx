@@ -1002,6 +1002,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
              </CustomScrollArea>
 
              <ComposerImagePickerPopover
+               controller={controller}
                loading={!!s.loading}
                activeRole={activeRole}
                imagePickerEl={imagePickerEl}
@@ -1133,6 +1134,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
 
         <ComposerControlsPopovers
+          controller={controller}
           loading={!!s.loading}
           providers={providers}
           roleSessionControlsEnabled={roleSessionControlsEnabled}

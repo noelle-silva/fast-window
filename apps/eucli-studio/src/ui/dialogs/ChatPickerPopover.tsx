@@ -25,8 +25,10 @@ import { SOFT_POPOVER_HEADER_SX, SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX,
 import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { chatHistoryMatchesSearch } from '../utils/text'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
-export function ChatPickerPopover(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const ChatPickerPopover = React.memo(function ChatPickerPopover(props: {
   controller: any
   data: any
   chatPickerEl: HTMLElement | null
@@ -100,6 +102,9 @@ export function ChatPickerPopover(props: {
     requestSwitch,
     onChatContextMenu,
   } = props
+
+  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  useUiDataVersion(controller)
 
   return (
     <Popover
@@ -533,4 +538,4 @@ export function ChatPickerPopover(props: {
       </Box>
     </Popover>
   )
-}
+})

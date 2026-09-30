@@ -10,7 +10,8 @@ type FavoriteFolderMoveState = { open: boolean; folderId: string; parentId: stri
 type FavoriteFolderClearState = { open: boolean; folderId: string }
 type FavoriteDialogState = { open: boolean; targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; title: string }
 
-export function FavoriteFoldersDialogs(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs(props: {
   loading: boolean
   favoriteFolders: any[]
   createFavoriteFolder: FavoriteFolderDraftState
@@ -277,4 +278,4 @@ export function FavoriteFoldersDialogs(props: {
       </Dialog>
     </>
   )
-}
+})

@@ -6,10 +6,12 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
-export function ChatContextMenus(props: {
+// 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
+export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
   controller: any
   loading: boolean
   favoriteFolderMenu: { folderId: string; parentId: string; x: number; y: number }
@@ -47,6 +49,9 @@ export function ChatContextMenus(props: {
     closeChatMenu,
     setConfirmDelChat,
   } = props
+
+  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  useUiDataVersion(controller)
 
   return (
     <>
@@ -261,4 +266,4 @@ export function ChatContextMenus(props: {
       </Popover>
     </>
   )
-}
+})
