@@ -1,18 +1,23 @@
 import { colorMixVar, colorThemeCssVariables } from './colorThemeStyles'
 import { EUCLI_STUDIO_CHAT_ROOT_ID } from '../runtime/eucliStudioGlobals'
+import { chatFontFamilyStack, normalizeChatFontSize } from '../domain/chatFont'
 
 export type ChatGlobalStylesParams = {
   colorThemePreset: any
   transparentChatBg: boolean
   bgAlpha: number
   chatBgBlur: number
+  chatFontSize: number
+  chatFontFamily: string
 }
 
 export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
-  const { colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur } = params
+  const { colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily } = params
   return {
     ':root': {
       ...colorThemeCssVariables(colorThemePreset),
+      '--fw-chat-font-size': `${normalizeChatFontSize(chatFontSize)}px`,
+      '--fw-chat-font-family': chatFontFamilyStack(chatFontFamily),
       ...(transparentChatBg ? { '--studio-settings-surface': 'transparent', '--studio-settings-surface-shadow': 'none' } : {}),
     },
     'html, body': {
@@ -45,10 +50,17 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
       animation: 'fw-tree-pop 420ms cubic-bezier(.2,.9,.2,1) both',
     },
     '.prose': {
-      fontSize: 14,
+      fontFamily: 'var(--fw-chat-font-family)',
+      fontSize: 'var(--fw-chat-font-size)',
       lineHeight: 1.75,
       wordBreak: 'break-word',
       overflowWrap: 'anywhere',
+    },
+    // fw-chat-text 是「会话界面文字」的统一挂点：用户消息、编辑框、输入框随会话字体设置，
+    // 内部输入元素需要显式覆盖（MUI 表单控件的字体来自主题，不随外层继承）。
+    [`#${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text, #${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text input, #${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text textarea`]: {
+      fontFamily: 'var(--fw-chat-font-family)',
+      fontSize: 'var(--fw-chat-font-size)',
     },
     '.prose pre': {
       overflow: 'auto',

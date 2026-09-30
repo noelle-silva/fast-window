@@ -48,6 +48,7 @@ import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode } from '../domain/reasoningDisplay'
+import { normalizeChatFontFamily, normalizeChatFontSize } from '../domain/chatFont'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -94,6 +95,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const chatFontSize = normalizeChatFontSize(data?.settings?.chatFontSize)
+  const chatFontFamily = normalizeChatFontFamily(data?.settings?.chatFontFamily)
   const renderSafetyPolicy = (() => {
     const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
@@ -802,7 +805,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur })} />
+      <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily })} />
 
       <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', isolation: 'isolate', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
         {activeWallpaper ? (

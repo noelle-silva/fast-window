@@ -150,7 +150,7 @@ export function StickerText(props: { controller: any; text: string; stickerMap: 
   const segs = React.useMemo(() => splitStickerSegments(String(text || '')), [text])
 
   return (
-    <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+    <Typography className="fw-chat-text" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
       {segs.map((seg, i) => {
         if (seg.kind === 'text') return <React.Fragment key={i}>{seg.text}</React.Fragment>
         const cat = String(seg.category || '').trim()

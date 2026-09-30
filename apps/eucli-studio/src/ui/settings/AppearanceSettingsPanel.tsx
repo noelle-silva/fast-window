@@ -2,6 +2,15 @@ import * as React from 'react'
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Slider, Stack, Switch, TextField, Typography } from '@mui/material'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
+import {
+  CHAT_FONT_OPTIONS,
+  CHAT_FONT_SIZE_MAX,
+  CHAT_FONT_SIZE_MIN,
+  chatFontFamilyLabel,
+  chatFontFamilyStack,
+  normalizeChatFontFamily,
+  normalizeChatFontSize,
+} from '../../domain/chatFont'
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
@@ -12,6 +21,19 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const { controller, loading, data } = props
   const settings = data?.settings
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
+  const chatFontSize = normalizeChatFontSize(settings?.chatFontSize)
+  const chatFontFamily = normalizeChatFontFamily(settings?.chatFontFamily)
+  const [chatFontSizeDraft, setChatFontSizeDraft] = React.useState(() => String(chatFontSize))
+
+  React.useEffect(() => {
+    setChatFontSizeDraft(String(chatFontSize))
+  }, [chatFontSize])
+
+  const commitChatFontSizeDraft = () => {
+    const next = normalizeChatFontSize(chatFontSizeDraft)
+    setChatFontSizeDraft(String(next))
+    if (next !== chatFontSize) controller.actions.setChatFontSize?.(next, true)
+  }
 
   React.useEffect(() => {
     if (!treeHotkeyRecording) return
@@ -87,6 +109,86 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
         <ColorThemeSettingsSection controller={controller} loading={loading} settings={settings} />
 
         <WallpaperSettingsSection controller={controller} loading={loading} settings={settings} />
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>会话文字</Typography>
+              <Typography variant="caption" color="text.secondary">
+                调整会话消息与输入框的文字；代码块与工具原始内容保持等宽字体。
+              </Typography>
+            </Box>
+
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  字体大小
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <TextField
+                  size="small"
+                  type="number"
+                  value={chatFontSizeDraft}
+                  onChange={(e) => setChatFontSizeDraft(e.target.value)}
+                  onBlur={commitChatFontSizeDraft}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitChatFontSizeDraft()
+                  }}
+                  inputProps={{ min: CHAT_FONT_SIZE_MIN, max: CHAT_FONT_SIZE_MAX, step: 1 }}
+                  disabled={loading}
+                  sx={{ width: 84, '& input': { textAlign: 'right' } }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  px
+                </Typography>
+              </Stack>
+              <Slider
+                size="small"
+                value={chatFontSize}
+                min={CHAT_FONT_SIZE_MIN}
+                max={CHAT_FONT_SIZE_MAX}
+                step={1}
+                onChange={(_e, v) => controller.actions.setChatFontSize?.(v, false)}
+                onChangeCommitted={(_e, v) => controller.actions.setChatFontSize?.(v, true)}
+                disabled={loading}
+              />
+            </Box>
+
+            <Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                    字体
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    下拉项按各自字体预览；系统未安装的字体将自动回落。
+                  </Typography>
+                </Box>
+                <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+                  <InputLabel id="fw-chat-font-family">会话字体</InputLabel>
+                  <Select
+                    labelId="fw-chat-font-family"
+                    label="会话字体"
+                    value={chatFontFamily}
+                    onChange={(e) => controller.actions.setChatFontFamily?.(String(e.target.value || ''))}
+                    disabled={loading}
+                    renderValue={(value) => (
+                      <Box component="span" sx={{ fontFamily: chatFontFamilyStack(String(value || '')) }}>
+                        {chatFontFamilyLabel(String(value || ''))}
+                      </Box>
+                    )}
+                  >
+                    {CHAT_FONT_OPTIONS.map((option) => (
+                      <MenuItem key={option.value || '__default__'} value={option.value} sx={{ fontFamily: chatFontFamilyStack(option.value) }}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+            </Box>
+          </Stack>
+        </SettingsSection>
 
         <SettingsSection>
           <Stack spacing={1.25}>

@@ -442,6 +442,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   multiline
                   minRows={3}
                   size="small"
+                  className="fw-chat-text"
                   placeholder={isUser ? '编辑用户消息…' : '编辑 AI 回复…'}
                   value={editingMsg.text}
                   onChange={(e) => onEditTextChange(e.target.value)}
@@ -457,7 +458,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                     stickersEnabled ? (
                       <StickerText controller={controller} text={shownContent} stickerMap={stickerMap} />
                     ) : (
-                      <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                      <Typography className="fw-chat-text" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
                     )
                   ) : null}
                   {canCollapse ? (
