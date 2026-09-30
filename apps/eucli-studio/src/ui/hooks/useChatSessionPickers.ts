@@ -186,12 +186,13 @@ export function useChatSessionPickers(deps: {
   })
 
   const openPluginSettings = useEvent(
-    (tab: any = 'roles') => {
+    (tab?: any) => {
       setRolePickerEl(null)
       setChatPickerEl(null)
       setChatPickerSearchOpen(false)
       setChatPickerSearchText('')
-      setSettingsTab(tab)
+      // 仅当调用方显式指定分类时才改写当前分类；普通打开设置（不传参）要保留上次停留的分类。
+      if (tab !== undefined) setSettingsTab(tab)
       setPage('settings')
     })
   const closePluginSettings = useEvent(() => setPage('chat'))

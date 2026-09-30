@@ -33,7 +33,7 @@ export function ChatTopBar(props: {
   onOpenChatPicker: (e: React.MouseEvent<HTMLElement>) => void
   onCreateChat: () => void
   onOpenProviders: () => void
-  onOpenSettings: (tab: any) => void
+  onOpenSettings: (tab?: any) => void
   onSwitchChat: (chatId: any) => void
 }) {
   const {
@@ -199,7 +199,7 @@ export function ChatTopBar(props: {
               </IconButton>
             </Tooltip>
             <Tooltip title="设置">
-              <IconButton onClick={() => onOpenSettings(activeTargetKind === 'workspace' ? 'workspaces' : activeTargetKind === 'group' ? 'groups' : 'roles')} size="small">
+              <IconButton onClick={() => onOpenSettings()} size="small">
                 <SettingsIcon fontSize="small" />
               </IconButton>
             </Tooltip>

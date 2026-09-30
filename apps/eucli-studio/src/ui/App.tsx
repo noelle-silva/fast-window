@@ -36,10 +36,9 @@ import { HookPromptSelector } from './components/HookPromptSelector'
 import { ChatTopBar } from './components/ChatTopBar'
 import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
-import type { SettingsTabValue } from './settings/settingsNavigation'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
-import { PluginSettingsPage } from './settings/PluginSettingsPage'
+import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { chatNavigationFromOrderedChats } from '../domain/chatNavigation'
@@ -62,7 +61,7 @@ import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
 import { ComposerImagePickerPopover } from './composer/ComposerImagePickerPopover'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
 
-type SettingsTab = SettingsTabValue
+type SettingsTab = SettingsTabSelection
 
 export type AiChatWindowControls = {
   standalone: boolean
@@ -264,7 +263,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const [composerHeight, setComposerHeight] = React.useState(0)
   const chatPaneRef = React.useRef<HTMLDivElement | null>(null)
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('auto')
+  const [settingsVisited, setSettingsVisited] = React.useState(false)
+  const settingsMounted = settingsVisited || page === 'settings'
+  React.useEffect(() => {
+    if (page === 'settings') setSettingsVisited(true)
+  }, [page])
   const [branchNav, setBranchNav] = React.useState<{ mid: string; at: number }>({ mid: '', at: 0 })
 
   const {
@@ -869,9 +873,18 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           onSwitchChat={chatSwitch.requestSwitch}
         />
 
-        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {page === 'chat' ? (
-          <>
+        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        <Box
+          aria-hidden={page === 'chat' ? undefined : true}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            // 常驻不卸载：离开聊天页只隐藏，避免返回时整棵聊天子树重新挂载造成卡顿。
+            visibility: page === 'chat' ? 'inherit' : 'hidden',
+          }}
+        >
             <Box
               ref={chatPaneRef}
               sx={{
@@ -1267,8 +1280,20 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         isSendingThisChat={isSendingThisChat}
       />
 
-          </>
-        ) : (
+        </Box>
+
+        {settingsMounted ? (
+        <Box
+          aria-hidden={page === 'settings' ? undefined : true}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            // 与聊天层同理：用 inherit 而非显式 visible，避免隐藏时子级穿透父级重新显形。
+            visibility: page === 'settings' ? 'inherit' : 'hidden',
+          }}
+        >
           <PluginSettingsPage
             controller={controller}
             loading={!!s.loading}
@@ -1300,7 +1325,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             dataDirectory={dataDirectory}
             eucliBoxConnection={eucliBoxConnection}
           />
-        )}
+        </Box>
+        ) : null}
         </Box>
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
