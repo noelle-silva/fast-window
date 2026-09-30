@@ -11,11 +11,6 @@ import { messageRefreshScope } from '../domain/uiRefreshScope'
 type DirectEventSubscription = (listener: (event: any) => void) => () => void
 type RunEventTargetKind = 'role' | 'group' | 'workspace'
 
-function messageHasToolParts(message: any) {
-  const parts = Array.isArray(message?.parts) ? message.parts : []
-  return parts.some((part: any) => String(part?.type || '') === 'tool')
-}
-
 export function createEbRunEventConsumer(deps: {
   getState: () => any
   emit: () => void
@@ -323,18 +318,18 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
 
     scheduleRuntimeChatChanged(targetKind, targetId, chat, messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)
 
-    // 范围分发：只有“纯流式增量（思考/正文推进）”这一种变化能说清它只动这一条消息，
-    // 走消息范围，不惊动整页；其余（新消息挂载、终止态、工具卡、异步返回）影响面更大，仍走全局。
-    const isPureStreamingIncrement =
-      !isNewMessage &&
-      messageType === 'assistant' &&
-      !isTerminalEbRunStatus(payload.status) &&
-      !hasSettledAssistantToolParts(message) &&
-      !messageHasToolParts(message)
-    if (isPureStreamingIncrement) {
-      scheduleScope(messageRefreshScope(messageId))
-    } else {
+    // 范围分发：一次运行中，除了“新消息首次挂载”“终止态”“异步工具返回”这几个
+    // 影响面更大的变化，其余（思考/正文推进、工具片段与实时输出）都只动这一条消息，
+    // 走消息范围，不惊动整页。工具卡就在该消息内容区里，由消息范围驱动更新；
+    // 异步工具返回消息不在该内容区渲染，必须仍走全局。
+    const needsGlobal =
+      isNewMessage ||
+      isTerminalEbRunStatus(payload.status) ||
+      messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT
+    if (needsGlobal) {
       scheduleRender()
+    } else {
+      scheduleScope(messageRefreshScope(messageId))
     }
     return true
   }
@@ -397,7 +392,8 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     }
     chat.messages[messageIndex] = { ...message, parts: nextParts, updatedAt: Math.max(Number(message.updatedAt || 0), normalizeTimeMs(update.createdAt)) }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), normalizeTimeMs(update.createdAt))
-    scheduleRender()
+    // 工具实时输出只改这一条消息的片段，走消息范围，不惊动整页。
+    scheduleScope(messageRefreshScope(messageId))
     return true
   }
 

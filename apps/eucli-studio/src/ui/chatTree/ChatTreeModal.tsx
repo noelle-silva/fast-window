@@ -7,7 +7,9 @@ import { colorMixVar } from '../colorThemeStyles'
 import { ChatTreeNodeShape } from './ChatTreeNodeShape'
 import { normalizeChatTreeNodeRole, svgSafeId } from './chatTreeLayout'
 
-export function ChatTreeModal(props: {
+// 分支树最多承载数百个 SVG 节点，重绘代价高。
+// 用 memo 把它与无关的整页刷新隔离：只有树自身相关的 props 变化时才重绘。
+export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
   treeOpen: boolean
   effectiveTreeView: 'right' | 'float'
   treePanelW: number
@@ -594,4 +596,4 @@ export function ChatTreeModal(props: {
       </Dialog>
     </>
   )
-}
+})
