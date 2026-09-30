@@ -12,3 +12,10 @@ export function normalizeReasoningDisplayMode(raw: unknown): ReasoningDisplayMod
   const value = String(raw || '').trim()
   return value === 'never-expand' || value === 'collapse-when-done' || value === 'stay-expanded' ? value : DEFAULT_REASONING_DISPLAY_MODE
 }
+
+// 思维链渲染：开启后思考内容走 Markdown 富渲染；默认关闭，按纯文本展示。
+export const DEFAULT_REASONING_RENDER_ENABLED = false
+
+export function normalizeReasoningRenderEnabled(raw: unknown): boolean {
+  return raw === true || String(raw || '').trim() === 'true'
+}

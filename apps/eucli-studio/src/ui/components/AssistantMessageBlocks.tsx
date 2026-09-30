@@ -27,6 +27,7 @@ type AssistantMessageBlocksProps = {
   text: string
   parts: any[]
   reasoningDisplayMode: ReasoningDisplayMode
+  reasoningRenderEnabled: boolean
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
   disabled?: boolean
@@ -307,7 +308,7 @@ function ToolSessionCard(props: {
 }
 
 export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
-  const { controller, mid, isGenerating, text, parts, reasoningDisplayMode, renderSafetyPolicyKey, chatRootRef, disabled } = props
+  const { controller, mid, isGenerating, text, parts, reasoningDisplayMode, reasoningRenderEnabled, renderSafetyPolicyKey, chatRootRef, disabled } = props
   const blocks = React.useMemo(() => planAssistantMessageBlocks(text, parts), [text, parts])
   const displayItems = React.useMemo(() => buildDisplayItems(blocks), [blocks])
   // 最后一枚部分就是当前仍在输出的那一段；正文一旦出现，前面的思考都已输出完成。
@@ -404,6 +405,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
               mid={mid}
               isActive={reasoningActive}
               displayMode={reasoningDisplayMode}
+              renderMarkdown={reasoningRenderEnabled}
               text={String(block.part?.text || '')}
               durationMs={normalizeDurationMs(block.part?.durationMs)}
               renderSafetyPolicyKey={renderSafetyPolicyKey}

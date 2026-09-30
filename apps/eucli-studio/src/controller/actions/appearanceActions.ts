@@ -7,7 +7,7 @@ import {
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize } from '../../domain/chatFont'
-import { normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
+import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createAppearanceActions(deps: {
@@ -187,6 +187,12 @@ export function createAppearanceActions(deps: {
     setReasoningDisplayMode: (mode: any) => {
       if (!state.data) return
       state.data.settings.reasoningDisplayMode = normalizeReasoningDisplayMode(mode)
+      saveMeta().catch(() => {})
+      emit()
+    },
+    setReasoningRenderEnabled: (enabled: any) => {
+      if (!state.data) return
+      state.data.settings.reasoningRenderEnabled = normalizeReasoningRenderEnabled(enabled)
       saveMeta().catch(() => {})
       emit()
     },

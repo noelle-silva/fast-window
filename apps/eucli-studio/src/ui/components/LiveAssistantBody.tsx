@@ -13,11 +13,12 @@ export function LiveAssistantBody(props: {
   message: any
   isGenerating: boolean
   reasoningDisplayMode: ReasoningDisplayMode
+  reasoningRenderEnabled: boolean
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
   disabled?: boolean
 }) {
-  const { controller, mid, message, isGenerating, reasoningDisplayMode, renderSafetyPolicyKey, chatRootRef, disabled } = props
+  const { controller, mid, message, isGenerating, reasoningDisplayMode, reasoningRenderEnabled, renderSafetyPolicyKey, chatRootRef, disabled } = props
   useScopedUiVersion(controller, messageRefreshScope(mid))
   const live = (mid ? controller?.getMessageById?.(mid) : null) || message
   const text = messageVisibleText(live)
@@ -30,6 +31,7 @@ export function LiveAssistantBody(props: {
       text={text}
       parts={parts}
       reasoningDisplayMode={reasoningDisplayMode}
+      reasoningRenderEnabled={reasoningRenderEnabled}
       renderSafetyPolicyKey={renderSafetyPolicyKey}
       chatRootRef={chatRootRef}
       disabled={disabled}

@@ -23,7 +23,7 @@ import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeRoleToolPolicy } from './toolPolicy'
 import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
-import { normalizeReasoningDisplayMode } from './reasoningDisplay'
+import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
 import { normalizeWallpaperSettings } from './wallpaper'
 import { normalizeChatFontFamily, normalizeChatFontSize } from './chatFont'
 import { normalizeSessionFacts } from './sessionFacts'
@@ -165,6 +165,7 @@ export function normalizeData(raw: any) {
   if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
   if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
   ;(d.settings as any).reasoningDisplayMode = normalizeReasoningDisplayMode((d.settings as any).reasoningDisplayMode)
+  ;(d.settings as any).reasoningRenderEnabled = normalizeReasoningRenderEnabled((d.settings as any).reasoningRenderEnabled)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)
   if ((d.settings as any).wallpaper.enabled) d.settings.transparentChatBg = true
   d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)

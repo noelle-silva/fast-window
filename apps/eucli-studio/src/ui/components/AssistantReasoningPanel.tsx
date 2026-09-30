@@ -15,6 +15,8 @@ type AssistantReasoningPanelProps = {
   mid: string
   isActive: boolean
   displayMode: ReasoningDisplayMode
+  // 是否对思考内容做 Markdown 富渲染；关闭时按纯文本展示。
+  renderMarkdown: boolean
   text: string
   durationMs: number
   renderSafetyPolicyKey: string
@@ -22,7 +24,7 @@ type AssistantReasoningPanelProps = {
 }
 
 export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
-  const { controller, mid, isActive, displayMode, text, durationMs, renderSafetyPolicyKey, chatRootRef } = props
+  const { controller, mid, isActive, displayMode, renderMarkdown, text, durationMs, renderSafetyPolicyKey, chatRootRef } = props
   const [expanded, setExpanded] = React.useState(() => isActive && displayMode !== 'never-expand')
   // 用户手动开合后，这一段思考的展开状态只跟用户走，自动行为不再覆盖。
   const [manuallyToggled, setManuallyToggled] = React.useState(false)
@@ -128,7 +130,14 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
             hostSx={{ maxHeight: REASONING_MAX_HEIGHT_PX }}
             scrollSx={{ maxHeight: REASONING_MAX_HEIGHT_PX, pr: 1.25 }}
           >
-            <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isActive} />
+            {renderMarkdown ? (
+              <AssistantMessageHost controller={controller} className="prose" text={text} mid={`${mid}:reasoning`} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isActive} />
+            ) : (
+              // 纯文本模式：不做 Markdown 解析，直接原样展示思考内容。
+              <Typography component="pre" sx={{ m: 0, fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                {text}
+              </Typography>
+            )}
           </CustomScrollArea>
         </Box>
       </Collapse>

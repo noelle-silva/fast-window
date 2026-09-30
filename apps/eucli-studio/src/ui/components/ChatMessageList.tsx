@@ -42,6 +42,7 @@ type ChatMessageListProps = {
   userMessageCollapseEnabled: boolean
   userMessageCollapseLines: number
   reasoningDisplayMode: ReasoningDisplayMode
+  reasoningRenderEnabled: boolean
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -103,6 +104,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     userMessageCollapseEnabled,
     userMessageCollapseLines,
     reasoningDisplayMode,
+    reasoningRenderEnabled,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -487,6 +489,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                       mid={mid}
                       isGenerating={messageGenerating}
                       reasoningDisplayMode={reasoningDisplayMode}
+                      reasoningRenderEnabled={reasoningRenderEnabled}
                       renderSafetyPolicyKey={renderSafetyPolicyKey}
                       chatRootRef={chatRootRef}
                       disabled={!canEdit}
@@ -503,6 +506,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                     mid={mid}
                     isGenerating={messageGenerating}
                     reasoningDisplayMode={reasoningDisplayMode}
+                    reasoningRenderEnabled={reasoningRenderEnabled}
                     renderSafetyPolicyKey={renderSafetyPolicyKey}
                     chatRootRef={chatRootRef}
                     disabled={!canEdit}

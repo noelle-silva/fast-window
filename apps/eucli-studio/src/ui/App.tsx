@@ -47,7 +47,7 @@ import { sortChatListItemsForDisplay } from '../domain/chatListOrdering'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
-import { normalizeReasoningDisplayMode } from '../domain/reasoningDisplay'
+import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
 import { normalizeChatFontFamily, normalizeChatFontSize } from '../domain/chatFont'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
@@ -104,6 +104,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
+  const reasoningRenderEnabled = normalizeReasoningRenderEnabled(data?.settings?.reasoningRenderEnabled)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
@@ -963,6 +964,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                   userMessageCollapseEnabled={userMessageCollapseEnabled}
                   userMessageCollapseLines={userMessageCollapseLines}
                   reasoningDisplayMode={reasoningDisplayMode}
+                  reasoningRenderEnabled={reasoningRenderEnabled}
                   stickersEnabled={stickersEnabled}
                   stickerMap={stickerMap}
                   renderSafetyPolicyKey={renderSafetyPolicy}

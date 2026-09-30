@@ -11,7 +11,7 @@ import {
   normalizeChatFontFamily,
   normalizeChatFontSize,
 } from '../../domain/chatFont'
-import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode } from '../../domain/reasoningDisplay'
+import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
@@ -88,6 +88,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const userMessageCollapseEnabled = !!settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(settings?.reasoningDisplayMode)
+  const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
   const branchTreeView = (() => {
     const raw = String(((settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? raw : 'right'
@@ -376,29 +377,48 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
         </SettingsSection>
 
         <SettingsSection>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 900 }}>思考过程显示</Typography>
-              <Typography variant="caption" color="text.secondary">
-                AI 输出思考时思考过程的展开方式。
-              </Typography>
-            </Box>
-            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
-              <InputLabel id="fw-reasoning-display-mode">显示方式</InputLabel>
-              <Select
-                labelId="fw-reasoning-display-mode"
-                label="显示方式"
-                value={reasoningDisplayMode}
-                onChange={(e) => controller.actions.setReasoningDisplayMode?.(String(e.target.value || ''))}
+          <Stack spacing={1.25}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>思考过程显示</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AI 输出思考时思考过程的展开方式。
+                </Typography>
+              </Box>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+                <InputLabel id="fw-reasoning-display-mode">显示方式</InputLabel>
+                <Select
+                  labelId="fw-reasoning-display-mode"
+                  label="显示方式"
+                  value={reasoningDisplayMode}
+                  onChange={(e) => controller.actions.setReasoningDisplayMode?.(String(e.target.value || ''))}
+                  disabled={loading}
+                >
+                  {REASONING_DISPLAY_MODE_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  思维链渲染
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  开启后思考内容按 Markdown 富文本渲染；关闭时按纯文本显示。
+                </Typography>
+              </Box>
+              <Switch
+                size="small"
+                checked={reasoningRenderEnabled}
+                onChange={(e) => controller.actions.setReasoningRenderEnabled?.(!!e.target.checked)}
                 disabled={loading}
-              >
-                {REASONING_DISPLAY_MODE_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+              />
+            </Stack>
           </Stack>
         </SettingsSection>
 
