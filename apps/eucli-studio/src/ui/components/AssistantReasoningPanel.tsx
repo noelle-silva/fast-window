@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { Box, Collapse, Paper, Stack, Typography } from '@mui/material'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
@@ -9,6 +8,10 @@ import { formatDurationMs } from '../utils/time'
 
 const REASONING_MAX_HEIGHT_PX = 320
 const FOLLOW_BOTTOM_THRESHOLD_PX = 24
+// 开合过渡：展开减速缓入、收起稍快，观感自然。
+const COLLAPSE_TIMEOUT = { enter: 240, exit: 180 }
+const COLLAPSE_EASING = { enter: 'cubic-bezier(0.22, 1, 0.36, 1)', exit: 'cubic-bezier(0.4, 0, 1, 1)' }
+const CHEVRON_TRANSITION = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
 
 type AssistantReasoningPanelProps = {
   controller: any
@@ -48,7 +51,7 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
     wasExpandedRef.current = expanded
     const el = scrollRef.current
     if (!el || !expanded) return
-    // 展开瞬间：思考仍在输出就回到最新一行并恢复跟随；已结束则从开头阅读。
+    // 展开瞬间：思考仍在输出就回到最新一行并恢复跟随；已结束则保持原有阅读位置。
     if (justExpanded) stickToBottomRef.current = isActive
     if (!stickToBottomRef.current) return
     el.scrollTop = el.scrollHeight
@@ -118,12 +121,16 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
             {durationText}
           </Typography>
         ) : null}
-        {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
+        <ExpandMoreIcon
+          fontSize="inherit"
+          sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: CHEVRON_TRANSITION }}
+        />
       </Stack>
-      <Collapse in={expanded} timeout={160} unmountOnExit>
+      <Collapse in={expanded} timeout={COLLAPSE_TIMEOUT} easing={COLLAPSE_EASING} mountOnEnter>
         <Box sx={{ px: 1.1, pb: 1.05, pt: 0.1 }}>
           <CustomScrollArea
             ref={scrollRef}
+            axis="y"
             hostSx={{ maxHeight: REASONING_MAX_HEIGHT_PX }}
             scrollSx={{ maxHeight: REASONING_MAX_HEIGHT_PX, pr: 1.25 }}
           >

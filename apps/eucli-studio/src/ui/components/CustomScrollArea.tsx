@@ -21,6 +21,8 @@ type DragState = {
 
 export type CustomScrollAreaProps = {
   children: React.ReactNode
+  // axis='y'：只保留纵向滚动，横向溢出裁切，不出现横向滚动条。
+  axis?: 'both' | 'y'
   hostSx?: SxProps<Theme>
   scrollSx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
@@ -35,7 +37,7 @@ function sxList(value?: SxProps<Theme>) {
 }
 
 export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAreaProps>(function CustomScrollArea(props, forwardedRef) {
-  const { children, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
+  const { children, axis = 'both', hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
@@ -47,10 +49,10 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
   const updateMetrics = React.useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    const next = measureCustomScrollArea(el)
+    const next = measureCustomScrollArea(el, { allowX: axis === 'both' })
     setMetrics((current) => (sameCustomScrollMetrics(current, next) ? current : next))
     onScrollPositionChange?.(el)
-  }, [onScrollPositionChange])
+  }, [axis, onScrollPositionChange])
 
   React.useLayoutEffect(() => {
     const el = scrollRef.current
@@ -159,7 +161,8 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
           {
             minWidth: 0,
             minHeight: 0,
-            overflow: 'auto',
+            overflowY: 'auto',
+            overflowX: axis === 'y' ? 'hidden' : 'auto',
             ...customScrollbarHiddenSx,
           },
           ...sxList(scrollSx),

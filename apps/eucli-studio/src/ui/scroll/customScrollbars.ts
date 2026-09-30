@@ -40,11 +40,12 @@ export function sameCustomScrollMetrics(a: CustomScrollMetrics, b: CustomScrollM
   )
 }
 
-export function measureCustomScrollArea(el: HTMLElement): CustomScrollMetrics {
+export function measureCustomScrollArea(el: HTMLElement, options?: { allowX?: boolean }): CustomScrollMetrics {
+  const allowX = options?.allowX !== false
   const height = Math.max(0, el.clientHeight)
   const width = Math.max(0, el.clientWidth)
   const maxY = Math.max(0, el.scrollHeight - height)
-  const maxX = Math.max(0, el.scrollWidth - width)
+  const maxX = allowX ? Math.max(0, el.scrollWidth - width) : 0
   const yRange = Math.max(0, height - CUSTOM_SCROLL_EDGE_INSET * 2)
   const xRange = Math.max(0, width - CUSTOM_SCROLL_EDGE_INSET * 2)
   const yHeight = maxY > 1 ? Math.min(yRange, Math.max(CUSTOM_SCROLL_MIN_THUMB_SIZE, (height / Math.max(el.scrollHeight, 1)) * yRange)) : 0
