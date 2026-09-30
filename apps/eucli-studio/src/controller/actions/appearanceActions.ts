@@ -6,7 +6,7 @@ import {
   normalizeColorThemeSettings,
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
-import { normalizeChatFontFamily, normalizeChatFontSize } from '../../domain/chatFont'
+import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
@@ -70,6 +70,18 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       state.data.settings.chatFontFamily = normalizeChatFontFamily(family)
       saveMeta().catch(() => {})
+      emit()
+    },
+    setChatLetterSpacing: (spacing: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.chatLetterSpacing = normalizeChatLetterSpacing(spacing)
+      if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setChatLineHeight: (height: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.chatLineHeight = normalizeChatLineHeight(height)
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setColorThemePreset: (presetId: any) => {

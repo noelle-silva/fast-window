@@ -2,6 +2,14 @@ export const CHAT_FONT_SIZE_MIN = 12
 export const CHAT_FONT_SIZE_MAX = 22
 export const CHAT_FONT_SIZE_DEFAULT = 14
 
+export const CHAT_LETTER_SPACING_MIN = 0
+export const CHAT_LETTER_SPACING_MAX = 4
+export const CHAT_LETTER_SPACING_DEFAULT = 0
+
+export const CHAT_LINE_HEIGHT_MIN = 1.2
+export const CHAT_LINE_HEIGHT_MAX = 2.6
+export const CHAT_LINE_HEIGHT_DEFAULT = 1.75
+
 // 默认会话字体栈参考 cherry-studio 的 Windows 默认：微软雅黑 UI 优先，其余平台逐级回落。
 export const DEFAULT_CHAT_FONT_STACK =
   '"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif'
@@ -28,11 +36,33 @@ export const CHAT_FONT_OPTIONS: ChatFontOption[] = [
   { value: 'Consolas', label: 'Consolas' },
 ]
 
-export function normalizeChatFontSize(value: unknown): number {
+function toFiniteNumber(value: unknown): number | null {
   const text = typeof value === 'string' ? value.trim() : ''
   const raw = typeof value === 'number' ? value : text ? Number(text) : NaN
-  if (!Number.isFinite(raw)) return CHAT_FONT_SIZE_DEFAULT
-  return Math.min(CHAT_FONT_SIZE_MAX, Math.max(CHAT_FONT_SIZE_MIN, Math.round(raw)))
+  return Number.isFinite(raw) ? raw : null
+}
+
+function clampWithPrecision(value: number, min: number, max: number, precision: number): number {
+  const factor = 10 ** precision
+  return Math.round(Math.min(max, Math.max(min, value)) * factor) / factor
+}
+
+export function normalizeChatFontSize(value: unknown): number {
+  const raw = toFiniteNumber(value)
+  if (raw === null) return CHAT_FONT_SIZE_DEFAULT
+  return clampWithPrecision(raw, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX, 0)
+}
+
+export function normalizeChatLetterSpacing(value: unknown): number {
+  const raw = toFiniteNumber(value)
+  if (raw === null) return CHAT_LETTER_SPACING_DEFAULT
+  return clampWithPrecision(raw, CHAT_LETTER_SPACING_MIN, CHAT_LETTER_SPACING_MAX, 1)
+}
+
+export function normalizeChatLineHeight(value: unknown): number {
+  const raw = toFiniteNumber(value)
+  if (raw === null) return CHAT_LINE_HEIGHT_DEFAULT
+  return clampWithPrecision(raw, CHAT_LINE_HEIGHT_MIN, CHAT_LINE_HEIGHT_MAX, 2)
 }
 
 export function normalizeChatFontFamily(value: unknown): string {
