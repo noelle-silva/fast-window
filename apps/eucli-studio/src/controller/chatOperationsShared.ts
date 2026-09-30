@@ -49,6 +49,7 @@ export type ChatOperationsDeps = {
   emit: () => void
   render: () => void
   renderComposer: () => void
+  emitComposerScope?: () => void
   scrollToBottomSoon: () => void
   readImageFileAsDataUrl: (file: File) => Promise<string>
 }

@@ -12,10 +12,12 @@ import {
 import { removeDraftImage as removeDraftImageFromList } from '../domain/draftImageUtils'
 import {
   activateComposerDraftForCurrentSession,
+  readActiveComposerDraft,
   setActiveComposerImages,
   setActiveComposerInput,
 } from '../domain/sessionComposerDrafts'
 import { pendingChatForTarget } from '../domain/pendingChat'
+import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
@@ -624,6 +626,12 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return msgs.find((m: any) => String(m?.id || '') === mid) || null
   }
 
+  // getComposerDraft 读取当前会话的实时输入草稿（只读，不产生副作用）：
+  // 输入区局部订阅者据此独立更新。
+  function getComposerDraft() {
+    return readActiveComposerDraft(state)
+  }
+
   // ============================================================
   // 13. MERMAID UI
   // ============================================================
@@ -770,6 +778,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     render,
     renderComposer,
+    emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
   })
@@ -1041,6 +1050,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const chatNavigationActions = createChatNavigationActions({
     state,
     emit,
+    emitScope,
     saveMeta,
     ensureActiveChatLoaded,
     ensureChatsBoxBare,
@@ -1202,6 +1212,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     subscribeScope,
     emitScope,
     getMessageById,
+    getComposerDraft,
     fmtTime,
     activeRole,
     activeChat,

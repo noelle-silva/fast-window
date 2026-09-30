@@ -4,6 +4,8 @@ import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import CloseIcon from '@mui/icons-material/Close'
 import { HookPromptSelector } from '../components/HookPromptSelector'
+import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
+import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
 
 const composerToolIconButtonSx = {
@@ -143,6 +145,11 @@ export function ChatComposer(props: {
     onPaste,
   } = props
 
+  // 输入区独立更新：草稿图片变化走 composer 范围，只有本组件重渲染。
+  useScopedUiVersion(controller, COMPOSER_REFRESH_SCOPE)
+  const liveDraft = (controller?.getComposerDraft?.() as any) || draft
+  const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
+
   return (
     <Box
       ref={composerRef}
@@ -162,9 +169,9 @@ export function ChatComposer(props: {
       }}
     >
       <Stack spacing={1}>
-        {Array.isArray(draft?.images) && draft.images.length ? (
+        {draftImages.length ? (
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            {draft.images.map((img: any) => (
+            {draftImages.map((img: any) => (
               <Box key={String(img?.id || '')} sx={{ position: 'relative' }}>
                 <Box
                   component="img"

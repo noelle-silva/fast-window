@@ -11,7 +11,8 @@ import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatDraftOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps } = shared
-  const { getState, pickImageFiles, showToast, renderComposer, readImageFileAsDataUrl } = deps
+  const { getState, pickImageFiles, showToast, renderComposer, emitComposerScope, readImageFileAsDataUrl } = deps
+  const notifyComposer = () => (emitComposerScope ? emitComposerScope() : renderComposer())
 
   function addDraftImage(name: any, dataUrl: any, draftKeyRaw?: any) {
     const state = getState()
@@ -50,7 +51,7 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
     } catch (e) {
       showToast?.(String((e as any)?.message || e || '选择图片失败'), { kind: 'error' })
     } finally {
-      renderComposer()
+      notifyComposer()
     }
   }
 
@@ -79,7 +80,7 @@ export function createChatDraftOperations(shared: ReturnType<typeof createChatOp
     }
 
     if (!added) showToast?.('未识别到图片', { kind: 'error' })
-    renderComposer()
+    notifyComposer()
   }
 
   function buildRunImages(draftImages: any[]) {

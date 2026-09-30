@@ -16,6 +16,8 @@ export type AiChatController = {
   emitScope: (scope: string) => void
   // 读取当前活动会话中指定消息的实时对象（流式更新就地改写同一对象）。
   getMessageById: (mid: string) => any
+  // 读取当前会话的实时输入草稿（输入区独立更新）。
+  getComposerDraft: () => any
   fmtTime: (ts: any) => string
   activeRole: () => any
   activeChat: () => any

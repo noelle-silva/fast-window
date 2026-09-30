@@ -1,4 +1,5 @@
 import { removeDraftImage as removeDraftImageFromList } from '../../domain/draftImageUtils'
+import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import {
   activateComposerDraftForCurrentSession,
   saveActiveComposerDraftMirror,
@@ -9,6 +10,7 @@ import {
 export function createChatNavigationActions(deps: {
   state: any
   emit: () => void
+  emitScope?: (scope: string) => void
   saveMeta: () => Promise<any>
   ensureActiveChatLoaded: () => Promise<any>
   ensureChatsBoxBare: (roleId: string) => any
@@ -20,7 +22,7 @@ export function createChatNavigationActions(deps: {
   pickDraftImages: () => any
   addDraftImagesFromFiles: (files: File[]) => any
 }) {
-  const { state, emit, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
+  const { state, emit, emitScope, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
 
   return {
     setActiveRole: (roleId: any) => {
@@ -63,6 +65,8 @@ export function createChatNavigationActions(deps: {
       const k = String(key || '')
       if (!k) return
       if (k === 'input') {
+        // 输入草稿由输入区本地状态承载，这里只写数据不广播：
+        // 若在此广播，输入区每次按键都会被外部刷新重置，选择器会被顶掉。
         setActiveComposerInput(state, value)
         return
       }
@@ -76,7 +80,9 @@ export function createChatNavigationActions(deps: {
     removeDraftImage: (id: any) => {
       const draft = activateComposerDraftForCurrentSession(state)
       setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
-      emit()
+      // 草稿图片只该动输入区，走 composer 范围，不惊动整页。
+      if (emitScope) emitScope(COMPOSER_REFRESH_SCOPE)
+      else emit()
     },
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: async (files: any) => {
