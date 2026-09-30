@@ -87,6 +87,70 @@ func TestSaveNoteFaceSettingsPatchSemantics(t *testing.T) {
 	}
 }
 
+// 空操作短路：补丁不改变任何设置时不写盘、不推进版本，回显照常给出（可用于探读）。
+func TestSaveNoteFaceSettingsNoOpDoesNotBumpVersion(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	created, err := svc.saveNoteFaces(testRepoID(t, svc), mustJSONRaw(t, map[string]any{
+		"id":    "face-settings-noop-1",
+		"title": "空操作",
+		"faces": []map[string]any{
+			{"faceId": "html", "kind": "html", "content": "<div>hi</div>"},
+		},
+	}), 0)
+	if err != nil {
+		t.Fatalf("save html face failed: %v", err)
+	}
+	packageDir := created.(map[string]any)["meta"].(noteMeta).Dir
+	if _, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}), 0); err != nil {
+		t.Fatalf("save displayMode failed: %v", err)
+	}
+	before, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 空补丁：不改变任何东西，版本号必须原样不动。
+	empty, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{}), 0)
+	if err != nil {
+		t.Fatalf("empty patch failed: %v", err)
+	}
+	emptyResult := empty.(map[string]any)
+	if emptyResult["changed"] != false {
+		t.Fatalf("empty patch changed = %#v", emptyResult["changed"])
+	}
+	if got := emptyResult["version"].(float64); got != before.UpdatedAtMs {
+		t.Fatalf("empty patch version = %v, want %v", got, before.UpdatedAtMs)
+	}
+
+	// 重复提交同值：同样是无操作。
+	same, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"displayMode": "natural"}), 0)
+	if err != nil {
+		t.Fatalf("same value patch failed: %v", err)
+	}
+	if same.(map[string]any)["changed"] != false {
+		t.Fatalf("same value patch changed = %#v", same.(map[string]any)["changed"])
+	}
+
+	after, err := svc.loadNoteManifest(testRepoID(t, svc), packageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UpdatedAtMs != before.UpdatedAtMs {
+		t.Fatalf("version advanced by no-op: %v -> %v", before.UpdatedAtMs, after.UpdatedAtMs)
+	}
+	// 真正改变值时才推进版本。
+	changed, err := svc.saveNoteFaceSettings(testRepoID(t, svc), packageDir, "html", mustJSONRaw(t, map[string]any{"fixedScale": 0.5}), 0)
+	if err != nil {
+		t.Fatalf("real change failed: %v", err)
+	}
+	if changed.(map[string]any)["changed"] != true {
+		t.Fatalf("real change changed = %#v", changed.(map[string]any)["changed"])
+	}
+}
+
 // Q47/Q48：新笔记按 faceKinds 创建默认面，并按清单顺序建立面顺序，面文件同步落盘。
 func TestSaveNoteFaceFaceKindsCreatesDefaultFaces(t *testing.T) {
 	svc := newTestService(t)

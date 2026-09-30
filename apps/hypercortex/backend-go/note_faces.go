@@ -561,7 +561,6 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	if err != nil {
 		return nil, coded(codeUnknownFaceKind, "未知笔记面类型：%s", face.Kind)
 	}
-	updated := nowMs()
 	normalized := adapter.NormalizeSettings(settings)
 	// 未生效校验：补丁里显式提供的非空设置项必须被面协议接受；
 	// 被协议静默丢弃的键快速失败，绝不留下「写了但没生效」的假成功。
@@ -574,6 +573,13 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 			return nil, fmt.Errorf("面设置项 %s 不被 %s 面支持（可用设置项见该面类型的设置声明）", key, face.Kind)
 		}
 	}
+	// 空操作短路：规范化结果与现有设置一致时不写盘、不推进版本，
+	// 让空补丁与重复提交成为真无副作用；设置回显照常给出，可用于探读当前设置。
+	if faceSettingsEqual(face.Settings, normalized) {
+		meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+		return map[string]any{"meta": meta, "manifest": manifest, "version": manifest.UpdatedAtMs, "changed": false}, nil
+	}
+	updated := nowMs()
 	face.Settings = normalized
 	face.UpdatedAtMs = updated
 	face.CreatedAtMs = nonZeroFloat(face.CreatedAtMs, manifest.CreatedAtMs)
@@ -587,7 +593,26 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
-	return attachSaveVersion(map[string]any{"meta": meta, "manifest": manifest}), nil
+	return attachSaveVersion(map[string]any{"meta": meta, "manifest": manifest, "changed": true}), nil
+}
+
+// faceSettingsEqual 判断两份面设置是否逐项相等：map 经 JSON 序列化后比较（键有序）。
+func faceSettingsEqual(left map[string]any, right map[string]any) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	if len(left) != len(right) {
+		return false
+	}
+	leftRaw, err := json.Marshal(left)
+	if err != nil {
+		return false
+	}
+	rightRaw, err := json.Marshal(right)
+	if err != nil {
+		return false
+	}
+	return string(leftRaw) == string(rightRaw)
 }
 
 // validateUniqueFaceFiles 校验笔记内所有面的落盘文件名唯一，防止两个面互写同一文件。

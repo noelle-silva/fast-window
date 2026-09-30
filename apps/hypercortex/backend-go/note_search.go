@@ -68,8 +68,10 @@ type noteSearchResult struct {
 	Kinds []noteSearchFaceKindInfo `json:"kinds"`
 	// AppliedFaceKinds 是本次实际生效的面类型筛选（规范化后的有序去重清单）；
 	// 未指定筛选时为空数组。调用方可据此判断筛选是否真实生效。
-	AppliedFaceKinds []string        `json:"appliedFaceKinds"`
-	Items            []noteSearchHit `json:"items"`
+	AppliedFaceKinds []string `json:"appliedFaceKinds"`
+	// Total 是过滤命中的总数（与分页窗口无关），供调用方判断是否还有下一页。
+	Total int             `json:"total"`
+	Items []noteSearchHit `json:"items"`
 }
 
 // noteSearchQuery 是一次搜索请求的全部条件：匹配维度、面类型、收藏夹范围、更新时间范围与分段。
@@ -413,6 +415,7 @@ func (svc *service) queryNoteSearch(query noteSearchQuery) (noteSearchResult, er
 		}
 		return hits[i].NoteID < hits[j].NoteID
 	})
+	result.Total = len(hits)
 	if offset >= len(hits) {
 		hits = []noteSearchHit{}
 	} else {

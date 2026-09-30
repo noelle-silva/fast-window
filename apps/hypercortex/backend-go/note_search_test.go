@@ -408,6 +408,12 @@ func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {
 	if len(all.Items) != 5 {
 		t.Fatalf("default items = %d, want 5", len(all.Items))
 	}
+	// total 是过滤命中总数，与分页窗口无关：每页都报同一个总数。
+	for name, page := range map[string]noteSearchResult{"first": first, "second": second, "third": third, "beyond": beyond, "all": all} {
+		if page.Total != 5 {
+			t.Fatalf("%s total = %d, want 5", name, page.Total)
+		}
+	}
 }
 
 func TestSearchQueryWithoutKeywordsListsNotesByUpdatedTime(t *testing.T) {
