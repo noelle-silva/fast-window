@@ -36,6 +36,7 @@ import { HookPromptSelector } from './components/HookPromptSelector'
 import { ChatTopBar } from './components/ChatTopBar'
 import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
+import { Freeze } from './components/Freeze'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
@@ -885,6 +886,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             visibility: page === 'chat' ? 'inherit' : 'hidden',
           }}
         >
+          <Freeze frozen={page !== 'chat'}>
             <Box
               ref={chatPaneRef}
               sx={{
@@ -1279,7 +1281,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         setConfirmDelChat={setConfirmDelChat}
         isSendingThisChat={isSendingThisChat}
       />
-
+          </Freeze>
         </Box>
 
         {settingsMounted ? (
@@ -1294,6 +1296,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             visibility: page === 'settings' ? 'inherit' : 'hidden',
           }}
         >
+          <Freeze frozen={page !== 'settings'}>
           <PluginSettingsPage
             controller={controller}
             loading={!!s.loading}
@@ -1325,6 +1328,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             dataDirectory={dataDirectory}
             eucliBoxConnection={eucliBoxConnection}
           />
+          </Freeze>
         </Box>
         ) : null}
         </Box>
