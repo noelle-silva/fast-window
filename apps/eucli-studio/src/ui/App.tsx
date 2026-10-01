@@ -54,7 +54,7 @@ import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../domain/release'
-import { resolveColorThemePreset } from '../domain/colorTheme'
+import { resolveColorThemePreview } from '../domain/colorTheme'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
@@ -79,7 +79,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseViews, onReleaseRefresh } = props
   const s = useAiChatState(controller)
   const data = s.data
-  const colorThemePreset = resolveColorThemePreset(data?.settings?.colorTheme)
+  const colorThemePreset = resolveColorThemePreview(data?.settings?.colorTheme, (s.draft as any)?.colorThemeDraft)
   const theme = React.useMemo(() => createStudioMuiTheme(colorThemePreset), [colorThemePreset])
   const roles = Array.isArray(data?.roles) ? data.roles : []
   const groups = Array.isArray((data as any)?.groups) ? ((data as any).groups as any[]) : []

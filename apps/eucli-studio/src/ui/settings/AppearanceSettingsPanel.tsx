@@ -104,8 +104,8 @@ function ChatTextMetricRow(props: {
   )
 }
 
-export function AppearanceSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
-  const { controller, loading, data } = props
+export function AppearanceSettingsPanel(props: { controller: any; loading: boolean; data: any; draft: any }) {
+  const { controller, loading, data, draft } = props
   const settings = data?.settings
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
   const chatFontSize = normalizeChatFontSize(settings?.chatFontSize)
@@ -194,7 +194,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
       <Stack spacing={1.5}>
         <Typography sx={{ fontWeight: 900 }}>客户端外观</Typography>
 
-        <ColorThemeSettingsSection controller={controller} loading={loading} settings={settings} />
+        <ColorThemeSettingsSection controller={controller} loading={loading} settings={settings} draft={draft} />
 
         <WallpaperSettingsSection controller={controller} loading={loading} settings={settings} />
 

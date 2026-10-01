@@ -77,7 +77,7 @@ export function PluginSettingsPage(props: {
       )
     }
 
-    if (value === 'appearance') return <AppearanceSettingsPanel controller={controller} loading={loading} data={data} />
+    if (value === 'appearance') return <AppearanceSettingsPanel controller={controller} loading={loading} data={data} draft={draft} />
     if (value === 'session') return <SessionSettingsPanel controller={controller} loading={loading} modelRequestConfig={modelRequestConfig} conversationImageConfig={conversationImageConfig} />
     if (value === 'data') return <DataSettingsPanel dataDirectory={dataDirectory} loading={loading} />
     if (value === 'groups') return (

@@ -90,6 +90,7 @@ export function createInitialControllerState() {
       deleteWorkspaceId: '',
       deleteProviderId: '',
       renderSafetyPolicyTarget: '',
+      colorThemeDraft: null as any,
     } as any,
     data: null as any,
   }
