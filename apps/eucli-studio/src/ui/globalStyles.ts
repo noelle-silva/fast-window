@@ -162,7 +162,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
       transition: 'opacity 120ms ease',
       '&:hover': { background: 'rgba(0,0,0,.06)', borderColor: 'rgba(0,0,0,.12)', color: 'rgba(0,0,0,.72)' },
       '&:active': { background: 'rgba(0,0,0,.10)', borderColor: 'rgba(0,0,0,.12)', color: 'rgba(0,0,0,.76)' },
-      '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+      '&:focus-visible': { outline: `2px solid ${colorMixVar('--studio-primary', 35)}`, outlineOffset: 2 },
     },
     '.math-inline.fw-math-host > .fw-math-copy': {
       left: '100%',
@@ -226,7 +226,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         '&:hover': { background: 'rgba(255,255,255,.96)', color: 'rgba(15,23,42,.88)' },
         '&:active': { background: 'rgba(255,255,255,1)' },
         '&:disabled': { opacity: 0.78, cursor: 'default' },
-        '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+        '&:focus-visible': { outline: `2px solid ${colorMixVar('--studio-primary', 35)}`, outlineOffset: 2 },
       },
      '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
      '.mermaid-error-box': {
@@ -257,7 +257,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
        '&:hover': { background: 'rgba(255,255,255,1)' },
        '&:active': { background: 'rgba(255,255,255,.96)' },
        '&:disabled': { opacity: 0.7, cursor: 'default' },
-       '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+       '&:focus-visible': { outline: `2px solid ${colorMixVar('--studio-primary', 35)}`, outlineOffset: 2 },
      },
      '.mermaid-error-copy': {
        position: 'absolute',
@@ -279,7 +279,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
        '&:hover': { background: 'rgba(255,255,255,1)' },
        '&:active': { background: 'rgba(255,255,255,.96)' },
        '&:disabled': { opacity: 0.7, cursor: 'default' },
-       '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+       '&:focus-visible': { outline: `2px solid ${colorMixVar('--studio-primary', 35)}`, outlineOffset: 2 },
      },
      '.mermaid-error-title': { fontWeight: 900, fontSize: 12, color: 'rgba(0,0,0,.72)' },
      '.mermaid-error-msg': {

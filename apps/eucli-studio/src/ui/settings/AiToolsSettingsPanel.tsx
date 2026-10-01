@@ -28,6 +28,7 @@ import { ToolWorkDirectorySection } from './ToolWorkDirectorySection'
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { plainObject, stringField } from './schemaFieldValues'
 import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, type CompatibilityStatus, type EucliBoxCompatibility, type ReleaseArtifactIdentity, type ReleaseCandidatesView } from '../../domain/release'
+import { colorMixVar } from '../colorThemeStyles'
 
 type AiToolsSettingsPanelProps = {
   controller: any
@@ -104,7 +105,7 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-            <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(25,118,210,.10)', color: 'primary.main', display: 'grid', placeItems: 'center' }}>
+            <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center' }}>
               <BuildIcon fontSize="small" />
             </Box>
             <SettingsHeading title="AI 工具管理" description="从 e-b 工具目录加载工具，并编辑工具的用户配置。" descriptionVariant="body2" />

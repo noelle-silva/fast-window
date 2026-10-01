@@ -8,6 +8,7 @@ import { MODEL_REQUEST_TIMEOUT_LIMITS } from '../../controller/modelRequestConfi
 import { CONVERSATION_IMAGE_LIMITS } from '../../controller/conversationImageConfig'
 import { useEvent } from '../hooks/useEvent'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { colorMixVar } from '../colorThemeStyles'
 
 type SessionSettingsPanelProps = {
   controller: any
@@ -52,7 +53,7 @@ export function SessionSettingsPanel(props: SessionSettingsPanelProps) {
         <Stack spacing={1.5}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
             <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-              <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(25,118,210,.10)', color: 'primary.main', display: 'grid', placeItems: 'center' }}>
+              <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center' }}>
                 <TuneIcon fontSize="small" />
               </Box>
               <SettingsHeading title="会话设置" description="配置模型列表、非流式生成、流式生成三类请求的超时规则。" descriptionVariant="body2" />

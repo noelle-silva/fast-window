@@ -3,6 +3,7 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { colorMixVar } from '../colorThemeStyles'
 
 export function WorkspaceEditorForm(props: { controller: any; draft: any }) {
   const { controller, draft } = props
@@ -81,7 +82,7 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any }) {
           <Box key={`workspace-dir-${index}`} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.25 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: 'rgba(59,130,246,.10)', color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                   <FolderOutlinedIcon fontSize="small" />
                 </Box>
                 <Typography sx={{ fontWeight: 900, minWidth: 0 }} noWrap>

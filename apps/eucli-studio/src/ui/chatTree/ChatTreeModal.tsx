@@ -122,10 +122,10 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                 justifyContent: 'center',
                 '& .fw-split-line': {
                   opacity: treeResizing ? 1 : 0,
-                  bgcolor: treeResizing ? 'rgba(25,118,210,.55)' : 'rgba(0,0,0,.18)',
+                  bgcolor: treeResizing ? colorMixVar('--studio-primary', 55) : 'rgba(0,0,0,.18)',
                   transition: 'opacity 120ms ease, background-color 120ms ease',
                 },
-                '&:hover .fw-split-line': { opacity: 1, bgcolor: 'rgba(25,118,210,.55)' },
+                '&:hover .fw-split-line': { opacity: 1, bgcolor: colorMixVar('--studio-primary', 55) },
               }}
             >
               <Box className="fw-split-line" sx={{ width: 1, bgcolor: 'rgba(0,0,0,.18)' }} />

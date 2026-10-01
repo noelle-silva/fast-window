@@ -5,6 +5,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import { compatibilityRangeText, type StudioBootstrap } from '../../domain/release'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { colorMixVar } from '../colorThemeStyles'
 
 export type AiChatEucliBoxConnectionInfo = {
   eucliBoxUrl: string
@@ -74,7 +75,7 @@ export function EbSettingsPanel(props: EbSettingsPanelProps) {
     <SettingsSurface>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
-          <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: 'rgba(14,165,233,.10)', color: 'info.main', display: 'grid', placeItems: 'center' }}>
+          <Box sx={{ width: 42, height: 42, borderRadius: 2, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center' }}>
             <CableIcon fontSize="small" />
           </Box>
           <SettingsHeading title="eucli-box连接设置" description="查看当前连接信息，以及客户端与 eucli-box 的版本和适用情况。" descriptionVariant="body2" />

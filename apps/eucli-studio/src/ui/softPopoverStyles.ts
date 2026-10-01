@@ -1,3 +1,5 @@
+import { colorMixVar } from './colorThemeStyles'
+
 export const SOFT_POPOVER_PAPER_SX = {
   borderRadius: 3,
   bgcolor: 'rgba(255,255,255,.94)',
@@ -11,7 +13,7 @@ export const SOFT_POPOVER_PAPER_SX = {
     '& .MuiOutlinedInput-notchedOutline': { border: 0 },
     '&:hover': { bgcolor: 'rgba(255,255,255,.94)', boxShadow: '0 10px 26px rgba(15,23,42,.065)' },
     '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-    '&.Mui-focused': { bgcolor: 'rgba(239,246,255,.96)', boxShadow: '0 12px 30px rgba(37,99,235,.10)' },
+    '&.Mui-focused': { bgcolor: 'var(--studio-field-focus)', boxShadow: 'var(--studio-focus)' },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
   },
   '& .MuiInputLabel-root': { fontWeight: 700, color: 'text.secondary' },
@@ -52,11 +54,11 @@ export const SOFT_POPOVER_ITEM_SX = {
   alignItems: 'center',
   transition: 'background-color .16s ease, box-shadow .16s ease',
   '&.Mui-selected': {
-    bgcolor: 'rgba(59,130,246,.10)',
-    boxShadow: '0 10px 26px rgba(37,99,235,.09)',
+    bgcolor: colorMixVar('--studio-primary', 10),
+    boxShadow: `0 10px 26px ${colorMixVar('--studio-primary', 9)}`,
   },
   '&.Mui-selected:hover': {
-    bgcolor: 'rgba(59,130,246,.14)',
+    bgcolor: colorMixVar('--studio-primary', 14),
   },
 }
 

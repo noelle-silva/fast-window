@@ -9,6 +9,7 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
+import { colorMixVar } from '../colorThemeStyles'
 
 type WorkspacesSettingsPanelProps = {
   controller: any
@@ -62,7 +63,7 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                         disabled={!workspaceId}
                         sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', px: 1, textTransform: 'none', textAlign: 'left' }}
                       >
-                        <Box sx={{ width: 24, height: 24, borderRadius: 1.5, bgcolor: 'rgba(59,130,246,.10)', color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0, mr: 0.75 }}>
+                        <Box sx={{ width: 24, height: 24, borderRadius: 1.5, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0, mr: 0.75 }}>
                           <FolderOutlinedIcon sx={{ fontSize: 16 }} />
                         </Box>
                         <Box sx={{ minWidth: 0 }}>
