@@ -3,20 +3,20 @@ import { Chip } from '@mui/material'
 
 export type ErrorKindStyle = {
   label: string
-  color: string
-  bg: string
+  colorVar: string
+  bgVar: string
 }
 
 export function errorKindStyle(codeRaw: string): ErrorKindStyle {
   const code = String(codeRaw || '').trim()
-  if (!code) return { label: '原始原因', color: '#64748b', bg: 'rgba(100,116,139,.08)' }
-  if (code.startsWith('network.')) return { label: '网络异常', color: '#d97706', bg: 'rgba(217,119,6,.08)' }
-  if (code === 'provider.service_failed') return { label: '上游返回', color: '#2563eb', bg: 'rgba(37,99,235,.08)' }
-  if (code.startsWith('provider.')) return { label: '模型请求', color: '#7c3aed', bg: 'rgba(124,58,237,.08)' }
-  if (code.startsWith('runtime.')) return { label: '运行阶段', color: '#475569', bg: 'rgba(71,85,105,.08)' }
-  if (code.startsWith('gateway.')) return { label: '网关阶段', color: '#475569', bg: 'rgba(71,85,105,.08)' }
-  if (code.startsWith('storage.')) return { label: '存储异常', color: '#dc2626', bg: 'rgba(220,38,38,.08)' }
-  return { label: '内部错误', color: '#dc2626', bg: 'rgba(220,38,38,.08)' }
+  if (!code) return { label: '原始原因', colorVar: 'var(--studio-text-secondary)', bgVar: 'var(--studio-paper-muted)' }
+  if (code.startsWith('network.')) return { label: '网络异常', colorVar: 'var(--studio-warning-text)', bgVar: 'var(--studio-warning-bg)' }
+  if (code === 'provider.service_failed') return { label: '上游返回', colorVar: 'var(--studio-primary)', bgVar: 'var(--studio-primary-soft)' }
+  if (code.startsWith('provider.')) return { label: '模型请求', colorVar: 'var(--studio-secondary)', bgVar: 'var(--studio-secondary-soft)' }
+  if (code.startsWith('runtime.')) return { label: '运行阶段', colorVar: 'var(--studio-text-secondary)', bgVar: 'var(--studio-paper-muted)' }
+  if (code.startsWith('gateway.')) return { label: '网关阶段', colorVar: 'var(--studio-text-secondary)', bgVar: 'var(--studio-paper-muted)' }
+  if (code.startsWith('storage.')) return { label: '存储异常', colorVar: 'var(--studio-danger-text)', bgVar: 'var(--studio-danger-bg)' }
+  return { label: '内部错误', colorVar: 'var(--studio-danger-text)', bgVar: 'var(--studio-danger-bg)' }
 }
 
 export function ErrorKindChip(props: { code?: string }) {
@@ -25,7 +25,7 @@ export function ErrorKindChip(props: { code?: string }) {
     <Chip
       label={kind.label}
       size="small"
-      sx={{ height: 20, fontSize: 11, fontWeight: 900, color: kind.color, bgcolor: 'rgba(255,255,255,.72)' }}
+      sx={{ height: 20, fontSize: 11, fontWeight: 900, color: kind.colorVar, bgcolor: kind.bgVar }}
     />
   )
 }

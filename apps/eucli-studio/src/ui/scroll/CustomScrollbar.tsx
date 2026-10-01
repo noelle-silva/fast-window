@@ -154,12 +154,12 @@ const thumbBaseSx = {
   position: 'absolute',
   zIndex: 3,
   borderRadius: 999,
-  bgcolor: 'rgba(71,85,105,.48)',
-  boxShadow: '0 8px 18px rgba(15,23,42,.16), inset 0 0 0 1px rgba(255,255,255,.42)',
+  bgcolor: 'var(--studio-scrollbar-thumb)',
+  boxShadow: '0 8px 18px color-mix(in srgb, var(--studio-text-primary) 16%, transparent), inset 0 0 0 1px rgba(255,255,255,.42)',
   cursor: 'grab',
   touchAction: 'none',
   transition: 'background-color 120ms ease, opacity 120ms ease',
-  '&:hover': { bgcolor: 'rgba(51,65,85,.66)' },
+  '&:hover': { opacity: 0.85 },
   '&:active': { cursor: 'grabbing' },
 } as const
 
@@ -173,7 +173,6 @@ export function CustomScrollbarThumbs(props: {
 }) {
   const { metrics, dragging, onBeginDrag, viewport } = props
   if (!metrics.canY && !metrics.canX) return null
-  const draggingSx = dragging ? { bgcolor: 'rgba(51,65,85,.72)', transition: 'none' } : null
   const trackTop = viewport ? viewport.top : 0
   const trackLeft = viewport ? viewport.left : 0
 
@@ -187,7 +186,6 @@ export function CustomScrollbarThumbs(props: {
           onPointerDown={(event) => onBeginDrag('y', event)}
           sx={{
             ...thumbBaseSx,
-            ...(draggingSx || {}),
             pointerEvents: 'auto',
             top: trackTop + metrics.yTop,
             right: 3,
@@ -206,7 +204,6 @@ export function CustomScrollbarThumbs(props: {
           onPointerDown={(event) => onBeginDrag('x', event)}
           sx={{
             ...thumbBaseSx,
-            ...(draggingSx || {}),
             pointerEvents: 'auto',
             left: trackLeft + metrics.xLeft,
             bottom: 3,

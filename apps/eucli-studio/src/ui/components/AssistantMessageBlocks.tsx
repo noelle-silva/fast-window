@@ -46,9 +46,9 @@ function blockTitle(block: AssistantMessageBlock) {
 }
 
 function blockTone(block: AssistantMessageBlock) {
-  if (block.kind === 'reasoning') return { bgcolor: 'rgba(245, 158, 11, .045)' }
-  if (block.kind === 'tool_invocation' || block.kind === 'tool_result') return { bgcolor: 'rgba(248,250,252,.92)' }
-  return { bgcolor: 'rgba(255,255,255,.54)' }
+  if (block.kind === 'reasoning') return { bgcolor: 'var(--studio-warning-bg)' }
+  if (block.kind === 'tool_invocation' || block.kind === 'tool_result') return { bgcolor: 'var(--studio-field)' }
+  return { bgcolor: 'var(--studio-paper)' }
 }
 
 function isToolDetailBlock(block: AssistantMessageBlock | undefined): block is ToolDetailBlock {
@@ -176,7 +176,7 @@ function ToolDurationText(props: { part: any }) {
   const durationText = formatDurationMs(result ? result.durationMs : toolLiveElapsedMs(part, liveNowMs))
   if (!durationText) return null
   return (
-    <Typography variant="caption" sx={{ color: 'rgba(15,23,42,.5)', fontVariantNumeric: 'tabular-nums' }} noWrap>
+    <Typography variant="caption" sx={{ color: 'var(--studio-text-secondary)', fontVariantNumeric: 'tabular-nums' }} noWrap>
       {durationText}
     </Typography>
   )
@@ -210,10 +210,10 @@ function ToolSessionCard(props: {
       data-mid={mid}
       data-assistant-block-kind="tool_session"
       sx={{
-        background: '#fff',
+        background: 'var(--studio-paper)',
         borderRadius: 3,
         overflow: 'hidden',
-        boxShadow: '0 8px 24px rgba(15,23,42,.06)',
+        boxShadow: 'var(--studio-shadow-soft)',
       }}
     >
       <Stack
@@ -233,12 +233,12 @@ function ToolSessionCard(props: {
         }}
         sx={{ px: 1.25, py: 1, cursor: 'pointer', userSelect: 'none', minWidth: 0 }}
       >
-        <Box sx={{ width: 10, height: 28, borderRadius: 999, background: 'rgba(15,23,42,.18)' }} />
+        <Box sx={{ width: 10, height: 28, borderRadius: 999, background: 'var(--studio-border)' }} />
         <Stack spacing={0.15} sx={{ minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 950, color: 'rgba(15,23,42,.92)' }} noWrap>
+          <Typography variant="body2" sx={{ fontWeight: 950, color: 'var(--studio-text-primary)' }} noWrap>
             {name}
           </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(15,23,42,.62)' }} noWrap>
+          <Typography variant="caption" sx={{ color: 'var(--studio-text-secondary)' }} noWrap>
             {summary || '工具调用'}
           </Typography>
         </Stack>
@@ -262,7 +262,7 @@ function ToolSessionCard(props: {
                 sx={{ bgcolor: tone.bgcolor, borderRadius: 2.5, px: 1.1, py: 0.9, overflow: 'hidden' }}
               >
                 <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.65, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ fontWeight: 900, color: 'rgba(15,23,42,.68)', minWidth: 0 }} noWrap>
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-secondary)', minWidth: 0 }} noWrap>
                     {blockTitle(block)}
                   </Typography>
                   <Box sx={{ flex: 1, minWidth: 8 }} />
@@ -293,7 +293,7 @@ function ToolSessionCard(props: {
                       if (event.key === 'Escape') onSetEditing({ id: '', text: '' })
                       if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onSaveEdit(block)
                     }}
-                    sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+                    sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
                   />
                 ) : (
                   <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockHtml(block) }} />
@@ -446,7 +446,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
             }}
           >
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.65, minWidth: 0 }}>
-              <Typography variant="caption" sx={{ fontWeight: 900, color: 'rgba(15,23,42,.68)', minWidth: 0 }} noWrap>
+              <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-secondary)', minWidth: 0 }} noWrap>
                 {blockTitle(block)}
               </Typography>
               <Box sx={{ flex: 1, minWidth: 8 }} />
@@ -503,7 +503,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
                   if (event.key === 'Escape') setEditing({ id: '', text: '' })
                   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) saveEdit(block)
                 }}
-                sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+                sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
               />
             ) : (
               <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockHtml(block) }} />

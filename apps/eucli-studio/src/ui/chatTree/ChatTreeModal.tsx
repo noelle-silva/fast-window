@@ -94,7 +94,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
           transition: treeResizing ? 'none' : 'width 180ms ease',
           overflow: 'hidden',
           pointerEvents: treeOpen && effectiveTreeView === 'right' ? 'auto' : 'none',
-          borderLeft: treeOpen && effectiveTreeView === 'right' ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+          borderLeft: treeOpen && effectiveTreeView === 'right' ? '1px solid var(--studio-divider)' : '1px solid transparent',
           bgcolor: transparentChatBg ? colorMixVar('--studio-paper', Math.max(72, bgAlpha * 100)) : 'var(--studio-paper)',
           zIndex: 1000,
         }}
@@ -122,13 +122,13 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                 justifyContent: 'center',
                 '& .fw-split-line': {
                   opacity: treeResizing ? 1 : 0,
-                  bgcolor: treeResizing ? colorMixVar('--studio-primary', 55) : 'rgba(0,0,0,.18)',
+                  bgcolor: treeResizing ? colorMixVar('--studio-primary', 55) : 'var(--studio-divider)',
                   transition: 'opacity 120ms ease, background-color 120ms ease',
                 },
                 '&:hover .fw-split-line': { opacity: 1, bgcolor: colorMixVar('--studio-primary', 55) },
               }}
             >
-              <Box className="fw-split-line" sx={{ width: 1, bgcolor: 'rgba(0,0,0,.18)' }} />
+              <Box className="fw-split-line" sx={{ width: 1, bgcolor: 'var(--studio-divider)' }} />
             </Box>
             <Box sx={{ position: 'relative', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
               <Tooltip title="重置视图">
@@ -150,11 +150,11 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                       top: 10,
                       right: 10,
                       zIndex: 2,
-                      bgcolor: 'rgba(255,255,255,.72)',
-                      border: '1px solid rgba(0,0,0,.12)',
+                      bgcolor: 'var(--studio-toolbar-bg)',
+                      border: '1px solid var(--studio-toolbar-border)',
                       backdropFilter: 'blur(8px)',
                       WebkitBackdropFilter: 'blur(8px)',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                      '&:hover': { bgcolor: colorMixVar('--studio-toolbar-bg', 90) },
                     }}
                   >
                     <RestartAltIcon fontSize="inherit" />
@@ -188,11 +188,11 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                       top: 10,
                       right: 52,
                       zIndex: 2,
-                      bgcolor: 'rgba(255,255,255,.72)',
-                      border: '1px solid rgba(0,0,0,.12)',
+                      bgcolor: 'var(--studio-toolbar-bg)',
+                      border: '1px solid var(--studio-toolbar-border)',
                       backdropFilter: 'blur(8px)',
                       WebkitBackdropFilter: 'blur(8px)',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                      '&:hover': { bgcolor: colorMixVar('--studio-toolbar-bg', 90) },
                     }}
                   >
                     <AutorenewIcon fontSize="inherit" />
@@ -212,7 +212,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                 sx={{
                   position: 'absolute',
                   inset: 0,
-                  bgcolor: 'rgba(0,0,0,.03)',
+                  bgcolor: 'var(--studio-canvas)',
                   overflow: 'hidden',
                   cursor: treeDragging ? 'grabbing' : 'grab',
                   touchAction: 'none',
@@ -296,7 +296,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                                 key={key}
                                 d={d}
                                 fill="none"
-                                stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                                stroke={hi ? 'var(--studio-tree-edge-highlight)' : 'var(--studio-tree-edge)'}
                                 strokeWidth={strokeW}
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
@@ -398,11 +398,11 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                     } catch (_) {}
                   }}
                   sx={{
-                    bgcolor: 'rgba(255,255,255,.72)',
-                    border: '1px solid rgba(0,0,0,.12)',
+                    bgcolor: 'var(--studio-toolbar-bg)',
+                    border: '1px solid var(--studio-toolbar-border)',
                     backdropFilter: 'blur(8px)',
                     WebkitBackdropFilter: 'blur(8px)',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                    '&:hover': { bgcolor: colorMixVar('--studio-toolbar-bg', 90) },
                   }}
                 >
                   <AutorenewIcon fontSize="inherit" />
@@ -425,11 +425,11 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                     } catch (_) {}
                   }}
                   sx={{
-                    bgcolor: 'rgba(255,255,255,.72)',
-                    border: '1px solid rgba(0,0,0,.12)',
+                    bgcolor: 'var(--studio-toolbar-bg)',
+                    border: '1px solid var(--studio-toolbar-border)',
                     backdropFilter: 'blur(8px)',
                     WebkitBackdropFilter: 'blur(8px)',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                    '&:hover': { bgcolor: colorMixVar('--studio-toolbar-bg', 90) },
                   }}
                 >
                   <RestartAltIcon fontSize="inherit" />
@@ -449,7 +449,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
             sx={{
               position: 'absolute',
               inset: 0,
-              bgcolor: 'rgba(0,0,0,.03)',
+              bgcolor: 'var(--studio-canvas)',
               overflow: 'hidden',
               cursor: treeDragging ? 'grabbing' : 'grab',
               touchAction: 'none',
@@ -533,7 +533,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                             key={key}
                             d={d}
                             fill="none"
-                            stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                            stroke={hi ? 'var(--studio-tree-edge-highlight)' : 'var(--studio-tree-edge)'}
                             strokeWidth={strokeW}
                             strokeLinecap="round"
                             strokeLinejoin="round"

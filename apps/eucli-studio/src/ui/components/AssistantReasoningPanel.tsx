@@ -87,9 +87,9 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
       sx={{
         mb: 1,
         borderRadius: 3,
-        borderColor: 'rgba(15, 23, 42, .10)',
-        bgcolor: '#fff',
-        boxShadow: '0 8px 22px rgba(15,23,42,.05)',
+        borderColor: 'var(--studio-border)',
+        bgcolor: 'var(--studio-paper)',
+        boxShadow: 'var(--studio-shadow-soft)',
         overflow: 'hidden',
       }}
     >
@@ -111,12 +111,12 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
         }}
         sx={{ px: 1.1, py: 0.85, cursor: 'pointer', userSelect: 'none' }}
       >
-        <Typography variant="caption" sx={{ fontWeight: 900, color: 'rgba(15, 23, 42, .72)', letterSpacing: '.04em' }}>
+        <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-primary)', letterSpacing: '.04em' }}>
           思考过程
         </Typography>
         <Box sx={{ flex: 1 }} />
         {durationText ? (
-          <Typography variant="caption" sx={{ color: 'rgba(15, 23, 42, .5)', fontVariantNumeric: 'tabular-nums' }}>
+          <Typography variant="caption" sx={{ color: 'var(--studio-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
             {durationText}
           </Typography>
         ) : null}

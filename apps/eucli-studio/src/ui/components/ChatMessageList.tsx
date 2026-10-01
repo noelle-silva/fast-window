@@ -150,8 +150,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   maxWidth: 980,
                   px: 1.5,
                   py: 1.2,
-                  bgcolor: isSummary ? 'rgba(124, 58, 237, .055)' : 'rgba(15, 23, 42, .035)',
-                  borderColor: isSummary ? 'rgba(124, 58, 237, .22)' : 'rgba(15, 23, 42, .12)',
+                  bgcolor: isSummary ? 'var(--studio-secondary-soft)' : 'var(--studio-paper-muted)',
+                  borderColor: isSummary ? 'var(--studio-secondary)' : 'var(--studio-border)',
                   borderRadius: 3,
                 }}
               >
@@ -183,8 +183,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                       wordBreak: 'break-word',
                       fontSize: 13,
                       lineHeight: 1.65,
-                      bgcolor: 'rgba(255,255,255,.72)',
-                      border: '1px solid rgba(124, 58, 237, .12)',
+                      bgcolor: 'var(--studio-paper)',
+                      border: '1px solid var(--studio-border)',
                       borderRadius: 2,
                       px: 1.25,
                       py: 1,
@@ -232,9 +232,9 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   maxWidth: '100%',
                   px: 1.25,
                   py: 1.1,
-                  bgcolor: '#fff',
-                  borderColor: 'rgba(15, 23, 42, .10)',
-                  boxShadow: '0 8px 22px rgba(15,23,42,.05)',
+                  bgcolor: 'var(--studio-paper)',
+                  borderColor: 'var(--studio-border)',
+                  boxShadow: 'var(--studio-shadow-soft)',
                 }}
               >
                 <Stack
@@ -259,7 +259,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                   }
                   sx={{ mb: 0.5, cursor: isEditing ? 'default' : 'pointer', userSelect: 'none' }}
                 >
-                  <StorageIcon sx={{ fontSize: 18, color: 'rgba(15, 23, 42, .62)' }} />
+                  <StorageIcon sx={{ fontSize: 18, color: 'var(--studio-text-secondary)' }} />
                   <Typography variant="body2" sx={{ fontWeight: 900 }}>
                     {label}
                   </Typography>
@@ -313,8 +313,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                         whiteSpace: 'pre-wrap',
                         overflowWrap: 'anywhere',
                         wordBreak: 'break-word',
-                        bgcolor: '#fff',
-                        border: '1px solid rgba(15, 23, 42, .10)',
+                        bgcolor: 'var(--studio-paper)',
+                        border: '1px solid var(--studio-border)',
                         borderRadius: 2,
                         px: 1,
                         py: 0.75,

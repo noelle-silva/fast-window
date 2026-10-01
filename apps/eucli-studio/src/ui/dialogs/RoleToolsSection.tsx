@@ -31,7 +31,7 @@ type RoleToolsSectionProps = {
 const toggleGroupSx = {
   p: 0.25,
   borderRadius: 2,
-  bgcolor: 'rgba(15,23,42,.05)',
+  bgcolor: 'var(--studio-paper-muted)',
   '& .MuiToggleButtonGroup-grouped': {
     border: 0,
     mx: 0,
@@ -44,12 +44,12 @@ const toggleGroupSx = {
     borderRadius: 1.5,
     '&.Mui-selected': {
       color: 'text.primary',
-      bgcolor: 'rgba(255,255,255,.96)',
-      boxShadow: '0 2px 10px rgba(15,23,42,.12)',
+      bgcolor: 'var(--studio-paper)',
+      boxShadow: 'var(--studio-shadow-strong)',
     },
-    '&.Mui-selected:hover': { bgcolor: '#fff' },
+    '&.Mui-selected:hover': { bgcolor: 'var(--studio-paper)' },
   },
-}
+} as const
 
 export function RoleToolsSection(props: RoleToolsSectionProps) {
   const { controller, draft, tools } = props

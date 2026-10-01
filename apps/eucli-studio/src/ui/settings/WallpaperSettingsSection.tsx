@@ -181,9 +181,9 @@ function WallpaperPresetCard(props: {
           top: 2,
           right: 2,
           color: '#fff',
-          bgcolor: 'rgba(15,23,42,.46)',
+          bgcolor: 'var(--studio-overlay)',
           borderRadius: '50%',
-          '&:hover': { bgcolor: 'rgba(15,23,42,.68)' },
+          '&:hover': { bgcolor: 'var(--studio-overlay)' },
         }}
       >
         <MoreActionsMenu

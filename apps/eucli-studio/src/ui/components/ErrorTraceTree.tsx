@@ -16,8 +16,8 @@ export function ErrorTraceTree(props: { error: ErrorPayload; depth?: number }) {
   const kind = errorKindStyle(code)
 
   return (
-    <Stack spacing={0.75} sx={{ pl: depth ? 1.5 : 0, borderLeft: depth ? '2px solid rgba(0,0,0,.08)' : 'none' }}>
-      <Box sx={{ borderRadius: 1.5, p: 1, bgcolor: kind.bg }}>
+    <Stack spacing={0.75} sx={{ pl: depth ? 1.5 : 0, borderLeft: depth ? '2px solid var(--studio-divider)' : 'none' }}>
+      <Box sx={{ borderRadius: 1.5, p: 1, bgcolor: kind.bgVar }}>
         <Stack spacing={0.5}>
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
             <ErrorKindChip code={code} />
@@ -35,7 +35,7 @@ export function ErrorTraceTree(props: { error: ErrorPayload; depth?: number }) {
               <Box component="summary" sx={{ cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
                 原始错误详情
               </Box>
-              <CustomScrollArea hostSx={{ mt: 0.75, maxHeight: 260, borderRadius: 1.5, bgcolor: 'rgba(0,0,0,.04)' }} scrollSx={{ maxHeight: 260 }}>
+              <CustomScrollArea hostSx={{ mt: 0.75, maxHeight: 260, borderRadius: 1.5, bgcolor: 'var(--studio-paper-muted)' }} scrollSx={{ maxHeight: 260 }}>
                 <Box
                   component="pre"
                   sx={{
@@ -55,7 +55,7 @@ export function ErrorTraceTree(props: { error: ErrorPayload; depth?: number }) {
       </Box>
       {cause ? <ErrorTraceTree error={cause} depth={depth + 1} /> : null}
       {causes.length ? (
-        <Stack spacing={0.75} sx={{ pl: 1.5, borderLeft: '2px solid rgba(0,0,0,.08)' }}>
+        <Stack spacing={0.75} sx={{ pl: 1.5, borderLeft: '2px solid var(--studio-divider)' }}>
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 900 }}>
             并列原因
           </Typography>

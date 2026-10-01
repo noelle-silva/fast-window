@@ -8,7 +8,7 @@ import { RoleToolsSection } from './RoleToolsSection'
 
 function RoleDialogSection(props: { title: string; children: React.ReactNode }) {
   return (
-    <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2.5, bgcolor: 'rgba(15,23,42,.025)', boxShadow: 'var(--studio-shadow-soft)' }}>
+    <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2.5, bgcolor: 'var(--studio-paper-muted)', boxShadow: 'var(--studio-shadow-soft)' }}>
       <Stack spacing={1.25}>
         <Typography sx={{ fontWeight: 900 }}>{props.title}</Typography>
         {props.children}
