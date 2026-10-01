@@ -15,6 +15,8 @@ import {
 import { useEvent } from '../hooks/useEvent'
 import { findAtMentionTrigger } from '../utils/mention'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { CustomScrollbarThumbs, useCustomScrollbar } from '../scroll/CustomScrollbar'
+import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../scroll/customScrollbars'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { clampNum } from '../utils/numbers'
 import { COMPOSER_SLASH_COMMANDS, findSlashCommandTrigger } from './composerSlashCommands'
@@ -58,9 +60,22 @@ export function ComposerInputControls(props: {
     onPaste,
   } = props
   const localInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
+  const inputBoxRef = React.useRef<HTMLDivElement | null>(null)
   const [value, setValue] = React.useState(() => String(initialValue || ''))
   const [atPicker, setAtPicker] = React.useState<null | { triggerIndex: number; cursorIndex: number; query: string }>(null)
   const [slashPicker, setSlashPicker] = React.useState<null | { query: string; selectedIndex: number }>(null)
+
+  const { metrics, viewport, dragging, beginDrag, updateMetrics } = useCustomScrollbar({
+    scrollRef: localInputRef,
+    containerRef: inputBoxRef,
+    axis: 'y',
+  })
+
+  // 内容变化时 scrollHeight 会变，但已到最大行数后元素尺寸不变、不触发 ResizeObserver，
+  // 故在值变化后主动重测一次，保证滑块高度与位置及时刷新。
+  React.useEffect(() => {
+    updateMetrics()
+  }, [value, updateMetrics])
 
   const setInputRef = React.useCallback(
     (el: HTMLTextAreaElement | HTMLInputElement | null) => {
@@ -259,35 +274,39 @@ export function ComposerInputControls(props: {
 
   return (
     <>
-      <TextField
-        fullWidth
-        multiline
-        minRows={minRows}
-        maxRows={Math.max(minRows, 8)}
-        variant="outlined"
-        className="fw-chat-text"
-        placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
-        value={value}
-        inputRef={setInputRef}
-        onChange={(e) => {
-          const next = e.target.value
-          setDraftInput(next)
-          if (!syncSlashPicker(next, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : next.length)) {
-            syncAtPicker(next, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : next.length)
-          }
-        }}
-        onKeyDown={onInputKeyDown}
-        onKeyUp={() => syncAtPicker()}
-        onClick={() => syncAtPicker()}
-        onPaste={onPaste}
-        disabled={disabled}
-        sx={{
-          '& .MuiOutlinedInput-root': { borderRadius: `${radius}px` },
-          '& .MuiOutlinedInput-notchedOutline': { border: 0 },
-          '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-          '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
-        }}
-      />
+      <Box ref={inputBoxRef} sx={{ position: 'relative', ...customScrollbarRevealSx }}>
+        <TextField
+          fullWidth
+          multiline
+          minRows={minRows}
+          maxRows={Math.max(minRows, 8)}
+          variant="outlined"
+          className="fw-chat-text"
+          placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
+          value={value}
+          inputRef={setInputRef}
+          onChange={(e) => {
+            const next = e.target.value
+            setDraftInput(next)
+            if (!syncSlashPicker(next, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : next.length)) {
+              syncAtPicker(next, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : next.length)
+            }
+          }}
+          onKeyDown={onInputKeyDown}
+          onKeyUp={() => syncAtPicker()}
+          onClick={() => syncAtPicker()}
+          onPaste={onPaste}
+          disabled={disabled}
+          sx={{
+            '& .MuiOutlinedInput-root': { borderRadius: `${radius}px` },
+            '& .MuiOutlinedInput-root textarea': customScrollbarHiddenSx,
+            '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+            '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+            '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
+          }}
+        />
+        <CustomScrollbarThumbs metrics={metrics} dragging={dragging} onBeginDrag={beginDrag} viewport={viewport} />
+      </Box>
 
       <Popover
         open={!!slashPicker && !!localInputRef.current}
