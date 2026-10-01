@@ -422,17 +422,117 @@ export function parseColorThemePresetImport(jsonText: string, idFactory: () => s
   return source.map((item: unknown, index: number) => normalizeColorThemePreset(item, `imported-${idFactory()}-${index + 1}`))
 }
 
-export function mergeImportedColorThemePresets(settings: unknown, presets: ColorThemePreset[]): ColorThemeSettings {
-  const normalized = normalizeColorThemeSettings(settings)
-  const byId = new Map<string, ColorThemePreset>()
-  for (const preset of normalized.importedPresets) byId.set(preset.id, preset)
-  for (const preset of presets) {
-    const id = BUILTIN_PRESET_IDS.has(preset.id) ? `imported-${preset.id}` : preset.id
-    byId.set(id, { ...preset, id })
-  }
-  const importedPresets = Array.from(byId.values()).slice(-40)
+// ============================================================
+// 配色草稿：设置页的未保存编辑层。
+// 草稿是一份完整的预设视图（内置 + 导入 + 草稿新增），界面实时预览草稿；
+// 未保存状态与保存都以「单个预设」为单位：materializeColorThemePreset 只物化选中的预设
+// （内置改动生成副本、导入原地更新、草稿新增正式落盘），其他预设的修改各自留在草稿里。
+// ============================================================
+
+export type ColorThemeDraft = {
+  activePresetId: string
+  presets: ColorThemePreset[]
+}
+
+export function cloneColorThemeDraft(settings: unknown): ColorThemeDraft {
+  const base = normalizeColorThemeSettings(settings)
   return {
-    activePresetId: presets[0]?.id ? (BUILTIN_PRESET_IDS.has(presets[0].id) ? `imported-${presets[0].id}` : presets[0].id) : normalized.activePresetId,
-    importedPresets,
+    activePresetId: base.activePresetId,
+    presets: listColorThemePresets(base).map((preset) => ({ ...preset, colors: { ...preset.colors } })),
   }
+}
+
+export function colorThemePresetsEqual(a: ColorThemePreset | null | undefined, b: ColorThemePreset | null | undefined) {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.id !== b.id || a.name !== b.name || a.description !== b.description || a.mode !== b.mode) return false
+  return COLOR_THEME_COLOR_KEYS.every((key) => a.colors[key] === b.colors[key])
+}
+
+// 未保存判定按「预设」粒度：某个预设只有在和它已保存的版本不同时才算未保存。
+// 切换选中预设属于即时生效的使用行为，不影响判定。
+export function isColorThemePresetDirty(settings: unknown, draft: ColorThemeDraft | null | undefined, presetId: string) {
+  if (!draft) return false
+  const preset = draft.presets.find((item) => item.id === presetId)
+  if (!preset) return false
+  const original = listColorThemePresets(normalizeColorThemeSettings(settings)).find((item) => item.id === preset.id)
+  return !original || !colorThemePresetsEqual(original, preset)
+}
+
+export function resolveColorThemePreview(settings: unknown, draft: ColorThemeDraft | null | undefined): ColorThemePreset {
+  if (draft) {
+    const found = draft.presets.find((preset) => preset.id === draft.activePresetId)
+    if (found) return found
+  }
+  return resolveColorThemePreset(settings)
+}
+
+export function uniqueColorThemePresetName(baseName: string, usedNames: ReadonlySet<string>) {
+  const base = cleanText(baseName, 40) || '未命名配色'
+  if (!usedNames.has(base)) return base
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = cleanText(`${base} ${index}`, 40)
+    if (!usedNames.has(candidate)) return candidate
+  }
+  return cleanText(`${base} ${Date.now()}`, 40)
+}
+
+// 保存单个预设：只物化这个预设（内置改动生成副本、导入原地更新、草稿新增正式落盘），
+// 其他预设的未保存修改原样留在草稿里，各自独立。
+export function materializeColorThemePreset(
+  settings: unknown,
+  draft: ColorThemeDraft,
+  presetId: string,
+  makeId: () => string,
+): { settings: ColorThemeSettings; draft: ColorThemeDraft } | null {
+  const base = normalizeColorThemeSettings(settings)
+  const baseList = listColorThemePresets(base)
+  const target = draft.presets.find((preset) => preset.id === presetId)
+  if (!target) return null
+  const original = baseList.find((preset) => preset.id === target.id)
+  if (original && colorThemePresetsEqual(original, target)) return null
+
+  const nextImported = base.importedPresets.map((preset) => ({ ...preset, colors: { ...preset.colors } }))
+  const usedNames = new Set<string>([
+    ...COLOR_THEME_BUILTIN_PRESETS.map((preset) => preset.name),
+    ...nextImported.map((preset) => preset.name),
+  ])
+  let savedId = target.id
+
+  if (!original) {
+    // 草稿新增：正式分配 id 落盘
+    savedId = makeId()
+    const name = uniqueColorThemePresetName(target.name || '未命名配色', usedNames)
+    nextImported.push({ ...target, id: savedId, name })
+  } else if (BUILTIN_PRESET_IDS.has(target.id)) {
+    // 内置预设被修改：原版不动，改动生成副本
+    savedId = makeId()
+    const name = uniqueColorThemePresetName(`${target.name} 副本`, usedNames)
+    nextImported.push({ ...target, id: savedId, name })
+  } else {
+    // 导入预设被修改：原地更新
+    const index = nextImported.findIndex((preset) => preset.id === target.id)
+    const name = cleanText(target.name, 40) || original.name
+    nextImported[index] = { ...target, name }
+  }
+
+  const wasActive = base.activePresetId === target.id || draft.activePresetId === target.id
+  const nextSettings = normalizeColorThemeSettings({
+    activePresetId: wasActive ? savedId : base.activePresetId,
+    importedPresets: nextImported,
+  })
+
+  // 新草稿：以保存后的设置为基底，把其他预设的未保存修改叠加回来。
+  const nextDraft = cloneColorThemeDraft(nextSettings)
+  for (const preset of draft.presets) {
+    if (preset.id === target.id) continue
+    const origin = baseList.find((item) => item.id === preset.id)
+    if (origin && colorThemePresetsEqual(origin, preset)) continue
+    const index = nextDraft.presets.findIndex((item) => item.id === preset.id)
+    if (index >= 0) nextDraft.presets[index] = { ...preset, colors: { ...preset.colors } }
+    else nextDraft.presets.push({ ...preset, colors: { ...preset.colors } })
+  }
+  nextDraft.activePresetId = draft.activePresetId === target.id ? savedId : draft.activePresetId
+
+  return { settings: nextSettings, draft: nextDraft }
 }
