@@ -44,23 +44,32 @@ function ensureMathCopyHandlerOnce(root: unknown, capabilities: AiChatCapabiliti
   })
 }
 
+// decorateMathHost 给单个公式宿主挂上复制按钮（幂等：已挂过则跳过）。
+// 供渲染引擎在遍历公式宿主时顺手装饰，避免额外一次全树扫描。
+export function decorateMathHost(node: unknown) {
+  if (!(node instanceof HTMLElement)) return
+  if (node.getAttribute('data-fw-math') === '1') return
+  node.setAttribute('data-fw-math', '1')
+  node.classList.add('fw-math-host')
+
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'fw-math-copy'
+  btn.setAttribute('aria-label', '复制 LaTeX 公式')
+  btn.textContent = '⧉'
+  node.appendChild(btn)
+}
+
+// ensureMathCopyHandler 在根节点上绑定一次点击委托（幂等）。
+export function ensureMathCopyHandler(root: unknown, capabilities: AiChatCapabilities) {
+  ensureMathCopyHandlerOnce(root, capabilities)
+}
+
 export function enhanceMathCopyButtons(root: unknown, capabilities: AiChatCapabilities) {
   if (!(root instanceof HTMLElement)) return
 
   const nodes = Array.from(root.querySelectorAll?.('.math-block[data-tex], .math-inline[data-tex]') || [])
-  for (const n of nodes) {
-    if (!(n instanceof HTMLElement)) continue
-    if (n.getAttribute('data-fw-math') === '1') continue
-    n.setAttribute('data-fw-math', '1')
-    n.classList.add('fw-math-host')
-
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'fw-math-copy'
-    btn.setAttribute('aria-label', '复制 LaTeX 公式')
-    btn.textContent = '⧉'
-    n.appendChild(btn)
-  }
+  for (const n of nodes) decorateMathHost(n)
 
   ensureMathCopyHandlerOnce(root, capabilities)
 }

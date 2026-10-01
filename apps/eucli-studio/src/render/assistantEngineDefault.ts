@@ -1,6 +1,6 @@
 import { esc } from '../core/utils'
 import './vendor'
-import { enhanceCodeBlocks } from './copy'
+import { decorateCodeBlocks, ensureCodeCopyHandlerOnce } from './copy'
 import { createMarkdownRenderer, preprocessHtmlIndentation } from './markdown'
 import { createMermaidSupport } from './mermaid'
 import { preprocessAssistantContent } from './preprocess'
@@ -8,8 +8,9 @@ import { REF_IMG_PLACEHOLDER, createRefImageHydrator, markPreviewImages } from '
 import { createHtmlSanitizer, sanitizeSvg } from './sanitize'
 import { hydrateStickerSizes } from './stickers'
 import type { BoolRef } from './types'
-import { enhanceMathCopyButtons } from './mathCopy'
+import { decorateMathHost, ensureMathCopyHandler } from './mathCopy'
 import { createMathRenderer } from './mathRender'
+import { commitHtml } from './domCommit'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
@@ -106,40 +107,52 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     return safe
   }
 
-  function enhanceAssistantDom(el: HTMLElement, renderSafetyPolicy: RenderSafetyPolicy) {
-    enhanceCodeBlocks(el)
+  // 事件委托只需在根上绑定一次；节点增删不影响已绑定的委托。
+  function bindDelegatedHandlersOnce(el: HTMLElement) {
+    ensureCodeCopyHandlerOnce(el)
+    ensureMathCopyHandler(el, capabilities)
     mermaidSupport.ensureMermaidBlockCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorAiFixHandlerOnce(el)
-    markPreviewImages(el)
-    hydrateStickerSizes(el)
-    refImages.hydrateRefImages(el)
+  }
+
+  // decorateFragment 只处理本次「新增的尾部节点」：代码块按钮、公式渲染与复制按钮、
+  // 图片标记、贴纸尺寸。已复用的前缀节点不会被重复处理。
+  function decorateFragment(fragment: DocumentFragment, renderSafetyPolicy: RenderSafetyPolicy) {
+    decorateCodeBlocks(fragment)
+    markPreviewImages(fragment)
+    hydrateStickerSizes(fragment)
+    refImages.hydrateRefImages(fragment)
 
     const w = window as any
     const katex = w.katex
     if (katex && typeof katex.renderToString === 'function') {
-      const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
+      const blocks = Array.from(fragment.querySelectorAll?.('.math-block[data-tex]') || [])
       for (const b of blocks) {
         if (!(b instanceof HTMLElement)) continue
         mathRenderer.renderMathInto(b, b.getAttribute('data-tex') || '', true)
+        decorateMathHost(b)
       }
-      const inlines = Array.from(el.querySelectorAll?.('.math-inline[data-tex]') || [])
+      const inlines = Array.from(fragment.querySelectorAll?.('.math-inline[data-tex]') || [])
       for (const s of inlines) {
         if (!(s instanceof HTMLElement)) continue
         mathRenderer.renderMathInto(s, s.getAttribute('data-tex') || '', false)
+        decorateMathHost(s)
       }
-      enhanceMathCopyButtons(el, capabilities)
     }
-
-    mermaidSupport.renderMermaidInto(el, renderSafetyPolicy).catch(() => {})
   }
 
   function renderAssistantInto(el: unknown, text: unknown, options?: AssistantRenderOptions) {
     if (!(el instanceof HTMLElement)) return
     ensureRenderer().catch(() => {})
     const renderSafetyPolicy = normalizeRenderSafetyPolicy(options)
-    el.innerHTML = renderAssistantTextHtml(text, options)
-    enhanceAssistantDom(el, renderSafetyPolicy)
+    bindDelegatedHandlersOnce(el)
+    // 增量提交：逐节点比对，相同前缀原地保留（同一 DOM 对象，已渲染的公式与交互不动），
+    // 只重建发生变化的尾部，并只对新增尾部做装饰。
+    const html = renderAssistantTextHtml(text, options)
+    commitHtml(el, html, (fragment) => decorateFragment(fragment, renderSafetyPolicy))
+
+    mermaidSupport.renderMermaidInto(el, renderSafetyPolicy).catch(() => {})
   }
 
   return {

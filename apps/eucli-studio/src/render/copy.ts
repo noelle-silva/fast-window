@@ -82,10 +82,9 @@ export function ensureCodeCopyHandlerOnce(root: HTMLElement) {
   })
 }
 
-export function enhanceCodeBlocks(root: unknown) {
-  if (!(root instanceof HTMLElement)) return
-  ensureCodeCopyHandlerOnce(root)
-
+// decorateCodeBlocks 只做装饰（给代码块挂复制按钮，幂等），不绑定事件委托。
+// 供渲染引擎在增量提交时只处理新增节点。
+export function decorateCodeBlocks(root: ParentNode) {
   const pres = Array.from(root.querySelectorAll?.('pre') || [])
   for (const pre of pres) {
     if (!(pre instanceof HTMLElement)) continue
@@ -107,4 +106,10 @@ export function enhanceCodeBlocks(root: unknown) {
     setCopyBtnState(btn, 'copy')
     pre.appendChild(btn)
   }
+}
+
+export function enhanceCodeBlocks(root: unknown) {
+  if (!(root instanceof HTMLElement)) return
+  ensureCodeCopyHandlerOnce(root)
+  decorateCodeBlocks(root)
 }

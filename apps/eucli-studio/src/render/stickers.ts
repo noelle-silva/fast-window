@@ -13,7 +13,7 @@ export function parseStickerSize(raw: unknown) {
 }
 
 export function hydrateStickerSizes(root: unknown) {
-  if (!(root instanceof HTMLElement)) return
+  if (!(root instanceof HTMLElement) && !(root instanceof DocumentFragment)) return
   const imgs = Array.from(root.querySelectorAll?.('img.fw-sticker[data-fw-sticker-size]') || [])
   for (const img of imgs) {
     if (!(img instanceof HTMLImageElement)) continue
