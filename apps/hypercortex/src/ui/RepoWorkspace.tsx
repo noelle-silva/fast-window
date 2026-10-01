@@ -262,7 +262,11 @@ function buildNoteInitSnapshot(input: {
   }
 }
 
-type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'tab'; tabKey: string }
+// 全局页面历史中的一个精确位置：普通页面只需要 page；详情页必须同时保留当时的 tabKey。
+type NavHistoryEntry = {
+  page: PageId
+  tabKey?: string
+}
 
 export type RepoWorkspaceProps = {
   repoId: string
@@ -364,9 +368,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       fwdNavHistoryRef.current = []
       const stack = navHistoryRef.current
       const last = stack.length ? stack[stack.length - 1] : null
-      const duplicate =
-        (!!last && entry.kind === 'page' && last.kind === 'page' && last.page === entry.page) ||
-        (!!last && entry.kind === 'tab' && last.kind === 'tab' && last.tabKey === entry.tabKey)
+      const duplicate = !!last && last.page === entry.page && last.tabKey === entry.tabKey
       if (!duplicate) {
         stack.push(entry)
         if (stack.length > 128) stack.splice(0, stack.length - 128)
@@ -387,7 +389,12 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         setOpenModalPage(next)
         return
       }
-      if (next !== pageRef.current && opts?.recordHistory !== false) recordNewNavLocation({ kind: 'page', page: pageRef.current })
+      if (next !== pageRef.current && opts?.recordHistory !== false) {
+        const currentPage = pageRef.current
+        const currentTabKey =
+          currentPage === 'note-detail' || currentPage === 'asset-detail' ? String(activeTabKeyRef.current || '').trim() : ''
+        recordNewNavLocation(currentTabKey ? { page: currentPage, tabKey: currentTabKey } : { page: currentPage })
+      }
       setPageState(next)
     },
     [recordNewNavLocation, resolvePageDisplayMode],
@@ -820,8 +827,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
       if (mode === 'modal') {
         // 该页从页面家族除名：清掉历史里的旧条目，前进/后退从此看不见它。
-        navHistoryRef.current = navHistoryRef.current.filter(entry => !(entry.kind === 'page' && entry.page === targetId))
-        fwdNavHistoryRef.current = fwdNavHistoryRef.current.filter(entry => !(entry.kind === 'page' && entry.page === targetId))
+        navHistoryRef.current = navHistoryRef.current.filter(entry => entry.page !== targetId)
+        fwdNavHistoryRef.current = fwdNavHistoryRef.current.filter(entry => entry.page !== targetId)
         syncNavStackCounts()
         if (pageRef.current === targetId) navigatePage('home')
       } else {
@@ -1101,31 +1108,34 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
   // 把当前位置转换成一条可回溯的导航记录。
   const captureCurrentNavEntry = React.useCallback((): NavHistoryEntry => {
+    const page = pageRef.current
     const cur = String(activeTabKeyRef.current || '').trim()
-    if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && cur) return { kind: 'tab', tabKey: cur }
-    return { kind: 'page', page: pageRef.current }
+    if ((page === 'note-detail' || page === 'asset-detail') && cur) return { page, tabKey: cur }
+    return { page }
   }, [])
 
   // 校验并应用一条导航记录；失败返回 false 且不产生任何状态副作用。
   const tryApplyNavEntry = React.useCallback(
     (entry: NavHistoryEntry): boolean => {
-      if (entry.kind === 'tab') {
+      if (entry.tabKey) {
         const key = String(entry.tabKey || '').trim()
         if (!key || !openTabKeysRef.current.includes(key)) return false
         const currentKey = String(activeTabKeyRef.current || '').trim()
-        if (key === currentKey && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail')) return false
+        if (key === currentKey && entry.page === pageRef.current) return false
         const kind = tabKind(key)
         if (kind !== 'note' && kind !== 'asset') return false
+        const targetPage = kind === 'note' ? 'note-detail' : 'asset-detail'
+        if (entry.page !== targetPage) return false
         setActiveTabKey(key as any)
         commitActiveWorkspacePatch({ activeTabKey: key })
         if (kind === 'note') {
           const noteId = noteIdFromTabKey(key)
           if (!noteId) return false
           setActiveNoteId(noteId)
-          navigatePage('note-detail', { recordHistory: false })
+          navigatePage(targetPage, { recordHistory: false })
         } else {
           setActiveNoteId('')
-          navigatePage('asset-detail', { recordHistory: false })
+          navigatePage(targetPage, { recordHistory: false })
         }
         return true
       }
@@ -1133,20 +1143,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const target = entry.page
       if (!target || target === pageRef.current) return false
       if (target === 'note-detail' || target === 'asset-detail') {
-        const wantedNote = target === 'note-detail'
-        const keys = openTabKeysRef.current || []
-        const matched = keys.filter(k => tabKind(k) === (wantedNote ? 'note' : 'asset'))
-        if (!matched.length) return false
-        const currentActive = String(activeTabKeyRef.current || '').trim()
-        const activeValid = !!currentActive && tabKind(currentActive) === (wantedNote ? 'note' : 'asset') && matched.includes(currentActive)
-        const nextKey = activeValid ? currentActive : matched[0]
-        const resolvedNoteId = wantedNote ? noteIdFromTabKey(nextKey) : ''
-        if (wantedNote && !resolvedNoteId) return false
-        setActiveTabKey(nextKey as any)
-        setActiveNoteId(resolvedNoteId)
-        commitActiveWorkspacePatch({ activeTabKey: nextKey })
-        navigatePage(target, { recordHistory: false })
-        return true
+        // 详情页没有精确标签就不能安全恢复，禁止从当前打开集合中猜一条笔记。
+        return false
       }
 
       navigatePage(target, { recordHistory: false })
@@ -2201,7 +2199,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const nextKey = noteTabKey(nid)
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
-        recordNewNavLocation({ kind: 'tab', tabKey: prevActiveKey })
+        recordNewNavLocation({ page: pageRef.current, tabKey: prevActiveKey })
       }
       setOpenNoteTabs(prev => {
         return prev.some(t => t.id === nid) ? prev : [...prev, note]
@@ -2275,7 +2273,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const tabKey = assetTabId(sanitized) as TabKey
       const prevActiveKey = String(activeTabKeyRef.current || '').trim()
       if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== tabKey) {
-        recordNewNavLocation({ kind: 'tab', tabKey: prevActiveKey })
+        recordNewNavLocation({ page: pageRef.current, tabKey: prevActiveKey })
       }
       setOpenAssetTabs(prev => {
         const idx = prev.findIndex(a => assetTabId(a) === tabKey)
