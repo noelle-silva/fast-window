@@ -66,11 +66,7 @@ export function PluginSettingsPage(props: {
   const navItems = React.useMemo(() => mergeSettingsNavigationItems(settingsNavOrder), [settingsNavOrder])
   const activeTab = React.useMemo(() => resolveSettingsTab(tab, navItems), [tab, navItems])
 
-  // 懒挂载 + 常驻：第一次访问某分类才挂载它，之后一直保留（切换只隐藏），滚动位置与内部草稿不丢。
-  const [mountedTabs, setMountedTabs] = React.useState<SettingsTabValue[]>(() => [activeTab])
-  React.useEffect(() => {
-    setMountedTabs((current) => (current.includes(activeTab) ? current : current.concat(activeTab)))
-  }, [activeTab])
+  // 全量在场：设置页打开时所有分类面板一次挂载、常驻保留（切换只隐藏不卸载），滚动位置与内部草稿不丢。
 
   const renderPanel = (value: SettingsTabValue): React.ReactNode => {
     if (!data) {
@@ -120,7 +116,7 @@ export function PluginSettingsPage(props: {
     return <ProvidersSettingsPanel controller={controller} loading={loading} providers={providers} draft={draft} models={models} />
   }
 
-  const panels: SettingsPanelEntry[] = mountedTabs.map((value) => ({ value, content: renderPanel(value) }))
+  const panels: SettingsPanelEntry[] = navItems.map((item) => ({ value: item.value, content: renderPanel(item.value) }))
 
   return (
     <SettingsPageLayout
