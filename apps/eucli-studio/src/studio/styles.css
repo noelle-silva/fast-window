@@ -137,9 +137,10 @@ textarea {
   outline: none;
 }
 
+/* 连接窗口可能在主题注入前出现，var() 的 fallback 使用默认预设主色兜底，主题加载后自动跟随。 */
 .eucliConnectField input:focus {
-  border-color: rgba(84, 118, 255, 0.48);
-  box-shadow: 0 0 0 3px rgba(84, 118, 255, 0.12);
+  border-color: color-mix(in srgb, var(--studio-primary, #4f72b8) 48%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--studio-primary, #4f72b8) 12%, transparent);
 }
 
 .eucliConnectSecret {
@@ -176,17 +177,17 @@ textarea {
 .eucliConnectForm > button,
 .eucliConnectActions > button {
   height: 40px;
-  border: 1px solid rgba(42, 61, 145, 0.32);
+  border: 1px solid color-mix(in srgb, var(--studio-primary, #4f72b8) 32%, transparent);
   border-radius: 12px;
   color: #ffffff;
-  background: #4763e4;
+  background: var(--studio-primary, #4f72b8);
   font-weight: 900;
   cursor: pointer;
 }
 
 .eucliConnectForm > button:hover:not(:disabled),
 .eucliConnectActions > button:hover:not(:disabled) {
-  background: #3a55d6;
+  background: var(--studio-primary-hover, #3f5f9f);
 }
 
 .eucliConnectForm > button:disabled,

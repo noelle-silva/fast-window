@@ -94,7 +94,7 @@ export function EucliBoxConnectionOverlay(props: EucliBoxConnectionOverlayProps)
         <h1 id="eucliConnectTitle" className="eucliConnectTitle">连接 eucli-box</h1>
         {phase === 'loading' ? (
           <div className="eucliConnectLoading" role="status" aria-live="polite">
-            <CircularProgress size={22} thickness={4.5} sx={{ color: '#4763e4' }} />
+            <CircularProgress size={22} thickness={4.5} sx={{ color: 'var(--studio-primary, #4f72b8)' }} />
             <span>正在连接本机后台，请稍候…</span>
           </div>
         ) : null}
