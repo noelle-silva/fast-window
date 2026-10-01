@@ -19,7 +19,7 @@ function customPreset() {
     id: 'imported-a',
     name: '自定 A',
     description: '测试用导入预设',
-    colors: { ...BUILTIN.colors, primary: '#111111' },
+    baseColors: { ...BUILTIN.baseColors, primary: '#111111' },
   }
 }
 
@@ -37,8 +37,8 @@ describe('cloneColorThemeDraft', () => {
     const draft = cloneColorThemeDraft(baseSettings())
     expect(draft.activePresetId).toBe(BUILTIN.id)
     expect(draft.presets.length).toBe(COLOR_THEME_BUILTIN_PRESETS.length + 1)
-    draft.presets[0].colors.primary = '#000000'
-    expect(COLOR_THEME_BUILTIN_PRESETS[0].colors.primary).not.toBe('#000000')
+    draft.presets[0].baseColors.primary = '#000000'
+    expect(COLOR_THEME_BUILTIN_PRESETS[0].baseColors.primary).not.toBe('#000000')
   })
 })
 
@@ -54,7 +54,7 @@ describe('isColorThemePresetDirty', () => {
     expect(isColorThemePresetDirty(baseSettings(), draft, BUILTIN.id)).toBe(false)
     expect(isColorThemePresetDirty(baseSettings(), draft, 'imported-a')).toBe(false)
 
-    draft.presets[0].colors.primary = '#000000'
+    draft.presets[0].baseColors.primary = '#000000'
     expect(isColorThemePresetDirty(baseSettings(), draft, BUILTIN.id)).toBe(true)
     expect(isColorThemePresetDirty(baseSettings(), draft, 'imported-a')).toBe(false)
   })
@@ -69,9 +69,9 @@ describe('isColorThemePresetDirty', () => {
 describe('resolveColorThemePreview', () => {
   it('prefers the draft over persisted settings', () => {
     const draft = cloneColorThemeDraft(baseSettings())
-    draft.presets[0].colors.primary = '#010203'
-    expect(resolveColorThemePreview(baseSettings(), draft).colors.primary).toBe('#010203')
-    expect(resolveColorThemePreview(baseSettings(), null).colors.primary).toBe(BUILTIN.colors.primary)
+    draft.presets[0].baseColors.primary = '#010203'
+    expect(resolveColorThemePreview(baseSettings(), draft).baseColors.primary).toBe('#010203')
+    expect(resolveColorThemePreview(baseSettings(), null).baseColors.primary).toBe(BUILTIN.baseColors.primary)
   })
 })
 
@@ -84,14 +84,14 @@ describe('materializeColorThemePreset', () => {
   it('turns an edited builtin preset into a copy while keeping the original', () => {
     const draft = cloneColorThemeDraft(baseSettings())
     const builtin = draft.presets.find((preset) => preset.id === BUILTIN.id)!
-    builtin.colors.primary = '#123456'
+    builtin.baseColors.primary = '#123456'
 
     const result = materializeColorThemePreset(baseSettings(), draft, BUILTIN.id, idFactory())!
     const all = listColorThemePresets(result.settings)
-    expect(all.find((preset) => preset.id === BUILTIN.id)!.colors.primary).toBe(BUILTIN.colors.primary)
+    expect(all.find((preset) => preset.id === BUILTIN.id)!.baseColors.primary).toBe(BUILTIN.baseColors.primary)
 
     const copy = all.find((preset) => preset.name === `${BUILTIN.name} 副本`)!
-    expect(copy.colors.primary).toBe('#123456')
+    expect(copy.baseColors.primary).toBe('#123456')
     expect(result.settings.activePresetId).toBe(copy.id)
     expect(isColorThemePresetDirty(result.settings, result.draft, BUILTIN.id)).toBe(false)
   })
@@ -99,12 +99,12 @@ describe('materializeColorThemePreset', () => {
   it('updates an edited imported preset in place without touching other presets', () => {
     const draft = cloneColorThemeDraft(baseSettings())
     const imported = draft.presets.find((preset) => preset.id === 'imported-a')!
-    imported.colors.primary = '#222222'
+    imported.baseColors.primary = '#222222'
     imported.name = '自定 A 改'
 
     const result = materializeColorThemePreset(baseSettings(), draft, 'imported-a', idFactory())!
     const updated = listColorThemePresets(result.settings).find((preset) => preset.id === 'imported-a')!
-    expect(updated.colors.primary).toBe('#222222')
+    expect(updated.baseColors.primary).toBe('#222222')
     expect(updated.name).toBe('自定 A 改')
     expect(result.settings.activePresetId).toBe(BUILTIN.id)
     expect(isColorThemePresetDirty(result.settings, result.draft, 'imported-a')).toBe(false)
@@ -125,20 +125,20 @@ describe('materializeColorThemePreset', () => {
 
   it('keeps other presets unsaved edits in the draft', () => {
     const draft = cloneColorThemeDraft(baseSettings())
-    draft.presets.find((preset) => preset.id === BUILTIN.id)!.colors.primary = '#123456'
-    draft.presets.find((preset) => preset.id === 'imported-a')!.colors.primary = '#654321'
+    draft.presets.find((preset) => preset.id === BUILTIN.id)!.baseColors.primary = '#123456'
+    draft.presets.find((preset) => preset.id === 'imported-a')!.baseColors.primary = '#654321'
 
     const result = materializeColorThemePreset(baseSettings(), draft, BUILTIN.id, idFactory())!
     expect(isColorThemePresetDirty(result.settings, result.draft, BUILTIN.id)).toBe(false)
     expect(isColorThemePresetDirty(result.settings, result.draft, 'imported-a')).toBe(true)
-    expect(result.draft.presets.find((preset) => preset.id === 'imported-a')!.colors.primary).toBe('#654321')
+    expect(result.draft.presets.find((preset) => preset.id === 'imported-a')!.baseColors.primary).toBe('#654321')
   })
 
   it('keeps active preset when saving a non-active preset', () => {
     const settings = baseSettings()
     settings.activePresetId = 'imported-a'
     const draft = cloneColorThemeDraft(settings)
-    draft.presets.find((preset) => preset.id === BUILTIN.id)!.colors.primary = '#123456'
+    draft.presets.find((preset) => preset.id === BUILTIN.id)!.baseColors.primary = '#123456'
 
     const result = materializeColorThemePreset(settings, draft, BUILTIN.id, idFactory())!
     expect(result.settings.activePresetId).toBe('imported-a')
@@ -148,7 +148,7 @@ describe('materializeColorThemePreset', () => {
     const settings = baseSettings()
     settings.importedPresets.push({ ...customPreset(), id: 'imported-b', name: `${BUILTIN.name} 副本` })
     const draft = cloneColorThemeDraft(settings)
-    draft.presets.find((preset) => preset.id === BUILTIN.id)!.colors.primary = '#123456'
+    draft.presets.find((preset) => preset.id === BUILTIN.id)!.baseColors.primary = '#123456'
 
     const result = materializeColorThemePreset(settings, draft, BUILTIN.id, idFactory())!
     const names = listColorThemePresets(result.settings).map((preset) => preset.name)
@@ -170,7 +170,7 @@ describe('colorThemePresetsEqual', () => {
     const a = customPreset()
     const b: ColorThemeDraft['presets'][number] = JSON.parse(JSON.stringify(a))
     expect(colorThemePresetsEqual(a, b)).toBe(true)
-    b.colors.border = '#000000'
+    b.baseColors.border = '#000000'
     expect(colorThemePresetsEqual(a, b)).toBe(false)
   })
 })

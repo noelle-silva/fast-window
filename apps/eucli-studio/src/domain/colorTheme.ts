@@ -1,4 +1,33 @@
+import { deriveFullColorTheme } from './colorDerivation'
+
 export type ColorThemeMode = 'light' | 'dark'
+
+// 用户可调、需持久化的基础色：主题数据的唯一事实源。
+export type BaseColors = {
+  background: string // 应用底色（对应 canvas/appBackground）
+  surface: string // 通用表面（对应 paper）
+  surfaceCode: string // 代码块表面
+  primary: string // 主强调色
+  secondary: string // 次强调色
+  text: string // 主文字色
+  border: string // 边框色
+  success: string // 成功状态
+  warning: string // 警告状态
+  danger: string // 危险状态
+}
+
+export const BASE_COLOR_KEYS: Array<keyof BaseColors> = [
+  'background',
+  'surface',
+  'surfaceCode',
+  'primary',
+  'secondary',
+  'text',
+  'border',
+  'success',
+  'warning',
+  'danger',
+]
 
 export type ColorThemeColors = {
   canvas: string
@@ -16,7 +45,6 @@ export type ColorThemeColors = {
   primarySoft: string
   secondary: string
   secondarySoft: string
-  accent: string
   textPrimary: string
   textSecondary: string
   border: string
@@ -28,6 +56,59 @@ export type ColorThemeColors = {
   success: string
   danger: string
   warning: string
+  // 扩展：语义化状态色
+  successBg: string
+  successBgStrong: string
+  dangerBg: string
+  warningBg: string
+  successText: string
+  dangerText: string
+  warningText: string
+  // 扩展：System 角色专用
+  systemBg: string
+  systemBorder: string
+  systemText: string
+  // 扩展：树形图专用
+  treeNodeBg: string
+  treeNodeBorder: string
+  treeEdge: string
+  treeEdgeHighlight: string
+  // 扩展：通用组件
+  divider: string
+  toolbarBg: string
+  toolbarBorder: string
+  overlay: string
+  scrollbarTrack: string
+  scrollbarThumb: string
+  // 扩展：输入框与表单
+  inputBorder: string
+  inputBg: string
+  buttonText: string
+  buttonHoverSubtle: string
+  // 扩展：卡片
+  cardBorder: string
+  cardBg: string
+  // 扩展：文本层级
+  textTertiary: string
+  // 扩展：Toast 通知
+  toastBg: string
+  toastText: string
+  toastBorder: string
+  toastShadow: string
+  successBgDark: string
+  successTextLight: string
+  successBorderDark: string
+  successShadow: string
+  errorBgDark: string
+  errorTextLight: string
+  errorBorderDark: string
+  errorShadow: string
+  // Mermaid 浮动操作按钮
+  mermaidActionBg: string
+  mermaidActionBgHover: string
+  mermaidActionText: string
+  mermaidActionTextHover: string
+  mermaidActionShadow: string
 }
 
 export type ColorThemePreset = {
@@ -35,7 +116,12 @@ export type ColorThemePreset = {
   name: string
   description: string
   mode: ColorThemeMode
-  colors: ColorThemeColors
+  baseColors: BaseColors // 必需：所有预设只存基础色
+}
+
+/** 获取主题的完整颜色（从基础色实时派生） */
+export function getColorThemeColors(preset: ColorThemePreset): ColorThemeColors {
+  return deriveFullColorTheme(preset.baseColors, preset.mode)
 }
 
 export type ColorThemeSettings = {
@@ -45,70 +131,22 @@ export type ColorThemeSettings = {
 
 export const COLOR_THEME_SETTING_KEY = 'colorTheme'
 
-export const COLOR_THEME_COLOR_KEYS: Array<keyof ColorThemeColors> = [
-  'canvas',
-  'paper',
-  'paperMuted',
-  'paperStrong',
-  'appBackground',
-  'topbar',
-  'composer',
-  'field',
-  'fieldHover',
-  'fieldFocus',
-  'primary',
-  'primaryHover',
-  'primarySoft',
-  'secondary',
-  'secondarySoft',
-  'accent',
-  'textPrimary',
-  'textSecondary',
-  'border',
-  'shadowSoft',
-  'shadowStrong',
-  'focus',
-  'codeBackground',
-  'codeText',
-  'success',
-  'danger',
-  'warning',
-]
-
 export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
   {
     id: 'misty-blue',
     name: '晨雾蓝',
     description: '清透、低饱和的浅色工作台，适合长时间阅读和日常对话。',
     mode: 'light',
-    colors: {
-      canvas: '#eaf2f7',
-      paper: '#fffaf3',
-      paperMuted: '#ffffff',
-      paperStrong: '#f7fbff',
-      appBackground: '#eaf4ff',
-      topbar: '#f8fbff',
-      composer: '#fff7ed',
-      field: 'rgba(238,247,244,.86)',
-      fieldHover: 'rgba(255,251,235,.96)',
-      fieldFocus: 'rgba(226,235,247,.98)',
+    baseColors: {
+      background: '#eaf2f7',
+      surface: '#fffaf3',
+      surfaceCode: '#0b1220',
       primary: '#4f72b8',
-      primaryHover: '#3f5f9f',
-      primarySoft: 'rgba(37,99,235,.12)',
-      secondary: '#7c3aed',
-      secondarySoft: 'rgba(124,58,237,.13)',
-      accent: '#22c55e',
-      textPrimary: '#0f172a',
-      textSecondary: 'rgba(71,85,105,.88)',
+      secondary: '#7c3aed',      text: '#0f172a',
       border: 'rgba(15,23,42,.12)',
-      shadowSoft: '0 10px 26px rgba(15,23,42,.065)',
-      shadowStrong: '0 24px 70px rgba(15,23,42,.18)',
-      focus: '0 12px 30px rgba(37,99,235,.10)',
-      codeBackground: '#0b1220',
-      codeText: '#e5e7eb',
       success: '#16a34a',
-      danger: '#dc2626',
       warning: '#d97706',
+      danger: '#dc2626',
     },
   },
   {
@@ -116,34 +154,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '暮樱墨',
     description: '偏暗的紫樱配色，降低白色刺激，突出沉浸式写作和夜间使用。',
     mode: 'dark',
-    colors: {
-      canvas: '#0d1020',
-      paper: '#211827',
-      paperMuted: '#121a2c',
-      paperStrong: '#2b2437',
-      appBackground: '#0d1020',
-      topbar: '#151a2d',
-      composer: '#261b2f',
-      field: 'rgba(31,41,55,.72)',
-      fieldHover: 'rgba(58,45,73,.76)',
-      fieldFocus: 'rgba(93,70,105,.44)',
+    baseColors: {
+      background: '#0d1020',
+      surface: '#211827',
+      surfaceCode: '#08070d',
       primary: '#c884a6',
-      primaryHover: '#b36f94',
-      primarySoft: 'rgba(244,114,182,.16)',
-      secondary: '#a78bfa',
-      secondarySoft: 'rgba(167,139,250,.16)',
-      accent: '#34d399',
-      textPrimary: '#f8fafc',
-      textSecondary: 'rgba(226,232,240,.72)',
+      secondary: '#a78bfa',      text: '#f8fafc',
       border: 'rgba(255,255,255,.12)',
-      shadowSoft: '0 10px 30px rgba(0,0,0,.28)',
-      shadowStrong: '0 26px 80px rgba(0,0,0,.42)',
-      focus: '0 12px 34px rgba(244,114,182,.16)',
-      codeBackground: '#08070d',
-      codeText: '#f8fafc',
       success: '#34d399',
-      danger: '#fb7185',
       warning: '#fbbf24',
+      danger: '#fb7185',
     },
   },
   {
@@ -151,34 +171,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '云朵马卡龙',
     description: '轻甜柔和的低饱和彩色层级，适合轻松、明亮的日常使用。',
     mode: 'light',
-    colors: {
-      canvas: '#f7f1fb',
-      paper: '#fff7fb',
-      paperMuted: '#edf7f3',
-      paperStrong: '#f8fbff',
-      appBackground: '#f7f1fb',
-      topbar: '#f8fbff',
-      composer: '#fff6ef',
-      field: 'rgba(255,247,251,.88)',
-      fieldHover: 'rgba(244,253,248,.96)',
-      fieldFocus: 'rgba(235,238,247,.98)',
+    baseColors: {
+      background: '#f7f1fb',
+      surface: '#fff7fb',
+      surfaceCode: '#25213a',
       primary: '#9a86c8',
-      primaryHover: '#846fb5',
-      primarySoft: 'rgba(139,92,246,.14)',
-      secondary: '#f472b6',
-      secondarySoft: 'rgba(244,114,182,.14)',
-      accent: '#2dd4bf',
-      textPrimary: '#312e4f',
-      textSecondary: 'rgba(83,75,110,.78)',
+      secondary: '#f472b6',      text: '#312e4f',
       border: 'rgba(49,46,79,.13)',
-      shadowSoft: '0 10px 26px rgba(49,46,79,.08)',
-      shadowStrong: '0 24px 70px rgba(49,46,79,.16)',
-      focus: '0 12px 30px rgba(139,92,246,.13)',
-      codeBackground: '#25213a',
-      codeText: '#f8fafc',
       success: '#10b981',
-      danger: '#fb7185',
       warning: '#f59e0b',
+      danger: '#fb7185',
     },
   },
   {
@@ -186,34 +188,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '苔林绿',
     description: '偏自然的绿色工作台，强调安静、护眼和稳定阅读。',
     mode: 'light',
-    colors: {
-      canvas: '#edf7ef',
-      paper: '#fbfff7',
-      paperMuted: '#dfeee4',
-      paperStrong: '#f4fbf5',
-      appBackground: '#edf7ef',
-      topbar: '#f4fbf5',
-      composer: '#f8f5e7',
-      field: 'rgba(244,251,245,.9)',
-      fieldHover: 'rgba(251,255,247,.98)',
-      fieldFocus: 'rgba(225,241,229,.96)',
+    baseColors: {
+      background: '#edf7ef',
+      surface: '#fbfff7',
+      surfaceCode: '#102016',
       primary: '#4f7f5b',
-      primaryHover: '#426d50',
-      primarySoft: 'rgba(21,128,61,.13)',
-      secondary: '#0f766e',
-      secondarySoft: 'rgba(15,118,110,.12)',
-      accent: '#84cc16',
-      textPrimary: '#17351f',
-      textSecondary: 'rgba(43,75,52,.78)',
+      secondary: '#0f766e',      text: '#17351f',
       border: 'rgba(23,53,31,.14)',
-      shadowSoft: '0 10px 26px rgba(23,53,31,.08)',
-      shadowStrong: '0 24px 70px rgba(23,53,31,.16)',
-      focus: '0 12px 30px rgba(21,128,61,.13)',
-      codeBackground: '#102016',
-      codeText: '#ecfdf5',
       success: '#16a34a',
-      danger: '#dc2626',
       warning: '#ca8a04',
+      danger: '#dc2626',
     },
   },
   {
@@ -221,34 +205,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '蜜桃粉',
     description: '温柔明亮的粉桃色层级，适合轻快、亲和的聊天氛围。',
     mode: 'light',
-    colors: {
-      canvas: '#fff1f2',
-      paper: '#fffaf7',
-      paperMuted: '#fde7ec',
-      paperStrong: '#fff5f7',
-      appBackground: '#fff1f2',
-      topbar: '#fff5f7',
-      composer: '#fff3e8',
-      field: 'rgba(255,245,247,.9)',
-      fieldHover: 'rgba(255,250,247,.98)',
-      fieldFocus: 'rgba(249,232,233,.98)',
+    baseColors: {
+      background: '#fff1f2',
+      surface: '#fffaf7',
+      surfaceCode: '#2b1220',
       primary: '#c06a78',
-      primaryHover: '#a85a67',
-      primarySoft: 'rgba(225,29,72,.12)',
-      secondary: '#f97316',
-      secondarySoft: 'rgba(249,115,22,.12)',
-      accent: '#ec4899',
-      textPrimary: '#4a1d2a',
-      textSecondary: 'rgba(100,54,66,.78)',
+      secondary: '#f97316',      text: '#4a1d2a',
       border: 'rgba(74,29,42,.13)',
-      shadowSoft: '0 10px 26px rgba(74,29,42,.08)',
-      shadowStrong: '0 24px 70px rgba(74,29,42,.16)',
-      focus: '0 12px 30px rgba(225,29,72,.13)',
-      codeBackground: '#2b1220',
-      codeText: '#fff1f2',
       success: '#16a34a',
-      danger: '#dc2626',
       warning: '#ea580c',
+      danger: '#dc2626',
     },
   },
   {
@@ -256,34 +222,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '紫藤雾',
     description: '清爽的紫色层级，适合更有幻想感和专注感的工作台。',
     mode: 'light',
-    colors: {
-      canvas: '#f3efff',
-      paper: '#fbf8ff',
-      paperMuted: '#e9ddff',
-      paperStrong: '#f8f5ff',
-      appBackground: '#f3efff',
-      topbar: '#f8f5ff',
-      composer: '#f2edff',
-      field: 'rgba(248,245,255,.9)',
-      fieldHover: 'rgba(251,248,255,.98)',
-      fieldFocus: 'rgba(235,230,247,.98)',
+    baseColors: {
+      background: '#f3efff',
+      surface: '#fbf8ff',
+      surfaceCode: '#211536',
       primary: '#8870bd',
-      primaryHover: '#7660aa',
-      primarySoft: 'rgba(124,58,237,.13)',
-      secondary: '#a855f7',
-      secondarySoft: 'rgba(168,85,247,.13)',
-      accent: '#06b6d4',
-      textPrimary: '#2e214f',
-      textSecondary: 'rgba(79,70,110,.78)',
+      secondary: '#a855f7',      text: '#2e214f',
       border: 'rgba(46,33,79,.13)',
-      shadowSoft: '0 10px 26px rgba(46,33,79,.08)',
-      shadowStrong: '0 24px 70px rgba(46,33,79,.16)',
-      focus: '0 12px 30px rgba(124,58,237,.13)',
-      codeBackground: '#211536',
-      codeText: '#f5f3ff',
       success: '#16a34a',
-      danger: '#dc2626',
       warning: '#d97706',
+      danger: '#dc2626',
     },
   },
   {
@@ -291,34 +239,16 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     name: '羊皮纸',
     description: '温暖的纸张色层级，适合写作、阅读和复古笔记氛围。',
     mode: 'light',
-    colors: {
-      canvas: '#f3ead7',
-      paper: '#fff8e8',
-      paperMuted: '#eadcc0',
-      paperStrong: '#fff3d2',
-      appBackground: '#f3ead7',
-      topbar: '#fff3d2',
-      composer: '#f8e7bf',
-      field: 'rgba(255,248,232,.9)',
-      fieldHover: 'rgba(255,252,242,.98)',
-      fieldFocus: 'rgba(249,239,213,.98)',
+    baseColors: {
+      background: '#f3ead7',
+      surface: '#fff8e8',
+      surfaceCode: '#2f2115',
       primary: '#9a7046',
-      primaryHover: '#84603c',
-      primarySoft: 'rgba(146,64,14,.13)',
-      secondary: '#a16207',
-      secondarySoft: 'rgba(161,98,7,.13)',
-      accent: '#b45309',
-      textPrimary: '#3f2f1c',
-      textSecondary: 'rgba(91,65,38,.78)',
+      secondary: '#a16207',      text: '#3f2f1c',
       border: 'rgba(63,47,28,.16)',
-      shadowSoft: '0 10px 26px rgba(63,47,28,.09)',
-      shadowStrong: '0 24px 70px rgba(63,47,28,.18)',
-      focus: '0 12px 30px rgba(146,64,14,.14)',
-      codeBackground: '#2f2115',
-      codeText: '#fef3c7',
       success: '#15803d',
-      danger: '#b91c1c',
       warning: '#b45309',
+      danger: '#b91c1c',
     },
   },
 ]
@@ -351,23 +281,25 @@ export function normalizeColorThemePreset(raw: unknown, fallbackId: string): Col
   const obj = raw as any
   const name = cleanText(obj.name, 40)
   if (!name) throw new Error('配色预设缺少 name')
-  const colorsRaw = obj.colors && typeof obj.colors === 'object' ? obj.colors : null
-  if (!colorsRaw) throw new Error('配色预设缺少 colors')
-
-  const colors = {} as ColorThemeColors
-  for (const key of COLOR_THEME_COLOR_KEYS) {
-    const value = colorsRaw[key]
-    if (typeof value !== 'string') throw new Error(`colors.${key} 必须是字符串`)
-    colors[key] = assertSafeCssValue(value, `colors.${key}`)
-  }
 
   const modeRaw = String(obj.mode || 'light').trim()
+  const mode: ColorThemeMode = modeRaw === 'dark' ? 'dark' : 'light'
+
+  if (!obj.baseColors || typeof obj.baseColors !== 'object') throw new Error('配色预设缺少 baseColors')
+  const baseRaw = obj.baseColors as Record<string, unknown>
+  const baseColors = {} as BaseColors
+  for (const key of BASE_COLOR_KEYS) {
+    const value = baseRaw[key]
+    if (typeof value !== 'string') throw new Error(`baseColors.${key} 必须是字符串`)
+    baseColors[key] = assertSafeCssValue(value, `baseColors.${key}`)
+  }
+
   return {
     id: normalizePresetId(obj.id, fallbackId),
     name,
     description: cleanText(obj.description, 120),
-    mode: modeRaw === 'dark' ? 'dark' : 'light',
-    colors,
+    mode,
+    baseColors,
   }
 }
 
@@ -438,7 +370,7 @@ export function cloneColorThemeDraft(settings: unknown): ColorThemeDraft {
   const base = normalizeColorThemeSettings(settings)
   return {
     activePresetId: base.activePresetId,
-    presets: listColorThemePresets(base).map((preset) => ({ ...preset, colors: { ...preset.colors } })),
+    presets: listColorThemePresets(base).map((preset) => ({ ...preset, baseColors: { ...preset.baseColors } })),
   }
 }
 
@@ -446,7 +378,7 @@ export function colorThemePresetsEqual(a: ColorThemePreset | null | undefined, b
   if (a === b) return true
   if (!a || !b) return false
   if (a.id !== b.id || a.name !== b.name || a.description !== b.description || a.mode !== b.mode) return false
-  return COLOR_THEME_COLOR_KEYS.every((key) => a.colors[key] === b.colors[key])
+  return BASE_COLOR_KEYS.every((key) => a.baseColors[key] === b.baseColors[key])
 }
 
 // 未保存判定按「预设」粒度：某个预设只有在和它已保存的版本不同时才算未保存。
@@ -492,7 +424,7 @@ export function materializeColorThemePreset(
   const original = baseList.find((preset) => preset.id === target.id)
   if (original && colorThemePresetsEqual(original, target)) return null
 
-  const nextImported = base.importedPresets.map((preset) => ({ ...preset, colors: { ...preset.colors } }))
+  const nextImported = base.importedPresets.map((preset) => ({ ...preset, baseColors: { ...preset.baseColors } }))
   const usedNames = new Set<string>([
     ...COLOR_THEME_BUILTIN_PRESETS.map((preset) => preset.name),
     ...nextImported.map((preset) => preset.name),
@@ -529,8 +461,8 @@ export function materializeColorThemePreset(
     const origin = baseList.find((item) => item.id === preset.id)
     if (origin && colorThemePresetsEqual(origin, preset)) continue
     const index = nextDraft.presets.findIndex((item) => item.id === preset.id)
-    if (index >= 0) nextDraft.presets[index] = { ...preset, colors: { ...preset.colors } }
-    else nextDraft.presets.push({ ...preset, colors: { ...preset.colors } })
+    if (index >= 0) nextDraft.presets[index] = { ...preset, baseColors: { ...preset.baseColors } }
+    else nextDraft.presets.push({ ...preset, baseColors: { ...preset.baseColors } })
   }
   nextDraft.activePresetId = draft.activePresetId === target.id ? savedId : draft.activePresetId
 
