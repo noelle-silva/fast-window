@@ -28,8 +28,10 @@ export function AssistantMessageHost(props: {
       if (lastTextRef.current === value && lastPolicyRef.current === renderSafetyPolicyKey) return
       lastTextRef.current = value
       lastPolicyRef.current = renderSafetyPolicyKey
-      lastRenderAtRef.current = performance.now()
       controller.renderAssistantInto(ref.current, value)
+      // 冷却从“渲染结束”起算：单次全量重渲染再慢，下一次增量也会因冷却未满而排队，
+      // 频率被钉死在安全上限内，不会退化为“每个字都全量重渲染”。
+      lastRenderAtRef.current = performance.now()
     },
     [controller, renderSafetyPolicyKey],
   )

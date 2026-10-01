@@ -48,7 +48,9 @@ export function planAssistantMessageBlocks(contentRaw: unknown, partsRaw: any[])
     blocks.push({ kind: 'reasoning', id: String(part?.id || `reasoning:${index}`), part })
   })
 
-  if (content.trim()) blocks.push({ kind: 'text', id: `text:0:${content.length}`, text: content, start: 0, end: content.length })
+  // 正文块身份保持稳定（不掺入字数）：流式推进时 React 复用同一节点，只更新文本，
+  // 不会因字数变化把整块卸载重建。编辑/删除通过 blockId 定位后取实时 start/end，不受影响。
+  if (content.trim()) blocks.push({ kind: 'text', id: 'text:0', text: content, start: 0, end: content.length })
 
   toolParts.forEach((part: any, index: number) => {
     pushToolBlocks(blocks, part, { index })
