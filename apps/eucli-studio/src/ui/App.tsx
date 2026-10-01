@@ -49,6 +49,7 @@ import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
+import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -95,6 +96,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const composerWidthPercent = normalizeComposerWidthPercent(data?.settings?.composerWidthPercent)
+  const composerMinRows = normalizeComposerMinRows(data?.settings?.composerMinRows)
+  const composerRadius = normalizeComposerRadius(data?.settings?.composerRadius)
   const chatFontSize = normalizeChatFontSize(data?.settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(data?.settings?.chatFontFamily)
   const chatLetterSpacing = normalizeChatLetterSpacing(data?.settings?.chatLetterSpacing)
@@ -1090,6 +1094,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 treePanelW={treePanelW}
                 composerOpacity={composerOpacity}
                 composerBlur={composerBlur}
+                composerWidthPercent={composerWidthPercent}
+                composerMinRows={composerMinRows}
+                composerRadius={composerRadius}
                 draft={s.draft}
                 activeSessionComposerDraftKey={String((s as any).activeSessionComposerDraftKey || '')}
                 composerInputRef={composerInputRef}

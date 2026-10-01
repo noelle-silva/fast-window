@@ -26,6 +26,7 @@ import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
 import { normalizeWallpaperSettings } from './wallpaper'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
+import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
 import { normalizeSessionFacts } from './sessionFacts'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
@@ -147,6 +148,9 @@ export function normalizeData(raw: any) {
   if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
   if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
   if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+  ;(d.settings as any).composerWidthPercent = normalizeComposerWidthPercent((d.settings as any).composerWidthPercent)
+  ;(d.settings as any).composerMinRows = normalizeComposerMinRows((d.settings as any).composerMinRows)
+  ;(d.settings as any).composerRadius = normalizeComposerRadius((d.settings as any).composerRadius)
   ;(d.settings as any).chatFontSize = normalizeChatFontSize((d.settings as any).chatFontSize)
   ;(d.settings as any).chatFontFamily = normalizeChatFontFamily((d.settings as any).chatFontFamily)
   ;(d.settings as any).chatLetterSpacing = normalizeChatLetterSpacing((d.settings as any).chatLetterSpacing)

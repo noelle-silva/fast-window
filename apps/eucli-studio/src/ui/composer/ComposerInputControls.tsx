@@ -31,6 +31,8 @@ export function ComposerInputControls(props: {
   roles: any[]
   activeStopRunId: string
   formatModelRefText: (modelRef: any) => string
+  minRows: number
+  radius: number
   toolbarStart?: React.ReactNode
   onSend: () => void
   onStop: () => void
@@ -48,6 +50,8 @@ export function ComposerInputControls(props: {
     roles,
     activeStopRunId,
     formatModelRefText,
+    minRows,
+    radius,
     toolbarStart,
     onSend,
     onStop,
@@ -258,8 +262,8 @@ export function ComposerInputControls(props: {
       <TextField
         fullWidth
         multiline
-        minRows={2}
-        maxRows={8}
+        minRows={minRows}
+        maxRows={Math.max(minRows, 8)}
         variant="outlined"
         className="fw-chat-text"
         placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
@@ -278,6 +282,7 @@ export function ComposerInputControls(props: {
         onPaste={onPaste}
         disabled={disabled}
         sx={{
+          '& .MuiOutlinedInput-root': { borderRadius: `${radius}px` },
           '& .MuiOutlinedInput-notchedOutline': { border: 0 },
           '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
           '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },

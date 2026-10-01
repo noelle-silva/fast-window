@@ -4,6 +4,7 @@ import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import CloseIcon from '@mui/icons-material/Close'
 import { HookPromptSelector } from '../components/HookPromptSelector'
+import { composerSideInsetPercent } from '../../domain/composerAppearance'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
@@ -50,6 +51,9 @@ export function ChatComposer(props: {
   treePanelW: number
   composerOpacity: number
   composerBlur: number
+  composerWidthPercent: number
+  composerMinRows: number
+  composerRadius: number
   draft: any
   activeSessionComposerDraftKey: string
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
@@ -102,6 +106,9 @@ export function ChatComposer(props: {
     treePanelW,
     composerOpacity,
     composerBlur,
+    composerWidthPercent,
+    composerMinRows,
+    composerRadius,
     draft,
     activeSessionComposerDraftKey,
     composerInputRef,
@@ -149,6 +156,7 @@ export function ChatComposer(props: {
   useScopedUiVersion(controller, COMPOSER_REFRESH_SCOPE)
   const liveDraft = (controller?.getComposerDraft?.() as any) || draft
   const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
+  const sideInset = `${composerSideInsetPercent(composerWidthPercent)}%`
 
   return (
     <Box
@@ -156,12 +164,12 @@ export function ChatComposer(props: {
       onClick={onClickOpenImageViewer}
       sx={{
         position: 'absolute',
-        left: 16,
-        right: treeOpen && effectiveTreeView === 'right' ? 16 + Math.round(treePanelW) : 16,
+        left: sideInset,
+        right: treeOpen && effectiveTreeView === 'right' ? `calc(${sideInset} + ${Math.round(treePanelW)}px)` : sideInset,
         bottom: 16,
         zIndex: 1299,
         p: 1.5,
-        borderRadius: 18,
+        borderRadius: `${composerRadius}px`,
         bgcolor: `rgba(255,255,255,${composerOpacity / 100})`,
         boxShadow: '0 12px 28px rgba(0,0,0,.18)',
         backdropFilter: composerBlur > 0 ? `blur(${composerBlur}px)` : 'none',
@@ -204,6 +212,8 @@ export function ChatComposer(props: {
           roles={roles}
           activeStopRunId={activeStopRunId}
           formatModelRefText={formatModelRefText}
+          minRows={composerMinRows}
+          radius={composerRadius}
           toolbarStart={(
             <>
               <Tooltip title="添加图片">

@@ -18,6 +18,17 @@ import {
   normalizeChatLineHeight,
 } from '../../domain/chatFont'
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
+import {
+  COMPOSER_MIN_ROWS_MAX,
+  COMPOSER_MIN_ROWS_MIN,
+  COMPOSER_RADIUS_MAX,
+  COMPOSER_RADIUS_MIN,
+  COMPOSER_WIDTH_PERCENT_MAX,
+  COMPOSER_WIDTH_PERCENT_MIN,
+  normalizeComposerMinRows,
+  normalizeComposerRadius,
+  normalizeComposerWidthPercent,
+} from '../../domain/composerAppearance'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
@@ -151,6 +162,12 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const topbarBlur = clampNum(Number(settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(settings?.composerBlur ?? 10), 0, 24)
+  const composerWidthPercent = normalizeComposerWidthPercent(settings?.composerWidthPercent)
+  const composerMinRows = normalizeComposerMinRows(settings?.composerMinRows)
+  const composerRadius = normalizeComposerRadius(settings?.composerRadius)
+  const composerWidthDraft = useNumberDraft(composerWidthPercent, normalizeComposerWidthPercent, (next) => controller.actions.setComposerWidthPercent?.(next, true))
+  const composerMinRowsDraft = useNumberDraft(composerMinRows, normalizeComposerMinRows, (next) => controller.actions.setComposerMinRows?.(next, true))
+  const composerRadiusDraft = useNumberDraft(composerRadius, normalizeComposerRadius, (next) => controller.actions.setComposerRadius?.(next, true))
   const renderSafetyPolicy = (() => {
     const v = String((settings as any)?.renderSafetyPolicy || 'original').trim()
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
@@ -265,6 +282,59 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 </FormControl>
               </Stack>
             </Box>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>输入区尺寸</Typography>
+              <Typography variant="caption" color="text.secondary">
+                调整底部输入栏的宽度、输入框高度与圆角；外框与输入框共用同一圆角。
+              </Typography>
+            </Box>
+
+            <ChatTextMetricRow
+              label="输入栏宽度"
+              unit="%"
+              min={COMPOSER_WIDTH_PERCENT_MIN}
+              max={COMPOSER_WIDTH_PERCENT_MAX}
+              step={1}
+              value={composerWidthPercent}
+              draft={composerWidthDraft.draft}
+              disabled={loading}
+              onDraftChange={composerWidthDraft.setDraft}
+              onCommitDraft={composerWidthDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setComposerWidthPercent?.(v, commit)}
+            />
+
+            <ChatTextMetricRow
+              label="输入框行数"
+              unit="行"
+              min={COMPOSER_MIN_ROWS_MIN}
+              max={COMPOSER_MIN_ROWS_MAX}
+              step={1}
+              value={composerMinRows}
+              draft={composerMinRowsDraft.draft}
+              disabled={loading}
+              onDraftChange={composerMinRowsDraft.setDraft}
+              onCommitDraft={composerMinRowsDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setComposerMinRows?.(v, commit)}
+            />
+
+            <ChatTextMetricRow
+              label="圆角"
+              unit="px"
+              min={COMPOSER_RADIUS_MIN}
+              max={COMPOSER_RADIUS_MAX}
+              step={1}
+              value={composerRadius}
+              draft={composerRadiusDraft.draft}
+              disabled={loading}
+              onDraftChange={composerRadiusDraft.setDraft}
+              onCommitDraft={composerRadiusDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setComposerRadius?.(v, commit)}
+            />
           </Stack>
         </SettingsSection>
 

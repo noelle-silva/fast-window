@@ -7,6 +7,7 @@ import {
   parseColorThemePresetImport,
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
+import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
@@ -57,6 +58,24 @@ export function createAppearanceActions(deps: {
     setComposerBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+      if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setComposerWidthPercent: (percent: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.composerWidthPercent = normalizeComposerWidthPercent(percent)
+      if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setComposerMinRows: (rows: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.composerMinRows = normalizeComposerMinRows(rows)
+      if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setComposerRadius: (radius: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.composerRadius = normalizeComposerRadius(radius)
       if (commit) saveMeta().catch(() => {})
       emit()
     },
