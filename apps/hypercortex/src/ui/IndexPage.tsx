@@ -8,8 +8,8 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 
 import type { AssetEntry } from '../assetTypes'
-import { kindFromMime, mimeFromExt, type NoteMeta } from '../core'
-import { buildAssetEntry } from '../assetEntryModel'
+import { type NoteMeta } from '../core'
+import { buildAssetLookup, resolveAssetRef } from '../assetLookup'
 import type { HyperCortexGateway } from '../gateway'
 import {
   addRef,
@@ -73,50 +73,6 @@ type Props = {
   onDeleteAssetEntity?: (asset: AssetEntry) => void
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
-}
-
-function buildAssetLookup(assetIndex?: Record<string, any>): {
-  byKey: Record<string, AssetEntry>
-  byAssetId: Record<string, AssetEntry>
-} {
-  const byKey: Record<string, AssetEntry> = {}
-  const byAssetId: Record<string, AssetEntry> = {}
-  if (!assetIndex) return { byKey, byAssetId }
-
-  for (const [k, v] of Object.entries(assetIndex)) {
-    if (!v || typeof v !== 'object') continue
-    const raw = v as any
-    const key = String(k || '').trim()
-    const dotIdx = key.lastIndexOf('.')
-    const assetId = String(raw.assetId || (dotIdx > 0 ? key.slice(0, dotIdx) : key)).trim()
-    const ext = String(raw.ext || (dotIdx > 0 ? key.slice(dotIdx + 1) : '')).trim().toLowerCase()
-    const relPath = String(raw.relPath || raw.path || '').trim()
-    if (!assetId || !relPath) continue
-    const mime = mimeFromExt(ext)
-    const kind = String(raw.kind || '').trim() || (mime ? kindFromMime(mime) : 'document')
-    const asset = buildAssetEntry({
-      relPath,
-      name: String(raw.fileName || key || (ext ? `${assetId}.${ext}` : assetId)),
-      assetId,
-      ext,
-      kind: kind || 'document',
-      mime: String(raw.mime || '').trim() || undefined,
-      sourceName: String(raw.sourceName || '').trim() || undefined,
-      displayName: String(raw.displayName || '').trim() || undefined,
-      remark: String(raw.remark || '').trim() || undefined,
-      tags: Array.isArray(raw.tags) ? raw.tags : [],
-      size: Number(raw.size || 0) || 0,
-      createdAtMs: Number(raw.createdAtMs || 0) || 0,
-      uploadedAtMs: Number(raw.uploadedAtMs || 0) || 0,
-      updatedAtMs: Number(raw.updatedAtMs || 0) || 0,
-      modifiedMs: Number(raw.modifiedMs || 0) || 0,
-    })
-    const refKey = ext ? `${assetId}.${ext}` : assetId
-    byKey[key || refKey] = asset
-    byKey[refKey] = asset
-    byAssetId[assetId] = asset
-  }
-  return { byKey, byAssetId }
 }
 
 export function IndexPage(props: Props): React.ReactNode {
@@ -539,7 +495,7 @@ export function IndexPage(props: Props): React.ReactNode {
       }
 
       if (ref.kind === 'asset') {
-        const asset = assetLookup.byKey[ref.targetId] || assetLookup.byAssetId[ref.targetId]
+        const asset = resolveAssetRef(assetLookup, ref.targetId)
         if (!asset) {
           const compact = getPreviewLayout(ref).h <= 1
           return (
@@ -578,8 +534,7 @@ export function IndexPage(props: Props): React.ReactNode {
       )
     },
     [
-      assetLookup.byAssetId,
-      assetLookup.byKey,
+      assetLookup,
       beginResize,
       buildCardMenuEntries,
       doc,

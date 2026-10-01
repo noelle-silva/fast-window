@@ -3,6 +3,7 @@ import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, Di
 import {
   kindFromMime,
   mimeFromExt,
+  type HyperCortexFavoritesNavV1,
   type HyperCortexRepoStateV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
@@ -17,6 +18,17 @@ import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
+import { FavoritesSidebarPanel } from './FavoritesSidebarPanel'
+import { SidebarRail } from './SidebarRail'
+import { resolveSidebarLayout } from './sidebarLayout'
+import {
+  createFavoritesNav,
+  goBackFavoritesNav,
+  goForwardFavoritesNav,
+  navigateFavoritesNav,
+  normalizeFavoritesNav,
+  reconcileFavoritesNav,
+} from './favoritesNavigator'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
@@ -82,6 +94,7 @@ import type { PageId } from './workspacePages'
 import {
   normalizeAllNotesLayout,
   normalizeBoolean,
+  normalizeFavoritesSidebarMode,
   normalizeSidebarSortMode,
   normalizeTabsMode,
   normalizeTrashAutoDeleteDays,
@@ -156,6 +169,7 @@ function sanitizeRepoStateForSave(state: HyperCortexRepoStateV1): HyperCortexRep
   if ('openTabKeys' in next) next.openTabKeys = stripDraftTabKeys(next.openTabKeys)
   if ('tabGroupByTabKey' in next) next.tabGroupByTabKey = stripDraftTabKeyMap(next.tabGroupByTabKey)
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
+  next.favoritesNav = normalizeFavoritesNav(next.favoritesNav)
 
   const sidebarScrollTops = normalizeWorkspaceScrollTops(next.sidebarScrollTops)
   if (Object.keys(sidebarScrollTops).length) next.sidebarScrollTops = sidebarScrollTops
@@ -282,6 +296,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const allNotesLayout = normalizeAllNotesLayout(appSettings.allNotesLayout)
   const tabsCollapsed = normalizeBoolean(appSettings.tabsCollapsed)
   const tabsMode = normalizeTabsMode(appSettings.tabsMode)
+  const favoritesSidebarCollapsed = normalizeBoolean(appSettings.favoritesSidebarCollapsed)
+  const favoritesSidebarMode = normalizeFavoritesSidebarMode(appSettings.favoritesSidebarMode)
   const sidebarSortMode = normalizeSidebarSortMode(appSettings.sidebarSortMode)
   const trashEnabled = normalizeTrashEnabled(appSettings.trashEnabled)
   const trashAutoDeleteDays = normalizeTrashAutoDeleteDays(appSettings.trashAutoDeleteDays)
@@ -411,6 +427,12 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
+  // 收藏夹导航栏（右侧栏）的独立浏览位置：与主界面收藏夹页互不干扰，随仓库持久化。
+  const [favoritesNav, setFavoritesNav] = React.useState<HyperCortexFavoritesNavV1>(() => createFavoritesNav())
+  const favoritesNavRef = React.useRef<HyperCortexFavoritesNavV1>(favoritesNav)
+  React.useEffect(() => {
+    favoritesNavRef.current = favoritesNav
+  }, [favoritesNav])
   const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
 
   const [noteCardMenu, setNoteCardMenu] = React.useState<{ anchorEl: HTMLElement; note: NoteMeta } | null>(null)
@@ -998,9 +1020,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   )
 
   const isHoverTabsMode = tabsMode === 'hover'
-  const sidebarRailWidth = isHoverTabsMode ? 52 : tabsCollapsed ? 52 : 220
-  const sidebarPanelExpanded = isHoverTabsMode ? tabsHoverOpen : !tabsCollapsed
-  const sidebarPanelWidth = isHoverTabsMode ? (tabsHoverOpen ? 220 : 52) : sidebarRailWidth
+  const leftSidebarLayout = resolveSidebarLayout({ mode: tabsMode, collapsed: tabsCollapsed, hoverOpen: tabsHoverOpen })
+  const sidebarPanelWidth = leftSidebarLayout.panelWidth
 
   const onSidebarMouseEnter = React.useCallback(() => {
     sidebarHoverRef.current = true
@@ -1013,6 +1034,70 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     if (sidebarShortcutHoldRef.current) return
     setTabsHoverOpen(false)
   }, [isHoverTabsMode])
+
+  // ---- 收藏夹导航栏（右侧栏）
+  const [favoritesHoverOpen, setFavoritesHoverOpen] = React.useState(false)
+  const favoritesHoverRef = React.useRef(false)
+  const isHoverFavoritesMode = favoritesSidebarMode === 'hover'
+  const rightSidebarLayout = resolveSidebarLayout({ mode: favoritesSidebarMode, collapsed: favoritesSidebarCollapsed, hoverOpen: favoritesHoverOpen })
+
+  const onFavoritesSidebarMouseEnter = React.useCallback(() => {
+    favoritesHoverRef.current = true
+    if (isHoverFavoritesMode) setFavoritesHoverOpen(true)
+  }, [isHoverFavoritesMode])
+
+  const onFavoritesSidebarMouseLeave = React.useCallback(() => {
+    favoritesHoverRef.current = false
+    if (isHoverFavoritesMode) setFavoritesHoverOpen(false)
+  }, [isHoverFavoritesMode])
+
+  const persistFavoritesNav = React.useCallback(
+    (next: HyperCortexFavoritesNavV1) => {
+      setFavoritesNav(next)
+      if (repoReadyRef.current) void persistRepoStatePatch({ favoritesNav: next }).catch(() => {})
+    },
+    [persistRepoStatePatch],
+  )
+
+  const handleFavoritesSidebarNavigate = React.useCallback(
+    (folderId: string) => {
+      const next = navigateFavoritesNav(favoritesNavRef.current, folderId)
+      if (next === favoritesNavRef.current) return
+      persistFavoritesNav(next)
+    },
+    [persistFavoritesNav],
+  )
+
+  const handleFavoritesSidebarBack = React.useCallback(() => {
+    const next = goBackFavoritesNav(favoritesNavRef.current)
+    if (next === favoritesNavRef.current) return
+    persistFavoritesNav(next)
+  }, [persistFavoritesNav])
+
+  const handleFavoritesSidebarForward = React.useCallback(() => {
+    const next = goForwardFavoritesNav(favoritesNavRef.current)
+    if (next === favoritesNavRef.current) return
+    persistFavoritesNav(next)
+  }, [persistFavoritesNav])
+
+  const toggleFavoritesSidebarCollapsed = React.useCallback(() => {
+    patchAppSettings({ favoritesSidebarCollapsed: !favoritesSidebarCollapsed })
+  }, [favoritesSidebarCollapsed, patchAppSettings])
+
+  const toggleFavoritesSidebarMode = React.useCallback(() => {
+    setFavoritesHoverOpen(false)
+    patchAppSettings({ favoritesSidebarMode: favoritesSidebarMode === 'manual' ? 'hover' : 'manual' })
+  }, [favoritesSidebarMode, patchAppSettings])
+
+  // 收藏夹文档变化（含实体删除）后调和导航位置：失效层回到根，历史剔除失效条目。
+  React.useEffect(() => {
+    if (!favoritesDoc) return
+    const existing = new Set(Object.keys(favoritesDoc.folders || {}))
+    const current = favoritesNavRef.current
+    const next = reconcileFavoritesNav(current, existing)
+    if (next === current) return
+    persistFavoritesNav(next)
+  }, [favoritesDoc, persistFavoritesNav])
 
   // 把当前位置转换成一条可回溯的导航记录。
   const captureCurrentNavEntry = React.useCallback((): NavHistoryEntry => {
@@ -1191,6 +1276,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       sidebarScrollTopsRef.current = normalizeWorkspaceScrollTops(normalizedRepoState.sidebarScrollTops)
       sidebarScrollDirtyRef.current = false
       setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
+      setFavoritesNav(normalizeFavoritesNav(normalizedRepoState.favoritesNav))
       const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
       restoreActiveTabKeyRef.current = activeKey
 
@@ -2648,81 +2734,59 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           ) : null}
 
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
-            <Box
+            <SidebarRail
+              side="left"
+              layout={leftSidebarLayout}
               onMouseEnter={onSidebarMouseEnter}
               onMouseLeave={onSidebarMouseLeave}
-              sx={{
-                width: sidebarRailWidth,
-                minWidth: sidebarRailWidth,
-                minHeight: 0,
-                position: 'relative',
-                bgcolor: 'var(--hc-surface-soft)',
-              }}
             >
-              <Box
-                sx={{
-                  width: sidebarPanelWidth,
-                  minHeight: 0,
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  bgcolor: 'var(--hc-surface)',
-                  position: isHoverTabsMode && sidebarPanelExpanded ? 'absolute' : 'relative',
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  zIndex: isHoverTabsMode && sidebarPanelExpanded ? 20 : 'auto',
-                  boxShadow: sidebarPanelWidth > sidebarRailWidth ? '12px 0 30px rgba(15,23,42,.07)' : 'none',
-                }}
-              >
-                <OpenTabsPanel
-                  panelWidth={sidebarPanelWidth}
-                  tabsMode={tabsMode}
-                  sidebarSortMode={sidebarSortMode}
-                  tabsCollapsed={tabsCollapsed}
-                  sidebarItems={sidebarItems}
-                  openTabKeys={openTabKeys}
-                  activeTabKey={activeTabKey}
-                  tabSelectionVisible={visiblePage === 'note-detail' || visiblePage === 'asset-detail'}
-                  activeTabScrollSignal={activeTabScrollSignal}
-                  sidebarScrollTop={sidebarScrollTopsRef.current[activeWorkspaceId] ?? 0}
-                  sidebarScrollRestoreSignal={sidebarScrollRestoreSignal}
-                  onSidebarScrollTopChange={handleSidebarScrollTopChange}
-                  openNoteTabs={openNoteTabs}
-                  openAssetTabs={openAssetTabs}
-                  playingTabKeys={playingTabKeys}
-                  isNoteDirty={isNoteDirtyById}
-                  workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
-                  activeWorkspaceId={activeWorkspaceId}
-                  tabGroups={tabGrouping.groups}
-                  tabGroupByTabKey={tabGrouping.byTabKey}
-                  onToggleTabsCollapsed={toggleTabsCollapsed}
-                  onToggleTabsMode={toggleTabsMode}
-                  onCreateDraftNote={handleCreateDraftNote}
-                  onCollapseAllGroups={handleCollapseAllGroups}
-                  onSwitchWorkspace={handleSwitchWorkspace}
-                  onCreateWorkspace={handleCreateWorkspace}
-                  onRenameWorkspace={handleRenameWorkspace}
-                  onDeleteWorkspace={handleDeleteWorkspace}
-                  onCreateGroup={handleCreateTabGroup}
-                  onOpenTab={tab => void handleOpenNote(tab)}
-                  onCloseTab={handleCloseTab}
-                  onOpenAssetTab={handleOpenAssetTab}
-                  onCloseAssetTab={handleCloseAssetTab}
-                  onAssignTabToGroup={handleAssignTabToGroup}
-                  onUnassignTabFromGroup={handleUnassignTabFromGroup}
-                  onToggleGroupCollapsed={handleToggleGroupCollapsed}
-                  onRenameGroup={handleRenameGroup}
-                  onSetGroupColor={handleSetGroupColor}
-                  onDeleteGroupOnly={handleDeleteGroupOnly}
-                  onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
-                  onCommitSidebarItems={handleCommitSidebarItems}
-                  onMoveTabToUngroupedIndex={handleMoveTabToUngroupedIndex}
-                  onMoveTabToGroupIndex={handleMoveTabToGroupIndex}
-                  onMoveGroupToIndex={handleMoveGroupToIndex}
-                />
-              </Box>
-            </Box>
+              <OpenTabsPanel
+                panelWidth={sidebarPanelWidth}
+                tabsMode={tabsMode}
+                sidebarSortMode={sidebarSortMode}
+                tabsCollapsed={tabsCollapsed}
+                sidebarItems={sidebarItems}
+                openTabKeys={openTabKeys}
+                activeTabKey={activeTabKey}
+                tabSelectionVisible={visiblePage === 'note-detail' || visiblePage === 'asset-detail'}
+                activeTabScrollSignal={activeTabScrollSignal}
+                sidebarScrollTop={sidebarScrollTopsRef.current[activeWorkspaceId] ?? 0}
+                sidebarScrollRestoreSignal={sidebarScrollRestoreSignal}
+                onSidebarScrollTopChange={handleSidebarScrollTopChange}
+                openNoteTabs={openNoteTabs}
+                openAssetTabs={openAssetTabs}
+                playingTabKeys={playingTabKeys}
+                isNoteDirty={isNoteDirtyById}
+                workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
+                activeWorkspaceId={activeWorkspaceId}
+                tabGroups={tabGrouping.groups}
+                tabGroupByTabKey={tabGrouping.byTabKey}
+                onToggleTabsCollapsed={toggleTabsCollapsed}
+                onToggleTabsMode={toggleTabsMode}
+                onCreateDraftNote={handleCreateDraftNote}
+                onCollapseAllGroups={handleCollapseAllGroups}
+                onSwitchWorkspace={handleSwitchWorkspace}
+                onCreateWorkspace={handleCreateWorkspace}
+                onRenameWorkspace={handleRenameWorkspace}
+                onDeleteWorkspace={handleDeleteWorkspace}
+                onCreateGroup={handleCreateTabGroup}
+                onOpenTab={tab => void handleOpenNote(tab)}
+                onCloseTab={handleCloseTab}
+                onOpenAssetTab={handleOpenAssetTab}
+                onCloseAssetTab={handleCloseAssetTab}
+                onAssignTabToGroup={handleAssignTabToGroup}
+                onUnassignTabFromGroup={handleUnassignTabFromGroup}
+                onToggleGroupCollapsed={handleToggleGroupCollapsed}
+                onRenameGroup={handleRenameGroup}
+                onSetGroupColor={handleSetGroupColor}
+                onDeleteGroupOnly={handleDeleteGroupOnly}
+                onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
+                onCommitSidebarItems={handleCommitSidebarItems}
+                onMoveTabToUngroupedIndex={handleMoveTabToUngroupedIndex}
+                onMoveTabToGroupIndex={handleMoveTabToGroupIndex}
+                onMoveGroupToIndex={handleMoveGroupToIndex}
+              />
+            </SidebarRail>
 
             <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: page === 'note-detail' || page === 'asset-detail' ? 'hidden' : 'auto' }}>
               <Box
@@ -2880,6 +2944,30 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 {page === 'settings' ? renderSettingsPage() : null}
               </Box>
             </Box>
+
+            <SidebarRail
+              side="right"
+              layout={rightSidebarLayout}
+              onMouseEnter={onFavoritesSidebarMouseEnter}
+              onMouseLeave={onFavoritesSidebarMouseLeave}
+            >
+              <FavoritesSidebarPanel
+                panelWidth={rightSidebarLayout.panelWidth}
+                mode={favoritesSidebarMode}
+                collapsed={favoritesSidebarCollapsed}
+                doc={favoritesDoc}
+                nav={favoritesNav}
+                noteIndex={noteIndex?.notes}
+                assetIndex={assetPoolIndex?.assets}
+                onNavigate={handleFavoritesSidebarNavigate}
+                onBack={handleFavoritesSidebarBack}
+                onForward={handleFavoritesSidebarForward}
+                onToggleCollapsed={toggleFavoritesSidebarCollapsed}
+                onToggleMode={toggleFavoritesSidebarMode}
+                onOpenNote={note => void handleOpenNote(note)}
+                onOpenAsset={handleOpenAssetTab}
+              />
+            </SidebarRail>
           </Box>
 
           {visible && openModalPage ? (

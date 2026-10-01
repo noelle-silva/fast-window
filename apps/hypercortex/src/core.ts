@@ -79,12 +79,22 @@ export type HyperCortexWorkspaceV1 = {
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
 export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
 
+// 收藏夹导航栏的浏览位置：当前位置 + 后退/前进历史（收藏夹标识序列），随仓库持久化。
+export type HyperCortexFavoritesNavV1 = {
+  currentFolderId: string
+  back: string[]
+  forward: string[]
+}
+
 // 应用设置身份：只描述「这个 App 怎么用」，全局唯一，所有仓库共用。
 export type HyperCortexAppSettingsV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
+  // 收藏夹导航栏的展开形态（与左侧「已打开笔记」栏各自独立）。
+  favoritesSidebarCollapsed?: boolean
+  favoritesSidebarMode?: 'manual' | 'hover'
   sidebarSortMode?: HyperCortexSidebarSortModeV1
   shortcuts?: HyperCortexShortcutBindingsV1
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.
@@ -116,6 +126,8 @@ export type HyperCortexRepoStateV1 = {
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
   currentFolderId?: string
+  // 收藏夹导航栏的浏览位置（随仓库持久化，独立于主界面收藏夹页）。
+  favoritesNav?: HyperCortexFavoritesNavV1
   // 侧边栏列表的滚动浏览位置：工作区标识 → 像素值（随仓库持久化）。
   sidebarScrollTops?: Record<string, number>
 }
