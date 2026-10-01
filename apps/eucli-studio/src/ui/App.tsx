@@ -54,7 +54,8 @@ import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../domain/release'
-import { resolveColorThemePreview } from '../domain/colorTheme'
+import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTheme'
+import { ThemeColorsProvider } from './hooks/useThemeColors'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
@@ -80,7 +81,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const s = useAiChatState(controller)
   const data = s.data
   const colorThemePreset = resolveColorThemePreview(data?.settings?.colorTheme, (s.draft as any)?.colorThemeDraft)
-  const theme = React.useMemo(() => createStudioMuiTheme(colorThemePreset), [colorThemePreset])
+  const colorThemeColors = React.useMemo(() => getColorThemeColors(colorThemePreset), [colorThemePreset])
+  const theme = React.useMemo(() => createStudioMuiTheme(colorThemePreset.mode, colorThemeColors), [colorThemePreset.mode, colorThemeColors])
   const roles = Array.isArray(data?.roles) ? data.roles : []
   const groups = Array.isArray((data as any)?.groups) ? ((data as any).groups as any[]) : []
   const workspaces = Array.isArray((data as any)?.workspaces) ? ((data as any).workspaces as any[]) : []
@@ -816,8 +818,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   return (
     <ThemeProvider theme={theme}>
+      <ThemeColorsProvider colors={colorThemeColors}>
       <CssBaseline />
-      <GlobalStyles styles={createChatGlobalStyles({ colorThemePreset, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily, chatLetterSpacing, chatLineHeight })} />
+      <GlobalStyles styles={createChatGlobalStyles({ colorThemeColors, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily, chatLetterSpacing, chatLineHeight })} />
 
       <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', isolation: 'isolate', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
         {activeWallpaper ? (
@@ -1353,6 +1356,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
         <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />
       </Box>
+      </ThemeColorsProvider>
     </ThemeProvider>
   )
 }

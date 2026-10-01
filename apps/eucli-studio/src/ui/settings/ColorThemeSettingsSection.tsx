@@ -23,7 +23,7 @@ function serializePreset(preset: ColorThemePreset) {
       name: preset.name,
       description: preset.description,
       mode: preset.mode,
-      colors: preset.colors,
+      baseColors: preset.baseColors,
     },
     null,
     2,
@@ -92,7 +92,7 @@ export function ColorThemeSettingsSection(props: { controller: any; loading: boo
                           width: 14,
                           height: 14,
                           borderRadius: '50%',
-                          bgcolor: preset.colors.primary,
+                          bgcolor: preset.baseColors.primary,
                           boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.14)',
                           flexShrink: 0,
                         }}
@@ -168,7 +168,7 @@ export function ColorThemeSettingsSection(props: { controller: any; loading: boo
             ) : null}
 
             <ColorThemeSwatchGrid
-              colors={selected.colors}
+              colors={selected.baseColors}
               disabled={loading}
               onChange={(key, value) => controller.actions.updateColorThemeDraftColor?.(selected.id, key, value)}
             />

@@ -5,8 +5,10 @@ import { MERMAID_VIEWER_ZOOM_MAX } from '../../core/viewerZoom'
 import { parseSvgSize } from '../../render/mermaidExport'
 import { renderMermaidSvg } from '../../render/mermaidRender'
 import { planPlaceholderDependencyDiagram } from '../../render/placeholderDiagram'
+import { placeholderDiagramColors } from '../colorThemeStyles'
 import { useEvent } from '../hooks/useEvent'
 import { usePanZoomStage } from '../hooks/usePanZoomStage'
+import { useThemeColors } from '../hooks/useThemeColors'
 
 const NODE_ID_PATTERN = /(?:^|[^A-Za-z0-9_])n(\d+)(?![0-9])/
 
@@ -19,7 +21,16 @@ type PlaceholderDependencyGraphProps = {
 
 export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProps) {
   const { tree, rootLabel, height = 360, onNodeClick } = props
-  const plan = React.useMemo(() => planPlaceholderDependencyDiagram(tree, { rootLabel }), [tree, rootLabel])
+  const colors = useThemeColors()
+
+  const plan = React.useMemo(
+    () =>
+      planPlaceholderDependencyDiagram(tree, {
+        rootLabel,
+        colors: placeholderDiagramColors(colors),
+      }),
+    [tree, rootLabel, colors],
+  )
   const nodeById = React.useMemo(() => new Map(plan.nodes.map((node) => [node.id, node])), [plan.nodes])
 
   const [svg, setSvg] = React.useState('')

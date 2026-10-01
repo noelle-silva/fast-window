@@ -1,16 +1,14 @@
 import { createTheme } from '@mui/material'
-import type { ColorThemePreset } from '../domain/colorTheme'
+import type { ColorThemeColors, ColorThemeMode } from '../domain/colorTheme'
+import type { PlaceholderDiagramColors } from '../render/placeholderDiagram'
 
-const STUDIO_MAIN_BACKGROUND = '#fff'
-
-export function colorThemeCssVariables(preset: ColorThemePreset) {
-  const colors = preset.colors
+export function colorThemeCssVariables(colors: ColorThemeColors) {
   return {
-    '--studio-canvas': STUDIO_MAIN_BACKGROUND,
+    '--studio-canvas': colors.canvas,
     '--studio-paper': colors.paper,
     '--studio-paper-muted': colors.paperMuted,
     '--studio-paper-strong': colors.paperStrong,
-    '--studio-app-background': STUDIO_MAIN_BACKGROUND,
+    '--studio-app-background': colors.appBackground,
     '--studio-topbar': colors.topbar,
     '--studio-composer': colors.composer,
     '--studio-field': colors.field,
@@ -23,7 +21,6 @@ export function colorThemeCssVariables(preset: ColorThemePreset) {
     '--studio-primary-soft': colors.primarySoft,
     '--studio-secondary': colors.secondary,
     '--studio-secondary-soft': colors.secondarySoft,
-    '--studio-accent': colors.accent,
     '--studio-text-primary': colors.textPrimary,
     '--studio-text-secondary': colors.textSecondary,
     '--studio-border': colors.border,
@@ -35,6 +32,90 @@ export function colorThemeCssVariables(preset: ColorThemePreset) {
     '--studio-success': colors.success,
     '--studio-danger': colors.danger,
     '--studio-warning': colors.warning,
+    '--studio-success-bg': colors.successBg,
+    '--studio-success-bg-strong': colors.successBgStrong,
+    '--studio-danger-bg': colors.dangerBg,
+    '--studio-warning-bg': colors.warningBg,
+    '--studio-success-text': colors.successText,
+    '--studio-danger-text': colors.dangerText,
+    '--studio-warning-text': colors.warningText,
+    '--studio-system-bg': colors.systemBg,
+    '--studio-system-border': colors.systemBorder,
+    '--studio-system-text': colors.systemText,
+    '--studio-tree-node-bg': colors.treeNodeBg,
+    '--studio-tree-node-border': colors.treeNodeBorder,
+    '--studio-tree-edge': colors.treeEdge,
+    '--studio-tree-edge-highlight': colors.treeEdgeHighlight,
+    '--studio-divider': colors.divider,
+    '--studio-toolbar-bg': colors.toolbarBg,
+    '--studio-toolbar-border': colors.toolbarBorder,
+    '--studio-overlay': colors.overlay,
+    '--studio-scrollbar-track': colors.scrollbarTrack,
+    '--studio-scrollbar-thumb': colors.scrollbarThumb,
+    '--studio-input-border': colors.inputBorder,
+    '--studio-input-bg': colors.inputBg,
+    '--studio-button-text': colors.buttonText,
+    '--studio-button-hover-subtle': colors.buttonHoverSubtle,
+    '--studio-card-border': colors.cardBorder,
+    '--studio-card-bg': colors.cardBg,
+    '--studio-text-tertiary': colors.textTertiary,
+    '--studio-toast-bg': colors.toastBg,
+    '--studio-toast-text': colors.toastText,
+    '--studio-toast-border': colors.toastBorder,
+    '--studio-toast-shadow': colors.toastShadow,
+    '--studio-success-bg-dark': colors.successBgDark,
+    '--studio-success-text-light': colors.successTextLight,
+    '--studio-success-border-dark': colors.successBorderDark,
+    '--studio-success-shadow': colors.successShadow,
+    '--studio-error-bg-dark': colors.errorBgDark,
+    '--studio-error-text-light': colors.errorTextLight,
+    '--studio-error-border-dark': colors.errorBorderDark,
+    '--studio-error-shadow': colors.errorShadow,
+    // Mermaid 浮动操作按钮
+    '--studio-mermaid-action-bg': colors.mermaidActionBg,
+    '--studio-mermaid-action-bg-hover': colors.mermaidActionBgHover,
+    '--studio-mermaid-action-text': colors.mermaidActionText,
+    '--studio-mermaid-action-text-hover': colors.mermaidActionTextHover,
+    '--studio-mermaid-action-shadow': colors.mermaidActionShadow,
+    // Mermaid error box
+    '--studio-mermaid-error-bg': colors.paper,
+    '--studio-mermaid-error-border': colors.border,
+    '--studio-mermaid-error-button-bg': colors.paperStrong,
+    '--studio-mermaid-error-button-text': colors.textSecondary,
+    '--studio-mermaid-error-title': colors.textSecondary,
+    '--studio-mermaid-error-text': colors.textPrimary,
+    // Tool blocks
+    '--studio-tool-block-bg': colors.paperMuted,
+    '--studio-tool-session-bg': colors.paper,
+    '--studio-tool-session-shadow': colors.shadowStrong,
+    '--studio-tool-session-mark': colors.border,
+    '--studio-tool-session-title': colors.textPrimary,
+    '--studio-tool-session-label': colors.textSecondary,
+    '--studio-tool-session-pill-bg': colors.fieldHover,
+    '--studio-tool-session-chevron': colors.textSecondary,
+    '--studio-tool-glyph-bg': colors.border,
+    '--studio-tool-glyph-result-bg': colors.fieldHover,
+    '--studio-tool-call-id': colors.textTertiary,
+    '--studio-tool-chip-bg': colors.fieldHover,
+    '--studio-tool-chip-text': colors.textPrimary,
+    '--studio-tool-field-label': colors.textSecondary,
+    '--studio-tool-pre-bg': colors.codeBackground,
+    '--studio-tool-pre-text': colors.textPrimary,
+    '--studio-tool-pre-raw-bg': colors.primarySoft,
+    '--studio-tool-pre-live-bg': colors.secondarySoft,
+    '--studio-tool-pre-live-text': colors.textPrimary,
+    '--studio-tool-meta-text': colors.textSecondary,
+    '--studio-diagnostic-bg': colors.dangerBg,
+    '--studio-diagnostic-title': colors.dangerText,
+    '--studio-diagnostic-text': colors.dangerText,
+    // Code block copy button
+    '--studio-code-border': colors.border,
+    '--studio-code-copy-border': colors.border,
+    '--studio-code-copy-bg': colors.fieldHover,
+    '--studio-code-copy-text': colors.textSecondary,
+    '--studio-code-copy-hover': colors.field,
+    '--studio-code-copy-active': colors.fieldFocus,
+    '--studio-code-copy-focus': colors.focus,
   }
 }
 
@@ -42,24 +123,39 @@ export function colorMixVar(cssVar: string, percent: number) {
   return `color-mix(in srgb, var(${cssVar}) ${Math.round(percent)}%, transparent)`
 }
 
-export function createStudioMuiTheme(preset: ColorThemePreset) {
+// Mermaid 依赖图（拿不到 CSS 变量，需真实色值）与主题色之间的唯一映射。
+export function placeholderDiagramColors(colors: ColorThemeColors): PlaceholderDiagramColors {
+  return {
+    rootNodeFill: colors.primarySoft,
+    rootNodeStroke: colors.primary,
+    rootNodeText: colors.textPrimary,
+    missingNodeFill: colors.dangerBg,
+    missingNodeStroke: colors.danger,
+    missingNodeText: colors.dangerText,
+    cycleNodeFill: colors.warningBg,
+    cycleNodeStroke: colors.warning,
+    cycleNodeText: colors.warningText,
+  }
+}
+
+export function createStudioMuiTheme(mode: ColorThemeMode, colors: ColorThemeColors) {
   return createTheme({
     palette: {
-      mode: preset.mode,
-      primary: { main: preset.colors.primary },
-      secondary: { main: preset.colors.secondary },
-      success: { main: preset.colors.success },
-      error: { main: preset.colors.danger },
-      warning: { main: preset.colors.warning },
+      mode,
+      primary: { main: colors.primary },
+      secondary: { main: colors.secondary },
+      success: { main: colors.success },
+      error: { main: colors.danger },
+      warning: { main: colors.warning },
       background: {
-        default: STUDIO_MAIN_BACKGROUND,
-        paper: preset.colors.paper,
+        default: colors.appBackground,
+        paper: colors.paper,
       },
       text: {
-        primary: preset.colors.textPrimary,
-        secondary: preset.colors.textSecondary,
+        primary: colors.textPrimary,
+        secondary: colors.textSecondary,
       },
-      divider: preset.colors.border,
+      divider: colors.border,
     },
     shape: { borderRadius: 12 },
     typography: {

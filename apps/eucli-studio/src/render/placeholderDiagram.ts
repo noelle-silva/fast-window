@@ -11,6 +11,18 @@ export type PlaceholderDiagramPlan = {
   nodes: PlaceholderDiagramNode[]
 }
 
+export type PlaceholderDiagramColors = {
+  rootNodeFill: string
+  rootNodeStroke: string
+  rootNodeText: string
+  missingNodeFill: string
+  missingNodeStroke: string
+  missingNodeText: string
+  cycleNodeFill: string
+  cycleNodeStroke: string
+  cycleNodeText: string
+}
+
 function nodeLabel(node: PlaceholderDependencyNode) {
   const suffix = node.cycle ? '（循环）' : node.missing ? '（未注册）' : ''
   return `{{${String(node.name || '')}}}${suffix}`
@@ -22,17 +34,19 @@ function escapeDiagramLabel(value: string) {
 
 export function planPlaceholderDependencyDiagram(
   tree: PlaceholderDependencyNode | null | undefined,
-  options?: { rootLabel?: string },
+  options: { rootLabel?: string; colors: PlaceholderDiagramColors },
 ): PlaceholderDiagramPlan {
   const root = tree && tree.name ? tree : null
   if (!root) return { source: '', nodes: [] }
-  const rootLabel = String(options?.rootLabel ?? '').trim()
+  const rootLabel = String(options.rootLabel ?? '').trim()
+  const colors = options.colors
+
   const lines = [
     '%%{init: {"flowchart": {"curve": "basis", "htmlLabels": false}} }%%',
     'flowchart LR',
-    '  classDef rootNode fill:#eff6ff,stroke:#3b82f6,color:#1d4ed8',
-    '  classDef missingNode fill:#fef2f2,stroke:#ef4444,color:#b91c1c',
-    '  classDef cycleNode fill:#fffbeb,stroke:#f59e0b,color:#b45309',
+    `  classDef rootNode fill:${colors.rootNodeFill},stroke:${colors.rootNodeStroke},color:${colors.rootNodeText}`,
+    `  classDef missingNode fill:${colors.missingNodeFill},stroke:${colors.missingNodeStroke},color:${colors.missingNodeText}`,
+    `  classDef cycleNode fill:${colors.cycleNodeFill},stroke:${colors.cycleNodeStroke},color:${colors.cycleNodeText}`,
   ]
   const nodes: PlaceholderDiagramNode[] = []
   let counter = 0
@@ -55,7 +69,7 @@ export function planPlaceholderDependencyDiagram(
 
 export function buildPlaceholderDependencyDiagram(
   tree: PlaceholderDependencyNode | null | undefined,
-  options?: { rootLabel?: string },
+  options: { rootLabel?: string; colors: PlaceholderDiagramColors },
 ): string {
   return planPlaceholderDependencyDiagram(tree, options).source
 }

@@ -12,8 +12,8 @@ body,
 }
 
 body {
-  color: #1f2430;
-  background: #eef1f8;
+  color: var(--studio-text-primary, #1f2430);
+  background: var(--studio-app-background, #eef1f8);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -91,7 +91,7 @@ textarea {
 
 .eucliConnectHint {
   margin: 10px 0 0;
-  color: #566073;
+  color: var(--studio-text-secondary, #566073);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -102,7 +102,7 @@ textarea {
   align-items: center;
   gap: 12px;
   padding: 26px 0 10px;
-  color: #566073;
+  color: var(--studio-text-secondary, #566073);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -121,7 +121,7 @@ textarea {
 .eucliConnectField {
   display: grid;
   gap: 7px;
-  color: #394255;
+  color: var(--studio-text-primary, #394255);
   font-size: 12px;
   font-weight: 800;
 }
@@ -130,10 +130,10 @@ textarea {
   width: 100%;
   height: 38px;
   padding: 0 12px;
-  border: 1px solid rgba(73, 82, 106, 0.16);
+  border: 1px solid var(--studio-input-border, rgba(73, 82, 106, 0.16));
   border-radius: 12px;
-  color: #1f2430;
-  background: rgba(255, 255, 255, 0.82);
+  color: var(--studio-text-primary, #1f2430);
+  background: var(--studio-input-bg, rgba(255, 255, 255, 0.82));
   outline: none;
 }
 
@@ -162,7 +162,7 @@ textarea {
   padding: 0;
   border: none;
   border-radius: 8px;
-  color: #566073;
+  color: var(--studio-text-secondary, #566073);
   background: transparent;
   cursor: pointer;
   display: inline-flex;
@@ -171,7 +171,7 @@ textarea {
 }
 
 .eucliConnectReveal:hover {
-  background: rgba(73, 82, 106, 0.1);
+  background: var(--studio-button-hover-subtle, rgba(73, 82, 106, 0.1));
 }
 
 .eucliConnectForm > button,
@@ -179,7 +179,7 @@ textarea {
   height: 40px;
   border: 1px solid color-mix(in srgb, var(--studio-primary, #4f72b8) 32%, transparent);
   border-radius: 12px;
-  color: #ffffff;
+  color: var(--studio-button-text, #ffffff);
   background: var(--studio-primary, #4f72b8);
   font-weight: 900;
   cursor: pointer;
@@ -200,10 +200,10 @@ textarea {
 .eucliConnectIssue {
   margin-top: 12px;
   padding: 10px 12px;
-  border: 1px solid rgba(220, 38, 38, 0.16);
+  border: 1px solid color-mix(in srgb, var(--studio-danger, #dc2626) 24%, transparent);
   border-radius: 12px;
-  color: #1f2430;
-  background: rgba(220, 38, 38, 0.08);
+  color: var(--studio-text-primary, #1f2430);
+  background: var(--studio-danger-bg, rgba(220, 38, 38, 0.08));
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -219,31 +219,31 @@ textarea {
 .releaseFacts > div {
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(73, 82, 106, 0.12);
+  border: 1px solid var(--studio-card-border, rgba(73, 82, 106, 0.12));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--studio-card-bg, rgba(255, 255, 255, 0.58));
 }
 
 .releaseFacts dt {
-  color: #697386;
+  color: var(--studio-text-tertiary, #697386);
   font-size: 11px;
   font-weight: 800;
 }
 
 .releaseFacts dd {
   margin: 5px 0 0;
-  color: #1f2430;
+  color: var(--studio-text-primary, #1f2430);
   font-size: 13px;
   font-weight: 900;
   overflow-wrap: anywhere;
 }
 
 .releaseFacts dd[data-compatible="false"] {
-  color: #8d2635;
+  color: var(--studio-danger-text, #8d2635);
 }
 
 .releaseFacts dd[data-compatible="true"] {
-  color: #167047;
+  color: var(--studio-success-text, #167047);
 }
 
 .toast {
@@ -254,11 +254,11 @@ textarea {
   z-index: 10000;
   max-width: min(520px, calc(100vw - 36px));
   padding: 12px 14px;
-  border: 1px solid rgba(15, 23, 42, 0.24);
+  border: 1px solid var(--studio-toast-border, rgba(15, 23, 42, 0.24));
   border-radius: 16px;
-  color: #f8fafc;
-  background: rgba(30, 41, 59, 0.94);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.24);
+  color: var(--studio-toast-text, #f8fafc);
+  background: var(--studio-toast-bg, rgba(30, 41, 59, 0.94));
+  box-shadow: var(--studio-toast-shadow, 0 18px 44px rgba(15, 23, 42, 0.24));
   font-size: 13px;
   font-weight: 700;
   line-height: 1.5;
@@ -268,17 +268,17 @@ textarea {
 }
 
 .toast[data-kind="success"] {
-  border-color: rgba(21, 128, 61, 0.34);
-  color: #ecfdf5;
-  background: rgba(22, 163, 74, 0.94);
-  box-shadow: 0 18px 44px rgba(21, 128, 61, 0.28);
+  border-color: var(--studio-success-border-dark, rgba(21, 128, 61, 0.34));
+  color: var(--studio-success-text-light, #ecfdf5);
+  background: var(--studio-success-bg-dark, rgba(22, 163, 74, 0.94));
+  box-shadow: var(--studio-success-shadow, 0 18px 44px rgba(21, 128, 61, 0.28));
 }
 
 .toast[data-kind="error"] {
-  border-color: rgba(185, 28, 28, 0.36);
-  color: #fff1f2;
-  background: rgba(220, 38, 38, 0.94);
-  box-shadow: 0 18px 44px rgba(185, 28, 28, 0.28);
+  border-color: var(--studio-error-border-dark, rgba(185, 28, 28, 0.36));
+  color: var(--studio-error-text-light, #fff1f2);
+  background: var(--studio-error-bg-dark, rgba(220, 38, 38, 0.94));
+  box-shadow: var(--studio-error-shadow, 0 18px 44px rgba(185, 28, 28, 0.28));
 }
 
 @media (max-width: 720px) {

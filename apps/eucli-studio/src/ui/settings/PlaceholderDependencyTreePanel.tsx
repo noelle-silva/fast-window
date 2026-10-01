@@ -4,14 +4,21 @@ import type { PlaceholderDependencyNode } from '../../domain/placeholder'
 import { parseSvgSize } from '../../render/mermaidExport'
 import { renderMermaidSvg } from '../../render/mermaidRender'
 import { buildPlaceholderDependencyDiagram } from '../../render/placeholderDiagram'
+import { placeholderDiagramColors } from '../colorThemeStyles'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsSection } from './SettingsSurfaces'
+import { useThemeColors } from '../hooks/useThemeColors'
 
 export function PlaceholderDependencyTreePanel(props: { tree: PlaceholderDependencyNode; viewportHeight?: number }) {
   const { tree, viewportHeight } = props
   const [svg, setSvg] = React.useState('')
   const [failed, setFailed] = React.useState(false)
-  const source = React.useMemo(() => buildPlaceholderDependencyDiagram(tree), [tree])
+  const colors = useThemeColors()
+
+  const source = React.useMemo(
+    () => buildPlaceholderDependencyDiagram(tree, { colors: placeholderDiagramColors(colors) }),
+    [tree, colors],
+  )
   const viewport = Number(viewportHeight) > 0 ? Number(viewportHeight) : 0
   const svgSize = React.useMemo(() => (svg ? parseSvgSize(svg) : { w: 0, h: 0 }), [svg])
   const naturalSize = viewport > 0 && svgSize.w > 0 && svgSize.h > 0

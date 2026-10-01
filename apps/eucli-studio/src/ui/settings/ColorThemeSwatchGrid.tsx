@@ -1,32 +1,45 @@
 import * as React from 'react'
 import { Box, Popover, Stack, Typography } from '@mui/material'
 import { RgbaColorPicker } from 'react-colorful'
-import { COLOR_THEME_COLOR_KEYS, type ColorThemeColors } from '../../domain/colorTheme'
+import { BASE_COLOR_KEYS, type BaseColors } from '../../domain/colorTheme'
 import { formatCssColor, parseCssColor } from '../../domain/cssColor'
 
-// 颜色自定义的色块网格：纯颜色可点击弹出取色器（实时写回草稿）；阴影类值只读预览。
+// 基础色编辑网格：只显示用户可调的 10 个基础色
 const MONO_FONT = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace'
 
+const BASE_COLOR_LABELS: Record<keyof BaseColors, string> = {
+  background: '应用底色',
+  surface: '通用表面',
+  surfaceCode: '代码块表面',
+  primary: '主强调色',
+  secondary: '次强调色',
+  text: '主文字色',
+  border: '边框色',
+  success: '成功状态',
+  warning: '警告状态',
+  danger: '危险状态',
+}
+
 export function ColorThemeSwatchGrid(props: {
-  colors: ColorThemeColors
+  colors: BaseColors
   disabled?: boolean
-  onChange: (key: keyof ColorThemeColors, value: string) => void
+  onChange: (key: keyof BaseColors, value: string) => void
 }) {
   const { colors, disabled, onChange } = props
-  const [picker, setPicker] = React.useState<{ key: keyof ColorThemeColors; anchorEl: HTMLElement } | null>(null)
+  const [picker, setPicker] = React.useState<{ key: keyof BaseColors; anchorEl: HTMLElement } | null>(null)
 
   const closePicker = () => setPicker(null)
-  const pickerColor = picker ? parseCssColor(colors[picker.key]) : null
+  const pickerColor = picker ? parseCssColor(colors[picker.key] || '') : null
 
-  const openPicker = (key: keyof ColorThemeColors, anchorEl: HTMLElement) => {
+  const openPicker = (key: keyof BaseColors, anchorEl: HTMLElement) => {
     if (disabled) return
     setPicker({ key, anchorEl })
   }
 
   return (
     <Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(108px, 1fr))', gap: 1 }}>
-        {COLOR_THEME_COLOR_KEYS.map((key) => {
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 1 }}>
+        {BASE_COLOR_KEYS.map((key) => {
           const raw = String(colors[key] ?? '')
           const parsed = parseCssColor(raw)
           const editable = !!parsed && !disabled
@@ -35,7 +48,7 @@ export function ColorThemeSwatchGrid(props: {
               <Box
                 role={parsed ? 'button' : undefined}
                 tabIndex={editable ? 0 : undefined}
-                aria-label={parsed ? `${key} ${raw}` : undefined}
+                aria-label={parsed ? `${BASE_COLOR_LABELS[key]} ${raw}` : undefined}
                 onClick={editable ? (event) => openPicker(key, event.currentTarget) : undefined}
                 onKeyDown={
                   editable
@@ -47,31 +60,33 @@ export function ColorThemeSwatchGrid(props: {
                     : undefined
                 }
                 sx={{
-                  height: 34,
+                  height: 48,
                   borderRadius: 1.5,
-                  bgcolor: parsed ? raw : 'transparent',
+                  bgcolor: parsed ? raw : 'var(--studio-paper-muted)',
                   boxShadow: parsed ? 'inset 0 0 0 1px var(--studio-border)' : 'none',
                   cursor: editable ? 'pointer' : 'default',
                   transition: 'box-shadow .16s ease',
                   '&:hover': editable ? { boxShadow: 'inset 0 0 0 2px var(--studio-primary)' } : undefined,
                   '&:focus-visible': { outline: '2px solid var(--studio-primary)', outlineOffset: 2 },
                 }}
+              />
+              <Typography
+                variant="caption"
+                color="text.primary"
+                noWrap
+                title={BASE_COLOR_LABELS[key]}
+                sx={{ display: 'block', fontSize: 11, mt: 0.5, fontWeight: 700 }}
               >
-                {!parsed ? (
-                  <Box sx={{ height: '100%', borderRadius: 1.5, bgcolor: 'var(--studio-paper)', boxShadow: raw }} />
-                ) : null}
-              </Box>
+                {BASE_COLOR_LABELS[key]}
+              </Typography>
               <Typography
                 variant="caption"
                 color="text.secondary"
                 noWrap
                 title={raw}
-                sx={{ display: 'block', fontFamily: MONO_FONT, fontSize: 10.5, mt: 0.25 }}
+                sx={{ display: 'block', fontFamily: MONO_FONT, fontSize: 10, opacity: 0.72 }}
               >
                 {raw}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap title={key} sx={{ display: 'block', fontSize: 10.5, opacity: 0.72 }}>
-                {key}
               </Typography>
             </Box>
           )
@@ -98,7 +113,7 @@ export function ColorThemeSwatchGrid(props: {
                 {String(colors[picker.key] ?? '')}
               </Typography>
               <Typography variant="caption" color="text.secondary" noWrap>
-                {picker.key}
+                {BASE_COLOR_LABELS[picker.key]}
               </Typography>
             </Stack>
           </Stack>

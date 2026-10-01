@@ -1,6 +1,6 @@
 import { clamp, uid } from '../../core/utils'
 import {
-  COLOR_THEME_COLOR_KEYS,
+  BASE_COLOR_KEYS,
   COLOR_THEME_SETTING_KEY,
   cloneColorThemeDraft,
   listColorThemePresets,
@@ -144,11 +144,11 @@ export function createAppearanceActions(deps: {
     updateColorThemeDraftColor: (presetId: any, colorKey: any, value: any) => {
       if (!state.data) return false
       const key = String(colorKey || '')
-      if (!(COLOR_THEME_COLOR_KEYS as readonly string[]).includes(key)) return false
+      if (!(BASE_COLOR_KEYS as readonly string[]).includes(key)) return false
       const preset = ensureColorThemeDraft().presets.find((item) => item.id === String(presetId || ''))
       const next = String(value ?? '').trim()
       if (!preset || !next) return false
-      ;(preset.colors as any)[key] = next
+      ;(preset.baseColors as any)[key] = next
       emit()
       return true
     },
@@ -170,7 +170,7 @@ export function createAppearanceActions(deps: {
         name: uniqueColorThemePresetName('新配色', new Set(draft.presets.map((item) => item.name))),
         description: '',
         mode: current.mode === 'dark' ? 'dark' : 'light',
-        colors: { ...current.colors },
+        baseColors: { ...current.baseColors },
       }
       draft.presets.push(preset)
       draft.activePresetId = preset.id
