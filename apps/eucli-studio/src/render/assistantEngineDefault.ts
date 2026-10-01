@@ -9,6 +9,7 @@ import { createHtmlSanitizer, sanitizeSvg } from './sanitize'
 import { hydrateStickerSizes } from './stickers'
 import type { BoolRef } from './types'
 import { enhanceMathCopyButtons } from './mathCopy'
+import { createMathRenderer } from './mathRender'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
@@ -39,6 +40,7 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
   const markdownRenderer = createMarkdownRenderer(markedConfigured)
   const refImages = createRefImageHydrator(refImgCache, refImgPending, capabilities)
   const mermaidSupport = createMermaidSupport({ mermaidInited, mermaidSvgCache, capabilities })
+  const mathRenderer = createMathRenderer()
 
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
@@ -115,22 +117,16 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
 
     const w = window as any
     const katex = w.katex
-    if (katex && typeof katex.render === 'function') {
+    if (katex && typeof katex.renderToString === 'function') {
       const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
       for (const b of blocks) {
         if (!(b instanceof HTMLElement)) continue
-        const tex = b.getAttribute('data-tex') || ''
-        try {
-          katex.render(tex, b, { displayMode: true, throwOnError: false })
-        } catch (_) {}
+        mathRenderer.renderMathInto(b, b.getAttribute('data-tex') || '', true)
       }
       const inlines = Array.from(el.querySelectorAll?.('.math-inline[data-tex]') || [])
       for (const s of inlines) {
         if (!(s instanceof HTMLElement)) continue
-        const tex = s.getAttribute('data-tex') || ''
-        try {
-          katex.render(tex, s, { displayMode: false, throwOnError: false })
-        } catch (_) {}
+        mathRenderer.renderMathInto(s, s.getAttribute('data-tex') || '', false)
       }
       enhanceMathCopyButtons(el, capabilities)
     }
