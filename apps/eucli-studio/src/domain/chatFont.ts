@@ -1,3 +1,5 @@
+import { clampWithPrecision, toFiniteNumber } from './numberNormalize'
+
 export const CHAT_FONT_SIZE_MIN = 12
 export const CHAT_FONT_SIZE_MAX = 22
 export const CHAT_FONT_SIZE_DEFAULT = 14
@@ -35,17 +37,6 @@ export const CHAT_FONT_OPTIONS: ChatFontOption[] = [
   { value: 'Georgia', label: 'Georgia' },
   { value: 'Consolas', label: 'Consolas' },
 ]
-
-function toFiniteNumber(value: unknown): number | null {
-  const text = typeof value === 'string' ? value.trim() : ''
-  const raw = typeof value === 'number' ? value : text ? Number(text) : NaN
-  return Number.isFinite(raw) ? raw : null
-}
-
-function clampWithPrecision(value: number, min: number, max: number, precision: number): number {
-  const factor = 10 ** precision
-  return Math.round(Math.min(max, Math.max(min, value)) * factor) / factor
-}
 
 export function normalizeChatFontSize(value: unknown): number {
   const raw = toFiniteNumber(value)
