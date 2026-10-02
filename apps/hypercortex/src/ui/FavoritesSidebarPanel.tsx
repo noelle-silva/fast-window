@@ -1,11 +1,12 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
@@ -18,6 +19,7 @@ import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
+import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { folderTitle } from './index-page/helpers'
 
 export type FavoritesSidebarPanelProps = {
@@ -37,6 +39,8 @@ export type FavoritesSidebarPanelProps = {
   onOpenAsset: (asset: AssetEntry) => void
   /** 条目右键：由上层统一实体操作菜单接管。 */
   onEntryContextMenu?: (event: React.MouseEvent, ref: FavoriteItemRef) => void
+  /** 条目拖拽排序：提交当前收藏夹内条目的新顺序（引用标识序列）。 */
+  onReorderRefs?: (folderId: string, orderedRefIds: string[]) => void
 }
 
 function assetRowTitle(asset: AssetEntry): string {
@@ -60,6 +64,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onOpenNote,
     onOpenAsset,
     onEntryContextMenu,
+    onReorderRefs,
   } = props
 
   const showTitle = panelWidth > 52
@@ -69,7 +74,9 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const currentTitle = doc ? folderTitle(doc, nav.currentFolderId) : '收藏夹'
   const [pathMenuAnchorEl, setPathMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [pathMenuWidth, setPathMenuWidth] = React.useState<number | null>(null)
+  const [overflowMenuAnchorEl, setOverflowMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const pathMenuOpen = Boolean(pathMenuAnchorEl)
+  const overflowMenuOpen = Boolean(overflowMenuAnchorEl)
   const pathItems = React.useMemo(
     () => (doc ? favoritesNavTrail(nav).map(id => ({ id, title: folderTitle(doc, id) })) : []),
     [doc, nav],
@@ -77,12 +84,102 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
   const refs = React.useMemo(() => (doc ? getRefsByFolderId(doc, nav.currentFolderId) : []), [doc, nav.currentFolderId])
 
-  const renderFolderRow = (ref: FavoriteItemRef): React.ReactNode => {
+  // 条目拖拽排序：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
+  const dragSuppressClickRef = React.useRef(false)
+  const [dragPreviewIds, setDragPreviewIds] = React.useState<string[] | null>(null)
+  const [dragActiveId, setDragActiveId] = React.useState('')
+  const dragBaseIdsRef = React.useRef<string[]>([])
+  const dragPreviewIdsRef = React.useRef<string[] | null>(null)
+
+  const effectiveRefs = React.useMemo(() => {
+    if (!dragPreviewIds) return refs
+    const byId = new Map(refs.map(ref => [ref.id, ref] as const))
+    const ordered = dragPreviewIds.map(id => byId.get(id)).filter((ref): ref is FavoriteItemRef => Boolean(ref))
+    return ordered.length === refs.length ? ordered : refs
+  }, [dragPreviewIds, refs])
+
+  const dragOverlayRef = React.useMemo(() => (dragActiveId ? refs.find(ref => ref.id === dragActiveId) ?? null : null), [dragActiveId, refs])
+  const dragOverlayTitle = React.useMemo(() => {
+    if (!dragOverlayRef) return ''
+    if (dragOverlayRef.kind === 'folder') return doc ? folderTitle(doc, dragOverlayRef.targetId) : '收藏夹'
+    if (dragOverlayRef.kind === 'note') return noteIndex?.[dragOverlayRef.targetId]?.title || '已丢失的笔记'
+    if (dragOverlayRef.kind === 'asset') {
+      const asset = resolveAssetRef(assetLookup, dragOverlayRef.targetId)
+      return asset ? assetRowTitle(asset) : '已丢失的附件'
+    }
+    return '已丢失的条目'
+  }, [assetLookup, doc, dragOverlayRef, noteIndex])
+
+  const dragOverlayIcon = React.useMemo(() => {
+    if (!dragOverlayRef) return null
+    if (dragOverlayRef.kind === 'folder') return <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
+    if (dragOverlayRef.kind === 'note') return <NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
+    if (dragOverlayRef.kind === 'asset') {
+      const asset = resolveAssetRef(assetLookup, dragOverlayRef.targetId)
+      if (asset) {
+        const preview = getAssetPreviewDescriptor(asset)
+        const PreviewIcon = preview.icon
+        if (preview.kind !== 'unsupported') return <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
+      }
+    }
+    return <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
+  }, [assetLookup, dragOverlayRef])
+
+  const handleDragStart = React.useCallback(
+    (activeId: string) => {
+      dragBaseIdsRef.current = refs.map(ref => ref.id)
+      dragPreviewIdsRef.current = null
+      setDragPreviewIds(null)
+      setDragActiveId(activeId)
+    },
+    [refs],
+  )
+
+  const handleDragOver = React.useCallback(
+    (activeId: string, overId: string) => {
+      const base = dragBaseIdsRef.current.length ? dragBaseIdsRef.current : refs.map(ref => ref.id)
+      const current = dragPreviewIdsRef.current || base
+      const fromIndex = current.indexOf(activeId)
+      const toIndex = current.indexOf(overId)
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return
+      const next = current.slice()
+      next.splice(toIndex, 0, next.splice(fromIndex, 1)[0])
+      dragPreviewIdsRef.current = next
+      setDragPreviewIds(next)
+    },
+    [refs],
+  )
+
+  const handleDragEnd = React.useCallback(() => {
+    dragSuppressClickRef.current = true
+    window.setTimeout(() => {
+      dragSuppressClickRef.current = false
+    }, 0)
+    const next = dragPreviewIdsRef.current
+    const base = dragBaseIdsRef.current
+    dragBaseIdsRef.current = []
+    dragPreviewIdsRef.current = null
+    setDragPreviewIds(null)
+    setDragActiveId('')
+    if (!next || !base.length) return
+    if (next.length === base.length && next.every((id, index) => id === base[index])) return
+    onReorderRefs?.(nav.currentFolderId, next)
+  }, [nav.currentFolderId, onReorderRefs])
+
+  const handleDragCancel = React.useCallback(() => {
+    dragSuppressClickRef.current = false
+    dragBaseIdsRef.current = []
+    dragPreviewIdsRef.current = null
+    setDragPreviewIds(null)
+    setDragActiveId('')
+  }, [])
+
+  const renderFolderRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const folder = doc ? getFolderById(doc, ref.targetId) : undefined
-    if (!folder) return renderMissingRow(ref)
+    if (!folder) return renderMissingRow(ref, sortable)
     const title = folder.title || '未命名收藏夹'
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
         {showTitle ? <ChevronRightRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.32)', flexShrink: 0 }} /> : null}
@@ -90,26 +187,26 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     )
   }
 
-  const renderNoteRow = (ref: FavoriteItemRef): React.ReactNode => {
+  const renderNoteRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const note = noteIndex?.[ref.targetId]
-    if (!note) return renderMissingRow(ref)
+    if (!note) return renderMissingRow(ref, sortable)
     const title = note.title || '未命名'
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenNote(note)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenNote(note)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
       </RowShell>
     )
   }
 
-  const renderAssetRow = (ref: FavoriteItemRef): React.ReactNode => {
+  const renderAssetRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const asset = resolveAssetRef(assetLookup, ref.targetId)
-    if (!asset) return renderMissingRow(ref)
+    if (!asset) return renderMissingRow(ref, sortable)
     const title = assetRowTitle(asset)
     const preview = getAssetPreviewDescriptor(asset)
     const PreviewIcon = preview.icon
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenAsset(asset)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenAsset(asset)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
         ) : (
@@ -120,47 +217,34 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     )
   }
 
-  const renderMissingRow = (ref: FavoriteItemRef): React.ReactNode => {
+  const renderMissingRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const title = '已丢失的条目'
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} muted onClick={() => {}}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} muted onClick={() => {}} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
       </RowShell>
     )
   }
 
-  const renderRef = (ref: FavoriteItemRef): React.ReactNode => {
-    if (ref.kind === 'folder') return renderFolderRow(ref)
-    if (ref.kind === 'note') return renderNoteRow(ref)
-    if (ref.kind === 'asset') return renderAssetRow(ref)
-    return renderMissingRow(ref)
+  const renderRef = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
+    if (ref.kind === 'folder') return renderFolderRow(ref, sortable)
+    if (ref.kind === 'note') return renderNoteRow(ref, sortable)
+    if (ref.kind === 'asset') return renderAssetRow(ref, sortable)
+    return renderMissingRow(ref, sortable)
   }
 
-  const renderModeToggle = (): React.ReactNode => (
-    <Tooltip
-      title={mode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'}
-      placement="bottom"
-      disableHoverListener={disableTooltips}
-      disableFocusListener={disableTooltips}
-      disableTouchListener={disableTooltips}
-    >
-      <IconButton size="small" aria-label="切换收藏夹栏模式" onClick={onToggleMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
-        <SyncAltRoundedIcon fontSize="small" />
-      </IconButton>
-    </Tooltip>
-  )
-
-  const renderCollapseToggle = (): React.ReactNode => (
-    <Tooltip
-      title={collapsed ? '展开收藏夹栏' : '收起收藏夹栏'}
-      placement="bottom"
-      disableHoverListener={disableTooltips}
-      disableFocusListener={disableTooltips}
-      disableTouchListener={disableTooltips}
-    >
-      <IconButton size="small" aria-label={collapsed ? '展开收藏夹栏' : '收起收藏夹栏'} onClick={onToggleCollapsed}>
-        {collapsed ? <ChevronLeftRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+  const renderOverflowButton = (): React.ReactNode => (
+    <Tooltip title="更多" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
+      <IconButton
+        size="small"
+        aria-label="更多操作"
+        aria-haspopup="menu"
+        aria-expanded={overflowMenuOpen ? 'true' : undefined}
+        onClick={e => setOverflowMenuAnchorEl(e.currentTarget)}
+        sx={{ color: 'rgba(0,0,0,.58)' }}
+      >
+        <MoreHorizRoundedIcon fontSize="small" />
       </IconButton>
     </Tooltip>
   )
@@ -169,8 +253,8 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     <>
       <Box sx={{ px: 0.75, py: 0.5, display: 'flex', alignItems: 'center', gap: 0.25 }}>
         {!showTitle ? (
-          <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            {mode === 'manual' ? renderCollapseToggle() : renderModeToggle()}
+          <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {renderOverflowButton()}
           </Box>
         ) : (
           <>
@@ -216,11 +300,48 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
                 {currentTitle}
               </Typography>
             </Button>
-            {mode === 'manual' ? renderCollapseToggle() : null}
-            {renderModeToggle()}
+            {renderOverflowButton()}
           </>
         )}
       </Box>
+
+      <Menu
+        anchorEl={overflowMenuAnchorEl}
+        open={overflowMenuOpen}
+        onClose={() => setOverflowMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        transitionDuration={0}
+        PaperProps={{ sx: menuPaperSx }}
+      >
+        <MenuItem
+          onClick={() => {
+            setOverflowMenuAnchorEl(null)
+            onToggleCollapsed()
+          }}
+          sx={{ fontSize: 12, gap: 0.75 }}
+        >
+          <ListItemIcon sx={{ minWidth: 0, mr: 1 }}>
+            {collapsed ? <ChevronLeftRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText primary={collapsed ? '展开收藏夹栏' : '收起收藏夹栏'} primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }} />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setOverflowMenuAnchorEl(null)
+            onToggleMode()
+          }}
+          sx={{ fontSize: 12, gap: 0.75 }}
+        >
+          <ListItemIcon sx={{ minWidth: 0, mr: 1 }}>
+            <SyncAltRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary={mode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'}
+            primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }}
+          />
+        </MenuItem>
+      </Menu>
 
       <Menu
         anchorEl={pathMenuAnchorEl}
@@ -280,7 +401,21 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
         {!refs.length && showTitle ? (
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>这个收藏夹还是空的</Typography>
         ) : null}
-        {refs.map(renderRef)}
+        <SortableRoot
+          overlay={dragActiveId ? <FavoritesDragOverlayCard title={dragOverlayTitle} icon={dragOverlayIcon} /> : null}
+          onMove={handleDragEnd}
+          onPreviewMove={handleDragOver}
+          onDragStart={handleDragStart}
+          onDragCancel={handleDragCancel}
+        >
+          <SortableSection items={effectiveRefs.map(ref => ref.id)}>
+            {effectiveRefs.map(ref => (
+              <SortableItem key={ref.id} id={ref.id} disableTransform={dragActiveId === ref.id}>
+                {sortable => renderRef(ref, sortable)}
+              </SortableItem>
+            ))}
+          </SortableSection>
+        </SortableRoot>
       </Box>
     </>
   )
@@ -293,9 +428,11 @@ function RowShell(props: {
   muted?: boolean
   onClick: () => void
   onContextMenu?: (event: React.MouseEvent) => void
+  sortable?: SortableItemRenderArgs
+  shouldSuppressClick?: () => boolean
   children: React.ReactNode
 }): React.ReactNode {
-  const { showTitle, title, tooltipDisabled, muted, onClick, onContextMenu, children } = props
+  const { showTitle, title, tooltipDisabled, muted, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
   return (
     <Tooltip
       title={!showTitle && !tooltipDisabled ? title : ''}
@@ -305,9 +442,15 @@ function RowShell(props: {
       disableTouchListener={tooltipDisabled}
     >
       <Box
+        ref={sortable ? sortable.setNodeRef : undefined}
+        {...(sortable ? sortable.handleProps : {})}
         role="button"
         tabIndex={0}
-        onClick={onClick}
+        style={sortable?.style}
+        onClick={() => {
+          if (shouldSuppressClick?.()) return
+          onClick()
+        }}
         onContextMenu={onContextMenu}
         onKeyDown={e => {
           if (e.key !== 'Enter' && e.key !== ' ') return
@@ -326,8 +469,11 @@ function RowShell(props: {
           borderRadius: 2,
           userSelect: 'none',
           outline: 'none',
-          cursor: 'pointer',
-          opacity: muted ? 0.86 : 1,
+          cursor: sortable?.isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
+          touchAction: sortable ? 'none' : undefined,
+          opacity: sortable?.isDragging ? 0.72 : muted ? 0.86 : 1,
+          zIndex: sortable?.isDragging ? 2 : undefined,
+          position: sortable?.isDragging ? 'relative' : undefined,
           '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
           '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
         }}
@@ -335,6 +481,32 @@ function RowShell(props: {
         {children}
       </Box>
     </Tooltip>
+  )
+}
+
+function FavoritesDragOverlayCard(props: { title: string; icon: React.ReactNode }): React.ReactNode {
+  const { title, icon } = props
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.75,
+        minWidth: 150,
+        maxWidth: 220,
+        px: 1,
+        py: 0.6,
+        borderRadius: 2,
+        bgcolor: 'var(--hc-surface)',
+        boxShadow: '0 14px 38px rgba(0,0,0,.22)',
+        pointerEvents: 'none',
+      }}
+    >
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{icon}</Box>
+      <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.2, fontWeight: 800, color: 'var(--hc-text)' }}>
+        {title}
+      </Typography>
+    </Box>
   )
 }
 

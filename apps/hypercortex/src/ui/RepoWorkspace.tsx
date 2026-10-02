@@ -13,7 +13,7 @@ import type { HyperCortexRepo } from '../gateway'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
-import { addRef, normalizeFavoritesDoc, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, normalizeFavoritesDoc, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -2360,6 +2360,16 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [favoritesAssetLookup, favoritesEntity, noteIndex?.notes],
   )
 
+  const handleFavoritesSidebarReorder = React.useCallback(
+    (folderId: string, orderedRefIds: string[]) => {
+      const base = favoritesDoc
+      if (!base) return
+      const next = reorderRefsInFolder(base, folderId, orderedRefIds)
+      if (next !== base) handleFavoritesDocChange(next)
+    },
+    [favoritesDoc, handleFavoritesDocChange],
+  )
+
   const activateExistingTabKey = React.useCallback(
     (tabKey: string, opts?: { recordHistory?: boolean }) => {
       const key = String(tabKey || '').trim()
@@ -3025,6 +3035,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onOpenNote={note => void handleOpenNote(note)}
                 onOpenAsset={handleOpenAssetTab}
                 onEntryContextMenu={handleFavoritesSidebarContextMenu}
+                onReorderRefs={handleFavoritesSidebarReorder}
               />
             </SidebarRail>
           </Box>
