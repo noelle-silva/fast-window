@@ -331,7 +331,6 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
                 </IconButton>
               </span>
             </Tooltip>
-            {renderCreateNoteButton()}
             <Button
               size="small"
               aria-label="收藏夹路径"
@@ -360,6 +359,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
                 {currentTitle}
               </Typography>
             </Button>
+            {renderCreateNoteButton()}
             {renderOverflowButton()}
           </>
         )}
