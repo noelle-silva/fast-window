@@ -43,6 +43,7 @@ export type SortableDropConfig = {
 type SortableRootContextValue = {
   dragState: SortableDragState | null
   drop: SortableDropConfig | null
+  enableTransition: boolean
   shouldSuppressClick: (id: string) => boolean
 }
 
@@ -84,6 +85,9 @@ type SortableRootProps = {
   onMove: (activeId: string, overId: string) => void
   drop?: SortableDropConfig
   collisionDetection?: CollisionDetection
+  // enableTransition 控制重排时是否播放「从原位滑向新位」的过渡动画；默认开启，
+  // 关闭后条目在松手时直接落定，适合不希望有补间动画的紧凑列表。
+  enableTransition?: boolean
 }
 
 type SortableSectionProps = {
@@ -112,6 +116,7 @@ type SortableDragStatusProps = {
 const SortableRootContext = React.createContext<SortableRootContextValue>({
   dragState: null,
   drop: null,
+  enableTransition: true,
   shouldSuppressClick: () => false,
 })
 
@@ -173,7 +178,7 @@ export function createScopedCollisionDetection(groupOf: (id: string) => string |
 }
 
 export function SortableRoot(props: SortableRootProps) {
-  const { children, onMove, drop = null, collisionDetection = closestCenter } = props
+  const { children, onMove, drop = null, collisionDetection = closestCenter, enableTransition = true } = props
   const [dragState, setDragState] = React.useState<SortableDragState | null>(null)
   const dragStateRef = React.useRef<SortableDragState | null>(null)
   const clickSuppressionRef = React.useRef({ ids: [] as string[], until: 0 })
@@ -297,8 +302,9 @@ export function SortableRoot(props: SortableRootProps) {
   const contextValue = React.useMemo<SortableRootContextValue>(() => ({
     dragState,
     drop,
+    enableTransition,
     shouldSuppressClick,
-  }), [drop, dragState, shouldSuppressClick])
+  }), [drop, dragState, enableTransition, shouldSuppressClick])
   const autoScroll = dragState?.mode !== 'drop'
 
   return (
@@ -329,10 +335,11 @@ export function SortableSection(props: SortableSectionProps) {
 
 export function SortableItem(props: SortableItemProps) {
   const { id, disabled = false, children } = props
-  const { dragState, drop, shouldSuppressClick } = React.useContext(SortableRootContext)
+  const { dragState, drop, enableTransition, shouldSuppressClick } = React.useContext(SortableRootContext)
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id,
     disabled,
+    transition: enableTransition ? undefined : null,
     data: { role: sortableDroppableRole },
   })
   const dragMode = dragState?.mode || null

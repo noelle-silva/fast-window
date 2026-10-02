@@ -170,7 +170,7 @@ export function PlaceholderEditor({ value, disabled = false, hint, onChange }: P
       </Box>
       {hint ? <Typography color="text.secondary" sx={{ fontSize: 12, lineHeight: 1.6 }}>{hint}</Typography> : null}
       {value.length > 0 ? (
-        <SortableRoot onMove={handleMove} collisionDetection={collisionDetection}>
+        <SortableRoot onMove={handleMove} collisionDetection={collisionDetection} enableTransition={false}>
           <SortableSection items={blockIds}>
             <Box className="cr-placeholder-list">
               {value.map((item, index) => (
