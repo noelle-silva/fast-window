@@ -46,8 +46,8 @@ export type FavoritesSidebarPanelProps = {
   onForward: () => void
   onToggleCollapsed: () => void
   onToggleMode: () => void
-  onOpenNote: (note: NoteMeta) => void
-  onOpenAsset: (asset: AssetEntry) => void
+  onOpenNote: (note: NoteMeta, openInTabs?: boolean) => void
+  onOpenAsset: (asset: AssetEntry, openInTabs?: boolean) => void
   /** 在当前收藏夹新建草稿笔记（语义同左侧栏新建，不落盘）。 */
   onCreateNote?: () => void
   /** 条目右键：由上层统一实体操作菜单接管。 */
@@ -58,6 +58,11 @@ export type FavoritesSidebarPanelProps = {
 
 function assetRowTitle(asset: AssetEntry): string {
   return String(asset.displayName || asset.fileName || asset.assetId || '附件')
+}
+
+/** 打开意图修饰键：按住 Ctrl（或 Mac 的 Cmd）点击表示“在左侧标签栏打开”。 */
+function isOpenInTabsModifier(event?: React.MouseEvent): boolean {
+  return !!event && (event.ctrlKey || event.metaKey)
 }
 
 export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.ReactNode {
@@ -236,7 +241,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const title = note.title || '未命名'
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={() => onOpenNote(note)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
       </RowShell>
@@ -251,7 +256,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const PreviewIcon = preview.icon
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={() => onOpenAsset(asset)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
         ) : (
@@ -484,7 +489,7 @@ function RowShell(props: {
   muted?: boolean
   active?: boolean
   activeRef?: React.MutableRefObject<HTMLElement | null>
-  onClick: () => void
+  onClick: (event?: React.MouseEvent) => void
   onContextMenu?: (event: React.MouseEvent) => void
   sortable?: SortableItemRenderArgs
   shouldSuppressClick?: () => boolean
@@ -508,9 +513,9 @@ function RowShell(props: {
         role="button"
         tabIndex={0}
         style={sortable?.style}
-        onClick={() => {
+        onClick={event => {
           if (shouldSuppressClick?.()) return
-          onClick()
+          onClick(event)
         }}
         onContextMenu={onContextMenu}
         onKeyDown={e => {

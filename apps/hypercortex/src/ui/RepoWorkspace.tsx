@@ -3202,8 +3202,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onForward={handleFavoritesSidebarForward}
                 onToggleCollapsed={toggleFavoritesSidebarCollapsed}
                 onToggleMode={toggleFavoritesSidebarMode}
-                onOpenNote={note => void handleOpenNote(note, undefined, 'favorites')}
-                onOpenAsset={asset => handleOpenAssetTab(asset, 'favorites')}
+                onOpenNote={(note, openInTabs) => void handleOpenNote(note, undefined, openInTabs ? 'tabs' : 'favorites')}
+                onOpenAsset={(asset, openInTabs) => handleOpenAssetTab(asset, openInTabs ? 'tabs' : 'favorites')}
                 onCreateNote={() => handleCreateDraftNoteInFolder(favoritesNav.currentFolderId)}
                 onEntryContextMenu={handleFavoritesSidebarContextMenu}
                 onReorderRefs={handleFavoritesSidebarReorder}
