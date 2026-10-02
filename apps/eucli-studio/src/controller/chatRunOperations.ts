@@ -1,4 +1,4 @@
-import { collectChatMessageIds, findChatMessageById, findNewestNewLeafMessageId, activateChatBranchByMessage } from '../domain/branching'
+import { collectChatMessageIds, findChatMessageById, resolveRunFocusMid, activateChatBranchByMessage } from '../domain/branching'
 import { normalizeChatModelOverride, normalizeModelRef } from '../domain/modelRefUtils'
 import { normalizeHookPromptSelection } from '../domain/hookPrompt'
 import { chatReasoningEffort } from '../domain/reasoning'
@@ -226,10 +226,11 @@ export function createChatRunOperations(
     return String(box?.activeChatId || '').trim() === sid
   }
 
+  // followRunResultBranch 让活动分支切到“这次运行的产出节点”。
+  // 产出节点的定义统一走领域函数 resolveRunFocusMid，与 UI 跟随目标同源。
   function followRunResultBranch(chat: any, follow: { previousMessageIds: Set<string>; ancestorMessageId?: string; messageId?: string } | null | undefined) {
     if (!follow || !chat) return false
-    const explicitMessageId = String(follow.messageId || '').trim()
-    const targetMessageId = findNewestNewLeafMessageId(chat, follow.previousMessageIds, follow.ancestorMessageId, explicitMessageId)
+    const targetMessageId = resolveRunFocusMid(chat, { anchorMid: follow.ancestorMessageId, outputMid: follow.messageId }, follow.previousMessageIds)
     if (!targetMessageId) return false
     return activateChatBranchByMessage(chat, targetMessageId)
   }

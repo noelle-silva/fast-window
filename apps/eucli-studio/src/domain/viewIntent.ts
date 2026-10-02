@@ -6,6 +6,11 @@
 //
 // 意图只由“切换节点的动作”或“发起运行”改写；其余概念不得各自记一份视图状态。
 // 本模块是纯函数状态机：App 与测试共用同一份转移逻辑，保证测的就是跑的。
+//
+// “运行产出节点”的定义统一由 resolveRunFocusMid 提供（与控制器分支激活同源），
+// 本模块只负责在“意图”与“运行事实”之上解析出当前焦点。
+
+import { resolveRunFocusMid } from './branching'
 
 export type ViewIntent = { kind: 'follow' } | { kind: 'anchor'; mid: string }
 
@@ -25,6 +30,8 @@ export type ViewFocusContext = {
   runs?: RunViewFact[]
   // 当前活动分支头部。
   branchHeadMid?: string
+  // 当前会话：用于把“运行产出”解析为真实存在的节点。
+  chat?: any
 }
 
 // 视图意图状态：意图 + 空窗期临时分叉点。
@@ -50,6 +57,18 @@ export function viewIntentAnchorMid(intent: ViewIntent): string {
   return intent.kind === 'anchor' ? intent.mid : ''
 }
 
+// runViewFactsFromCards 把运行卡片统一映射为跟随事实。
+// UI 渲染与控制器分支激活都经此转换，保证“最新节点”只有一处定义。
+export function runViewFactsFromCards(cardsRaw: unknown): RunViewFact[] {
+  const cards = Array.isArray(cardsRaw) ? (cardsRaw as any[]) : []
+  return cards.map((card) => ({
+    runId: String(card?.runId || '').trim(),
+    anchorMid: String(card?.anchorMessageId || card?.inputMessageId || '').trim(),
+    outputMid: String(card?.lastMessageId || '').trim(),
+    createdAt: Number(card?.createdAt || 0),
+  }))
+}
+
 // selectFollowRun 从活动运行里挑出“跟随对象”：
 // 取发起时间最晚的那次运行（用户最近发起的），保证多分支并行时目标稳定、不随输出横跳。
 export function selectFollowRun(runsRaw: unknown): RunViewFact | null {
@@ -73,6 +92,11 @@ export function resolveFollowTargetMid(context: ViewFocusContext): string {
   if (pendingMid) return pendingMid
   const run = selectFollowRun(context.runs)
   if (run) {
+    // 产出节点定义与控制器分支激活同源：统一走 resolveRunFocusMid。
+    if (context.chat) {
+      const resolved = resolveRunFocusMid(context.chat, { anchorMid: run.anchorMid, outputMid: run.outputMid })
+      if (resolved) return resolved
+    }
     const outputMid = String(run.outputMid || '').trim()
     if (outputMid) return outputMid
     const anchorMid = String(run.anchorMid || '').trim()

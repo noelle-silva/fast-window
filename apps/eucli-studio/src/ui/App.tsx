@@ -15,9 +15,9 @@ import {
   onChatSwitched,
   resolveViewFocusMid,
   resolveFollowTargetMid,
+  runViewFactsFromCards,
   type ViewIntentState,
   type ViewFocusContext,
-  type RunViewFact,
 } from '../domain/viewIntent'
 import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
@@ -405,14 +405,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeChatTargetId,
   })
 
-  // 活动运行事实：交给纯函数挑选跟随对象，保证多分支并行时目标稳定。
-  const runViewFacts: RunViewFact[] = React.useMemo(
-    () => (Array.isArray(activeSessionRunCards) ? activeSessionRunCards : []).map((card: any) => ({
-      runId: String(card?.runId || '').trim(),
-      anchorMid: String(card?.anchorMessageId || card?.inputMessageId || '').trim(),
-      outputMid: String(card?.lastMessageId || '').trim(),
-      createdAt: Number(card?.createdAt || 0),
-    })),
+  // 活动运行事实：统一经领域转换，交给纯函数挑选跟随对象，保证多分支并行时目标稳定。
+  const runViewFacts = React.useMemo(
+    () => runViewFactsFromCards(activeSessionRunCards),
     [activeSessionRunCardsKey],
   )
   const viewFocusContext: ViewFocusContext = React.useMemo(
@@ -420,8 +415,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       pendingRunAnchorMid: viewIntentState.pendingRunAnchorMid,
       runs: runViewFacts,
       branchHeadMid: activeBranchHeadMid,
+      chat: activeChat,
     }),
-    [viewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid],
+    [viewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid, activeChat],
   )
   // “最新节点”就是跟随目标本身：点中它→跟随，点其它任何节点（含同级分支）→锚定。
   const followTargetMid = React.useMemo(() => resolveFollowTargetMid(viewFocusContext), [viewFocusContext])

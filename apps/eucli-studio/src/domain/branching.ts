@@ -246,21 +246,27 @@ function messageSortValue(message: any) {
   return { createdAt: isFinite(createdAt) ? createdAt : 0, updatedAt: isFinite(updatedAt) ? updatedAt : 0, id: String(message?.id || '') }
 }
 
-export function findNewestNewLeafMessageId(chat: any, previousMessageIds: Set<string>, ancestorMessageId?: any, preferredMessageId?: any) {
-  const previous = previousMessageIds instanceof Set ? previousMessageIds : new Set<string>()
+// newestLeafDescendantMid 求“锚点之下最新的叶子节点”：即路径末端的规范定义。
+// 它不关心“哪些是新消息”，只回答“从锚点往下，当前最末端在哪”。
+// 运行产出节点、视图跟随目标都以此为准，避免多处各扫一遍。
+// exclude：需要排除的节点集合（例如本次运行前就存在的旧消息）。
+export function newestLeafDescendantMid(chat: any, ancestorMessageId?: any, preferredMessageId?: any, exclude?: Set<string>) {
   const { messages, byId, children } = chatMessageTree(chat)
+  const ancestor = String(ancestorMessageId || '').trim()
+  const skip = exclude instanceof Set ? exclude : null
   const candidates = messages.filter((message: any) => {
     const id = String(message?.id || '').trim()
-    if (!id || previous.has(id)) return false
-    return messageIsOnPathFrom(byId, id, ancestorMessageId)
+    if (!id || (skip && skip.has(id))) return false
+    if (!ancestor) return true
+    return messageIsOnPathFrom(byId, id, ancestor)
   })
   if (!candidates.length) return ''
 
+  const preferred = String(preferredMessageId || '').trim()
   const leaves = candidates.filter((message: any) => {
     const id = String(message?.id || '').trim()
     return id && !(children.get(id) || []).length
   })
-  const preferred = String(preferredMessageId || '').trim()
   if (preferred && leaves.some((message: any) => String(message?.id || '').trim() === preferred)) return preferred
 
   const pool = leaves.length ? leaves : candidates
@@ -272,6 +278,30 @@ export function findNewestNewLeafMessageId(chat: any, previousMessageIds: Set<st
     return l.id.localeCompare(r.id)
   })
   return String(pool[pool.length - 1]?.id || '').trim()
+}
+
+// resolveRunFocusMid 是“一次运行的产出当前落在哪个节点”的唯一规范定义。
+// 视图跟随目标与控制器分支激活都调用它，消除两处各算一遍的分歧。
+// 运行记录里的 outputMid（最新产出消息）若是叶子则优先采纳；
+// 否则回落到锚点之下的最新叶子（可排除运行前就存在的旧节点）。
+export function resolveRunFocusMid(chat: any, run: { anchorMid?: any; outputMid?: any } | null | undefined, exclude?: Set<string>): string {
+  if (!chat || !run) return ''
+  const skip = exclude instanceof Set ? exclude : null
+  const outputMid = String(run.outputMid || '').trim()
+  if (outputMid && !(skip && skip.has(outputMid)) && isLeafMessage(chat, outputMid)) return outputMid
+  const anchorMid = String(run.anchorMid || '').trim()
+  return newestLeafDescendantMid(chat, anchorMid, outputMid, exclude)
+}
+
+// isLeafMessage 判断某节点是否存在且没有任何子节点。
+export function isLeafMessage(chat: any, midRaw: any) {
+  const mid = String(midRaw || '').trim()
+  if (!mid || !findChatMessageById(chat, mid)) return false
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  for (const message of messages) {
+    if (String(message?.parentMid || '').trim() === mid) return false
+  }
+  return true
 }
 
 export function activateChatBranchByMessage(chat: any, messageId: any) {
