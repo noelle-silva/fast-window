@@ -9,8 +9,12 @@ import { createDefaultAssistantRenderEngine } from '../assistantEngineDefault'
 import { createMarkdownRenderer } from '../markdown'
 import { createHtmlSanitizer } from '../sanitize'
 import { commitHtml } from '../domCommit'
-import { preprocessAssistantContent } from '../preprocess'
+import { shapeContent, substituteClaims } from '../shaper'
+import { createMathCapability } from '../capabilities/math'
+import { createMathRenderer } from '../mathRender'
 import type { BoolRef } from '../types'
+import type { RenderContext } from '../contract'
+import type { AiChatCapabilities } from '../../gateway/capabilities'
 
 const PROFILE = String(process.env.PERF_PROFILE || 'smoke').trim() || 'smoke'
 const PROFILES = {
@@ -47,9 +51,19 @@ describe('逐步骤内存归属', () => {
 
     const markdownRenderer = createMarkdownRenderer({ value: true } as BoolRef)
     const sanitizer = createHtmlSanitizer({ value: false } as BoolRef)
-    const pre = preprocessAssistantContent(text, {})
-    const md = markdownRenderer.renderMarkdownSource(pre.text)
-    const safe = sanitizer.sanitizeHtml(md, 'original')
+    const mathCapability = createMathCapability({ mathRenderer: createMathRenderer() })
+    const ctx: RenderContext = {
+      host: {} as HTMLElement,
+      version: 1,
+      isCurrent: () => true,
+      policy: 'original',
+      stickersEnabled: false,
+      getStickerPath: null,
+      capabilities: {} as AiChatCapabilities,
+    }
+    const shaped = shapeContent(text, ctx, [mathCapability])
+    const md = markdownRenderer.renderMarkdownSource(shaped.text)
+    const safe = substituteClaims(sanitizer.sanitizeHtml(md, 'original'), shaped.claims, ctx, [mathCapability])
 
     const engine = createDefaultAssistantRenderEngine(createBenchCapabilities())
     const host = document.createElement('div')
@@ -57,7 +71,7 @@ describe('逐步骤内存归属', () => {
     engine.renderAssistantInto(host, text)
 
     const results: Record<string, string> = {}
-    results['markdown'] = series(gc, ROUNDS, () => markdownRenderer.renderMarkdownSource(pre.text))
+    results['markdown'] = series(gc, ROUNDS, () => markdownRenderer.renderMarkdownSource(shaped.text))
     results['sanitize'] = series(gc, ROUNDS, () => sanitizer.sanitizeHtml(md, 'original'))
     results['commit'] = series(gc, ROUNDS, () => commitHtml(host, safe))
     results['engine'] = series(gc, ROUNDS, () => engine.renderAssistantInto(host, text))

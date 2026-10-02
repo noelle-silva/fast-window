@@ -1,6 +1,6 @@
 import { esc } from '../core/utils'
 import type { BoolRef } from './types'
-import { tokenizeFences } from './preprocess'
+import { tokenizeFences } from './fences'
 
 export function preprocessHtmlIndentation(source: unknown) {
   function dedentHtmlLines(s: unknown) {

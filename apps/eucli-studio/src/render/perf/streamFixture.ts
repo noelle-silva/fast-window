@@ -83,7 +83,7 @@ export function buildCumulativePrefixes(text: string, stepCount: number): string
   return out
 }
 
-// 统计文本里会被预处理识别的公式数量（与 preprocess 的匹配规则保持一致）。
+// 统计文本里会被公式能力认领的公式数量（与 math 能力的匹配规则保持一致）。
 export function countFormulas(text: string): number {
   const s = String(text || '')
   let n = 0

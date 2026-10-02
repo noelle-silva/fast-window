@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// 细粒度诊断：走真实预处理管线（preprocess -> marked -> sanitize -> 占位回填），
+// 细粒度诊断：走真实预处理管线（shapeContent -> marked -> sanitize -> 占位回填），
 // 分别计量「公式宿主创建」「KaTeX 解析」「KaTeX HTML 注入 DOM」「复制按钮」等步骤，
 // 以区分瓶颈到底在解析还是 DOM 构建。
 import { beforeAll, describe, it } from 'vitest'
@@ -9,8 +9,11 @@ import { buildFormulaHeavyFixture } from './streamFixture'
 import { createMarkdownRenderer } from '../markdown'
 import { createHtmlSanitizer } from '../sanitize'
 import { createMathRenderer } from '../mathRender'
-import { preprocessAssistantContent } from '../preprocess'
+import { shapeContent, substituteClaims } from '../shaper'
+import { createMathCapability } from '../capabilities/math'
 import type { BoolRef } from '../types'
+import type { RenderContext } from '../contract'
+import type { AiChatCapabilities } from '../../gateway/capabilities'
 
 const PROFILE = String(process.env.PERF_PROFILE || 'smoke').trim() || 'smoke'
 const PROFILES = {
@@ -29,10 +32,6 @@ function timeIt(times: number, fn: () => void): number {
   return (performance.now() - t0) / times
 }
 
-function esc(s: unknown) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c])
-}
-
 describe('增强阶段细粒度诊断', () => {
   beforeAll(async () => {
     await installRenderGlobals()
@@ -45,16 +44,24 @@ describe('增强阶段细粒度诊断', () => {
     const markdownRenderer = createMarkdownRenderer({ value: false } as BoolRef)
     const sanitizer = createHtmlSanitizer({ value: false } as BoolRef)
 
-    // 真实管线：preprocess -> marked -> sanitize -> 占位回填
-    const pre = preprocessAssistantContent(text, {})
-    const md = markdownRenderer.renderMarkdownSource(pre.text)
-    let safe = sanitizer.sanitizeHtml(md, 'original')
-    safe = safe.replace(/@@MATH_(INLINE|BLOCK)_(\d+)@@/g, (_m: string, kind: string, id: string) => {
-      const it = pre.math[Number(id)]
-      const tex = it ? String(it.tex || '') : ''
-      if (kind === 'INLINE') return `<span class="math-inline" data-tex="${esc(tex)}"></span>`
-      return `<div class="math-block" data-tex="${esc(tex)}"></div>`
-    })
+    // 真实管线：shapeContent -> marked -> sanitize -> 占位回填
+    const mathRenderer = createMathRenderer()
+    const mathCapability = createMathCapability({ mathRenderer })
+    const ctx: RenderContext = {
+      host: {} as HTMLElement,
+      version: 1,
+      isCurrent: () => true,
+      policy: 'original',
+      stickersEnabled: false,
+      getStickerPath: null,
+      capabilities: {} as AiChatCapabilities,
+    }
+    const shaped = shapeContent(text, ctx, [mathCapability])
+    const mathClaims = shaped.claims
+      .filter((c) => c.capabilityId === 'math')
+      .map((c) => c.data as { tex: string; display: boolean })
+    const md = markdownRenderer.renderMarkdownSource(shaped.text)
+    const safe = substituteClaims(sanitizer.sanitizeHtml(md, 'original'), shaped.claims, ctx, [mathCapability])
 
     const buildHost = () => {
       const host = document.createElement('div')
@@ -65,15 +72,14 @@ describe('增强阶段细粒度诊断', () => {
     const counts = {
       blocks: buildHost().querySelectorAll('.math-block[data-tex]').length,
       inlines: buildHost().querySelectorAll('.math-inline[data-tex]').length,
-      total: pre.math.length,
+      total: mathClaims.length,
     }
 
-    const mathRenderer = createMathRenderer()
     const katex = (globalThis as any).katex
 
     // 阶段 A：仅 KaTeX 解析（缓存已暖）
     const parseMs = timeIt(5, () => {
-      for (const it of pre.math) katex.renderToString(it.tex, { displayMode: !!it.display, throwOnError: false })
+      for (const it of mathClaims) katex.renderToString(it.tex, { displayMode: !!it.display, throwOnError: false })
     })
 
     // 阶段 B：解析结果注入 DOM（每次新建宿主）

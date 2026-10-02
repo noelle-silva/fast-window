@@ -44,8 +44,17 @@ const CASES: Record<string, string> = {
   voidTags: '<p>a<br>b</p>\n<hr>\n<img src="x">\n',
   comments: '<!-- c -->\n<p>a</p>\n',
   table: '<table>\n<thead><tr><th>a</th></tr></thead>\n<tbody><tr><td>b</td></tr></tbody>\n</table>\n',
+  // 公式能力成品形态
   mathHost: '<p>text</p>\n<div class="math-block" data-tex="a^2"><span class="katex">R</span></div>\n<span class="math-inline" data-tex="x"><span class="katex">I</span></span>\n',
   fenced: '<pre><code class="language-js">const a = 1\n</code></pre>\n<p>after</p>\n',
+  // 图表能力成品形态（已闭合围栏）
+  mermaidBlock: '<pre data-fw-mermaid-complete="1"><code class="language-mermaid">graph TD\n  A --&gt; B\n</code></pre>\n<p>after</p>\n',
+  // 贴纸能力成品形态
+  stickerImg: '<p>hi <img class="fw-sticker" data-fw-img="1" data-ref-img="emoji/hi.png" src="x" alt="hi" /> end</p>\n',
+  // 图片能力成品形态
+  refImg: '<p><img data-fw-img="1" data-ref-img="sessions/a.png" src="y" /></p>\n',
+  // HTML 能力成品形态（代码块复制按钮）
+  codeBlockDecorated: '<pre data-fw-code="1" class="fw-code-block"><code class="language-js">const a = 1\n</code><button class="fw-code-copy" data-act="copy-code" type="button"></button></pre>\n',
   trailingText: '<p>a</p>\n尾随文字',
   leadingText: '前导文字\n<p>a</p>\n',
   selfClosingSlash: '<br/>\n<p>a</p>\n',
