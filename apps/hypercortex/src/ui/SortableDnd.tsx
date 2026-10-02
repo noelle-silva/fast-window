@@ -126,7 +126,7 @@ export function SortableRoot(props: SortableRootProps) {
       onDragCancel={onDragCancel}
     >
       {children}
-      <DragOverlay>{overlay}</DragOverlay>
+      <DragOverlay style={{ pointerEvents: 'none' }}>{overlay}</DragOverlay>
     </DndContext>
   )
 }
