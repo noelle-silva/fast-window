@@ -1,7 +1,14 @@
 import { type Api } from './core'
+import { isDraftNoteId } from './drafts'
 import { wouldCreateFolderReferenceCycle } from './favoritesGraph'
 
 export const FAVORITES_FILE = 'hypercortex-favorites.json'
+
+// 草稿引用的判定：指向尚未落盘草稿笔记的 note 引用。草稿只活在内存，
+// 落盘时会被过滤（见 stripDraftNoteRefs），保证磁盘上不残留指向草稿的引用。
+function isDraftNoteRef(ref: FavoriteItemRef): boolean {
+  return ref.kind === 'note' && isDraftNoteId(ref.targetId)
+}
 
 export type GridLayout = {
   x: number
@@ -278,7 +285,78 @@ export async function ensureFavorites(api: Api): Promise<HyperCortexFavoritesDoc
 
 export async function saveFavorites(api: Api, doc: HyperCortexFavoritesDocV1): Promise<void> {
   const normalized = normalizeFavoritesDoc(doc).doc
-  await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(normalized, null, 2), overwrite: true })
+  const persisted = stripDraftNoteRefs(normalized)
+  await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(persisted, null, 2), overwrite: true })
+}
+
+/**
+ * 落盘前剔除草稿引用：草稿只活在内存，磁盘上不得残留指向草稿的引用。
+ * 与左侧标签栏的 stripDraftTabKeys 同构，保证持久层永远干净。
+ */
+export function stripDraftNoteRefs(doc: HyperCortexFavoritesDocV1): HyperCortexFavoritesDocV1 {
+  let changed = false
+  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = {}
+  for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
+    const list = Array.isArray(refs) ? refs : []
+    const filtered = list.filter(ref => !isDraftNoteRef(ref))
+    if (filtered.length !== list.length) changed = true
+    nextRefsByFolderId[fid] = filtered
+  }
+  return changed ? { ...doc, refsByFolderId: nextRefsByFolderId } : doc
+}
+
+/**
+ * 移除所有指向某个笔记 id 的引用（草稿被放弃/关闭时清理其收藏引用）。
+ * 保留原有引用标识，仅按目标剔除。
+ */
+export function removeNoteRefsByTargetId(doc: HyperCortexFavoritesDocV1, noteId: string): HyperCortexFavoritesDocV1 {
+  const target = String(noteId || '').trim()
+  if (!target) return doc
+  let changed = false
+  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = {}
+  for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
+    const list = Array.isArray(refs) ? refs : []
+    const filtered = list.filter(ref => !(ref.kind === 'note' && ref.targetId === target))
+    if (filtered.length !== list.length) changed = true
+    nextRefsByFolderId[fid] = filtered
+  }
+  return changed ? { ...doc, refsByFolderId: nextRefsByFolderId } : doc
+}
+
+/**
+ * 把指向某个笔记 id 的引用重定向到另一个 id（草稿保存转正时用）。
+ * 迁移后按 (kind,targetId) 去重，避免与目标页已有引用重复。
+ */
+export function retargetNoteRefs(doc: HyperCortexFavoritesDocV1, fromId: string, toId: string): HyperCortexFavoritesDocV1 {
+  const from = String(fromId || '').trim()
+  const to = String(toId || '').trim()
+  if (!from || !to || from === to) return doc
+  let changed = false
+  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = {}
+  for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
+    const list = Array.isArray(refs) ? refs : []
+    let didChange = false
+    const nextList = list.map(ref => {
+      if (ref.kind !== 'note' || ref.targetId !== from) return ref
+      didChange = true
+      return { ...ref, targetId: to }
+    })
+    if (!didChange) {
+      nextRefsByFolderId[fid] = list
+      continue
+    }
+    changed = true
+    const seen = new Set<string>()
+    const deduped: FavoriteItemRef[] = []
+    for (const ref of nextList) {
+      const key = `${ref.kind}:${ref.targetId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push(ref)
+    }
+    nextRefsByFolderId[fid] = deduped
+  }
+  return changed ? { ...doc, refsByFolderId: nextRefsByFolderId } : doc
 }
 
 export function normalizeFavoriteRefsForFolder(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
