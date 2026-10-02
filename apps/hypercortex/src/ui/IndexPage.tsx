@@ -1,9 +1,5 @@
 import * as React from 'react'
 import { Box, Menu, MenuItem, Typography } from '@mui/material'
-import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 
@@ -17,8 +13,6 @@ import {
   deleteFolder,
   getFolderById,
   getRefsByFolderId,
-  removeRef,
-  updateFolderInfo,
   type FavoriteFolder,
   type FavoriteItemRef,
   type HyperCortexFavoritesDocV1,
@@ -31,21 +25,14 @@ import { StaleRefCard } from './index-cards/StaleRefCard'
 import { IndexCardShell } from './index-page/IndexCardShell'
 import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
-import { IndexPageContextMenu, type ContextMenuEntry } from './index-page/IndexPageContextMenu'
+import { ContextMenu, type ContextMenuAction } from './ContextMenu'
 import { IndexPickerDialog } from './index-page/IndexPickerDialog'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
-import type { AddKind, AddMode, DeleteEntityTarget, ResizeHandleDirection } from './index-page/types'
+import type { AddKind, AddMode, ResizeHandleDirection } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
-import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
-import { useFavoriteTargets } from './useFavoriteTargets'
-import { EditEntityInfoDialog } from './EditEntityInfoDialog'
+import { useFavoritesEntityActions } from './useFavoritesEntityActions'
 import { useWorkspaceVisible } from './workspaceVisibility'
-
-type EditEntityTarget =
-  | { kind: 'folder'; folderId: string; title: string; description: string }
-  | { kind: 'note'; note: NoteMeta }
-  | { kind: 'asset'; asset: AssetEntry }
 
 type CardMenuTarget =
   | { kind: 'folder'; ref: FavoriteItemRef; folderId: string; title: string; description: string }
@@ -53,7 +40,7 @@ type CardMenuTarget =
   | { kind: 'asset'; ref: FavoriteItemRef; asset: AssetEntry }
   | { kind: 'stale'; ref: FavoriteItemRef }
 
-type VoidMenuEntries = ContextMenuEntry[]
+type VoidMenuEntries = ContextMenuAction[]
 
 type Props = {
   gateway: HyperCortexGateway
@@ -106,8 +93,6 @@ export function IndexPage(props: Props): React.ReactNode {
   const [folderDescriptionDraft, setFolderDescriptionDraft] = React.useState('')
   const [addPickerKind, setAddPickerKind] = React.useState<'note' | 'asset' | null>(null)
   const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
-  const [deleteEntityTarget, setDeleteEntityTarget] = React.useState<DeleteEntityTarget | null>(null)
-  const [editEntityTarget, setEditEntityTarget] = React.useState<EditEntityTarget | null>(null)
 
   const refs = React.useMemo(() => getRefsByFolderId(doc, currentFolderId), [doc, currentFolderId])
   const currentTitle = React.useMemo(() => folderTitle(doc, currentFolderId), [doc, currentFolderId])
@@ -121,15 +106,9 @@ export function IndexPage(props: Props): React.ReactNode {
     onDocChange,
   })
 
-  const favoritesTargets = useFavoriteTargets({
-    doc,
-    onDocChange,
-    toast: message => void gateway.host.toast(message),
-  })
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; entries: ContextMenuAction[] } | null>(null)
 
-  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; entries: ContextMenuEntry[] } | null>(null)
-
-  const openContextMenu = React.useCallback((e: React.MouseEvent, entries: ContextMenuEntry[]) => {
+  const openContextMenu = React.useCallback((e: React.MouseEvent, entries: ContextMenuAction[]) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY, entries })
@@ -183,14 +162,6 @@ export function IndexPage(props: Props): React.ReactNode {
     closeAddMenus()
     void onUploadAssetsInIndex?.(currentFolderId)
   }, [currentFolderId, onUploadAssetsInIndex])
-
-  const removeOneRef = React.useCallback(
-    (refId: string) => {
-      const next = removeRef(doc, refId)
-      if (next !== doc) onDocChange(next)
-    },
-    [doc, onDocChange],
-  )
 
   const confirmAddFolder = React.useCallback(() => {
     const created = createFolder(doc, folderTitleDraft, folderDescriptionDraft)
@@ -297,100 +268,19 @@ export function IndexPage(props: Props): React.ReactNode {
     onDeleteFolderEntity?.(targetId)
   }, [deleteFolderConfirmId, doc, gateway, onDeleteFolderEntity, onDocChange, onNavigateFolder])
 
-  const confirmDeleteEntity = React.useCallback(() => {
-    const target = deleteEntityTarget
-    if (!target) return
-    setDeleteEntityTarget(null)
-    if (target.kind === 'folder') {
-      const nextDoc = deleteFolder(doc, target.folderId)
-      if (!nextDoc) {
-        void gateway.host.toast('删除收藏夹失败')
-        return
-      }
-      onDocChange(nextDoc)
-      onDeleteFolderEntity?.(target.folderId)
-      if (target.folderId === currentFolderId) onNavigateFolder('root')
-      return
-    }
-    if (target.kind === 'note') {
-      onDeleteNoteEntity?.(target.note)
-      return
-    }
-    onDeleteAssetEntity?.(target.asset)
-  }, [currentFolderId, deleteEntityTarget, doc, gateway, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
-
-  const openEditEntity = React.useCallback((target: EditEntityTarget) => {
-    setEditEntityTarget(target)
-  }, [])
-
-  const closeEditEntity = React.useCallback(() => {
-    setEditEntityTarget(null)
-  }, [])
-
-  const editEntityTitle = editEntityTarget
-    ? editEntityTarget.kind === 'folder'
-      ? editEntityTarget.title
-      : editEntityTarget.kind === 'note'
-        ? editEntityTarget.note.title || '未命名笔记'
-        : String(editEntityTarget.asset.displayName || editEntityTarget.asset.fileName || editEntityTarget.asset.assetId)
-    : ''
-
-  const editEntityDescription = editEntityTarget
-    ? editEntityTarget.kind === 'folder'
-      ? editEntityTarget.description
-      : editEntityTarget.kind === 'note'
-        ? editEntityTarget.note.description || ''
-        : editEntityTarget.asset.remark || ''
-    : ''
-
-  const confirmEditEntity = React.useCallback(
-    (next: { title: string; description: string }) => {
-      const target = editEntityTarget
-      if (!target) return
-      if (target.kind === 'folder') {
-        const nextDoc = updateFolderInfo(doc, target.folderId, next)
-        if (!nextDoc) {
-          void gateway.host.toast('收藏夹标题不能为空')
-          return
-        }
-        if (nextDoc !== doc) onDocChange(nextDoc)
-      } else if (target.kind === 'note') {
-        void onUpdateNoteInfo?.(target.note, next)
-      } else {
-        void onUpdateAssetInfo?.(target.asset, { displayName: next.title, remark: next.description })
-      }
-      setEditEntityTarget(null)
+  const favoritesEntity = useFavoritesEntityActions({
+    doc,
+    onDocChange,
+    toast: message => void gateway.host.toast(message),
+    onUpdateNoteInfo,
+    onUpdateAssetInfo,
+    onDeleteFolderEntity: folderId => {
+      onDeleteFolderEntity?.(folderId)
+      if (folderId === currentFolderId) onNavigateFolder('root')
     },
-    [doc, editEntityTarget, gateway, onDocChange, onUpdateAssetInfo, onUpdateNoteInfo],
-  )
-
-  const buildCardMenuEntries = React.useCallback(
-    (target: CardMenuTarget): ContextMenuEntry[] => {
-      const entries: ContextMenuEntry[] = []
-      const refId = target.ref.id
-      if (target.kind === 'folder') {
-        entries.push({ id: 'favorite', label: '收藏到…', icon: <StarBorderRoundedIcon fontSize="small" />, onSelect: () => favoritesTargets.openPicker({ kind: 'folder', id: target.folderId }) })
-        entries.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => openEditEntity({ kind: 'folder', folderId: target.folderId, title: target.title, description: target.description }) })
-        entries.push({ id: 'remove', label: '从当前页移除引用', icon: <DeleteOutlineRoundedIcon fontSize="small" />, onSelect: () => removeOneRef(refId) })
-        entries.push({ id: 'delete', label: '删除实体', danger: true, icon: <DeleteForeverRoundedIcon fontSize="small" />, onSelect: () => setDeleteEntityTarget({ kind: 'folder', title: target.title, folderId: target.folderId }) })
-      } else if (target.kind === 'note') {
-        entries.push({ id: 'favorite', label: '收藏到…', icon: <StarBorderRoundedIcon fontSize="small" />, onSelect: () => favoritesTargets.openPicker({ kind: 'note', id: target.note.id }) })
-        entries.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => openEditEntity({ kind: 'note', note: target.note }) })
-        entries.push({ id: 'remove', label: '从当前页移除引用', icon: <DeleteOutlineRoundedIcon fontSize="small" />, onSelect: () => removeOneRef(refId) })
-        entries.push({ id: 'delete', label: '删除实体', danger: true, icon: <DeleteForeverRoundedIcon fontSize="small" />, onSelect: () => setDeleteEntityTarget({ kind: 'note', title: target.note.title || '未命名笔记', note: target.note }) })
-      } else if (target.kind === 'asset') {
-        const assetTargetId = target.asset.ext ? `${target.asset.assetId}.${target.asset.ext}` : target.asset.assetId
-        entries.push({ id: 'favorite', label: '收藏到…', icon: <StarBorderRoundedIcon fontSize="small" />, onSelect: () => favoritesTargets.openPicker({ kind: 'asset', id: assetTargetId }) })
-        entries.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => openEditEntity({ kind: 'asset', asset: target.asset }) })
-        entries.push({ id: 'remove', label: '从当前页移除引用', icon: <DeleteOutlineRoundedIcon fontSize="small" />, onSelect: () => removeOneRef(refId) })
-        entries.push({ id: 'delete', label: '删除实体', danger: true, icon: <DeleteForeverRoundedIcon fontSize="small" />, onSelect: () => setDeleteEntityTarget({ kind: 'asset', title: String(target.asset.displayName || target.asset.fileName || target.asset.assetId), asset: target.asset }) })
-      } else {
-        entries.push({ id: 'remove', label: '从当前页移除引用', icon: <DeleteOutlineRoundedIcon fontSize="small" />, onSelect: () => removeOneRef(refId) })
-      }
-      return entries
-    },
-    [favoritesTargets, openEditEntity, removeOneRef],
-  )
+    onDeleteNoteEntity,
+    onDeleteAssetEntity,
+  })
 
   const buildVoidMenuEntries = React.useCallback((): VoidMenuEntries => {
     return [
@@ -445,7 +335,7 @@ export function IndexPage(props: Props): React.ReactNode {
             <IndexCardShell
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'stale', ref }))}
+              onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'stale', refId: ref.id })}
               onStartResize={onStartResize}
             >
               <StaleRefCard itemRef={ref} compact={compact} />
@@ -458,7 +348,7 @@ export function IndexPage(props: Props): React.ReactNode {
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'folder', ref, folderId: folder.id, title: folder.title || '未命名收藏夹', description: folder.description || '' }))}
+            onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'folder', refId: ref.id, folderId: folder.id })}
             onStartResize={onStartResize}
           >
             <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} compact={compact} onClick={fid => onNavigateFolder(fid)} />
@@ -474,7 +364,7 @@ export function IndexPage(props: Props): React.ReactNode {
             <IndexCardShell
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'stale', ref }))}
+              onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'stale', refId: ref.id })}
               onStartResize={onStartResize}
             >
               <StaleRefCard itemRef={ref} compact={compact} />
@@ -486,7 +376,7 @@ export function IndexPage(props: Props): React.ReactNode {
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'note', ref, note }))}
+            onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'note', refId: ref.id, note })}
             onStartResize={onStartResize}
           >
             <NoteCard note={note} compact={compact} onClick={onOpenNote} />
@@ -502,7 +392,7 @@ export function IndexPage(props: Props): React.ReactNode {
             <IndexCardShell
               dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'stale', ref }))}
+              onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'stale', refId: ref.id })}
               onStartResize={onStartResize}
             >
               <StaleRefCard itemRef={ref} compact={compact} />
@@ -514,7 +404,7 @@ export function IndexPage(props: Props): React.ReactNode {
           <IndexCardShell
             dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'asset', ref, asset }))}
+            onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'asset', refId: ref.id, asset })}
             onStartResize={onStartResize}
           >
             <AssetCard asset={asset} compact={compact} onClick={onOpenAsset} />
@@ -526,7 +416,7 @@ export function IndexPage(props: Props): React.ReactNode {
         <IndexCardShell
           dragging={options?.dragging}
           resizing={isResizingRef(ref.id)}
-          onContextMenu={e => openContextMenu(e, buildCardMenuEntries({ kind: 'stale', ref }))}
+          onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'stale', refId: ref.id })}
           onStartResize={onStartResize}
         >
           <StaleRefCard itemRef={ref} compact={getPreviewLayout(ref).h <= 1} />
@@ -536,18 +426,14 @@ export function IndexPage(props: Props): React.ReactNode {
     [
       assetLookup,
       beginResize,
-      buildCardMenuEntries,
       doc,
-      favoritesTargets,
+      favoritesEntity,
       getPreviewLayout,
       isResizingRef,
       noteIndex,
-      openContextMenu,
       onNavigateFolder,
       onOpenAsset,
       onOpenNote,
-      removeOneRef,
-      openEditEntity,
     ],
   )
 
@@ -588,11 +474,11 @@ export function IndexPage(props: Props): React.ReactNode {
         )}
       </Box>
 
-      <IndexPageContextMenu
+      <ContextMenu
         open={!!contextMenu}
         x={contextMenu?.x ?? 0}
         y={contextMenu?.y ?? 0}
-        entries={contextMenu?.entries ?? []}
+        items={contextMenu?.entries ?? []}
         onClose={closeContextMenu}
       />
 
@@ -608,26 +494,7 @@ export function IndexPage(props: Props): React.ReactNode {
         <MenuItem onClick={uploadNewAssets}>上传附件</MenuItem>
       </Menu>
 
-      {favoritesTargets.target ? (
-        <FavoritesTreePickerDialog
-          open={favoritesTargets.pickerOpen}
-          doc={doc}
-          kind={favoritesTargets.target.kind}
-          targetId={favoritesTargets.target.id}
-          onClose={favoritesTargets.closePicker}
-          onSave={favoritesTargets.saveResult}
-        />
-      ) : null}
-
-      {editEntityTarget ? (
-        <EditEntityInfoDialog
-          open
-          title={editEntityTitle}
-          description={editEntityDescription}
-          onClose={closeEditEntity}
-          onConfirm={confirmEditEntity}
-        />
-      ) : null}
+      {favoritesEntity.node}
 
       {addPickerKind ? (
         <IndexPickerDialog
@@ -657,7 +524,6 @@ export function IndexPage(props: Props): React.ReactNode {
         folderSuggestions={folderSuggestions}
         folderDisabledReasonById={folderDisabledReasonById}
         deleteFolderConfirmId={deleteFolderConfirmId}
-        deleteEntityTarget={deleteEntityTarget}
         onCloseAddDialog={closeAddDialog}
         onFolderTitleDraftChange={setFolderTitleDraft}
         onFolderDescriptionDraftChange={setFolderDescriptionDraft}
@@ -666,8 +532,6 @@ export function IndexPage(props: Props): React.ReactNode {
         renderFolderSuggestionCard={renderFolderSuggestionCard}
         onCloseDeleteFolder={() => setDeleteFolderConfirmId('')}
         onConfirmDeleteFolder={confirmDeleteCurrentFolder}
-        onCloseDeleteEntity={() => setDeleteEntityTarget(null)}
-        onConfirmDeleteEntity={confirmDeleteEntity}
       />
     </Box>
   )

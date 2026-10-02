@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
-import type { AddKind, AddMode, DeleteEntityTarget } from './types'
-import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
+import type { AddKind, AddMode } from './types'
+import { folderDeleteHelperText, folderTitle } from './helpers'
 import { useWorkspaceVisible } from '../workspaceVisibility'
 
 type Props = {
@@ -15,7 +15,6 @@ type Props = {
   folderSuggestions: FavoriteFolder[]
   folderDisabledReasonById: Record<string, string>
   deleteFolderConfirmId: string
-  deleteEntityTarget: DeleteEntityTarget | null
   onCloseAddDialog: () => void
   onFolderTitleDraftChange: (value: string) => void
   onFolderDescriptionDraftChange: (value: string) => void
@@ -24,8 +23,6 @@ type Props = {
   renderFolderSuggestionCard: (folder: FavoriteFolder) => React.ReactNode
   onCloseDeleteFolder: () => void
   onConfirmDeleteFolder: () => void
-  onCloseDeleteEntity: () => void
-  onConfirmDeleteEntity: () => void
 }
 
 export function IndexPageDialogs(props: Props): React.ReactNode {
@@ -39,7 +36,6 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     folderSuggestions,
     folderDisabledReasonById,
     deleteFolderConfirmId,
-    deleteEntityTarget,
     onCloseAddDialog,
     onFolderTitleDraftChange,
     onFolderDescriptionDraftChange,
@@ -48,8 +44,6 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     renderFolderSuggestionCard,
     onCloseDeleteFolder,
     onConfirmDeleteFolder,
-    onCloseDeleteEntity,
-    onConfirmDeleteEntity,
   } = props
   const workspaceVisible = useWorkspaceVisible()
 
@@ -114,20 +108,6 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         <DialogActions>
           <Button onClick={onCloseDeleteFolder}>取消</Button>
           <Button color="error" variant="contained" onClick={onConfirmDeleteFolder}>删除实体</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={workspaceVisible && !!deleteEntityTarget} onClose={onCloseDeleteEntity} maxWidth="xs" fullWidth>
-        <DialogTitle>删除目标实体</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>
-            {deleteEntityTarget ? entityDeleteHelperText(deleteEntityTarget.kind) : ''}
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 1 }}>当前目标：{deleteEntityTarget?.title || '未命名'}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onCloseDeleteEntity}>取消</Button>
-          <Button color="error" variant="contained" onClick={onConfirmDeleteEntity}>删除实体</Button>
         </DialogActions>
       </Dialog>
     </>
