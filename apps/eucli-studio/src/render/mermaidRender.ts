@@ -16,8 +16,25 @@ export async function renderMermaidSvg(source: string): Promise<string> {
     themeVariables: { fontFamily: MERMAID_FONT_FAMILY },
     flowchart: { htmlLabels: false },
   })
-  const rendered = await mermaid.render(uid('mermaid-svg'), text)
-  const svg = sanitizeSvg(typeof rendered === 'string' ? rendered : rendered?.svg, 'original')
-  if (!svg) throw new Error('Mermaid 渲染结果为空')
-  return svg
+
+  const host = document.createElement('div')
+  host.setAttribute('aria-hidden', 'true')
+  host.style.position = 'fixed'
+  host.style.left = '-100000px'
+  host.style.top = '0'
+  host.style.width = '1000px'
+  host.style.height = '1000px'
+  host.style.overflow = 'hidden'
+  host.style.visibility = 'hidden'
+  host.style.pointerEvents = 'none'
+  document.body.appendChild(host)
+
+  try {
+    const rendered = await mermaid.render(uid('mermaid-svg'), text, host)
+    const svg = sanitizeSvg(typeof rendered === 'string' ? rendered : rendered?.svg, 'original')
+    if (!svg) throw new Error('Mermaid 渲染结果为空')
+    return svg
+  } finally {
+    host.remove()
+  }
 }

@@ -299,7 +299,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
     const m = (window as any).mermaid
     if (!m || !m.render) return
 
-    const codes = Array.from(el.querySelectorAll?.('pre>code') || []).filter((c) => {
+    const codes = Array.from(el.querySelectorAll?.('pre[data-fw-mermaid-complete="1"]>code') || []).filter((c) => {
       if (!(c instanceof HTMLElement)) return false
       const cls = String(c.className || '')
       return cls.includes('language-mermaid') || cls.includes('lang-mermaid') || cls.includes('mermaid')
@@ -309,17 +309,17 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
     initMermaidOnce()
 
     async function doRender(id: string, code: string, container: HTMLElement) {
-      try {
-        return await m.render(id, code)
-      } catch (_) {
-        return await m.render(id, code, container)
-      }
+      // Mermaid's no-container path appends a temporary SVG to document.body.
+      // Its syntax-error path throws before removing that node, so keep every
+      // render inside the message-owned holder.
+      return await m.render(id, code, container)
     }
 
     for (const codeEl of codes) {
       const pre = codeEl.closest('pre')
       if (!(pre instanceof HTMLElement)) continue
       if (pre.getAttribute('data-mermaid') === '1') continue
+      if (pre.getAttribute('data-fw-mermaid-complete') !== '1') continue
 
       const src = String(codeEl.textContent || '').trim()
       pre.setAttribute('data-mermaid', '1')
@@ -342,6 +342,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
       try {
         const id = uid('mm')
         const r = await doRender(id, src, holder)
+        if (!holder.isConnected) continue
         const svg = typeof r === 'string' ? r : String(r?.svg || '')
         const safe = sanitizeSvg(svg, renderSafetyPolicy)
         if (!safe) throw new Error('empty svg')
@@ -360,6 +361,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
           } catch (_) {}
         }
       } catch (e) {
+        if (!holder.isConnected) continue
         const errRaw = String((e as any)?.message || e || '').trim()
         const msg = esc(errRaw).trim()
         holder.removeAttribute('data-act')

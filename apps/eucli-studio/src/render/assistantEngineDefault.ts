@@ -82,7 +82,7 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     if (Array.isArray(pre.mermaid) && pre.mermaid.length) {
       safe = safe.replace(/@@MERMAID_(\d+)@@/g, (_m: string, id: string) => {
         const code = pre.mermaid[Number(id)] ?? ''
-        return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
+        return `<pre data-fw-mermaid-complete="1"><code class="language-mermaid">${esc(code)}</code></pre>`
       })
     }
     if (Array.isArray(pre.stickers) && pre.stickers.length) {

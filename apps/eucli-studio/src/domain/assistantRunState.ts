@@ -133,7 +133,7 @@ export function hasAssistantVisibleOutput(message: unknown) {
   })
 }
 
-function hasAssistantPrimaryOutput(message: unknown) {
+export function hasAssistantPrimaryOutput(message: unknown) {
   const m = message && typeof message === 'object' ? (message as any) : null
   if (!m || m.role !== 'assistant') return false
   const content = String(m.content ?? '').trim()

@@ -10,7 +10,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import StorageIcon from '@mui/icons-material/Storage'
 import { EntityAvatar } from './avatar/EntityAvatar'
-import { isAssistantAwaitingFirstOutput, isAssistantGenerating } from '../../domain/assistantRunState'
+import { isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import { resolveReplyDurationMs } from '../../domain/messageTiming'
@@ -18,7 +18,6 @@ import type { MessageMutationOperation } from '../../domain/messageMutationConfl
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { LiveAssistantBody } from './LiveAssistantBody'
-import { AssistantReplyPendingIndicator } from './AssistantReplyPendingIndicator'
 import { RefImageThumb, StickerText } from './MessageMedia'
 import { formatDurationMs } from '../utils/time'
 
@@ -352,12 +351,9 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         const toolImgPaths = !isUser ? (Array.isArray((m as any)?.toolImages) ? (m as any).toolImages : []) : []
         const activeRunCard = activeRunCardForAssistantMessage(activeVisibleRunCards, m)
         const messageGenerating = !!activeRunCard && isAssistantGenerating(m)
-        const messageAwaitingFirstOutput = messageGenerating && isAssistantAwaitingFirstOutput(m)
         const retryLabel = runRetryLabel(activeRunCard?.retry)
         const retryFailure = runRetryFailure(activeRunCard?.retry)
         const messageError = !isUser && (m as any)?.error && typeof (m as any).error === 'object' ? (m as any).error : null
-        const assistantParts = Array.isArray((m as any)?.parts) ? (m as any).parts : []
-        const hasReasoningParts = assistantParts.some((part: any) => String(part?.type || '').trim() === 'reasoning' && !!String(part?.text || '').trim())
         const canEdit = !isDisplayOnlyPendingRunTail && !isEditing && !!mid && !messageMutationBlocked(mid, 'edit')
         const canDeleteMessage = !isDisplayOnlyPendingRunTail && !!mid && !messageMutationBlocked(mid, 'delete')
         const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
@@ -482,23 +478,22 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                 <Stack spacing={1}>
                   {messageError ? <AssistantErrorNotice error={messageError} /> : null}
                   {retryFailure ? <AssistantErrorNotice error={retryFailure} title="本次请求失败" /> : null}
-                  {content || assistantParts.length ? (
-                    <LiveAssistantBody
-                      controller={controller}
-                      message={m}
-                      mid={mid}
-                      isGenerating={messageGenerating}
-                      reasoningDisplayMode={reasoningDisplayMode}
-                      reasoningRenderEnabled={reasoningRenderEnabled}
-                      renderSafetyPolicyKey={renderSafetyPolicyKey}
-                      chatRootRef={chatRootRef}
-                      disabled={!canEdit}
-                    />
-                  ) : null}
+                  <LiveAssistantBody
+                    controller={controller}
+                    message={m}
+                    mid={mid}
+                    isGenerating={messageGenerating}
+                    reasoningDisplayMode={reasoningDisplayMode}
+                    reasoningRenderEnabled={reasoningRenderEnabled}
+                    renderSafetyPolicyKey={renderSafetyPolicyKey}
+                    chatRootRef={chatRootRef}
+                    disabled={!canEdit}
+                  />
                 </Stack>
-              ) : messageAwaitingFirstOutput && !hasReasoningParts ? (
-                <AssistantReplyPendingIndicator />
               ) : (
+                // LiveAssistantBody 必须从首帧开始挂载：它同时负责订阅本条消息的范围刷新。
+                // 即使当前还没有可见正文或思考文字，也不能用加载圈替换掉它，
+                // 否则后续流式增量没有订阅者，只能等下一次全局刷新才出现。
                 <Stack spacing={1}>
                   <LiveAssistantBody
                     controller={controller}
@@ -511,7 +506,6 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
                     chatRootRef={chatRootRef}
                     disabled={!canEdit}
                   />
-                  {messageAwaitingFirstOutput ? <AssistantReplyPendingIndicator /> : null}
                 </Stack>
               )}
 
