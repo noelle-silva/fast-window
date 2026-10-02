@@ -37,6 +37,7 @@ import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, s
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
+import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
@@ -473,7 +474,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               alignItems: 'center',
               gap: 0.75,
               px: showTitle ? 1 : 0.75,
+              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
               py: 0.6,
+              boxSizing: 'border-box',
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
@@ -605,7 +608,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               alignItems: 'center',
               gap: 0.75,
               px: showTitle ? 1 : 0.75,
+              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
               py: 0.6,
+              boxSizing: 'border-box',
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
@@ -707,7 +712,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               alignItems: 'center',
               gap: 0.75,
               px: showTitle ? 1 : 0.75,
+              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
               py: 0.6,
+              boxSizing: 'border-box',
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',

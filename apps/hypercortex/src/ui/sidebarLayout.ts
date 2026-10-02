@@ -5,6 +5,9 @@ import { DEFAULT_SIDEBAR_EXPANDED_WIDTH, normalizeSidebarExpandedWidth } from '.
 
 export const SIDEBAR_RAIL_WIDTH = 52
 
+/** 侧边栏条目的统一行高：左侧「已打开笔记」栏与右侧「收藏夹导航」栏共用，保证列表节奏一致。 */
+export const SIDEBAR_ROW_HEIGHT = 40
+
 export type SidebarMode = 'manual' | 'hover'
 
 export type SidebarLayoutInput = {
