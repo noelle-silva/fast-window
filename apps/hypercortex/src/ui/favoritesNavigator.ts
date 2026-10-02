@@ -37,6 +37,22 @@ export function normalizeFavoritesNav(raw: unknown): HyperCortexFavoritesNavV1 {
   }
 }
 
+/**
+ * 从根收藏夹到当前收藏夹的导航连线（祖先链）。
+ * 侧边栏逐层进入收藏夹时，来路栈天然记录了这条链：
+ * - 当前不在来路：链为「来路 + 当前」；
+ * - 当前已在来路：说明经文件夹引用回跳到了祖先，链截断到该祖先。
+ * 结果保证根在最前，供顶部路径下拉直接消费。
+ */
+export function favoritesNavTrail(state: HyperCortexFavoritesNavV1): string[] {
+  const current = normalizeFolderId(state.currentFolderId) || FAVORITES_NAV_ROOT
+  const back = state.back.map(normalizeFolderId).filter(Boolean)
+  const at = back.lastIndexOf(current)
+  const chain = at >= 0 ? back.slice(0, at + 1) : [...back, current]
+  if (chain[0] !== FAVORITES_NAV_ROOT) chain.unshift(FAVORITES_NAV_ROOT)
+  return chain
+}
+
 /** 下钻到目标收藏夹：当前位置压入来路，回程清空。目标与当前相同则不产生变化。 */
 export function navigateFavoritesNav(state: HyperCortexFavoritesNavV1, folderId: string): HyperCortexFavoritesNavV1 {
   const target = normalizeFolderId(folderId)

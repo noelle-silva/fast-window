@@ -1,9 +1,10 @@
 import * as React from 'react'
-import { Box, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
@@ -14,6 +15,9 @@ import { getFolderById, getRefsByFolderId } from '../favorites'
 import type { AssetEntry } from '../assetTypes'
 import { buildAssetLookup, resolveAssetRef } from '../assetLookup'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
+import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
+import { favoritesNavTrail } from './favoritesNavigator'
+import { menuPaperSx } from './pluginUiStyles'
 import { folderTitle } from './index-page/helpers'
 
 export type FavoritesSidebarPanelProps = {
@@ -60,6 +64,13 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const canGoBack = nav.back.length > 0
   const canGoForward = nav.forward.length > 0
   const currentTitle = doc ? folderTitle(doc, nav.currentFolderId) : '收藏夹'
+  const [pathMenuAnchorEl, setPathMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [pathMenuWidth, setPathMenuWidth] = React.useState<number | null>(null)
+  const pathMenuOpen = Boolean(pathMenuAnchorEl)
+  const pathItems = React.useMemo(
+    () => (doc ? favoritesNavTrail(nav).map(id => ({ id, title: folderTitle(doc, id) })) : []),
+    [doc, nav],
+  )
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
   const refs = React.useMemo(() => (doc ? getRefsByFolderId(doc, nav.currentFolderId) : []), [doc, nav.currentFolderId])
 
@@ -174,14 +185,78 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
                 </IconButton>
               </span>
             </Tooltip>
-            <Typography noWrap sx={{ flex: 1, minWidth: 0, px: 0.5, fontSize: 12, fontWeight: 800, color: 'var(--hc-text)' }}>
-              {currentTitle}
-            </Typography>
+            <Button
+              size="small"
+              aria-label="收藏夹路径"
+              aria-haspopup="menu"
+              aria-expanded={pathMenuOpen ? 'true' : undefined}
+              onClick={e => {
+                setPathMenuWidth(e.currentTarget.getBoundingClientRect().width)
+                setPathMenuAnchorEl(e.currentTarget)
+              }}
+              endIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 16 }} />}
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                justifyContent: 'space-between',
+                px: 1,
+                py: 0.25,
+                borderRadius: 2,
+                textTransform: 'none',
+                color: 'var(--hc-text)',
+                bgcolor: 'var(--hc-surface-soft)',
+                '& .MuiButton-endIcon': { ml: 0.5, mr: 0, flexShrink: 0 },
+                '&:hover': { bgcolor: 'var(--hc-primary-soft)' },
+              }}
+            >
+              <Typography noWrap sx={{ minWidth: 0, fontSize: 12, fontWeight: 800 }}>
+                {currentTitle}
+              </Typography>
+            </Button>
             {mode === 'manual' ? renderCollapseToggle() : null}
             {renderModeToggle()}
           </>
         )}
       </Box>
+
+      <Menu
+        anchorEl={pathMenuAnchorEl}
+        open={pathMenuOpen}
+        onClose={() => setPathMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        transitionDuration={0}
+        slotProps={{
+          paper: {
+            sx: {
+              ...menuPaperSx,
+              width: pathMenuWidth ?? 'auto',
+              minWidth: 0,
+              maxWidth: 'none',
+            },
+          },
+        }}
+      >
+        {pathItems.map(item => {
+          const isCurrent = item.id === nav.currentFolderId
+          return (
+            <MenuItem
+              key={item.id}
+              selected={isCurrent}
+              onClick={() => {
+                setPathMenuAnchorEl(null)
+                if (!isCurrent) onNavigate(item.id)
+              }}
+              sx={{ fontSize: 12, gap: 0.75 }}
+            >
+              <FolderRoundedIcon fontSize="small" sx={{ color: isCurrent ? 'var(--hc-primary)' : 'var(--hc-text-subtle)', flexShrink: 0 }} />
+              <Typography noWrap sx={{ fontSize: 12, fontWeight: isCurrent ? 800 : 600, color: isCurrent ? 'var(--hc-text)' : 'var(--hc-text-muted)' }}>
+                {item.title}
+              </Typography>
+            </MenuItem>
+          )
+        })}
+      </Menu>
 
       <Box
         sx={{
@@ -239,7 +314,9 @@ function RowShell(props: {
           alignItems: 'center',
           gap: 0.75,
           px: showTitle ? 1 : 0.75,
+          minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
           py: 0.6,
+          boxSizing: 'border-box',
           borderRadius: 2,
           userSelect: 'none',
           outline: 'none',
