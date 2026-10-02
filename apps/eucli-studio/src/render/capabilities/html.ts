@@ -1,11 +1,22 @@
 import { decorateCodeBlocks, ensureCodeCopyHandlerOnce } from '../copy'
 import type { RenderCapability } from '../contract'
 
-// HTML 能力：负责渲染输出中代码块的交互装饰（复制按钮）。
-// 内容认领与成品产出由 Markdown 基础渲染承担，本能力只做地盘内新增节点的装饰与委托。
+// HTML 能力：负责两件事。
+//   1. 整块认领：把整块原始 HTML（含内嵌 SVG）在进入 Markdown 前认领为块级占位，
+//      防止 Markdown 遇空行结束 HTML 块、把后续元素包进 <p>，导致 SVG 图形被
+//      浏览器丢弃。成品时原样放行整块 HTML。
+//   2. 代码块装饰：给代码块挂复制按钮。
 export function createHtmlCapability(): RenderCapability {
   return {
     id: 'html',
+    claimHtmlBlock(raw: string, _ctx, claim): string | null {
+      // 块级占位：让 Markdown 把它当独立 HTML 块原样保留，不被包进 <p>。
+      return claim.push({ raw }, { block: true })
+    },
+    placeholder(data: unknown): string {
+      const it = data as { raw?: string }
+      return String(it?.raw || '')
+    },
     decorate(fragment) {
       decorateCodeBlocks(fragment)
     },

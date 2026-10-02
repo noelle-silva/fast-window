@@ -40,8 +40,9 @@ export type RenderContext = {
 
 // ClaimSink 交给能力的认领出口：能力把认领到的内容交给它，换回占位符。
 // 占位符由内容形态层统一生成，能力无需关心格式。
+// block=true 时产出块级占位，避免整块内容被 Markdown 包进 <p>。
 export type ClaimSink = {
-  push: (data: unknown) => string
+  push: (data: unknown, options?: { block?: boolean }) => string
 }
 
 // RenderCapability 是渲染能力契约。每种能力只回答同一组问题：
@@ -59,6 +60,9 @@ export type RenderCapability = {
   claimText?: (text: string, ctx: RenderContext, claim: ClaimSink) => string
   // 认领一个已闭合的代码围栏。返回占位符；不认领则返回 null（保持草稿态）。
   claimFence?: (lang: string, content: string, ctx: RenderContext, claim: ClaimSink) => string | null
+  // 认领一个已闭合的整块原始 HTML（含内嵌 SVG）。返回占位符；不认领则返回 null。
+  // 用于防止 HTML 块被 Markdown 逐行解析破坏。
+  claimHtmlBlock?: (raw: string, ctx: RenderContext, claim: ClaimSink) => string | null
   // 成品如何产出：把认领条目替换为地盘内的 HTML 片段。
   placeholder?: (data: unknown, ctx: RenderContext) => string
   // 成品如何装饰：只处理本次新增的节点。
