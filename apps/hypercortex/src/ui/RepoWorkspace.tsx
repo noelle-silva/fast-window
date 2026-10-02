@@ -13,12 +13,14 @@ import type { HyperCortexRepo } from '../gateway'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
-import { addRef, normalizeFavoritesDoc, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, normalizeFavoritesDoc, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { FavoritesSidebarPanel } from './FavoritesSidebarPanel'
+import { useFavoritesEntityActions, type FavoritesEntityTarget } from './useFavoritesEntityActions'
+import { buildAssetLookup, resolveAssetRef } from '../assetLookup'
 import { SidebarRail } from './SidebarRail'
 import { resolveSidebarLayout } from './sidebarLayout'
 import {
@@ -2323,6 +2325,41 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     })
   }, [])
 
+  // 右侧收藏夹导航栏条目的实体操作：解析条目引用为统一目标，复用与索引页相同的菜单与对话框。
+  const favoritesAssetLookup = React.useMemo(() => buildAssetLookup(assetPoolIndex?.assets), [assetPoolIndex?.assets])
+  const favoritesEntity = useFavoritesEntityActions({
+    doc: favoritesDoc || { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} },
+    onDocChange: handleFavoritesDocChange,
+    toast: message => void gateway.host.toast(message),
+    onOpenFolder: handleFavoritesSidebarNavigate,
+    onOpenNote: note => void handleOpenNote(note),
+    onOpenAsset: handleOpenAssetTab,
+    onUpdateNoteInfo: handleUpdateNoteInfo,
+    onUpdateAssetInfo: handleUpdateAssetInfo,
+    onDeleteFolderEntity: handleDeleteFolderEntity,
+    onDeleteNoteEntity: note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void gateway.host.toast(String(e?.message || e || '删除失败'))),
+    onDeleteAssetEntity: requestDeleteAssetEntity,
+  })
+
+  const handleFavoritesSidebarContextMenu = React.useCallback(
+    (event: React.MouseEvent, ref: FavoriteItemRef) => {
+      let target: FavoritesEntityTarget
+      if (ref.kind === 'folder') {
+        target = { kind: 'folder', refId: ref.id, folderId: ref.targetId }
+      } else if (ref.kind === 'note') {
+        const note = noteIndex?.notes?.[ref.targetId]
+        target = note ? { kind: 'note', refId: ref.id, note } : { kind: 'stale', refId: ref.id }
+      } else if (ref.kind === 'asset') {
+        const asset = resolveAssetRef(favoritesAssetLookup, ref.targetId)
+        target = asset ? { kind: 'asset', refId: ref.id, asset } : { kind: 'stale', refId: ref.id }
+      } else {
+        target = { kind: 'stale', refId: ref.id }
+      }
+      favoritesEntity.openMenu(event, target)
+    },
+    [favoritesAssetLookup, favoritesEntity, noteIndex?.notes],
+  )
+
   const activateExistingTabKey = React.useCallback(
     (tabKey: string, opts?: { recordHistory?: boolean }) => {
       const key = String(tabKey || '').trim()
@@ -2987,6 +3024,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onToggleMode={toggleFavoritesSidebarMode}
                 onOpenNote={note => void handleOpenNote(note)}
                 onOpenAsset={handleOpenAssetTab}
+                onEntryContextMenu={handleFavoritesSidebarContextMenu}
               />
             </SidebarRail>
           </Box>
@@ -2996,6 +3034,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
               {renderModalBodyNode()}
             </PageOverlayHost>
           ) : null}
+
+          {favoritesEntity.node}
 
           <Menu
             open={visible && !!noteCardMenu}

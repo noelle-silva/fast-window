@@ -35,6 +35,8 @@ export type FavoritesSidebarPanelProps = {
   onToggleMode: () => void
   onOpenNote: (note: NoteMeta) => void
   onOpenAsset: (asset: AssetEntry) => void
+  /** 条目右键：由上层统一实体操作菜单接管。 */
+  onEntryContextMenu?: (event: React.MouseEvent, ref: FavoriteItemRef) => void
 }
 
 function assetRowTitle(asset: AssetEntry): string {
@@ -57,6 +59,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onToggleMode,
     onOpenNote,
     onOpenAsset,
+    onEntryContextMenu,
   } = props
 
   const showTitle = panelWidth > 52
@@ -79,7 +82,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (!folder) return renderMissingRow(ref)
     const title = folder.title || '未命名收藏夹'
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onNavigate(folder.id)}>
+      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
         <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
         {showTitle ? <ChevronRightRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.32)', flexShrink: 0 }} /> : null}
@@ -92,7 +95,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (!note) return renderMissingRow(ref)
     const title = note.title || '未命名'
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenNote(note)}>
+      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenNote(note)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
         <NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
       </RowShell>
@@ -106,7 +109,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const preview = getAssetPreviewDescriptor(asset)
     const PreviewIcon = preview.icon
     return (
-      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenAsset(asset)}>
+      <RowShell key={ref.id} showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onOpenAsset(asset)} onContextMenu={e => onEntryContextMenu?.(e, ref)}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
         ) : (
@@ -137,7 +140,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const renderModeToggle = (): React.ReactNode => (
     <Tooltip
       title={mode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'}
-      placement="left"
+      placement="bottom"
       disableHoverListener={disableTooltips}
       disableFocusListener={disableTooltips}
       disableTouchListener={disableTooltips}
@@ -151,7 +154,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const renderCollapseToggle = (): React.ReactNode => (
     <Tooltip
       title={collapsed ? '展开收藏夹栏' : '收起收藏夹栏'}
-      placement="left"
+      placement="bottom"
       disableHoverListener={disableTooltips}
       disableFocusListener={disableTooltips}
       disableTouchListener={disableTooltips}
@@ -171,14 +174,14 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           </Box>
         ) : (
           <>
-            <Tooltip title="后退" placement="left" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
+            <Tooltip title="后退" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
               <span>
                 <IconButton size="small" aria-label="后退" disabled={!canGoBack} onClick={onBack}>
                   <ArrowBackRoundedIcon fontSize="small" />
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="前进" placement="left" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
+            <Tooltip title="前进" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
               <span>
                 <IconButton size="small" aria-label="前进" disabled={!canGoForward} onClick={onForward}>
                   <ArrowForwardRoundedIcon fontSize="small" />
@@ -230,6 +233,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           paper: {
             sx: {
               ...menuPaperSx,
+              borderRadius: 3,
               width: pathMenuWidth ?? 'auto',
               minWidth: 0,
               maxWidth: 'none',
@@ -288,9 +292,10 @@ function RowShell(props: {
   tooltipDisabled: boolean
   muted?: boolean
   onClick: () => void
+  onContextMenu?: (event: React.MouseEvent) => void
   children: React.ReactNode
 }): React.ReactNode {
-  const { showTitle, title, tooltipDisabled, muted, onClick, children } = props
+  const { showTitle, title, tooltipDisabled, muted, onClick, onContextMenu, children } = props
   return (
     <Tooltip
       title={!showTitle && !tooltipDisabled ? title : ''}
@@ -303,6 +308,7 @@ function RowShell(props: {
         role="button"
         tabIndex={0}
         onClick={onClick}
+        onContextMenu={onContextMenu}
         onKeyDown={e => {
           if (e.key !== 'Enter' && e.key !== ' ') return
           e.preventDefault()
