@@ -8,6 +8,8 @@ import { useWorkspaceVisible } from './workspaceVisibility'
 // 菜单根节点不拦截指针（paper 才可交互），因此右键到别处时先关闭本菜单，目标处的右键处理再开新菜单。
 
 const CONTEXT_MENU_PAPER_ATTR = 'data-hc-context-menu-paper'
+const SUBMENU_GAP = 2
+const VIEWPORT_MARGIN = 8
 
 function suppressNativeContextMenu(event: React.MouseEvent) {
   event.preventDefault()
@@ -91,6 +93,8 @@ export function ContextMenu(props: ContextMenuProps): React.ReactNode {
   const { open, x, y, items, onClose } = props
   const workspaceVisible = useWorkspaceVisible()
   const [submenu, setSubmenu] = React.useState<{ parentId: string; anchorEl: HTMLElement } | null>(null)
+  const rootPaperRef = React.useRef<HTMLElement | null>(null)
+  const submenuPaperNodeRef = React.useRef<HTMLElement | null>(null)
 
   React.useEffect(() => {
     if (!open) setSubmenu(null)
@@ -102,16 +106,72 @@ export function ContextMenu(props: ContextMenuProps): React.ReactNode {
 
   useDismissOnOutsidePointer(open, onClose)
 
-  const slotProps = React.useMemo(
+  const rootSlotProps = React.useMemo(
     () => ({
       root: { sx: { pointerEvents: 'none' as const } },
       paper: {
         [CONTEXT_MENU_PAPER_ATTR]: 'true',
         onContextMenu: suppressNativeContextMenu,
+        ref: rootPaperRef,
         sx: { pointerEvents: 'auto' as const, ...menuPaperSx },
       },
     }),
     [],
+  )
+
+  // 子菜单不交给 MUI 定位：MUI 会在视口边缘自动水平位移，导致子菜单翻到一级菜单上方遮挡。
+  // 这里改为手动摆放，保证子菜单与一级菜单左右并列、同一层级、互不遮挡。
+  const submenuRef = React.useRef<{ parentId: string; anchorEl: HTMLElement } | null>(null)
+  submenuRef.current = submenu
+
+  // 摆放：优先右侧，放不下则左侧，垂直与所悬停菜单项顶部对齐，并夹在视口内。
+  const positionSubmenuNode = React.useCallback((paper: HTMLElement) => {
+    const sub = submenuRef.current
+    if (!sub) return
+    const item = sub.anchorEl
+    if (!item) return
+    const itemRect = item.getBoundingClientRect()
+    const rootRect = rootPaperRef.current?.getBoundingClientRect()
+    const subWidth = paper.offsetWidth
+    const subHeight = paper.offsetHeight
+    const viewportW = window.innerWidth
+    const viewportH = window.innerHeight
+    const rootRight = rootRect ? rootRect.right : itemRect.right
+    const rootLeft = rootRect ? rootRect.left : itemRect.left
+    const fitsRight = viewportW - rootRight >= subWidth + SUBMENU_GAP + VIEWPORT_MARGIN
+    const left = fitsRight ? rootRight + SUBMENU_GAP : rootLeft - subWidth - SUBMENU_GAP
+    const clampedLeft = Math.max(VIEWPORT_MARGIN, Math.min(left, viewportW - subWidth - VIEWPORT_MARGIN))
+    const clampedTop = Math.max(VIEWPORT_MARGIN, Math.min(itemRect.top, viewportH - subHeight - VIEWPORT_MARGIN))
+    paper.style.top = `${Math.round(clampedTop)}px`
+    paper.style.left = `${Math.round(clampedLeft)}px`
+  }, [])
+
+  // 节点挂载即定位（回调 ref 不受 Portal 挂载时序影响）。
+  const submenuPaperRef = React.useCallback(
+    (node: HTMLElement | null) => {
+      submenuPaperNodeRef.current = node
+      if (node) positionSubmenuNode(node)
+    },
+    [positionSubmenuNode],
+  )
+
+  // 已打开时切换悬停项：节点复用不会触发回调 ref，这里补一次重定位。
+  React.useLayoutEffect(() => {
+    const paper = submenuPaperNodeRef.current
+    if (paper) positionSubmenuNode(paper)
+  }, [submenu, positionSubmenuNode])
+
+  const submenuSlotProps = React.useMemo(
+    () => ({
+      root: { sx: { pointerEvents: 'none' as const } },
+      paper: {
+        [CONTEXT_MENU_PAPER_ATTR]: 'true',
+        onContextMenu: suppressNativeContextMenu,
+        ref: submenuPaperRef,
+        sx: { pointerEvents: 'auto' as const, position: 'fixed' as const, top: 0, left: 0, ...menuPaperSx },
+      },
+    }),
+    [submenuPaperRef],
   )
 
   const openSubmenu = React.useCallback((item: ContextMenuAction, anchorEl: HTMLElement) => {
@@ -194,7 +254,7 @@ export function ContextMenu(props: ContextMenuProps): React.ReactNode {
         anchorReference="anchorPosition"
         anchorPosition={open ? { top: y, left: x } : { top: 0, left: 0 }}
         transitionDuration={0}
-        slotProps={slotProps}
+        slotProps={rootSlotProps}
         onClick={event => event.stopPropagation()}
       >
         {items.map(renderItem)}
@@ -202,11 +262,9 @@ export function ContextMenu(props: ContextMenuProps): React.ReactNode {
       <Menu
         open={workspaceVisible && Boolean(submenu)}
         onClose={closeSubmenu}
-        anchorEl={submenu?.anchorEl ?? null}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        anchorReference="none"
         transitionDuration={0}
-        slotProps={slotProps}
+        slotProps={submenuSlotProps}
         onClick={event => event.stopPropagation()}
       >
         {submenuLeaves.map(renderLeaf)}
