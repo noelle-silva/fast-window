@@ -148,6 +148,8 @@ type quickRunsDoc struct {
 
 type commandDraft struct {
 	RepoID           string        `json:"repoId"`
+	// ParentID 是新命令挂入的收藏夹（空值回落到仓库根）；编辑命令时不改变树位置。
+	ParentID         string        `json:"parentId"`
 	Name             string        `json:"name"`
 	Script           string        `json:"script"`
 	Note             string        `json:"note"`

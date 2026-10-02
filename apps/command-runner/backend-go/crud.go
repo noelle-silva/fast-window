@@ -309,7 +309,7 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 	if err := svc.writeCommands(doc); err != nil {
 		return command{}, err
 	}
-	if err := svc.appendCommandToRoot(draft.RepoID, item.ID); err != nil {
+	if err := svc.appendCommandToFolder(draft.RepoID, strings.TrimSpace(draft.ParentID), item.ID); err != nil {
 		return command{}, err
 	}
 	return item, nil

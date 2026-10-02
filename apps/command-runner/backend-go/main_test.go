@@ -441,13 +441,27 @@ func TestCollectionsTree(t *testing.T) {
 	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID, folder.ID)
 	assertChildren(t, nodes, folder.ID, sub.ID)
 
+	// 在指定收藏夹下创建命令：挂到该收藏夹末尾，而非仓库根
+	cmdInFolder, err := svc.createCommand(commandDraft{RepoID: repoA.ID, ParentID: folder.ID, Name: "c", Script: "echo c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes = loadCollectionNodes(t, svc)
+	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID, folder.ID)
+	assertChildren(t, nodes, folder.ID, sub.ID, cmdInFolder.ID)
+
+	// 目标收藏夹不存在：快速失败，命令不落库
+	if _, err := svc.createCommand(commandDraft{RepoID: repoA.ID, ParentID: "folder-nope", Name: "x", Script: "echo x"}); err == nil {
+		t.Fatal("expected error for unknown parent folder")
+	}
+
 	// 移动命令进收藏夹末尾
 	if err := svc.moveCollectionNode(cmdA.ID, folder.ID, -1); err != nil {
 		t.Fatal(err)
 	}
 	nodes = loadCollectionNodes(t, svc)
 	assertChildren(t, nodes, repoA.ID, cmdB.ID, folder.ID)
-	assertChildren(t, nodes, folder.ID, sub.ID, cmdA.ID)
+	assertChildren(t, nodes, folder.ID, sub.ID, cmdInFolder.ID, cmdA.ID)
 
 	// 收藏夹同级排序：folder 移到根首位
 	if err := svc.moveCollectionNode(folder.ID, repoA.ID, 0); err != nil {
@@ -471,7 +485,7 @@ func TestCollectionsTree(t *testing.T) {
 	}
 	nodes = loadCollectionNodes(t, svc)
 	assertChildren(t, nodes, repoA.ID, folder.ID, cmdB.ID, sub.ID)
-	assertChildren(t, nodes, folder.ID, cmdA.ID)
+	assertChildren(t, nodes, folder.ID, cmdInFolder.ID, cmdA.ID)
 
 	// 解散 folder：其内容原位替换并上移，命令不丢
 	if err := svc.dissolveCollectionFolder(folder.ID); err != nil {
@@ -481,7 +495,7 @@ func TestCollectionsTree(t *testing.T) {
 	if _, exists := nodes[folder.ID]; exists {
 		t.Fatal("dissolved folder still exists")
 	}
-	assertChildren(t, nodes, repoA.ID, cmdA.ID, cmdB.ID, sub.ID)
+	assertChildren(t, nodes, repoA.ID, cmdInFolder.ID, cmdA.ID, cmdB.ID, sub.ID)
 
 	// 拒绝用例
 	if err := svc.dissolveCollectionFolder(repoA.ID); err == nil {

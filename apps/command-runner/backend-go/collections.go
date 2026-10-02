@@ -225,18 +225,22 @@ func (svc *service) moveCollectionNode(nodeID, targetFolderID string, index int)
 	return svc.writeCollections(doc)
 }
 
-// appendCommandToRoot 将新命令挂到其仓库根节点末尾（未分类区）。
-func (svc *service) appendCommandToRoot(repoID, commandID string) error {
+// appendCommandToFolder 将新命令挂到指定收藏夹末尾；folderID 为空时回落到仓库根。
+// 目标收藏夹必须存在且与仓库一致，否则快速失败。
+func (svc *service) appendCommandToFolder(repoID, folderID, commandID string) error {
+	if folderID == "" {
+		folderID = repoID
+	}
 	doc, err := svc.loadCollections()
 	if err != nil {
 		return err
 	}
-	root, ok := doc.Nodes[repoID]
-	if !ok || root == nil {
-		return fmt.Errorf("仓库收藏夹根不存在: %s", repoID)
+	folder, ok := doc.Nodes[folderID]
+	if !ok || folder == nil || folder.RepoID != repoID {
+		return fmt.Errorf("目标收藏夹不存在: %s", folderID)
 	}
-	root.Children = append(root.Children, commandID)
-	root.UpdatedAt = nowText()
+	folder.Children = append(folder.Children, commandID)
+	folder.UpdatedAt = nowText()
 	return svc.writeCollections(doc)
 }
 

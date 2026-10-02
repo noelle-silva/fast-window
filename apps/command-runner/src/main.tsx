@@ -332,9 +332,9 @@ function App() {
 
   const submitCommandCreate = React.useCallback(async (draft: CommandDraft) => {
     await wrap(async () => {
-      await actions.createCommand(draft)
+      await actions.createCommand(draft, folderNavigation.currentFolderId)
     }, '命令已创建')
-  }, [actions.createCommand, wrap])
+  }, [actions.createCommand, folderNavigation.currentFolderId, wrap])
 
   const submitCommandEdit = React.useCallback(async (draft: CommandDraft) => {
     const command = dialog.kind === 'command-edit' ? dialog.command : null

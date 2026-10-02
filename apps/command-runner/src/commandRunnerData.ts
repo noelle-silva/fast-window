@@ -35,7 +35,7 @@ type CommandRunnerActions = {
   updateRepo: (id: string, draft: RepoDraft) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
   reorderRepos: (orderedIds: string[]) => Promise<void>
-  createCommand: (draft: CommandDraft) => Promise<void>
+  createCommand: (draft: CommandDraft, parentId: string) => Promise<void>
   updateCommand: (id: string, draft: CommandDraft) => Promise<void>
   deleteCommand: (id: string) => Promise<void>
   createFolder: (repoId: string, parentId: string, name: string) => Promise<void>
@@ -171,7 +171,7 @@ export function useCommandRunnerData(client: DirectClient | null): CommandRunner
         () => client.request('commandRunner.repos.reorder', { orderedIds }),
         () => setRepos(current => applyLocalOrder(current, orderedIds)),
       ),
-      createCommand: draft => mutate('commandRunner.commands.create', draft),
+      createCommand: (draft, parentId) => mutate('commandRunner.commands.create', { ...draft, parentId }),
       updateCommand: (id, draft) => mutate('commandRunner.commands.update', { id, draft }),
       deleteCommand: id => mutate('commandRunner.commands.delete', { id }),
       createFolder: (repoId, parentId, name) => mutate('commandRunner.collections.create', { repoId, parentId, name }),
