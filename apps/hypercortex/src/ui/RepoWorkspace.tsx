@@ -101,6 +101,7 @@ import {
   normalizeTrashEnabled,
 } from '../appSettingsModel'
 import { normalizeRepoCacheLimit } from '../repoCacheLimit'
+import { normalizeSidebarExpandedWidth } from '../sidebarWidth'
 import { normalizeColorPresetId } from './colorPresets'
 import { WorkspaceVisibilityProvider } from './workspaceVisibility'
 
@@ -300,8 +301,10 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const allNotesLayout = normalizeAllNotesLayout(appSettings.allNotesLayout)
   const tabsCollapsed = normalizeBoolean(appSettings.tabsCollapsed)
   const tabsMode = normalizeTabsMode(appSettings.tabsMode)
+  const tabsSidebarWidth = normalizeSidebarExpandedWidth(appSettings.tabsSidebarWidth)
   const favoritesSidebarCollapsed = normalizeBoolean(appSettings.favoritesSidebarCollapsed)
   const favoritesSidebarMode = normalizeFavoritesSidebarMode(appSettings.favoritesSidebarMode)
+  const favoritesSidebarWidth = normalizeSidebarExpandedWidth(appSettings.favoritesSidebarWidth)
   const sidebarSortMode = normalizeSidebarSortMode(appSettings.sidebarSortMode)
   const trashEnabled = normalizeTrashEnabled(appSettings.trashEnabled)
   const trashAutoDeleteDays = normalizeTrashAutoDeleteDays(appSettings.trashAutoDeleteDays)
@@ -1027,8 +1030,17 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   )
 
   const isHoverTabsMode = tabsMode === 'hover'
-  const leftSidebarLayout = resolveSidebarLayout({ mode: tabsMode, collapsed: tabsCollapsed, hoverOpen: tabsHoverOpen })
+  const leftSidebarLayout = resolveSidebarLayout({
+    mode: tabsMode,
+    collapsed: tabsCollapsed,
+    hoverOpen: tabsHoverOpen,
+    expandedWidth: tabsSidebarWidth,
+  })
   const sidebarPanelWidth = leftSidebarLayout.panelWidth
+
+  const handleTabsSidebarResizeEnd = React.useCallback((width: number) => {
+    patchAppSettings({ tabsSidebarWidth: normalizeSidebarExpandedWidth(width) })
+  }, [patchAppSettings])
 
   const onSidebarMouseEnter = React.useCallback(() => {
     sidebarHoverRef.current = true
@@ -1046,7 +1058,16 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const [favoritesHoverOpen, setFavoritesHoverOpen] = React.useState(false)
   const favoritesHoverRef = React.useRef(false)
   const isHoverFavoritesMode = favoritesSidebarMode === 'hover'
-  const rightSidebarLayout = resolveSidebarLayout({ mode: favoritesSidebarMode, collapsed: favoritesSidebarCollapsed, hoverOpen: favoritesHoverOpen })
+  const rightSidebarLayout = resolveSidebarLayout({
+    mode: favoritesSidebarMode,
+    collapsed: favoritesSidebarCollapsed,
+    hoverOpen: favoritesHoverOpen,
+    expandedWidth: favoritesSidebarWidth,
+  })
+
+  const handleFavoritesSidebarResizeEnd = React.useCallback((width: number) => {
+    patchAppSettings({ favoritesSidebarWidth: normalizeSidebarExpandedWidth(width) })
+  }, [patchAppSettings])
 
   const onFavoritesSidebarMouseEnter = React.useCallback(() => {
     favoritesHoverRef.current = true
@@ -2735,6 +2756,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             <SidebarRail
               side="left"
               layout={leftSidebarLayout}
+              onResizeEnd={handleTabsSidebarResizeEnd}
               onMouseEnter={onSidebarMouseEnter}
               onMouseLeave={onSidebarMouseLeave}
             >
@@ -2946,6 +2968,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             <SidebarRail
               side="right"
               layout={rightSidebarLayout}
+              onResizeEnd={handleFavoritesSidebarResizeEnd}
               onMouseEnter={onFavoritesSidebarMouseEnter}
               onMouseLeave={onFavoritesSidebarMouseLeave}
             >
