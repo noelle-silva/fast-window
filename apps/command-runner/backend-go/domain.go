@@ -93,6 +93,8 @@ type command struct {
 	Script           string `json:"script"`
 	Note             string `json:"note"`
 	ConfirmBeforeRun bool   `json:"confirmBeforeRun"`
+	// ConfirmBeforeStop 控制内置空间停止该命令实例前是否需要二次确认。
+	ConfirmBeforeStop bool   `json:"confirmBeforeStop"`
 	NotifyOnComplete bool   `json:"notifyOnComplete"`
 	ShellID          string `json:"shellId"`
 	CloseMode        string `json:"closeMode"`
@@ -154,6 +156,8 @@ type commandDraft struct {
 	Script           string        `json:"script"`
 	Note             string        `json:"note"`
 	ConfirmBeforeRun bool          `json:"confirmBeforeRun"`
+	// ConfirmBeforeStop 控制内置空间停止该命令实例前是否需要二次确认。
+	ConfirmBeforeStop bool          `json:"confirmBeforeStop"`
 	NotifyOnComplete bool          `json:"notifyOnComplete"`
 	ShellID          string        `json:"shellId"`
 	CloseMode        string        `json:"closeMode"`

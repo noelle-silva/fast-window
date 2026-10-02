@@ -50,13 +50,14 @@ func TestRepoAndCommandRoundTrip(t *testing.T) {
 	}
 
 	created, err := svc.createCommand(commandDraft{
-		RepoID:           repo.ID,
-		Name:             "build",
-		Script:           "go build ./...",
-		Note:             "编译项目",
-		ConfirmBeforeRun: true,
-		CloseMode:        closeModeCountdown,
-		CountdownSeconds: 15,
+		RepoID:            repo.ID,
+		Name:              "build",
+		Script:            "go build ./...",
+		Note:              "编译项目",
+		ConfirmBeforeRun:  true,
+		ConfirmBeforeStop: true,
+		CloseMode:         closeModeCountdown,
+		CountdownSeconds:  15,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,9 @@ func TestRepoAndCommandRoundTrip(t *testing.T) {
 	if items[0].Note != "编译项目" || items[0].CountdownSeconds != 15 {
 		t.Fatalf("unexpected command fields: %+v", items[0])
 	}
+	if !items[0].ConfirmBeforeRun || !items[0].ConfirmBeforeStop {
+		t.Fatalf("confirm flags not persisted: %+v", items[0])
+	}
 
 	updated, err := svc.updateCommand(created.ID, commandDraft{
 		RepoID:    repo.ID,
@@ -85,6 +89,9 @@ func TestRepoAndCommandRoundTrip(t *testing.T) {
 	}
 	if updated.Script != "go vet ./..." || updated.Note != "" {
 		t.Fatalf("unexpected updated command: %+v", updated)
+	}
+	if updated.ConfirmBeforeRun || updated.ConfirmBeforeStop {
+		t.Fatalf("confirm flags not cleared on update: %+v", updated)
 	}
 
 	if err := svc.deleteCommand(created.ID); err != nil {

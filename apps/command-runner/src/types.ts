@@ -99,6 +99,8 @@ export type CommandItem = {
   script: string
   note: string
   confirmBeforeRun: boolean
+  // confirmBeforeStop 控制内置空间停止该命令实例前是否需要二次确认。
+  confirmBeforeStop: boolean
   notifyOnComplete: boolean
   shellId: string
   closeMode: string
@@ -119,6 +121,7 @@ export type CommandDraft = {
   script: string
   note: string
   confirmBeforeRun: boolean
+  confirmBeforeStop: boolean
   notifyOnComplete: boolean
   shellId: string
   closeMode: string

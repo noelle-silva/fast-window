@@ -10,6 +10,7 @@ import { AppTopbar, type TopbarMenuItem } from './components/AppTopbar'
 import { CommandExplorer } from './components/CommandExplorer'
 import { CommandDialog } from './components/CommandDialog'
 import { ConfirmRunDialog } from './components/ConfirmRunDialog'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { DeleteConfirmDialog } from './components/DeleteConfirmDialog'
 import { ExecutionSpacePage } from './components/ExecutionSpacePage'
 import { FolderDialog } from './components/FolderDialog'
@@ -58,6 +59,7 @@ type DialogState =
   | { kind: 'command-edit'; command: CommandItem }
   | { kind: 'command-delete'; command: CommandItem }
   | { kind: 'confirm-run'; command: CommandItem; restartRunId?: string }
+  | { kind: 'stop-run'; runId: string; commandName: string }
   | { kind: 'folder-create'; repoId: string; parentId: string }
   | { kind: 'folder-rename'; folder: CollectionNode }
   | { kind: 'folder-delete'; folder: CollectionNode }
@@ -159,6 +161,22 @@ function App() {
     await Promise.all(runningIds.map(runId => stopRun(runId)))
     setSnack(`已请求停止 ${runningIds.length} 个运行进程`)
   }, [executionSpace.entries, stopRun])
+
+  // requestStopRun 决定停止内置运行前是否需要弹窗：命令开启停止二次确认时先弹窗，否则直接停止。
+  const requestStopRun = React.useCallback((runId: string) => {
+    const entry = executionSpace.entries.find(item => item.runId === runId)
+    const command = entry ? commands.find(item => item.id === entry.commandId) : undefined
+    if (command?.confirmBeforeStop) {
+      setDialog({ kind: 'stop-run', runId, commandName: command.name })
+      return
+    }
+    void stopRun(runId)
+  }, [executionSpace.entries, commands, stopRun])
+
+  const submitStopRun = React.useCallback(async (runId: string) => {
+    await stopRun(runId)
+    setDialog(NO_DIALOG)
+  }, [stopRun])
 
   const markAppReady = React.useCallback(() => {
     if (readyRef.current) return
@@ -577,7 +595,7 @@ function App() {
               stoppingRunIds={stoppingRunIds}
               restartingRunIds={restartingRunIds}
               onBack={() => setSpaceView(null)}
-              onStopRun={runId => void stopRun(runId)}
+              onStopRun={requestStopRun}
               onRemoveEntry={executionSpace.removeEntry}
               onRestartRun={requestRestartRun}
               onMoveEntry={executionSpace.moveEntry}
@@ -777,6 +795,19 @@ function App() {
             onConfirm={placeholderValues => dialog.restartRunId
               ? performRestartRun(dialog.command, dialog.restartRunId, placeholderValues)
               : runCommand(dialog.command, placeholderValues)}
+            onClose={() => setDialog(NO_DIALOG)}
+          />
+        ) : null}
+
+        {dialog.kind === 'stop-run' ? (
+          <ConfirmDialog
+            title="确认停止运行"
+            message={`将停止命令「${dialog.commandName}」当前的内置运行实例。`}
+            confirmLabel="确认停止"
+            pendingLabel="停止中"
+            confirmColor="error"
+            disabled={controlsDisabled}
+            onConfirm={() => submitStopRun(dialog.runId)}
             onClose={() => setDialog(NO_DIALOG)}
           />
         ) : null}

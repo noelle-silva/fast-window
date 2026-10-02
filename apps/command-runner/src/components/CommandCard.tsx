@@ -52,6 +52,9 @@ export function CommandCard({ command, repo, settings, shells, runningCount, sor
             {command.confirmBeforeRun ? (
               <Chip size="small" color="warning" label="需二次确认" sx={{ fontWeight: 800, fontSize: 11, height: 20 }} />
             ) : null}
+            {command.confirmBeforeStop ? (
+              <Chip size="small" color="warning" variant="outlined" label="停止需确认" sx={{ fontWeight: 800, fontSize: 11, height: 20 }} />
+            ) : null}
           </Box>
           {command.note ? (
             <Typography color="text.secondary" sx={{ fontSize: 12, lineHeight: 1.5 }}>{command.note}</Typography>

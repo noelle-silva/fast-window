@@ -288,22 +288,23 @@ func (svc *service) createCommand(draft commandDraft) (command, error) {
 		return command{}, err
 	}
 	item := command{
-		ID:               newID("cmd"),
-		RepoID:           draft.RepoID,
-		Name:             strings.TrimSpace(draft.Name),
-		Script:           draft.Script,
-		Note:             strings.TrimSpace(draft.Note),
-		ConfirmBeforeRun: draft.ConfirmBeforeRun,
-		NotifyOnComplete: draft.NotifyOnComplete,
-		ShellID:          draft.ShellID,
-		CloseMode:        draft.CloseMode,
-		CountdownSeconds: draft.CountdownSeconds,
-		RunMode:          draft.RunMode,
-		ProcessOwnership: draft.ProcessOwnership,
-		MaxEmbeddedRuns:  draft.MaxEmbeddedRuns,
-		Placeholders:     placeholders,
-		CreatedAt:        nowText(),
-		UpdatedAt:        nowText(),
+		ID:                newID("cmd"),
+		RepoID:            draft.RepoID,
+		Name:              strings.TrimSpace(draft.Name),
+		Script:            draft.Script,
+		Note:              strings.TrimSpace(draft.Note),
+		ConfirmBeforeRun:  draft.ConfirmBeforeRun,
+		ConfirmBeforeStop: draft.ConfirmBeforeStop,
+		NotifyOnComplete:  draft.NotifyOnComplete,
+		ShellID:           draft.ShellID,
+		CloseMode:         draft.CloseMode,
+		CountdownSeconds:  draft.CountdownSeconds,
+		RunMode:           draft.RunMode,
+		ProcessOwnership:  draft.ProcessOwnership,
+		MaxEmbeddedRuns:   draft.MaxEmbeddedRuns,
+		Placeholders:      placeholders,
+		CreatedAt:         nowText(),
+		UpdatedAt:         nowText(),
 	}
 	doc.Commands = append(doc.Commands, item)
 	if err := svc.writeCommands(doc); err != nil {
@@ -349,6 +350,7 @@ func (svc *service) updateCommand(id string, draft commandDraft) (command, error
 		doc.Commands[index].Script = draft.Script
 		doc.Commands[index].Note = strings.TrimSpace(draft.Note)
 		doc.Commands[index].ConfirmBeforeRun = draft.ConfirmBeforeRun
+		doc.Commands[index].ConfirmBeforeStop = draft.ConfirmBeforeStop
 		doc.Commands[index].NotifyOnComplete = draft.NotifyOnComplete
 		doc.Commands[index].ShellID = draft.ShellID
 		doc.Commands[index].CloseMode = draft.CloseMode

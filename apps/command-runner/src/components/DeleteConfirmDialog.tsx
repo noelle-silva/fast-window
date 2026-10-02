@@ -1,6 +1,4 @@
-import * as React from 'react'
-import { Box, Button, Typography } from '@mui/material'
-import { DialogShell } from './DialogShell'
+import { ConfirmDialog } from './ConfirmDialog'
 
 type DeleteConfirmDialogProps = {
   title: string
@@ -10,30 +8,18 @@ type DeleteConfirmDialogProps = {
   onClose: () => void
 }
 
+// DeleteConfirmDialog 是「删除」场景对通用确认原语的封装：红色确认按钮与删除文案。
 export function DeleteConfirmDialog({ title, message, disabled = false, onConfirm, onClose }: DeleteConfirmDialogProps) {
-  const [deleting, setDeleting] = React.useState(false)
-
-  const confirm = React.useCallback(async () => {
-    if (deleting) return
-    setDeleting(true)
-    try {
-      await onConfirm()
-    } finally {
-      setDeleting(false)
-    }
-  }, [deleting, onConfirm])
-
   return (
-    <DialogShell title={title} closeDisabled={deleting} onClose={onClose}>
-      <Box className="cr-form">
-        <Typography sx={{ fontSize: 13, lineHeight: 1.6 }}>{message}</Typography>
-        <Box className="cr-form-actions">
-          <Button disabled={deleting} onClick={onClose}>取消</Button>
-          <Button variant="contained" color="error" disabled={disabled || deleting} onClick={confirm}>
-            {deleting ? '删除中' : '确认删除'}
-          </Button>
-        </Box>
-      </Box>
-    </DialogShell>
+    <ConfirmDialog
+      title={title}
+      message={message}
+      confirmLabel="确认删除"
+      pendingLabel="删除中"
+      confirmColor="error"
+      disabled={disabled}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
   )
 }

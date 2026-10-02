@@ -28,6 +28,7 @@ const EMPTY_DRAFT: CommandDraft = {
   script: '',
   note: '',
   confirmBeforeRun: false,
+  confirmBeforeStop: false,
   notifyOnComplete: false,
   shellId: '',
   closeMode: '',
@@ -52,6 +53,7 @@ export function CommandDialog({
   const [script, setScript] = React.useState(initial?.script ?? '')
   const [note, setNote] = React.useState(initial?.note ?? '')
   const [confirmBeforeRun, setConfirmBeforeRun] = React.useState(initial?.confirmBeforeRun ?? false)
+  const [confirmBeforeStop, setConfirmBeforeStop] = React.useState(initial?.confirmBeforeStop ?? false)
   const [notifyOnComplete, setNotifyOnComplete] = React.useState(initial?.notifyOnComplete ?? false)
   const [shellId, setShellId] = React.useState(initial?.shellId ?? '')
   const [closeMode, setCloseMode] = React.useState(initial?.closeMode ?? '')
@@ -83,6 +85,7 @@ export function CommandDialog({
         script,
         note: note.trim(),
         confirmBeforeRun,
+        confirmBeforeStop,
         notifyOnComplete,
         shellId,
         closeMode,
@@ -95,7 +98,7 @@ export function CommandDialog({
     } catch (e) {
       setError(String((e as { message?: string })?.message || e || '保存命令失败'))
     }
-  }, [canSave, repo.id, name, script, note, confirmBeforeRun, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, limitEmbeddedRuns, maxEmbeddedRuns, placeholders, onSubmit])
+  }, [canSave, repo.id, name, script, note, confirmBeforeRun, confirmBeforeStop, notifyOnComplete, shellId, closeMode, countdownSeconds, runMode, processOwnership, limitEmbeddedRuns, maxEmbeddedRuns, placeholders, onSubmit])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -155,6 +158,11 @@ export function CommandDialog({
         <FormControlLabel
           control={<Switch checked={confirmBeforeRun} disabled={disabled || submitting} onChange={event => setConfirmBeforeRun(event.target.checked)} />}
           label="运行前需要二次确认"
+          sx={{ alignSelf: 'flex-start' }}
+        />
+        <FormControlLabel
+          control={<Switch checked={confirmBeforeStop} disabled={disabled || submitting} onChange={event => setConfirmBeforeStop(event.target.checked)} />}
+          label="内置空间停止前需要二次确认"
           sx={{ alignSelf: 'flex-start' }}
         />
         <FormControlLabel
