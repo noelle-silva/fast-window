@@ -2,7 +2,7 @@ import { normalizeTimeMs } from '../core/utils'
 import { ensureChatBranch, normalizeBranchId } from '../domain/branching'
 import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts, type AssistantRunStatus } from '../domain/assistantRunState'
 import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
-import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid } from '../domain/message'
+import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { activeEbRunCardsForTarget, isTerminalEbRunStatus, removeEbRoleRunCard, upsertEbRoleRunCard } from '../domain/activeRunCards'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
@@ -334,6 +334,144 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     return true
   }
 
+  // applyAssistantMessageDelta 把“本次新增变化”叠加到本地消息：
+  // 增量内容累加，重置标记则整体替换，工具片段按 id 合并。
+  function applyAssistantMessageDelta(raw: unknown) {
+    const delta = raw && typeof raw === 'object' ? (raw as any) : null
+    if (!delta) return false
+    const state = deps.getState()
+    if (!state?.data) return false
+
+    const runId = String(delta.runId || '').trim()
+    const roleId = String(delta.roleId || '').trim()
+    const groupId = String(delta.groupId || '').trim()
+    const workspaceId = String(delta.workspaceId || '').trim()
+    const sessionId = String(delta.sessionId || '').trim()
+    const messageId = String(delta.messageId || '').trim()
+    if (!runId || !roleId || !sessionId || !messageId) return false
+
+    const eventTime = normalizeTimeMs(delta.createdAt)
+    const messageCreatedAt = normalizeTimeMs(delta.messageCreatedAt, eventTime)
+    const { targetKind, targetId } = runEventTarget(roleId, groupId, workspaceId)
+    const box = ensureTargetChatBox(state, targetKind, targetId)
+    const chat = ensureRuntimeTargetChat(state, targetKind, targetId, sessionId, messageCreatedAt)
+    if (!chat) return false
+    if (!Array.isArray(chat.messages)) chat.messages = []
+
+    const parentMid = String(delta.parentMessageId || '').trim()
+    const branchId = normalizeBranchId(delta.branchId || CHAT_DEFAULT_BRANCH_ID)
+
+    let message = chat.messages.find((item: any) => String(item?.id || '').trim() === messageId) || null
+    const isNewMessage = !message
+    if (!message) {
+      message = normalizeChatMessage(
+        {
+          id: messageId,
+          type: String(delta.messageType || 'assistant').trim() || 'assistant',
+          role: 'assistant',
+          speakerRoleId: String(delta.speakerRoleId || '').trim(),
+          content: '',
+          parentMid,
+          branchId,
+          createdAt: messageCreatedAt,
+          updatedAt: eventTime,
+        },
+        { activeBranchId: branchId || CHAT_DEFAULT_BRANCH_ID, toolMessagesAsAssistant: true },
+      )
+      message.id = messageId
+      message.type = 'assistant'
+      message.role = 'assistant'
+      message.parentMid = parentMid
+      message.branchId = branchId
+      message.createdAt = messageCreatedAt
+      message.updatedAt = eventTime
+      message.assistantRun = { generationId: runId, status: 'running', mode: 'new', stream: !!delta.stream, startedAt: messageCreatedAt, updatedAt: eventTime }
+      message.pending = true
+      message.streaming = !!delta.stream
+      message.content = ''
+      message.parts = []
+      chat.messages.push(message)
+    }
+
+    if (delta.contentReset) {
+      message.content = String(delta.contentDelta || '')
+    } else if (delta.contentDelta) {
+      message.content = String(message.content || '') + String(delta.contentDelta)
+    }
+
+    const reasoningDelta = String(delta.reasoningDelta || '')
+    const reasoningSignature = String(delta.reasoningSignature || '')
+    const reasoningData = String(delta.reasoningData || '')
+    const reasoningSource = String(delta.reasoningSource || '')
+    if (reasoningDelta || delta.reasoningReset || reasoningSignature || reasoningData) {
+      const parts = Array.isArray(message.parts) ? message.parts.slice() : []
+      let index = parts.findIndex((part: any) => String(part?.type || '') === 'reasoning')
+      if (index < 0) {
+        parts.push({ id: `${messageId}:reasoning`, type: 'reasoning', text: '', source: reasoningSource, signature: '', data: '' })
+        index = parts.length - 1
+      }
+      const prev = parts[index]
+      const nextText = delta.reasoningReset ? reasoningDelta : String(prev?.text || '') + reasoningDelta
+      parts[index] = {
+        ...prev,
+        type: 'reasoning',
+        text: nextText,
+        source: reasoningSource || String(prev?.source || ''),
+        signature: reasoningSignature || String(prev?.signature || ''),
+        data: reasoningData || String(prev?.data || ''),
+      }
+      message.parts = parts
+    }
+
+    if (Array.isArray(delta.partsDelta) && delta.partsDelta.length) {
+      const parts = Array.isArray(message.parts) ? message.parts.slice() : []
+      for (const incoming of delta.partsDelta) {
+        const normalized = normalizeMessageParts([incoming])
+        if (!normalized.length) continue
+        const part = normalized[0]
+        const key = String(part.callId || part.id || '').trim()
+        const index = parts.findIndex((item: any) => String(item?.callId || item?.id || '').trim() === key)
+        if (index >= 0) parts[index] = { ...parts[index], ...part }
+        else parts.push(part)
+      }
+      message.parts = parts
+    }
+
+    message.role = 'assistant'
+    message.type = 'assistant'
+    if (parentMid) message.parentMid = parentMid
+    message.branchId = branchId
+    message.updatedAt = Math.max(Number(message.updatedAt || 0), eventTime)
+    checkpointAssistantRun(message, message.content, message.updatedAt)
+
+    if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, targetKind === 'group' ? '群聊' : '新聊天'), targetKind === 'group' ? '群聊' : '新聊天')
+    chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
+    const branch = ensureChatBranch(chat, branchId)
+    if (branch) {
+      branch.headMid = messageId
+      branch.updatedAt = chat.updatedAt
+      if (!String(branch.forkFromMid || '').trim() && parentMid) branch.forkFromMid = parentMid
+    }
+    const patch: any = {
+      runId,
+      roleId,
+      groupId,
+      workspaceId,
+      sessionId,
+      inputMessageId: parentMid,
+      lastMessageId: messageId,
+      anchorMessageId: parentMid,
+      status: 'running',
+      stream: !!delta.stream,
+    }
+    upsertEbRoleRunCard(state, patch)
+    scheduleRuntimeChatChanged(targetKind, targetId, chat)
+
+    if (isNewMessage) scheduleRender()
+    else scheduleScope(messageRefreshScope(messageId))
+    return true
+  }
+
   function applyAsyncToolTaskUpdate(raw: unknown) {
     const task = raw && typeof raw === 'object' ? (raw as any) : null
     if (!task) return false
@@ -420,6 +558,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const event = raw && typeof raw === 'object' ? (raw as any) : null
     if (!event) return false
     const type = String(event.type || '').trim()
+    if (type === 'assistant_message_delta') return applyAssistantMessageDelta(event.payload)
     if (type === 'assistant_message_update' || type === 'run_message_update') return applyAssistantMessageUpdate(event.payload)
     if (type === 'async_tool_task_update') return applyAsyncToolTaskUpdate(event.payload)
     if (type === 'tool_output_update') return applyToolOutputUpdate(event.payload)
