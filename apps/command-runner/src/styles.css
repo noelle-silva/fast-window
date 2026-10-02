@@ -665,7 +665,7 @@ body {
 
 .cr-placeholder-value-select {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: center;
 }

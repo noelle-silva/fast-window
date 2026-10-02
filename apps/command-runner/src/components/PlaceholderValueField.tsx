@@ -13,7 +13,7 @@ type PlaceholderValueFieldProps = {
 }
 
 // PlaceholderValueField 渲染本次运行中单个占位符的取值控件：
-// 预选值型为「左右切换按钮 + 下拉选择」，临时填写型为多行输入；临时填写型可留空，留空替换为空内容。
+// 预选值型为「下拉选择 + 左右切换按钮」，临时填写型为多行输入；临时填写型可留空，留空替换为空内容。
 export function PlaceholderValueField({ placeholder, value, disabled = false, onChange }: PlaceholderValueFieldProps) {
   if (placeholder.valueMode === 'input') {
     return (
@@ -34,6 +34,16 @@ export function PlaceholderValueField({ placeholder, value, disabled = false, on
   const next = stepPlaceholderValue(placeholder.values, value, 1)
   return (
     <Box className="cr-placeholder-value-select">
+      <TextField
+        select
+        size="small"
+        value={value}
+        disabled={disabled}
+        fullWidth
+        onChange={event => onChange(event.target.value)}
+      >
+        {placeholder.values.map(item => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+      </TextField>
       <Box className="cr-placeholder-cycle">
         <IconButton
           size="small"
@@ -52,16 +62,6 @@ export function PlaceholderValueField({ placeholder, value, disabled = false, on
           <ChevronRightRoundedIcon fontSize="small" />
         </IconButton>
       </Box>
-      <TextField
-        select
-        size="small"
-        value={value}
-        disabled={disabled}
-        fullWidth
-        onChange={event => onChange(event.target.value)}
-      >
-        {placeholder.values.map(item => <MenuItem key={item} value={item}>{item}</MenuItem>)}
-      </TextField>
     </Box>
   )
 }
