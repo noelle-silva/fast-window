@@ -663,6 +663,19 @@ body {
   justify-self: start;
 }
 
+.cr-placeholder-value-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.cr-placeholder-cycle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .cr-quick-run-confirm-placeholders {
   grid-column: 1 / -1;
   display: grid;

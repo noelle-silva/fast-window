@@ -1,5 +1,8 @@
 import * as React from 'react'
-import { MenuItem, TextField } from '@mui/material'
+import { Box, IconButton, MenuItem, TextField } from '@mui/material'
+import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import { stepPlaceholderValue } from '../placeholders'
 import type { Placeholder } from '../types'
 
 type PlaceholderValueFieldProps = {
@@ -10,7 +13,7 @@ type PlaceholderValueFieldProps = {
 }
 
 // PlaceholderValueField 渲染本次运行中单个占位符的取值控件：
-// 预选值型为下拉选择，临时填写型为多行输入；临时填写型可留空，留空替换为空内容。
+// 预选值型为「左右切换按钮 + 下拉选择」，临时填写型为多行输入；临时填写型可留空，留空替换为空内容。
 export function PlaceholderValueField({ placeholder, value, disabled = false, onChange }: PlaceholderValueFieldProps) {
   if (placeholder.valueMode === 'input') {
     return (
@@ -27,16 +30,38 @@ export function PlaceholderValueField({ placeholder, value, disabled = false, on
       />
     )
   }
+  const previous = stepPlaceholderValue(placeholder.values, value, -1)
+  const next = stepPlaceholderValue(placeholder.values, value, 1)
   return (
-    <TextField
-      select
-      size="small"
-      value={value}
-      disabled={disabled}
-      fullWidth
-      onChange={event => onChange(event.target.value)}
-    >
-      {placeholder.values.map(item => <MenuItem key={item} value={item}>{item}</MenuItem>)}
-    </TextField>
+    <Box className="cr-placeholder-value-select">
+      <Box className="cr-placeholder-cycle">
+        <IconButton
+          size="small"
+          disabled={disabled || previous === null}
+          aria-label="上一个候选值"
+          onClick={() => previous !== null && onChange(previous)}
+        >
+          <ChevronLeftRoundedIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          disabled={disabled || next === null}
+          aria-label="下一个候选值"
+          onClick={() => next !== null && onChange(next)}
+        >
+          <ChevronRightRoundedIcon fontSize="small" />
+        </IconButton>
+      </Box>
+      <TextField
+        select
+        size="small"
+        value={value}
+        disabled={disabled}
+        fullWidth
+        onChange={event => onChange(event.target.value)}
+      >
+        {placeholder.values.map(item => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+      </TextField>
+    </Box>
   )
 }

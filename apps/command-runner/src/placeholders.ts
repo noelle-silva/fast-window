@@ -49,3 +49,16 @@ export function initialPlaceholderSelection(placeholders: Placeholder[]): Placeh
     item.valueMode === 'input' ? '' : item.values[0] ?? '',
   ]))
 }
+
+// stepPlaceholderValue 计算候选值列表内按方向移动一步的目标值：
+// 当前值命中候选则移动到相邻项，已在首尾边界则返回 null（不循环）；
+// 当前值未命中候选则从对应端进入；空候选列表返回 null。
+// direction 为 +1 向后、-1 向前。返回 null 表示无可移动目标。
+export function stepPlaceholderValue(values: string[], current: string, direction: 1 | -1): string | null {
+  if (values.length === 0) return null
+  const index = values.indexOf(current)
+  if (index === -1) return direction > 0 ? values[0] : values[values.length - 1]
+  const next = index + direction
+  if (next < 0 || next >= values.length) return null
+  return values[next]
+}
