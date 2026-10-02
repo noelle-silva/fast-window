@@ -92,9 +92,13 @@ export type HyperCortexAppSettingsV1 = {
   allNotesLayout?: 'list' | 'grid' | 'icon'
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
+  // 左侧「已打开笔记」栏的展开宽度（可拖拽调整，左右各自独立）。
+  tabsSidebarWidth?: number
   // 收藏夹导航栏的展开形态（与左侧「已打开笔记」栏各自独立）。
   favoritesSidebarCollapsed?: boolean
   favoritesSidebarMode?: 'manual' | 'hover'
+  // 右侧「收藏夹导航」栏的展开宽度（可拖拽调整，左右各自独立）。
+  favoritesSidebarWidth?: number
   sidebarSortMode?: HyperCortexSidebarSortModeV1
   shortcuts?: HyperCortexShortcutBindingsV1
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.

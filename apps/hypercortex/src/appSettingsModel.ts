@@ -2,6 +2,7 @@ import type { HyperCortexAppSettingsV1, HyperCortexSidebarSortModeV1 } from './c
 import { normalizeFacePluginSettingsContainer } from './facePlugins/settings'
 import { normalizePageDisplayModes } from './pageDisplay'
 import { normalizeRepoCacheLimit } from './repoCacheLimit'
+import { normalizeSidebarExpandedWidth } from './sidebarWidth'
 import { normalizeShortcutBindings } from './shortcuts'
 
 // 应用设置的读取归一化与落库收敛共用同一解析，保证设置形态单一事实源。
@@ -50,6 +51,8 @@ export function sanitizeAppSettingsForSave(settings: HyperCortexAppSettingsV1): 
   next.shortcutHintsEnabled = normalizeBoolean((next as any).shortcutHintsEnabled)
   next.favoritesSidebarCollapsed = normalizeBoolean((next as any).favoritesSidebarCollapsed)
   next.favoritesSidebarMode = normalizeFavoritesSidebarMode((next as any).favoritesSidebarMode)
+  next.tabsSidebarWidth = normalizeSidebarExpandedWidth((next as any).tabsSidebarWidth)
+  next.favoritesSidebarWidth = normalizeSidebarExpandedWidth((next as any).favoritesSidebarWidth)
   next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
   next.facePluginSettings = normalizeFacePluginSettingsContainer(next.facePluginSettings)
