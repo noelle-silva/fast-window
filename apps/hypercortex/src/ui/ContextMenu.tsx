@@ -42,13 +42,31 @@ function isCustomItem(item: ContextMenuItem): item is ContextMenuCustom {
 function useDismissOnOutsidePointer(active: boolean, onClose: () => void) {
   React.useEffect(() => {
     if (!active) return undefined
+    let swallowNextClick = false
     const onPointerDown = (event: PointerEvent) => {
+      swallowNextClick = false
       const target = event.target
       if (target instanceof Element && target.closest(`[${CONTEXT_MENU_PAPER_ATTR}="true"]`)) return
+      // 左键：吞掉这次交互，避免穿透触发下层元素的点击；右键：放行以便目标处开新菜单。
+      if (event.button === 0) {
+        event.preventDefault()
+        event.stopPropagation()
+        swallowNextClick = true
+      }
       onClose()
     }
+    const onClick = (event: MouseEvent) => {
+      if (!swallowNextClick) return
+      swallowNextClick = false
+      event.preventDefault()
+      event.stopPropagation()
+    }
     document.addEventListener('pointerdown', onPointerDown, true)
-    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('click', onClick, true)
+    }
   }, [active, onClose])
 }
 
