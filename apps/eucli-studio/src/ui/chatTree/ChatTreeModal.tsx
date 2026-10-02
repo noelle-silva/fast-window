@@ -39,7 +39,6 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
   treeFocusMid: string
   treeHighlightEdgeKeys: Set<string>
   treePop: { id: string; at: number }
-  setTreeSelectedMid: React.Dispatch<React.SetStateAction<string>>
   setTreePop: React.Dispatch<React.SetStateAction<{ id: string; at: number }>>
   jumpToMessage: (mid: string) => void
   onTreeNodeContextMenu: (e: any, mid: string, role: 'user' | 'assistant') => void
@@ -75,7 +74,6 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
     treeFocusMid,
     treeHighlightEdgeKeys,
     treePop,
-    setTreeSelectedMid,
     setTreePop,
     jumpToMessage,
     onTreeNodeContextMenu,
@@ -331,7 +329,6 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                                   ev.stopPropagation()
                                   return
                                 }
-                                setTreeSelectedMid(id)
                                 setTreePop({ id, at: Date.now() })
                                 jumpToMessage(id)
                               }}
@@ -568,7 +565,6 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
                               ev.stopPropagation()
                               return
                             }
-                            setTreeSelectedMid(id)
                             setTreePop({ id, at: Date.now() })
                             jumpToMessage(id)
                           }}

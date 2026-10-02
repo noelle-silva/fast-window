@@ -6,7 +6,19 @@ import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
 import { useMessageActions } from './hooks/useMessageActions'
 import { useChatTree } from './hooks/useChatTree'
-import { useChatSending, type SendPathAnchor, emptySendPathAnchor } from './hooks/useChatSending'
+import { useChatSending } from './hooks/useChatSending'
+import {
+  initialViewIntentState,
+  onNodeClicked,
+  onRunStarted,
+  onRunRegistered,
+  onChatSwitched,
+  resolveViewFocusMid,
+  resolveFollowTargetMid,
+  type ViewIntentState,
+  type ViewFocusContext,
+  type RunViewFact,
+} from '../domain/viewIntent'
 import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
@@ -178,9 +190,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       ? branchDraftRaw
       : null
   const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
-  const [sendPathAnchor, setSendPathAnchor] = React.useState<SendPathAnchor>(() => emptySendPathAnchor())
-  const clearSendPathAnchor = useEvent(() => setSendPathAnchor(emptySendPathAnchor()))
-  const sendPathAnchorNonceRef = React.useRef(0)
+  // 会话视图意图：决定“当前看哪里”的唯一事实源。转移逻辑全在 viewIntent 纯函数里。
+  const [viewIntentState, setViewIntentState] = React.useState<ViewIntentState>(() => initialViewIntentState())
   const treeSuppressClickRef = React.useRef(false)
 
   const {
@@ -383,10 +394,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeBranchIdUi,
-    activeSendPathAnchorMid,
-    activeSendPathRunId,
-    activeSendPathRunCard,
-    activeSendPathFollowMid,
     activeBranchHeadMid,
   } = useChatMessageIndex({
     s,
@@ -396,8 +403,47 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeChat,
     activeTargetKind,
     activeChatTargetId,
-    sendPathAnchor,
   })
+
+  // 活动运行事实：交给纯函数挑选跟随对象，保证多分支并行时目标稳定。
+  const runViewFacts: RunViewFact[] = React.useMemo(
+    () => (Array.isArray(activeSessionRunCards) ? activeSessionRunCards : []).map((card: any) => ({
+      runId: String(card?.runId || '').trim(),
+      anchorMid: String(card?.anchorMessageId || card?.inputMessageId || '').trim(),
+      outputMid: String(card?.lastMessageId || '').trim(),
+      createdAt: Number(card?.createdAt || 0),
+    })),
+    [activeSessionRunCardsKey],
+  )
+  const viewFocusContext: ViewFocusContext = React.useMemo(
+    () => ({
+      pendingRunAnchorMid: viewIntentState.pendingRunAnchorMid,
+      runs: runViewFacts,
+      branchHeadMid: activeBranchHeadMid,
+    }),
+    [viewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid],
+  )
+  // “最新节点”就是跟随目标本身：点中它→跟随，点其它任何节点（含同级分支）→锚定。
+  const followTargetMid = React.useMemo(() => resolveFollowTargetMid(viewFocusContext), [viewFocusContext])
+  const viewFocusMid = React.useMemo(
+    () => resolveViewFocusMid(viewIntentState.intent, viewFocusContext),
+    [viewIntentState.intent, viewFocusContext],
+  )
+  const viewAnchorMid = viewIntentState.intent.kind === 'anchor' ? viewIntentState.intent.mid : ''
+
+  // 这次运行被登记后，空窗期的临时跟随目标即失效；切换会话时重置。
+  React.useEffect(() => {
+    setViewIntentState((prev) => {
+      for (const fact of runViewFacts) {
+        const next = onRunRegistered(prev, fact.anchorMid)
+        if (next !== prev) return next
+      }
+      return prev
+    })
+  }, [activeSessionRunCardsKey])
+  React.useEffect(() => {
+    setViewIntentState(onChatSwitched())
+  }, [String(activeChat?.id || '')])
 
   const getLastMsgId = useEvent(() => String(lastMsgId || ''))
 
@@ -410,8 +456,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setTreeScale,
     treeDir,
     setTreeDir,
-    treeSelectedMid,
-    setTreeSelectedMid,
     treePop,
     setTreePop,
     treeDragging,
@@ -449,12 +493,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     chatAllMessagesRaw,
     activeSessionRunCards,
     activeSessionRunCardsKey,
-    activeSendPathFollowMid,
-    activeSendPathAnchorMid,
-    activeBranchHeadMid,
+    viewFocusMid,
+    viewAnchorMid,
+    // 点中“跟随目标”才进入跟随；点其它任何节点（含同级分支）都锚定。
+    setViewIntentFromNodeClick: (mid: string) => setViewIntentState((prev) => onNodeClicked(prev, mid, followTargetMid)),
     branchDraft,
     branchDraftKey,
-    clearSendPathAnchor,
     stickToBottomRef,
     autoScrollBlockUntilRef,
     setBranchNav,
@@ -479,14 +523,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     chatAllMessagesRaw,
     prevAiMidByAssistantId,
     activeBranchIdUi,
-    activeSendPathAnchorMid,
-    activeSendPathFollowMid,
+    viewFocusMid,
     activeSessionRunCards,
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeChat,
     activeTargetKind,
-    treeSelectedMid,
     branchDraft,
     branchDraftKey,
   })
@@ -742,23 +784,18 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
 
   const {
-    beginRunPathFollow,
     sendFromComposer,
     onSend,
     onStop,
   } = useChatSending({
     controller,
     activeChat,
-    activeBranchIdUi,
-    chatAllMessagesRaw,
     activeStopRunId,
-    setSendPathAnchor,
-    sendPathAnchorNonceRef,
-    clearSendPathAnchor,
-    setTreeSelectedMid,
-    treeSelectedMid,
+    viewAnchorMid,
     branchDraft,
-    stickToBottomRef,
+    // 发起运行即回到“跟随最新”：用户要看这次运行的新产出。
+    // 空窗期用分叉点兜住，避免闪回旧分支头部。
+    onSendStarted: (runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid)),
   })
   const {
     expandedUserMsgIds,
@@ -809,7 +846,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    clearSendPathAnchor,
+    followLatestView: () => setViewIntentState((prev) => onRunStarted(prev, '')),
     setBranchNav,
     stickToBottomRef,
     autoScrollBlockUntilRef,
@@ -1046,7 +1083,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 confirmDelTree={confirmDelTree}
                 setConfirmDelTree={setConfirmDelTree}
                 regenPathParentMid={regenPathParentMid}
-                beginRunPathFollow={beginRunPathFollow}
+                onRunStarted={(runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))}
               />
 
 
@@ -1080,7 +1117,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 treeFocusMid={treeFocusMid}
                 treeHighlightEdgeKeys={treeHighlightEdgeKeys}
                 treePop={treePop}
-                setTreeSelectedMid={setTreeSelectedMid}
+
                 setTreePop={setTreePop}
                 jumpToMessage={jumpToMessage}
                 onTreeNodeContextMenu={onTreeNodeContextMenu}

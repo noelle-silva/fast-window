@@ -42,7 +42,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
   confirmDelTree: ConfirmMessageState
   setConfirmDelTree: React.Dispatch<React.SetStateAction<ConfirmMessageState>>
   regenPathParentMid: (mid: string, role: MessageRole) => string
-  beginRunPathFollow: (parentMid: string) => any
+  onRunStarted: (runAnchorMid: string) => void
 }) {
   const {
     controller,
@@ -71,7 +71,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
     confirmDelTree,
     setConfirmDelTree,
     regenPathParentMid,
-    beginRunPathFollow,
+    onRunStarted,
   } = props
 
   // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
@@ -339,14 +339,13 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
               const mid = regen.mid
               const role = regen.role
               setRegen({ mid: '', role: 'assistant' })
-              const parentMid = regenPathParentMid(mid, role)
-              const follow = parentMid ? beginRunPathFollow(parentMid) : null
+              // 重新回复即发起运行：回到“跟随最新”，用户要看这次运行的新产出。
+              onRunStarted(regenPathParentMid(mid, role))
               Promise.resolve()
                 .then(() => {
-                  if (role === 'assistant') return controller.actions.regenerateAssistant?.(mid, follow ? { onRunState: follow.onRunState } : undefined)
-                  return controller.actions.replyFromUserMessage?.(mid, follow ? { onRunState: follow.onRunState } : undefined)
+                  if (role === 'assistant') return controller.actions.regenerateAssistant?.(mid)
+                  return controller.actions.replyFromUserMessage?.(mid)
                 })
-                .finally(() => follow?.clear())
             }}
             disabled={!regen.mid || loading || uiBusy}
           >

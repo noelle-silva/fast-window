@@ -1,7 +1,5 @@
 import * as React from 'react'
 import { readActiveEbRunCardsForTarget } from '../../domain/activeRunCards'
-import { assistantRunGenerationId } from '../../domain/assistantRunState'
-import type { SendPathAnchor } from './useChatSending'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -13,9 +11,8 @@ export function useChatMessageIndex(deps: {
   activeChat: any
   activeTargetKind: TargetKind
   activeChatTargetId: any
-  sendPathAnchor: SendPathAnchor
 }) {
-  const { s, renderChat, renderChatId, activeChatId, activeChat, activeTargetKind, activeChatTargetId, sendPathAnchor } = deps
+  const { s, renderChat, renderChatId, activeChatId, activeChat, activeTargetKind, activeChatTargetId } = deps
 
   const chatAllMessagesRaw: any[] = Array.isArray(renderChat?.messages) ? (renderChat.messages as any[]) : []
   const chatAllById = React.useMemo(() => {
@@ -88,35 +85,6 @@ export function useChatMessageIndex(deps: {
     .join('|')
   const activeChatRunCards = renderChatId === activeChatId ? activeSessionRunCards : readActiveEbRunCardsForTarget(s, activeTargetKind, String(activeChatTargetId || ''), activeChatId)
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
-  const activeSendPathAnchorMid =
-    String(sendPathAnchor.chatId || '') === String(activeChat?.id || '') ? String(sendPathAnchor.parentMid || '').trim() : ''
-  const activeSendPathRunId = activeSendPathAnchorMid ? String(sendPathAnchor.runId || '').trim() : ''
-  const activeSendPathRunCard = activeSendPathRunId ? activeSessionRunCards.find((card: any) => String(card?.runId || '').trim() === activeSendPathRunId) || null : null
-  const activeSendPathFollowMid = React.useMemo(() => {
-    if (!renderChat || !activeSendPathAnchorMid) return ''
-    const existingIds = new Set(Array.isArray(sendPathAnchor.existingMessageIds) ? sendPathAnchor.existingMessageIds.map((id: any) => String(id || '').trim()).filter(Boolean) : [])
-    const canFollowRunMid = (mid0: any) => {
-      const mid = String(mid0 || '').trim()
-      return !!mid && chatAllById.has(mid) && !existingIds.has(mid)
-    }
-    const runCardMid = String(activeSendPathRunCard?.lastMessageId || '').trim()
-    if (canFollowRunMid(runCardMid)) return runCardMid
-
-    if (activeSendPathRunId) {
-      for (let i = chatAllMessagesRaw.length - 1; i >= 0; i--) {
-        const message = chatAllMessagesRaw[i]
-        if (!message || String(message?.role || '') !== 'assistant') continue
-        if (assistantRunGenerationId(message) === activeSendPathRunId) return String(message?.id || '').trim()
-      }
-    }
-
-    const lastMid = String(sendPathAnchor.lastMessageId || '').trim()
-    if (canFollowRunMid(lastMid)) return lastMid
-
-    const inputMid = String(sendPathAnchor.inputMessageId || '').trim()
-    if (canFollowRunMid(inputMid)) return inputMid
-    return activeSendPathAnchorMid
-  }, [renderChatId, activeSendPathAnchorMid, activeSendPathRunCard, activeSendPathRunId, sendPathAnchor.lastMessageId, sendPathAnchor.inputMessageId, sendPathAnchor.existingMessageIds, chatAllById, chatAllMessagesRaw, chatAllMessagesRaw.length])
   const activeBranchHeadMid = React.useMemo(() => {
     const chat: any = activeChat
     if (!chat) return ''
@@ -136,10 +104,6 @@ export function useChatMessageIndex(deps: {
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeBranchIdUi,
-    activeSendPathAnchorMid,
-    activeSendPathRunId,
-    activeSendPathRunCard,
-    activeSendPathFollowMid,
     activeBranchHeadMid,
   }
 }

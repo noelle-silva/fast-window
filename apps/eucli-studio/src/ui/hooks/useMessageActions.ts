@@ -19,7 +19,7 @@ export function useMessageActions(deps: {
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
   chatAllById: Map<string, any>
-  clearSendPathAnchor: () => void
+  followLatestView: () => void
   setBranchNav: React.Dispatch<React.SetStateAction<{ mid: string; at: number }>>
   stickToBottomRef: React.MutableRefObject<boolean>
   autoScrollBlockUntilRef: React.MutableRefObject<number>
@@ -39,7 +39,7 @@ export function useMessageActions(deps: {
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    clearSendPathAnchor,
+    followLatestView,
     setBranchNav,
     stickToBottomRef,
     autoScrollBlockUntilRef,
@@ -175,7 +175,7 @@ export function useMessageActions(deps: {
     if (!id) return
     stickToBottomRef.current = false
     autoScrollBlockUntilRef.current = Date.now() + 1200
-    clearSendPathAnchor()
+    followLatestView()
     const followMid = String(nextMid || '').trim()
     if (followMid) setBranchNav({ mid: followMid, at: Date.now() })
     controller.actions.switchBranchSibling?.(id, direction)

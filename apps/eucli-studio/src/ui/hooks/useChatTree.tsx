@@ -20,12 +20,11 @@ export function useChatTree(deps: {
   chatAllMessagesRaw: any[]
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
-  activeSendPathFollowMid: string
-  activeSendPathAnchorMid: string
-  activeBranchHeadMid: string
+  viewFocusMid: string
+  viewAnchorMid: string
+  setViewIntentFromNodeClick: (mid: string) => void
   branchDraft: any
   branchDraftKey: string
-  clearSendPathAnchor: () => void
   stickToBottomRef: React.MutableRefObject<boolean>
   autoScrollBlockUntilRef: React.MutableRefObject<number>
   setBranchNav: React.Dispatch<React.SetStateAction<{ mid: string; at: number }>>
@@ -45,12 +44,11 @@ export function useChatTree(deps: {
     chatAllMessagesRaw,
     activeSessionRunCards,
     activeSessionRunCardsKey,
-    activeSendPathFollowMid,
-    activeSendPathAnchorMid,
-    activeBranchHeadMid,
+    viewFocusMid,
+    viewAnchorMid,
+    setViewIntentFromNodeClick,
     branchDraft,
     branchDraftKey,
-    clearSendPathAnchor,
     stickToBottomRef,
     autoScrollBlockUntilRef,
     setBranchNav,
@@ -80,7 +78,6 @@ export function useChatTree(deps: {
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
   const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>(() => savedTreeDir)
-  const [treeSelectedMid, setTreeSelectedMid] = React.useState('')
   const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
   const [treeFollowTick, setTreeFollowTick] = React.useState(0)
@@ -92,7 +89,6 @@ export function useChatTree(deps: {
   const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
   const treeFollowRafRef = React.useRef<number>(0)
   const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
-  const treeFollowSuspendedRef = React.useRef(false)
   const treeRenderRef = React.useRef<any>(null)
   const treeOpenTokenRef = React.useRef(0)
   const treeInitialCenterRafRef = React.useRef<number>(0)
@@ -110,10 +106,8 @@ export function useChatTree(deps: {
   React.useEffect(() => {
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
-    setTreeSelectedMid('')
-    clearSendPathAnchor()
     treeViewRef.current = { x: 18, y: 18, scale: 1 }
-  }, [String(activeChat?.id || ''), clearSendPathAnchor])
+  }, [String(activeChat?.id || '')])
 
   React.useEffect(() => {
     if (treeDir === savedTreeDir) return
@@ -176,7 +170,7 @@ export function useChatTree(deps: {
     const speed = 1800 // px / s（屏幕坐标）
     const tick = (t: number) => {
       treeFollowRafRef.current = 0
-      if (!treeOpen || !savedTreeFollowSelected || treeFollowSuspendedRef.current) {
+      if (!treeOpen || !savedTreeFollowSelected) {
         treeFollowAnimRef.current = null
         return
       }
@@ -242,7 +236,6 @@ export function useChatTree(deps: {
     treeSuppressClickRef.current = false
     setTreeDragging(false)
     setTreeViewOverride('')
-    treeFollowSuspendedRef.current = false
     stopTreeFollow()
   }, [treeOpen, stopTreeFollow])
 
@@ -369,7 +362,6 @@ export function useChatTree(deps: {
       if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
     } catch (_) {}
     stopTreeFollow()
-    treeFollowSuspendedRef.current = true
     treeSuppressClickRef.current = false
     const v = treeViewRef.current
     treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: Number(v?.x || 0), oy: Number(v?.y || 0), moved: false }
@@ -399,7 +391,6 @@ export function useChatTree(deps: {
     if (!isFinite(dy) || dy === 0) return
     e.preventDefault()
     stopTreeFollow()
-    treeFollowSuspendedRef.current = true
 
     const rect = el.getBoundingClientRect()
     const cx = Number(e.clientX) - Number(rect.left)
@@ -547,7 +538,8 @@ export function useChatTree(deps: {
     return { nodes, edges, byId, nodeW, nodeH, size }
   }, [treeLayout, treeDir])
 
-  const treeFocusMid = String(treeSelectedMid || activeSendPathFollowMid || activeSendPathAnchorMid || '').trim()
+  // 树焦点与消息区焦点同源：都由唯一视图意图解析得出。
+  const treeFocusMid = String(viewFocusMid || '').trim()
 
   React.useEffect(() => {
     treeRenderRef.current = treeRender
@@ -566,9 +558,8 @@ export function useChatTree(deps: {
     if (!activeChat) return
     const msg = chatAllById.get(mid) || null
     if (!msg) return
-    clearSendPathAnchor()
-    treeFollowSuspendedRef.current = false
-    setTreeSelectedMid(mid)
+    // 切换节点的动作发生：交给唯一入口判定意图（叶子→跟随最新，否则→锚定）。
+    setViewIntentFromNodeClick(mid)
     setTreeFollowTick((t) => t + 1)
 
     const branching = (activeChat as any)?.branching
@@ -621,14 +612,12 @@ export function useChatTree(deps: {
     stopTreeFollow()
     if (!treeOpen) return
     if (!savedTreeFollowSelected) return
-    if (treeFollowSuspendedRef.current) return
     const mid = String(treeFocusMid || '').trim()
     if (!mid) return
 
     let tries = 0
     const attempt = () => {
       if (!treeOpen || !savedTreeFollowSelected) return
-      if (treeFollowSuspendedRef.current) return
       const target = computeTreeCenterTarget(mid)
       if (!target) {
         tries++
@@ -699,8 +688,6 @@ export function useChatTree(deps: {
       if (branchDraft) return String((branchDraft as any)?.forkFromMid || '').trim()
       const chosen = String(treeFocusMid || '').trim()
       if (chosen) return chosen
-      const head = String(activeBranchHeadMid || '').trim()
-      if (head) return head
       const msgs: any[] = Array.isArray((activeChat as any)?.messages) ? ((activeChat as any).messages as any[]) : []
       return msgs.length ? String(msgs[msgs.length - 1]?.id || '').trim() : ''
     }
@@ -740,7 +727,6 @@ export function useChatTree(deps: {
       setTreePan({ x: targetX, y: targetY })
       scheduleTreeViewTransform()
 
-      if (!String(treeSelectedMid || treeFocusMid || '').trim()) setTreeSelectedMid(mid)
       treeNeedInitialCenterRef.current = false
       return true
     }
@@ -770,7 +756,6 @@ export function useChatTree(deps: {
     effectiveTreeView,
     treeRender,
     branchDraftKey,
-    treeSelectedMid,
     treeFocusMid,
     String(activeChat?.id || ''),
     stopTreeFollow,
@@ -788,8 +773,6 @@ export function useChatTree(deps: {
     setTreeScale,
     treeDir,
     setTreeDir,
-    treeSelectedMid,
-    setTreeSelectedMid,
     treePop,
     setTreePop,
     treeDragging,

@@ -12,14 +12,12 @@ export function useChatMessageView(deps: {
   chatAllMessagesRaw: any[]
   prevAiMidByAssistantId: Map<string, string>
   activeBranchIdUi: string
-  activeSendPathAnchorMid: string
-  activeSendPathFollowMid: string
+  viewFocusMid: string
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
   activeChatRunCards: any[]
   activeChat: any
   activeTargetKind: TargetKind
-  treeSelectedMid: string
   branchDraft: any
   branchDraftKey: string
 }) {
@@ -29,14 +27,12 @@ export function useChatMessageView(deps: {
     chatAllMessagesRaw,
     prevAiMidByAssistantId,
     activeBranchIdUi,
-    activeSendPathAnchorMid,
-    activeSendPathFollowMid,
+    viewFocusMid,
     activeSessionRunCards,
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeChat,
     activeTargetKind,
-    treeSelectedMid,
     branchDraft,
     branchDraftKey,
   } = deps
@@ -46,16 +42,9 @@ export function useChatMessageView(deps: {
     const msgs = chatAllMessagesRaw
     if (!chat || !Array.isArray(msgs) || msgs.length === 0) return []
 
-    const branching = chat?.branching
-    const activeBranchId = String(branching?.activeBranchId || 'main').trim() || 'main'
-    const branches = Array.isArray(branching?.branches) ? branching.branches : []
-    const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
-
-    const activeHeadMid = String(b?.headMid || '').trim()
-    let headMid = activeHeadMid
+    // 视图焦点由唯一意图解析得出；分叉草稿只是临时的编辑落点，优先于意图。
+    let headMid = String(viewFocusMid || '').trim()
     if (branchDraft) headMid = String(branchDraft?.forkFromMid || '').trim() || headMid
-    if (!branchDraft && treeSelectedMid) headMid = String(treeSelectedMid || '').trim() || headMid
-    else if (!branchDraft && activeSendPathAnchorMid) headMid = activeSendPathFollowMid || activeSendPathAnchorMid
     if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
     if (!headMid) return msgs
 
@@ -79,7 +68,7 @@ export function useChatMessageView(deps: {
 
     out.reverse()
     return out.length ? out : msgs
-  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), activeBranchIdUi, branchDraftKey, treeSelectedMid, activeSendPathAnchorMid, activeSendPathFollowMid, chatAllMessagesRaw, chatAllMessagesRaw.length])
+  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), activeBranchIdUi, branchDraftKey, viewFocusMid, chatAllMessagesRaw, chatAllMessagesRaw.length])
   const activeVisibleMessageIds = React.useMemo(() => new Set(allMessages.map((message: any) => String(message?.id || '').trim()).filter(Boolean)), [allMessages])
   const activeVisibleHeadMid = allMessages.length ? String(allMessages[allMessages.length - 1]?.id || '').trim() : ''
   const activeVisibleRunCards = React.useMemo(

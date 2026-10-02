@@ -1,103 +1,35 @@
 import * as React from 'react'
 import { useEvent } from './useEvent'
 
-export type SendPathAnchor = {
-  chatId: string
-  branchId: string
-  parentMid: string
-  runId: string
-  inputMessageId: string
-  lastMessageId: string
-  existingMessageIds: string[]
-  nonce: number
-}
-
-export function emptySendPathAnchor(): SendPathAnchor {
-  return { chatId: '', branchId: '', parentMid: '', runId: '', inputMessageId: '', lastMessageId: '', existingMessageIds: [], nonce: 0 }
-}
-
+// 发送不参与“看哪里”的推导：发送只负责发起动作，视图意图由 App 的唯一状态决定。
+// viewAnchorMid 是当前锚定节点（跟随态为空）：从锚定节点发送即从该节点分叉。
 export function useChatSending(deps: {
   controller: any
   activeChat: any
-  activeBranchIdUi: string
-  chatAllMessagesRaw: any[]
   activeStopRunId: string
-  setSendPathAnchor: React.Dispatch<React.SetStateAction<SendPathAnchor>>
-  sendPathAnchorNonceRef: React.MutableRefObject<number>
-  clearSendPathAnchor: () => void
-  setTreeSelectedMid: React.Dispatch<React.SetStateAction<string>>
-  treeSelectedMid: string
+  viewAnchorMid: string
   branchDraft: any
-  stickToBottomRef: React.MutableRefObject<boolean>
+  onSendStarted: (runAnchorMid: string) => void
 }) {
   const {
     controller,
     activeChat,
-    activeBranchIdUi,
-    chatAllMessagesRaw,
     activeStopRunId,
-    setSendPathAnchor,
-    sendPathAnchorNonceRef,
-    clearSendPathAnchor,
-    setTreeSelectedMid,
-    treeSelectedMid,
+    viewAnchorMid,
     branchDraft,
-    stickToBottomRef,
+    onSendStarted,
   } = deps
 
-  const beginRunPathFollow = useEvent((parentMid0: string) => {
-    const parentMid = String(parentMid0 || '').trim()
-    if (!parentMid || !activeChat) return null
-    const chatId = String(activeChat?.id || '')
-    const nonce = ++sendPathAnchorNonceRef.current
-    const existingMessageIds = Array.isArray(chatAllMessagesRaw)
-      ? chatAllMessagesRaw.map((message: any) => String(message?.id || '').trim()).filter(Boolean)
-      : []
-    stickToBottomRef.current = true
-    setSendPathAnchor({ ...emptySendPathAnchor(), chatId, branchId: activeBranchIdUi, parentMid, existingMessageIds, nonce })
-    setTreeSelectedMid('')
-
-    const onRunState = (run: any) => {
-      const runId = String(run?.id || '').trim()
-      setSendPathAnchor((current) => {
-        if (String(current?.chatId || '') !== chatId) return current
-        if (String(current?.parentMid || '') !== parentMid) return current
-        if (Number(current?.nonce || 0) !== nonce) return current
-        return {
-          ...current,
-          runId,
-          inputMessageId: String(run?.inputMessageId || current.inputMessageId || '').trim(),
-          lastMessageId: String(run?.lastMessageId || current.lastMessageId || run?.inputMessageId || current.inputMessageId || '').trim(),
-        }
-      })
-    }
-
-    const clear = () => {
-      setSendPathAnchor((current) => {
-        if (String(current?.chatId || '') !== chatId) return current
-        if (String(current?.parentMid || '') !== parentMid) return current
-        if (Number(current?.nonce || 0) !== nonce) return current
-        return emptySendPathAnchor()
-      })
-    }
-
-    return { onRunState, clear }
-  })
-
   const sendFromComposer = useEvent(() => {
-    const selectedMid = String(treeSelectedMid || '').trim()
+    const selectedMid = String(viewAnchorMid || '').trim()
     const branchDraftMid = String((branchDraft as any)?.forkFromMid || '').trim()
     const mid = selectedMid || branchDraftMid
     if (mid && activeChat) {
-      const follow = beginRunPathFollow(mid)
-      if (!follow) return
-      Promise.resolve()
-        .then(() => controller.actions.sendFromMid?.(mid, { onRunState: follow.onRunState }))
-        .finally(() => follow.clear())
+      onSendStarted(mid)
+      controller.actions.sendFromMid?.(mid)
       return
     }
-    clearSendPathAnchor()
-    setTreeSelectedMid('')
+    onSendStarted('')
     controller.actions.send()
   })
   const onSend = useEvent(() => {
@@ -106,7 +38,6 @@ export function useChatSending(deps: {
   const onStop = useEvent(() => controller.actions.stop?.(activeStopRunId))
 
   return {
-    beginRunPathFollow,
     sendFromComposer,
     onSend,
     onStop,
