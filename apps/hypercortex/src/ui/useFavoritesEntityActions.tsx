@@ -8,7 +8,7 @@ import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta } from '../core'
 import { getFolderById, removeRef, updateFolderInfo, deleteFolder, type HyperCortexFavoritesDocV1 } from '../favorites'
-import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { ContextMenu, type ContextMenuItem, type ContextMenuLeaf } from './ContextMenu'
 import { EditEntityInfoDialog } from './EditEntityInfoDialog'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
 import { entityDeleteHelperText } from './index-page/helpers'
@@ -65,6 +65,7 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
   const [menu, setMenu] = React.useState<{ x: number; y: number; target: FavoritesEntityTarget } | null>(null)
   const [editTarget, setEditTarget] = React.useState<FavoritesEntityTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<FavoritesEntityTarget | null>(null)
+  const [removeRefTarget, setRemoveRefTarget] = React.useState<FavoritesEntityTarget | null>(null)
 
   const favoritesTargets = useFavoriteTargets({
     doc: caps.doc,
@@ -108,10 +109,24 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
       })
       out.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => setEditTarget(target) })
     }
-    out.push({ id: 'remove', label: '从当前页移除引用', icon: <DeleteOutlineRoundedIcon fontSize="small" />, onSelect: () => removeRefById(target.refId) })
-    if (target.kind !== 'stale') {
-      out.push({ id: 'delete', label: '删除实体', danger: true, icon: <DeleteForeverRoundedIcon fontSize="small" />, onSelect: () => setDeleteTarget(target) })
+    // 移除引用与删除实体归并到「删除」父项，悬停展开二级菜单；移除引用同样需要二次确认。
+    const removeLeaf: ContextMenuLeaf = {
+      id: 'remove',
+      label: '从当前页移除引用',
+      icon: <DeleteOutlineRoundedIcon fontSize="small" />,
+      onSelect: () => setRemoveRefTarget(target),
     }
+    const deleteChildren: ContextMenuLeaf[] = [removeLeaf]
+    if (target.kind !== 'stale') {
+      deleteChildren.push({
+        id: 'delete',
+        label: '删除实体',
+        danger: true,
+        icon: <DeleteForeverRoundedIcon fontSize="small" />,
+        onSelect: () => setDeleteTarget(target),
+      })
+    }
+    out.push({ id: 'delete-group', label: '删除', danger: true, icon: <DeleteOutlineRoundedIcon fontSize="small" />, children: deleteChildren })
     return out
   }, [favoritesTargets, menu?.target, removeRefById])
 
@@ -136,6 +151,13 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
     },
     [editTarget],
   )
+
+  const confirmRemoveRef = React.useCallback(() => {
+    const target = removeRefTarget
+    if (!target) return
+    setRemoveRefTarget(null)
+    removeRefById(target.refId)
+  }, [removeRefById, removeRefTarget])
 
   const confirmDelete = React.useCallback(() => {
     const target = deleteTarget
@@ -169,6 +191,19 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
           onConfirm={confirmEdit}
         />
       ) : null}
+      <Dialog open={workspaceVisible && !!removeRefTarget} onClose={() => setRemoveRefTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>移除引用</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>
+            确定从当前收藏夹页面移除这条引用吗？这只会移除当前页的卡片，不会删除实体本身。
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 1 }}>当前目标：{removeRefTarget ? targetTitle(removeRefTarget, caps.doc) : '未命名'}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveRefTarget(null)}>取消</Button>
+          <Button color="error" variant="contained" onClick={confirmRemoveRef}>移除引用</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={workspaceVisible && !!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>删除目标实体</DialogTitle>
         <DialogContent>
