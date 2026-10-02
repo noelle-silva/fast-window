@@ -2447,6 +2447,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     onOpenFolder: handleFavoritesSidebarNavigate,
     onOpenNote: note => void handleOpenNote(note, undefined, 'favorites'),
     onOpenAsset: asset => handleOpenAssetTab(asset, 'favorites'),
+    canMoveRefs: true,
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
     onDeleteFolderEntity: handleDeleteFolderEntity,

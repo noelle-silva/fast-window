@@ -2,15 +2,16 @@ import * as React from 'react'
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta } from '../core'
-import { getFolderById, removeRef, updateFolderInfo, deleteFolder, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { findRefById, getFolderById, moveRef, removeRef, updateFolderInfo, deleteFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { ContextMenu, type ContextMenuItem, type ContextMenuLeaf } from './ContextMenu'
 import { EditEntityInfoDialog } from './EditEntityInfoDialog'
-import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
+import { FavoritesTreePickerDialog, type FavoritesSaveResult } from './FavoritesTreePickerDialog'
 import { entityDeleteHelperText } from './index-page/helpers'
 import { useFavoriteTargets } from './useFavoriteTargets'
 import { useWorkspaceVisible } from './workspaceVisibility'
@@ -32,6 +33,8 @@ export type FavoritesEntityCapabilities = {
   onOpenFolder?: (folderId: string) => void
   onOpenNote?: (note: NoteMeta) => void
   onOpenAsset?: (asset: AssetEntry) => void
+  /** 开启「移动到…」：把引用从当前收藏夹迁移到另一个收藏夹（区别于「收藏到…」的复制）。 */
+  canMoveRefs?: boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
   onDeleteFolderEntity?: (folderId: string) => void
@@ -66,6 +69,8 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
   const [editTarget, setEditTarget] = React.useState<FavoritesEntityTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<FavoritesEntityTarget | null>(null)
   const [removeRefTarget, setRemoveRefTarget] = React.useState<FavoritesEntityTarget | null>(null)
+  // 移动目标：待迁移的引用及其当前所在收藏夹（引用自带 folderId）。
+  const [moveTarget, setMoveTarget] = React.useState<FavoriteItemRef | null>(null)
 
   const favoritesTargets = useFavoriteTargets({
     doc: caps.doc,
@@ -107,6 +112,17 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
         icon: <StarBorderRoundedIcon fontSize="small" />,
         onSelect: () => favoritesTargets.openPicker({ kind: target.kind, id: favoriteId }),
       })
+      if (c.canMoveRefs) {
+        out.push({
+          id: 'move',
+          label: '移动到…',
+          icon: <DriveFileMoveRoundedIcon fontSize="small" />,
+          onSelect: () => {
+            const ref = findRefById(c.doc, target.refId)
+            if (ref) setMoveTarget(ref)
+          },
+        })
+      }
       out.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => setEditTarget(target) })
     }
     // 移除引用与删除实体归并到「删除」父项，悬停展开二级菜单；移除引用同样需要二次确认。
@@ -158,6 +174,24 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
     setRemoveRefTarget(null)
     removeRefById(target.refId)
   }, [removeRefById, removeRefTarget])
+
+  const confirmMove = React.useCallback(
+    (result: FavoritesSaveResult) => {
+      const ref = moveTarget
+      if (!ref) return
+      const c = capsRef.current
+      const { doc, outcome, movedCount, skippedCount } = moveRef(c.doc, ref.id, result.selectedFolderIds)
+      setMoveTarget(null)
+      if (outcome !== 'moved') {
+        c.toast('移动失败：没有可用的目标收藏夹')
+        return
+      }
+      if (doc !== c.doc) c.onDocChange(doc)
+      if (skippedCount > 0) c.toast(`已移动到 ${movedCount} 个收藏夹，${skippedCount} 个因循环引用被跳过`)
+      else c.toast(movedCount > 1 ? `已移动到 ${movedCount} 个收藏夹` : '已移动')
+    },
+    [moveTarget],
+  )
 
   const confirmDelete = React.useCallback(() => {
     const target = deleteTarget
@@ -225,6 +259,18 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
           targetId={favoritesTargets.target.id}
           onClose={favoritesTargets.closePicker}
           onSave={favoritesTargets.saveResult}
+        />
+      ) : null}
+      {moveTarget ? (
+        <FavoritesTreePickerDialog
+          open
+          mode="move"
+          doc={caps.doc}
+          kind={moveTarget.kind}
+          targetId={moveTarget.targetId}
+          sourceFolderId={moveTarget.folderId}
+          onClose={() => setMoveTarget(null)}
+          onSave={confirmMove}
         />
       ) : null}
     </>

@@ -3,64 +3,13 @@ import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitl
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
-import { getFolderById, getFolderRefs, getRefsByFolderId } from '../favorites'
+import { getRefsByFolderId } from '../favorites'
+import { buildFolderTree, collectTreeKeys, collectUniqueFolderIds, type FolderTreeNode } from './favoritesTree'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
-type FolderTreeNode = {
-  key: string
-  id: string
-  title: string
-  children: FolderTreeNode[]
-}
-
-function folderDisplayTitle(folderId: string, title?: string): string {
-  if (String(folderId || '').trim() === 'root') return '根目录'
-  return String(title || '').trim() || '未命名收藏夹'
-}
-
-function buildFolderTree(doc: HyperCortexFavoritesDocV1): FolderTreeNode[] {
-  const walk = (folderId: string, path: string[]): FolderTreeNode | null => {
-    const id = String(folderId || '').trim()
-    if (!id || path.includes(id)) return null
-    const folder = getFolderById(doc, id)
-    if (!folder) return null
-    const currentPath = [...path, id]
-    const children: FolderTreeNode[] = []
-    for (const ref of getFolderRefs(doc, id)) {
-      const child = walk(ref.targetId, currentPath)
-      if (child) children.push(child)
-    }
-    return {
-      key: currentPath.join('/'),
-      id,
-      title: folderDisplayTitle(id, folder.title),
-      children,
-    }
-  }
-  const root = walk(doc.rootFolderId || 'root', [])
-  return root ? [root] : []
-}
-
-function collectTreeKeys(nodes: FolderTreeNode[]): string[] {
-  const out: string[] = []
-  for (const node of nodes) {
-    out.push(node.key)
-    out.push(...collectTreeKeys(node.children))
-  }
-  return out
-}
-
-function collectUniqueFolderIds(nodes: FolderTreeNode[]): string[] {
-  const set = new Set<string>()
-  const walk = (list: FolderTreeNode[]) => {
-    for (const n of list) {
-      set.add(n.id)
-      walk(n.children)
-    }
-  }
-  walk(nodes)
-  return [...set]
-}
+// 收藏夹树选择器：一棵树、两种用途。
+// - favorite（默认）：多选，「收藏到收藏夹」，已收藏的页预勾选，确认后增删引用。
+// - move：多选，「移动到收藏夹」，排除当前所在页，确认后把引用迁移到所选各页（源页不再保留）。
 
 type FavoritesSaveResult = {
   selectedFolderIds: string[]
@@ -74,13 +23,18 @@ type Props = {
   doc: HyperCortexFavoritesDocV1
   kind: FavoriteItemRef['kind']
   targetId: string
+  /** 选择模式：多选收藏（默认）或多选移动。 */
+  mode?: 'favorite' | 'move'
+  /** 移动模式下引用当前所在的收藏夹：该页不可作为目标（移到自己无意义）。 */
+  sourceFolderId?: string
   onClose: () => void
   onSave: (result: FavoritesSaveResult) => void
 }
 
 export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
-  const { open, doc, kind, targetId, onClose, onSave } = props
+  const { open, doc, kind, targetId, mode = 'favorite', sourceFolderId, onClose, onSave } = props
   const workspaceVisible = useWorkspaceVisible()
+  const isMove = mode === 'move'
 
   const nodes = React.useMemo(() => buildFolderTree(doc), [doc])
   const allTreeKeys = React.useMemo(() => collectTreeKeys(nodes), [nodes])
@@ -100,8 +54,8 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
   React.useEffect(() => {
     if (!open) return
     setExpandedKeys(new Set(allTreeKeys))
-    setSelectedIds(new Set(savedFolderIds))
-  }, [allTreeKeys, open, savedFolderIds])
+    setSelectedIds(isMove ? new Set() : new Set(savedFolderIds))
+  }, [allTreeKeys, isMove, open, savedFolderIds])
 
   const toggleExpand = React.useCallback((key: string) => {
     setExpandedKeys(prev => {
@@ -112,22 +66,27 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
     })
   }, [])
 
-  const toggleSelect = React.useCallback((id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  const toggleSelect = React.useCallback(
+    (id: string) => {
+      if (isMove && id === sourceFolderId) return
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    },
+    [isMove, sourceFolderId],
+  )
 
   const confirmSave = React.useCallback(() => {
-    onSave({ selectedFolderIds: [...selectedIds], alreadySavedFolderIds: [...savedFolderIds] })
-  }, [onSave, savedFolderIds, selectedIds])
+    onSave({ selectedFolderIds: [...selectedIds], alreadySavedFolderIds: isMove ? [] : [...savedFolderIds] })
+  }, [isMove, onSave, savedFolderIds, selectedIds])
 
   const renderNode = (node: FolderTreeNode, depth: number): React.ReactNode => {
     const hasChildren = node.children.length > 0
     const expanded = expandedKeys.has(node.key)
+    const isSource = isMove && node.id === sourceFolderId
     return (
       <React.Fragment key={node.key}>
         <Box sx={{ pl: depth * 1.6, pr: 0.75, display: 'flex', alignItems: 'center', gap: 0.25 }}>
@@ -162,10 +121,13 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
             }}
           >
             <FolderRoundedIcon fontSize="small" sx={{ flexShrink: 0, color: 'var(--hc-primary)' }} />
-            <Typography noWrap sx={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{node.title}</Typography>
+            <Typography noWrap sx={{ flex: 1, fontSize: 13, fontWeight: 600, color: isSource ? 'rgba(0,0,0,.4)' : undefined }}>
+              {node.title}{isSource ? '（当前所在）' : ''}
+            </Typography>
             <Checkbox
               size="small"
               checked={selectedIds.has(node.id)}
+              disabled={isSource}
               onClick={e => e.stopPropagation()}
               onChange={() => toggleSelect(node.id)}
               sx={{ p: 0.5, m: 0 }}
@@ -179,7 +141,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
 
   return (
     <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>收藏到收藏夹</DialogTitle>
+      <DialogTitle>{isMove ? '移动到收藏夹' : '收藏到收藏夹'}</DialogTitle>
       <DialogContent>
         {nodes.length === 0 ? (
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.45)' }}>暂无收藏夹可用</Typography>
@@ -192,7 +154,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
       <DialogActions>
         <Button onClick={onClose}>取消</Button>
         <Button variant="contained" disabled={selectedIds.size === 0} onClick={confirmSave}>
-          保存
+          {isMove ? '移动' : '保存'}
         </Button>
       </DialogActions>
     </Dialog>

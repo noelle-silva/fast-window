@@ -515,6 +515,74 @@ export function addRef(
   return { doc: { ...doc, folders: nextFolders, refsByFolderId: nextRefsByFolderId }, ref }
 }
 
+/** 按引用标识在整份文档中查找引用（引用可能位于任一收藏夹页）。 */
+export function findRefById(doc: HyperCortexFavoritesDocV1, refId: string): FavoriteItemRef | undefined {
+  const id = String(refId || '').trim()
+  if (!id) return undefined
+  for (const refs of Object.values(doc.refsByFolderId)) {
+    const found = (Array.isArray(refs) ? refs : []).find(ref => ref?.id === id)
+    if (found) return found
+  }
+  return undefined
+}
+
+/** 移动引用的结果：成功迁出、源引用不存在、没有可用目标。 */
+export type MoveRefOutcome = 'moved' | 'missing-ref' | 'no-target'
+
+export type MoveRefResult = {
+  doc: HyperCortexFavoritesDocV1
+  outcome: MoveRefOutcome
+  /** 成功落位的目标收藏夹数（含目标已存在同源引用、无需新增的情况）。 */
+  movedCount: number
+  /** 因循环引用或非法目标被跳过的收藏夹数。 */
+  skippedCount: number
+}
+
+/**
+ * 把一条引用从它当前所在的收藏夹迁移到一个或多个目标收藏夹：先加入所有目标、再移除源引用。
+ * 与「收藏到」的复制语义相对：移动后源收藏夹不再保留该引用。
+ * 单个目标失败只跳过该目标（如循环引用），不做整体回滚；只要至少一个目标落位，源引用才移除，故不会丢内容。
+ */
+export function moveRef(
+  doc: HyperCortexFavoritesDocV1,
+  refId: string,
+  targetFolderIds: readonly string[],
+): MoveRefResult {
+  const source = findRefById(doc, refId)
+  if (!source) return { doc, outcome: 'missing-ref', movedCount: 0, skippedCount: 0 }
+
+  const targets: string[] = []
+  const seen = new Set<string>()
+  for (const raw of targetFolderIds) {
+    const target = String(raw || '').trim()
+    if (!target || target === source.folderId || seen.has(target) || !doc.folders[target]) continue
+    seen.add(target)
+    targets.push(target)
+  }
+
+  let next = doc
+  let movedCount = 0
+  let skippedCount = 0
+  for (const target of targets) {
+    if (source.kind === 'folder' && wouldCreateFolderReferenceCycle(next, target, source.targetId)) {
+      skippedCount++
+      continue
+    }
+    const added = addRef(next, target, source.kind, source.targetId)
+    if (added) {
+      next = added.doc
+      movedCount++
+      continue
+    }
+    // addRef 返回空：目标页已有同源引用（无需新增，也算落位），否则视为非法目标。
+    if (getRefsByFolderId(next, target).some(ref => ref.kind === source.kind && ref.targetId === source.targetId)) movedCount++
+    else skippedCount++
+  }
+
+  if (movedCount === 0) return { doc, outcome: 'no-target', movedCount, skippedCount }
+  return { doc: removeRef(next, source.id), outcome: 'moved', movedCount, skippedCount }
+}
+
 export function removeRef(doc: HyperCortexFavoritesDocV1, refId: string): HyperCortexFavoritesDocV1 {
   const id = String(refId || '').trim()
   if (!id) return doc
