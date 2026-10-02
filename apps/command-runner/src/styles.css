@@ -582,10 +582,30 @@ body {
   padding: 10px 12px;
   border-radius: 10px;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: auto 240px minmax(0, 1fr);
   gap: 8px 10px;
   align-items: start;
   background: #f3f4f6;
+}
+
+.cr-placeholder-drag-handle {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.32);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cr-placeholder-drag-handle:hover {
+  color: #1976d2;
+}
+
+.cr-placeholder-drag-handle:active {
+  cursor: grabbing;
 }
 
 .cr-placeholder-name-cell {
@@ -605,7 +625,7 @@ body {
 .cr-placeholder-value-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 4px;
   align-items: center;
 }

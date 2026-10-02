@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/core'
 import {
   SortableContext,
+  arrayMove,
   rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
@@ -157,6 +158,18 @@ export function resolveSortMovePosition(items: string[], activeId: string, overI
   const toIndex = items.indexOf(overId)
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return null
   return fromIndex < toIndex ? 'after' : 'before'
+}
+
+// createScopedCollisionDetection 生成「同组才碰撞」的检测器：
+// 拖动条目只与 groupOf 返回相同分组的条目参与碰撞，用于同一拖拽根下并存多组可排序列表
+// （例如不同占位符的候选值互不干扰）。
+export function createScopedCollisionDetection(groupOf: (id: string) => string | null): CollisionDetection {
+  return args => {
+    const activeGroup = groupOf(String(args.active.id))
+    const droppableContainers = args.droppableContainers.filter(container => groupOf(String(container.id)) === activeGroup)
+    if (!droppableContainers.length) return []
+    return closestCenter({ ...args, droppableContainers })
+  }
 }
 
 export function SortableRoot(props: SortableRootProps) {
@@ -392,4 +405,4 @@ export function SortableDragStatus(props: SortableDragStatusProps) {
   })}</>
 }
 
-export { rectSortingStrategy, verticalListSortingStrategy }
+export { rectSortingStrategy, verticalListSortingStrategy, arrayMove }
