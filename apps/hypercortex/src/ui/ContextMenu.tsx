@@ -40,24 +40,33 @@ function isCustomItem(item: ContextMenuItem): item is ContextMenuCustom {
 }
 
 function useDismissOnOutsidePointer(active: boolean, onClose: () => void) {
+  // 常驻监听器：不随菜单开合重建。左键外部按下时置位吞噬标志，
+  // 随后的 click 被吞掉，避免穿透触发下层元素。
+  // 若把 click 监听器随 active 重建，onClose 引起的重渲染会在 click 派发前就把它清掉，导致吞噬失效。
+  const activeRef = React.useRef(active)
+  const onCloseRef = React.useRef(onClose)
+  const swallowClickRef = React.useRef(false)
+  activeRef.current = active
+  onCloseRef.current = onClose
+
   React.useEffect(() => {
-    if (!active) return undefined
-    let swallowNextClick = false
     const onPointerDown = (event: PointerEvent) => {
-      swallowNextClick = false
+      // 每次按下都先重置，避免上一轮未派发的 click 残留导致误吞。
+      swallowClickRef.current = false
+      if (!activeRef.current) return
       const target = event.target
       if (target instanceof Element && target.closest(`[${CONTEXT_MENU_PAPER_ATTR}="true"]`)) return
       // 左键：吞掉这次交互，避免穿透触发下层元素的点击；右键：放行以便目标处开新菜单。
       if (event.button === 0) {
+        swallowClickRef.current = true
         event.preventDefault()
         event.stopPropagation()
-        swallowNextClick = true
       }
-      onClose()
+      onCloseRef.current()
     }
     const onClick = (event: MouseEvent) => {
-      if (!swallowNextClick) return
-      swallowNextClick = false
+      if (!swallowClickRef.current) return
+      swallowClickRef.current = false
       event.preventDefault()
       event.stopPropagation()
     }
@@ -67,7 +76,7 @@ function useDismissOnOutsidePointer(active: boolean, onClose: () => void) {
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('click', onClick, true)
     }
-  }, [active, onClose])
+  }, [])
 }
 
 export type ContextMenuProps = {
