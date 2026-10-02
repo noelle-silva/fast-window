@@ -107,10 +107,10 @@ describe('增强阶段细粒度诊断', () => {
 
     // 阶段 E：字符串层内联公式 HTML，整树只提交一次 innerHTML
     const inlineMs = timeIt(5, () => {
-      const htmlWithMath = safe.replace(/<div class="math-block" data-tex="([^"]*)"><\/div>/g, (_m, tex) => {
+      const htmlWithMath = safe.replace(/<div class="math-block" data-tex="([^"]*)"><\/div>/g, (_m: string, tex: string) => {
         const decoded = String(tex).replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
         return `<div class="math-block" data-tex="${tex}">${katex.renderToString(decoded, { displayMode: true, throwOnError: false })}</div>`
-      }).replace(/<span class="math-inline" data-tex="([^"]*)"><\/span>/g, (_m, tex) => {
+      }).replace(/<span class="math-inline" data-tex="([^"]*)"><\/span>/g, (_m: string, tex: string) => {
         const decoded = String(tex).replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
         return `<span class="math-inline" data-tex="${tex}">${katex.renderToString(decoded, { displayMode: false, throwOnError: false })}</span>`
       })

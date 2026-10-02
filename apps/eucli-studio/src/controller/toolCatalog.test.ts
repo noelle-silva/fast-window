@@ -23,8 +23,8 @@ function createHarness(options?: { importResult?: any }) {
     requests.push(req)
     return { status: 200, body: [] }
   })
-  const pickArchiveFile = vi.fn(async () => 'E:\\packs\\local-demo.zip')
-  const pickArchiveFolder = vi.fn(async () => 'E:\\packs\\local-demo')
+  const pickArchiveFile = vi.fn<() => Promise<string | null>>(async () => 'E:\\packs\\local-demo.zip')
+  const pickArchiveFolder = vi.fn<() => Promise<string | null>>(async () => 'E:\\packs\\local-demo')
   const importArtifactPackage = vi.fn(async () => options?.importResult ?? artifactState('local-demo', 'active'))
   const catalog = createToolCatalog({
     getState: () => state,

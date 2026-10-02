@@ -86,7 +86,7 @@ describe('ChatMessageList streaming body mounting', () => {
   })
 
   it('keeps the scoped body mounted when the first snapshot has only reasoning metadata', () => {
-    const message = {
+    const message: any = {
       id: 'message-1',
       role: 'assistant',
       type: 'assistant',
