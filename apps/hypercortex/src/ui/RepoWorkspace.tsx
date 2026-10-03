@@ -48,6 +48,7 @@ import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from '
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys, normalizeScrollTops } from './workspaceModel'
 import { useKeyedScrollMemory } from './scrollMemory'
+import { useNoteScrollMemory } from './noteScrollMemory'
 import {
   applySidebarItemsToWorkspace,
   closeTabsInSidebar,
@@ -93,6 +94,7 @@ import {
   requireFaceDeclaration,
 } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
+import { useAppCommandDispatch } from './useAppCommandDispatch'
 import { useHyperCortexShell } from './shellContext'
 import { RepoWorkspaceToolbar } from './RepoWorkspaceToolbar'
 import type { PageId } from './workspacePages'
@@ -553,45 +555,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     })
   }, [openTabKeys])
 
-  const mainScrollElRef = React.useRef<HTMLDivElement | null>(null)
-  const noteScrollTopByIdRef = React.useRef<Record<string, number>>({})
-  const scrollSaveRafRef = React.useRef<number | null>(null)
-
-  React.useEffect(() => {
-    const el = mainScrollElRef.current
-    if (!el) return
-
-    const onScroll = () => {
-      if (scrollSaveRafRef.current != null) return
-      scrollSaveRafRef.current = requestAnimationFrame(() => {
-        scrollSaveRafRef.current = null
-        if (!visible) return
-        if (pageRef.current !== 'note-detail') return
-        const nid = String(activeNoteIdRef.current || '').trim()
-        if (!nid) return
-        noteScrollTopByIdRef.current[nid] = el.scrollTop
-      })
-    }
-
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      el.removeEventListener('scroll', onScroll)
-      if (scrollSaveRafRef.current != null) cancelAnimationFrame(scrollSaveRafRef.current)
-      scrollSaveRafRef.current = null
-    }
-  }, [activeNoteId, page, visible])
-
-  React.useLayoutEffect(() => {
-    const el = mainScrollElRef.current
-    if (!el) return
-    if (!visible) return
-    if (page !== 'note-detail') return
-    const nid = String(activeNoteId || '').trim()
-    if (!nid) return
-    const saved = noteScrollTopByIdRef.current[nid]
-    const next = typeof saved === 'number' && Number.isFinite(saved) && saved > 0 ? saved : 0
-    el.scrollTop = next
-  }, [activeNoteId, page, visible])
+  const { mainScrollElRef, noteScrollTopByIdRef } = useNoteScrollMemory({ visible, page, activeNoteId, pageRef, activeNoteIdRef })
 
   const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
@@ -2078,43 +2042,21 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [enqueueAppCommand, handleFavoritesDocChange, openDraftNoteTab, registerDraftNote, tabsInitReady],
   )
 
-  const handleAppCommand = React.useCallback(
-    (command: string | null | undefined) => {
-      const id = String(command || '').trim()
-      if (!id || id === 'open-hypercortex') return
-      if (id === 'new-note') {
-        handleCreateDraftNote()
-        return
-      }
-      if (id === 'quick-search') {
-        setShortcutHintsOpen(false)
-        setQuickSearchOpen(true)
-        return
-      }
-      if (id === 'open-assets') {
-        navigatePage('attachments')
-        return
-      }
-      void gateway.host.toast(`未知命令：${id}`)
-    },
-    [gateway, handleCreateDraftNote, navigatePage],
-  )
-
-  React.useEffect(() => {
-    if (!visible) return
-    if (!tabsInitReady || !activeWorkspaceId) return
-    const command = String(appCommandQueue[0] || '').trim()
-    if (!command) return
-    consumeAppCommand()
-    handleAppCommand(command)
-  }, [activeWorkspaceId, appCommandQueue, consumeAppCommand, handleAppCommand, tabsInitReady, visible])
-
-  React.useEffect(() => {
-    if (!visible) return
-    if (!repoReady) return
-    if (visiblePage !== 'settings') return
-    void refreshDataDirStatus().catch(() => {})
-  }, [refreshDataDirStatus, repoReady, visible, visiblePage])
+  useAppCommandDispatch({
+    visible,
+    tabsInitReady,
+    activeWorkspaceId,
+    repoReady,
+    visiblePage,
+    appCommandQueue,
+    consumeAppCommand,
+    refreshDataDirStatus,
+    gateway,
+    handleCreateDraftNote,
+    navigatePage,
+    setShortcutHintsOpen,
+    setQuickSearchOpen,
+  })
 
   React.useEffect(() => {
     // 快捷键只属于活动现场：非活动现场的监听不挂载，避免多现场同时响应。
