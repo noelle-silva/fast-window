@@ -1,10 +1,9 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Typography } from '@mui/material'
 import {
   kindFromMime,
   mimeFromExt,
   type HyperCortexFavoritesNavV1,
-  type HyperCortexRepoStateV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
@@ -15,7 +14,7 @@ import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
 import { addRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger } from '../favoritesLedger'
-import { createDraftIdentity, reconcileDraftNoteRefs, reconcileDraftSidebarItems, resolveDraftTabKey, useDraftIdentityVersion, type DraftSide } from './draftIdentity'
+import { buildNoteInitSnapshot, filterOpenNoteIdsForClose, useDraftOrchestration } from './useDraftOrchestration'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -31,7 +30,6 @@ import {
   goBackFavoritesNav,
   goForwardFavoritesNav,
   navigateFavoritesNav,
-  normalizeFavoritesNav,
   reconcileFavoritesNav,
 } from './favoritesNavigator'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
@@ -39,18 +37,15 @@ import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
 import { AllNotesPage } from './AllNotesPage'
 import { PageOverlayHost } from './PageOverlayHost'
-import { isModalCapablePageId, visiblePageId, type PageDisplayMode } from '../pageDisplay'
 import { TrashPanel } from './TrashPanel'
 import { RepoTrashPanel } from './repo-management/RepoTrashPanel'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
-import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys, normalizeScrollTops } from './workspaceModel'
-import { useKeyedScrollMemory } from './scrollMemory'
+import { createWorkspaceId, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
+import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys } from './workspaceModel'
 import { useNoteScrollMemory } from './noteScrollMemory'
 import {
-  applySidebarItemsToWorkspace,
   closeTabsInSidebar,
   createGroupInSidebar,
   deleteGroupFromSidebar,
@@ -63,206 +58,27 @@ import {
   type SidebarItem,
   updateSidebarGroup,
 } from './sidebarModel'
-import {
-  isEditableTarget,
-  mainKeyFromChord,
-  normalizeMainKey,
-  shouldTriggerShortcut,
-  type HyperCortexShortcutId,
-} from '../shortcuts'
 import type { NoteCardInfo } from './noteCardInfo'
 import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { AssetEntry } from '../assetTypes'
-import { assetRefKey, assetTabId } from '../assetTypes'
+import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import { createRepoScopedGateway, type HyperCortexGateway } from '../gateway'
-import {
-  orderKindsByGlobalOrder,
-  resolveNoteFaceOrder,
-} from '../facePreferences'
-import {
-  faceManifestFromDeclaration,
-  requireFaceDeclaration,
-} from '../facePlugins'
+import { orderKindsByGlobalOrder } from '../facePreferences'
 import { useNoteIndex } from './useNoteIndex'
 import { useAppCommandDispatch } from './useAppCommandDispatch'
+import { usePageNavigation } from './usePageNavigation'
+import { ASSET_UPLOAD_WAIT_INTERVAL_MS, assetKeyFromResource, sleep, useAssetPoolSessions } from './useAssetPoolSessions'
+import { useGlobalShortcuts } from './useGlobalShortcuts'
 import { useHyperCortexShell } from './shellContext'
 import { RepoWorkspaceToolbar } from './RepoWorkspaceToolbar'
 import type { PageId } from './workspacePages'
 import { WorkspaceVisibilityProvider } from './workspaceVisibility'
 import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewOverlay'
 import { useSidebarHoldPreview } from './sidebar-preview/useSidebarHoldPreview'
-import { readHoveredSidebarPreviewTarget } from './sidebar-preview/useSidebarPreviewHover'
 import { encodeSidebarPreviewTarget } from './sidebar-preview/previewTarget'
 import { useAppSettings, useAppSettingsWritebacks } from './useAppSettings'
-
-type RepoStatePatch = Partial<HyperCortexRepoStateV1>
-
-const SIDEBAR_SCROLL_SAVE_DEBOUNCE_MS = 400
-
-function assetKeyFromResource(resource: { assetId?: string; ext?: string }): string {
-  const assetId = String(resource?.assetId || '').trim()
-  const ext = String(resource?.ext || '').trim().toLowerCase().replace(/^\./, '')
-  return assetId ? (ext ? `${assetId}.${ext}` : assetId) : ''
-}
-
-const ASSET_UPLOAD_WAIT_INTERVAL_MS = 500
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
-}
-
-function stripDraftTabKeys(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : []
-  const out: string[] = []
-  for (const item of list) {
-    const key = typeof item === 'string' ? item.trim() : ''
-    if (!key) continue
-    if (tabKind(key) === 'note' && isDraftNoteId(noteIdFromTabKey(key))) continue
-    if (out.includes(key)) continue
-    out.push(key)
-  }
-  return out
-}
-
-function stripDraftTabKeyMap(value: any): Record<string, string> {
-  if (!value || typeof value !== 'object') return {}
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(value)) {
-    const tabKey = String(k || '').trim()
-    if (!tabKey) continue
-    if (tabKind(tabKey) === 'note' && isDraftNoteId(noteIdFromTabKey(tabKey))) continue
-    const groupId = String(v || '').trim()
-    if (!groupId) continue
-    out[tabKey] = groupId
-  }
-  return out
-}
-
-function sanitizeRepoStateForSave(state: HyperCortexRepoStateV1): HyperCortexRepoStateV1 {
-  const next: HyperCortexRepoStateV1 = { ...state, version: 1 }
-
-  delete (next as any).openNoteIds
-  delete (next as any).activeNoteId
-  delete (next as any).tabGroupByNoteId
-
-  if (typeof next.activeTabKey === 'string') {
-    const k = String(next.activeTabKey || '').trim()
-    if (k && tabKind(k) === 'note' && isDraftNoteId(noteIdFromTabKey(k))) next.activeTabKey = ''
-  }
-  if (Array.isArray(next.sidebarItems)) {
-    next.sidebarItems = ensureSidebarItems({
-      sidebarItems: next.sidebarItems,
-      openTabKeys: stripDraftTabKeys(next.openTabKeys) as any,
-      tabGroups: Array.isArray(next.tabGroups) ? next.tabGroups : [],
-      tabGroupByTabKey: stripDraftTabKeyMap(next.tabGroupByTabKey),
-    })
-  }
-  if ('openTabKeys' in next) next.openTabKeys = stripDraftTabKeys(next.openTabKeys)
-  if ('tabGroupByTabKey' in next) next.tabGroupByTabKey = stripDraftTabKeyMap(next.tabGroupByTabKey)
-  next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
-  next.favoritesNav = normalizeFavoritesNav(next.favoritesNav)
-
-  const sidebarScrollTops = normalizeScrollTops(next.sidebarScrollTops)
-  if (Object.keys(sidebarScrollTops).length) next.sidebarScrollTops = sidebarScrollTops
-  else delete next.sidebarScrollTops
-
-  const favoritesScrollTops = normalizeScrollTops(next.favoritesScrollTops)
-  if (Object.keys(favoritesScrollTops).length) next.favoritesScrollTops = favoritesScrollTops
-  else delete next.favoritesScrollTops
-
-  if (Array.isArray(next.workspaces)) {
-    next.workspaces = next.workspaces.map(ws => {
-      const openTabKeys = stripDraftTabKeys((ws as any).openTabKeys)
-      const tabGroupByTabKey = stripDraftTabKeyMap((ws as any).tabGroupByTabKey)
-      const sidebarItems = ensureSidebarItems({
-        sidebarItems: (ws as any).sidebarItems,
-        openTabKeys: openTabKeys as any,
-        tabGroups: Array.isArray((ws as any).tabGroups) ? ((ws as any).tabGroups as any) : [],
-        tabGroupByTabKey,
-      })
-      const derived = deriveSidebarFields(sidebarItems)
-      let activeTabKey = String((ws as any).activeTabKey || '').trim()
-      if (activeTabKey && tabKind(activeTabKey) === 'note' && isDraftNoteId(noteIdFromTabKey(activeTabKey))) activeTabKey = ''
-      const id = String((ws as any).id || '').trim() || createWorkspaceId()
-      const title = String((ws as any).title || '').trim() || '工作区'
-      return {
-        id,
-        title,
-        sidebarItems,
-        tabGroups: derived.tabGroups,
-        openTabKeys: derived.openTabKeys,
-        tabGroupByTabKey: derived.tabGroupByTabKey,
-        activeTabKey,
-      }
-    })
-  }
-
-  return next
-}
-
-function isKeyUpForChordMainKey(e: KeyboardEvent, chord: string): boolean {
-  const main = mainKeyFromChord(chord)
-  if (!main) return false
-  return normalizeMainKey(e.key) === main
-}
-
-// 页面切换类快捷键的目标页映射：触发即走统一分流（独立页=切页，模态窗=弹层/替换/关层）。
-const PAGE_SHORTCUT_TARGETS: { id: HyperCortexShortcutId; target: PageId }[] = [
-  { id: 'goHomePage', target: 'home' },
-  { id: 'goFavoritesPage', target: 'index' },
-  { id: 'goAttachmentsPage', target: 'attachments' },
-  { id: 'goAllNotesPage', target: 'all-notes' },
-  { id: 'goSettingsPage', target: 'settings' },
-]
-
-/**
- * 会话初始快照的唯一构造入口（普通新建与索引页创建共用）：
- * 面清单/面顺序/激活面/笔记级字段一次性装配，保证两条创建流程表现一致。
- */
-function buildNoteInitSnapshot(input: {
-  faceManifests: NoteDetailSnapshotV1['faceManifests']
-  faceOrder?: readonly string[]
-  globalKindOrder: readonly string[]
-  title: string
-  description?: string
-  tags?: string[]
-  resources?: NoteDetailSnapshotV1['baseFields']['resources']
-  noteTimes: NoteDetailSnapshotV1['noteTimes']
-}): NoteDetailSnapshotV1 {
-  const faces = resolveNoteFaceOrder({
-    faceOrder: input.faceOrder,
-    faces: input.faceManifests,
-    globalKindOrder: input.globalKindOrder,
-  })
-  const title = String(input.title || '').trim() || '未命名'
-  const description = String(input.description || '').trim()
-  const tags = (input.tags || []).slice()
-  const resources = (input.resources || []).slice()
-  return {
-    baseFields: { title, description, tags: tags.slice(), resources: resources.slice() },
-    faceManifests: input.faceManifests,
-    faceContents: {},
-    savedFaceContents: {},
-    editing: true,
-    faceViewState: {},
-    face: faces[0] || '',
-    faces,
-    editTitle: title,
-    editDescription: description,
-    editTags: tags,
-    editResources: resources,
-    tagInput: '',
-    noteTimes: input.noteTimes,
-    infoSidebarVisible: false,
-  }
-}
-
-// 全局页面历史中的一个精确位置：普通页面只需要 page；详情页必须同时保留当时的 tabKey。
-type NavHistoryEntry = {
-  page: PageId
-  tabKey?: string
-}
+import { useRepoStateBootstrap, WorkspaceInitGate } from './useRepoStateBootstrap'
 
 export type RepoWorkspaceProps = {
   repoId: string
@@ -279,9 +95,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const gateway = React.useMemo<HyperCortexGateway>(() => createRepoScopedGateway(repoId), [repoId])
   // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 落盘）。
   const favoritesLedger = React.useMemo(() => createFavoritesLedger(gateway, 'library'), [gateway])
-  // 草稿身份档案：草稿元数据/初始快照/归属侧/转正后标识的唯一内存事实源（不落盘）。
-  const draftIdentity = React.useMemo(() => createDraftIdentity(), [])
-  const draftIdentityVersion = useDraftIdentityVersion(draftIdentity)
 
   const appSettings = shell.appSettings
   const patchAppSettings = shell.patchAppSettings
@@ -319,125 +132,19 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     handleShortcutRecordingChange,
   } = settings
 
-  // ---- 核心 UI 状态
-  const [page, setPageState] = React.useState<PageId>('home')
-  const pageRef = React.useRef<PageId>('home')
-  React.useEffect(() => {
-    pageRef.current = page
-  }, [page])
-
-  const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
-  const fwdNavHistoryRef = React.useRef<NavHistoryEntry[]>([])
-
-  const [openModalPage, setOpenModalPage] = React.useState<PageId | null>(null)
-  const visiblePage = visiblePageId(page, openModalPage)
-  const openModalPageRef = React.useRef<PageId | null>(null)
-  React.useEffect(() => {
-    openModalPageRef.current = openModalPage
-  }, [openModalPage])
-
-  const resolvePageDisplayMode = React.useCallback((id: PageId): PageDisplayMode => {
-    if (!isModalCapablePageId(id)) return 'page'
-    return pageDisplayModesRef.current[id] ?? 'page'
-  }, [])
-  const [navStackSizes, setNavStackSizes] = React.useState({ back: 0, forward: 0 })
-
-  const syncNavStackCounts = React.useCallback(() => {
-    setNavStackSizes({ back: navHistoryRef.current.length, forward: fwdNavHistoryRef.current.length })
-  }, [])
-
-  // 所有新导航（切页/开标签）的唯一入口：截断“未来”，记录“来处”。
-  const recordNewNavLocation = React.useCallback(
-    (entry: NavHistoryEntry) => {
-      fwdNavHistoryRef.current = []
-      const stack = navHistoryRef.current
-      const last = stack.length ? stack[stack.length - 1] : null
-      const duplicate = !!last && last.page === entry.page && last.tabKey === entry.tabKey
-      if (!duplicate) {
-        stack.push(entry)
-        if (stack.length > 128) stack.splice(0, stack.length - 128)
-      }
-      syncNavStackCounts()
-    },
-    [syncNavStackCounts],
-  )
-
   // ---- 顶部栏：快速搜索与快捷键提示
   const [quickSearchOpen, setQuickSearchOpen] = React.useState(false)
   const [shortcutHintsOpen, setShortcutHintsOpen] = React.useState(false)
 
-  const navigatePage = React.useCallback(
-    (next: PageId, opts?: { recordHistory?: boolean }) => {
-      // 模态窗页面的“到达”是浮层：不进页面家族，前进/后退与亮灯天然与它无关。
-      if (resolvePageDisplayMode(next) === 'modal') {
-        setOpenModalPage(next)
-        return
-      }
-      if (next !== pageRef.current && opts?.recordHistory !== false) {
-        const currentPage = pageRef.current
-        const currentTabKey =
-          currentPage === 'note-detail' || currentPage === 'asset-detail' ? String(activeTabKeyRef.current || '').trim() : ''
-        recordNewNavLocation(currentTabKey ? { page: currentPage, tabKey: currentTabKey } : { page: currentPage })
-      }
-      setPageState(next)
-    },
-    [recordNewNavLocation, resolvePageDisplayMode],
-  )
-
-  // ---- 现场装载（每个仓库只装载一次；切换回来直接复用内存现场）
-  const repoStateRef = React.useRef<HyperCortexRepoStateV1 | null>(null)
-  // 侧边栏滚动浏览位置（标识 → 像素）：内存实时记账，随仓库状态写盘持久化。左右两栏共用同一记账机制。
-  const sidebarScrollTopsRef = React.useRef<Record<string, number>>({})
-  const favoritesScrollTopsRef = React.useRef<Record<string, number>>({})
-  const [repoReady, setRepoReady] = React.useState(false)
-  const repoReadyRef = React.useRef(false)
-  const [tabsInitReady, setTabsInitReady] = React.useState(false)
-  const tabsInitReadyRef = React.useRef(false)
-  const [workspaceInitError, setWorkspaceInitError] = React.useState<string | null>(null)
-  const [workspaceInitRetrying, setWorkspaceInitRetrying] = React.useState(false)
-  const mountedRef = React.useRef(true)
-  const restoreActiveTabKeyRef = React.useRef<string>('')
-  const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
-
-  React.useEffect(() => {
-    repoReadyRef.current = repoReady
-  }, [repoReady])
-  React.useEffect(() => {
-    tabsInitReadyRef.current = tabsInitReady
-  }, [tabsInitReady])
-  React.useEffect(() => {
-    return () => {
-      mountedRef.current = false
-    }
-  }, [])
-
-  // ---- 全部笔记列表
-  const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway, repoId, repoReady)
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
-  const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
   // 收藏夹导航栏（右侧栏）的独立浏览位置：与主界面收藏夹页互不干扰，随仓库持久化。
   const [favoritesNav, setFavoritesNav] = React.useState<HyperCortexFavoritesNavV1>(() => createFavoritesNav())
-  const favoritesNavRef = React.useRef<HyperCortexFavoritesNavV1>(favoritesNav)
-  React.useEffect(() => {
-    favoritesNavRef.current = favoritesNav
-  }, [favoritesNav])
-  // 右侧收藏夹栏当前页的唯一视图：渲染与键盘切换共用同一份组装，避免配方重复。
-  const favoritesFolderView = React.useMemo(
-    () => buildFavoriteFolderView({ doc: favoritesDoc, folderId: favoritesNav.currentFolderId, assetIndex: assetPoolIndex?.assets }),
-    [favoritesDoc, favoritesNav.currentFolderId, assetPoolIndex?.assets],
-  )
-  const favoritesFolderViewRef = React.useRef(favoritesFolderView)
-  React.useEffect(() => {
-    favoritesFolderViewRef.current = favoritesFolderView
-  }, [favoritesFolderView])
   // 快捷键切换列表时的「最新值」引用：键盘回调常驻挂载，必须从 ref 读取当前数据。
   const favoritesDocRef = React.useRef(favoritesDoc)
   React.useEffect(() => {
     favoritesDocRef.current = favoritesDoc
   }, [favoritesDoc])
-  const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
-
   const [noteCardMenu, setNoteCardMenu] = React.useState<{ anchorEl: HTMLElement; note: NoteMeta } | null>(null)
   const openNoteCardMenu = React.useCallback((e: React.MouseEvent, note: NoteMeta) => {
     e.stopPropagation()
@@ -446,8 +153,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const closeNoteCardMenu = React.useCallback(() => setNoteCardMenu(null), [])
 
   const [noteCardDeleteTarget, setNoteCardDeleteTarget] = React.useState<NoteMeta | null>(null)
-  const [assetEntityDeleteTarget, setAssetEntityDeleteTarget] = React.useState<AssetEntry | null>(null)
-  const [assetEntityDeleting, setAssetEntityDeleting] = React.useState(false)
 
   // ---- 详情页（tab 常驻 Session）
   const [activeNoteId, setActiveNoteId] = React.useState<string>('')
@@ -473,6 +178,100 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   // 右侧收藏夹栏的激活条目滚动信号：键盘切换后把当前条目滚入视野。
   const [favoritesActiveScrollSignal, setFavoritesActiveScrollSignal] = React.useState(0)
 
+  // 导航记录应用的落点：工作区补丁函数定义晚于导航模块，经 ref 连接。
+  const commitActiveWorkspacePatchRef = React.useRef<(patch: { activeTabKey: string }) => void>(() => {})
+
+  // ---- 页面切页与前进后退历史
+  const {
+    page,
+    pageRef,
+    visiblePage,
+    openModalPage,
+    openModalPageRef,
+    setOpenModalPage,
+    navStackSizes,
+    navHistoryRef,
+    fwdNavHistoryRef,
+    syncNavStackCounts,
+    navigatePage,
+    recordNewNavLocation,
+    goBackPage,
+    goForwardPage,
+    handleShortcutOpenPage,
+    closeModalOverlay,
+    handleOpenTrashPage,
+    handleOpenRepoTrashPage,
+  } = usePageNavigation({
+    gateway,
+    pageDisplayModesRef,
+    activeTabKeyRef,
+    openTabKeysRef,
+    setDetailSelectionSource,
+    setActiveTabKey,
+    setActiveNoteId,
+    commitActiveWorkspacePatchRef,
+  })
+
+  const { mainScrollElRef, noteScrollTopByIdRef } = useNoteScrollMemory({ visible, page, activeNoteId, pageRef, activeNoteIdRef })
+
+  const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
+  const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
+  const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
+  const closeTabKeysDirectRef = React.useRef<(tabKeys: string[]) => void>(() => {})
+  const activateExistingTabKeyRef = React.useRef<(tabKey: string, opts?: { recordHistory?: boolean }) => boolean>(() => false)
+  // 装载流程应用工作区现场的入口：应用函数定义晚于装载钩子，经 ref 连接。
+  const applyWorkspaceSidebarStateRef = React.useRef<(workspace: HyperCortexWorkspaceV1) => void>(() => {})
+  // 右侧收藏夹栏条目的激活入口（与左侧标签栏并列）：键盘切换据此落到右侧列表。
+  const activateFavoritesEntryKeyRef = React.useRef<(tabKey: string) => boolean>(() => false)
+
+  // 侧边栏条目更新函数定义晚于附件会话模块，经 ref 连接。
+  const updateSidebarItemsRef = React.useRef<
+    (
+      updater: (prev: SidebarItem[]) => SidebarItem[],
+      patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>,
+    ) => void
+  >(() => {})
+
+  // ---- 附件索引、附件会话与附件实体操作：状态与操作收敛到独立模块，导航与工作区能力经显式入参连接。
+  const {
+    assetPoolIndex,
+    setAssetPoolIndex,
+    openAssetTabs,
+    setOpenAssetTabs,
+    playingTabKeys,
+    setTabPlaying,
+    handleUpdateAssetInfo,
+    handleOpenAssetTab,
+    handleAssetTabUpdated,
+    requestDeleteAssetEntity,
+    handleTrashAssetRestored,
+    assetEntityDeleteDialog,
+  } = useAssetPoolSessions({
+    visible,
+    gateway,
+    openTabKeys,
+    activeTabKeyRef,
+    pageRef,
+    setDetailSelectionSource,
+    setActiveTabKey,
+    setActiveNoteId,
+    recordNewNavLocation,
+    navigatePage,
+    commitActiveWorkspacePatchRef,
+    updateSidebarItemsRef,
+    closeTabKeysDirectRef,
+  })
+
+  // 右侧收藏夹栏当前页的唯一视图：渲染与键盘切换共用同一份组装，避免配方重复。
+  const favoritesFolderView = React.useMemo(
+    () => buildFavoriteFolderView({ doc: favoritesDoc, folderId: favoritesNav.currentFolderId, assetIndex: assetPoolIndex?.assets }),
+    [favoritesDoc, favoritesNav.currentFolderId, assetPoolIndex?.assets],
+  )
+  const favoritesFolderViewRef = React.useRef(favoritesFolderView)
+  React.useEffect(() => {
+    favoritesFolderViewRef.current = favoritesFolderView
+  }, [favoritesFolderView])
+
   // 选中归属的最终事实：来源为右且当前目标确实在右侧当前页里，才算右；否则回落左。
   // 高亮与快捷键切换共用这一个派生值，保证任何时刻有且仅有一处选中。
   const favoritesEntryTabKeys = React.useMemo(
@@ -485,47 +284,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   React.useEffect(() => {
     resolvedSelectionSourceRef.current = resolvedSelectionSource
   }, [resolvedSelectionSource])
-
-  const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
-  const [playingTabKeys, setPlayingTabKeys] = React.useState<ReadonlySet<string>>(() => new Set())
-
-  const setTabPlaying = React.useCallback((tabKey: string, playing: boolean) => {
-    const key = String(tabKey || '').trim()
-    if (!key) return
-    setPlayingTabKeys(prev => {
-      if (prev.has(key) === playing) return prev
-      const next = new Set(prev)
-      if (playing) next.add(key)
-      else next.delete(key)
-      return next
-    })
-  }, [])
-
-  React.useEffect(() => {
-    const openKeys = new Set(openTabKeys)
-    setPlayingTabKeys(prev => {
-      let changed = false
-      const next = new Set<string>()
-      for (const key of prev) {
-        if (!openKeys.has(key)) {
-          changed = true
-          continue
-        }
-        next.add(key)
-      }
-      return changed ? next : prev
-    })
-  }, [openTabKeys])
-
-  const { mainScrollElRef, noteScrollTopByIdRef } = useNoteScrollMemory({ visible, page, activeNoteId, pageRef, activeNoteIdRef })
-
-  const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
-  const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
-  const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
-  const closeTabKeysDirectRef = React.useRef<(tabKeys: string[]) => void>(() => {})
-  const activateExistingTabKeyRef = React.useRef<(tabKey: string, opts?: { recordHistory?: boolean }) => boolean>(() => false)
-  // 右侧收藏夹栏条目的激活入口（与左侧标签栏并列）：键盘切换据此落到右侧列表。
-  const activateFavoritesEntryKeyRef = React.useRef<(tabKey: string) => boolean>(() => false)
 
   // ---- 侧边栏 / 工作区 / 分组
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
@@ -546,38 +304,56 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   } = useSidebarHoldPreview({ visible })
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
+
+  // ---- 仓库状态装载与持久化：状态引用与就绪标记、规范化落盘、滚动位置记忆与初始化流程。
+  const {
+    repoReady,
+    repoReadyRef,
+    tabsInitReady,
+    workspaceInitError,
+    workspaceInitRetrying,
+    runRepoInitialization,
+    persistRepoStatePatch,
+    sidebarScrollTopsRef,
+    favoritesScrollTopsRef,
+    handleSidebarScrollTopChange,
+    handleFavoritesScrollTopChange,
+    flushSidebarScrollTop,
+    clearSidebarScrollMemory,
+    clearFavoritesScrollMemory,
+    sidebarScrollRestoreSignal,
+    favoritesScrollRestoreSignal,
+    activeWorkspaceIdRef,
+    favoritesNavRef,
+  } = useRepoStateBootstrap({
+    repoId,
+    visible,
+    gateway,
+    favoritesLedger,
+    activeWorkspaceId,
+    favoritesNav,
+    trashAutoDeleteDaysRef,
+    trashAutoDeleteDays,
+    applyWorkspaceSidebarStateRef,
+    activateExistingTabKeyRef,
+    setWorkspaces,
+    setActiveWorkspaceId,
+    setCurrentFolderId,
+    setFavoritesNav,
+    setFavoritesDoc,
+    setAssetPoolIndex,
+  })
+
+  // ---- 全部笔记列表
+  const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway, repoId, repoReady)
+  const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
+
   // 打开的会话标识：真实笔记记真实标识，草稿记草稿标识；草稿元数据与转正后标识一律向档案查询。
   const [openNoteIds, setOpenNoteIds] = React.useState<string[]>([])
   const openNoteIdsRef = React.useRef<string[]>([])
   React.useEffect(() => {
     openNoteIdsRef.current = openNoteIds
   }, [openNoteIds])
-  // 解析索引：正式笔记 + 内存草稿（草稿由档案派生，消费方无需感知草稿，按同一套 noteIndex 解析）。
-  const resolvedNoteIndex = React.useMemo(() => {
-    const base = noteIndex?.notes || {}
-    const drafts: Record<string, NoteMeta> = {}
-    for (const draft of draftIdentity.listLiveDrafts()) drafts[draft.id] = draft.meta
-    return Object.keys(drafts).length ? { ...base, ...drafts } : base
-  }, [draftIdentity, draftIdentityVersion, noteIndex])
-  // 打开的会话列表：标识经档案解析（转正草稿自动指向真实笔记），元数据取自解析索引。
-  const openNoteTabs = React.useMemo(() => {
-    const out: NoteMeta[] = []
-    const seen = new Set<string>()
-    for (const rawId of openNoteIds) {
-      const effectiveId = draftIdentity.resolveId(rawId)
-      if (!effectiveId || seen.has(effectiveId)) continue
-      const meta = resolvedNoteIndex[effectiveId]
-      if (!meta) continue
-      seen.add(effectiveId)
-      out.push(meta)
-    }
-    return out
-  }, [draftIdentity, draftIdentityVersion, openNoteIds, resolvedNoteIndex])
-  // 常驻键盘回调读取合并后的索引（含草稿），与渲染消费同一份解析结果。
-  const noteIndexRef = React.useRef<{ notes?: Record<string, NoteMeta> }>({ notes: resolvedNoteIndex })
-  React.useEffect(() => {
-    noteIndexRef.current = { notes: resolvedNoteIndex }
-  }, [resolvedNoteIndex])
   const [sidebarItems, setSidebarItems] = React.useState<SidebarItem[]>([])
   const sidebarItemsRef = React.useRef<SidebarItem[]>([])
   React.useEffect(() => {
@@ -592,15 +368,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     tabGroupingRef.current = tabGrouping
   }, [tabGrouping])
 
-  const activeWorkspaceIdRef = React.useRef('')
   const workspaceSwitchSeqRef = React.useRef(0)
-  React.useEffect(() => {
-    activeWorkspaceIdRef.current = activeWorkspaceId
-  }, [activeWorkspaceId])
-
-  const consumeInitSnapshot = React.useCallback((noteId: string): NoteDetailSnapshotV1 | null => {
-    return draftIdentity.takeInitSnapshot(noteId)
-  }, [draftIdentity])
 
   const [noteDirtyById, setNoteDirtyById] = React.useState<Record<string, boolean>>({})
   const handleNoteDirtyChange = React.useCallback((payload: { noteId: string; dirty: boolean }) => {
@@ -753,58 +521,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     return map
   }, [allNotes, noteCardInfoById])
 
-  // 仓库状态写回：统一携带侧边栏滚动位置的最新记账，任何一次写盘都持久化最新浏览位置。
-  const persistRepoStatePatch = React.useCallback(
-    async (patch: RepoStatePatch) => {
-      const current = repoStateRef.current || { version: 1 }
-      const next: HyperCortexRepoStateV1 = {
-        ...current,
-        ...patch,
-        sidebarScrollTops: { ...sidebarScrollTopsRef.current },
-        favoritesScrollTops: { ...favoritesScrollTopsRef.current },
-        version: 1,
-      }
-      const sanitized = sanitizeRepoStateForSave(next)
-      repoStateRef.current = sanitized
-      await gateway.repoState.saveRepoState('library', sanitized)
-    },
-    [gateway],
-  )
-
-  // 左右两侧边栏共用同一套滚动记忆机制：按标识记账、防抖落盘、切走/卸载冲刷、可见化还原。
-  const persistScrollMemory = React.useCallback(() => {
-    if (!repoReadyRef.current) return
-    void persistRepoStatePatch({}).catch(() => {})
-  }, [persistRepoStatePatch])
-  const sidebarScrollMemory = useKeyedScrollMemory({ topsRef: sidebarScrollTopsRef, visible, debounceMs: SIDEBAR_SCROLL_SAVE_DEBOUNCE_MS, onPersist: persistScrollMemory })
-  const favoritesScrollMemory = useKeyedScrollMemory({ topsRef: favoritesScrollTopsRef, visible, debounceMs: SIDEBAR_SCROLL_SAVE_DEBOUNCE_MS, onPersist: persistScrollMemory })
-  const { flush: flushSidebarScrollTop, reset: resetSidebarScrollMemory, clear: clearSidebarScrollMemory, report: reportSidebarScrollTop } = sidebarScrollMemory
-  const { reset: resetFavoritesScrollMemory, clear: clearFavoritesScrollMemory, report: reportFavoritesScrollTop } = favoritesScrollMemory
-  const sidebarScrollRestoreSignal = sidebarScrollMemory.restoreSignal
-  const favoritesScrollRestoreSignal = favoritesScrollMemory.restoreSignal
-
-  const handleSidebarScrollTopChange = React.useCallback(
-    (scrollTop: number) => reportSidebarScrollTop(String(activeWorkspaceIdRef.current || '').trim(), scrollTop),
-    [reportSidebarScrollTop],
-  )
-  const handleFavoritesScrollTopChange = React.useCallback(
-    (scrollTop: number) => reportFavoritesScrollTop(String(favoritesNavRef.current?.currentFolderId || '').trim(), scrollTop),
-    [reportFavoritesScrollTop],
-  )
-
-  // 快捷键打开页面的统一动作：模态窗=同名关层/异名替换，独立页=切页（先收浮层）。
-  const handleShortcutOpenPage = React.useCallback(
-    (targetId: PageId) => {
-      if (resolvePageDisplayMode(targetId) === 'modal') {
-        setOpenModalPage(prevOpen => (prevOpen === targetId ? null : targetId))
-        return
-      }
-      setOpenModalPage(null)
-      navigatePage(targetId)
-    },
-    [navigatePage, resolvePageDisplayMode],
-  )
-
   // ---- 工作区与侧边栏
   const commitActiveWorkspacePatch = React.useCallback(
     (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'sidebarItems' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>) => {
@@ -828,6 +544,10 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [persistRepoStatePatch],
   )
+
+  React.useEffect(() => {
+    commitActiveWorkspacePatchRef.current = commitActiveWorkspacePatch
+  }, [commitActiveWorkspacePatch])
 
   const applySidebarState = React.useCallback(
     (nextSidebarItems: SidebarItem[], patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>) => {
@@ -860,6 +580,10 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [applySidebarState],
   )
+
+  React.useEffect(() => {
+    updateSidebarItemsRef.current = updateSidebarItems
+  }, [updateSidebarItems])
 
   const handleMoveTabToUngroupedIndex = React.useCallback(
     (tabKey: string, index: number) => {
@@ -1015,80 +739,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     persistFavoritesNav(next)
   }, [favoritesDoc, persistFavoritesNav])
 
-  // 把当前位置转换成一条可回溯的导航记录。
-  const captureCurrentNavEntry = React.useCallback((): NavHistoryEntry => {
-    const page = pageRef.current
-    const cur = String(activeTabKeyRef.current || '').trim()
-    if ((page === 'note-detail' || page === 'asset-detail') && cur) return { page, tabKey: cur }
-    return { page }
-  }, [])
-
-  // 校验并应用一条导航记录；失败返回 false 且不产生任何状态副作用。
-  const tryApplyNavEntry = React.useCallback(
-    (entry: NavHistoryEntry): boolean => {
-      if (entry.tabKey) {
-        const key = String(entry.tabKey || '').trim()
-        if (!key || !openTabKeysRef.current.includes(key)) return false
-        const currentKey = String(activeTabKeyRef.current || '').trim()
-        if (key === currentKey && entry.page === pageRef.current) return false
-        const kind = tabKind(key)
-        if (kind !== 'note' && kind !== 'asset') return false
-        const targetPage = kind === 'note' ? 'note-detail' : 'asset-detail'
-        if (entry.page !== targetPage) return false
-        setDetailSelectionSource('tabs')
-        setActiveTabKey(key as any)
-        commitActiveWorkspacePatch({ activeTabKey: key })
-        if (kind === 'note') {
-          const noteId = noteIdFromTabKey(key)
-          if (!noteId) return false
-          setActiveNoteId(noteId)
-          navigatePage(targetPage, { recordHistory: false })
-        } else {
-          setActiveNoteId('')
-          navigatePage(targetPage, { recordHistory: false })
-        }
-        return true
-      }
-
-      const target = entry.page
-      if (!target || target === pageRef.current) return false
-      if (target === 'note-detail' || target === 'asset-detail') {
-        // 详情页没有精确标签就不能安全恢复，禁止从当前打开集合中猜一条笔记。
-        return false
-      }
-
-      navigatePage(target, { recordHistory: false })
-      return true
-    },
-    [commitActiveWorkspacePatch, navigatePage],
-  )
-
-  const goBackPage = React.useCallback(async () => {
-    const capture = captureCurrentNavEntry()
-    while (navHistoryRef.current.length) {
-      const entry = navHistoryRef.current.pop()!
-      if (!tryApplyNavEntry(entry)) continue
-      fwdNavHistoryRef.current.push(capture)
-      if (fwdNavHistoryRef.current.length > 128) fwdNavHistoryRef.current.splice(0, fwdNavHistoryRef.current.length - 128)
-      syncNavStackCounts()
-      return
-    }
-    await gateway.host.toast('没有上一页了')
-  }, [captureCurrentNavEntry, tryApplyNavEntry, syncNavStackCounts, gateway])
-
-  const goForwardPage = React.useCallback(async () => {
-    const capture = captureCurrentNavEntry()
-    while (fwdNavHistoryRef.current.length) {
-      const entry = fwdNavHistoryRef.current.pop()!
-      if (!tryApplyNavEntry(entry)) continue
-      navHistoryRef.current.push(capture)
-      if (navHistoryRef.current.length > 128) navHistoryRef.current.splice(0, navHistoryRef.current.length - 128)
-      syncNavStackCounts()
-      return
-    }
-    await gateway.host.toast('没有下一页了')
-  }, [captureCurrentNavEntry, tryApplyNavEntry, syncNavStackCounts, gateway])
-
   const applyWorkspaceSidebarState = React.useCallback(
     (ws: HyperCortexWorkspaceV1) => {
       const nextSidebarItems = ensureSidebarItems(ws)
@@ -1167,133 +817,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [gateway, navigatePage],
   )
 
-  // applyRepoStateToUi 把仓库工作状态装载为界面现场；返回归一化结果供持久化判断。
-  const applyRepoStateToUi = React.useCallback(
-    (normalizedRepoState: HyperCortexRepoStateV1) => {
-      repoStateRef.current = normalizedRepoState
-      resetSidebarScrollMemory(normalizedRepoState.sidebarScrollTops)
-      resetFavoritesScrollMemory(normalizedRepoState.favoritesScrollTops)
-      setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
-      setFavoritesNav(normalizeFavoritesNav(normalizedRepoState.favoritesNav))
-      const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
-      restoreActiveTabKeyRef.current = activeKey
-
-      const legacyTabsDetected =
-        Array.isArray((normalizedRepoState as any).openNoteIds) ||
-        typeof (normalizedRepoState as any).activeNoteId === 'string' ||
-        ((normalizedRepoState as any).tabGroupByNoteId && typeof (normalizedRepoState as any).tabGroupByNoteId === 'object')
-      const v2TabsDetected =
-        Array.isArray((normalizedRepoState as any).openTabKeys) ||
-        typeof (normalizedRepoState as any).activeTabKey === 'string' ||
-        ((normalizedRepoState as any).tabGroupByTabKey && typeof (normalizedRepoState as any).tabGroupByTabKey === 'object') ||
-        Array.isArray(normalizedRepoState.workspaces)
-      if (legacyTabsDetected && !v2TabsDetected) {
-        void gateway.host.toast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
-      }
-
-      let nextWorkspaces = normalizeWorkspaces(normalizedRepoState.workspaces, {
-        sidebarItems: normalizedRepoState.sidebarItems,
-        openTabKeys: normalizedRepoState.openTabKeys,
-        activeTabKey: normalizedRepoState.activeTabKey,
-        tabGroups: normalizedRepoState.tabGroups,
-        tabGroupByTabKey: normalizedRepoState.tabGroupByTabKey,
-      })
-      const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedRepoState.activeWorkspaceId, nextWorkspaces)
-      let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
-
-      let didMutateActiveWorkspace = false
-      if (activeWs && activeKey) {
-        const openKeys = activeWs.openTabKeys
-        if (!openKeys.includes(activeKey)) {
-          const nextSidebarItems = insertTabAsUngrouped(ensureSidebarItems(activeWs), activeKey, ensureSidebarItems(activeWs).length)
-          const nextWs = applySidebarItemsToWorkspace({ ...activeWs, activeTabKey: activeKey }, nextSidebarItems)
-          nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, () => nextWs)
-          activeWs = nextWs
-          didMutateActiveWorkspace = true
-        }
-      }
-
-      activeWorkspaceIdRef.current = nextActiveWorkspaceId
-      setWorkspaces(nextWorkspaces)
-      setActiveWorkspaceId(nextActiveWorkspaceId)
-      if (activeWs) applyWorkspaceSidebarState(activeWs)
-      return { nextWorkspaces, nextActiveWorkspaceId, didMutateActiveWorkspace }
-    },
-    [applyWorkspaceSidebarState, gateway, resetFavoritesScrollMemory, resetSidebarScrollMemory],
-  )
-
-  // 现场装载：激活仓库（骨架与派生索引调和）→ 仓库状态 + 收藏夹 + 附件索引。
-  const loadRepoData = React.useCallback(async () => {
-    const [normalizedRepoState, nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
-      gateway.repoState.ensureRepoState('library'),
-      favoritesLedger.load(),
-      gateway.assets.ensureAssetsIndex('library'),
-    ])
-    const applied = applyRepoStateToUi(normalizedRepoState)
-    setFavoritesDoc(nextFavoritesDoc)
-    setAssetPoolIndex(nextAssetPoolIndex as any)
-    return { normalizedRepoState, ...applied }
-  }, [applyRepoStateToUi, favoritesLedger, gateway])
-
-  // 仓库状态在装载时被归一化（补工作区、补当前标签）时写回，避免每次装载重复归一化。
-  const persistRepoStateNormalization = React.useCallback(
-    (
-      normalizedRepoState: HyperCortexRepoStateV1,
-      applied: { nextWorkspaces: HyperCortexWorkspaceV1[]; nextActiveWorkspaceId: string; didMutateActiveWorkspace: boolean },
-    ) => {
-      const shouldPersist =
-        !Array.isArray(normalizedRepoState.workspaces) ||
-        normalizedRepoState.activeWorkspaceId !== applied.nextActiveWorkspaceId ||
-        applied.didMutateActiveWorkspace
-      if (shouldPersist) {
-        void persistRepoStatePatch(buildRepoStateSnapshot(applied.nextWorkspaces, applied.nextActiveWorkspaceId)).catch(() => {})
-      }
-    },
-    [persistRepoStatePatch],
-  )
-
-  const runRepoInitialization = React.useCallback(async () => {
-    setWorkspaceInitError(null)
-    setWorkspaceInitRetrying(true)
-    repoReadyRef.current = false
-    tabsInitReadyRef.current = false
-    setRepoReady(false)
-    setTabsInitReady(false)
-    try {
-      await gateway.repos.activateRepo(repoId)
-      const { normalizedRepoState, ...applied } = await loadRepoData()
-      persistRepoStateNormalization(normalizedRepoState, applied)
-      if (!mountedRef.current) return
-      tabsInitReadyRef.current = true
-      repoReadyRef.current = true
-      setTabsInitReady(true)
-      setRepoReady(true)
-    } catch (e: any) {
-      if (!mountedRef.current) return
-      const message = String(e?.message || e || '仓库加载失败')
-      setWorkspaceInitError(message)
-      void gateway.host.toast(message)
-    } finally {
-      if (mountedRef.current) setWorkspaceInitRetrying(false)
-    }
-  }, [gateway, loadRepoData, persistRepoStateNormalization, repoId])
-
   React.useEffect(() => {
-    void runRepoInitialization()
-  }, [runRepoInitialization])
-
-  React.useEffect(() => {
-    if (!repoReady) return
-    const days = trashAutoDeleteDaysRef.current
-    if (!(days > 0)) return
-    if (autoCleanupRanForDaysRef.current === days) return
-    autoCleanupRanForDaysRef.current = days
-    void (async () => {
-      const result = await gateway.trash.maybeAutoCleanupTrash('library', days).catch(() => null)
-      if (!result || !(result.deletedCount > 0)) return
-      void gateway.host.toast(`回收站已自动清理 ${result.deletedCount} 项`)
-    })()
-  }, [gateway, repoReady, trashAutoDeleteDays])
+    applyWorkspaceSidebarStateRef.current = applyWorkspaceSidebarState
+  }, [applyWorkspaceSidebarState])
 
   const handleSwitchWorkspace = React.useCallback(
     (workspaceId: string) => {
@@ -1474,27 +1000,39 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [favoritesLedger],
   )
 
-  // 草稿身份档案变化的统一订阅：转正让左侧标签键与收藏夹引用改指向真实笔记，
-  // 放弃让两者自动清理。消费方不再各自手工搬运，只在档案变更后向档案查询一次。
-  // 用 layout 时机执行，使转正/放弃与重命名在同一帧内完成，界面不见中间态。
-  React.useLayoutEffect(() => {
-    const reconciledItems = reconcileDraftSidebarItems(draftIdentity, sidebarItemsRef.current)
-    if (reconciledItems !== sidebarItemsRef.current) {
-      // 仅当当前激活键经档案解析后确实落在调和后的列表里才迁移（转正）；
-      // 放弃场景由 closeTabKeysDirect 决定后继选中，这里不越权改写。
-      const currentActive = String(activeTabKeyRef.current || '').trim()
-      const resolvedActive = resolveDraftTabKey(draftIdentity, currentActive)
-      const openKeys = deriveSidebarFields(reconciledItems).openTabKeys
-      const canMigrateActive = !!resolvedActive && openKeys.includes(resolvedActive)
-      updateSidebarItems(() => reconciledItems, canMigrateActive ? { activeTabKey: resolvedActive } : undefined)
-      if (canMigrateActive && resolvedActive !== currentActive) setActiveTabKey(resolvedActive as any)
-    }
-    const currentDoc = favoritesDocRef.current
-    if (currentDoc) {
-      const reconciledDoc = reconcileDraftNoteRefs(draftIdentity, currentDoc)
-      if (reconciledDoc !== currentDoc) handleFavoritesDocChange(reconciledDoc)
-    }
-  }, [draftIdentity, draftIdentityVersion, handleFavoritesDocChange, updateSidebarItems])
+  // ---- 草稿身份编排：档案与解析派生、草稿登记与打开、左右两侧新建入口、档案变化的左右调和。
+  const {
+    draftIdentity,
+    resolvedNoteIndex,
+    openNoteTabs,
+    consumeInitSnapshot,
+    handleCreateDraftNote,
+    handleCreateDraftNoteInFolder,
+  } = useDraftOrchestration({
+    noteIndex,
+    openNoteIds,
+    sidebarItemsRef,
+    activeTabKeyRef,
+    favoritesDocRef,
+    tabsInitReady,
+    activeWorkspaceIdRef,
+    enqueueAppCommand,
+    defaultFaceKinds,
+    faceKindOrder,
+    updateSidebarItems,
+    handleFavoritesDocChange,
+    navigatePage,
+    setOpenNoteIds,
+    setActiveNoteId,
+    setActiveTabKey,
+    setDetailSelectionSource,
+  })
+
+  // 常驻键盘回调读取合并后的索引（含草稿），与渲染消费同一份解析结果。
+  const noteIndexRef = React.useRef<{ notes?: Record<string, NoteMeta> }>({ notes: resolvedNoteIndex })
+  React.useEffect(() => {
+    noteIndexRef.current = { notes: resolvedNoteIndex }
+  }, [resolvedNoteIndex])
 
   const handleUpdateNoteInfo = React.useCallback(
     async (note: NoteMeta, patch: { title: string; description: string }) => {
@@ -1528,33 +1066,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       }
     },
     [gateway, refreshNoteCardInfo],
-  )
-
-  const handleUpdateAssetInfo = React.useCallback(
-    async (asset: AssetEntry, patch: { displayName: string; remark: string }) => {
-      try {
-        await gateway.assets.updateAssetMetadata('library', asset.assetId, asset.ext, {
-          displayName: patch.displayName,
-          remark: patch.remark,
-          tags: asset.tags || [],
-        })
-        setAssetPoolIndex(prev => {
-          if (!prev || typeof prev !== 'object') return prev
-          const key = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-          return {
-            ...(prev as any),
-            assets: {
-              ...((prev as any).assets || {}),
-              [key]: { ...((prev as any).assets?.[key] || {}), displayName: patch.displayName, remark: patch.remark },
-            },
-          }
-        })
-        void gateway.host.toast('附件信息已更新')
-      } catch (err: any) {
-        void gateway.host.toast(`更新附件信息失败：${String(err?.message || err || '未知错误')}`)
-      }
-    },
-    [gateway],
   )
 
   const handleUploadAssetsIntoIndex = React.useCallback(
@@ -1605,9 +1116,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [favoritesDoc, gateway, handleFavoritesDocChange],
   )
 
-  const handleOpenTrashPage = React.useCallback(() => navigatePage('trash'), [navigatePage])
-  const handleOpenRepoTrashPage = React.useCallback(() => navigatePage('repo-trash'), [navigatePage])
-
   const handleRepoRestored = React.useCallback(
     async (repo: HyperCortexRepo) => {
       await refreshRepos()
@@ -1653,49 +1161,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [bumpRefRelationsEpoch, gateway],
   )
-
-  const handleDeleteAssetEntity = React.useCallback(
-    async (asset: AssetEntry) => {
-      const assetId = String(asset?.assetId || '').trim()
-      if (!assetId) return
-      try {
-        await gateway.trash.moveAssetToTrash('library', assetId, asset.ext)
-        const tabKey = assetTabId(asset)
-        closeTabKeysDirectRef.current([tabKey])
-        setAssetPoolIndex(prev => {
-          if (!prev || typeof prev !== 'object') return prev
-          const assets = { ...((prev as any).assets || {}) }
-          delete assets[asset.ext ? `${assetId}.${asset.ext}` : assetId]
-          return { ...(prev as any), assets }
-        })
-        void gateway.host.toast('附件已移入回收站')
-      } catch (e: any) {
-        void gateway.host.toast(String(e?.message || e || '删除附件失败'))
-      }
-    },
-    [gateway],
-  )
-
-  const requestDeleteAssetEntity = React.useCallback((asset: AssetEntry) => {
-    setAssetEntityDeleteTarget(asset)
-  }, [])
-
-  const closeAssetEntityDeleteDialog = React.useCallback(() => {
-    if (assetEntityDeleting) return
-    setAssetEntityDeleteTarget(null)
-  }, [assetEntityDeleting])
-
-  const confirmDeleteAssetEntity = React.useCallback(async () => {
-    const target = assetEntityDeleteTarget
-    if (!target || assetEntityDeleting) return
-    setAssetEntityDeleting(true)
-    try {
-      await handleDeleteAssetEntity(target)
-      setAssetEntityDeleteTarget(null)
-    } finally {
-      setAssetEntityDeleting(false)
-    }
-  }, [assetEntityDeleteTarget, assetEntityDeleting, handleDeleteAssetEntity])
 
   const handleDeleteFolderEntity = React.useCallback(
     (folderId: string) => {
@@ -1775,88 +1240,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [bumpRefRelationsEpoch, gateway, refreshNoteCardInfo],
   )
 
-  const handleTrashAssetRestored = React.useCallback(
-    async (asset: AssetEntry) => {
-      const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
-      if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
-      void gateway.host.toast(`已恢复附件：${assetRefKey(asset)}`)
-    },
-    [gateway],
-  )
-
-  // 草稿笔记的诞生：档案登记元数据、初始快照与归属侧，返回可打开的 NoteMeta。
-  // 左侧栏新建与右侧收藏夹新建共用同一登记入口，草稿语义单一。
-  const registerDraftNote = React.useCallback((side: DraftSide): NoteMeta => {
-    const now = Date.now()
-    const draftId = `draft_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-    const meta: NoteMeta = {
-      id: draftId,
-      title: '未命名',
-      description: '',
-      dir: '',
-      createdAtMs: now,
-      updatedAtMs: now,
-    }
-    // 新笔记默认创建的面：按全局顺序排列，名单来自后端声明。
-    const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => faceManifestFromDeclaration(requireFaceDeclaration(kind)))
-    draftIdentity.register({
-      meta,
-      side,
-      initSnapshot: buildNoteInitSnapshot({
-        faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
-        globalKindOrder: faceKindOrder,
-        title: '未命名',
-        noteTimes: { createdAtMs: now, updatedAtMs: now },
-      }),
-    })
-    return meta
-  }, [defaultFaceKinds, draftIdentity, faceKindOrder])
-
-  // 打开草稿并激活：草稿归属哪一侧由档案记录决定——左侧栏新建只进左侧列表并选中左侧；
-  // 右侧收藏夹新建只进右侧引用并选中右侧。会话列表两侧共用，与归属无关。
-  const openDraftNoteTab = React.useCallback(
-    (meta: NoteMeta) => {
-      const source: DraftSide = draftIdentity.getSide(meta.id) || 'tabs'
-      const draftKey = noteTabKey(meta.id)
-      setOpenNoteIds(prev => (prev.includes(meta.id) ? prev : [...prev, meta.id]))
-      setActiveNoteId(meta.id)
-      setActiveTabKey(draftKey)
-      setDetailSelectionSource(source)
-      if (source === 'tabs') {
-        updateSidebarItems(prev => insertTabAsUngrouped(prev, draftKey, prev.length), { activeTabKey: draftKey })
-      }
-      navigatePage('note-detail')
-    },
-    [draftIdentity, navigatePage, updateSidebarItems],
-  )
-
-  const handleCreateDraftNote = React.useCallback(() => {
-    if (!tabsInitReady || !activeWorkspaceIdRef.current) {
-      enqueueAppCommand('new-note')
-      return
-    }
-    openDraftNoteTab(registerDraftNote('tabs'))
-  }, [enqueueAppCommand, openDraftNoteTab, registerDraftNote, tabsInitReady])
-
-  // 在指定收藏夹创建草稿笔记并加入该收藏夹引用，同时打开草稿（归属右侧）。
-  // 草稿引用只进内存收藏夹文档，落盘时被过滤；保存转正时由档案改指向，消费方自动跟随。
-  const handleCreateDraftNoteInFolder = React.useCallback(
-    (folderId: string) => {
-      if (!tabsInitReady || !activeWorkspaceIdRef.current) {
-        enqueueAppCommand('new-note')
-        return
-      }
-      const baseDoc = favoritesDocRef.current
-      if (!baseDoc) return
-      const fid = String(folderId || '').trim() || 'root'
-      const meta = registerDraftNote('favorites')
-      const added = addRef(baseDoc, fid, 'note', meta.id)
-      if (added) handleFavoritesDocChange(added.doc)
-      openDraftNoteTab(meta)
-    },
-    [enqueueAppCommand, handleFavoritesDocChange, openDraftNoteTab, registerDraftNote, tabsInitReady],
-  )
-
   useAppCommandDispatch({
     visible,
     tabsInitReady,
@@ -1873,309 +1256,46 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     setQuickSearchOpen,
   })
 
-  React.useEffect(() => {
-    // 快捷键只属于活动现场：非活动现场的监听不挂载，避免多现场同时响应。
-    if (!visible) return
-
-    const clearTabSwitchHold = () => {
-      const win = window as any
-      if (win.__hcTabSwitchHoldTimer) clearTimeout(win.__hcTabSwitchHoldTimer)
-      if (win.__hcTabSwitchHoldInterval) clearInterval(win.__hcTabSwitchHoldInterval)
-      win.__hcTabSwitchHoldTimer = null
-      win.__hcTabSwitchHoldInterval = null
-      win.__hcTabSwitchHoldDir = null
-    }
-
-    const getVisibleSidebarTabKeys = (): string[] => {
-      const openKeys = new Set((openTabKeysRef.current || []).map(s => String(s || '').trim()).filter(Boolean))
-      const out: string[] = []
-      const seen = new Set<string>()
-
-      const pushTabKey = (rawTabKey: unknown) => {
-        const tabKey = String(rawTabKey || '').trim()
-        if (!tabKey || !openKeys.has(tabKey) || seen.has(tabKey)) return
-        seen.add(tabKey)
-        out.push(tabKey)
-      }
-
-      // 快捷键切换必须跟侧边栏渲染使用同一份线性模型，否则根标签会被误排到所有分组前面。
-      for (const item of sidebarItemsRef.current || []) {
-        if (item.type === 'tab') {
-          pushTabKey(item.tabKey)
-          continue
-        }
-        if (item.collapsed === true) continue
-        for (const tabKey of item.tabKeys) pushTabKey(tabKey)
-      }
-
-      return out
-    }
-
-    // 右侧收藏夹栏当前页的可切换条目序列：与渲染同源（同一份视图），按引用顺序解析。
-    const getVisibleFavoriteTabKeys = (): string[] => favoritesFolderViewRef.current.entries.map(entry => entry.tabKey)
-
-    const getVisibleSwitchKeys = (): string[] =>
-      resolvedSelectionSourceRef.current === 'favorites' ? getVisibleFavoriteTabKeys() : getVisibleSidebarTabKeys()
-
-    const triggerSwitchTab = (direction: -1 | 1): boolean => {
-      if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') {
-        clearTabSwitchHold()
-        return false
-      }
-      const fromFavorites = resolvedSelectionSourceRef.current === 'favorites'
-      const keys = getVisibleSwitchKeys()
-      if (keys.length <= 1) {
-        clearTabSwitchHold()
-        return false
-      }
-      const cur = String(activeTabKeyRef.current || '').trim()
-      const idx = cur ? keys.indexOf(cur) : -1
-      if (idx < 0) {
-        // 归属右侧时当前目标必在右侧列表内；能到这里说明左侧详情页没有 active tab，属异常，直接停止。
-        clearTabSwitchHold()
-        return false
-      }
-      const nextIndex = idx + direction
-      if (nextIndex < 0 || nextIndex >= keys.length) {
-        // 到边界就停，不循环。
-        clearTabSwitchHold()
-        return false
-      }
-      const nextKey = String(keys[nextIndex] || '').trim()
-      if (!nextKey || nextKey === cur) return false
-      const activated = fromFavorites
-        ? activateFavoritesEntryKeyRef.current(nextKey)
-        : activateExistingTabKeyRef.current(nextKey, { recordHistory: false })
-      if (activated) {
-        if (fromFavorites) setFavoritesActiveScrollSignal(signal => signal + 1)
-        else setActiveTabScrollSignal(signal => signal + 1)
-      }
-      return activated
-    }
-
-    const startTabSwitchHoldToRepeat = (direction: -1 | 1) => {
-      // 按住重复：首发一次，然后 260ms 后进入 55ms 连发。
-      const win = window as any
-      clearTabSwitchHold()
-      win.__hcTabSwitchHoldDir = direction
-
-      const didSwitch = triggerSwitchTab(direction)
-      if (!didSwitch) return
-
-      // 不满足“在标签页内且有至少 2 个标签页”时，不启动连发。
-      if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') return
-      if (getVisibleSwitchKeys().length <= 1) return
-
-      win.__hcTabSwitchHoldTimer = setTimeout(() => {
-        win.__hcTabSwitchHoldInterval = setInterval(() => {
-          triggerSwitchTab(win.__hcTabSwitchHoldDir === -1 ? -1 : 1)
-        }, 55)
-      }, 260)
-    }
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (shortcutRecordingRef.current) return
-
-      if (e.key === 'Escape' && shortcutHintsOpen) {
-        e.preventDefault()
-        e.stopPropagation()
-        setShortcutHintsOpen(false)
-        return
-      }
-
-      const bindings = shortcutBindingsRef.current
-      if (!bindings) return
-
-      // 禁用 Tab 的默认“焦点切换/选中游走”，但不影响编辑器/输入框内的 Tab（例如缩进）。
-      // 若 Tab 已被绑定为某个快捷键（如按住预览），则放行给下方快捷键分发处理。
-      if (e.key === 'Tab' && !isEditableTarget(e.target)) {
-        const tabBoundToShortcut = Object.entries(bindings).some(([key, chord]) => key !== 'version' && shouldTriggerShortcut(e, String(chord || '')))
-        if (!tabBoundToShortcut) {
-          e.preventDefault()
-          e.stopPropagation()
-          return
-        }
-      }
-
-      // 注意力焦点：浮层开着时，快捷键应作用于浮层页面；被遮住的底层页面不再响应。
-      const overlayPage = openModalPageRef.current
-      const focusPage = visiblePageId(pageRef.current, overlayPage)
-
-      // 按住预览：按住即进入预览态并立刻拾取当前悬停条目；松开时还原。
-      if (shouldTriggerShortcut(e, bindings.holdPreview)) {
-        e.preventDefault()
-        e.stopPropagation()
-        previewHoldRef.current = true
-        cancelPreviewClear()
-        applyPreviewTarget(readHoveredSidebarPreviewTarget())
-        return
-      }
-
-      // 长按行为只在对应 mainKey 抬起时停止。
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.selectPrevTab)) {
-        e.preventDefault()
-        e.stopPropagation()
-        startTabSwitchHoldToRepeat(-1)
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.selectNextTab)) {
-        e.preventDefault()
-        e.stopPropagation()
-        startTabSwitchHoldToRepeat(1)
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleSidebar)) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (tabsMode === 'hover') {
-          sidebarShortcutHoldRef.current = true
-          setTabsHoverOpen(true)
-        } else {
-          toggleTabsCollapsed()
-        }
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleFavoritesSidebar)) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (favoritesSidebarMode === 'hover') {
-          favoritesSidebarShortcutHoldRef.current = true
-          setFavoritesHoverOpen(true)
-        } else {
-          toggleFavoritesSidebarCollapsed()
-        }
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.goBackPage)) {
-        e.preventDefault()
-        e.stopPropagation()
-        void goBackPage()
-        return
-      }
-
-      for (const item of PAGE_SHORTCUT_TARGETS) {
-        if (shouldTriggerShortcut(e, bindings[item.id])) {
-          e.preventDefault()
-          e.stopPropagation()
-          handleShortcutOpenPage(item.target)
-          return
-        }
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.newNote)) {
-        e.preventDefault()
-        e.stopPropagation()
-        handleCreateDraftNote()
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleQuickSearch)) {
-        e.preventDefault()
-        e.stopPropagation()
-        setShortcutHintsOpen(false)
-        setQuickSearchOpen(prev => !prev)
-        return
-      }
-
-      if (!overlayPage && shouldTriggerShortcut(e, bindings.closeActiveTab)) {
-        if (focusPage !== 'note-detail' && focusPage !== 'asset-detail') return
-        const key = String(activeTabKeyRef.current || '').trim()
-        if (!key) return
-        e.preventDefault()
-        e.stopPropagation()
-        if (tabKind(key) === 'note') {
-          const nid = noteIdFromTabKey(key)
-          if (!nid) return
-          requestCloseTabRef.current(nid)
-        } else {
-          closeTabKeysDirectRef.current([key])
-        }
-        return
-      }
-
-      if (focusPage !== 'note-detail') return
-      const nid = String(activeNoteIdRef.current || '').trim()
-      if (!nid) return
-      const handle = noteSessionHandlesRef.current[nid]
-      if (!handle) return
-
-      if (shouldTriggerShortcut(e, bindings.saveNote)) {
-        e.preventDefault()
-        e.stopPropagation()
-        void handle.save()
-        return
-      }
-
-      if (shouldTriggerShortcut(e, bindings.toggleMode)) {
-        e.preventDefault()
-        e.stopPropagation()
-        handle.toggleMode()
-        return
-      }
-
-      if (shouldTriggerShortcut(e, bindings.cycleFace)) {
-        e.preventDefault()
-        e.stopPropagation()
-        handle.cycleFace()
-      }
-    }
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (shortcutRecordingRef.current) return
-
-      // stop hold-to-repeat tab switching
-      const bindings = shortcutBindingsRef.current
-      if (bindings) {
-        const win = window as any
-        const holding = !!(win && (win.__hcTabSwitchHoldTimer || win.__hcTabSwitchHoldInterval))
-        if (holding) {
-          const upPrev = bindings.selectPrevTab && isKeyUpForChordMainKey(e, bindings.selectPrevTab)
-          const upNext = bindings.selectNextTab && isKeyUpForChordMainKey(e, bindings.selectNextTab)
-          if (upPrev || upNext) clearTabSwitchHold()
-        }
-      }
-
-      // 按住预览：松开快捷键（或窗口失焦）立即无缝还原原主区域内容。
-      if (bindings && bindings.holdPreview && isKeyUpForChordMainKey(e, bindings.holdPreview)) {
-        stopPreview()
-      }
-
-      // 收藏夹侧边栏按住展开：松开时若鼠标不在其上则收起。
-      if (favoritesSidebarShortcutHoldRef.current && bindings && bindings.toggleFavoritesSidebar && isKeyUpForChordMainKey(e, bindings.toggleFavoritesSidebar)) {
-        favoritesSidebarShortcutHoldRef.current = false
-        if (!favoritesHoverRef.current) setFavoritesHoverOpen(false)
-      }
-
-      if (tabsMode !== 'hover') return
-      if (!sidebarShortcutHoldRef.current) return
-      if (!bindings) return
-      if (!bindings.toggleSidebar) return
-      if (!isKeyUpForChordMainKey(e, bindings.toggleSidebar)) return
-
-      sidebarShortcutHoldRef.current = false
-      if (!sidebarHoverRef.current) setTabsHoverOpen(false)
-    }
-
-    const onWindowBlur = () => {
-      clearTabSwitchHold()
-      stopPreview()
-      favoritesSidebarShortcutHoldRef.current = false
-    }
-
-    window.addEventListener('keydown', onKeyDown, true)
-    window.addEventListener('keyup', onKeyUp, true)
-    window.addEventListener('blur', onWindowBlur, true)
-    return () => {
-      clearTabSwitchHold()
-      window.removeEventListener('keydown', onKeyDown, true)
-      window.removeEventListener('keyup', onKeyUp, true)
-      window.removeEventListener('blur', onWindowBlur, true)
-    }
-  }, [favoritesSidebarMode, goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, stopPreview, tabsMode, toggleFavoritesSidebarCollapsed, toggleTabsCollapsed, visible])
+  useGlobalShortcuts({
+    visible,
+    shortcutBindingsRef,
+    shortcutRecordingRef,
+    shortcutHintsOpen,
+    setShortcutHintsOpen,
+    pageRef,
+    openModalPageRef,
+    activeNoteIdRef,
+    activeTabKeyRef,
+    openTabKeysRef,
+    sidebarItemsRef,
+    favoritesFolderViewRef,
+    resolvedSelectionSourceRef,
+    activateFavoritesEntryKeyRef,
+    activateExistingTabKeyRef,
+    setFavoritesActiveScrollSignal,
+    setActiveTabScrollSignal,
+    previewHoldRef,
+    cancelPreviewClear,
+    applyPreviewTarget,
+    stopPreview,
+    tabsMode,
+    setTabsHoverOpen,
+    sidebarShortcutHoldRef,
+    sidebarHoverRef,
+    toggleTabsCollapsed,
+    favoritesSidebarMode,
+    setFavoritesHoverOpen,
+    favoritesSidebarShortcutHoldRef,
+    favoritesHoverRef,
+    toggleFavoritesSidebarCollapsed,
+    goBackPage,
+    handleShortcutOpenPage,
+    handleCreateDraftNote,
+    setQuickSearchOpen,
+    requestCloseTabRef,
+    closeTabKeysDirectRef,
+    noteSessionHandlesRef,
+  })
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta, faceId?: string, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
@@ -2261,48 +1381,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [defaultFaceKinds, draftIdentity, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
   )
-
-  const handleOpenAssetTab = React.useCallback(
-    (asset: AssetEntry, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
-      setDetailSelectionSource(source)
-      const sanitized: AssetEntry = { ...asset, thumbnailUrl: undefined }
-      const tabKey = assetTabId(sanitized) as TabKey
-      const prevActiveKey = String(activeTabKeyRef.current || '').trim()
-      const recordHistory = opts?.recordHistory !== false
-      if (recordHistory && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== tabKey) {
-        recordNewNavLocation({ page: pageRef.current, tabKey: prevActiveKey })
-      }
-      setOpenAssetTabs(prev => {
-        const idx = prev.findIndex(a => assetTabId(a) === tabKey)
-        if (idx >= 0) {
-          const next = prev.slice()
-          next[idx] = sanitized
-          return next
-        }
-        return [...prev, sanitized]
-      })
-      setActiveTabKey(tabKey)
-      setActiveNoteId('')
-      // 来源为右侧收藏夹时不改动左侧列表：仅切换详情目标并持久化目标键。
-      if (source === 'tabs') {
-        updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(tabKey) ? prev : insertTabAsUngrouped(prev, tabKey, prev.length)), { activeTabKey: tabKey })
-      } else {
-        commitActiveWorkspacePatch({ activeTabKey: tabKey })
-      }
-      navigatePage('asset-detail', { recordHistory })
-    },
-    [commitActiveWorkspacePatch, navigatePage, recordNewNavLocation, updateSidebarItems],
-  )
-
-  const handleAssetTabUpdated = React.useCallback((asset: AssetEntry) => {
-    const tabKey = assetTabId(asset)
-    setOpenAssetTabs(prev => prev.map(item => (assetTabId(item) === tabKey ? { ...asset, thumbnailUrl: item.thumbnailUrl } : item)))
-    setAssetPoolIndex(prev => {
-      if (!prev || typeof prev !== 'object') return prev
-      const key = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-      return { ...(prev as any), assets: { ...((prev as any).assets || {}), [key]: { ...asset, path: asset.relPath } } }
-    })
-  }, [])
 
   // 右侧收藏夹导航栏条目的实体操作：解析条目引用为统一目标，复用与索引页相同的菜单与对话框。
   // 附件查找表复用当前页视图，避免各处重复组装。
@@ -2427,7 +1505,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
       // 先按档案解析再过滤打开列表：转正草稿的原始标识经解析落到真实标识，随真实标签一并关闭。
       // 必须同步求值（函数式更新会被推迟到 discard 之后执行，届时解析已失效）。
-      const nextOpenNoteIds = openNoteIdsRef.current.filter(id => !closing.has(noteTabKey(draftIdentity.resolveId(id))))
+      const nextOpenNoteIds = filterOpenNoteIdsForClose(draftIdentity, openNoteIdsRef.current, closing)
 
       for (const key of closing) {
         if (tabKind(key) !== 'note') continue
@@ -2483,14 +1561,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [closeTabKeysDirect],
   )
-
-  React.useEffect(() => {
-    if (!repoReady || !tabsInitReady) return
-    const targetKey = restoreActiveTabKeyRef.current
-    if (!targetKey) return
-    restoreActiveTabKeyRef.current = ''
-    void activateExistingTabKey(targetKey, { recordHistory: false })
-  }, [activateExistingTabKey, repoReady, tabsInitReady])
 
   const handleCloseTabs = React.useCallback(
     (noteIds: string[]) => {
@@ -2596,8 +1666,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     noteSessionHandlesRef.current[nid]?.discardChanges?.()
     handleCloseTabs([nid])
   }, [closeTabPrompt?.noteId, handleCloseTabs])
-
-  const closeModalOverlay = React.useCallback(() => setOpenModalPage(null), [])
 
   // 模态窗里复用与独立页面完全相同的身体；在浮层内打开详情类目标时先收起浮层。
   const renderModalBodyNode = (): React.ReactNode => {
@@ -3146,20 +2214,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             </DialogActions>
           </Dialog>
 
-          <Dialog open={visible && !!assetEntityDeleteTarget} onClose={closeAssetEntityDeleteDialog} maxWidth="xs" fullWidth>
-            <DialogTitle>移入回收站</DialogTitle>
-            <DialogContent>
-              <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-                确定将附件「{assetEntityDeleteTarget ? assetRefKey(assetEntityDeleteTarget) : '未命名附件'}」移入回收站吗？现有页面中的相关卡片会变成失效引用卡片。
-              </Typography>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={closeAssetEntityDeleteDialog} disabled={assetEntityDeleting}>取消</Button>
-              <Button variant="contained" color="error" onClick={() => void confirmDeleteAssetEntity()} disabled={assetEntityDeleting}>
-                {assetEntityDeleting ? '处理中...' : '移入回收站'}
-              </Button>
-            </DialogActions>
-          </Dialog>
+          {assetEntityDeleteDialog}
 
           <Dialog open={visible && !!closeTabPrompt} onClose={handleCloseTabPromptCancel} maxWidth="xs" fullWidth>
             <DialogTitle>未保存改动</DialogTitle>
@@ -3180,26 +2235,3 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   )
 }
 
-function WorkspaceInitGate(props: { error: string | null; retrying: boolean; onRetry: () => void }) {
-  const { error, retrying, onRetry } = props
-  return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1.5, p: 3 }}>
-      {error ? (
-        <>
-          <Typography sx={{ fontSize: 15, fontWeight: 900, color: 'var(--hc-text)' }}>仓库加载失败</Typography>
-          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)', textAlign: 'center', maxWidth: 480 }}>
-            {error}
-          </Typography>
-          <Button variant="contained" onClick={onRetry} disabled={retrying} sx={{ borderRadius: 2, textTransform: 'none' }}>
-            {retrying ? '重试中…' : '重试'}
-          </Button>
-        </>
-      ) : (
-        <>
-          <CircularProgress size={22} />
-          <Typography sx={{ fontSize: 13, color: 'var(--hc-text-muted)' }}>正在加载仓库…</Typography>
-        </>
-      )}
-    </Box>
-  )
-}
