@@ -156,6 +156,25 @@ export function findChatBranch(chat: any, branchId: string) {
   return branches.find((b: any) => String(b?.id || '') === bid) || null
 }
 
+// activeBranchHeadMid 是“当前活动分支头部节点”的唯一读取定义。
+// 只回答“活动分支记的头部是谁”，不做任何回落；缺失即返回空串。
+export function activeBranchHeadMid(chat: any): string {
+  const branching = chat && typeof chat === 'object' ? (chat as any).branching : null
+  if (!branching || typeof branching !== 'object') return ''
+  const bid = normalizeBranchId((branching as any).activeBranchId)
+  const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+  const branch = branches.find((b: any) => String(b?.id || '') === bid) || null
+  return String((branch as any)?.headMid || '').trim()
+}
+
+// activeBranchHeadMidOrLast 是“活动分支头部，缺失时回落最后一条消息”的读取定义。
+export function activeBranchHeadMidOrLast(chat: any): string {
+  const headMid = activeBranchHeadMid(chat)
+  if (headMid) return headMid
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  return messages.length ? String(messages[messages.length - 1]?.id || '').trim() : ''
+}
+
 export function ensureChatBranch(chat: any, branchId: string) {
   const branching = ensureChatBranching(chat)
   if (!branching) return null

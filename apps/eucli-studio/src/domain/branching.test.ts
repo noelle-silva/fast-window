@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isLeafMessage, newestLeafDescendantMid, resolveRunFocusMid } from './branching'
+import { activeBranchHeadMid, activeBranchHeadMidOrLast, isLeafMessage, newestLeafDescendantMid, resolveRunFocusMid } from './branching'
 
 // 消息树：
 //   u1 -> a1 -> u2 -> a2
@@ -18,6 +18,54 @@ function tree() {
     ],
   }
 }
+
+function chatWithBranching() {
+  return {
+    messages: [
+      { id: 'u1', parentMid: '', createdAt: 1 },
+      { id: 'a1', parentMid: 'u1', createdAt: 2 },
+      { id: 'a1b', parentMid: 'u1', createdAt: 3 },
+    ],
+    branching: {
+      activeBranchId: 'main',
+      branches: [
+        { id: 'main', headMid: 'a1' },
+        { id: 'b1', headMid: 'a1b' },
+      ],
+    },
+  }
+}
+
+describe('branching 活动分支头部读取', () => {
+  it('activeBranchHeadMid 读取活动分支头部，不做回落', () => {
+    const chat = chatWithBranching()
+    expect(activeBranchHeadMid(chat)).toBe('a1')
+    // 切到另一分支
+    chat.branching.activeBranchId = 'b1'
+    expect(activeBranchHeadMid(chat)).toBe('a1b')
+  })
+
+  it('activeBranchHeadMid 缺失时返回空串', () => {
+    expect(activeBranchHeadMid(null)).toBe('')
+    expect(activeBranchHeadMid({ messages: [] })).toBe('')
+    const chat = chatWithBranching()
+    chat.branching.branches[0].headMid = ''
+    expect(activeBranchHeadMid(chat)).toBe('')
+  })
+
+  it('activeBranchHeadMidOrLast 头部缺失时回落最后一条消息', () => {
+    const chat = chatWithBranching()
+    chat.branching.branches[0].headMid = ''
+    expect(activeBranchHeadMidOrLast(chat)).toBe('a1b')
+    // 头部存在时不回落
+    chat.branching.branches[0].headMid = 'a1'
+    expect(activeBranchHeadMidOrLast(chat)).toBe('a1')
+  })
+
+  it('activeBranchHeadMidOrLast 无消息时返回空串', () => {
+    expect(activeBranchHeadMidOrLast({ branching: { activeBranchId: 'main', branches: [{ id: 'main', headMid: '' }] } })).toBe('')
+  })
+})
 
 describe('branching 路径末端基元', () => {
   it('isLeafMessage 判定叶子', () => {

@@ -1,4 +1,4 @@
-import { collectChatMessageIds, findChatMessageById, resolveRunFocusMid, activateChatBranchByMessage } from '../domain/branching'
+import { collectChatMessageIds, findChatMessageById, resolveRunFocusMid, activateChatBranchByMessage, activeBranchHeadMidOrLast } from '../domain/branching'
 import { normalizeChatModelOverride, normalizeModelRef } from '../domain/modelRefUtils'
 import { normalizeHookPromptSelection } from '../domain/hookPrompt'
 import { chatReasoningEffort } from '../domain/reasoning'
@@ -93,7 +93,7 @@ export function createChatRunOperations(
 
   function activeBranchMessagePath(chat: any) {
     const ids = new Set<string>()
-    const headMid = activeChatHeadMid(chat)
+    const headMid = activeBranchHeadMidOrLast(chat)
     const messages = Array.isArray(chat?.messages) ? chat.messages : []
     if (!headMid || !messages.length) return { ids, headMid }
     const byId = new Map<string, any>()
@@ -235,29 +235,18 @@ export function createChatRunOperations(
     return activateChatBranchByMessage(chat, targetMessageId)
   }
 
-  function activeChatHeadMid(chat: any) {
-    const branching = chat && typeof chat === 'object' ? (chat as any).branching : null
-    const activeBranchId = String(branching?.activeBranchId || 'main').trim() || 'main'
-    const branches = Array.isArray(branching?.branches) ? branching.branches : []
-    const branch = branches.find((item: any) => String(item?.id || '').trim() === activeBranchId) || null
-    const headMid = String(branch?.headMid || '').trim()
-    if (headMid) return headMid
-    const messages = Array.isArray(chat?.messages) ? chat.messages : []
-    return messages.length ? String(messages[messages.length - 1]?.id || '').trim() : ''
-  }
-
   function targetSessionViewAnchor(targetKind: ChatTargetKind, targetId: string, sessionId: string) {
     if (!isCurrentTargetSession(targetKind, targetId, sessionId)) return null
     const chat = sa.activeChatFromData()
     const branchId = String((chat as any)?.branching?.activeBranchId || '').trim()
-    return { branchId, headMid: activeChatHeadMid(chat) }
+    return { branchId, headMid: activeBranchHeadMidOrLast(chat) }
   }
 
   function targetSessionViewUnchanged(targetKind: ChatTargetKind, targetId: string, sessionId: string, anchor: { branchId: string; headMid: string } | null | undefined) {
     if (!anchor || !isCurrentTargetSession(targetKind, targetId, sessionId)) return false
     const chat = sa.activeChatFromData()
     const branchId = String((chat as any)?.branching?.activeBranchId || '').trim()
-    return branchId === anchor.branchId && activeChatHeadMid(chat) === anchor.headMid
+    return branchId === anchor.branchId && activeBranchHeadMidOrLast(chat) === anchor.headMid
   }
 
   function targetPendingViewStillCurrent(targetKind: ChatTargetKind, targetId: string, sessionId: string, pendingChatId: string) {
@@ -289,7 +278,7 @@ export function createChatRunOperations(
       const forkFromMid = String(draft?.forkFromMid || '').trim()
       if (forkFromMid) return forkFromMid
     }
-    return activeChatHeadMid(chat)
+    return activeBranchHeadMidOrLast(chat)
   }
 
   function stableExplicitParentForSend(roleId: string, sessionId: string, chat: any, explicitParentMid: string) {
@@ -524,7 +513,7 @@ export function createChatRunOperations(
         }
 
         const activeChat = sa.activeChatFromData()
-        contextMessageId = activeChatHeadMid(activeChat) || contextMessageId
+        contextMessageId = activeBranchHeadMidOrLast(activeChat) || contextMessageId
       }
       return true
     } finally {
