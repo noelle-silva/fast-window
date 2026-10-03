@@ -2221,15 +2221,19 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         return
       }
 
-      // 禁用 Tab 的默认“焦点切换/选中游走”，但不影响编辑器/输入框内的 Tab（例如缩进）。
-      if (e.key === 'Tab' && !isEditableTarget(e.target)) {
-        e.preventDefault()
-        e.stopPropagation()
-        return
-      }
-
       const bindings = shortcutBindingsRef.current
       if (!bindings) return
+
+      // 禁用 Tab 的默认“焦点切换/选中游走”，但不影响编辑器/输入框内的 Tab（例如缩进）。
+      // 若 Tab 已被绑定为某个快捷键（如按住预览），则放行给下方快捷键分发处理。
+      if (e.key === 'Tab' && !isEditableTarget(e.target)) {
+        const tabBoundToShortcut = Object.entries(bindings).some(([key, chord]) => key !== 'version' && shouldTriggerShortcut(e, String(chord || '')))
+        if (!tabBoundToShortcut) {
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
+      }
 
       // 注意力焦点：浮层开着时，快捷键应作用于浮层页面；被遮住的底层页面不再响应。
       const overlayPage = openModalPageRef.current
