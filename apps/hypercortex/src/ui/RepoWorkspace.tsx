@@ -1169,6 +1169,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   // ---- 收藏夹导航栏（右侧栏）
   const [favoritesHoverOpen, setFavoritesHoverOpen] = React.useState(false)
   const favoritesHoverRef = React.useRef(false)
+  const favoritesSidebarShortcutHoldRef = React.useRef(false)
   const isHoverFavoritesMode = favoritesSidebarMode === 'hover'
   const rightSidebarLayout = resolveSidebarLayout({
     mode: favoritesSidebarMode,
@@ -1189,7 +1190,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const onFavoritesSidebarMouseLeave = React.useCallback(() => {
     favoritesHoverRef.current = false
     handleSidebarPreviewHover(null)
-    if (isHoverFavoritesMode) setFavoritesHoverOpen(false)
+    if (!isHoverFavoritesMode) return
+    if (favoritesSidebarShortcutHoldRef.current) return
+    setFavoritesHoverOpen(false)
   }, [handleSidebarPreviewHover, isHoverFavoritesMode])
 
   const persistFavoritesNav = React.useCallback(
@@ -2275,6 +2278,18 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         return
       }
 
+      if (!overlayPage && shouldTriggerShortcut(e, bindings.toggleFavoritesSidebar)) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (favoritesSidebarMode === 'hover') {
+          favoritesSidebarShortcutHoldRef.current = true
+          setFavoritesHoverOpen(true)
+        } else {
+          toggleFavoritesSidebarCollapsed()
+        }
+        return
+      }
+
       if (!overlayPage && shouldTriggerShortcut(e, bindings.goBackPage)) {
         e.preventDefault()
         e.stopPropagation()
@@ -2369,6 +2384,12 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         stopPreview()
       }
 
+      // 收藏夹侧边栏按住展开：松开时若鼠标不在其上则收起。
+      if (favoritesSidebarShortcutHoldRef.current && bindings && bindings.toggleFavoritesSidebar && isKeyUpForChordMainKey(e, bindings.toggleFavoritesSidebar)) {
+        favoritesSidebarShortcutHoldRef.current = false
+        if (!favoritesHoverRef.current) setFavoritesHoverOpen(false)
+      }
+
       if (tabsMode !== 'hover') return
       if (!sidebarShortcutHoldRef.current) return
       if (!bindings) return
@@ -2382,6 +2403,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     const onWindowBlur = () => {
       clearTabSwitchHold()
       stopPreview()
+      favoritesSidebarShortcutHoldRef.current = false
     }
 
     window.addEventListener('keydown', onKeyDown, true)
@@ -2393,7 +2415,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', onWindowBlur, true)
     }
-  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, stopPreview, tabsMode, toggleTabsCollapsed, visible])
+  }, [favoritesSidebarMode, goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, stopPreview, tabsMode, toggleFavoritesSidebarCollapsed, toggleTabsCollapsed, visible])
 
   // 预览期间在原位滚轮：把边栏上的滚轮事件转发给覆盖层滚动容器，滚动主区域预览内容。
   React.useEffect(() => {

@@ -28,6 +28,7 @@ const KEY_BY_ID: Record<HyperCortexShortcutId, ShortcutKey> = {
   selectNextTab: 'selectNextTab',
   cycleFace: 'cycleFace',
   holdPreview: 'holdPreview',
+  toggleFavoritesSidebar: 'toggleFavoritesSidebar',
 }
 
 function updateBinding(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexShortcutId, nextChord: string): HyperCortexShortcutBindingsV1 {
@@ -143,7 +144,8 @@ export function ShortcutSettingsPanel(props: {
             { id: 'toggleQuickSearch', title: '快速搜索（显示/隐藏）' },
             { id: 'toggleMode', title: '切换阅读/编辑' },
             { id: 'cycleFace', title: '切换笔记面（文本/HTML）' },
-            { id: 'toggleSidebar', title: '侧边栏展开/收起' },
+            { id: 'toggleSidebar', title: '工作区侧边栏展开/收起' },
+            { id: 'toggleFavoritesSidebar', title: '收藏夹侧边栏展开/收起' },
             { id: 'holdPreview', title: '按住预览侧边栏条目' },
           ] satisfies { id: HyperCortexShortcutId; title: string }[]
         ).map(row => (

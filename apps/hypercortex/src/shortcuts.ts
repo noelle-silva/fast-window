@@ -15,6 +15,7 @@ export type HyperCortexShortcutId =
   | 'selectNextTab'
   | 'cycleFace'
   | 'holdPreview'
+  | 'toggleFavoritesSidebar'
 
 export type HyperCortexShortcutBindingsV1 = {
   version: 1
@@ -34,6 +35,7 @@ export type HyperCortexShortcutBindingsV1 = {
   selectNextTab: string
   cycleFace: string
   holdPreview: string
+  toggleFavoritesSidebar: string
 }
 
 export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
@@ -54,6 +56,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   selectNextTab: '',
   cycleFace: '',
   holdPreview: '',
+  toggleFavoritesSidebar: '',
 }
 
 function normChord(value: unknown): string {
@@ -82,6 +85,7 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     selectNextTab: normChord(obj.selectNextTab),
     cycleFace: normChord(obj.cycleFace),
     holdPreview: normChord(obj.holdPreview),
+    toggleFavoritesSidebar: normChord(obj.toggleFavoritesSidebar),
   }
 }
 
