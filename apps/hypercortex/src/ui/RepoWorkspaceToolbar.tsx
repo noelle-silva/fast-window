@@ -13,6 +13,7 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import type { NoteMeta } from '../core'
 import type { VaultScope } from '../core'
 import type { AssetEntry } from '../assetTypes'
+import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { HyperCortexGateway } from '../gateway'
 import type { HyperCortexShortcutBindingsV1, HyperCortexShortcutId } from '../shortcuts'
 import { formatChordForDisplay } from '../shortcuts'
@@ -95,6 +96,7 @@ export type RepoWorkspaceToolbarQuickSearch = {
   scope: VaultScope
   open: boolean
   allNotesLayout: AllNotesLayout
+  favoritesDoc: HyperCortexFavoritesDocV1 | null
   onToggle: () => void
   onToggleAllNotesLayout: () => void
   onClose: () => void
@@ -199,6 +201,7 @@ export function RepoWorkspaceToolbar(props: RepoWorkspaceToolbarProps) {
         open={quickSearch.open}
         triggerEl={quickSearchAnchorRef.current}
         allNotesLayout={quickSearch.allNotesLayout}
+        favoritesDoc={quickSearch.favoritesDoc}
         onToggleAllNotesLayout={quickSearch.onToggleAllNotesLayout}
         onClose={quickSearch.onClose}
         onOpenNote={quickSearch.onOpenNote}

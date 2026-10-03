@@ -13,16 +13,45 @@ import {
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import { type NoteMeta, type VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import { buildAssetEntry } from '../assetEntryModel'
 import type { AssetEntry } from '../assetTypes'
-import { buildAssetEntries } from '../assetEntryModel'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import type { NoteSearchFaceKind, NoteSearchHit } from '../gateway/types'
+import { getAllFolders } from '../favorites'
+import type { HyperCortexFavoritesDocV1 } from '../favorites'
+import { folderDisplayTitle } from './favoritesTree'
+import type {
+  NoteSearchFaceKind,
+  NoteSearchHit,
+  SearchCatalog,
+  SearchFieldOption,
+  SearchKindOption,
+} from '../gateway/types'
 import type { HyperCortexGateway } from '../gateway'
 import { unstyledButtonSurfaceSx } from './pluginUiStyles'
 import { tagToneFromText, toneChipSx } from './uiTones'
 import type { AllNotesLayout } from './AllNotesPage'
+import { useSearchSession } from './quickSearchSession'
+import {
+  EMPTY_ASSET_FILTERS,
+  EMPTY_NOTE_FILTERS,
+  assetFiltersSignature,
+  buildAssetSearchQuery,
+  buildNoteSearchQuery,
+  bytesToKbInput,
+  dateInputToEndMs,
+  dateInputToStartMs,
+  hasAssetFilters,
+  hasNoteFilters,
+  kbInputToBytes,
+  msToDateInput,
+  noteFiltersSignature,
+  toggleInList,
+  type AssetSearchFilters,
+  type NoteSearchFilters,
+} from './quickSearchFilters'
 
 type Mode = 'notes' | 'assets'
 
@@ -35,6 +64,7 @@ type Props = {
   open: boolean
   triggerEl: HTMLElement | null
   allNotesLayout: AllNotesLayout
+  favoritesDoc: HyperCortexFavoritesDocV1 | null
   onToggleAllNotesLayout: () => void
   onClose: () => void
   onOpenNote: (note: NoteMeta, faceId?: string) => void
@@ -127,6 +157,117 @@ function FieldHitChip(props: { label: string }): React.ReactNode {
       }}
     >
       {props.label}
+    </Box>
+  )
+}
+
+function FilterChip(props: { label: string; active: boolean; onClick: () => void }): React.ReactNode {
+  const { label, active, onClick } = props
+  return (
+    <Box
+      component="button"
+      onClick={onClick}
+      sx={{
+        ...unstyledButtonSurfaceSx,
+        px: 1,
+        py: 0.4,
+        borderRadius: 999,
+        cursor: 'pointer',
+        fontSize: 11,
+        fontWeight: 900,
+        color: active ? '#fff' : 'rgba(0,0,0,.6)',
+        bgcolor: active ? 'var(--hc-primary)' : 'rgba(0,0,0,.05)',
+        '&:hover': { bgcolor: active ? 'var(--hc-primary)' : 'rgba(0,0,0,.09)' },
+      }}
+    >
+      {label}
+    </Box>
+  )
+}
+
+function FilterRow(props: { label: string; children: React.ReactNode }): React.ReactNode {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, flexWrap: 'wrap' }}>
+      <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontWeight: 900, flexShrink: 0 }}>{props.label}</Typography>
+      {props.children}
+    </Box>
+  )
+}
+
+const filterInputSx = {
+  appearance: 'auto',
+  WebkitAppearance: 'auto',
+  border: 0,
+  margin: 0,
+  font: 'inherit',
+  fontFamily: 'inherit',
+  outline: 'none',
+  px: 0.75,
+  py: 0.4,
+  borderRadius: 1.5,
+  fontSize: 11,
+  color: 'rgba(0,0,0,.68)',
+  bgcolor: 'rgba(0,0,0,.05)',
+  boxShadow: 'inset 0 0 0 1px transparent',
+  '&:focus': { boxShadow: 'inset 0 0 0 1px var(--hc-primary)', bgcolor: 'var(--hc-surface)' },
+} as const
+
+function DateRangeInputs(props: {
+  from: number
+  to: number
+  onChange: (from: number, to: number) => void
+}): React.ReactNode {
+  const { from, to, onChange } = props
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box
+        component="input"
+        type="date"
+        value={msToDateInput(from)}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(dateInputToStartMs(e.target.value), to)}
+        sx={filterInputSx}
+      />
+      <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.4)' }}>~</Typography>
+      <Box
+        component="input"
+        type="date"
+        value={msToDateInput(to)}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(from, dateInputToEndMs(e.target.value))}
+        sx={filterInputSx}
+      />
+    </Box>
+  )
+}
+
+function SizeRangeInputs(props: {
+  from: number
+  to: number
+  onChange: (from: number, to: number) => void
+}): React.ReactNode {
+  const { from, to, onChange } = props
+  const numberSx = { ...filterInputSx, width: 68 }
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box
+        component="input"
+        type="number"
+        min={0}
+        placeholder="最小"
+        value={bytesToKbInput(from)}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(kbInputToBytes(e.target.value), to)}
+        sx={numberSx}
+      />
+      <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.4)' }}>~</Typography>
+      <Box
+        component="input"
+        type="number"
+        min={0}
+        placeholder="最大"
+        value={bytesToKbInput(to)}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(from, kbInputToBytes(e.target.value))}
+        sx={numberSx}
+      />
+      <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.4)' }}>KB</Typography>
     </Box>
   )
 }
@@ -334,14 +475,123 @@ function SearchNoteResultRow(props: {
   )
 }
 
+function NoteFilterPanel(props: {
+  catalog: SearchCatalog
+  filters: NoteSearchFilters
+  folders: { id: string; title: string }[]
+  onChange: (next: NoteSearchFilters) => void
+}): React.ReactNode {
+  const { catalog, filters, folders, onChange } = props
+  return (
+    <Box sx={{ px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 0.75, borderTop: '1px solid rgba(0,0,0,.06)' }}>
+      <FilterRow label="维度">
+        {catalog.noteFields.map((field: SearchFieldOption) => (
+          <FilterChip
+            key={field.key}
+            label={field.label}
+            active={filters.fields.includes(field.key)}
+            onClick={() => onChange({ ...filters, fields: toggleInList(filters.fields, field.key) })}
+          />
+        ))}
+      </FilterRow>
+      {catalog.noteFaceKinds.length ? (
+        <FilterRow label="面类型">
+          {catalog.noteFaceKinds.map((face: NoteSearchFaceKind) => (
+            <FilterChip
+              key={face.kind}
+              label={face.label}
+              active={filters.faceKinds.includes(face.kind)}
+              onClick={() => onChange({ ...filters, faceKinds: toggleInList(filters.faceKinds, face.kind) })}
+            />
+          ))}
+        </FilterRow>
+      ) : null}
+      <FilterRow label="收藏夹">
+        <Box
+          component="select"
+          value={filters.folderId}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...filters, folderId: e.target.value })}
+          sx={{ ...filterInputSx, minWidth: 120 }}
+        >
+          <option value="">全部</option>
+          {folders.map(folder => (
+            <option key={folder.id} value={folder.id}>
+              {folder.title}
+            </option>
+          ))}
+        </Box>
+      </FilterRow>
+      <FilterRow label="时间">
+        <DateRangeInputs
+          from={filters.updatedFromMs}
+          to={filters.updatedToMs}
+          onChange={(from, to) => onChange({ ...filters, updatedFromMs: from, updatedToMs: to })}
+        />
+      </FilterRow>
+    </Box>
+  )
+}
+
+function AssetFilterPanel(props: {
+  catalog: SearchCatalog
+  filters: AssetSearchFilters
+  onChange: (next: AssetSearchFilters) => void
+}): React.ReactNode {
+  const { catalog, filters, onChange } = props
+  return (
+    <Box sx={{ px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 0.75, borderTop: '1px solid rgba(0,0,0,.06)' }}>
+      <FilterRow label="维度">
+        {catalog.assetFields.map((field: SearchFieldOption) => (
+          <FilterChip
+            key={field.key}
+            label={field.label}
+            active={filters.fields.includes(field.key)}
+            onClick={() => onChange({ ...filters, fields: toggleInList(filters.fields, field.key) })}
+          />
+        ))}
+      </FilterRow>
+      <FilterRow label="类型">
+        <FilterChip label="全部" active={!filters.kind} onClick={() => onChange({ ...filters, kind: '' })} />
+        {catalog.assetKinds.map((kind: SearchKindOption) => (
+          <FilterChip
+            key={kind.kind}
+            label={kind.label}
+            active={filters.kind === kind.kind}
+            onClick={() => onChange({ ...filters, kind: filters.kind === kind.kind ? '' : kind.kind })}
+          />
+        ))}
+      </FilterRow>
+      <FilterRow label="大小">
+        <SizeRangeInputs
+          from={filters.sizeFrom}
+          to={filters.sizeTo}
+          onChange={(from, to) => onChange({ ...filters, sizeFrom: from, sizeTo: to })}
+        />
+      </FilterRow>
+      <FilterRow label="时间">
+        <DateRangeInputs
+          from={filters.updatedFromMs}
+          to={filters.updatedToMs}
+          onChange={(from, to) => onChange({ ...filters, updatedFromMs: from, updatedToMs: to })}
+        />
+      </FilterRow>
+    </Box>
+  )
+}
+
 export function QuickSearchPopover(props: Props) {
-  const { gateway, scope, open, triggerEl, allNotesLayout, onToggleAllNotesLayout, onClose, onOpenNote, onOpenAsset } = props
+  const { gateway, scope, open, triggerEl, allNotesLayout, favoritesDoc, onToggleAllNotesLayout, onClose, onOpenNote, onOpenAsset } = props
 
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const popperRootRef = React.useRef<HTMLDivElement | null>(null)
 
   const [mode, setMode] = React.useState<Mode>('notes')
   const [query, setQuery] = React.useState('')
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+
+  const [catalog, setCatalog] = React.useState<SearchCatalog | null>(null)
+  const [noteFilters, setNoteFilters] = React.useState<NoteSearchFilters>(EMPTY_NOTE_FILTERS)
+  const [assetFilters, setAssetFilters] = React.useState<AssetSearchFilters>(EMPTY_ASSET_FILTERS)
 
   const [viewportTick, setViewportTick] = React.useState(0)
   React.useEffect(() => {
@@ -361,170 +611,81 @@ export function QuickSearchPopover(props: Props) {
     }
   }, [viewportTick])
 
-  const [assets, setAssets] = React.useState<AssetEntry[]>([])
-  const [assetsLoading, setAssetsLoading] = React.useState(false)
-  const [assetsError, setAssetsError] = React.useState<string | null>(null)
-  const assetsLoadSeqRef = React.useRef(0)
-
-  const [faceKinds, setFaceKinds] = React.useState<NoteSearchFaceKind[]>([])
-  const [faceKindFilter, setFaceKindFilter] = React.useState('')
-  const [searchItems, setSearchItems] = React.useState<NoteSearchHit[]>([])
-  const [searchLoading, setSearchLoading] = React.useState(false)
-  const [searchLoadingMore, setSearchLoadingMore] = React.useState(false)
-  const [searchHasMore, setSearchHasMore] = React.useState(false)
-  const [searchError, setSearchError] = React.useState<string | null>(null)
-  const searchSeqRef = React.useRef(0)
-
   React.useEffect(() => {
     if (!open) return
     const raf = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(raf)
   }, [open])
 
+  // 过滤项事实源：可搜维度、面类型、附件类型全部由后端出口动态给出。
   React.useEffect(() => {
-    if (!open || mode !== 'notes' || faceKinds.length) return
+    if (!open || catalog) return
     let alive = true
     gateway.search
-      .listFaceKinds()
-      .then(kinds => {
-        if (alive && Array.isArray(kinds)) setFaceKinds(kinds)
+      .loadOptions()
+      .then(next => {
+        if (alive && next) setCatalog(next)
       })
       .catch(() => {})
     return () => {
       alive = false
     }
-  }, [faceKinds.length, gateway, mode, open])
+  }, [catalog, gateway, open])
 
-  React.useEffect(() => {
-    if (!open || mode !== 'notes') return
-    const q = query.trim()
-    if (!q) {
-      setSearchItems([])
-      setSearchHasMore(false)
-      setSearchError(null)
-      return
-    }
-    const timer = window.setTimeout(() => {
-      const seq = ++searchSeqRef.current
-      setSearchLoading(true)
-      setSearchError(null)
-      gateway.search
-        .queryNotes(scope, {
-          query: q,
-          fields: faceKindFilter ? ['content'] : undefined,
-          faceKinds: faceKindFilter ? [faceKindFilter] : undefined,
-          limit: SEARCH_PAGE_SIZE,
-          offset: 0,
-        })
-        .then(result => {
-          if (searchSeqRef.current !== seq) return
-          const items = Array.isArray(result?.items) ? result.items : []
-          setSearchItems(items)
-          setSearchHasMore(items.length >= SEARCH_PAGE_SIZE)
-        })
-        .catch((e: any) => {
-          if (searchSeqRef.current !== seq) return
-          setSearchError(String(e?.message || e || '搜索失败'))
-          setSearchItems([])
-          setSearchHasMore(false)
-        })
-        .finally(() => {
-          if (searchSeqRef.current === seq) setSearchLoading(false)
-        })
-    }, 200)
-    return () => window.clearTimeout(timer)
-  }, [faceKindFilter, gateway, mode, open, query, scope])
+  const folders = React.useMemo(
+    () => (favoritesDoc ? getAllFolders(favoritesDoc).map(folder => ({ id: folder.id, title: folderDisplayTitle(folder.id, folder.title) })) : []),
+    [favoritesDoc],
+  )
 
-  // 下滑懒加载：以已加载条数为起点再请求一页，追加到现有结果。
-  const loadMoreSearch = React.useCallback(() => {
-    if (mode !== 'notes' || searchLoading || searchLoadingMore || !searchHasMore) return
-    const q = query.trim()
-    if (!q) return
-    const seq = searchSeqRef.current
-    setSearchLoadingMore(true)
-    gateway.search
-      .queryNotes(scope, {
-        query: q,
-        fields: faceKindFilter ? ['content'] : undefined,
-        faceKinds: faceKindFilter ? [faceKindFilter] : undefined,
-        limit: SEARCH_PAGE_SIZE,
-        offset: searchItems.length,
-      })
-      .then(result => {
-        if (searchSeqRef.current !== seq) return
-        const items = Array.isArray(result?.items) ? result.items : []
-        if (items.length) setSearchItems(prev => [...prev, ...items])
-        setSearchHasMore(items.length >= SEARCH_PAGE_SIZE)
-      })
-      .catch((e: any) => {
-        if (searchSeqRef.current !== seq) return
-        setSearchError(String(e?.message || e || '搜索失败'))
-      })
-      .finally(() => {
-        if (searchSeqRef.current === seq) setSearchLoadingMore(false)
-      })
-  }, [faceKindFilter, gateway, mode, query, scope, searchHasMore, searchItems.length, searchLoading, searchLoadingMore])
+  const tokens = React.useMemo(() => normalizeQuery(query), [query])
 
-  const handleSearchScroll = React.useCallback(
+  const notesEnabled = open && mode === 'notes' && (!!query.trim() || hasNoteFilters(noteFilters))
+  const assetsEnabled = open && mode === 'assets' && (!!query.trim() || hasAssetFilters(assetFilters))
+
+  const noteSession = useSearchSession<NoteSearchHit>({
+    enabled: notesEnabled,
+    signature: noteFiltersSignature(query, noteFilters),
+    pageSize: SEARCH_PAGE_SIZE,
+    fetchPage: (offset, limit) => gateway.search.queryNotes(scope, buildNoteSearchQuery(query, noteFilters, offset, limit)),
+  })
+
+  const assetSession = useSearchSession<AssetEntry>({
+    enabled: assetsEnabled,
+    signature: assetFiltersSignature(query, assetFilters),
+    pageSize: SEARCH_PAGE_SIZE,
+    fetchPage: async (offset, limit) => {
+      const result = await gateway.search.queryAssets(scope, buildAssetSearchQuery(query, assetFilters, offset, limit))
+      return { items: (result?.items || []).map(buildAssetEntry), total: Number(result?.total || 0) }
+    },
+  })
+
+  const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
-      if (mode !== 'notes') return
       const el = event.currentTarget
       if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return
-      loadMoreSearch()
+      if (mode === 'notes') noteSession.loadMore()
+      else assetSession.loadMore()
     },
-    [loadMoreSearch, mode],
+    [assetSession, mode, noteSession],
   )
 
   React.useEffect(() => {
     if (!open) return
-    if (mode !== 'assets') return
-    if (assets.length) return
-
-    const seq = ++assetsLoadSeqRef.current
-    setAssetsLoading(true)
-    setAssetsError(null)
-    ;(async () => {
-      try {
-        const items = await gateway.assets.listAssets(scope)
-        if (assetsLoadSeqRef.current !== seq) return
-        const entries = buildAssetEntries(items)
-        entries.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
-        setAssets(entries)
-      } catch (e: any) {
-        if (assetsLoadSeqRef.current !== seq) return
-        setAssetsError(String(e?.message || e || '附件加载失败'))
-      } finally {
-        if (assetsLoadSeqRef.current === seq) setAssetsLoading(false)
-      }
-    })()
-
-    return () => {
-      if (assetsLoadSeqRef.current === seq) assetsLoadSeqRef.current++
-      setAssetsLoading(false)
-    }
-  }, [assets.length, gateway, mode, open, scope])
-
-  React.useEffect(() => {
-    if (!open) return
-
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
       e.stopPropagation()
       onClose()
     }
-
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [onClose, open])
 
   React.useEffect(() => {
     if (!open) return
-
     const anchor = triggerEl
     const root = popperRootRef.current
     if (!root) return
-
     const closeIfFocusOutside = () => {
       const active = document.activeElement
       if (!active) return
@@ -532,7 +693,6 @@ export function QuickSearchPopover(props: Props) {
       if (root.contains(active)) return
       onClose()
     }
-
     const timer = setTimeout(closeIfFocusOutside, 0)
     const onFocusIn = () => closeIfFocusOutside()
     window.addEventListener('focusin', onFocusIn, true)
@@ -542,28 +702,8 @@ export function QuickSearchPopover(props: Props) {
     }
   }, [onClose, open, triggerEl])
 
-  const tokens = React.useMemo(() => normalizeQuery(query), [query])
-
-  const assetMatches = React.useMemo(() => {
-    const toks = tokens
-    if (!toks.length) return []
-    const list = Array.isArray(assets) ? assets : []
-    const ranked = list
-      .map(a => {
-        const name = pickAssetDisplayName({ explicitName: a.displayName, indexName: a.sourceName || a.fileName, ext: a.ext })
-        const metadata = `${a.remark || ''} ${(a.tags || []).join(' ')}`
-        const fallback = `${a.fileName} ${a.sourceName || ''} ${a.assetId}.${a.ext} ${a.assetId} ${metadata}`
-        const score = Math.max(scoreText(name, toks) * 10, scoreText(fallback, toks))
-        return { asset: a, score }
-      })
-      .filter(x => x.score > 0)
-      .sort((a, b) => b.score - a.score || (b.asset.modifiedMs || 0) - (a.asset.modifiedMs || 0))
-      .slice(0, 48)
-    return ranked.map(x => x.asset)
-  }, [assets, tokens])
-
   const openFirstNote = () => {
-    const hit = searchItems[0]
+    const hit = noteSession.items[0]
     if (!hit) return
     const meta = searchHitToMeta(hit)
     const faceId = hit.faceHits?.length ? hit.faceHits[0].faceId : undefined
@@ -571,8 +711,19 @@ export function QuickSearchPopover(props: Props) {
     onClose()
   }
 
-  const showEmptyHint = !query.trim()
-  const showNoMatch = !!query.trim() && ((mode === 'notes' && !searchLoading && !searchError && !searchItems.length) || (mode === 'assets' && !assetMatches.length))
+  const activeFilterCount = mode === 'notes'
+    ? noteFilters.fields.length + noteFilters.faceKinds.length + (noteFilters.folderId ? 1 : 0) + (noteFilters.updatedFromMs || noteFilters.updatedToMs ? 1 : 0)
+    : assetFilters.fields.length + (assetFilters.kind ? 1 : 0) + (assetFilters.sizeFrom || assetFilters.sizeTo ? 1 : 0) + (assetFilters.updatedFromMs || assetFilters.updatedToMs ? 1 : 0)
+
+  const session = mode === 'notes' ? noteSession : assetSession
+  const hasQuery = !!query.trim()
+  const showEmptyHint = !hasQuery && activeFilterCount === 0
+  const showNoMatch = !session.loading && !session.error && !session.items.length && !showEmptyHint
+
+  const openAsset = (asset: AssetEntry) => {
+    onOpenAsset(asset)
+    onClose()
+  }
 
   return (
     <Popper
@@ -607,25 +758,67 @@ export function QuickSearchPopover(props: Props) {
               <InputBase
                 inputRef={inputRef}
                 value={query}
-                placeholder={mode === 'assets' ? '搜索附件（名称 / 扩展名 / ID）' : '搜索笔记（标题 / 正文 / 标签 / ID）'}
+                placeholder={mode === 'assets' ? '搜索附件（名称 / 备注 / 标签）' : '搜索笔记（标题 / 简介 / 标签 / 正文）'}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => {
                   if (e.key !== 'Enter') return
                   if (mode === 'notes') {
-                    if (searchItems[0]) {
+                    if (noteSession.items[0]) {
                       e.preventDefault()
                       openFirstNote()
                     }
                     return
                   }
-                  if (mode === 'assets' && assetMatches[0]) {
+                  if (mode === 'assets' && assetSession.items[0]) {
                     e.preventDefault()
-                    onOpenAsset(assetMatches[0])
-                    onClose()
+                    openAsset(assetSession.items[0])
                   }
                 }}
                 sx={{ flex: 1, fontSize: 13 }}
               />
+              <Box
+                component="button"
+                onClick={() => setFiltersOpen(v => !v)}
+                aria-label="筛选"
+                title="筛选"
+                sx={{
+                  ...unstyledButtonSurfaceSx,
+                  position: 'relative',
+                  bgcolor: filtersOpen ? 'var(--hc-primary-soft)' : 'rgba(0,0,0,.04)',
+                  color: filtersOpen ? 'var(--hc-primary)' : 'rgba(0,0,0,.62)',
+                  px: 1,
+                  py: 0.6,
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 900,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  '&:hover': { bgcolor: filtersOpen ? 'var(--hc-primary-hover)' : 'rgba(0,0,0,.08)' },
+                }}
+              >
+                <TuneRoundedIcon sx={{ fontSize: 16 }} />
+                筛选
+                {activeFilterCount ? (
+                  <Box
+                    component="span"
+                    sx={{
+                      minWidth: 15,
+                      height: 15,
+                      px: 0.3,
+                      borderRadius: 999,
+                      bgcolor: 'var(--hc-primary)',
+                      color: '#fff',
+                      fontSize: 9.5,
+                      lineHeight: '15px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {activeFilterCount}
+                  </Box>
+                ) : null}
+              </Box>
               {mode === 'notes' ? (
                 <Box
                   component="button"
@@ -650,7 +843,7 @@ export function QuickSearchPopover(props: Props) {
                 </Box>
               ) : null}
               <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', whiteSpace: 'nowrap' }}>
-                {query.trim() ? 'Enter 打开第一条' : ''}
+                {session.total ? `命中 ${session.total}` : hasQuery ? 'Enter 打开第一条' : ''}
               </Typography>
             </Box>
 
@@ -664,69 +857,34 @@ export function QuickSearchPopover(props: Props) {
               <Tab icon={<AttachFileRoundedIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="附件" value="assets" />
             </Tabs>
 
-            {mode === 'notes' && faceKinds.length ? (
-              <Box sx={{ px: 1.25, pt: 0.75, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5 }}>
-                <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontWeight: 900 }}>范围</Typography>
-                {[{ kind: '', label: '全部' }, ...faceKinds].map(item => {
-                  const active = (item.kind || '') === (faceKindFilter || '')
-                  return (
-                    <Box
-                      component="button"
-                      key={item.kind || '__all__'}
-                      onClick={() => setFaceKindFilter(item.kind)}
-                      sx={{
-                        ...unstyledButtonSurfaceSx,
-                        px: 1,
-                        py: 0.45,
-                        borderRadius: 999,
-                        cursor: 'pointer',
-                        fontSize: 11,
-                        fontWeight: 900,
-                        color: active ? '#fff' : 'rgba(0,0,0,.6)',
-                        bgcolor: active ? 'var(--hc-primary)' : 'rgba(0,0,0,.05)',
-                        '&:hover': { bgcolor: active ? 'var(--hc-primary)' : 'rgba(0,0,0,.09)' },
-                      }}
-                    >
-                      {item.label}
-                    </Box>
-                  )
-                })}
-              </Box>
+            {filtersOpen && catalog ? (
+              mode === 'notes' ? (
+                <NoteFilterPanel catalog={catalog} filters={noteFilters} folders={folders} onChange={setNoteFilters} />
+              ) : (
+                <AssetFilterPanel catalog={catalog} filters={assetFilters} onChange={setAssetFilters} />
+              )
             ) : null}
 
-            <Box onScroll={handleSearchScroll} sx={{ maxHeight: 360, overflowY: 'auto' }}>
+            <Box onScroll={handleScroll} sx={{ maxHeight: 360, overflowY: 'auto' }}>
               {showEmptyHint ? (
                 <Box sx={{ px: 1.5, py: 1.5 }}>
-                  <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', fontWeight: 900 }}>输入关键词开始匹配</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', fontWeight: 900 }}>输入关键词或设置过滤条件开始匹配</Typography>
                   <Typography sx={{ mt: 0.5, fontSize: 11, color: 'rgba(0,0,0,.42)' }}>
                     小贴士：支持空格分词；按 <Box component="span" sx={{ fontFamily: 'monospace' }}>Esc</Box> 关闭
                   </Typography>
                 </Box>
               ) : null}
 
-              {mode === 'assets' && assetsLoading ? (
-                <Box sx={{ px: 1.5, py: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CircularProgress size={16} />
-                  <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)' }}>正在加载附件索引…</Typography>
-                </Box>
-              ) : null}
-
-              {mode === 'assets' && assetsError ? (
-                <Box sx={{ px: 1.5, py: 1.5 }}>
-                  <Typography sx={{ fontSize: 12, color: 'var(--hc-danger)', fontWeight: 900 }}>{assetsError}</Typography>
-                </Box>
-              ) : null}
-
-              {mode === 'notes' && searchLoading ? (
+              {session.loading ? (
                 <Box sx={{ px: 1.5, py: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CircularProgress size={16} />
                   <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)' }}>正在搜索…</Typography>
                 </Box>
               ) : null}
 
-              {mode === 'notes' && searchError ? (
+              {session.error ? (
                 <Box sx={{ px: 1.5, py: 1.5 }}>
-                  <Typography sx={{ fontSize: 12, color: 'var(--hc-danger)', fontWeight: 900 }}>{searchError}</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'var(--hc-danger)', fontWeight: 900 }}>{session.error}</Typography>
                 </Box>
               ) : null}
 
@@ -736,10 +894,10 @@ export function QuickSearchPopover(props: Props) {
                 </Box>
               ) : null}
 
-              {mode === 'notes' && !searchLoading && searchItems.length ? (
+              {mode === 'notes' && !noteSession.loading && noteSession.items.length ? (
                 allNotesLayout === 'grid' ? (
                   <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
-                    {searchItems.map(hit => (
+                    {noteSession.items.map(hit => (
                       <SearchNoteResultRow
                         key={hit.noteId}
                         hit={hit}
@@ -760,7 +918,7 @@ export function QuickSearchPopover(props: Props) {
                   </Box>
                 ) : allNotesLayout === 'icon' ? (
                   <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(112px, 1fr))', gap: 1 }}>
-                    {searchItems.map(hit => (
+                    {noteSession.items.map(hit => (
                       <SearchNoteResultRow
                         key={hit.noteId}
                         hit={hit}
@@ -781,7 +939,7 @@ export function QuickSearchPopover(props: Props) {
                   </Box>
                 ) : (
                   <Box sx={{ p: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                    {searchItems.map(hit => (
+                    {noteSession.items.map(hit => (
                       <SearchNoteResultRow
                         key={hit.noteId}
                         hit={hit}
@@ -803,26 +961,22 @@ export function QuickSearchPopover(props: Props) {
                 )
               ) : null}
 
-              {mode === 'assets' && !assetsLoading && assetMatches.length ? (
+              {mode === 'assets' && !assetSession.loading && assetSession.items.length ? (
                 <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
-                  {assetMatches.map(a => {
-                    const title = pickAssetDisplayName({ explicitName: a.displayName, ext: a.ext })
+                  {assetSession.items.map(a => {
+                    const title = pickAssetDisplayName({ explicitName: a.displayName, indexName: a.sourceName || a.fileName, ext: a.ext })
                     const extLabel = a.ext ? `.${a.ext}` : ''
                     return (
                       <Box
                         component="li"
                         key={`${a.assetId}.${a.ext}`}
-                        onClick={() => {
-                          onOpenAsset(a)
-                          onClose()
-                        }}
+                        onClick={() => openAsset(a)}
                         role="button"
                         tabIndex={0}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault()
-                            onOpenAsset(a)
-                            onClose()
+                            openAsset(a)
                           }
                         }}
                         sx={{
@@ -833,7 +987,7 @@ export function QuickSearchPopover(props: Props) {
                         }}
                       >
                         <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: '#111' }} noWrap title={title}>
-                          {title}
+                          <HighlightText text={title} tokens={tokens} />
                         </Typography>
                         <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontFamily: 'monospace' }} noWrap>
                           {extLabel} {a.assetId.slice(0, 12)}…
@@ -843,22 +997,17 @@ export function QuickSearchPopover(props: Props) {
                   })}
                 </Box>
               ) : null}
+
+              {session.loadingMore ? (
+                <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                  <CircularProgress size={14} />
+                  <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.45)' }}>正在加载更多…</Typography>
+                </Box>
+              ) : null}
             </Box>
           </Paper>
         </ClickAwayListener>
       </Box>
     </Popper>
   )
-}
-
-function scoreText(haystack: string, tokens: string[]): number {
-  const h = String(haystack || '').toLowerCase()
-  if (!h) return 0
-  let score = 0
-  for (const t of tokens) {
-    const idx = h.indexOf(t)
-    if (idx < 0) return 0
-    score += idx === 0 ? 4 : 1
-  }
-  return score
 }
