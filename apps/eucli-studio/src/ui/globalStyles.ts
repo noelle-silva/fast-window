@@ -183,9 +183,6 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
       '.mermaid-block': { margin: '10px 0', overflowX: 'auto', textAlign: 'center' },
       '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
        '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto' },
-      // 含图表的限宽容器居中：模型常用 max-width 限宽排版却忘记写居中，导致整块图表贴左。
-      // 这里让直接包住图表的块级容器水平居中，图表随之居中；全宽容器不受影响。
-      '.prose div:has(> .mermaid-block)': { marginLeft: 'auto', marginRight: 'auto' },
       '.mermaid-block-ready': {
         position: 'relative',
         borderRadius: 12,
