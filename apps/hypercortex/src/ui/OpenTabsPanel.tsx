@@ -40,6 +40,7 @@ import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 import { menuPaperSx } from './pluginUiStyles'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
+import { useScrollMemory } from './scrollMemory'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
@@ -366,40 +367,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const [workspaceMenuAnchorEl, setWorkspaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [workspaceEditor, setWorkspaceEditor] = React.useState<{ mode: 'create' | 'rename'; title: string } | null>(null)
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = React.useState<{ id: string; title: string } | null>(null)
-  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null)
   const activeTabRowRef = React.useRef<HTMLElement | null>(null)
 
-  // 列表滚动上报：rAF 节流，现场据此记忆当前工作区的浏览位置。
-  const scrollReportRafRef = React.useRef<number | null>(null)
-  const handleSidebarScroll = React.useCallback(() => {
-    if (!onSidebarScrollTopChange) return
-    if (scrollReportRafRef.current != null) return
-    scrollReportRafRef.current = requestAnimationFrame(() => {
-      scrollReportRafRef.current = null
-      const container = scrollContainerRef.current
-      if (!container) return
-      onSidebarScrollTopChange(container.scrollTop)
-    })
-  }, [onSidebarScrollTopChange])
-  React.useEffect(() => {
-    return () => {
-      if (scrollReportRafRef.current != null) cancelAnimationFrame(scrollReportRafRef.current)
-      scrollReportRafRef.current = null
-    }
-  }, [])
-
-  // 工作区切换、现场装载与现场可见化时恢复列表滚动位置。
-  // 目标值经「最新值」ref 读取：同工作区内的滚动上报与普通重渲染不触发恢复，不与用户操作抢位置。
-  const sidebarScrollTopValueRef = React.useRef(sidebarScrollTop)
-  React.useLayoutEffect(() => {
-    sidebarScrollTopValueRef.current = sidebarScrollTop
+  // 列表滚动记忆：rAF 节流上报，工作区切换/现场可见化时还原（与右侧收藏夹栏共用同一机制）。
+  const { scrollRef: scrollContainerRef, onScroll: handleSidebarScroll } = useScrollMemory({
+    scrollTop: sidebarScrollTop,
+    restoreKey: activeWorkspaceId,
+    restoreSignal: sidebarScrollRestoreSignal,
+    onScrollTopChange: onSidebarScrollTopChange,
   })
-  React.useLayoutEffect(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
-    const target = Math.max(0, Math.floor(Number(sidebarScrollTopValueRef.current) || 0))
-    if (container.scrollTop !== target) container.scrollTop = target
-  }, [activeWorkspaceId, sidebarScrollRestoreSignal])
 
   React.useLayoutEffect(() => {
     if (activeTabScrollSignal <= 0) return
@@ -407,7 +383,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     const row = activeTabRowRef.current
     if (!container || !row) return
     scrollActiveTabIntoView(container, row)
-  }, [activeTabScrollSignal])
+  }, [activeTabScrollSignal, scrollContainerRef])
 
   const activeWorkspaceTitle = React.useMemo(() => {
     return workspaces.find(w => w.id === activeWorkspaceId)?.title || workspaces[0]?.title || '工作区'

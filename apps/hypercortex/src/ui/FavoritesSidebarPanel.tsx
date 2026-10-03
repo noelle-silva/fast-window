@@ -23,6 +23,7 @@ import { SIDEBAR_PREVIEW_ENTRY_ATTR } from './sidebar-preview/previewTarget'
 import { isFavoriteRefActive, type FavoriteFolderView } from './favoritesSidebarModel'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
+import { useScrollMemory } from './scrollMemory'
 import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
@@ -129,8 +130,15 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     [activeKey, assetLookup],
   )
 
+  // 列表滚动记忆：rAF 节流上报，收藏夹切换/现场可见化时还原（与左侧标签栏共用同一机制）。
+  const { scrollRef: listScrollRef, onScroll: handleListScroll } = useScrollMemory({
+    scrollTop,
+    restoreKey: nav.currentFolderId,
+    restoreSignal: scrollRestoreSignal,
+    onScrollTopChange,
+  })
+
   // 激活条目滚动入视野：与左侧标签栏同一套“信号触发 + 边界留白”的做法。
-  const listScrollRef = React.useRef<HTMLDivElement | null>(null)
   const activeRowRef = React.useRef<HTMLElement | null>(null)
   React.useLayoutEffect(() => {
     if (activeEntryScrollSignal <= 0) return
@@ -146,39 +154,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
       return
     }
     if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
-  }, [activeEntryScrollSignal])
-
-  // 列表滚动上报：rAF 节流，现场据此记忆当前收藏夹的浏览位置。
-  const scrollReportRafRef = React.useRef<number | null>(null)
-  const handleListScroll = React.useCallback(() => {
-    if (!onScrollTopChange) return
-    if (scrollReportRafRef.current != null) return
-    scrollReportRafRef.current = requestAnimationFrame(() => {
-      scrollReportRafRef.current = null
-      const container = listScrollRef.current
-      if (!container) return
-      onScrollTopChange(container.scrollTop)
-    })
-  }, [onScrollTopChange])
-  React.useEffect(() => {
-    return () => {
-      if (scrollReportRafRef.current != null) cancelAnimationFrame(scrollReportRafRef.current)
-      scrollReportRafRef.current = null
-    }
-  }, [])
-
-  // 收藏夹切换与现场可见化时恢复列表滚动位置。
-  // 目标值经「最新值」ref 读取：同收藏夹内的滚动上报与普通重渲染不触发恢复，不与用户操作抢位置。
-  const scrollTopValueRef = React.useRef(scrollTop)
-  React.useLayoutEffect(() => {
-    scrollTopValueRef.current = scrollTop
-  })
-  React.useLayoutEffect(() => {
-    const container = listScrollRef.current
-    if (!container) return
-    const target = Math.max(0, Math.floor(Number(scrollTopValueRef.current) || 0))
-    if (container.scrollTop !== target) container.scrollTop = target
-  }, [nav.currentFolderId, scrollRestoreSignal])
+  }, [activeEntryScrollSignal, listScrollRef])
 
   // 条目拖拽排序：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
   const dragSuppressClickRef = React.useRef(false)
