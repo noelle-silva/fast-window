@@ -62,6 +62,13 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
       wordBreak: 'break-word',
       overflowWrap: 'anywhere',
     },
+    // 顶层块默认居中：模型常用 max-width 限宽排版，却忘记指定位置，导致整块贴左。
+    // 只兜底「模型自己没写位置」的情况——模型写在行内样式的 margin/位置优先级更高，会自动压过本规则。
+    // 只作用于顶层直接子级，不碰模型内层的排版。
+    '.prose > div': {
+      marginLeft: 'auto',
+      marginRight: 'auto',
+    },
     // fw-chat-text 是「会话界面文字」的统一挂点：用户消息、编辑框、输入框随会话文字设置，
     // 内部输入元素需要显式覆盖（MUI 表单控件的字体来自主题，不随外层继承）。
     [`#${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text, #${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text input, #${EUCLI_STUDIO_CHAT_ROOT_ID} .fw-chat-text textarea`]: {
