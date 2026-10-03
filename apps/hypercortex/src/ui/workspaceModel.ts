@@ -20,8 +20,8 @@ export function normalizeOpenTabKeys(value: unknown): string[] {
   return out
 }
 
-// 侧边栏滚动浏览位置：按工作区一条，只保留有效正整数像素值。
-export function normalizeWorkspaceScrollTops(value: unknown): Record<string, number> {
+// 侧边栏列表的滚动浏览位置：按标识（工作区/收藏夹）一条，只保留有效正整数像素值。
+export function normalizeScrollTops(value: unknown): Record<string, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const out: Record<string, number> = {}
   for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {

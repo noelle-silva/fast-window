@@ -45,6 +45,12 @@ export type FavoritesSidebarPanelProps = {
   tabSelectionVisible?: boolean
   /** 激活条目滚动信号：变化即把当前选中条目滚入视野。 */
   activeEntryScrollSignal?: number
+  /** 当前收藏夹记忆的滚动位置：切回该收藏夹时还原。 */
+  scrollTop?: number
+  /** 滚动还原信号：变化即按 scrollTop 还原列表位置。 */
+  scrollRestoreSignal?: number
+  /** 列表滚动上报：现场据此记忆当前收藏夹的浏览位置。 */
+  onScrollTopChange?: (scrollTop: number) => void
   onNavigate: (folderId: string) => void
   onBack: () => void
   onForward: () => void
@@ -83,6 +89,9 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     activeTabKey,
     tabSelectionVisible = false,
     activeEntryScrollSignal = 0,
+    scrollTop = 0,
+    scrollRestoreSignal = 0,
+    onScrollTopChange,
     onNavigate,
     onBack,
     onForward,
@@ -138,6 +147,38 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     }
     if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
   }, [activeEntryScrollSignal])
+
+  // 列表滚动上报：rAF 节流，现场据此记忆当前收藏夹的浏览位置。
+  const scrollReportRafRef = React.useRef<number | null>(null)
+  const handleListScroll = React.useCallback(() => {
+    if (!onScrollTopChange) return
+    if (scrollReportRafRef.current != null) return
+    scrollReportRafRef.current = requestAnimationFrame(() => {
+      scrollReportRafRef.current = null
+      const container = listScrollRef.current
+      if (!container) return
+      onScrollTopChange(container.scrollTop)
+    })
+  }, [onScrollTopChange])
+  React.useEffect(() => {
+    return () => {
+      if (scrollReportRafRef.current != null) cancelAnimationFrame(scrollReportRafRef.current)
+      scrollReportRafRef.current = null
+    }
+  }, [])
+
+  // 收藏夹切换与现场可见化时恢复列表滚动位置。
+  // 目标值经「最新值」ref 读取：同收藏夹内的滚动上报与普通重渲染不触发恢复，不与用户操作抢位置。
+  const scrollTopValueRef = React.useRef(scrollTop)
+  React.useLayoutEffect(() => {
+    scrollTopValueRef.current = scrollTop
+  })
+  React.useLayoutEffect(() => {
+    const container = listScrollRef.current
+    if (!container) return
+    const target = Math.max(0, Math.floor(Number(scrollTopValueRef.current) || 0))
+    if (container.scrollTop !== target) container.scrollTop = target
+  }, [nav.currentFolderId, scrollRestoreSignal])
 
   // 条目拖拽排序：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
   const dragSuppressClickRef = React.useRef(false)
@@ -465,6 +506,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
 
       <Box
         ref={listScrollRef}
+        onScroll={handleListScroll}
         sx={{
           flex: 1,
           minHeight: 0,

@@ -44,7 +44,7 @@ import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys, normalizeWorkspaceScrollTops } from './workspaceModel'
+import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys, normalizeScrollTops } from './workspaceModel'
 import {
   applySidebarItemsToWorkspace,
   closeTabsInSidebar,
@@ -178,9 +178,13 @@ function sanitizeRepoStateForSave(state: HyperCortexRepoStateV1): HyperCortexRep
   next.currentFolderId = String(next.currentFolderId || '').trim() || 'root'
   next.favoritesNav = normalizeFavoritesNav(next.favoritesNav)
 
-  const sidebarScrollTops = normalizeWorkspaceScrollTops(next.sidebarScrollTops)
+  const sidebarScrollTops = normalizeScrollTops(next.sidebarScrollTops)
   if (Object.keys(sidebarScrollTops).length) next.sidebarScrollTops = sidebarScrollTops
   else delete next.sidebarScrollTops
+
+  const favoritesScrollTops = normalizeScrollTops(next.favoritesScrollTops)
+  if (Object.keys(favoritesScrollTops).length) next.favoritesScrollTops = favoritesScrollTops
+  else delete next.favoritesScrollTops
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -416,6 +420,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const sidebarScrollDirtyRef = React.useRef(false)
   const sidebarScrollSaveTimerRef = React.useRef<number | null>(null)
   const [sidebarScrollRestoreSignal, setSidebarScrollRestoreSignal] = React.useState(0)
+  // 收藏夹导航栏滚动浏览位置（收藏夹标识 → 像素）：与左侧同一套记账与持久化机制。
+  const favoritesScrollTopsRef = React.useRef<Record<string, number>>({})
+  const favoritesScrollDirtyRef = React.useRef(false)
+  const favoritesScrollSaveTimerRef = React.useRef<number | null>(null)
+  const [favoritesScrollRestoreSignal, setFavoritesScrollRestoreSignal] = React.useState(0)
   const [repoReady, setRepoReady] = React.useState(false)
   const repoReadyRef = React.useRef(false)
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
@@ -857,7 +866,13 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const persistRepoStatePatch = React.useCallback(
     async (patch: RepoStatePatch) => {
       const current = repoStateRef.current || { version: 1 }
-      const next: HyperCortexRepoStateV1 = { ...current, ...patch, sidebarScrollTops: { ...sidebarScrollTopsRef.current }, version: 1 }
+      const next: HyperCortexRepoStateV1 = {
+        ...current,
+        ...patch,
+        sidebarScrollTops: { ...sidebarScrollTopsRef.current },
+        favoritesScrollTops: { ...favoritesScrollTopsRef.current },
+        version: 1,
+      }
       const sanitized = sanitizeRepoStateForSave(next)
       repoStateRef.current = sanitized
       await gateway.repoState.saveRepoState('library', sanitized)
@@ -899,22 +914,59 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [persistSidebarScrollTops],
   )
 
+  const persistFavoritesScrollTops = React.useCallback(() => {
+    if (!repoReadyRef.current) return
+    if (!favoritesScrollDirtyRef.current) return
+    favoritesScrollDirtyRef.current = false
+    void persistRepoStatePatch({}).catch(() => {})
+  }, [persistRepoStatePatch])
+
+  const flushFavoritesScrollTop = React.useCallback(() => {
+    if (favoritesScrollSaveTimerRef.current != null) {
+      window.clearTimeout(favoritesScrollSaveTimerRef.current)
+      favoritesScrollSaveTimerRef.current = null
+    }
+    persistFavoritesScrollTops()
+  }, [persistFavoritesScrollTops])
+
+  // 收藏夹导航栏滚动上报：按当前收藏夹实时记账，防抖落盘（与左侧同一套机制）。
+  const handleFavoritesScrollTopChange = React.useCallback(
+    (scrollTop: number) => {
+      const fid = String(favoritesNavRef.current?.currentFolderId || '').trim()
+      if (!fid) return
+      const n = Math.floor(Number(scrollTop))
+      const value = Number.isFinite(n) && n > 0 ? n : 0
+      if (favoritesScrollTopsRef.current[fid] === value) return
+      favoritesScrollTopsRef.current[fid] = value
+      favoritesScrollDirtyRef.current = true
+      if (favoritesScrollSaveTimerRef.current != null) return
+      favoritesScrollSaveTimerRef.current = window.setTimeout(() => {
+        favoritesScrollSaveTimerRef.current = null
+        persistFavoritesScrollTops()
+      }, SIDEBAR_SCROLL_SAVE_DEBOUNCE_MS)
+    },
+    [persistFavoritesScrollTops],
+  )
+
   // 现场切走或卸载（回收）前，把尚未落盘的滚动位置写入仓库状态。
   React.useEffect(() => {
     if (visible) return
     flushSidebarScrollTop()
-  }, [flushSidebarScrollTop, visible])
+    flushFavoritesScrollTop()
+  }, [flushSidebarScrollTop, flushFavoritesScrollTop, visible])
 
   React.useEffect(() => {
     return () => {
       flushSidebarScrollTop()
+      flushFavoritesScrollTop()
     }
-  }, [flushSidebarScrollTop])
+  }, [flushSidebarScrollTop, flushFavoritesScrollTop])
 
   // 现场每次可见化都重新应用侧边栏滚动记忆（覆盖常驻期间可能的视图丢失）。
   React.useEffect(() => {
     if (!visible) return
     setSidebarScrollRestoreSignal(signal => signal + 1)
+    setFavoritesScrollRestoreSignal(signal => signal + 1)
   }, [visible])
 
   const handleShortcutBindingsChange = React.useCallback(
@@ -1410,8 +1462,10 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const applyRepoStateToUi = React.useCallback(
     (normalizedRepoState: HyperCortexRepoStateV1) => {
       repoStateRef.current = normalizedRepoState
-      sidebarScrollTopsRef.current = normalizeWorkspaceScrollTops(normalizedRepoState.sidebarScrollTops)
+      sidebarScrollTopsRef.current = normalizeScrollTops(normalizedRepoState.sidebarScrollTops)
       sidebarScrollDirtyRef.current = false
+      favoritesScrollTopsRef.current = normalizeScrollTops(normalizedRepoState.favoritesScrollTops)
+      favoritesScrollDirtyRef.current = false
       setCurrentFolderId(String(normalizedRepoState.currentFolderId || '').trim() || 'root')
       setFavoritesNav(normalizeFavoritesNav(normalizedRepoState.favoritesNav))
       const activeKey = typeof normalizedRepoState.activeTabKey === 'string' ? normalizedRepoState.activeTabKey.trim() : ''
@@ -1925,6 +1979,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     (folderId: string) => {
       const id = String(folderId || '').trim()
       if (!id) return
+      // 删除收藏夹时丢弃其滚动记账，避免陈旧记忆残留。
+      if (favoritesScrollTopsRef.current[id] != null) {
+        delete favoritesScrollTopsRef.current[id]
+        favoritesScrollDirtyRef.current = true
+      }
       if (currentFolderId === id) {
         setCurrentFolderId('root')
         if (repoReadyRef.current) void persistRepoStatePatch({ currentFolderId: 'root' }).catch(() => {})
@@ -3351,6 +3410,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                   (visiblePage === 'note-detail' || visiblePage === 'asset-detail')
                 }
                 activeEntryScrollSignal={favoritesActiveScrollSignal}
+                scrollTop={favoritesScrollTopsRef.current[favoritesNav.currentFolderId] ?? 0}
+                scrollRestoreSignal={favoritesScrollRestoreSignal}
+                onScrollTopChange={handleFavoritesScrollTopChange}
                 onNavigate={handleFavoritesSidebarNavigate}
                 onBack={handleFavoritesSidebarBack}
                 onForward={handleFavoritesSidebarForward}

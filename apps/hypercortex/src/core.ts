@@ -134,6 +134,8 @@ export type HyperCortexRepoStateV1 = {
   favoritesNav?: HyperCortexFavoritesNavV1
   // 侧边栏列表的滚动浏览位置：工作区标识 → 像素值（随仓库持久化）。
   sidebarScrollTops?: Record<string, number>
+  // 收藏夹导航栏列表的滚动浏览位置：收藏夹标识 → 像素值（随仓库持久化）。
+  favoritesScrollTops?: Record<string, number>
 }
 
 export function monthFolder(now = new Date()): string {
