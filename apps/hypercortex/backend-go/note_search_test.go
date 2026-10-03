@@ -327,15 +327,6 @@ func TestSearchMethodsDispatch(t *testing.T) {
 	if !reflect.DeepEqual(res.Kinds, []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}}) {
 		t.Fatalf("kinds = %#v", res.Kinds)
 	}
-
-	kindsOut, err := svc.dispatch("hypercortex.search.kinds", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("dispatch kinds failed: %v", err)
-	}
-	kinds, ok := kindsOut.([]noteSearchFaceKindInfo)
-	if !ok || len(kinds) != 1 || kinds[0].Kind != "markdown" {
-		t.Fatalf("kinds result = %#v", kindsOut)
-	}
 }
 
 func TestSearchQueryHonorsLimitAndOffset(t *testing.T) {

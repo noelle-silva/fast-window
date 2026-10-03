@@ -256,9 +256,10 @@ func rawStringField(raw json.RawMessage, key string) string {
 // searchDefaultLimit 是搜索未指定条数时的统一默认上限（笔记搜索与附件搜索共用）。
 const searchDefaultLimit = 100
 
-// noteSearchFields 与 assetSearchFields 是两类搜索各自允许的匹配维度集合。
-var noteSearchFields = map[string]bool{"title": true, "description": true, "tags": true, "content": true}
-var assetSearchFields = map[string]bool{"name": true, "remark": true, "tags": true}
+// noteSearchFields 与 assetSearchFields 是两类搜索各自允许的匹配维度集合，
+// 从搜索目录的维度选项派生（单一事实源），查询校验与界面出口永远一致。
+var noteSearchFields = searchFieldSet(noteSearchFieldOptions)
+var assetSearchFields = searchFieldSet(assetSearchFieldOptions)
 
 // normalizeSearchWindow 归一化搜索的条数与起始位置：条数 <=0 取统一默认上限，偏移 <0 归 0。
 func normalizeSearchWindow(limit int, offset int) (int, int) {

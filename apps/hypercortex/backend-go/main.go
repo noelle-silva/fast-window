@@ -348,8 +348,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		}
 		return svc.queryRefRelations(requireScope(params), stringField(params, "noteId"), radius, stringField(params, "direction"))
 
-	case "hypercortex.search.kinds":
-		return listSearchableFaceKinds(), nil
+	case "hypercortex.search.options":
+		return buildSearchCatalog(), nil
 	case "hypercortex.search.query":
 		return svc.queryNoteSearch(noteSearchQuery{
 			Scope:         requireScope(params),
