@@ -58,5 +58,5 @@ npm-debug.log*
 .dev-management/
 dev-docs/
 
-# 独立外部仓库
-apps/eucli-box/
+# 外来独立仓库（apps/ 下的嵌套 git 仓库）不使用本文件登记：走本地排除清单
+# .git/info/exclude（不进版本库、不上传云端）。新增外来仓库时请在那边追加，不要写到这里。
