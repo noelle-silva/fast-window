@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogTitle, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogTitle, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
+import { DependableDialog } from './DependableOverlay'
 import type { ErrorPayload } from '../../domain/errorPayload'
 import { prettyJsonText } from '../utils/text'
 import { ErrorTraceTree } from './ErrorTraceTree'
@@ -26,7 +27,7 @@ export function ErrorTraceDialog(props: ErrorTraceDialogProps) {
   const rawText = React.useMemo(() => prettyJsonText(rawError), [rawError])
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <DependableDialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Typography component="span" sx={{ fontWeight: 900, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
           {title}
@@ -58,6 +59,6 @@ export function ErrorTraceDialog(props: ErrorTraceDialogProps) {
           关闭
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

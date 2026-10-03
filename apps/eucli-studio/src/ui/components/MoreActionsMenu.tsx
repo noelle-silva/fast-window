@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Tooltip, Typography } from '@mui/material'
-import { DependableMenu } from './DependablePopover'
+import { Button, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Tooltip, Typography } from '@mui/material'
+import { DependableDialog, DependableMenu } from './DependableOverlay'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 export type MoreActionsMenuItem = {
@@ -81,7 +81,7 @@ export function MoreActionsMenu(props: MoreActionsMenuProps) {
           </MenuItem>
         ))}
       </DependableMenu>
-      <Dialog
+      <DependableDialog
         open={!!pendingConfirm}
         onClose={() => setPendingConfirm(null)}
         maxWidth="xs"
@@ -100,7 +100,7 @@ export function MoreActionsMenu(props: MoreActionsMenuProps) {
             {pendingConfirm?.confirm?.confirmLabel || '删除'}
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 }

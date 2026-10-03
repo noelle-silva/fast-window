@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import { DependableMenu } from '../components/DependablePopover'
+import { Box, Button, Checkbox, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { DependableDialog, DependableMenu } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import BookmarkBorderOutlinedIcon from '@mui/icons-material/BookmarkBorderOutlined'
@@ -491,7 +491,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </MenuItem>
         </DependableMenu>
 
-        <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={favoriteDialog.open} onClose={closeFavoriteDialog} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>收藏「{favoriteDialog.name}」</DialogTitle>
           <DialogContent>
             <Stack spacing={1} sx={{ pt: 0.5 }}>
@@ -520,9 +520,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
             <Button onClick={closeFavoriteDialog}>取消</Button>
             <Button variant="contained" onClick={() => { void saveFavoriteDialog() }} disabled={!draft.folders.length || saving}>{saving ? '保存中…' : '保存'}</Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
 
-        <Dialog open={createFolderDialog.open} onClose={() => setCreateFolderDialog({ open: false, name: '' })} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={createFolderDialog.open} onClose={() => setCreateFolderDialog({ open: false, name: '' })} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>新建收藏夹</DialogTitle>
           <DialogContent>
             <Stack spacing={1.25} sx={{ pt: 1.5 }}>
@@ -550,9 +550,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
               创建
             </Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
 
-        <Dialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={folderDialogOpen} onClose={() => setFolderDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             收藏夹设置
             <Box sx={{ flex: 1 }} />
@@ -607,9 +607,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
               保存
             </Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
 
-        <Dialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={previewDialogOpen} onClose={() => setPreviewDialogOpen(false)} fullWidth maxWidth="md" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>解析预览</DialogTitle>
           <DialogContent>
             <Stack spacing={1.25} sx={{ pt: 1.5 }}>
@@ -620,9 +620,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <DialogActions>
             <Button onClick={() => setPreviewDialogOpen(false)}>关闭</Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
 
-        <Dialog open={problemsDialogOpen} onClose={() => setProblemsDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={problemsDialogOpen} onClose={() => setProblemsDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>问题看板</DialogTitle>
           <DialogContent>
             <Stack spacing={1} sx={{ pt: 0.5 }}>
@@ -634,9 +634,9 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <DialogActions>
             <Button onClick={() => setProblemsDialogOpen(false)}>关闭</Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
 
-        <Dialog open={pluginDialogOpen} onClose={() => setPluginDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+        <DependableDialog open={pluginDialogOpen} onClose={() => setPluginDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>从插件接口创建占位符</DialogTitle>
           <DialogContent>
             <Stack spacing={1}>
@@ -659,7 +659,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           <DialogActions>
             <Button onClick={() => setPluginDialogOpen(false)}>关闭</Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
       </Stack>
     </SettingsSurface>
   )

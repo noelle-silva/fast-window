@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, List, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, List, Stack, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 
 type FavoriteFolderDraftState = { open: boolean; parentId: string; name: string }
@@ -86,7 +87,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
 
   return (
     <>
-      <Dialog open={createFavoriteFolder.open} onClose={closeCreateFavoriteFolder} maxWidth="xs" fullWidth>
+      <DependableDialog open={createFavoriteFolder.open} onClose={closeCreateFavoriteFolder} maxWidth="xs" fullWidth>
         <DialogTitle>{createFavoriteFolder.parentId ? '新建子文件夹' : '新建文件夹'}</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -113,9 +114,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             创建
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={renameFavoriteFolder.open} onClose={closeRenameFavoriteFolder} maxWidth="xs" fullWidth>
+      <DependableDialog open={renameFavoriteFolder.open} onClose={closeRenameFavoriteFolder} maxWidth="xs" fullWidth>
         <DialogTitle>重命名文件夹</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -141,9 +142,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             保存
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={confirmDeleteFavoriteFolder.open} onClose={closeDeleteFavoriteFolderConfirm} maxWidth="xs" fullWidth>
+      <DependableDialog open={confirmDeleteFavoriteFolder.open} onClose={closeDeleteFavoriteFolderConfirm} maxWidth="xs" fullWidth>
         <DialogTitle>{confirmDeleteFavoriteFolder.mode === 'tree' ? '删除文件夹及其子内容？' : '删除文件夹（内容保留）？'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
@@ -158,9 +159,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             删除
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={moveFavoriteFolderContents.open} onClose={closeMoveFavoriteFolderContents} maxWidth="xs" fullWidth>
+      <DependableDialog open={moveFavoriteFolderContents.open} onClose={closeMoveFavoriteFolderContents} maxWidth="xs" fullWidth>
         <DialogTitle>选择内容迁移目标</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -197,9 +198,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             确认迁移并删除
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={confirmClearFavoriteFolder.open} onClose={closeConfirmClearFavoriteFolder} maxWidth="xs" fullWidth>
+      <DependableDialog open={confirmClearFavoriteFolder.open} onClose={closeConfirmClearFavoriteFolder} maxWidth="xs" fullWidth>
         <DialogTitle>清空当前文件夹收藏？</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
@@ -212,9 +213,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             清空
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={moveFavoriteFolderDialog.open} onClose={closeMoveFavoriteFolderDialog} maxWidth="xs" fullWidth>
+      <DependableDialog open={moveFavoriteFolderDialog.open} onClose={closeMoveFavoriteFolderDialog} maxWidth="xs" fullWidth>
         <DialogTitle>移动到...</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -246,9 +247,9 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             确认移动
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} maxWidth="xs" fullWidth>
+      <DependableDialog open={favoriteDialog.open} onClose={closeFavoriteDialog} maxWidth="xs" fullWidth>
         <DialogTitle>收藏到文件夹</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -275,7 +276,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             保存
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 })

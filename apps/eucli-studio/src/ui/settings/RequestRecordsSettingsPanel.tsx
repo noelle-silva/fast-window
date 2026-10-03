@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, Stack, Switch, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -121,7 +122,7 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
         </Stack>
       </Stack>
 
-      <Dialog open={optionsOpen} onClose={() => setOptionsOpen(false)} maxWidth="xs" fullWidth>
+      <DependableDialog open={optionsOpen} onClose={() => setOptionsOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>请求记录视图配置</DialogTitle>
         <DialogContent>
           <Stack spacing={0.5}>
@@ -140,7 +141,7 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
         <DialogActions>
           <Button variant="contained" onClick={() => setOptionsOpen(false)}>完成</Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </SettingsSurface>
   )
 }

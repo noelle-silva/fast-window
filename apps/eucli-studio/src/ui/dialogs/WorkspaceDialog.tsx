@@ -1,4 +1,5 @@
-import { Box, Button, Dialog, DialogActions, DialogTitle, IconButton } from '@mui/material'
+import { Box, Button, DialogActions, DialogTitle, IconButton } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import CloseIcon from '@mui/icons-material/Close'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { NEW_WORKSPACE_ID } from '../../domain/constants'
@@ -11,7 +12,7 @@ export function WorkspaceDialog(props: { open: boolean; controller: any; draft: 
   const isNew = editWorkspaceId === NEW_WORKSPACE_ID
 
   return (
-    <Dialog open={open} onClose={() => controller.actions.closeModal?.()} fullWidth maxWidth="md">
+    <DependableDialog open={open} onClose={() => controller.actions.closeModal?.()} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <SettingsIcon fontSize="small" />
         {isNew ? '新建工作区' : '工作区设置'}
@@ -29,6 +30,6 @@ export function WorkspaceDialog(props: { open: boolean; controller: any; draft: 
           保存
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

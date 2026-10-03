@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogContent, DialogTitle, InputAdornment, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, DialogContent, DialogTitle, InputAdornment, Stack, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import LockOpenIcon from '@mui/icons-material/LockOpen'
@@ -252,7 +253,7 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
         </Button>
       </Stack>
 
-      <Dialog open={portDialog} onClose={() => setPortDialog(false)} maxWidth="xs" fullWidth>
+      <DependableDialog open={portDialog} onClose={() => setPortDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>新增长期端口</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 1 }}>
@@ -270,9 +271,9 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
             <Button variant="contained" onClick={submitPort} disabled={busy}>创建</Button>
           </Stack>
         </DialogContent>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={keyDialog} onClose={() => setKeyDialog(false)} maxWidth="xs" fullWidth>
+      <DependableDialog open={keyDialog} onClose={() => setKeyDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>新增长期 Key</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 1 }}>
@@ -291,9 +292,9 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
             <Button variant="contained" onClick={submitKey} disabled={busy}>创建</Button>
           </Stack>
         </DialogContent>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={!!revealed} onClose={() => setRevealed(null)} maxWidth="sm" fullWidth>
+      <DependableDialog open={!!revealed} onClose={() => setRevealed(null)} maxWidth="sm" fullWidth>
         <DialogTitle>长期 Key</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 1 }}>
@@ -318,9 +319,9 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
             </Button>
           </Stack>
         </DialogContent>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={!!created} onClose={() => setCreated(null)} maxWidth="sm" fullWidth>
+      <DependableDialog open={!!created} onClose={() => setCreated(null)} maxWidth="sm" fullWidth>
         <DialogTitle>长期 Key 已创建</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 1 }}>
@@ -345,7 +346,7 @@ export function AccessSettingsPanel(props: AccessSettingsPanelProps) {
             </Button>
           </Stack>
         </DialogContent>
-      </Dialog>
+      </DependableDialog>
     </SettingsSurface>
   )
 }

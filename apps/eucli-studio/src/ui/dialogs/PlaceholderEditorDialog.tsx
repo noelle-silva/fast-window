@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { Button, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { placeholderSourcePluginDisabled, type PlaceholderItem } from '../../domain/placeholder'
 import { systemPluginEnabledById } from '../../domain/systemPlugin'
@@ -124,7 +125,7 @@ export function PlaceholderEditorDialog(props: PlaceholderEditorDialogProps) {
   }
 
   return (
-    <Dialog open={!!target} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
+    <DependableDialog open={!!target} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
       <DialogTitle>{`{{${displayName}}}`}</DialogTitle>
       <DialogContent>
         {draftItem ? (
@@ -155,6 +156,6 @@ export function PlaceholderEditorDialog(props: PlaceholderEditorDialogProps) {
         <Button startIcon={<ContentCopyIcon />} onClick={copyToken} disabled={!displayName}>复制占位符</Button>
         <Button variant="contained" onClick={onClose}>关闭</Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

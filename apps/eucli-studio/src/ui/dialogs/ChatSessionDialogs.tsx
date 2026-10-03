@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
+import { Button, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 type EditingChatTitleState = { targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; text: string }
@@ -34,7 +35,7 @@ export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: 
 
   return (
     <>
-      <Dialog open={!!editingChatTitle.chatId} onClose={closeEditingChatTitle} maxWidth="xs" fullWidth>
+      <DependableDialog open={!!editingChatTitle.chatId} onClose={closeEditingChatTitle} maxWidth="xs" fullWidth>
         <DialogTitle>编辑会话标题</DialogTitle>
         <DialogContent>
           <TextField
@@ -67,9 +68,9 @@ export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: 
             保存
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog
+      <DependableDialog
         open={!!confirmDelChat.chatId}
         onClose={() => setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })}
         maxWidth="xs"
@@ -104,7 +105,7 @@ export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: 
             删除
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 })

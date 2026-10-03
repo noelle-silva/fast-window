@@ -2,7 +2,6 @@ import * as React from 'react'
 import {
   Box,
   Button,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -16,6 +15,7 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
+import { DependableDialog } from '../components/DependableOverlay'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
@@ -283,7 +283,7 @@ function ToolBusyPromptDialog(props: { controller: any; tools: any }) {
   const toolNameText = prompt?.toolId ? String(prompt.toolId || '') : ''
   const actionText = prompt?.action === 'install' ? '安装' : '更新'
   return (
-    <Dialog open={!!prompt} fullWidth maxWidth="xs">
+    <DependableDialog open={!!prompt} fullWidth maxWidth="xs">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <BuildIcon fontSize="small" />
         工具正在使用中
@@ -301,7 +301,7 @@ function ToolBusyPromptDialog(props: { controller: any; tools: any }) {
           {stopping ? '停止中…' : '停止该工具并继续'}
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }
 

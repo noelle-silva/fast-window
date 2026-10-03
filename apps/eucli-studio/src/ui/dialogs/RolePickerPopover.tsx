@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Button, IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Tab, Tabs, Tooltip, Typography } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'

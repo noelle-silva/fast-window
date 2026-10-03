@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Stack } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import ImageIcon from '@mui/icons-material/Image'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 

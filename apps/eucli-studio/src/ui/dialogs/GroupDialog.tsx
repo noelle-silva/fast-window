@@ -1,4 +1,5 @@
-import { Box, Button, Dialog, DialogActions, DialogTitle, IconButton } from '@mui/material'
+import { Box, Button, DialogActions, DialogTitle, IconButton } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import CloseIcon from '@mui/icons-material/Close'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
@@ -12,7 +13,7 @@ export function GroupDialog(props: { open: boolean; controller: any; roles: any[
   const avatarCropSrc = String((draft as any)?.groupAvatarImageCropSrc || '').trim()
 
   return (
-    <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
+    <DependableDialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <SettingsIcon fontSize="small" />
         {isNew ? '新建群组' : '群组设置'}
@@ -30,6 +31,6 @@ export function GroupDialog(props: { open: boolean; controller: any; roles: any[
           保存
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

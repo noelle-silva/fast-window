@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Chip, Dialog, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, Chip, IconButton, Tooltip, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
@@ -87,7 +88,7 @@ export function MermaidDialog(props: { open: boolean; controller: any; mermaid: 
   })
 
   return (
-    <Dialog
+    <DependableDialog
       open={open}
       onClose={() => controller.actions.closeModal()}
       fullScreen
@@ -239,6 +240,6 @@ export function MermaidDialog(props: { open: boolean; controller: any; mermaid: 
           <ChevronRightIcon />
         </IconButton>
       </Box>
-    </Dialog>
+    </DependableDialog>
   )
 }

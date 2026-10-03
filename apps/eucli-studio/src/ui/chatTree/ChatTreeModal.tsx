@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Dialog, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, IconButton, Tooltip, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { TOPBAR_H } from '../appConstants'
@@ -357,7 +358,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
         ) : null}
       </Box>
 
-      <Dialog
+      <DependableDialog
         open={treeOpen && effectiveTreeView === 'float'}
         onClose={() => closeTreeModal(true)}
         maxWidth={false}
@@ -589,7 +590,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
             )}
           </Box>
         </Box>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 })

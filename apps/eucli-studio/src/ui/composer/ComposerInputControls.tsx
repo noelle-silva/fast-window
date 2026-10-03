@@ -11,7 +11,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import { useEvent } from '../hooks/useEvent'
 import { findAtMentionTrigger } from '../utils/mention'
 import { CustomScrollArea } from '../components/CustomScrollArea'

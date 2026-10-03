@@ -1,4 +1,5 @@
-import { Box, Dialog, DialogContent, DialogTitle, IconButton } from '@mui/material'
+import { Box, DialogContent, DialogTitle, IconButton } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import CloseIcon from '@mui/icons-material/Close'
 import StorageIcon from '@mui/icons-material/Storage'
 import { ProvidersSettingsPanel } from '../settings/ProvidersSettingsPanel'
@@ -7,7 +8,7 @@ export function ProvidersDialog(props: { open: boolean; loading?: boolean; contr
   const { open, loading, controller, providers, draft, models } = props
 
   return (
-    <Dialog
+    <DependableDialog
       open={open}
       onClose={() => controller.actions.closeModal()}
       fullWidth
@@ -27,6 +28,6 @@ export function ProvidersDialog(props: { open: boolean; loading?: boolean; contr
           <ProvidersSettingsPanel controller={controller} loading={!!loading} providers={providers} draft={draft} models={models} />
         </Box>
       </DialogContent>
-    </Dialog>
+    </DependableDialog>
   )
 }

@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import CloseIcon from '@mui/icons-material/Close'

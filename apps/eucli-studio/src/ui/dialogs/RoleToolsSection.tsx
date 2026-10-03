@@ -4,7 +4,6 @@ import {
   Button,
   Checkbox,
   Chip,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -20,6 +19,7 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { normalizeRoleToolPolicy } from '../../domain/toolPolicy'
 import { toolCatalogByName, toolCatalogItems, toolDisplayName, type ToolCatalogItem } from '../../domain/toolCatalog'
+import { DependableDialog } from '../components/DependableOverlay'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 
 type RoleToolsSectionProps = {
@@ -177,7 +177,7 @@ function RoleToolAddDialog(props: { controller: any; draft: any; tools: any; pol
     .slice(0, 200)
 
   return (
-    <Dialog open={!!draft?.roleToolAddOpen} onClose={() => controller.actions.closeRoleToolAdd()} fullWidth maxWidth="md">
+    <DependableDialog open={!!draft?.roleToolAddOpen} onClose={() => controller.actions.closeRoleToolAdd()} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <AddIcon fontSize="small" />
         添加工具
@@ -235,6 +235,6 @@ function RoleToolAddDialog(props: { controller: any; draft: any; tools: any; pol
           加入白名单
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

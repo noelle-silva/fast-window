@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ZoomInIcon from '@mui/icons-material/ZoomIn'
 import ZoomOutIcon from '@mui/icons-material/ZoomOut'
@@ -102,7 +103,7 @@ export function WallpaperViewEditorDialog(props: { controller: any; open: boolea
   })
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <DependableDialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>调整取景</DialogTitle>
       <DialogContent>
         <Stack spacing={1.25} sx={{ pt: 1 }}>
@@ -179,6 +180,6 @@ export function WallpaperViewEditorDialog(props: { controller: any; open: boolea
           保存
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

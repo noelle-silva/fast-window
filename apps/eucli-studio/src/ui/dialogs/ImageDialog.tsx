@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Dialog, IconButton, Typography } from '@mui/material'
+import { Box, IconButton, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { IMAGE_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../../core/viewerZoom'
@@ -281,7 +282,7 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
   })
 
   return (
-    <Dialog
+    <DependableDialog
       open={open}
       onClose={() => controller.actions.closeModal()}
       fullScreen
@@ -369,7 +370,7 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
           <ChevronRightIcon />
         </IconButton>
       </Box>
-    </Dialog>
+    </DependableDialog>
   )
 }
 

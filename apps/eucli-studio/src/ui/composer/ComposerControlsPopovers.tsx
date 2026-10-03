@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Chip, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { numericTimeValue } from '../utils/time'

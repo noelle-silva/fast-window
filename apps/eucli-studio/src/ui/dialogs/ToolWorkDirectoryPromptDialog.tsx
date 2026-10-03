@@ -1,4 +1,5 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
+import { Button, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 
 type ToolWorkDirectoryPromptDialogProps = {
@@ -14,7 +15,7 @@ export function ToolWorkDirectoryPromptDialog(props: ToolWorkDirectoryPromptDial
   const saving = state?.saving === true
   const error = String(state?.error || '')
   return (
-    <Dialog open={open} onClose={() => controller.actions.dismissToolWorkDirectoryPrompt?.()} fullWidth maxWidth="sm">
+    <DependableDialog open={open} onClose={() => controller.actions.dismissToolWorkDirectoryPrompt?.()} fullWidth maxWidth="sm">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <FolderOutlinedIcon fontSize="small" />
         AI 工具的工作目录
@@ -46,6 +47,6 @@ export function ToolWorkDirectoryPromptDialog(props: ToolWorkDirectoryPromptDial
           {saving ? '保存中…' : '使用这个目录'}
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

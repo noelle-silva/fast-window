@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import SaveIcon from '@mui/icons-material/Save'
 import {
@@ -181,7 +182,7 @@ export function ColorThemeSettingsSection(props: { controller: any; loading: boo
           </Stack>
         </Stack>
 
-        <Dialog open={importDialogOpen} onClose={closeImportDialog} fullWidth maxWidth="md">
+        <DependableDialog open={importDialogOpen} onClose={closeImportDialog} fullWidth maxWidth="md">
           <DialogTitle>导入配色 JSON</DialogTitle>
           <DialogContent>
             <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -209,7 +210,7 @@ export function ColorThemeSettingsSection(props: { controller: any; loading: boo
               导入到草稿
             </Button>
           </DialogActions>
-        </Dialog>
+        </DependableDialog>
       </Stack>
     </SettingsSection>
   )

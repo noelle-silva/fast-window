@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Typography } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, MenuItem, Typography } from '@mui/material'
+import { DependableDialog, DependablePopover } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -261,7 +261,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
         </Box>
       </DependablePopover>
 
-      <Dialog
+      <DependableDialog
         open={!!confirmDelMsg.mid}
         onClose={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}
         maxWidth="xs"
@@ -288,9 +288,9 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             删除
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog
+      <DependableDialog
         open={!!confirmDelTree.mid}
         onClose={() => setConfirmDelTree({ mid: '', role: 'assistant' })}
         maxWidth="xs"
@@ -317,9 +317,9 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             删除
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog
+      <DependableDialog
         open={!!regen.mid}
         onClose={() => setRegen({ mid: '', role: 'assistant' })}
         maxWidth="xs"
@@ -353,7 +353,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             重新回复
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 })

@@ -2,7 +2,6 @@ import * as React from 'react'
 import {
   Box,
   Button,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -17,6 +16,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ImageIcon from '@mui/icons-material/Image'
 import { useEvent } from '../hooks/useEvent'
+import { DependableDialog } from '../components/DependableOverlay'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsHeading, SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
@@ -301,7 +301,7 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
         </Stack>
       </SettingsSurface>
 
-      <Dialog open={createCat.open} onClose={closeCreateCat} maxWidth="xs" fullWidth>
+      <DependableDialog open={createCat.open} onClose={closeCreateCat} maxWidth="xs" fullWidth>
         <DialogTitle>新建分类</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -322,9 +322,9 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
             创建
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
 
-      <Dialog open={rename.open} onClose={() => setRename({ open: false, oldName: '', nextName: '' })} maxWidth="xs" fullWidth>
+      <DependableDialog open={rename.open} onClose={() => setRename({ open: false, oldName: '', nextName: '' })} maxWidth="xs" fullWidth>
         <DialogTitle>表情包改名</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
@@ -348,7 +348,7 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
             保存
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </>
   )
 }

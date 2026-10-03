@@ -165,6 +165,9 @@ export function createStudioMuiTheme(mode: ColorThemeMode, colors: ColorThemeCol
     },
     components: {
       MuiDialog: {
+        defaultProps: {
+          transitionDuration: { ...OVERLAY_TRANSITION_DURATION },
+        },
         styleOverrides: {
           paper: {
             borderRadius: 24,
@@ -244,12 +247,13 @@ export function createStudioMuiTheme(mode: ColorThemeMode, colors: ColorThemeCol
           },
         },
       },
-      // 弹出层（Popover / Menu）过渡时长显式固定，禁用 Grow 的「自动时长」模式。
+      // 弹层（Popover / Menu / Dialog）过渡时长显式固定为统一事实源。
       //
-      // 自动模式的退出完成信号依赖一个可被取消的内部共享计时器，同时底层过渡库的
-      // 兜底计时器在该模式下被关闭；切会话等高频刷新会打断它，导致退出回调丢失、
-      // 弹层模态容器永久残留并拦截全屏鼠标交互。固定时长让完成路径确定，
-      // 与 DependablePopover 的「关闭后必然卸下」保障共享同一事实源。
+      // Popover / Menu 默认的「自动时长」模式依赖一个可被取消的内部共享计时器，
+      // 同时底层过渡库的兜底计时器在该模式下被关闭；切会话等高频刷新会打断它，
+      // 导致退出回调丢失、弹层模态容器永久残留并拦截全屏鼠标交互。固定时长让
+      // 完成路径确定，并把退场动画时长与 DependableOverlay 的「关闭后必然卸下」
+      // 等待时长收口为同一来源。
       MuiPopover: {
         defaultProps: {
           transitionDuration: { ...OVERLAY_TRANSITION_DURATION },

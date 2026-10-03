@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, DialogActions, DialogContent, DialogTitle, IconButton, Stack, TextField, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -92,7 +93,7 @@ export function ShelfManagerDialog(props: ShelfManagerDialogProps) {
   }
 
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
+    <DependableDialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         管理货架
         <Box sx={{ flex: 1 }} />
@@ -194,6 +195,6 @@ export function ShelfManagerDialog(props: ShelfManagerDialogProps) {
         </Typography>
         <Button onClick={onClose} disabled={busy}>关闭</Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

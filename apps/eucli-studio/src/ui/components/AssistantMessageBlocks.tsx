@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Collapse, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { DependableDialog } from './DependableOverlay'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
@@ -513,7 +514,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
         )
       })}
 
-      <Dialog open={!!deleting} onClose={() => setDeleting(null)} fullWidth maxWidth="xs">
+      <DependableDialog open={!!deleting} onClose={() => setDeleting(null)} fullWidth maxWidth="xs">
         <DialogTitle>删除这个消息块？</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
@@ -524,7 +525,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
           <Button onClick={() => setDeleting(null)}>取消</Button>
           <Button color="error" variant="contained" disabled={!!disabled || !deleting} onClick={deleteBlock}>删除</Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </Stack>
   )
 }

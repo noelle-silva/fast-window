@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, MenuItem } from '@mui/material'
-import { DependablePopover } from '../components/DependablePopover'
+import { DependablePopover } from '../components/DependableOverlay'
 import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'

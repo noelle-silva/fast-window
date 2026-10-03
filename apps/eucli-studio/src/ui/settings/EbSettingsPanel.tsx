@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import CableIcon from '@mui/icons-material/Cable'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
@@ -153,7 +154,7 @@ export function EbSettingsPanel(props: EbSettingsPanelProps) {
         ) : null}
       </Stack>
 
-      <Dialog open={disconnectOpen} onClose={() => { if (!disconnecting) setDisconnectOpen(false) }} fullWidth maxWidth="xs">
+      <DependableDialog open={disconnectOpen} onClose={() => { if (!disconnecting) setDisconnectOpen(false) }} fullWidth maxWidth="xs">
         <DialogTitle>退出当前连接</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2">将断开与 eucli-box 的连接，并回到连接窗口。</Typography>
@@ -167,7 +168,7 @@ export function EbSettingsPanel(props: EbSettingsPanelProps) {
             {disconnecting ? '退出中…' : '退出连接'}
           </Button>
         </DialogActions>
-      </Dialog>
+      </DependableDialog>
     </SettingsSurface>
   )
 }

@@ -1,4 +1,5 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import { Button, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 
 export function ConfirmDialog(props: { open: boolean; controller: any; draft: any; roles: any[]; groups: any[]; providers: any[]; workspaces?: any[] }) {
   const { open, controller, draft, roles, groups, providers, workspaces } = props
@@ -26,7 +27,7 @@ export function ConfirmDialog(props: { open: boolean; controller: any; draft: an
   const name = rid ? String(role?.name || '') : gid ? String(group?.name || '') : wid ? String(workspace?.name || '') : pid ? String(provider?.name || '') : ''
 
   return (
-    <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="xs">
+    <DependableDialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="xs">
       <DialogTitle>{title}</DialogTitle>
       <DialogContent dividers>
         {nextRenderSafetyPolicy ? (
@@ -61,7 +62,7 @@ export function ConfirmDialog(props: { open: boolean; controller: any; draft: an
           {nextRenderSafetyPolicy ? '我已知晓风险，仍然切换到完全裸奔' : '删除'}
         </Button>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }
 

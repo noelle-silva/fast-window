@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, IconButton, MenuItem, Stack } from '@mui/material'
-import { DependableMenu } from '../components/DependablePopover'
+import { Box, Button, DialogActions, IconButton, MenuItem, Stack } from '@mui/material'
+import { DependableDialog, DependableMenu } from '../components/DependableOverlay'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
@@ -15,7 +15,7 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
   const avatarCropSrc = String(draft?.roleAvatarImageCropSrc || '').trim()
 
   return (
-    <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
+    <DependableDialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
       <ScrollableDialogContent>
         <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
       </ScrollableDialogContent>
@@ -46,6 +46,6 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
           </MenuItem>
         </DependableMenu>
       </DialogActions>
-    </Dialog>
+    </DependableDialog>
   )
 }

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Chip, CircularProgress, Divider, List, ListItemButton, ListItemText, Stack, Tooltip, Typography } from '@mui/material'
-import { DependablePopover } from './DependablePopover'
+import { DependablePopover } from './DependableOverlay'
 import { hookPromptPresetName, hookPromptSelectionLabel, normalizeHookPromptSelectionMode, type HookPromptLibrary, type HookPromptSelectionMode } from '../../domain/hookPrompt'
 
 type HookPromptSelectorProps = {

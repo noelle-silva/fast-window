@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, LinearProgress, Stack, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, DialogActions, DialogContent, DialogTitle, IconButton, LinearProgress, Stack, Typography } from '@mui/material'
+import { DependableDialog } from '../components/DependableOverlay'
 import CloseIcon from '@mui/icons-material/Close'
 import StorefrontIcon from '@mui/icons-material/Storefront'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -123,7 +124,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <DependableDialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <StorefrontIcon fontSize="small" />
         {title}
@@ -210,7 +211,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
         removeShelf={removeShelf}
         onChanged={handleShelvesChanged}
       />
-    </Dialog>
+    </DependableDialog>
   )
 }
 
