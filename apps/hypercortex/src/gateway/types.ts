@@ -298,7 +298,30 @@ export type NoteSearchHit = {
 
 export type NoteSearchResult = {
   kinds: NoteSearchFaceKind[]
+  // 过滤命中的总数（与分页窗口无关），供界面判断是否还有下一页。
+  total: number
   items: NoteSearchHit[]
+}
+
+// 一个可勾选的文本匹配维度（键 + 展示名）。
+export type SearchFieldOption = {
+  key: string
+  label: string
+}
+
+// 一个可勾选的数据类型（类型标识 + 展示名）。
+export type SearchKindOption = {
+  kind: string
+  label: string
+}
+
+// 搜索目录：界面过滤项的完整事实源。笔记/附件各自的匹配维度、可搜面类型与
+// 附件类型全部由后端出口动态给出，前端不保留任何维度或面类型镜像。
+export type SearchCatalog = {
+  noteFields: SearchFieldOption[]
+  noteFaceKinds: NoteSearchFaceKind[]
+  assetFields: SearchFieldOption[]
+  assetKinds: SearchKindOption[]
 }
 
 // 笔记搜索条件：匹配维度、面类型、收藏夹范围、更新时间范围与分段均可自由组合；缺省为全量 / 不限。
@@ -313,9 +336,29 @@ export type NoteSearchQuery = {
   offset?: number
 }
 
+// 附件搜索条件：文本维度、类型、大小、更新时间范围与分段均可自由组合；缺省为全量 / 不限。
+export type AssetSearchQuery = {
+  query: string
+  fields?: string[]
+  kind?: string
+  sizeFrom?: number
+  sizeTo?: number
+  updatedFromMs?: number
+  updatedToMs?: number
+  limit?: number
+  offset?: number
+}
+
+// 附件搜索结果：命中总数（与分页窗口无关）+ 本页条目。
+export type AssetSearchResult = {
+  total: number
+  items: AssetPoolItem[]
+}
+
 export type SearchService = {
-  listFaceKinds: () => Promise<NoteSearchFaceKind[]>
+  loadOptions: () => Promise<SearchCatalog>
   queryNotes: (scope: VaultScope, query: NoteSearchQuery) => Promise<NoteSearchResult>
+  queryAssets: (scope: VaultScope, query: AssetSearchQuery) => Promise<AssetSearchResult>
 }
 
 export type MetadataService = {

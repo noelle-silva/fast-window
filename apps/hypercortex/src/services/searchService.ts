@@ -4,7 +4,8 @@ import { HyperCortexRpc } from '../shared/rpcMethods'
 
 export function createSearchService(background: BackgroundClient): SearchService {
   return {
-    listFaceKinds: () => background.invoke(HyperCortexRpc.search.kinds),
+    loadOptions: () => background.invoke(HyperCortexRpc.search.options),
     queryNotes: (scope, query) => background.invoke(HyperCortexRpc.search.query, { scope, ...query }),
+    queryAssets: (scope, query) => background.invoke(HyperCortexRpc.search.queryAssets, { scope, ...query }),
   }
 }

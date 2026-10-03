@@ -41,8 +41,9 @@ export const HyperCortexRpc = {
     queryRelations: 'hypercortex.refs.queryRelations',
   },
   search: {
-    kinds: 'hypercortex.search.kinds',
+    options: 'hypercortex.search.options',
     query: 'hypercortex.search.query',
+    queryAssets: 'hypercortex.search.queryAssets',
   },
   repos: {
     list: 'hypercortex.repos.list',
