@@ -22,12 +22,13 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
     })
   }
 
-  async function submitToolConfirmationDecision(input: { messageId?: string; decisionId?: string; approved?: boolean }) {
+  async function submitToolConfirmationDecision(input: { messageId?: string; decisionId?: string; decision?: 'reject' | 'once' | 'session' }) {
     const state = getState()
     if (state.loading || !state.data) return false
     const target = await activeTargetSessionMutationTarget()
     const messageId = String(input?.messageId || '').trim()
     const decisionId = String(input?.decisionId || '').trim()
+    const decision = input?.decision === 'session' ? 'session' : input?.decision === 'once' ? 'once' : 'reject'
     if (!target || !messageId || !decisionId) return false
     if (!chatHasPendingToolConfirmation(target.chat, messageId, decisionId)) {
       showToast?.('确认项已更新，请刷新会话后再试', { kind: 'error' })
@@ -38,9 +39,10 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       return false
     }
     try {
-      const approved = !!input?.approved
-      await submitToolConfirmationRequest(netRequest, { decisionId, approved, reason: approved ? '' : '用户拒绝工具调用' })
-      showToast?.(approved ? '已同意工具执行' : '已拒绝工具执行', { kind: 'success' })
+      const approved = decision !== 'reject'
+      const rememberForSession = decision === 'session'
+      await submitToolConfirmationRequest(netRequest, { decisionId, approved, rememberForSession, reason: approved ? '' : '用户拒绝工具调用' })
+      showToast?.(approved ? (rememberForSession ? '已同意工具执行（本会话内始终同意）' : '已同意工具执行') : '已拒绝工具执行', { kind: 'success' })
       await refreshTargetSession(target.targetKind, target.targetId, target.sessionId, undefined, { activate: false })
       render()
       return true

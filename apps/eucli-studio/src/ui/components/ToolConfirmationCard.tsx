@@ -2,16 +2,19 @@ import * as React from 'react'
 import { Box, Button, Chip, Collapse, Paper, Stack, Typography } from '@mui/material'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined'
+import DoneAllIcon from '@mui/icons-material/DoneAll'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import type { ToolConfirmationInfo } from '../../domain/toolConfirmation'
 import { CustomScrollArea } from './CustomScrollArea'
 
+export type ToolConfirmationDecision = 'reject' | 'once' | 'session'
+
 type ToolConfirmationCardProps = {
   info: ToolConfirmationInfo
   disabled?: boolean
   submitting?: boolean
-  onDecision?: (approved: boolean) => void | Promise<void>
+  onDecision?: (decision: ToolConfirmationDecision) => void | Promise<void>
 }
 
 export function ToolConfirmationCard(props: ToolConfirmationCardProps) {
@@ -75,7 +78,7 @@ export function ToolConfirmationCard(props: ToolConfirmationCardProps) {
             variant="outlined"
             startIcon={<BlockOutlinedIcon fontSize="small" />}
             disabled={actionDisabled}
-            onClick={() => onDecision?.(false)}
+            onClick={() => onDecision?.('reject')}
             sx={{ borderRadius: 2 }}
           >
             拒绝
@@ -83,13 +86,24 @@ export function ToolConfirmationCard(props: ToolConfirmationCardProps) {
           <Button
             size="small"
             color="warning"
-            variant="contained"
+            variant="outlined"
             startIcon={<CheckCircleOutlineIcon fontSize="small" />}
             disabled={actionDisabled}
-            onClick={() => onDecision?.(true)}
+            onClick={() => onDecision?.('once')}
             sx={{ borderRadius: 2, fontWeight: 900 }}
           >
-            {submitting ? '提交中' : '同意'}
+            仅同意本次
+          </Button>
+          <Button
+            size="small"
+            color="warning"
+            variant="contained"
+            startIcon={<DoneAllIcon fontSize="small" />}
+            disabled={actionDisabled}
+            onClick={() => onDecision?.('session')}
+            sx={{ borderRadius: 2, fontWeight: 900 }}
+          >
+            {submitting ? '提交中' : '本会话内始终同意'}
           </Button>
         </Stack>
 

@@ -108,13 +108,14 @@ export async function cancelRoleRun(netRequest: EbNetRequest, runId: string) {
   await netRequest({ method: 'POST', path: `/api/runs/${encodeURIComponent(id)}/cancel`, timeoutMs: 15000 })
 }
 
-export async function submitToolConfirmation(netRequest: EbNetRequest, input: { decisionId: string; approved: boolean; reason?: string }) {
+export async function submitToolConfirmation(netRequest: EbNetRequest, input: { decisionId: string; approved: boolean; rememberForSession?: boolean; reason?: string }) {
   const decisionId = String(input.decisionId || '').trim()
   if (!decisionId) throw new Error('确认项无效')
   const body: any = {
     decisionId,
     approved: !!input.approved,
   }
+  if (input.rememberForSession) body.rememberForSession = true
   const reason = String(input.reason || '').trim()
   if (reason) body.reason = reason
   await netRequest({ method: 'POST', path: '/api/tool-confirmations', body, timeoutMs: 15000 })

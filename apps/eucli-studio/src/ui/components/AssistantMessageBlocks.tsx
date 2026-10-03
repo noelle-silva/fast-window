@@ -16,7 +16,7 @@ import { normalizeDurationMs } from '../../domain/messageTiming'
 import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
-import { ToolConfirmationCard } from './ToolConfirmationCard'
+import { ToolConfirmationCard, type ToolConfirmationDecision } from './ToolConfirmationCard'
 import { formatDurationMs } from '../utils/time'
 import { useLiveNowMs } from '../hooks/useLiveNowMs'
 
@@ -115,8 +115,8 @@ function invocationEditText(part: any) {
   return prettyJson(part?.input && typeof part.input === 'object' ? part.input : {})
 }
 
-function submitKey(decisionId: string, approved: boolean) {
-  return `${decisionId}:${approved ? 'approve' : 'deny'}`
+function submitKey(decisionId: string, decision: ToolConfirmationDecision) {
+  return `${decisionId}:${decision}`
 }
 
 function blockEditText(block: AssistantMessageBlock) {
@@ -350,16 +350,16 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
     if (ok === true) setDeleting(null)
   }
 
-  const submitToolConfirmationDecision = async (info: NonNullable<ReturnType<typeof readToolConfirmationInfo>>, approved: boolean) => {
+  const submitToolConfirmationDecision = async (info: NonNullable<ReturnType<typeof readToolConfirmationInfo>>, decision: ToolConfirmationDecision) => {
     const action = controller?.actions?.submitToolConfirmation
     if (typeof action !== 'function') {
       showToast(controller, '当前客户端未接入工具确认提交', { kind: 'error' })
       return
     }
-    const key = submitKey(info.decisionId, approved)
+    const key = submitKey(info.decisionId, decision)
     setSubmittingConfirmation(key)
     try {
-      await Promise.resolve(action({ messageId: mid, decisionId: info.decisionId, approved }))
+      await Promise.resolve(action({ messageId: mid, decisionId: info.decisionId, decision }))
     } finally {
       setSubmittingConfirmation((current) => (current === key ? '' : current))
     }
@@ -416,14 +416,15 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
         if (block.kind === 'tool_confirmation') {
           const info = readToolConfirmationInfo(block.part)
           if (!info) return null
-          const approveKey = submitKey(info.decisionId, true)
-          const rejectKey = submitKey(info.decisionId, false)
+          const rejectKey = submitKey(info.decisionId, 'reject')
+          const onceKey = submitKey(info.decisionId, 'once')
+          const sessionKey = submitKey(info.decisionId, 'session')
           return (
             <ToolConfirmationCard
               key={block.id}
               info={info}
-              submitting={submittingConfirmation === approveKey || submittingConfirmation === rejectKey}
-              onDecision={(approved) => submitToolConfirmationDecision(info, approved)}
+              submitting={submittingConfirmation === rejectKey || submittingConfirmation === onceKey || submittingConfirmation === sessionKey}
+              onDecision={(decision) => submitToolConfirmationDecision(info, decision)}
             />
           )
         }
