@@ -106,6 +106,15 @@ export const MERMAID_FIXTURES: Fixture[] = [
     text: '```js\nconst a = 1\n```',
     expect: { '.mermaid-block[data-mermaid="1"]': 0 },
   },
+  {
+    name: 'mermaid.insideMaxWidthWrapper',
+    capability: 'mermaid',
+    complete: true,
+    // 真实场景：模型用 max-width 限宽容器包住图表。图表仍须正常渲染，
+    // 且容器本身可被居中（布局行为由浏览器级验证守护）。
+    text: '<div style="margin-top:18px;max-width:660px;">\n\n<div style="font-weight:700;">标题</div>\n\n```mermaid\ngraph LR\n  A --> B\n```\n\n</div>',
+    expect: { '.mermaid-block[data-mermaid="1"]': 1 },
+  },
 ]
 
 // ---------------------------------------------------------------------------
