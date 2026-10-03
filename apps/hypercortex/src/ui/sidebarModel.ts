@@ -348,13 +348,3 @@ export function closeTabsInSidebar(sidebarItems: SidebarItem[], closingKeys: str
       return [{ ...item, tabKeys: item.tabKeys.filter(tabKey => !closing.has(tabKey)) }]
     })
 }
-
-export function renameTabKeyInSidebar(sidebarItems: SidebarItem[], oldTabKey: string, newTabKey: string): SidebarItem[] {
-  const oldKey = String(oldTabKey || '').trim()
-  const nextKey = String(newTabKey || '').trim()
-  if (!oldKey || !nextKey || oldKey === nextKey) return cloneItems(sidebarItems)
-  return cloneItems(sidebarItems).map(item => {
-    if (item.type === 'tab') return item.tabKey === oldKey ? { ...item, tabKey: nextKey } : item
-    return { ...item, tabKeys: item.tabKeys.map(tabKey => (tabKey === oldKey ? nextKey : tabKey)) }
-  })
-}

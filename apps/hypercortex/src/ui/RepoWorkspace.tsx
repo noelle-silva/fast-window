@@ -13,8 +13,9 @@ import type { HyperCortexRepo } from '../gateway'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
-import { addRef, removeNoteRefsByTargetId, reorderRefsInFolder, retargetNoteRefs, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger } from '../favoritesLedger'
+import { createDraftIdentity, reconcileDraftNoteRefs, reconcileDraftSidebarItems, resolveDraftTabKey, useDraftIdentityVersion, type DraftSide } from './draftIdentity'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -58,7 +59,6 @@ import {
   moveGroupToIndex,
   moveTabBetweenGroups,
   moveTabToGroupIndex,
-  renameTabKeyInSidebar,
   type SidebarItem,
   updateSidebarGroup,
 } from './sidebarModel'
@@ -296,6 +296,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const gateway = React.useMemo<HyperCortexGateway>(() => createRepoScopedGateway(repoId), [repoId])
   // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 落盘）。
   const favoritesLedger = React.useMemo(() => createFavoritesLedger(gateway, 'library'), [gateway])
+  // 草稿身份档案：草稿元数据/初始快照/归属侧/转正后标识的唯一内存事实源（不落盘）。
+  const draftIdentity = React.useMemo(() => createDraftIdentity(), [])
+  const draftIdentityVersion = useDraftIdentityVersion(draftIdentity)
 
   const appSettings = shell.appSettings
   const patchAppSettings = shell.patchAppSettings
@@ -591,8 +594,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   }, [activeNoteId, page, visible])
 
   const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
-  const noteInitSnapshotsRef = React.useRef<Record<string, NoteDetailSnapshotV1>>({})
-  const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
   const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
   const closeTabKeysDirectRef = React.useRef<(tabKeys: string[]) => void>(() => {})
@@ -663,17 +664,33 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   React.useEffect(() => cancelPreviewClear, [cancelPreviewClear])
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
-  const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
-  // 解析索引：正式笔记 + 内存草稿。草稿只活在 openNoteTabs，与正式笔记合并后，
-  // 右侧收藏夹栏、索引页、右键菜单等消费者无需感知草稿，按同一套 noteIndex 解析。
+  // 打开的会话标识：真实笔记记真实标识，草稿记草稿标识；草稿元数据与转正后标识一律向档案查询。
+  const [openNoteIds, setOpenNoteIds] = React.useState<string[]>([])
+  const openNoteIdsRef = React.useRef<string[]>([])
+  React.useEffect(() => {
+    openNoteIdsRef.current = openNoteIds
+  }, [openNoteIds])
+  // 解析索引：正式笔记 + 内存草稿（草稿由档案派生，消费方无需感知草稿，按同一套 noteIndex 解析）。
   const resolvedNoteIndex = React.useMemo(() => {
     const base = noteIndex?.notes || {}
     const drafts: Record<string, NoteMeta> = {}
-    for (const tab of openNoteTabs) {
-      if (isDraftNoteId(tab.id)) drafts[tab.id] = tab
-    }
+    for (const draft of draftIdentity.listLiveDrafts()) drafts[draft.id] = draft.meta
     return Object.keys(drafts).length ? { ...base, ...drafts } : base
-  }, [noteIndex, openNoteTabs])
+  }, [draftIdentity, draftIdentityVersion, noteIndex])
+  // 打开的会话列表：标识经档案解析（转正草稿自动指向真实笔记），元数据取自解析索引。
+  const openNoteTabs = React.useMemo(() => {
+    const out: NoteMeta[] = []
+    const seen = new Set<string>()
+    for (const rawId of openNoteIds) {
+      const effectiveId = draftIdentity.resolveId(rawId)
+      if (!effectiveId || seen.has(effectiveId)) continue
+      const meta = resolvedNoteIndex[effectiveId]
+      if (!meta) continue
+      seen.add(effectiveId)
+      out.push(meta)
+    }
+    return out
+  }, [draftIdentity, draftIdentityVersion, openNoteIds, resolvedNoteIndex])
   // 常驻键盘回调读取合并后的索引（含草稿），与渲染消费同一份解析结果。
   const noteIndexRef = React.useRef<{ notes?: Record<string, NoteMeta> }>({ notes: resolvedNoteIndex })
   React.useEffect(() => {
@@ -700,13 +717,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   }, [activeWorkspaceId])
 
   const consumeInitSnapshot = React.useCallback((noteId: string): NoteDetailSnapshotV1 | null => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return null
-    const snap = noteInitSnapshotsRef.current[nid]
-    if (!snap) return null
-    delete noteInitSnapshotsRef.current[nid]
-    return snap
-  }, [])
+    return draftIdentity.takeInitSnapshot(noteId)
+  }, [draftIdentity])
 
   const [noteDirtyById, setNoteDirtyById] = React.useState<Record<string, boolean>>({})
   const handleNoteDirtyChange = React.useCallback((payload: { noteId: string; dirty: boolean }) => {
@@ -1320,23 +1332,14 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
       const seq = (workspaceSwitchSeqRef.current += 1)
       if (!nextOpenTabKeys.length) {
-        setOpenNoteTabs([])
+        setOpenNoteIds([])
         setOpenAssetTabs([])
       } else {
+        const noteKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'note')
+        setOpenNoteIds(noteKeys.map(k => noteIdFromTabKey(k)).filter(Boolean))
         void (async () => {
           try {
-            const noteKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'note')
             const assetKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'asset')
-
-            const idx = await gateway.notes.loadNoteIndex('library')
-            const noteTabs = noteKeys
-              .map(k => {
-                const noteId = noteIdFromTabKey(k)
-                if (!noteId) return null
-                return (idx.notes?.[noteId] as NoteMeta | undefined) || draftNoteMetaRef.current[noteId] || null
-              })
-              .filter(Boolean) as NoteMeta[]
-
             const aidx = await gateway.assets.ensureAssetsIndex('library').catch(() => ({ version: 1, assets: {} } as any))
             const assetTabs = assetKeys
               .map(k => {
@@ -1364,11 +1367,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
               .filter(Boolean) as AssetEntry[]
 
             if (workspaceSwitchSeqRef.current !== seq) return
-            setOpenNoteTabs(noteTabs)
             setOpenAssetTabs(assetTabs)
           } catch {
             if (workspaceSwitchSeqRef.current !== seq) return
-            setOpenNoteTabs([])
             setOpenAssetTabs([])
           }
         })()
@@ -1694,6 +1695,28 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [favoritesLedger],
   )
 
+  // 草稿身份档案变化的统一订阅：转正让左侧标签键与收藏夹引用改指向真实笔记，
+  // 放弃让两者自动清理。消费方不再各自手工搬运，只在档案变更后向档案查询一次。
+  // 用 layout 时机执行，使转正/放弃与重命名在同一帧内完成，界面不见中间态。
+  React.useLayoutEffect(() => {
+    const reconciledItems = reconcileDraftSidebarItems(draftIdentity, sidebarItemsRef.current)
+    if (reconciledItems !== sidebarItemsRef.current) {
+      // 仅当当前激活键经档案解析后确实落在调和后的列表里才迁移（转正）；
+      // 放弃场景由 closeTabKeysDirect 决定后继选中，这里不越权改写。
+      const currentActive = String(activeTabKeyRef.current || '').trim()
+      const resolvedActive = resolveDraftTabKey(draftIdentity, currentActive)
+      const openKeys = deriveSidebarFields(reconciledItems).openTabKeys
+      const canMigrateActive = !!resolvedActive && openKeys.includes(resolvedActive)
+      updateSidebarItems(() => reconciledItems, canMigrateActive ? { activeTabKey: resolvedActive } : undefined)
+      if (canMigrateActive && resolvedActive !== currentActive) setActiveTabKey(resolvedActive as any)
+    }
+    const currentDoc = favoritesDocRef.current
+    if (currentDoc) {
+      const reconciledDoc = reconcileDraftNoteRefs(draftIdentity, currentDoc)
+      if (reconciledDoc !== currentDoc) handleFavoritesDocChange(reconciledDoc)
+    }
+  }, [draftIdentity, draftIdentityVersion, handleFavoritesDocChange, updateSidebarItems])
+
   const handleUpdateNoteInfo = React.useCallback(
     async (note: NoteMeta, patch: { title: string; description: string }) => {
       const dir = String(note.dir || '').trim()
@@ -1719,7 +1742,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           const current = prev || { version: 1, notes: {} }
           return { ...current, notes: { ...(current.notes || {}), [note.id]: result.meta } }
         })
-        setOpenNoteTabs(prev => prev.map(tab => (tab.id === note.id ? { ...tab, title: result.meta.title, description: result.meta.description } : tab)))
         void refreshNoteCardInfo(result.meta).catch(() => {})
         void gateway.host.toast('笔记信息已更新')
       } catch (err: any) {
@@ -1983,9 +2005,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [gateway],
   )
 
-  // 草稿笔记的构造：注册草稿元数据与会话初始快照，返回可打开的 NoteMeta。
-  // 左侧栏新建与右侧收藏夹新建共用同一构造，保证草稿语义单一。
-  const createDraftNoteMeta = React.useCallback((): NoteMeta => {
+  // 草稿笔记的诞生：档案登记元数据、初始快照与归属侧，返回可打开的 NoteMeta。
+  // 左侧栏新建与右侧收藏夹新建共用同一登记入口，草稿语义单一。
+  const registerDraftNote = React.useCallback((side: DraftSide): NoteMeta => {
     const now = Date.now()
     const draftId = `draft_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const meta: NoteMeta = {
@@ -1996,25 +2018,28 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       createdAtMs: now,
       updatedAtMs: now,
     }
-    draftNoteMetaRef.current[draftId] = meta
-
     // 新笔记默认创建的面：按全局顺序排列，名单来自后端声明。
     const defaultFaceManifests = orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder).map(kind => faceManifestFromDeclaration(requireFaceDeclaration(kind)))
-    noteInitSnapshotsRef.current[draftId] = buildNoteInitSnapshot({
-      faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
-      globalKindOrder: faceKindOrder,
-      title: '未命名',
-      noteTimes: { createdAtMs: now, updatedAtMs: now },
+    draftIdentity.register({
+      meta,
+      side,
+      initSnapshot: buildNoteInitSnapshot({
+        faceManifests: Object.fromEntries(defaultFaceManifests.map(face => [face.id, face])),
+        globalKindOrder: faceKindOrder,
+        title: '未命名',
+        noteTimes: { createdAtMs: now, updatedAtMs: now },
+      }),
     })
     return meta
-  }, [defaultFaceKinds, faceKindOrder])
+  }, [defaultFaceKinds, draftIdentity, faceKindOrder])
 
-  // 打开草稿并激活：来源决定草稿归属哪一侧——左侧栏新建只进左侧列表并选中左侧；
-  // 右侧收藏夹新建只进右侧引用并选中右侧。会话列表（openNoteTabs）两侧共用，与归属无关。
+  // 打开草稿并激活：草稿归属哪一侧由档案记录决定——左侧栏新建只进左侧列表并选中左侧；
+  // 右侧收藏夹新建只进右侧引用并选中右侧。会话列表两侧共用，与归属无关。
   const openDraftNoteTab = React.useCallback(
-    (meta: NoteMeta, source: 'tabs' | 'favorites') => {
+    (meta: NoteMeta) => {
+      const source: DraftSide = draftIdentity.getSide(meta.id) || 'tabs'
       const draftKey = noteTabKey(meta.id)
-      setOpenNoteTabs(prev => (prev.some(t => t.id === meta.id) ? prev : [...prev, meta]))
+      setOpenNoteIds(prev => (prev.includes(meta.id) ? prev : [...prev, meta.id]))
       setActiveNoteId(meta.id)
       setActiveTabKey(draftKey)
       setDetailSelectionSource(source)
@@ -2023,7 +2048,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       }
       navigatePage('note-detail')
     },
-    [navigatePage, updateSidebarItems],
+    [draftIdentity, navigatePage, updateSidebarItems],
   )
 
   const handleCreateDraftNote = React.useCallback(() => {
@@ -2031,11 +2056,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       enqueueAppCommand('new-note')
       return
     }
-    openDraftNoteTab(createDraftNoteMeta(), 'tabs')
-  }, [createDraftNoteMeta, enqueueAppCommand, openDraftNoteTab, tabsInitReady])
+    openDraftNoteTab(registerDraftNote('tabs'))
+  }, [enqueueAppCommand, openDraftNoteTab, registerDraftNote, tabsInitReady])
 
   // 在指定收藏夹创建草稿笔记并加入该收藏夹引用，同时打开草稿（归属右侧）。
-  // 草稿引用只进内存收藏夹文档，落盘时被过滤；保存转正时由 handleNoteSessionSaved 迁移引用。
+  // 草稿引用只进内存收藏夹文档，落盘时被过滤；保存转正时由档案改指向，消费方自动跟随。
   const handleCreateDraftNoteInFolder = React.useCallback(
     (folderId: string) => {
       if (!tabsInitReady || !activeWorkspaceIdRef.current) {
@@ -2045,12 +2070,12 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const baseDoc = favoritesDocRef.current
       if (!baseDoc) return
       const fid = String(folderId || '').trim() || 'root'
-      const meta = createDraftNoteMeta()
+      const meta = registerDraftNote('favorites')
       const added = addRef(baseDoc, fid, 'note', meta.id)
       if (added) handleFavoritesDocChange(added.doc)
-      openDraftNoteTab(meta, 'favorites')
+      openDraftNoteTab(meta)
     },
-    [createDraftNoteMeta, enqueueAppCommand, handleFavoritesDocChange, openDraftNoteTab, tabsInitReady],
+    [enqueueAppCommand, handleFavoritesDocChange, openDraftNoteTab, registerDraftNote, tabsInitReady],
   )
 
   const handleAppCommand = React.useCallback(
@@ -2414,7 +2439,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta, faceId?: string, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
-      const nid = String(note?.id || '').trim()
+      const nid = draftIdentity.resolveId(String(note?.id || '').trim())
       if (!nid) return
       setDetailSelectionSource(source)
       // 打开笔记统一收浮层：无论从模态页、侧栏、引用还是创建流程进入。
@@ -2425,8 +2450,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       if (recordHistory && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
         recordNewNavLocation({ page: pageRef.current, tabKey: prevActiveKey })
       }
-      setOpenNoteTabs(prev => {
-        return prev.some(t => t.id === nid) ? prev : [...prev, note]
+      setOpenNoteIds(prev => {
+        return prev.includes(nid) ? prev : [...prev, nid]
       })
       setActiveNoteId(nid)
       setActiveTabKey(nextKey)
@@ -2446,7 +2471,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         setFaceSwitchRequest({ noteId: nid, faceId: targetFace, seq })
       }
     },
-    [commitActiveWorkspacePatch, navigatePage, recordNewNavLocation, updateSidebarItems],
+    [commitActiveWorkspacePatch, draftIdentity, navigatePage, recordNewNavLocation, updateSidebarItems],
   )
 
   const handleCreateNoteInIndex = React.useCallback(
@@ -2475,7 +2500,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
         })
         // 会话初始状态与普通新建共用同一构造入口；面清单取自后端已创建的真实清单。
-        noteInitSnapshotsRef.current[meta.id] = buildNoteInitSnapshot({
+        draftIdentity.putInitSnapshot(meta.id, buildNoteInitSnapshot({
           faceManifests: result.manifest.faces,
           faceOrder: result.manifest.faceOrder,
           globalKindOrder: faceKindOrder,
@@ -2487,14 +2512,14 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             createdAtMs: Number(meta.createdAtMs) > 0 ? Number(meta.createdAtMs) : Date.now(),
             updatedAtMs: Number(meta.updatedAtMs) > 0 ? Number(meta.updatedAtMs) : Date.now(),
           },
-        })
+        }))
         handleOpenNote(meta)
         void gateway.host.toast('已创建空白笔记并添加到索引页')
       } catch (e: any) {
         void gateway.host.toast(String(e?.message || e || '创建笔记失败'))
       }
     },
-    [defaultFaceKinds, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
+    [defaultFaceKinds, draftIdentity, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
   )
 
   const handleOpenAssetTab = React.useCallback(
@@ -2660,22 +2685,17 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const nextKeys = prevKeys.filter(k => !closing.has(k))
       const currentActive = String(activeTabKeyRef.current || '').trim()
 
+      // 先按档案解析再过滤打开列表：转正草稿的原始标识经解析落到真实标识，随真实标签一并关闭。
+      // 必须同步求值（函数式更新会被推迟到 discard 之后执行，届时解析已失效）。
+      const nextOpenNoteIds = openNoteIdsRef.current.filter(id => !closing.has(noteTabKey(draftIdentity.resolveId(id))))
+
       for (const key of closing) {
         if (tabKind(key) !== 'note') continue
         const nid = noteIdFromTabKey(key)
         if (!nid) continue
-        if (isDraftNoteId(nid)) {
-          delete draftNoteMetaRef.current[nid]
-          delete noteInitSnapshotsRef.current[nid]
-          // 草稿被放弃：清理它在收藏夹里留下的引用（草稿引用只活在内存）。
-          const currentDoc = favoritesDocRef.current
-          if (currentDoc) {
-            const cleaned = removeNoteRefsByTargetId(currentDoc, nid)
-            if (cleaned !== currentDoc) handleFavoritesDocChange(cleaned)
-          }
-        }
+        // 草稿被放弃：只在档案注销一次，收藏夹引用等消费方订阅后自动清理。
+        draftIdentity.discard(nid)
         delete noteSessionHandlesRef.current[nid]
-        delete noteInitSnapshotsRef.current[nid]
         delete noteScrollTopByIdRef.current[nid]
       }
 
@@ -2688,7 +2708,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
       updateSidebarItems(prev => closeTabsInSidebar(prev, Array.from(closing)), { activeTabKey: nextActive })
 
-      setOpenNoteTabs(prev => prev.filter(n => !closing.has(noteTabKey(n.id))))
+      setOpenNoteIds(nextOpenNoteIds)
       setOpenAssetTabs(prev => prev.filter(a => !closing.has(assetTabId(a))))
 
       setActiveTabKey(nextActive as any)
@@ -2708,7 +2728,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
       activateExistingTabKey(nextActive, { recordHistory: false })
     },
-    [activateExistingTabKey, handleFavoritesDocChange, navigatePage, persistRepoStatePatch, updateSidebarItems],
+    [activateExistingTabKey, draftIdentity, navigatePage, persistRepoStatePatch, updateSidebarItems],
   )
 
   React.useEffect(() => {
@@ -2778,30 +2798,16 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     if (!originalId || !meta?.id) return
 
     const didMigrateId = meta.id !== originalId
-    if (didMigrateId && payload.snapshotForNewId) {
-      const oldKey = noteTabKey(originalId)
-      const newKey = noteTabKey(meta.id)
-      noteInitSnapshotsRef.current[meta.id] = payload.snapshotForNewId
-      delete draftNoteMetaRef.current[originalId]
+    if (didMigrateId) {
+      // 草稿转正：只在档案内把标识改指向真实笔记（带上新会话快照）。
+      // 打开的标签列表保留草稿标识，读取时经档案解析自动指向真实笔记，消费方无需搬运。
+      draftIdentity.promote(originalId, meta.id, payload.snapshotForNewId)
       delete noteSessionHandlesRef.current[originalId]
-      delete noteInitSnapshotsRef.current[originalId]
       if (noteScrollTopByIdRef.current[originalId] != null) {
         noteScrollTopByIdRef.current[meta.id] = noteScrollTopByIdRef.current[originalId]
         delete noteScrollTopByIdRef.current[originalId]
       }
-      updateSidebarItems(prev => renameTabKeyInSidebar(prev, oldKey, newKey))
       setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
-
-      const nextActive = String(activeTabKeyRef.current || '').trim() === oldKey ? newKey : String(activeTabKeyRef.current || '').trim()
-      updateSidebarItems(prev => renameTabKeyInSidebar(prev, oldKey, newKey), { activeTabKey: nextActive })
-      if (String(activeTabKeyRef.current || '').trim() === oldKey) setActiveTabKey(newKey)
-
-      // 草稿转正：把收藏夹里指向草稿的引用迁移到真实 id，避免留下失效引用。
-      const currentDoc = favoritesDocRef.current
-      if (currentDoc) {
-        const retargeted = retargetNoteRefs(currentDoc, originalId, meta.id)
-        if (retargeted !== currentDoc) handleFavoritesDocChange(retargeted)
-      }
     }
 
     setNoteIndex(prev => {
@@ -2817,21 +2823,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     // 保存（含面删除、版本恢复）会改变该笔记发出的引用，打开的会话重取反向引用。
     bumpRefRelationsEpoch()
 
-    setOpenNoteTabs(prev => {
-      const replaced = prev.map(t => (t.id === originalId ? meta : t))
-      const seen = new Set<string>()
-      const next: NoteMeta[] = []
-      for (const t of replaced) {
-        if (!t?.id) continue
-        if (seen.has(t.id)) continue
-        seen.add(t.id)
-        next.push(t)
-      }
-      return next
-    })
-
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
-  }, [activeNoteId, bumpRefRelationsEpoch, refreshNoteCardInfo, updateSidebarItems])
+  }, [activeNoteId, bumpRefRelationsEpoch, draftIdentity, refreshNoteCardInfo])
 
   const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
 
