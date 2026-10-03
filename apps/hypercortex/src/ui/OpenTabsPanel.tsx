@@ -26,7 +26,8 @@ import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
 import type { HyperCortexSidebarSortModeV1, HyperCortexTabGroupV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
-import { assetTabId } from '../assetTypes'
+import { assetRefKey, assetTabId } from '../assetTypes'
+import { SIDEBAR_PREVIEW_ENTRY_ATTR } from './sidebar-preview/previewTarget'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
 import type { SidebarItem } from './sidebarModel'
@@ -325,7 +326,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const workspaceVisible = useWorkspaceVisible()
 
   const showTitle = panelWidth > 52
-  const disableTopTooltips = tabsMode === 'hover'
   const isSortableMode = sidebarSortMode === 'sortable'
   const sortableDnd = useOpenTabsSortableDnd({ enabled: isSortableMode, sidebarItems, onCommitSidebarItems })
   const { activeId: sortableActiveId, effectiveSidebarItems } = sortableDnd
@@ -516,6 +516,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               ref={isActive ? activeTabRowRef : undefined}
               {...dnd.getTabProps(tabKey)}
               {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
+            data-hc-preview-entry={`note:${tab.id}`}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -650,6 +651,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               ref={isActive ? activeTabRowRef : undefined}
               {...dnd.getTabProps(tabKey)}
               {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
+            data-hc-preview-entry={`asset:${assetRefKey(asset)}`}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -1073,127 +1075,63 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         {panelWidth <= 52 ? (
           <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {tabsMode === 'manual' ? (
-              <Tooltip
-                title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
-                placement="bottom"
-                disableHoverListener={disableTopTooltips}
-                disableFocusListener={disableTopTooltips}
-                disableTouchListener={disableTopTooltips}
-              >
-                <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
-                  {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
-                </IconButton>
-              </Tooltip>
+              <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
+                {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+              </IconButton>
             ) : (
-              <Tooltip
-                title="切换到手动展开（挤压）"
-                placement="bottom"
-                disableHoverListener={disableTopTooltips}
-                disableFocusListener={disableTopTooltips}
-                disableTouchListener={disableTopTooltips}
-              >
-                <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
-                  <SyncAltRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
+                <SyncAltRoundedIcon fontSize="small" />
+              </IconButton>
             )}
           </Box>
         ) : (
           <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
             <Box sx={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {tabsMode === 'manual' ? (
-                <Tooltip
-                  title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
-                  placement="bottom"
-                  disableHoverListener={disableTopTooltips}
-                  disableFocusListener={disableTopTooltips}
-                  disableTouchListener={disableTopTooltips}
-                >
-                  <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
-                    {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
+                  {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+                </IconButton>
               ) : null}
             </Box>
 
             <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
-              <Tooltip
-                title="工作区"
-                placement="bottom"
-                disableHoverListener={disableTopTooltips}
-                disableFocusListener={disableTopTooltips}
-                disableTouchListener={disableTopTooltips}
-              >
-                <IconButton
-                  size="small"
-                  onClick={e => setWorkspaceMenuAnchorEl(e.currentTarget)}
-                  aria-label="选择工作区"
-                  sx={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 999,
-                    color: 'rgba(0,0,0,.72)',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
-                  }}
-                >
-                  <WorkspacesRoundedIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-
-            <Tooltip
-              title="新建笔记"
-              placement="bottom"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
-            >
-              <IconButton size="small" aria-label="新建笔记" onClick={onCreateDraftNote} sx={{ color: 'rgba(0,0,0,.58)' }}>
-                <AddRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip
-              title="新建分组"
-              placement="bottom"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
-            >
-              <IconButton size="small" aria-label="新建分组" onClick={onCreateGroup} sx={{ color: 'rgba(0,0,0,.58)' }}>
-                <FolderRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip
-              title="全部收起分组"
-              placement="bottom"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
-            >
               <IconButton
                 size="small"
-                aria-label="全部收起分组"
-                onClick={onCollapseAllGroups}
-                disabled={tabGroups.length === 0}
-                sx={{ color: 'rgba(0,0,0,.58)' }}
+                onClick={e => setWorkspaceMenuAnchorEl(e.currentTarget)}
+                aria-label="选择工作区"
+                sx={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 999,
+                  color: 'rgba(0,0,0,.72)',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
+                }}
               >
-                <UnfoldLessRoundedIcon fontSize="small" />
+                <WorkspacesRoundedIcon sx={{ fontSize: 18 }} />
               </IconButton>
-            </Tooltip>
+            </Box>
 
-            <Tooltip
-              title={tabsMode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'}
-              placement="bottom"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
+            <IconButton size="small" aria-label="新建笔记" onClick={onCreateDraftNote} sx={{ color: 'rgba(0,0,0,.58)' }}>
+              <AddRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <IconButton size="small" aria-label="新建分组" onClick={onCreateGroup} sx={{ color: 'rgba(0,0,0,.58)' }}>
+              <FolderRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <IconButton
+              size="small"
+              aria-label="全部收起分组"
+              onClick={onCollapseAllGroups}
+              disabled={tabGroups.length === 0}
+              sx={{ color: 'rgba(0,0,0,.58)' }}
             >
-              <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
-                <SyncAltRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+              <UnfoldLessRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
+              <SyncAltRoundedIcon fontSize="small" />
+            </IconButton>
           </Box>
         )}
       </Box>

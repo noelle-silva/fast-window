@@ -2,7 +2,7 @@ import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import CropSquareRoundedIcon from '@mui/icons-material/CropSquareRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
-import { Box, IconButton, Tooltip } from '@mui/material'
+import { Box, IconButton } from '@mui/material'
 
 export type WindowControlActions = {
   minimize: () => Promise<void> | void
@@ -32,35 +32,29 @@ export function StandaloneWindowControls(props: StandaloneWindowControlsProps) {
         ml: 0.5,
       }}
     >
-      <Tooltip title="最小化">
-        <IconButton size="small" aria-label="最小化" onClick={() => run(actions.minimize)}>
-          <RemoveRoundedIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title="最大化或还原">
-        <IconButton size="small" aria-label="最大化或还原" onClick={() => run(actions.toggleMaximize)}>
-          <CropSquareRoundedIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title="关闭到托盘">
-        <IconButton
-          size="small"
-          aria-label="关闭到托盘"
-          onClick={() => run(actions.closeToTray)}
-          sx={{
-            '&:hover': {
-              bgcolor: 'error.main',
-              color: 'error.contrastText',
-            },
-            '&:focus-visible': {
-              outline: '2px solid rgba(211,47,47,.35)',
-              outlineOffset: 2,
-            },
-          }}
-        >
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
+      <IconButton size="small" aria-label="最小化" onClick={() => run(actions.minimize)}>
+        <RemoveRoundedIcon fontSize="small" />
+      </IconButton>
+      <IconButton size="small" aria-label="最大化或还原" onClick={() => run(actions.toggleMaximize)}>
+        <CropSquareRoundedIcon fontSize="small" />
+      </IconButton>
+      <IconButton
+        size="small"
+        aria-label="关闭到托盘"
+        onClick={() => run(actions.closeToTray)}
+        sx={{
+          '&:hover': {
+            bgcolor: 'error.main',
+            color: 'error.contrastText',
+          },
+          '&:focus-visible': {
+            outline: '2px solid rgba(211,47,47,.35)',
+            outlineOffset: 2,
+          },
+        }}
+      >
+        <CloseRoundedIcon fontSize="small" />
+      </IconButton>
     </Box>
   )
 }

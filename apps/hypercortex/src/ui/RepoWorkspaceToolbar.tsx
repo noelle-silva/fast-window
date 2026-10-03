@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { Box, ClickAwayListener, IconButton, Paper, Popper, Tooltip, Typography } from '@mui/material'
+import { Box, ClickAwayListener, IconButton, Paper, Popper, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
@@ -37,6 +37,7 @@ const SHORTCUT_HINT_ITEMS: { id: HyperCortexShortcutId; title: string }[] = [
   { id: 'toggleMode', title: '切换阅读/编辑' },
   { id: 'cycleFace', title: '切换笔记面（文本/HTML）' },
   { id: 'toggleSidebar', title: '侧边栏展开/收起' },
+  { id: 'holdPreview', title: '按住预览侧边栏条目' },
 ]
 
 function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexShortcutId): string {
@@ -44,7 +45,6 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
 }
 
 function NavIconButton(props: {
-  title: string
   ariaLabel: string
   active?: boolean
   disabled?: boolean
@@ -52,32 +52,30 @@ function NavIconButton(props: {
   children: React.ReactNode
   label?: string
 }) {
-  const { title, ariaLabel, active, disabled, onClick, children, label } = props
+  const { ariaLabel, active, disabled, onClick, children, label } = props
   return (
-    <Tooltip title={title} placement="bottom">
-      <IconButton
-        size="small"
-        aria-label={ariaLabel}
-        onClick={onClick}
-        disabled={disabled}
-        sx={{
-          gap: 0.5,
-          px: label ? 1.5 : undefined,
-          borderRadius: 2,
-          color: active ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-          bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
-          '&:hover': { bgcolor: active ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-          '&.Mui-disabled': { color: 'var(--hc-text-subtle)', bgcolor: 'transparent' },
-        }}
-      >
-        {children}
-        {label ? (
-          <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-            {label}
-          </Typography>
-        ) : null}
-      </IconButton>
-    </Tooltip>
+    <IconButton
+      size="small"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      disabled={disabled}
+      sx={{
+        gap: 0.5,
+        px: label ? 1.5 : undefined,
+        borderRadius: 2,
+        color: active ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+        bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
+        '&:hover': { bgcolor: active ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+        '&.Mui-disabled': { color: 'var(--hc-text-subtle)', bgcolor: 'transparent' },
+      }}
+    >
+      {children}
+      {label ? (
+        <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+          {label}
+        </Typography>
+      ) : null}
+    </IconButton>
   )
 }
 
@@ -129,14 +127,13 @@ export function RepoWorkspaceToolbar(props: RepoWorkspaceToolbarProps) {
 
   const leftNode = (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-      <NavIconButton title="后退" ariaLabel="后退" disabled={goBackDisabled} onClick={navigation.onBack}>
+      <NavIconButton ariaLabel="后退" disabled={goBackDisabled} onClick={navigation.onBack}>
         <ArrowBackRoundedIcon fontSize="small" />
       </NavIconButton>
-      <NavIconButton title="前进" ariaLabel="前进" disabled={goForwardDisabled} onClick={navigation.onForward}>
+      <NavIconButton ariaLabel="前进" disabled={goForwardDisabled} onClick={navigation.onForward}>
         <ArrowForwardRoundedIcon fontSize="small" />
       </NavIconButton>
       <NavIconButton
-        title="收藏夹"
         ariaLabel="收藏夹"
         label="收藏夹"
         active={navigation.page === 'index'}
@@ -149,53 +146,49 @@ export function RepoWorkspaceToolbar(props: RepoWorkspaceToolbarProps) {
 
   const rightNode = (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-      <NavIconButton title="主页" ariaLabel="主页" active={navigation.page === 'home'} onClick={() => navigation.onGoTo('home')}>
+      <NavIconButton ariaLabel="主页" active={navigation.page === 'home'} onClick={() => navigation.onGoTo('home')}>
         <HomeRoundedIcon fontSize="small" />
       </NavIconButton>
-      <NavIconButton title="附件" ariaLabel="附件" active={navigation.page === 'attachments'} onClick={() => navigation.onGoTo('attachments')}>
+      <NavIconButton ariaLabel="附件" active={navigation.page === 'attachments'} onClick={() => navigation.onGoTo('attachments')}>
         <AttachFileRoundedIcon fontSize="small" />
       </NavIconButton>
-      <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={navigation.page === 'all-notes'} onClick={() => navigation.onGoTo('all-notes')}>
+      <NavIconButton ariaLabel="全部笔记" active={navigation.page === 'all-notes'} onClick={() => navigation.onGoTo('all-notes')}>
         <NotesRoundedIcon fontSize="small" />
       </NavIconButton>
 
-      <Tooltip title="搜索" placement="bottom">
-        <IconButton
-          ref={quickSearchAnchorRef}
-          onClick={quickSearch.onToggle}
-          size="small"
-          aria-label="搜索"
-          sx={{
-            borderRadius: 2,
-            color: quickSearch.open ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-            bgcolor: quickSearch.open ? 'var(--hc-primary-soft)' : 'transparent',
-            '&:hover': { bgcolor: quickSearch.open ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-          }}
-        >
-          <SearchRoundedIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
+      <IconButton
+        ref={quickSearchAnchorRef}
+        onClick={quickSearch.onToggle}
+        size="small"
+        aria-label="搜索"
+        sx={{
+          borderRadius: 2,
+          color: quickSearch.open ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+          bgcolor: quickSearch.open ? 'var(--hc-primary-soft)' : 'transparent',
+          '&:hover': { bgcolor: quickSearch.open ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+        }}
+      >
+        <SearchRoundedIcon fontSize="small" />
+      </IconButton>
 
       {shortcutHints.enabled ? (
-        <Tooltip title={shortcutHints.open ? '关闭快捷键提示' : '快捷键提示'} placement="bottom">
-          <IconButton
-            ref={shortcutHintsAnchorRef}
-            size="small"
-            aria-label="快捷键提示"
-            onClick={shortcutHints.onToggle}
-            sx={{
-              borderRadius: 2,
-              color: shortcutHints.open ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
-              bgcolor: shortcutHints.open ? 'var(--hc-primary-soft)' : 'transparent',
-              '&:hover': { bgcolor: shortcutHints.open ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-            }}
-          >
-            <HelpOutlineRoundedIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          ref={shortcutHintsAnchorRef}
+          size="small"
+          aria-label="快捷键提示"
+          onClick={shortcutHints.onToggle}
+          sx={{
+            borderRadius: 2,
+            color: shortcutHints.open ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+            bgcolor: shortcutHints.open ? 'var(--hc-primary-soft)' : 'transparent',
+            '&:hover': { bgcolor: shortcutHints.open ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+          }}
+        >
+          <HelpOutlineRoundedIcon fontSize="small" />
+        </IconButton>
       ) : null}
 
-      <NavIconButton title="设置" ariaLabel="设置" active={navigation.page === 'settings'} onClick={() => navigation.onGoTo('settings')}>
+      <NavIconButton ariaLabel="设置" active={navigation.page === 'settings'} onClick={() => navigation.onGoTo('settings')}>
         <SettingsRoundedIcon fontSize="small" />
       </NavIconButton>
 

@@ -3,7 +3,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Menu, MenuItem, TextField, Typography } from '@mui/material'
 import type { HyperCortexRepo } from '../gateway'
 
 const REPO_BUTTON_MAX_WIDTH = 230
@@ -38,47 +38,45 @@ export function RepoSwitcher(props: RepoSwitcherProps) {
 
   return (
     <>
-      <Tooltip title="切换仓库" placement="bottom">
-        <Button
-          size="small"
-          aria-label="切换仓库"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          disabled={disabled}
-          onClick={event => {
-            // currentTarget 在事件结束后会被置空，不能延迟到状态更新器里读取。
-            const button = event.currentTarget
-            setAnchorEl(current => (current ? null : button))
-          }}
-          startIcon={<StorageRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
-          endIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
+      <Button
+        size="small"
+        aria-label="切换仓库"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        disabled={disabled}
+        onClick={event => {
+          // currentTarget 在事件结束后会被置空，不能延迟到状态更新器里读取。
+          const button = event.currentTarget
+          setAnchorEl(current => (current ? null : button))
+        }}
+        startIcon={<StorageRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
+        endIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 16, color: 'var(--hc-text-muted)' }} />}
+        sx={{
+          textTransform: 'none',
+          borderRadius: 2,
+          height: 32,
+          px: 0.75,
+          minWidth: 0,
+          maxWidth: REPO_BUTTON_MAX_WIDTH,
+          color: 'var(--hc-text)',
+          bgcolor: menuOpen ? 'var(--hc-surface-soft)' : 'transparent',
+          '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
+        }}
+      >
+        <Typography
+          component="span"
           sx={{
-            textTransform: 'none',
-            borderRadius: 2,
-            height: 32,
-            px: 0.75,
-            minWidth: 0,
-            maxWidth: REPO_BUTTON_MAX_WIDTH,
-            color: 'var(--hc-text)',
-            bgcolor: menuOpen ? 'var(--hc-surface-soft)' : 'transparent',
-            '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
+            fontSize: 12.5,
+            fontWeight: 900,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: REPO_BUTTON_TITLE_MAX_WIDTH,
           }}
         >
-          <Typography
-            component="span"
-            sx={{
-              fontSize: 12.5,
-              fontWeight: 900,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              maxWidth: REPO_BUTTON_TITLE_MAX_WIDTH,
-            }}
-          >
-            {activeRepo?.title || '默认仓库'}
-          </Typography>
-        </Button>
-      </Tooltip>
+          {activeRepo?.title || '默认仓库'}
+        </Typography>
+      </Button>
 
       <Menu
         anchorEl={anchorEl}

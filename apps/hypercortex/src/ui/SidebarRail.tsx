@@ -11,13 +11,15 @@ export type SidebarRailProps = {
   onResizeEnd?: (width: number) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
+  /** 悬停条目委托：边栏条目的悬停上报统一在轨道外壳上监听。 */
+  onMouseOver?: React.MouseEventHandler<HTMLDivElement>
   children: React.ReactNode
 }
 
 // 边栏外壳：轨道占位 + 面板 + 悬停覆盖 + 边界拖拽手柄。左右边栏共用，仅锚点、阴影与拖拽方向随所在侧翻转。
 // 拖拽期间的宽度变化属于瞬时物理表现，直接写 DOM，不进入 React 状态树；仅松手后上报最终宽度。
 export function SidebarRail(props: SidebarRailProps): React.ReactNode {
-  const { side, layout, onResizeEnd, onMouseEnter, onMouseLeave, children } = props
+  const { side, layout, onResizeEnd, onMouseEnter, onMouseLeave, onMouseOver, children } = props
   const overlay = layout.overlay
   const outerRef = React.useRef<HTMLDivElement | null>(null)
   const panelRef = React.useRef<HTMLDivElement | null>(null)
@@ -102,6 +104,7 @@ export function SidebarRail(props: SidebarRailProps): React.ReactNode {
       ref={outerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onMouseOver={onMouseOver}
       sx={{
         width: layout.railWidth,
         minWidth: layout.railWidth,

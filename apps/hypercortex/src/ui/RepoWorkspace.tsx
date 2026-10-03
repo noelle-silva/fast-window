@@ -107,6 +107,9 @@ import { normalizeRepoCacheLimit } from '../repoCacheLimit'
 import { normalizeSidebarExpandedWidth } from '../sidebarWidth'
 import { normalizeColorPresetId } from './colorPresets'
 import { WorkspaceVisibilityProvider } from './workspaceVisibility'
+import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewOverlay'
+import { useSidebarPreviewHover, readHoveredSidebarPreviewTarget } from './sidebar-preview/useSidebarPreviewHover'
+import { encodeSidebarPreviewTarget, type SidebarPreviewTarget } from './sidebar-preview/previewTarget'
 
 type RepoStatePatch = Partial<HyperCortexRepoStateV1>
 
@@ -595,6 +598,63 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
   const sidebarShortcutHoldRef = React.useRef(false)
+
+  // ---- 按住预览：快捷键按住期间，悬停任一边栏条目即在主区域覆盖展示其预览。
+  const [previewTarget, setPreviewTarget] = React.useState<SidebarPreviewTarget | null>(null)
+  const previewHoldRef = React.useRef(false)
+  const previewTargetKeyRef = React.useRef('')
+  const previewOverlayScrollRef = React.useRef<HTMLDivElement | null>(null)
+  // 条目间存在缝隙，指针扫过缝隙时不应立即还原，否则会在条目间来回闪烁。
+  // 离开条目后短暂延迟再还原；期间进入下一条目即取消，实现无缝切换。
+  const previewClearTimerRef = React.useRef<number | null>(null)
+
+  const cancelPreviewClear = React.useCallback(() => {
+    if (previewClearTimerRef.current === null) return
+    window.clearTimeout(previewClearTimerRef.current)
+    previewClearTimerRef.current = null
+  }, [])
+
+  // 预览目标写入的唯一入口：按目标键去重，避免同一目标在鼠标移动中反复触发重渲染。
+  const applyPreviewTarget = React.useCallback((target: SidebarPreviewTarget | null) => {
+    const key = target ? encodeSidebarPreviewTarget(target) : ''
+    if (key === previewTargetKeyRef.current) return
+    previewTargetKeyRef.current = key
+    setPreviewTarget(target)
+  }, [])
+
+  // 边栏条目悬停上报：按住快捷键时，鼠标进入条目即切换预览，离开条目延迟还原。
+  const handleSidebarPreviewHover = React.useCallback(
+    (target: SidebarPreviewTarget | null) => {
+      if (!previewHoldRef.current) return
+      if (target) {
+        cancelPreviewClear()
+        applyPreviewTarget(target)
+        return
+      }
+      if (previewClearTimerRef.current !== null) return
+      previewClearTimerRef.current = window.setTimeout(() => {
+        previewClearTimerRef.current = null
+        if (previewHoldRef.current) applyPreviewTarget(null)
+      }, 100)
+    },
+    [applyPreviewTarget, cancelPreviewClear],
+  )
+  const leftPreviewHover = useSidebarPreviewHover({ onHover: handleSidebarPreviewHover })
+  const rightPreviewHover = useSidebarPreviewHover({ onHover: handleSidebarPreviewHover })
+
+  const stopPreview = React.useCallback(() => {
+    previewHoldRef.current = false
+    cancelPreviewClear()
+    applyPreviewTarget(null)
+  }, [applyPreviewTarget, cancelPreviewClear])
+
+  // 现场切走时还原预览：常驻现场不销毁，遗留的预览态不得跨现场泄漏。
+  React.useEffect(() => {
+    if (!visible) stopPreview()
+  }, [stopPreview, visible])
+
+  // 卸载时清掉待还原定时器，避免定时器在组件销毁后触发状态写入。
+  React.useEffect(() => cancelPreviewClear, [cancelPreviewClear])
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
@@ -1100,10 +1160,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
   const onSidebarMouseLeave = React.useCallback(() => {
     sidebarHoverRef.current = false
+    handleSidebarPreviewHover(null)
     if (!isHoverTabsMode) return
     if (sidebarShortcutHoldRef.current) return
     setTabsHoverOpen(false)
-  }, [isHoverTabsMode])
+  }, [handleSidebarPreviewHover, isHoverTabsMode])
 
   // ---- 收藏夹导航栏（右侧栏）
   const [favoritesHoverOpen, setFavoritesHoverOpen] = React.useState(false)
@@ -1127,8 +1188,9 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
   const onFavoritesSidebarMouseLeave = React.useCallback(() => {
     favoritesHoverRef.current = false
+    handleSidebarPreviewHover(null)
     if (isHoverFavoritesMode) setFavoritesHoverOpen(false)
-  }, [isHoverFavoritesMode])
+  }, [handleSidebarPreviewHover, isHoverFavoritesMode])
 
   const persistFavoritesNav = React.useCallback(
     (next: HyperCortexFavoritesNavV1) => {
@@ -2173,6 +2235,15 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       const overlayPage = openModalPageRef.current
       const focusPage = visiblePageId(pageRef.current, overlayPage)
 
+      // 按住预览：按住即进入预览态并立刻拾取当前悬停条目；松开时还原。
+      if (shouldTriggerShortcut(e, bindings.holdPreview)) {
+        e.preventDefault()
+        e.stopPropagation()
+        previewHoldRef.current = true
+        setPreviewTarget(readHoveredSidebarPreviewTarget())
+        return
+      }
+
       // 长按行为只在对应 mainKey 抬起时停止。
       if (!overlayPage && shouldTriggerShortcut(e, bindings.selectPrevTab)) {
         e.preventDefault()
@@ -2289,6 +2360,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         }
       }
 
+      // 按住预览：松开快捷键（或窗口失焦）立即无缝还原原主区域内容。
+      if (bindings && bindings.holdPreview && isKeyUpForChordMainKey(e, bindings.holdPreview)) {
+        stopPreview()
+      }
+
       if (tabsMode !== 'hover') return
       if (!sidebarShortcutHoldRef.current) return
       if (!bindings) return
@@ -2299,16 +2375,38 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       if (!sidebarHoverRef.current) setTabsHoverOpen(false)
     }
 
+    const onWindowBlur = () => {
+      clearTabSwitchHold()
+      stopPreview()
+    }
+
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('keyup', onKeyUp, true)
-    window.addEventListener('blur', clearTabSwitchHold, true)
+    window.addEventListener('blur', onWindowBlur, true)
     return () => {
       clearTabSwitchHold()
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('keyup', onKeyUp, true)
-      window.removeEventListener('blur', clearTabSwitchHold, true)
+      window.removeEventListener('blur', onWindowBlur, true)
     }
-  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, tabsMode, toggleTabsCollapsed, visible])
+  }, [goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, stopPreview, tabsMode, toggleTabsCollapsed, visible])
+
+  // 预览期间在原位滚轮：把边栏上的滚轮事件转发给覆盖层滚动容器，滚动主区域预览内容。
+  React.useEffect(() => {
+    if (!visible) return
+    const onWheelCapture = (e: WheelEvent) => {
+      const overlay = previewOverlayScrollRef.current
+      if (!overlay) return
+      const target = e.target instanceof Element ? e.target : null
+      if (!target) return
+      if (target.closest('[data-hc-hold-preview-overlay="1"]')) return
+      if (!target.closest('[data-hc-preview-entry]')) return
+      overlay.scrollTop += e.deltaY
+      e.preventDefault()
+    }
+    window.addEventListener('wheel', onWheelCapture, { capture: true, passive: false })
+    return () => window.removeEventListener('wheel', onWheelCapture, true)
+  }, [visible])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta, faceId?: string, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
@@ -2968,6 +3066,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
               onResizeEnd={handleTabsSidebarResizeEnd}
               onMouseEnter={onSidebarMouseEnter}
               onMouseLeave={onSidebarMouseLeave}
+              onMouseOver={leftPreviewHover.onMouseOver}
             >
               <OpenTabsPanel
                 panelWidth={sidebarPanelWidth}
@@ -3020,7 +3119,16 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
               />
             </SidebarRail>
 
-            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: page === 'note-detail' || page === 'asset-detail' ? 'hidden' : 'auto' }}>
+            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  overflow: page === 'note-detail' || page === 'asset-detail' ? 'hidden' : 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
               <Box
                 sx={{
                   minHeight: page === 'note-detail' || page === 'asset-detail' ? 0 : '100%',
@@ -3175,6 +3283,24 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 ) : null}
                 {page === 'settings' ? renderSettingsPage() : null}
               </Box>
+              </Box>
+
+              {previewTarget ? (
+                <SidebarHoldPreviewOverlay
+                  key={encodeSidebarPreviewTarget(previewTarget)}
+                  gateway={gateway}
+                  scope="library"
+                  target={previewTarget}
+                  noteIndex={resolvedNoteIndex}
+                  assetLookup={favoritesFolderView.lookup}
+                  favoritesDoc={favoritesDoc}
+                  noteIndexMap={noteIndexMap}
+                  allNotesById={allNotesById}
+                  facePluginGlobalSettings={facePluginSettings}
+                  globalFaceKindOrder={faceKindOrder}
+                  scrollRef={previewOverlayScrollRef}
+                />
+              ) : null}
             </Box>
 
             <SidebarRail
@@ -3183,6 +3309,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
               onResizeEnd={handleFavoritesSidebarResizeEnd}
               onMouseEnter={onFavoritesSidebarMouseEnter}
               onMouseLeave={onFavoritesSidebarMouseLeave}
+              onMouseOver={rightPreviewHover.onMouseOver}
             >
               <FavoritesSidebarPanel
                 panelWidth={rightSidebarLayout.panelWidth}

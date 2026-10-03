@@ -15,7 +15,9 @@ import type { HyperCortexFavoritesNavV1, NoteMeta } from '../core'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getFolderById } from '../favorites'
 import type { AssetEntry } from '../assetTypes'
+import { assetRefKey } from '../assetTypes'
 import { resolveAssetRef } from '../assetLookup'
+import { SIDEBAR_PREVIEW_ENTRY_ATTR } from './sidebar-preview/previewTarget'
 import { isFavoriteRefActive, type FavoriteFolderView } from './favoritesSidebarModel'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
@@ -227,7 +229,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (!folder) return renderMissingRow(ref, sortable)
     const title = folder.title || '未命名收藏夹'
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} previewEntry={`folder:${folder.id}`} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
         {showTitle ? <RowLabel title={title} /> : null}
         {showTitle ? <ChevronRightRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.32)', flexShrink: 0 }} /> : null}
@@ -241,7 +243,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const title = note.title || '未命名'
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
       </RowShell>
@@ -256,7 +258,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const PreviewIcon = preview.icon
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
         ) : (
@@ -285,26 +287,22 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   }
 
   const renderOverflowButton = (): React.ReactNode => (
-    <Tooltip title="更多" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
-      <IconButton
-        size="small"
-        aria-label="更多操作"
-        aria-haspopup="menu"
-        aria-expanded={overflowMenuOpen ? 'true' : undefined}
-        onClick={e => setOverflowMenuAnchorEl(e.currentTarget)}
-        sx={{ color: 'rgba(0,0,0,.58)' }}
-      >
-        <MoreHorizRoundedIcon fontSize="small" />
-      </IconButton>
-    </Tooltip>
+    <IconButton
+      size="small"
+      aria-label="更多操作"
+      aria-haspopup="menu"
+      aria-expanded={overflowMenuOpen ? 'true' : undefined}
+      onClick={e => setOverflowMenuAnchorEl(e.currentTarget)}
+      sx={{ color: 'rgba(0,0,0,.58)' }}
+    >
+      <MoreHorizRoundedIcon fontSize="small" />
+    </IconButton>
   )
 
   const renderCreateNoteButton = (): React.ReactNode => (
-    <Tooltip title="新建笔记" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
-      <IconButton size="small" aria-label="新建笔记" onClick={onCreateNote} sx={{ color: 'rgba(0,0,0,.58)' }}>
-        <AddRoundedIcon fontSize="small" />
-      </IconButton>
-    </Tooltip>
+    <IconButton size="small" aria-label="新建笔记" onClick={onCreateNote} sx={{ color: 'rgba(0,0,0,.58)' }}>
+      <AddRoundedIcon fontSize="small" />
+    </IconButton>
   )
 
   return (
@@ -317,20 +315,16 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           </Box>
         ) : (
           <>
-            <Tooltip title="后退" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
-              <span>
-                <IconButton size="small" aria-label="后退" disabled={!canGoBack} onClick={onBack}>
-                  <ArrowBackRoundedIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="前进" placement="bottom" disableHoverListener={disableTooltips} disableFocusListener={disableTooltips} disableTouchListener={disableTooltips}>
-              <span>
-                <IconButton size="small" aria-label="前进" disabled={!canGoForward} onClick={onForward}>
-                  <ArrowForwardRoundedIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
+            <span>
+              <IconButton size="small" aria-label="后退" disabled={!canGoBack} onClick={onBack}>
+                <ArrowBackRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+            <span>
+              <IconButton size="small" aria-label="前进" disabled={!canGoForward} onClick={onForward}>
+                <ArrowForwardRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
             <Button
               size="small"
               aria-label="收藏夹路径"
@@ -490,13 +484,15 @@ function RowShell(props: {
   muted?: boolean
   active?: boolean
   activeRef?: React.MutableRefObject<HTMLElement | null>
+  /** 「按住预览」的条目标识：标注后悬停即可上报预览目标。 */
+  previewEntry?: string
   onClick: (event?: React.MouseEvent) => void
   onContextMenu?: (event: React.MouseEvent) => void
   sortable?: SortableItemRenderArgs
   shouldSuppressClick?: () => boolean
   children: React.ReactNode
 }): React.ReactNode {
-  const { showTitle, title, tooltipDisabled, muted, active = false, activeRef, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
+  const { showTitle, title, tooltipDisabled, muted, active = false, activeRef, previewEntry, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
   return (
     <Tooltip
       title={!showTitle && !tooltipDisabled ? title : ''}
@@ -511,6 +507,7 @@ function RowShell(props: {
           if (sortable) sortable.setNodeRef(node)
         }}
         {...(sortable ? sortable.handleProps : {})}
+        {...(previewEntry ? { [SIDEBAR_PREVIEW_ENTRY_ATTR]: previewEntry } : {})}
         role="button"
         tabIndex={0}
         style={sortable?.style}

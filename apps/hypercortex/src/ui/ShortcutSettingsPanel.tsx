@@ -27,6 +27,7 @@ const KEY_BY_ID: Record<HyperCortexShortcutId, ShortcutKey> = {
   selectPrevTab: 'selectPrevTab',
   selectNextTab: 'selectNextTab',
   cycleFace: 'cycleFace',
+  holdPreview: 'holdPreview',
 }
 
 function updateBinding(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexShortcutId, nextChord: string): HyperCortexShortcutBindingsV1 {
@@ -143,6 +144,7 @@ export function ShortcutSettingsPanel(props: {
             { id: 'toggleMode', title: '切换阅读/编辑' },
             { id: 'cycleFace', title: '切换笔记面（文本/HTML）' },
             { id: 'toggleSidebar', title: '侧边栏展开/收起' },
+            { id: 'holdPreview', title: '按住预览侧边栏条目' },
           ] satisfies { id: HyperCortexShortcutId; title: string }[]
         ).map(row => (
           <Row key={row.id} id={row.id} title={row.title} value={bindings[KEY_BY_ID[row.id]]} />
