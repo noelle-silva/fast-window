@@ -3359,6 +3359,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onOpenNote={(note, openInTabs) => void handleOpenNote(note, undefined, openInTabs ? 'tabs' : 'favorites')}
                 onOpenAsset={(asset, openInTabs) => handleOpenAssetTab(asset, openInTabs ? 'tabs' : 'favorites')}
                 onCreateNote={() => handleCreateDraftNoteInFolder(favoritesNav.currentFolderId)}
+                onCloseDraftNote={handleCloseTab}
                 onEntryContextMenu={handleFavoritesSidebarContextMenu}
                 onReorderRefs={handleFavoritesSidebarReorder}
               />

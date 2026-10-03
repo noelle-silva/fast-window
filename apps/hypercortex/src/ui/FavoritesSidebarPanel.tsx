@@ -5,6 +5,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
@@ -16,6 +17,7 @@ import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getFolderById } from '../favorites'
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey } from '../assetTypes'
+import { isDraftNoteId } from '../drafts'
 import { resolveAssetRef } from '../assetLookup'
 import { SIDEBAR_PREVIEW_ENTRY_ATTR } from './sidebar-preview/previewTarget'
 import { isFavoriteRefActive, type FavoriteFolderView } from './favoritesSidebarModel'
@@ -52,6 +54,8 @@ export type FavoritesSidebarPanelProps = {
   onOpenAsset: (asset: AssetEntry, openInTabs?: boolean) => void
   /** 在当前收藏夹新建草稿笔记（语义同左侧栏新建，不落盘）。 */
   onCreateNote?: () => void
+  /** 关闭草稿态笔记条目（语义同左侧标签栏关闭，丢弃内存草稿）。 */
+  onCloseDraftNote?: (noteId: string) => void
   /** 条目右键：由上层统一实体操作菜单接管。 */
   onEntryContextMenu?: (event: React.MouseEvent, ref: FavoriteItemRef) => void
   /** 条目拖拽排序：提交当前收藏夹内条目的新顺序（引用标识序列）。 */
@@ -87,6 +91,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onOpenNote,
     onOpenAsset,
     onCreateNote,
+    onCloseDraftNote,
     onEntryContextMenu,
     onReorderRefs,
   } = props
@@ -242,10 +247,30 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (!note) return renderMissingRow(ref, sortable)
     const title = note.title || '未命名'
     const active = isRefActive(ref)
+    const isDraft = isDraftNoteId(note.id)
     return (
       <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
+        {showTitle && isDraft ? (
+          <Tooltip title="关闭" placement="left">
+            <IconButton
+              size="small"
+              aria-label={`关闭 ${title}`}
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => {
+                e.stopPropagation()
+                onCloseDraftNote?.(note.id)
+              }}
+              sx={{
+                color: 'rgba(0,0,0,.42)',
+                '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
+              }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : null}
       </RowShell>
     )
   }
