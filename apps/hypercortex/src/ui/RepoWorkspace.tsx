@@ -2223,7 +2223,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
         e.preventDefault()
         e.stopPropagation()
         previewHoldRef.current = true
-        setPreviewTarget(readHoveredSidebarPreviewTarget())
+        cancelPreviewClear()
+        applyPreviewTarget(readHoveredSidebarPreviewTarget())
         return
       }
 
