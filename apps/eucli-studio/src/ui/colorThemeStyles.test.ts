@@ -5,6 +5,7 @@ import { ThemeProvider, Popover } from '@mui/material'
 import { describe, expect, it } from 'vitest'
 import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTheme'
 import { createStudioMuiTheme } from './colorThemeStyles'
+import { OVERLAY_TRANSITION_DURATION, OVERLAY_UNMOUNT_DELAY_MS } from './overlayTransition'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -14,11 +15,14 @@ import { createStudioMuiTheme } from './colorThemeStyles'
 // 计时器）：切会话等高频刷新会打断它，导致退出回调丢失、弹层模态容器永久残留并
 // 拦截全屏鼠标交互。固定时长后由底层过渡库的独立兜底计时器保证退出必然完成。
 describe('createStudioMuiTheme 弹层过渡时长', () => {
-  it('Popover 与 Menu 均固定过渡时长，不落到自动模式', () => {
+  it('Popover、Menu 与 Dialog 的过渡时长与卸载等待同源于 overlayTransition', () => {
     const colors = getColorThemeColors(resolveColorThemePreview(undefined, null))
     const theme = createStudioMuiTheme('light', colors)
-    expect(theme.components?.MuiPopover?.defaultProps?.transitionDuration).toEqual({ enter: 225, exit: 195 })
-    expect(theme.components?.MuiMenu?.defaultProps?.transitionDuration).toEqual({ enter: 225, exit: 195 })
+    expect(theme.components?.MuiPopover?.defaultProps?.transitionDuration).toEqual(OVERLAY_TRANSITION_DURATION)
+    expect(theme.components?.MuiMenu?.defaultProps?.transitionDuration).toEqual(OVERLAY_TRANSITION_DURATION)
+    expect(theme.components?.MuiDialog?.defaultProps?.transitionDuration).toEqual(OVERLAY_TRANSITION_DURATION)
+    // 强制卸下必须晚于退场动画播完，动画节奏才不会被截断。
+    expect(OVERLAY_UNMOUNT_DELAY_MS).toBeGreaterThanOrEqual(OVERLAY_TRANSITION_DURATION.exit)
   })
 
   it('渲染出的弹层实际使用固定时长', async () => {
@@ -42,7 +46,7 @@ describe('createStudioMuiTheme 弹层过渡时长', () => {
       })
       const paper = document.querySelector('.MuiPopover-paper') as HTMLElement | null
       expect(paper).not.toBeNull()
-      expect(String(paper?.style.transition || '')).toContain('225ms')
+      expect(String(paper?.style.transition || '')).toContain(`${OVERLAY_TRANSITION_DURATION.enter}ms`)
     } finally {
       await act(async () => {
         root.unmount()
