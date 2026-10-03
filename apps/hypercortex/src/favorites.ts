@@ -1,8 +1,5 @@
-import { type Api } from './core'
 import { isDraftNoteId } from './drafts'
 import { wouldCreateFolderReferenceCycle } from './favoritesGraph'
-
-export const FAVORITES_FILE = 'hypercortex-favorites.json'
 
 // 草稿引用的判定：指向尚未落盘草稿笔记的 note 引用。草稿只活在内存，
 // 落盘时会被过滤（见 stripDraftNoteRefs），保证磁盘上不残留指向草稿的引用。
@@ -46,13 +43,10 @@ function nowId(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function stableRefId(folderId: string, kind: FavoriteItemRef['kind'], targetId: string): string {
-  // 仅用于脏数据修复：当 ref.id 缺失时，生成一个“稳定”的 id（同样输入得到同样输出）
-  return `ref_${folderId}__${kind}__${targetId}`
-}
-
+// 默认布局与后端 defaultFavoriteLayout 保持同一套规矩（宽度 2、高度 2）：
+// 界面内存镜像仅用于即时预览，新条目最终形态以后端规范化为准。
 function defaultLayout(): GridLayout {
-  return { x: 0, y: 0, w: 3, h: 2 }
+  return { x: 0, y: 0, w: 2, h: 2 }
 }
 
 function nextAutoLayout(doc: HyperCortexFavoritesDocV1, folderId: string): GridLayout {
@@ -64,229 +58,6 @@ function nextAutoLayout(doc: HyperCortexFavoritesDocV1, folderId: string): GridL
     maxBottom = Math.max(maxBottom, y + h)
   }
   return { ...defaultLayout(), y: maxBottom }
-}
-
-function createFreshFavoritesDocV1(nowMs: number): HyperCortexFavoritesDocV1 {
-  const root: FavoriteFolder = {
-    id: 'root',
-    title: '根目录',
-    description: '',
-    createdAtMs: nowMs,
-    updatedAtMs: nowMs,
-  }
-  return {
-    version: 1,
-    rootFolderId: 'root',
-    folders: { root },
-    refsByFolderId: { root: [] },
-  }
-}
-
-function asRecord(v: unknown): Record<string, any> | null {
-  return v && typeof v === 'object' && !Array.isArray(v) ? (v as any) : null
-}
-
-function normalizeLayout(raw: any): GridLayout {
-  const x = Number.isFinite(raw?.x) ? Math.max(0, Math.floor(raw.x)) : 0
-  const y = Number.isFinite(raw?.y) ? Math.max(0, Math.floor(raw.y)) : 0
-  const w = Number.isFinite(raw?.w) ? Math.max(1, Math.floor(raw.w)) : defaultLayout().w
-  const h = Number.isFinite(raw?.h) ? Math.max(1, Math.floor(raw.h)) : defaultLayout().h
-  return { x, y, w, h }
-}
-
-function normalizeFolder(nowMs: number, id: string, raw: any): FavoriteFolder {
-  const title = String(raw?.title ?? '').trim() || '未命名收藏夹'
-  const description = String(raw?.description ?? '').trim()
-  const createdAtMs = Number.isFinite(raw?.createdAtMs) ? Math.max(0, Math.floor(raw.createdAtMs)) : nowMs
-  const updatedAtMs = Number.isFinite(raw?.updatedAtMs) ? Math.max(0, Math.floor(raw.updatedAtMs)) : createdAtMs
-  return { id, title, description, createdAtMs, updatedAtMs }
-}
-
-function normalizeKind(raw: any): FavoriteItemRef['kind'] | null {
-  const k = String(raw ?? '').trim()
-  if (k === 'note' || k === 'asset' || k === 'folder') return k
-  return null
-}
-
-function normalizeRef(nowMs: number, folderId: string, raw: any): FavoriteItemRef | null {
-  const kind = normalizeKind(raw?.kind)
-  if (!kind) return null
-  const targetId = String(raw?.targetId ?? '').trim()
-  if (!targetId) return null
-
-  const id = String(raw?.id ?? '').trim() || stableRefId(folderId, kind, targetId)
-  const createdAtMs = Number.isFinite(raw?.createdAtMs) ? Math.max(0, Math.floor(raw.createdAtMs)) : nowMs
-  const updatedAtMs = Number.isFinite(raw?.updatedAtMs) ? Math.max(0, Math.floor(raw.updatedAtMs)) : createdAtMs
-  const layout = normalizeLayout(raw?.layout)
-
-  return { id, folderId, kind, targetId, layout, createdAtMs, updatedAtMs }
-}
-
-function normalizeFavoritesDocV1(nowMs: number, rawDoc: any): { doc: HyperCortexFavoritesDocV1; changed: boolean } {
-  // 目标：在加载/ensure 阶段做文档级“结构修复 + 同页唯一性去重”
-  // - 同页唯一性：对每个 folder 页面按 (kind,targetId) 去重，保留“首条”，保持稳定
-  // - 结构健壮：root/rootFolderId/folders/refsByFolderId 保底存在
-  let changed = false
-
-  const base: HyperCortexFavoritesDocV1 = createFreshFavoritesDocV1(nowMs)
-  const docRec = asRecord(rawDoc)
-  if (!docRec) return { doc: base, changed: true }
-
-  const foldersRec = asRecord(docRec.folders) ?? {}
-  const refsByFolderIdRec = asRecord(docRec.refsByFolderId) ?? {}
-
-  const nextFolders: Record<string, FavoriteFolder> = {}
-  // 先把 folders 规范化
-  for (const [key, value] of Object.entries(foldersRec)) {
-    const id = String(key ?? '').trim()
-    if (!id) {
-      changed = true
-      continue
-    }
-    nextFolders[id] = normalizeFolder(nowMs, id, value)
-    if (value?.id !== id) changed = true
-    if (typeof value?.description !== 'string') changed = true
-  }
-
-  // root 强制存在，且 rootFolderId 强制为 'root'
-  if (!nextFolders.root) {
-    nextFolders.root = normalizeFolder(nowMs, 'root', { title: '根目录', createdAtMs: nowMs, updatedAtMs: nowMs })
-    changed = true
-  } else {
-    // root 标题若缺失，补上
-    if (!String(nextFolders.root.title ?? '').trim()) {
-      nextFolders.root = { ...nextFolders.root, title: '根目录', updatedAtMs: Math.max(nowMs, nextFolders.root.updatedAtMs || 0) }
-      changed = true
-    }
-  }
-
-  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = {}
-
-  // 1) 先处理 refsByFolderId 中已存在的页面列表
-  for (const [fidRaw, refsRaw] of Object.entries(refsByFolderIdRec)) {
-    const fid = String(fidRaw ?? '').trim()
-    if (!fid) {
-      changed = true
-      continue
-    }
-
-    // 若 refsByFolderId 存在，但 folders 缺失对应页面，则补一个占位 folder，保证结构可用
-    if (!nextFolders[fid]) {
-      nextFolders[fid] = normalizeFolder(nowMs, fid, null)
-      changed = true
-    }
-
-    const list = Array.isArray(refsRaw) ? refsRaw : []
-    if (!Array.isArray(refsRaw)) changed = true
-
-    const seen = new Set<string>()
-    const nextList: FavoriteItemRef[] = []
-
-    for (const item of list) {
-      const ref = normalizeRef(nowMs, fid, item)
-      if (!ref) {
-        changed = true
-        continue
-      }
-
-      // 同页唯一性约束：按 (kind,targetId) 判重，保留首条（稳定）
-      const uniqKey = `${ref.kind}:${ref.targetId}`
-      if (seen.has(uniqKey)) {
-        changed = true
-        continue
-      }
-      seen.add(uniqKey)
-      nextList.push(ref)
-
-      // 若原 ref 的 folderId 不等于当前页面 id，修正
-      if (String(item?.folderId ?? '').trim() !== fid) changed = true
-    }
-
-    nextRefsByFolderId[fid] = nextList
-  }
-
-  // 2) 对 folders 中存在但 refsByFolderId 缺失的页面补空数组
-  for (const fid of Object.keys(nextFolders)) {
-    if (!nextRefsByFolderId[fid]) {
-      nextRefsByFolderId[fid] = []
-      if (!(fid in refsByFolderIdRec)) changed = true
-    }
-  }
-
-  const normalized: HyperCortexFavoritesDocV1 = {
-    version: 1,
-    rootFolderId: 'root',
-    folders: nextFolders,
-    refsByFolderId: nextRefsByFolderId,
-  }
-
-  if (docRec.version !== 1) changed = true
-  if (docRec.rootFolderId !== 'root') changed = true
-  if (docRec.folders !== foldersRec) {
-    // 这里不做引用级别对比，只用于提醒：结构已被重建
-  }
-
-  return { doc: normalized, changed }
-}
-
-export function normalizeFavoritesDoc(rawDoc: any): { doc: HyperCortexFavoritesDocV1; changed: boolean } {
-  return normalizeFavoritesDocV1(Date.now(), rawDoc)
-}
-
-async function tryLoadFavoritesInternal(
-  api: Api,
-): Promise<{ doc: HyperCortexFavoritesDocV1; changed: boolean } | null> {
-  try {
-    const raw = await api.files.readText({ scope: 'data', path: FAVORITES_FILE })
-    const parsed = JSON.parse(raw || 'null')
-    if (!parsed || typeof parsed !== 'object') return null
-    if ((parsed as any).version !== 1) return null
-    const normalized = normalizeFavoritesDocV1(Date.now(), parsed)
-    return normalized
-  } catch {
-    return null
-  }
-}
-
-export async function tryLoadFavorites(api: Api): Promise<HyperCortexFavoritesDocV1 | null> {
-  try {
-    const raw = await api.files.readText({ scope: 'data', path: FAVORITES_FILE })
-    const parsed = JSON.parse(raw || 'null')
-    if (!parsed || typeof parsed !== 'object') return null
-    if ((parsed as any).version !== 1) return null
-    return normalizeFavoritesDocV1(Date.now(), parsed).doc
-  } catch {
-    return null
-  }
-}
-
-export async function ensureFavorites(api: Api): Promise<HyperCortexFavoritesDocV1> {
-  const existing = await tryLoadFavoritesInternal(api)
-  if (existing) {
-    if (existing.changed) {
-      // 加载阶段发现脏数据：自动规范化并回写，确保“同页唯一性约束”落地到磁盘
-      await api.files
-        .writeText({
-          scope: 'data',
-          path: FAVORITES_FILE,
-          text: JSON.stringify(existing.doc, null, 2),
-          overwrite: true,
-        })
-        .catch(() => {})
-    }
-    return existing.doc
-  }
-  const fresh = createFreshFavoritesDocV1(Date.now())
-  await api.files
-    .writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(fresh, null, 2), overwrite: true })
-    .catch(() => {})
-  return fresh
-}
-
-export async function saveFavorites(api: Api, doc: HyperCortexFavoritesDocV1): Promise<void> {
-  const normalized = normalizeFavoritesDoc(doc).doc
-  const persisted = stripDraftNoteRefs(normalized)
-  await api.files.writeText({ scope: 'data', path: FAVORITES_FILE, text: JSON.stringify(persisted, null, 2), overwrite: true })
 }
 
 /**
@@ -359,14 +130,13 @@ export function retargetNoteRefs(doc: HyperCortexFavoritesDocV1, fromId: string,
   return changed ? { ...doc, refsByFolderId: nextRefsByFolderId } : doc
 }
 
-export function normalizeFavoriteRefsForFolder(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
-  const normalized = normalizeFavoritesDoc(doc).doc
-  const refs = (normalized.refsByFolderId as any)?.[String(folderId || '').trim()]
-  return Array.isArray(refs) ? refs : []
-}
-
+/**
+ * 取某页收藏夹的引用列表：文档在进内存时已由账本管理员整理一次，
+ * 此后读取直接取用，不再每次全量重算规整。
+ */
 export function getRefsByFolderId(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteItemRef[] {
-  return normalizeFavoriteRefsForFolder(doc, folderId)
+  const refs = (doc.refsByFolderId as any)?.[String(folderId || '').trim()]
+  return Array.isArray(refs) ? refs : []
 }
 
 export function getFolderById(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteFolder | undefined {

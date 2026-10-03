@@ -13,7 +13,8 @@ import type { HyperCortexRepo } from '../gateway'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
-import { addRef, normalizeFavoritesDoc, removeNoteRefsByTargetId, reorderRefsInFolder, retargetNoteRefs, stripDraftNoteRefs, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, removeNoteRefsByTargetId, reorderRefsInFolder, retargetNoteRefs, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { createFavoritesLedger } from '../favoritesLedger'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -293,6 +294,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const { repoId, visible } = props
   const shell = useHyperCortexShell()
   const gateway = React.useMemo<HyperCortexGateway>(() => createRepoScopedGateway(repoId), [repoId])
+  // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 落盘）。
+  const favoritesLedger = React.useMemo(() => createFavoritesLedger(gateway, 'library'), [gateway])
 
   const appSettings = shell.appSettings
   const patchAppSettings = shell.patchAppSettings
@@ -1443,14 +1446,14 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const loadRepoData = React.useCallback(async () => {
     const [normalizedRepoState, nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
       gateway.repoState.ensureRepoState('library'),
-      gateway.favorites.ensureFavorites('library'),
+      favoritesLedger.load(),
       gateway.assets.ensureAssetsIndex('library'),
     ])
     const applied = applyRepoStateToUi(normalizedRepoState)
     setFavoritesDoc(nextFavoritesDoc)
     setAssetPoolIndex(nextAssetPoolIndex as any)
     return { normalizedRepoState, ...applied }
-  }, [applyRepoStateToUi, gateway])
+  }, [applyRepoStateToUi, favoritesLedger, gateway])
 
   // 仓库状态在装载时被归一化（补工作区、补当前标签）时写回，避免每次装载重复归一化。
   const persistRepoStateNormalization = React.useCallback(
@@ -1684,13 +1687,11 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
   const handleFavoritesDocChange = React.useCallback(
     (nextDoc: HyperCortexFavoritesDocV1) => {
-      const normalizedDoc = normalizeFavoritesDoc(nextDoc).doc
-      setFavoritesDoc(normalizedDoc)
-      // 内存保留草稿引用；发给磁盘前剔除，避免磁盘残留指向草稿的引用。
-      const persisted = stripDraftNoteRefs(normalizedDoc)
-      void gateway.favorites.saveFavorites('library', persisted).catch(() => {})
+      setFavoritesDoc(nextDoc)
+      // 内存保留草稿引用；落盘由账本管理员统一转换（磁盘态过滤草稿引用）。
+      favoritesLedger.commit(nextDoc)
     },
-    [gateway],
+    [favoritesLedger],
   )
 
   const handleUpdateNoteInfo = React.useCallback(
@@ -3003,6 +3004,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     scope: 'library' as const,
     open: quickSearchOpen,
     allNotesLayout,
+    favoritesDoc,
     onToggle: () => setQuickSearchOpen(v => !v),
     onToggleAllNotesLayout: toggleAllNotesLayout,
     onClose: () => setQuickSearchOpen(false),
@@ -3014,7 +3016,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       setQuickSearchOpen(false)
       handleOpenAssetTab(asset)
     },
-  }), [allNotesLayout, gateway, handleOpenAssetTab, handleOpenNote, quickSearchOpen, toggleAllNotesLayout])
+  }), [allNotesLayout, favoritesDoc, gateway, handleOpenAssetTab, handleOpenNote, quickSearchOpen, toggleAllNotesLayout])
 
   const toolbarShortcutHints = React.useMemo(() => ({
     enabled: shortcutHintsEnabled,
