@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, Menu, MenuItem, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { DependableMenu } from '../components/DependablePopover'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import BookmarkBorderOutlinedIcon from '@mui/icons-material/BookmarkBorderOutlined'
@@ -439,7 +440,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           </Box>
         </Stack>
 
-        <Menu
+        <DependableMenu
           anchorEl={folderMenuEl}
           open={!!folderMenuEl}
           onClose={() => setFolderMenuEl(null)}
@@ -488,7 +489,7 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
           >
             收藏夹设置…
           </MenuItem>
-        </Menu>
+        </DependableMenu>
 
         <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} fullWidth maxWidth="xs" PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}>
           <DialogTitle>收藏「{favoriteDialog.name}」</DialogTitle>

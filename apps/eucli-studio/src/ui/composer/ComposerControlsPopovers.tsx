@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Chip, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Popover, Select, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { numericTimeValue } from '../utils/time'
@@ -67,7 +68,7 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
 
   return (
     <>
-      <Popover
+      <DependablePopover
         open={!!asyncToolTasksEl}
         anchorEl={asyncToolTasksEl}
         onClose={closeAsyncToolTasks}
@@ -113,9 +114,9 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
             )}
           </Stack>
         </Box>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={roleSessionControlsEnabled && !!tempModelPickerEl}
         anchorEl={tempModelPickerEl}
         onClose={closeTempModelPicker}
@@ -196,9 +197,9 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
             </Stack>
           </Stack>
         </Box>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={roleSessionControlsEnabled && !!reasoningPickerEl}
         anchorEl={reasoningPickerEl}
         onClose={closeReasoningPicker}
@@ -243,7 +244,7 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
             </Button>
           </Stack>
         </Box>
-      </Popover>
+      </DependablePopover>
     </>
   )
 })

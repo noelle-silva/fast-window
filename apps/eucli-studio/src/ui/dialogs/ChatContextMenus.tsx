@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, MenuItem, Popover } from '@mui/material'
+import { Box, MenuItem } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -55,7 +56,7 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
 
   return (
     <>
-      <Popover
+      <DependablePopover
         open={!!favoriteFolderMenu.folderId}
         onClose={closeFavoriteFolderMenu}
         anchorReference="anchorPosition"
@@ -120,9 +121,9 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             删除文件夹及其子内容
           </MenuItem>
         </Box>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={!!favoriteChatMenu.chatId}
         onClose={closeFavoriteChatMenu}
         anchorReference="anchorPosition"
@@ -198,9 +199,9 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             AI 生成标题
           </MenuItem>
         </Box>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={!!chatMenu.chatId}
         onClose={closeChatMenu}
         anchorReference="anchorPosition"
@@ -263,7 +264,7 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             删除
           </MenuItem>
         </Box>
-      </Popover>
+      </DependablePopover>
     </>
   )
 })

@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Chip, CircularProgress, Divider, List, ListItemButton, ListItemText, Popover, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Chip, CircularProgress, Divider, List, ListItemButton, ListItemText, Stack, Tooltip, Typography } from '@mui/material'
+import { DependablePopover } from './DependablePopover'
 import { hookPromptPresetName, hookPromptSelectionLabel, normalizeHookPromptSelectionMode, type HookPromptLibrary, type HookPromptSelectionMode } from '../../domain/hookPrompt'
 
 type HookPromptSelectorProps = {
@@ -61,7 +62,7 @@ export function HookPromptSelector(props: HookPromptSelectorProps) {
         </span>
       </Tooltip>
 
-      <Popover
+      <DependablePopover
         open={open}
         anchorEl={anchorEl}
         onClose={close}
@@ -100,7 +101,7 @@ export function HookPromptSelector(props: HookPromptSelectorProps) {
             </List>
           </Stack>
         </Box>
-      </Popover>
+      </DependablePopover>
     </>
   )
 }

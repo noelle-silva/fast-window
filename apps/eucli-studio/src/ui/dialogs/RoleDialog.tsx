@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, IconButton, Menu, MenuItem, Stack } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, IconButton, MenuItem, Stack } from '@mui/material'
+import { DependableMenu } from '../components/DependablePopover'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
@@ -32,7 +33,7 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
             保存
           </Button>
         </Stack>
-        <Menu anchorEl={moreMenuEl} open={!!moreMenuEl} onClose={() => setMoreMenuEl(null)}>
+        <DependableMenu anchorEl={moreMenuEl} open={!!moreMenuEl} onClose={() => setMoreMenuEl(null)}>
           <MenuItem
             sx={{ color: 'error.main', gap: 1 }}
             onClick={() => {
@@ -43,7 +44,7 @@ export function RoleDialog(props: { open: boolean; controller: any; providers: a
             <DeleteOutlineIcon fontSize="small" />
             删除角色
           </MenuItem>
-        </Menu>
+        </DependableMenu>
       </DialogActions>
     </Dialog>
   )

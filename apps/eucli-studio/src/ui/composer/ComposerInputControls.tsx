@@ -7,11 +7,11 @@ import {
   ListItemAvatar,
   ListItemButton,
   ListItemText,
-  Popover,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import { useEvent } from '../hooks/useEvent'
 import { findAtMentionTrigger } from '../utils/mention'
 import { CustomScrollArea } from '../components/CustomScrollArea'
@@ -308,7 +308,7 @@ export function ComposerInputControls(props: {
         <CustomScrollbarThumbs metrics={metrics} dragging={dragging} onBeginDrag={beginDrag} viewport={viewport} />
       </Box>
 
-      <Popover
+      <DependablePopover
         open={!!slashPicker && !!localInputRef.current}
         anchorEl={(localInputRef.current as any) || undefined}
         onClose={closeSlashPicker}
@@ -386,9 +386,9 @@ export function ComposerInputControls(props: {
           )}
           </Box>
         </CustomScrollArea>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={!!atPicker && !!localInputRef.current && activeTargetKind === 'group' && !!activeGroup}
         anchorEl={(localInputRef.current as any) || undefined}
         onClose={closeAtPicker}
@@ -435,7 +435,7 @@ export function ComposerInputControls(props: {
           )}
           </Box>
         </CustomScrollArea>
-      </Popover>
+      </DependablePopover>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', px: 0.25 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', flex: 1, minWidth: 0, pl: 1 }}>

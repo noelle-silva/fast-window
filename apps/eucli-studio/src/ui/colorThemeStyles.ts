@@ -1,6 +1,7 @@
 import { createTheme } from '@mui/material'
 import type { ColorThemeColors, ColorThemeMode } from '../domain/colorTheme'
 import type { PlaceholderDiagramColors } from '../render/placeholderDiagram'
+import { OVERLAY_TRANSITION_DURATION } from './overlayTransition'
 
 export function colorThemeCssVariables(colors: ColorThemeColors) {
   return {
@@ -243,7 +244,16 @@ export function createStudioMuiTheme(mode: ColorThemeMode, colors: ColorThemeCol
           },
         },
       },
+      // 弹出层（Popover / Menu）过渡时长显式固定，禁用 Grow 的「自动时长」模式。
+      //
+      // 自动模式的退出完成信号依赖一个可被取消的内部共享计时器，同时底层过渡库的
+      // 兜底计时器在该模式下被关闭；切会话等高频刷新会打断它，导致退出回调丢失、
+      // 弹层模态容器永久残留并拦截全屏鼠标交互。固定时长让完成路径确定，
+      // 与 DependablePopover 的「关闭后必然卸下」保障共享同一事实源。
       MuiPopover: {
+        defaultProps: {
+          transitionDuration: { ...OVERLAY_TRANSITION_DURATION },
+        },
         styleOverrides: {
           paper: {
             borderRadius: 24,
@@ -276,6 +286,11 @@ export function createStudioMuiTheme(mode: ColorThemeMode, colors: ColorThemeCol
               backgroundColor: 'var(--studio-primary-soft)',
             },
           },
+        },
+      },
+      MuiMenu: {
+        defaultProps: {
+          transitionDuration: { ...OVERLAY_TRANSITION_DURATION },
         },
       },
     },

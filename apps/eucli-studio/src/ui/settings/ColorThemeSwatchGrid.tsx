@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Popover, Stack, Typography } from '@mui/material'
+import { Box, Stack, Typography } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import { RgbaColorPicker } from 'react-colorful'
 import { BASE_COLOR_KEYS, type BaseColors } from '../../domain/colorTheme'
 import { formatCssColor, parseCssColor } from '../../domain/cssColor'
@@ -93,7 +94,7 @@ export function ColorThemeSwatchGrid(props: {
         })}
       </Box>
 
-      <Popover
+      <DependablePopover
         open={!!picker && !!pickerColor}
         anchorEl={picker?.anchorEl}
         onClose={closePicker}
@@ -118,7 +119,7 @@ export function ColorThemeSwatchGrid(props: {
             </Stack>
           </Stack>
         ) : null}
-      </Popover>
+      </DependablePopover>
     </Box>
   )
 }

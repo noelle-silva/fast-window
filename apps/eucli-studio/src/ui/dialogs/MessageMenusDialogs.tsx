@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Popover, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Typography } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -79,7 +80,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
 
   return (
     <>
-      <Popover
+      <DependablePopover
         open={!!msgMenu.mid}
         onClose={closeMsgMenu}
         anchorReference="anchorPosition"
@@ -218,9 +219,9 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             </>
           )}
         </Box>
-      </Popover>
+      </DependablePopover>
 
-      <Popover
+      <DependablePopover
         open={!!treeNodeMenu.mid}
         onClose={closeTreeNodeMenu}
         anchorReference="anchorPosition"
@@ -258,7 +259,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             删除节点及子节点
           </MenuItem>
         </Box>
-      </Popover>
+      </DependablePopover>
 
       <Dialog
         open={!!confirmDelMsg.mid}

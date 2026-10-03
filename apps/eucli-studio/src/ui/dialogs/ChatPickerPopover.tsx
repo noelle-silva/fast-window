@@ -7,12 +7,12 @@ import {
   List,
   ListItemButton,
   ListItemText,
-  Popover,
   Stack,
   TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import CloseIcon from '@mui/icons-material/Close'
@@ -107,7 +107,7 @@ export const ChatPickerPopover = React.memo(function ChatPickerPopover(props: {
   useUiDataVersion(controller)
 
   return (
-    <Popover
+    <DependablePopover
       open={!!chatPickerEl}
       anchorEl={chatPickerEl}
       onClose={closeChatPicker}
@@ -536,6 +536,6 @@ export const ChatPickerPopover = React.memo(function ChatPickerPopover(props: {
           </CustomScrollArea>
         </Box>
       </Box>
-    </Popover>
+    </DependablePopover>
   )
 })

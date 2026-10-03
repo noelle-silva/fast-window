@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, Popover, Stack } from '@mui/material'
+import { Box, Button, Stack } from '@mui/material'
+import { DependablePopover } from '../components/DependablePopover'
 import ImageIcon from '@mui/icons-material/Image'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
@@ -18,7 +19,7 @@ export const ComposerImagePickerPopover = React.memo(function ComposerImagePicke
   useUiDataVersion(controller)
 
   return (
-    <Popover
+    <DependablePopover
       open={!!imagePickerEl}
       anchorEl={imagePickerEl}
       onClose={closeImagePicker}
@@ -32,6 +33,6 @@ export const ComposerImagePickerPopover = React.memo(function ComposerImagePicke
           </Button>
         </Stack>
       </Box>
-    </Popover>
+    </DependablePopover>
   )
 })

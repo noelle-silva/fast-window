@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Tooltip, Typography } from '@mui/material'
+import { DependableMenu } from './DependablePopover'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 export type MoreActionsMenuItem = {
@@ -61,7 +62,7 @@ export function MoreActionsMenu(props: MoreActionsMenuProps) {
           </IconButton>
         </span>
       </Tooltip>
-      <Menu
+      <DependableMenu
         anchorEl={menuEl}
         open={!!menuEl}
         onClose={() => setMenuEl(null)}
@@ -79,7 +80,7 @@ export function MoreActionsMenu(props: MoreActionsMenuProps) {
             {item.label}
           </MenuItem>
         ))}
-      </Menu>
+      </DependableMenu>
       <Dialog
         open={!!pendingConfirm}
         onClose={() => setPendingConfirm(null)}
