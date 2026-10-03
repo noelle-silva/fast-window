@@ -3,7 +3,6 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, M
 import {
   kindFromMime,
   mimeFromExt,
-  type HyperCortexFavoritesNavV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
@@ -12,26 +11,15 @@ import type { HyperCortexRepo } from '../gateway'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
 import { isDraftNoteId } from '../drafts'
-import { addRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
-import { createFavoritesLedger } from '../favoritesLedger'
+import { addRef } from '../favorites'
 import { buildNoteInitSnapshot, filterOpenNoteIdsForClose, useDraftOrchestration } from './useDraftOrchestration'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { FavoritesSidebarPanel } from './FavoritesSidebarPanel'
-import { useFavoritesEntityActions, type FavoritesEntityTarget } from './useFavoritesEntityActions'
-import { resolveAssetRef } from '../assetLookup'
-import { buildFavoriteFolderView } from './favoritesSidebarModel'
 import { SidebarRail } from './SidebarRail'
 import { resolveSidebarLayout } from './sidebarLayout'
-import {
-  createFavoritesNav,
-  goBackFavoritesNav,
-  goForwardFavoritesNav,
-  navigateFavoritesNav,
-  reconcileFavoritesNav,
-} from './favoritesNavigator'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
@@ -40,7 +28,6 @@ import { PageOverlayHost } from './PageOverlayHost'
 import { TrashPanel } from './TrashPanel'
 import { RepoTrashPanel } from './repo-management/RepoTrashPanel'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
-import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys } from './workspaceModel'
@@ -68,7 +55,7 @@ import { orderKindsByGlobalOrder } from '../facePreferences'
 import { useNoteIndex } from './useNoteIndex'
 import { useAppCommandDispatch } from './useAppCommandDispatch'
 import { usePageNavigation } from './usePageNavigation'
-import { ASSET_UPLOAD_WAIT_INTERVAL_MS, assetKeyFromResource, sleep, useAssetPoolSessions } from './useAssetPoolSessions'
+import { useAssetPoolSessions } from './useAssetPoolSessions'
 import { useGlobalShortcuts } from './useGlobalShortcuts'
 import { useHyperCortexShell } from './shellContext'
 import { RepoWorkspaceToolbar } from './RepoWorkspaceToolbar'
@@ -78,6 +65,7 @@ import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewO
 import { useSidebarHoldPreview } from './sidebar-preview/useSidebarHoldPreview'
 import { encodeSidebarPreviewTarget } from './sidebar-preview/previewTarget'
 import { useAppSettings, useAppSettingsWritebacks } from './useAppSettings'
+import { useFavoritesWorkspaceActions, useFavoritesWorkspaceState } from './useFavoritesWorkspace'
 import { useRepoStateBootstrap, WorkspaceInitGate } from './useRepoStateBootstrap'
 
 export type RepoWorkspaceProps = {
@@ -93,8 +81,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const { repoId, visible } = props
   const shell = useHyperCortexShell()
   const gateway = React.useMemo<HyperCortexGateway>(() => createRepoScopedGateway(repoId), [repoId])
-  // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 落盘）。
-  const favoritesLedger = React.useMemo(() => createFavoritesLedger(gateway, 'library'), [gateway])
 
   const appSettings = shell.appSettings
   const patchAppSettings = shell.patchAppSettings
@@ -136,15 +122,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const [quickSearchOpen, setQuickSearchOpen] = React.useState(false)
   const [shortcutHintsOpen, setShortcutHintsOpen] = React.useState(false)
 
-  const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
-  const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
-  // 收藏夹导航栏（右侧栏）的独立浏览位置：与主界面收藏夹页互不干扰，随仓库持久化。
-  const [favoritesNav, setFavoritesNav] = React.useState<HyperCortexFavoritesNavV1>(() => createFavoritesNav())
-  // 快捷键切换列表时的「最新值」引用：键盘回调常驻挂载，必须从 ref 读取当前数据。
-  const favoritesDocRef = React.useRef(favoritesDoc)
-  React.useEffect(() => {
-    favoritesDocRef.current = favoritesDoc
-  }, [favoritesDoc])
   const [noteCardMenu, setNoteCardMenu] = React.useState<{ anchorEl: HTMLElement; note: NoteMeta } | null>(null)
   const openNoteCardMenu = React.useCallback((e: React.MouseEvent, note: NoteMeta) => {
     e.stopPropagation()
@@ -262,29 +239,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     closeTabKeysDirectRef,
   })
 
-  // 右侧收藏夹栏当前页的唯一视图：渲染与键盘切换共用同一份组装，避免配方重复。
-  const favoritesFolderView = React.useMemo(
-    () => buildFavoriteFolderView({ doc: favoritesDoc, folderId: favoritesNav.currentFolderId, assetIndex: assetPoolIndex?.assets }),
-    [favoritesDoc, favoritesNav.currentFolderId, assetPoolIndex?.assets],
-  )
-  const favoritesFolderViewRef = React.useRef(favoritesFolderView)
-  React.useEffect(() => {
-    favoritesFolderViewRef.current = favoritesFolderView
-  }, [favoritesFolderView])
-
-  // 选中归属的最终事实：来源为右且当前目标确实在右侧当前页里，才算右；否则回落左。
-  // 高亮与快捷键切换共用这一个派生值，保证任何时刻有且仅有一处选中。
-  const favoritesEntryTabKeys = React.useMemo(
-    () => new Set(favoritesFolderView.entries.map(entry => entry.tabKey)),
-    [favoritesFolderView],
-  )
-  const resolvedSelectionSource: 'tabs' | 'favorites' =
-    detailSelectionSource === 'favorites' && !!activeTabKey && favoritesEntryTabKeys.has(activeTabKey) ? 'favorites' : 'tabs'
-  const resolvedSelectionSourceRef = React.useRef(resolvedSelectionSource)
-  React.useEffect(() => {
-    resolvedSelectionSourceRef.current = resolvedSelectionSource
-  }, [resolvedSelectionSource])
-
   // ---- 侧边栏 / 工作区 / 分组
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
@@ -302,6 +256,39 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     rightPreviewHover,
     stopPreview,
   } = useSidebarHoldPreview({ visible })
+
+  // ---- 收藏夹现场：文档、当前层与右侧栏浏览位置、当前页视图与悬停布局，状态收敛到独立模块。
+  const {
+    favoritesLedger,
+    favoritesDoc,
+    setFavoritesDoc,
+    favoritesDocRef,
+    handleFavoritesDocChange,
+    currentFolderId,
+    setCurrentFolderId,
+    favoritesNav,
+    setFavoritesNav,
+    favoritesFolderView,
+    favoritesFolderViewRef,
+    resolvedSelectionSource,
+    resolvedSelectionSourceRef,
+    setFavoritesHoverOpen,
+    favoritesHoverRef,
+    favoritesSidebarShortcutHoldRef,
+    rightSidebarLayout,
+    onFavoritesSidebarMouseEnter,
+    onFavoritesSidebarMouseLeave,
+  } = useFavoritesWorkspaceState({
+    gateway,
+    assetIndex: assetPoolIndex?.assets,
+    activeTabKey,
+    detailSelectionSource,
+    favoritesSidebarMode,
+    favoritesSidebarCollapsed,
+    favoritesSidebarWidth,
+    handleSidebarPreviewHover,
+  })
+
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
 
@@ -642,18 +629,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     setTabsHoverOpen(false)
   }, [handleSidebarPreviewHover, isHoverTabsMode])
 
-  // ---- 收藏夹导航栏（右侧栏）
-  const [favoritesHoverOpen, setFavoritesHoverOpen] = React.useState(false)
-  const favoritesHoverRef = React.useRef(false)
-  const favoritesSidebarShortcutHoldRef = React.useRef(false)
-  const isHoverFavoritesMode = favoritesSidebarMode === 'hover'
-  const rightSidebarLayout = resolveSidebarLayout({
-    mode: favoritesSidebarMode,
-    collapsed: favoritesSidebarCollapsed,
-    hoverOpen: favoritesHoverOpen,
-    expandedWidth: favoritesSidebarWidth,
-  })
-
   const {
     handleShortcutBindingsChange,
     handleShortcutHintsEnabledChange,
@@ -686,58 +661,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     pageRef,
     setOpenModalPage,
   })
-
-  const onFavoritesSidebarMouseEnter = React.useCallback(() => {
-    favoritesHoverRef.current = true
-    if (isHoverFavoritesMode) setFavoritesHoverOpen(true)
-  }, [isHoverFavoritesMode])
-
-  const onFavoritesSidebarMouseLeave = React.useCallback(() => {
-    favoritesHoverRef.current = false
-    handleSidebarPreviewHover(null)
-    if (!isHoverFavoritesMode) return
-    if (favoritesSidebarShortcutHoldRef.current) return
-    setFavoritesHoverOpen(false)
-  }, [handleSidebarPreviewHover, isHoverFavoritesMode])
-
-  const persistFavoritesNav = React.useCallback(
-    (next: HyperCortexFavoritesNavV1) => {
-      setFavoritesNav(next)
-      if (repoReadyRef.current) void persistRepoStatePatch({ favoritesNav: next }).catch(() => {})
-    },
-    [persistRepoStatePatch],
-  )
-
-  const handleFavoritesSidebarNavigate = React.useCallback(
-    (folderId: string) => {
-      const next = navigateFavoritesNav(favoritesNavRef.current, folderId)
-      if (next === favoritesNavRef.current) return
-      persistFavoritesNav(next)
-    },
-    [persistFavoritesNav],
-  )
-
-  const handleFavoritesSidebarBack = React.useCallback(() => {
-    const next = goBackFavoritesNav(favoritesNavRef.current)
-    if (next === favoritesNavRef.current) return
-    persistFavoritesNav(next)
-  }, [persistFavoritesNav])
-
-  const handleFavoritesSidebarForward = React.useCallback(() => {
-    const next = goForwardFavoritesNav(favoritesNavRef.current)
-    if (next === favoritesNavRef.current) return
-    persistFavoritesNav(next)
-  }, [persistFavoritesNav])
-
-  // 收藏夹文档变化（含实体删除）后调和导航位置：失效层回到根，历史剔除失效条目。
-  React.useEffect(() => {
-    if (!favoritesDoc) return
-    const existing = new Set(Object.keys(favoritesDoc.folders || {}))
-    const current = favoritesNavRef.current
-    const next = reconcileFavoritesNav(current, existing)
-    if (next === current) return
-    persistFavoritesNav(next)
-  }, [favoritesDoc, persistFavoritesNav])
 
   const applyWorkspaceSidebarState = React.useCallback(
     (ws: HyperCortexWorkspaceV1) => {
@@ -983,23 +906,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [updateSidebarItems],
   )
 
-  const handleNavigateFolder = React.useCallback(
-    (folderId: string) => {
-      setCurrentFolderId(folderId)
-      if (repoReadyRef.current) void persistRepoStatePatch({ currentFolderId: folderId }).catch(() => {})
-    },
-    [persistRepoStatePatch],
-  )
-
-  const handleFavoritesDocChange = React.useCallback(
-    (nextDoc: HyperCortexFavoritesDocV1) => {
-      setFavoritesDoc(nextDoc)
-      // 内存保留草稿引用；落盘由账本管理员统一转换（磁盘态过滤草稿引用）。
-      favoritesLedger.commit(nextDoc)
-    },
-    [favoritesLedger],
-  )
-
   // ---- 草稿身份编排：档案与解析派生、草稿登记与打开、左右两侧新建入口、档案变化的左右调和。
   const {
     draftIdentity,
@@ -1068,54 +974,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [gateway, refreshNoteCardInfo],
   )
 
-  const handleUploadAssetsIntoIndex = React.useCallback(
-    async (folderId: string) => {
-      const fid = String(folderId || '').trim() || 'root'
-      const baseDoc = favoritesDoc
-      if (!baseDoc) return
-
-      try {
-        const task = await startPickedLocalAssetUploadTask(gateway, 'library')
-        if (!task) return
-        void gateway.host.toast('上传任务已开始，完成后会添加到当前索引')
-
-        let completed = task
-        while (completed.status === 'queued' || completed.status === 'running' || completed.status === 'paused') {
-          await sleep(ASSET_UPLOAD_WAIT_INTERVAL_MS)
-          const tasks = await gateway.assets.listUploadTasks()
-          completed = tasks.find(item => item.id === task.id) || completed
-        }
-
-        if (completed.status === 'failed') throw new Error(completed.error || '上传任务失败')
-        if (completed.status === 'canceled') {
-          void gateway.host.toast('上传任务已取消')
-          return
-        }
-
-        const imported = completed.result || []
-        if (!imported.length) return
-        let nextDoc = baseDoc
-        let addedCount = 0
-        for (const resource of imported) {
-          const key = assetKeyFromResource(resource)
-          if (!key) continue
-          const added = addRef(nextDoc, fid, 'asset', key)
-          if (!added) continue
-          nextDoc = added.doc
-          addedCount += 1
-        }
-
-        if (nextDoc !== baseDoc) handleFavoritesDocChange(nextDoc)
-        const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
-        if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
-        void gateway.host.toast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
-      } catch (err: any) {
-        void gateway.host.toast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
-      }
-    },
-    [favoritesDoc, gateway, handleFavoritesDocChange],
-  )
-
   const handleRepoRestored = React.useCallback(
     async (repo: HyperCortexRepo) => {
       await refreshRepos()
@@ -1160,20 +1018,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       }
     },
     [bumpRefRelationsEpoch, gateway],
-  )
-
-  const handleDeleteFolderEntity = React.useCallback(
-    (folderId: string) => {
-      const id = String(folderId || '').trim()
-      if (!id) return
-      // 删除收藏夹时丢弃其滚动记账，避免陈旧记忆残留。
-      clearFavoritesScrollMemory(id)
-      if (currentFolderId === id) {
-        setCurrentFolderId('root')
-        if (repoReadyRef.current) void persistRepoStatePatch({ currentFolderId: 'root' }).catch(() => {})
-      }
-    },
-    [clearFavoritesScrollMemory, currentFolderId, persistRepoStatePatch],
   )
 
   const confirmDeleteNoteFromCard = React.useCallback(async () => {
@@ -1382,52 +1226,42 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [defaultFaceKinds, draftIdentity, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
   )
 
-  // 右侧收藏夹导航栏条目的实体操作：解析条目引用为统一目标，复用与索引页相同的菜单与对话框。
-  // 附件查找表复用当前页视图，避免各处重复组装。
-  const favoritesAssetLookup = favoritesFolderView.lookup
-  const favoritesEntity = useFavoritesEntityActions({
-    doc: favoritesDoc || { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} },
-    onDocChange: handleFavoritesDocChange,
-    toast: message => void gateway.host.toast(message),
-    onOpenFolder: handleFavoritesSidebarNavigate,
-    onOpenNote: note => void handleOpenNote(note, undefined, 'favorites'),
-    onOpenAsset: asset => handleOpenAssetTab(asset, 'favorites'),
-    canMoveRefs: true,
-    onUpdateNoteInfo: handleUpdateNoteInfo,
-    onUpdateAssetInfo: handleUpdateAssetInfo,
-    onDeleteFolderEntity: handleDeleteFolderEntity,
-    onDeleteNoteEntity: note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void gateway.host.toast(String(e?.message || e || '删除失败'))),
-    onDeleteAssetEntity: requestDeleteAssetEntity,
+  // ---- 收藏夹动作现场：浏览位置前进后退与文档调和、当前层导航、实体操作与条目激活，收敛到独立模块。
+  const {
+    handleNavigateFolder,
+    handleDeleteFolderEntity,
+    handleUploadAssetsIntoIndex,
+    handleFavoritesSidebarNavigate,
+    handleFavoritesSidebarBack,
+    handleFavoritesSidebarForward,
+    handleFavoritesSidebarContextMenu,
+    handleFavoritesSidebarReorder,
+    favoritesEntityNode,
+  } = useFavoritesWorkspaceActions({
+    gateway,
+    trashEnabled,
+    favoritesDoc,
+    handleFavoritesDocChange,
+    currentFolderId,
+    setCurrentFolderId,
+    setFavoritesNav,
+    favoritesNavRef,
+    persistRepoStatePatch,
+    repoReadyRef,
+    clearFavoritesScrollMemory,
+    setAssetPoolIndex,
+    favoritesFolderView,
+    favoritesFolderViewRef,
+    resolvedNoteIndex,
+    noteIndexRef,
+    activateFavoritesEntryKeyRef,
+    handleOpenNote,
+    handleOpenAssetTab,
+    handleUpdateNoteInfo,
+    handleUpdateAssetInfo,
+    handleDeleteNote,
+    requestDeleteAssetEntity,
   })
-
-  const handleFavoritesSidebarContextMenu = React.useCallback(
-    (event: React.MouseEvent, ref: FavoriteItemRef) => {
-      let target: FavoritesEntityTarget
-      if (ref.kind === 'folder') {
-        target = { kind: 'folder', refId: ref.id, folderId: ref.targetId }
-      } else if (ref.kind === 'note') {
-        const note = resolvedNoteIndex[ref.targetId]
-        target = note ? { kind: 'note', refId: ref.id, note } : { kind: 'stale', refId: ref.id }
-      } else if (ref.kind === 'asset') {
-        const asset = resolveAssetRef(favoritesAssetLookup, ref.targetId)
-        target = asset ? { kind: 'asset', refId: ref.id, asset } : { kind: 'stale', refId: ref.id }
-      } else {
-        target = { kind: 'stale', refId: ref.id }
-      }
-      favoritesEntity.openMenu(event, target)
-    },
-    [favoritesAssetLookup, favoritesEntity, resolvedNoteIndex],
-  )
-
-  const handleFavoritesSidebarReorder = React.useCallback(
-    (folderId: string, orderedRefIds: string[]) => {
-      const base = favoritesDoc
-      if (!base) return
-      const next = reorderRefsInFolder(base, folderId, orderedRefIds)
-      if (next !== base) handleFavoritesDocChange(next)
-    },
-    [favoritesDoc, handleFavoritesDocChange],
-  )
 
   const activateExistingTabKey = React.useCallback(
     (tabKey: string, opts?: { recordHistory?: boolean }) => {
@@ -1464,35 +1298,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   React.useEffect(() => {
     activateExistingTabKeyRef.current = activateExistingTabKey
   }, [activateExistingTabKey])
-
-  // 右侧条目激活：命中当前页条目时打开详情，并把选中来源归到右侧栏。
-  const activateFavoritesEntryKey = React.useCallback(
-    (tabKey: string) => {
-      const key = String(tabKey || '').trim()
-      if (!key) return false
-      const view = favoritesFolderViewRef.current
-      const entry = view.entries.find(item => item.tabKey === key)
-      if (!entry) return false
-      if (entry.ref.kind === 'note') {
-        const note = noteIndexRef.current?.notes?.[entry.ref.targetId]
-        if (!note) return false
-        handleOpenNote(note, undefined, 'favorites', { recordHistory: false })
-        return true
-      }
-      if (entry.ref.kind === 'asset') {
-        const asset = resolveAssetRef(view.lookup, entry.ref.targetId)
-        if (!asset) return false
-        handleOpenAssetTab(asset, 'favorites', { recordHistory: false })
-        return true
-      }
-      return false
-    },
-    [handleOpenAssetTab, handleOpenNote],
-  )
-
-  React.useEffect(() => {
-    activateFavoritesEntryKeyRef.current = activateFavoritesEntryKey
-  }, [activateFavoritesEntryKey])
 
   const closeTabKeysDirect = React.useCallback(
     (tabKeys: string[]) => {
@@ -2155,7 +1960,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             </PageOverlayHost>
           ) : null}
 
-          {favoritesEntity.node}
+          {favoritesEntityNode}
 
           <Menu
             open={visible && !!noteCardMenu}
