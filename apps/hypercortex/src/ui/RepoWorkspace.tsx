@@ -39,7 +39,7 @@ import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
 import { AllNotesPage } from './AllNotesPage'
 import { PageOverlayHost } from './PageOverlayHost'
-import { isModalCapablePageId, normalizePageDisplayModes, visiblePageId, type ModalCapablePageId, type PageDisplayMode } from '../pageDisplay'
+import { isModalCapablePageId, visiblePageId, type PageDisplayMode } from '../pageDisplay'
 import { TrashPanel } from './TrashPanel'
 import { RepoTrashPanel } from './repo-management/RepoTrashPanel'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
@@ -64,13 +64,10 @@ import {
   updateSidebarGroup,
 } from './sidebarModel'
 import {
-  DEFAULT_SHORTCUT_BINDINGS,
   isEditableTarget,
   mainKeyFromChord,
   normalizeMainKey,
-  normalizeShortcutBindings,
   shouldTriggerShortcut,
-  type HyperCortexShortcutBindingsV1,
   type HyperCortexShortcutId,
 } from '../shortcuts'
 import type { NoteCardInfo } from './noteCardInfo'
@@ -79,18 +76,12 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import { createRepoScopedGateway, type HyperCortexGateway } from '../gateway'
-import { normalizeFaceSettingValue } from '../facePlugins/settings'
 import {
-  normalizeDefaultFaceKinds,
-  normalizeFaceKindOrder,
   orderKindsByGlobalOrder,
   resolveNoteFaceOrder,
 } from '../facePreferences'
 import {
   faceManifestFromDeclaration,
-  getCreatableFaceDeclarations,
-  getFaceDeclaration,
-  getFaceKindOrder,
   requireFaceDeclaration,
 } from '../facePlugins'
 import { useNoteIndex } from './useNoteIndex'
@@ -98,22 +89,12 @@ import { useAppCommandDispatch } from './useAppCommandDispatch'
 import { useHyperCortexShell } from './shellContext'
 import { RepoWorkspaceToolbar } from './RepoWorkspaceToolbar'
 import type { PageId } from './workspacePages'
-import {
-  normalizeAllNotesLayout,
-  normalizeBoolean,
-  normalizeFavoritesSidebarMode,
-  normalizeSidebarSortMode,
-  normalizeTabsMode,
-  normalizeTrashAutoDeleteDays,
-  normalizeTrashEnabled,
-} from '../appSettingsModel'
-import { normalizeRepoCacheLimit } from '../repoCacheLimit'
-import { normalizeSidebarExpandedWidth } from '../sidebarWidth'
-import { normalizeColorPresetId } from './colorPresets'
 import { WorkspaceVisibilityProvider } from './workspaceVisibility'
 import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewOverlay'
-import { useSidebarPreviewHover, readHoveredSidebarPreviewTarget } from './sidebar-preview/useSidebarPreviewHover'
-import { encodeSidebarPreviewTarget, type SidebarPreviewTarget } from './sidebar-preview/previewTarget'
+import { useSidebarHoldPreview } from './sidebar-preview/useSidebarHoldPreview'
+import { readHoveredSidebarPreviewTarget } from './sidebar-preview/useSidebarPreviewHover'
+import { encodeSidebarPreviewTarget } from './sidebar-preview/previewTarget'
+import { useAppSettings, useAppSettingsWritebacks } from './useAppSettings'
 
 type RepoStatePatch = Partial<HyperCortexRepoStateV1>
 
@@ -311,51 +292,32 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const consumeAppCommand = shell.appCommands.consume
 
   // ---- 应用设置（全局唯一，只读派生；修改统一回写外壳）
-  const shortcutBindings = React.useMemo<HyperCortexShortcutBindingsV1>(
-    () => normalizeShortcutBindings(appSettings.shortcuts),
-    [appSettings.shortcuts],
-  )
-  const shortcutHintsEnabled = normalizeBoolean(appSettings.shortcutHintsEnabled)
-  const pageDisplayModes = React.useMemo(() => normalizePageDisplayModes(appSettings.pageDisplayModes), [appSettings.pageDisplayModes])
-  const allNotesLayout = normalizeAllNotesLayout(appSettings.allNotesLayout)
-  const tabsCollapsed = normalizeBoolean(appSettings.tabsCollapsed)
-  const tabsMode = normalizeTabsMode(appSettings.tabsMode)
-  const tabsSidebarWidth = normalizeSidebarExpandedWidth(appSettings.tabsSidebarWidth)
-  const favoritesSidebarCollapsed = normalizeBoolean(appSettings.favoritesSidebarCollapsed)
-  const favoritesSidebarMode = normalizeFavoritesSidebarMode(appSettings.favoritesSidebarMode)
-  const favoritesSidebarWidth = normalizeSidebarExpandedWidth(appSettings.favoritesSidebarWidth)
-  const sidebarSortMode = normalizeSidebarSortMode(appSettings.sidebarSortMode)
-  const trashEnabled = normalizeTrashEnabled(appSettings.trashEnabled)
-  const trashAutoDeleteDays = normalizeTrashAutoDeleteDays(appSettings.trashAutoDeleteDays)
-  const facePluginSettings = appSettings.facePluginSettings || {}
-  const faceKindOrder = appSettings.faceKindOrder || []
-  const defaultFaceKinds = appSettings.defaultFaceKinds || []
-  const colorPresetId = normalizeColorPresetId(appSettings.colorPresetId)
-  const repoCacheLimit = normalizeRepoCacheLimit(appSettings.repoCacheLimit)
-
-  const shortcutBindingsRef = React.useRef<HyperCortexShortcutBindingsV1>(DEFAULT_SHORTCUT_BINDINGS)
-  const shortcutRecordingRef = React.useRef(false)
-  const handleShortcutRecordingChange = React.useCallback((active: boolean) => {
-    shortcutRecordingRef.current = active === true
-  }, [])
-  React.useEffect(() => {
-    shortcutBindingsRef.current = shortcutBindings
-  }, [shortcutBindings])
-
-  const pageDisplayModesRef = React.useRef(pageDisplayModes)
-  React.useEffect(() => {
-    pageDisplayModesRef.current = pageDisplayModes
-  }, [pageDisplayModes])
-
-  const trashAutoDeleteDaysRef = React.useRef(trashAutoDeleteDays)
-  React.useEffect(() => {
-    trashAutoDeleteDaysRef.current = trashAutoDeleteDays
-  }, [trashAutoDeleteDays])
-
-  const facePluginSettingsRef = React.useRef(facePluginSettings)
-  React.useEffect(() => {
-    facePluginSettingsRef.current = facePluginSettings
-  }, [facePluginSettings])
+  const settings = useAppSettings(appSettings)
+  const {
+    shortcutBindings,
+    shortcutHintsEnabled,
+    pageDisplayModes,
+    allNotesLayout,
+    tabsCollapsed,
+    tabsMode,
+    tabsSidebarWidth,
+    favoritesSidebarCollapsed,
+    favoritesSidebarMode,
+    favoritesSidebarWidth,
+    sidebarSortMode,
+    trashEnabled,
+    trashAutoDeleteDays,
+    facePluginSettings,
+    faceKindOrder,
+    defaultFaceKinds,
+    colorPresetId,
+    repoCacheLimit,
+    shortcutBindingsRef,
+    shortcutRecordingRef,
+    pageDisplayModesRef,
+    trashAutoDeleteDaysRef,
+    handleShortcutRecordingChange,
+  } = settings
 
   // ---- 核心 UI 状态
   const [page, setPageState] = React.useState<PageId>('home')
@@ -571,61 +533,17 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   const sidebarShortcutHoldRef = React.useRef(false)
 
   // ---- 按住预览：快捷键按住期间，悬停任一边栏条目即在主区域覆盖展示其预览。
-  const [previewTarget, setPreviewTarget] = React.useState<SidebarPreviewTarget | null>(null)
-  const previewHoldRef = React.useRef(false)
-  const previewTargetKeyRef = React.useRef('')
-  const previewOverlayScrollRef = React.useRef<HTMLDivElement | null>(null)
-  // 条目间存在缝隙，指针扫过缝隙时不应立即还原，否则会在条目间来回闪烁。
-  // 离开条目后短暂延迟再还原；期间进入下一条目即取消，实现无缝切换。
-  const previewClearTimerRef = React.useRef<number | null>(null)
-
-  const cancelPreviewClear = React.useCallback(() => {
-    if (previewClearTimerRef.current === null) return
-    window.clearTimeout(previewClearTimerRef.current)
-    previewClearTimerRef.current = null
-  }, [])
-
-  // 预览目标写入的唯一入口：按目标键去重，避免同一目标在鼠标移动中反复触发重渲染。
-  const applyPreviewTarget = React.useCallback((target: SidebarPreviewTarget | null) => {
-    const key = target ? encodeSidebarPreviewTarget(target) : ''
-    if (key === previewTargetKeyRef.current) return
-    previewTargetKeyRef.current = key
-    setPreviewTarget(target)
-  }, [])
-
-  // 边栏条目悬停上报：按住快捷键时，鼠标进入条目即切换预览，离开条目延迟还原。
-  const handleSidebarPreviewHover = React.useCallback(
-    (target: SidebarPreviewTarget | null) => {
-      if (!previewHoldRef.current) return
-      if (target) {
-        cancelPreviewClear()
-        applyPreviewTarget(target)
-        return
-      }
-      if (previewClearTimerRef.current !== null) return
-      previewClearTimerRef.current = window.setTimeout(() => {
-        previewClearTimerRef.current = null
-        if (previewHoldRef.current) applyPreviewTarget(null)
-      }, 100)
-    },
-    [applyPreviewTarget, cancelPreviewClear],
-  )
-  const leftPreviewHover = useSidebarPreviewHover({ onHover: handleSidebarPreviewHover })
-  const rightPreviewHover = useSidebarPreviewHover({ onHover: handleSidebarPreviewHover })
-
-  const stopPreview = React.useCallback(() => {
-    previewHoldRef.current = false
-    cancelPreviewClear()
-    applyPreviewTarget(null)
-  }, [applyPreviewTarget, cancelPreviewClear])
-
-  // 现场切走时还原预览：常驻现场不销毁，遗留的预览态不得跨现场泄漏。
-  React.useEffect(() => {
-    if (!visible) stopPreview()
-  }, [stopPreview, visible])
-
-  // 卸载时清掉待还原定时器，避免定时器在组件销毁后触发状态写入。
-  React.useEffect(() => cancelPreviewClear, [cancelPreviewClear])
+  const {
+    previewTarget,
+    previewHoldRef,
+    previewOverlayScrollRef,
+    cancelPreviewClear,
+    applyPreviewTarget,
+    handleSidebarPreviewHover,
+    leftPreviewHover,
+    rightPreviewHover,
+    stopPreview,
+  } = useSidebarHoldPreview({ visible })
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   // 打开的会话标识：真实笔记记真实标识，草稿记草稿标识；草稿元数据与转正后标识一律向档案查询。
@@ -874,41 +792,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     [reportFavoritesScrollTop],
   )
 
-  const handleShortcutBindingsChange = React.useCallback(
-    (next: HyperCortexShortcutBindingsV1) => {
-      patchAppSettings({ shortcuts: normalizeShortcutBindings(next) })
-    },
-    [patchAppSettings],
-  )
-
-  const handleShortcutHintsEnabledChange = React.useCallback(
-    (enabled: boolean) => {
-      const next = enabled === true
-      if (!next) setShortcutHintsOpen(false)
-      patchAppSettings({ shortcutHintsEnabled: next })
-    },
-    [patchAppSettings],
-  )
-
-  const handlePageDisplayModeChange = React.useCallback(
-    (targetId: ModalCapablePageId, mode: PageDisplayMode) => {
-      const nextModes = { ...pageDisplayModesRef.current, [targetId]: mode }
-      pageDisplayModesRef.current = nextModes
-      patchAppSettings({ pageDisplayModes: nextModes })
-
-      if (mode === 'modal') {
-        // 该页从页面家族除名：清掉历史里的旧条目，前进/后退从此看不见它。
-        navHistoryRef.current = navHistoryRef.current.filter(entry => entry.page !== targetId)
-        fwdNavHistoryRef.current = fwdNavHistoryRef.current.filter(entry => entry.page !== targetId)
-        syncNavStackCounts()
-        if (pageRef.current === targetId) navigatePage('home')
-      } else {
-        setOpenModalPage(prevOpen => (prevOpen === targetId ? null : prevOpen))
-      }
-    },
-    [navigatePage, patchAppSettings, syncNavStackCounts],
-  )
-
   // 快捷键打开页面的统一动作：模态窗=同名关层/异名替换，独立页=切页（先收浮层）。
   const handleShortcutOpenPage = React.useCallback(
     (targetId: PageId) => {
@@ -921,90 +804,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     },
     [navigatePage, resolvePageDisplayMode],
   )
-
-  const handleColorPresetChange = React.useCallback(
-    (presetId: string) => {
-      patchAppSettings({ colorPresetId: normalizeColorPresetId(presetId as any) })
-    },
-    [patchAppSettings],
-  )
-
-  const handleRepoCacheLimitChange = React.useCallback(
-    (limit: number) => {
-      patchAppSettings({ repoCacheLimit: normalizeRepoCacheLimit(limit) })
-    },
-    [patchAppSettings],
-  )
-
-  const handleSidebarSortModeChange = React.useCallback(
-    (mode: string) => {
-      patchAppSettings({ sidebarSortMode: normalizeSidebarSortMode(mode) })
-    },
-    [patchAppSettings],
-  )
-
-  const handleTrashEnabledChange = React.useCallback(
-    (enabled: boolean) => {
-      patchAppSettings({ trashEnabled: enabled === true })
-    },
-    [patchAppSettings],
-  )
-
-  const handleTrashAutoDeleteDaysChange = React.useCallback(
-    (days: number) => {
-      patchAppSettings({ trashAutoDeleteDays: normalizeTrashAutoDeleteDays(days) })
-    },
-    [patchAppSettings],
-  )
-
-  /** 面插件全局设置写回：按「类型标识 + 字段键」写入统一容器并持久化。 */
-  const handleFacePluginSettingChange = React.useCallback(
-    (kind: string, key: string, value: unknown) => {
-      const faceKind = String(kind || '').trim()
-      const settingKey = String(key || '').trim()
-      if (!faceKind || !settingKey) return
-      // 按声明归一化：非法值拒绝落库，写入路径与展示路径共用同一解析。
-      const declaration = getFaceDeclaration(faceKind)
-      const field = declaration?.settings.find(item => item.key === settingKey)
-      const normalizedValue = field ? normalizeFaceSettingValue(field, value) : undefined
-      if (!field || normalizedValue === undefined) return
-      const next = {
-        ...facePluginSettingsRef.current,
-        [faceKind]: { ...(facePluginSettingsRef.current[faceKind] || {}), [settingKey]: normalizedValue },
-      }
-      facePluginSettingsRef.current = next
-      patchAppSettings({ facePluginSettings: next })
-    },
-    [patchAppSettings],
-  )
-
-  const handleFaceKindOrderChange = React.useCallback(
-    (next: string[]) => {
-      patchAppSettings({ faceKindOrder: normalizeFaceKindOrder(next, getFaceKindOrder()) })
-    },
-    [patchAppSettings],
-  )
-
-  const handleDefaultFaceKindsChange = React.useCallback(
-    (next: string[]) => {
-      patchAppSettings({ defaultFaceKinds: normalizeDefaultFaceKinds(next, getCreatableFaceDeclarations().map(declaration => declaration.kind)) })
-    },
-    [patchAppSettings],
-  )
-
-  const toggleAllNotesLayout = React.useCallback(() => {
-    const next = allNotesLayout === 'list' ? 'grid' : allNotesLayout === 'grid' ? 'icon' : 'list'
-    patchAppSettings({ allNotesLayout: next })
-  }, [allNotesLayout, patchAppSettings])
-
-  const toggleTabsCollapsed = React.useCallback(() => {
-    patchAppSettings({ tabsCollapsed: !tabsCollapsed })
-  }, [patchAppSettings, tabsCollapsed])
-
-  const toggleTabsMode = React.useCallback(() => {
-    setTabsHoverOpen(false)
-    patchAppSettings({ tabsMode: tabsMode === 'manual' ? 'hover' : 'manual' })
-  }, [patchAppSettings, tabsMode])
 
   // ---- 工作区与侧边栏
   const commitActiveWorkspacePatch = React.useCallback(
@@ -1106,10 +905,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   })
   const sidebarPanelWidth = leftSidebarLayout.panelWidth
 
-  const handleTabsSidebarResizeEnd = React.useCallback((width: number) => {
-    patchAppSettings({ tabsSidebarWidth: normalizeSidebarExpandedWidth(width) })
-  }, [patchAppSettings])
-
   const onSidebarMouseEnter = React.useCallback(() => {
     sidebarHoverRef.current = true
     if (isHoverTabsMode) setTabsHoverOpen(true)
@@ -1135,9 +930,38 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     expandedWidth: favoritesSidebarWidth,
   })
 
-  const handleFavoritesSidebarResizeEnd = React.useCallback((width: number) => {
-    patchAppSettings({ favoritesSidebarWidth: normalizeSidebarExpandedWidth(width) })
-  }, [patchAppSettings])
+  const {
+    handleShortcutBindingsChange,
+    handleShortcutHintsEnabledChange,
+    handlePageDisplayModeChange,
+    handleColorPresetChange,
+    handleRepoCacheLimitChange,
+    handleSidebarSortModeChange,
+    handleTrashEnabledChange,
+    handleTrashAutoDeleteDaysChange,
+    handleFacePluginSettingChange,
+    handleFaceKindOrderChange,
+    handleDefaultFaceKindsChange,
+    toggleAllNotesLayout,
+    toggleTabsCollapsed,
+    toggleTabsMode,
+    handleTabsSidebarResizeEnd,
+    handleFavoritesSidebarResizeEnd,
+    toggleFavoritesSidebarCollapsed,
+    toggleFavoritesSidebarMode,
+  } = useAppSettingsWritebacks({
+    settings,
+    patchAppSettings,
+    setShortcutHintsOpen,
+    setTabsHoverOpen,
+    setFavoritesHoverOpen,
+    navigatePage,
+    syncNavStackCounts,
+    navHistoryRef,
+    fwdNavHistoryRef,
+    pageRef,
+    setOpenModalPage,
+  })
 
   const onFavoritesSidebarMouseEnter = React.useCallback(() => {
     favoritesHoverRef.current = true
@@ -1180,15 +1004,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     if (next === favoritesNavRef.current) return
     persistFavoritesNav(next)
   }, [persistFavoritesNav])
-
-  const toggleFavoritesSidebarCollapsed = React.useCallback(() => {
-    patchAppSettings({ favoritesSidebarCollapsed: !favoritesSidebarCollapsed })
-  }, [favoritesSidebarCollapsed, patchAppSettings])
-
-  const toggleFavoritesSidebarMode = React.useCallback(() => {
-    setFavoritesHoverOpen(false)
-    patchAppSettings({ favoritesSidebarMode: favoritesSidebarMode === 'manual' ? 'hover' : 'manual' })
-  }, [favoritesSidebarMode, patchAppSettings])
 
   // 收藏夹文档变化（含实体删除）后调和导航位置：失效层回到根，历史剔除失效条目。
   React.useEffect(() => {
@@ -2361,23 +2176,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
       window.removeEventListener('blur', onWindowBlur, true)
     }
   }, [favoritesSidebarMode, goBackPage, handleCreateDraftNote, handleShortcutOpenPage, navigatePage, shortcutHintsOpen, stopPreview, tabsMode, toggleFavoritesSidebarCollapsed, toggleTabsCollapsed, visible])
-
-  // 预览期间在原位滚轮：把边栏上的滚轮事件转发给覆盖层滚动容器，滚动主区域预览内容。
-  React.useEffect(() => {
-    if (!visible) return
-    const onWheelCapture = (e: WheelEvent) => {
-      const overlay = previewOverlayScrollRef.current
-      if (!overlay) return
-      const target = e.target instanceof Element ? e.target : null
-      if (!target) return
-      if (target.closest('[data-hc-hold-preview-overlay="1"]')) return
-      if (!target.closest('[data-hc-preview-entry]')) return
-      overlay.scrollTop += e.deltaY
-      e.preventDefault()
-    }
-    window.addEventListener('wheel', onWheelCapture, { capture: true, passive: false })
-    return () => window.removeEventListener('wheel', onWheelCapture, true)
-  }, [visible])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta, faceId?: string, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
