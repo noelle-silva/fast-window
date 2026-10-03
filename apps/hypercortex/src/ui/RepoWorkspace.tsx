@@ -1,9 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Typography } from '@mui/material'
 import {
-  kindFromMime,
-  mimeFromExt,
-  type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
@@ -19,7 +16,6 @@ import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { FavoritesSidebarPanel } from './FavoritesSidebarPanel'
 import { SidebarRail } from './SidebarRail'
-import { resolveSidebarLayout } from './sidebarLayout'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
@@ -28,28 +24,19 @@ import { PageOverlayHost } from './PageOverlayHost'
 import { TrashPanel } from './TrashPanel'
 import { RepoTrashPanel } from './repo-management/RepoTrashPanel'
 import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
-import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
-import { createWorkspaceId, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { applyActiveWorkspacePatch, buildRepoStateSnapshot, normalizeOpenTabKeys } from './workspaceModel'
 import { useNoteScrollMemory } from './noteScrollMemory'
 import {
   closeTabsInSidebar,
-  createGroupInSidebar,
-  deleteGroupFromSidebar,
   deriveSidebarFields,
-  ensureSidebarItems,
   insertTabAsUngrouped,
-  moveGroupToIndex,
-  moveTabBetweenGroups,
-  moveTabToGroupIndex,
   type SidebarItem,
-  updateSidebarGroup,
 } from './sidebarModel'
+import { useTabWorkspaceSidebarActions, useTabWorkspaceSidebarState } from './useTabWorkspaceSidebar'
 import type { NoteCardInfo } from './noteCardInfo'
 import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
-import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
+import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
 import { createRepoScopedGateway, type HyperCortexGateway } from '../gateway'
 import { orderKindsByGlobalOrder } from '../facePreferences'
 import { useNoteIndex } from './useNoteIndex'
@@ -138,22 +125,57 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     activeNoteIdRef.current = activeNoteId
   }, [activeNoteId])
 
-  const [openTabKeys, setOpenTabKeys] = React.useState<TabKey[]>([])
-  const openTabKeysRef = React.useRef<TabKey[]>([])
-  React.useEffect(() => {
-    openTabKeysRef.current = openTabKeys
-  }, [openTabKeys])
-
-  const [activeTabKey, setActiveTabKey] = React.useState<TabKey>('')
-  const activeTabKeyRef = React.useRef<TabKey>('')
-  React.useEffect(() => {
-    activeTabKeyRef.current = activeTabKey
-  }, [activeTabKey])
   // 详情选中来源：全局同一时刻只有一个选中态，决定高亮落在左侧标签栏还是右侧收藏夹栏。
   const [detailSelectionSource, setDetailSelectionSource] = React.useState<'tabs' | 'favorites'>('tabs')
   const [activeTabScrollSignal, setActiveTabScrollSignal] = React.useState(0)
   // 右侧收藏夹栏的激活条目滚动信号：键盘切换后把当前条目滚入视野。
   const [favoritesActiveScrollSignal, setFavoritesActiveScrollSignal] = React.useState(0)
+
+  // ---- 按住预览：快捷键按住期间，悬停任一边栏条目即在主区域覆盖展示其预览。
+  const {
+    previewTarget,
+    previewHoldRef,
+    previewOverlayScrollRef,
+    cancelPreviewClear,
+    applyPreviewTarget,
+    handleSidebarPreviewHover,
+    leftPreviewHover,
+    rightPreviewHover,
+    stopPreview,
+  } = useSidebarHoldPreview({ visible })
+
+  // ---- 标签页集合、工作区与侧边栏分组：状态段供导航、附件会话、收藏夹与装载流程消费；
+  // 工作区与分组的行为段在装载与持久化能力齐备后接线。
+  const {
+    openTabKeys,
+    setOpenTabKeys,
+    openTabKeysRef,
+    activeTabKey,
+    setActiveTabKey,
+    activeTabKeyRef,
+    workspaces,
+    setWorkspaces,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    sidebarItems,
+    setSidebarItems,
+    sidebarItemsRef,
+    tabGrouping,
+    setTabGrouping,
+    tabGroupingRef,
+    setTabsHoverOpen,
+    sidebarHoverRef,
+    sidebarShortcutHoldRef,
+    leftSidebarLayout,
+    sidebarPanelWidth,
+    onSidebarMouseEnter,
+    onSidebarMouseLeave,
+  } = useTabWorkspaceSidebarState({
+    tabsMode,
+    tabsCollapsed,
+    tabsSidebarWidth,
+    handleSidebarPreviewHover,
+  })
 
   // 导航记录应用的落点：工作区补丁函数定义晚于导航模块，经 ref 连接。
   const commitActiveWorkspacePatchRef = React.useRef<(patch: { activeTabKey: string }) => void>(() => {})
@@ -239,24 +261,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     closeTabKeysDirectRef,
   })
 
-  // ---- 侧边栏 / 工作区 / 分组
-  const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
-  const sidebarHoverRef = React.useRef(false)
-  const sidebarShortcutHoldRef = React.useRef(false)
-
-  // ---- 按住预览：快捷键按住期间，悬停任一边栏条目即在主区域覆盖展示其预览。
-  const {
-    previewTarget,
-    previewHoldRef,
-    previewOverlayScrollRef,
-    cancelPreviewClear,
-    applyPreviewTarget,
-    handleSidebarPreviewHover,
-    leftPreviewHover,
-    rightPreviewHover,
-    stopPreview,
-  } = useSidebarHoldPreview({ visible })
-
   // ---- 收藏夹现场：文档、当前层与右侧栏浏览位置、当前页视图与悬停布局，状态收敛到独立模块。
   const {
     favoritesLedger,
@@ -288,9 +292,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     favoritesSidebarWidth,
     handleSidebarPreviewHover,
   })
-
-  const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
-  const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
 
   // ---- 仓库状态装载与持久化：状态引用与就绪标记、规范化落盘、滚动位置记忆与初始化流程。
   const {
@@ -341,21 +342,53 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
   React.useEffect(() => {
     openNoteIdsRef.current = openNoteIds
   }, [openNoteIds])
-  const [sidebarItems, setSidebarItems] = React.useState<SidebarItem[]>([])
-  const sidebarItemsRef = React.useRef<SidebarItem[]>([])
-  React.useEffect(() => {
-    sidebarItemsRef.current = sidebarItems
-  }, [sidebarItems])
-  const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }>({
-    groups: [],
-    byTabKey: {},
+  // ---- 工作区与侧边栏动作段：装载与持久化能力齐备后接线；工作区切换与新建改名删除、
+  // 分组新建折叠改名改色删除、侧边栏条目提交与拖拽移动、工作区现场应用。
+  const {
+    commitActiveWorkspacePatch,
+    updateSidebarItems,
+    handleMoveTabToUngroupedIndex,
+    handleMoveTabToGroupIndex,
+    handleMoveGroupToIndex,
+    handleCommitSidebarItems,
+    handleSwitchWorkspace,
+    handleCreateWorkspace,
+    handleRenameWorkspace,
+    handleDeleteWorkspace,
+    handleCreateTabGroup,
+    handleCollapseAllGroups,
+    handleAssignTabToGroup,
+    handleUnassignTabFromGroup,
+    handleToggleGroupCollapsed,
+    handleRenameGroup,
+    handleSetGroupColor,
+    handleDeleteGroupOnly,
+  } = useTabWorkspaceSidebarActions({
+    gateway,
+    workspaces,
+    setWorkspaces,
+    setActiveWorkspaceId,
+    setOpenTabKeys,
+    setSidebarItems,
+    setTabGrouping,
+    setActiveTabKey,
+    sidebarItemsRef,
+    tabGroupingRef,
+    activeWorkspaceIdRef,
+    repoReadyRef,
+    persistRepoStatePatch,
+    flushSidebarScrollTop,
+    clearSidebarScrollMemory,
+    navigatePage,
+    pageRef,
+    setDetailSelectionSource,
+    setActiveNoteId,
+    setOpenNoteIds,
+    setOpenAssetTabs,
+    commitActiveWorkspacePatchRef,
+    updateSidebarItemsRef,
+    applyWorkspaceSidebarStateRef,
   })
-  const tabGroupingRef = React.useRef(tabGrouping)
-  React.useEffect(() => {
-    tabGroupingRef.current = tabGrouping
-  }, [tabGrouping])
-
-  const workspaceSwitchSeqRef = React.useRef(0)
 
   const [noteDirtyById, setNoteDirtyById] = React.useState<Record<string, boolean>>({})
   const handleNoteDirtyChange = React.useCallback((payload: { noteId: string; dirty: boolean }) => {
@@ -508,127 +541,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     return map
   }, [allNotes, noteCardInfoById])
 
-  // ---- 工作区与侧边栏
-  const commitActiveWorkspacePatch = React.useCallback(
-    (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'sidebarItems' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>) => {
-      setWorkspaces(prev => {
-        const wid = activeWorkspaceIdRef.current
-        if (!wid) return prev
-        const idx = prev.findIndex(w => w.id === wid)
-        if (idx < 0) return prev
-        const current = prev[idx]
-        const nextWs = applyActiveWorkspacePatch(current, patch as any)
-        if (nextWs === current) return prev
-        const nextList = prev.slice()
-        nextList[idx] = nextWs
-
-        if (repoReadyRef.current) {
-          void persistRepoStatePatch(buildRepoStateSnapshot(nextList, wid)).catch(() => {})
-        }
-
-        return nextList
-      })
-    },
-    [persistRepoStatePatch],
-  )
-
-  React.useEffect(() => {
-    commitActiveWorkspacePatchRef.current = commitActiveWorkspacePatch
-  }, [commitActiveWorkspacePatch])
-
-  const applySidebarState = React.useCallback(
-    (nextSidebarItems: SidebarItem[], patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>) => {
-      const normalizedSidebarItems = ensureSidebarItems({
-        sidebarItems: nextSidebarItems,
-        openTabKeys: [],
-        tabGroups: [],
-        tabGroupByTabKey: {},
-      })
-      const derived = deriveSidebarFields(normalizedSidebarItems)
-      setSidebarItems(normalizedSidebarItems)
-      setTabGrouping({ groups: derived.tabGroups, byTabKey: derived.tabGroupByTabKey })
-      setOpenTabKeys(derived.openTabKeys as any)
-      commitActiveWorkspacePatch({
-        sidebarItems: normalizedSidebarItems,
-        openTabKeys: derived.openTabKeys,
-        tabGroups: derived.tabGroups,
-        tabGroupByTabKey: derived.tabGroupByTabKey,
-        ...(patch || {}),
-      })
-      return { sidebarItems: normalizedSidebarItems, ...derived }
-    },
-    [commitActiveWorkspacePatch],
-  )
-
-  const updateSidebarItems = React.useCallback(
-    (updater: (prev: SidebarItem[]) => SidebarItem[], patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>) => {
-      const nextSidebarItems = updater(sidebarItemsRef.current)
-      return applySidebarState(nextSidebarItems, patch)
-    },
-    [applySidebarState],
-  )
-
-  React.useEffect(() => {
-    updateSidebarItemsRef.current = updateSidebarItems
-  }, [updateSidebarItems])
-
-  const handleMoveTabToUngroupedIndex = React.useCallback(
-    (tabKey: string, index: number) => {
-      const normalizedTabKey = String(tabKey || '').trim()
-      if (!normalizedTabKey) return
-      updateSidebarItems(prev => insertTabAsUngrouped(prev, normalizedTabKey, index))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleMoveTabToGroupIndex = React.useCallback(
-    (tabKey: string, groupId: string, index: number) => {
-      const normalizedTabKey = String(tabKey || '').trim()
-      const gid = String(groupId || '').trim()
-      if (!normalizedTabKey || !gid) return
-      updateSidebarItems(prev => moveTabToGroupIndex(prev, normalizedTabKey, gid, index))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleMoveGroupToIndex = React.useCallback(
-    (groupId: string, index: number) => {
-      const gid = String(groupId || '').trim()
-      if (!gid) return
-      updateSidebarItems(prev => moveGroupToIndex(prev, gid, index))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleCommitSidebarItems = React.useCallback(
-    (nextSidebarItems: SidebarItem[]) => {
-      applySidebarState(nextSidebarItems)
-    },
-    [applySidebarState],
-  )
-
-  const isHoverTabsMode = tabsMode === 'hover'
-  const leftSidebarLayout = resolveSidebarLayout({
-    mode: tabsMode,
-    collapsed: tabsCollapsed,
-    hoverOpen: tabsHoverOpen,
-    expandedWidth: tabsSidebarWidth,
-  })
-  const sidebarPanelWidth = leftSidebarLayout.panelWidth
-
-  const onSidebarMouseEnter = React.useCallback(() => {
-    sidebarHoverRef.current = true
-    if (isHoverTabsMode) setTabsHoverOpen(true)
-  }, [isHoverTabsMode])
-
-  const onSidebarMouseLeave = React.useCallback(() => {
-    sidebarHoverRef.current = false
-    handleSidebarPreviewHover(null)
-    if (!isHoverTabsMode) return
-    if (sidebarShortcutHoldRef.current) return
-    setTabsHoverOpen(false)
-  }, [handleSidebarPreviewHover, isHoverTabsMode])
-
   const {
     handleShortcutBindingsChange,
     handleShortcutHintsEnabledChange,
@@ -661,250 +573,6 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
     pageRef,
     setOpenModalPage,
   })
-
-  const applyWorkspaceSidebarState = React.useCallback(
-    (ws: HyperCortexWorkspaceV1) => {
-      const nextSidebarItems = ensureSidebarItems(ws)
-      const derived = deriveSidebarFields(nextSidebarItems)
-      const nextOpenTabKeys = normalizeOpenTabKeys(derived.openTabKeys)
-      setSidebarItems(nextSidebarItems)
-      setTabGrouping({ groups: derived.tabGroups, byTabKey: derived.tabGroupByTabKey || {} })
-      setOpenTabKeys(nextOpenTabKeys as any)
-
-      const preferredActiveKey = String(ws.activeTabKey || '').trim()
-      if (preferredActiveKey && nextOpenTabKeys.includes(preferredActiveKey)) {
-        setDetailSelectionSource('tabs')
-        setActiveTabKey(preferredActiveKey as any)
-        if (tabKind(preferredActiveKey) === 'note') setActiveNoteId(noteIdFromTabKey(preferredActiveKey))
-        else setActiveNoteId('')
-      } else {
-        setActiveTabKey('')
-        setActiveNoteId('')
-      }
-
-      const seq = (workspaceSwitchSeqRef.current += 1)
-      if (!nextOpenTabKeys.length) {
-        setOpenNoteIds([])
-        setOpenAssetTabs([])
-      } else {
-        const noteKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'note')
-        setOpenNoteIds(noteKeys.map(k => noteIdFromTabKey(k)).filter(Boolean))
-        void (async () => {
-          try {
-            const assetKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'asset')
-            const aidx = await gateway.assets.ensureAssetsIndex('library').catch(() => ({ version: 1, assets: {} } as any))
-            const assetTabs = assetKeys
-              .map(k => {
-                const refKey = assetRefKeyFromTabKey(k)
-                const parsed = parseAssetRefKey(refKey)
-                if (!parsed) return null
-                const entry = (aidx as any)?.assets?.[refKey]
-                const relPath = String(entry?.path || '').trim()
-                if (!relPath) return null
-                const ext = parsed.ext || ''
-                const mime = mimeFromExt(ext)
-                const kind0 = String(entry?.kind || '').trim()
-                const kind = kind0 || (mime ? kindFromMime(mime) : 'document')
-                return {
-                  relPath,
-                  fileName: refKey,
-                  displayName: String(entry?.displayName || '').trim() || undefined,
-                  assetId: parsed.assetId,
-                  ext,
-                  kind: kind || 'document',
-                  size: Number(entry?.size || 0) || 0,
-                  modifiedMs: Number(entry?.modifiedMs || 0) || 0,
-                } as AssetEntry
-              })
-              .filter(Boolean) as AssetEntry[]
-
-            if (workspaceSwitchSeqRef.current !== seq) return
-            setOpenAssetTabs(assetTabs)
-          } catch {
-            if (workspaceSwitchSeqRef.current !== seq) return
-            setOpenAssetTabs([])
-          }
-        })()
-      }
-
-      const currentPage = pageRef.current
-      if (currentPage === 'note-detail' || currentPage === 'asset-detail') {
-        if (preferredActiveKey && nextOpenTabKeys.includes(preferredActiveKey)) {
-          const targetPage = tabKind(preferredActiveKey) === 'asset' ? 'asset-detail' : 'note-detail'
-          if (currentPage !== targetPage) navigatePage(targetPage, { recordHistory: false })
-        } else {
-          navigatePage(currentPage === 'note-detail' ? 'home' : 'attachments', { recordHistory: false })
-        }
-      }
-    },
-    [gateway, navigatePage],
-  )
-
-  React.useEffect(() => {
-    applyWorkspaceSidebarStateRef.current = applyWorkspaceSidebarState
-  }, [applyWorkspaceSidebarState])
-
-  const handleSwitchWorkspace = React.useCallback(
-    (workspaceId: string) => {
-      const wid = String(workspaceId || '').trim()
-      if (!wid || wid === activeWorkspaceIdRef.current) return
-      const ws = workspaces.find(w => w.id === wid)
-      if (!ws) return
-
-      flushSidebarScrollTop()
-      activeWorkspaceIdRef.current = wid
-      setActiveWorkspaceId(wid)
-      applyWorkspaceSidebarState(ws)
-      if (repoReadyRef.current) {
-        void persistRepoStatePatch(buildRepoStateSnapshot(workspaces, wid)).catch(() => {})
-      }
-    },
-    [applyWorkspaceSidebarState, flushSidebarScrollTop, persistRepoStatePatch, workspaces],
-  )
-
-  const handleCreateWorkspace = React.useCallback(
-    (title: string) => {
-      const trimmed = String(title || '').trim()
-      const nextTitle = trimmed || pickNextWorkspaceTitle(workspaces)
-      const nextWs: HyperCortexWorkspaceV1 = {
-        id: createWorkspaceId(),
-        title: nextTitle,
-        sidebarItems: [],
-        tabGroups: [],
-        openTabKeys: [],
-        tabGroupByTabKey: {},
-        activeTabKey: '',
-      }
-      const nextWorkspaces = [...workspaces, nextWs]
-
-      flushSidebarScrollTop()
-      activeWorkspaceIdRef.current = nextWs.id
-      setWorkspaces(nextWorkspaces)
-      setActiveWorkspaceId(nextWs.id)
-      applyWorkspaceSidebarState(nextWs)
-      if (repoReadyRef.current) {
-        void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, nextWs.id)).catch(() => {})
-      }
-      void gateway.host.toast(`已新建工作区：${nextTitle}`)
-    },
-    [gateway, applyWorkspaceSidebarState, flushSidebarScrollTop, persistRepoStatePatch, workspaces],
-  )
-
-  const handleRenameWorkspace = React.useCallback(
-    (workspaceId: string, title: string) => {
-      const wid = String(workspaceId || '').trim()
-      const nextTitle = String(title || '').trim()
-      if (!wid || !nextTitle) return
-      const nextWorkspaces = updateWorkspaceById(workspaces, wid, ws => ({ ...ws, title: nextTitle }))
-      if (nextWorkspaces === workspaces) return
-      setWorkspaces(nextWorkspaces)
-      if (repoReadyRef.current) {
-        void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, activeWorkspaceIdRef.current)).catch(() => {})
-      }
-    },
-    [persistRepoStatePatch, workspaces],
-  )
-
-  const handleDeleteWorkspace = React.useCallback(
-    (workspaceId: string) => {
-      const wid = String(workspaceId || '').trim()
-      if (!wid) return
-      if (workspaces.length <= 1) return void gateway.host.toast('至少保留一个工作区')
-      const target = workspaces.find(w => w.id === wid)
-      if (!target) return
-
-      const nextWorkspaces = workspaces.filter(w => w.id !== wid)
-      const deletingActive = activeWorkspaceIdRef.current === wid
-      const nextActiveId = deletingActive ? nextWorkspaces[0]?.id || '' : activeWorkspaceIdRef.current
-      const nextActiveWs = nextWorkspaces.find(w => w.id === nextActiveId) || nextWorkspaces[0]
-      if (!nextActiveWs) return
-
-      // 删除工作区时丢弃其滚动记账，并随本次写盘一并落盘。
-      clearSidebarScrollMemory(wid)
-      flushSidebarScrollTop()
-
-      activeWorkspaceIdRef.current = nextActiveId
-      setWorkspaces(nextWorkspaces)
-      setActiveWorkspaceId(nextActiveId)
-      if (deletingActive) applyWorkspaceSidebarState(nextActiveWs)
-      if (repoReadyRef.current) {
-        void persistRepoStatePatch(buildRepoStateSnapshot(nextWorkspaces, nextActiveId)).catch(() => {})
-      }
-      void gateway.host.toast(`已删除工作区：${target.title}`)
-    },
-    [clearSidebarScrollMemory, flushSidebarScrollTop, gateway, applyWorkspaceSidebarState, persistRepoStatePatch, workspaces],
-  )
-
-  const handleCreateTabGroup = React.useCallback(() => {
-    const nextGroup: HyperCortexTabGroupV1 = {
-      id: createTabGroupId(),
-      title: pickNextTabGroupTitle(tabGroupingRef.current.groups),
-      color: pickNextTabGroupColor(tabGroupingRef.current.groups),
-      collapsed: false,
-    }
-    updateSidebarItems(prev => createGroupInSidebar(prev, nextGroup))
-  }, [updateSidebarItems])
-
-  const handleCollapseAllGroups = React.useCallback(() => {
-    updateSidebarItems(prev => prev.map(item => (item.type === 'group' && item.collapsed !== true ? { ...item, collapsed: true } : item)))
-  }, [updateSidebarItems])
-
-  const handleAssignTabToGroup = React.useCallback(
-    (tabKey: string, groupId: string) => {
-      const normalizedTabKey = String(tabKey || '').trim()
-      const gid = String(groupId || '').trim()
-      if (!normalizedTabKey || !gid) return
-      updateSidebarItems(prev => moveTabBetweenGroups({ sidebarItems: prev, tabKey: normalizedTabKey, targetGroupId: gid }))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleUnassignTabFromGroup = React.useCallback(
-    (tabKey: string) => {
-      const normalizedTabKey = String(tabKey || '').trim()
-      if (!normalizedTabKey) return
-      updateSidebarItems(prev => insertTabAsUngrouped(prev, normalizedTabKey, prev.length))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleToggleGroupCollapsed = React.useCallback(
-    (groupId: string) => {
-      const gid = String(groupId || '').trim()
-      if (!gid) return
-      updateSidebarItems(prev => prev.map(item => (item.type === 'group' && item.id === gid ? { ...item, collapsed: !item.collapsed } : item)))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleRenameGroup = React.useCallback(
-    (groupId: string, title: string) => {
-      const gid = String(groupId || '').trim()
-      const nextTitle = String(title || '').trim()
-      if (!gid || !nextTitle) return
-      updateSidebarItems(prev => updateSidebarGroup(prev, gid, { title: nextTitle }))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleSetGroupColor = React.useCallback(
-    (groupId: string, color: string) => {
-      const gid = String(groupId || '').trim()
-      const nextColor = String(color || '').trim()
-      if (!gid || !nextColor) return
-      updateSidebarItems(prev => updateSidebarGroup(prev, gid, { color: nextColor }))
-    },
-    [updateSidebarItems],
-  )
-
-  const handleDeleteGroupOnly = React.useCallback(
-    (groupId: string) => {
-      const gid = String(groupId || '').trim()
-      if (!gid) return
-      updateSidebarItems(prev => deleteGroupFromSidebar(prev, gid))
-    },
-    [updateSidebarItems],
-  )
 
   // ---- 草稿身份编排：档案与解析派生、草稿登记与打开、左右两侧新建入口、档案变化的左右调和。
   const {
