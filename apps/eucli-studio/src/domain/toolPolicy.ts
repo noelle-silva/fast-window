@@ -39,15 +39,21 @@ export function normalizeRoleToolPolicy(value: any): RoleToolPolicy {
   return { tools, nativeTools, runModes }
 }
 
+// addToolsToPolicy 把工具加入白名单，并按「直接执行 + 传递提示词」作为新工具的默认行为。
 export function addToolsToPolicy(policy: any, toolNames: string[]): RoleToolPolicy {
   const next = normalizeRoleToolPolicy(policy)
   const seen = new Set(next.tools)
+  const nativeSeen = new Set(next.nativeTools)
   for (const item of toolNames) {
     const name = String(item || '').trim()
     if (!name || seen.has(name)) continue
     seen.add(name)
     next.tools.push(name)
-    next.runModes[name] = 'ask'
+    next.runModes[name] = 'direct'
+    if (!nativeSeen.has(name)) {
+      nativeSeen.add(name)
+      next.nativeTools.push(name)
+    }
   }
   return next
 }
