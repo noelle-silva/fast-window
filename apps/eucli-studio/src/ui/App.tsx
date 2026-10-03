@@ -285,7 +285,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('auto')
   const [settingsVisited, setSettingsVisited] = React.useState(false)
-  const settingsMounted = settingsVisited || page === 'settings'
+  // 业务端就绪后设置页随 App 启动即预挂载：全部分类面板常驻，首次点入即为热态。
+  const settingsMounted = settingsVisited || page === 'settings' || !!bootstrap?.businessAvailable
   React.useEffect(() => {
     if (page === 'settings') setSettingsVisited(true)
   }, [page])
