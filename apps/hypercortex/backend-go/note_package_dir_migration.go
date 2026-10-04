@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const noteIDPackageDirMigration = "2026-05-13-note-id-package-dir"
+
 // migrateNotePackageDirsToIDs 对历史知识库执行目录规范化（迁移链入口）。
 func (svc *service) migrateNotePackageDirsToIDs() error {
 	return svc.migrateNotePackageDirsToIDsAt(svc.legacyLibraryDir)
