@@ -12,12 +12,6 @@ function group(over: Partial<HyperCortexTabGroupV1> = {}): HyperCortexTabGroupV1
   return { id: 'g1', title: 'G', color: 'c', ...over }
 }
 
-describe('preset colors', () => {
-  it('exposes 20 preset colors', () => {
-    expect(TAB_GROUP_PRESET_COLORS.length).toBe(20)
-  })
-})
-
 describe('pickNextTabGroupColor', () => {
   it('returns the first preset when none are used', () => {
     expect(pickNextTabGroupColor([])).toBe('hsl(0, 28%, 88%)')

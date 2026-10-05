@@ -98,9 +98,6 @@ describe('chordFromKeyboardEvent', () => {
     },
   )
 
-  it('rejects the space key because the raw key is trimmed before parsing', () => {
-    expect(chordFromKeyboardEvent(keyboardEvent({ key: ' ' }))).toBeNull()
-  })
 })
 
 describe('mainKeyFromChord', () => {

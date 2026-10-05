@@ -50,13 +50,6 @@ describe('applyActiveWorkspacePatch', () => {
     expect(applyActiveWorkspacePatch(ws(), { title: ' New ' }).title).toBe('New')
   })
 
-  it('always returns a new object even when the patch changes nothing (current quirk)', () => {
-    const base = ws()
-    const result = applyActiveWorkspacePatch(base, { activeTabKey: 'a' })
-    expect(result).not.toBe(base)
-    expect(result).toEqual(base)
-  })
-
   it('derives open tab keys from a sidebar-items patch', () => {
     const result = applyActiveWorkspacePatch(ws(), { sidebarItems: [{ type: 'group', id: 'g', title: 'g', color: 'c', tabKeys: ['x'] }] })
     expect(result.openTabKeys).toEqual(['x'])

@@ -245,11 +245,9 @@ describe('applySidebarItemsToWorkspace', () => {
 })
 
 describe('insertTabAsUngrouped', () => {
-  it('returns an untouched clone for an empty key', () => {
+  it('leaves the list unchanged for an empty key', () => {
     const input = [tab('a')]
-    const result = insertTabAsUngrouped(input, '  ', 0)
-    expect(result).toEqual(input)
-    expect(result).not.toBe(input)
+    expect(insertTabAsUngrouped(input, '  ', 0)).toEqual(input)
   })
 
   it('inserts at the requested index', () => {

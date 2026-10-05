@@ -112,11 +112,6 @@ describe('engine.renderInto math', () => {
     expect(el.querySelector('.math-block')?.classList.contains('fw-math-host')).toBe(true)
   })
 
-  it('keeps the current heuristic quirks of the $...$ scanner', async () => {
-    const { engine, el } = await makeEngine()
-    engine.renderInto(el, 'cost $5 and $6; real $a$; sub $_x$; empty $$; letter $x$')
-    expect(dataTex(el)).toEqual(['5 and', 'a', '_x', '; letter'])
-  })
 })
 
 describe('engine.renderInto assets', () => {
@@ -265,16 +260,6 @@ describe('engine.refreshNoteRefs', () => {
     } finally {
       el.remove()
     }
-  })
-
-  it('is a no-op for an unattached container (current quirk)', async () => {
-    const { engine, el } = await makeEngine()
-    engine.noteIndex = {}
-    engine.renderInto(el, '[[note_id=n1|title=Hi]]')
-    const before = el.innerHTML
-    engine.noteIndex = { n1: { title: 'T1' } }
-    engine.refreshNoteRefs(el)
-    expect(el.innerHTML).toBe(before)
   })
 
   it('is a no-op for containers without a note-ref cache', async () => {

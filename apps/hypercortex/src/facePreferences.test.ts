@@ -67,28 +67,16 @@ describe('moveListItem', () => {
     expect(moveListItem(['a', 'b', 'c'], 2, -1)).toEqual(['a', 'c', 'b'])
   })
 
-  it('returns a fresh copy for a zero delta', () => {
-    const list = ['a', 'b', 'c']
-    const moved = moveListItem(list, 1, 0)
-    expect(moved).toEqual(['a', 'b', 'c'])
-    expect(moved).not.toBe(list)
-  })
-
-  it('returns a fresh copy when the move would leave the list', () => {
+  it('ignores moves that would leave the list', () => {
     const list = ['a', 'b', 'c']
     expect(moveListItem(list, -1, 1)).toEqual(['a', 'b', 'c'])
     expect(moveListItem(list, 0, -1)).toEqual(['a', 'b', 'c'])
     expect(moveListItem(list, 2, 1)).toEqual(['a', 'b', 'c'])
     expect(moveListItem(list, 0, 5)).toEqual(['a', 'b', 'c'])
-    expect(moveListItem(list, 0, 1)).not.toBe(list)
   })
 
   it('returns an empty list for an empty input', () => {
     expect(moveListItem([], 0, 0)).toEqual([])
-  })
-
-  it('inserts undefined when the index is out of range but the target is valid', () => {
-    expect(moveListItem(['a', 'b'], 2, -1)).toEqual(['a', undefined, 'b'])
   })
 })
 

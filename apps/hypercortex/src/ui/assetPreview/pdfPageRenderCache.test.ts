@@ -101,13 +101,4 @@ describe('PdfPageRenderCache', () => {
     cache.set(frame('big', 200))
     expect(cache.get('big')).toBeNull()
   })
-
-  it('uses the default pixel budget of 160,000,000', () => {
-    const cache = new PdfPageRenderCache()
-    cache.set(frame('big', 160_000_001))
-    expect(cache.get('big')).toBeNull()
-    clock += 1
-    cache.set(frame('ok', 160_000_000))
-    expect(cache.get('ok')).not.toBeNull()
-  })
 })

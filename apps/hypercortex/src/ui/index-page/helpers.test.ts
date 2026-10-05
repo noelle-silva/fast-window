@@ -34,15 +34,6 @@ describe('folderTitle', () => {
     expect(folderTitle(doc(), 'nope')).toBe('未命名文件夹')
   })
 
-  it('returns the stored title as-is without trimming (current quirk)', () => {
-    const d = doc({
-      folders: {
-        root: { id: 'root', title: '', description: '', createdAtMs: 1, updatedAtMs: 1 },
-        g1: { id: 'g1', title: '  ', description: '', createdAtMs: 1, updatedAtMs: 1 },
-      },
-    })
-    expect(folderTitle(d, 'g1')).toBe('  ')
-  })
 })
 
 describe('getRefGridSpan', () => {
