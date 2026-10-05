@@ -3,6 +3,7 @@ import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
 import { chatHistoryMatchesSearch } from '../utils/text'
 import { useEvent } from './useEvent'
 import { useLazyListWindow } from './useLazyListWindow'
+import { useUiDataVersion } from './useScopedUiVersion'
 
 const CHAT_HISTORY_PAGE_SIZE = 20
 const CHAT_HISTORY_BOTTOM_THRESHOLD_RATIO = 0.25
@@ -68,6 +69,9 @@ export function useChatSessionPickers(deps: {
   const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
   const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
   const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
+  // 会话列表条数的唯一失效依据：刷新中枢的全局数据版本号。
+  // 会话数据可能异步后到并就地写入，不允许依赖 data / 目标对象的引用比对重算。
+  const dataVersion = useUiDataVersion(controller)
   const chatHistoryTotal = React.useMemo(() => {
     if (activeTargetKind === 'group') {
       if (!activeGroup) return 0
@@ -86,7 +90,7 @@ export function useChatSessionPickers(deps: {
     const box = data?.chatsByRole?.[String(role.id)]
     const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
     return chats.filter((chat: any) => chatHistoryMatchesSearch(chat, '新聊天', chatPickerSearchText)).length
-  }, [activeTargetKind, activeGroup, activeWorkspace, activeChatTargetId, activeRole, data, chatPickerSearchText])
+  }, [dataVersion, activeTargetKind, activeChatTargetId, chatPickerSearchText])
   const { scrollRef: chatHistoryScrollRef, onScrollPositionChange: onChatHistoryScrollPositionChange, visibleCount: chatHistoryVisibleCount } = useLazyListWindow({
     resetKey: [chatPickerEl ? 'open' : 'closed', chatPickerView, activeTargetKind, activeChatTargetId, chatPickerSearchText].join(':'),
     total: chatHistoryTotal,

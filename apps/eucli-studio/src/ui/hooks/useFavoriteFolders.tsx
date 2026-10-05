@@ -9,6 +9,7 @@ import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverSt
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
 import { useEvent } from './useEvent'
+import { useUiDataVersion } from './useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -99,6 +100,9 @@ export function useFavoriteFolders(deps: {
     y: 0,
   })
 
+  // 收藏夹树的唯一失效依据：刷新中枢的全局数据版本号。
+  // 收藏数据可能异步后到并就地写入，不允许依赖 folders 数组引用比对重算。
+  const dataVersion = useUiDataVersion(controller)
   const favoriteChildrenMap = React.useMemo(() => {
     const map: Record<string, any[]> = {}
     for (const f of favoriteFolders) {
@@ -110,7 +114,7 @@ export function useFavoriteFolders(deps: {
       list.sort((a: any, b: any) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
     }
     return map
-  }, [favoriteFolders])
+  }, [dataVersion])
 
   const collectFavoriteFolderSubtreeIds = React.useCallback(
     (folderId: string) => {
