@@ -1,30 +1,21 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase, Typography } from '@mui/material'
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import { Box, Typography } from '@mui/material'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
-import { isBacklinkStaleFromRelations } from '../noteRefs'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import { resolveNoteFaceOrder } from '../facePreferences'
 import type { HyperCortexNoteFaceManifestV2 } from '../noteFaces'
-import type { FaceDeclaration } from '../shared/faceDeclarations'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
-import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
-import { NoteInfoSidebar } from './NoteInfoSidebar'
-import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
-import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
-import { useWorkspaceVisible } from './workspaceVisibility'
 import {
   faceManifestFromDeclaration,
   filterCreatableFaceDeclarations,
   getFaceDeclaration,
   getFaceViewPlugin,
   resolveFaceCapabilities,
-  resolveFaceLabel,
   useFaceContent,
   useFaceDeclarations,
   type FaceContentStore,
@@ -38,64 +29,13 @@ import {
   type NoteBaseFields,
   type NoteFaceId,
 } from './note-detail/noteDetailTools'
-import { NoteDetailTopBar } from './note-detail/NoteDetailTopBar'
+import { NoteDetailTopBarHost } from './note-detail/NoteDetailTopBarHost'
+import { NoteDetailContentArea } from './note-detail/NoteDetailContentArea'
+import { NoteDetailInfoSidebar } from './note-detail/NoteDetailInfoSidebar'
+import { NoteDetailDialogs } from './note-detail/NoteDetailDialogs'
 import { useNoteDetailFaceContent } from './useNoteDetailFaceContent'
 import { useNoteDetailReferences } from './useNoteDetailReferences'
 import { useNoteDetailToolbar } from './useNoteDetailToolbar'
-
-function FaceEmptyState(props: { declarations: readonly FaceDeclaration[]; onCreateFace: (kind: string) => void }): React.ReactNode {
-  return (
-    <Box
-      sx={{
-        mt: 0.5,
-        px: 2,
-        py: 5,
-        borderRadius: 3,
-        bgcolor: 'rgba(15,23,42,.035)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 2,
-      }}
-    >
-      <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
-        当前笔记没有面，请选择创建一个面
-      </Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-        {props.declarations.map(declaration => (
-          <Box
-            key={declaration.kind}
-            role="button"
-            tabIndex={0}
-            onClick={() => props.onCreateFace(declaration.kind)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                props.onCreateFace(declaration.kind)
-              }
-            }}
-            sx={{
-              px: 2,
-              py: 1,
-              borderRadius: 999,
-              bgcolor: '#fff',
-              boxShadow: '0 1px 2px rgba(0,0,0,.06)',
-              fontSize: 13,
-              lineHeight: 1,
-              fontWeight: 700,
-              color: '#111',
-              cursor: 'pointer',
-              userSelect: 'none',
-              '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
-            }}
-          >
-            {declaration.label}
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  )
-}
 
 export type NoteDetailSnapshotV1 = {
   baseFields: NoteBaseFields
@@ -185,7 +125,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     facePluginGlobalSettings = {},
     globalFaceKindOrder = [],
   } = props
-  const workspaceVisible = useWorkspaceVisible()
 
   const noteId = String(note.id || '').trim()
   const isDraft = isDraftNoteId(noteId) || !String(note.dir || '').trim()
@@ -652,7 +591,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         position: 'relative',
       }}
     >
-      <NoteDetailTopBar
+      <NoteDetailTopBarHost
         loading={loading}
         loadError={loadError}
         loaded={loaded}
@@ -673,34 +612,33 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         faceViewContext={faceViewContext}
         moreMenuOpen={moreMenuOpen}
         moreMenuAnchorEl={moreMenuAnchorEl}
-        onMoreMenuOpen={setMoreMenuAnchorEl}
-        onMoreMenuClose={closeMoreMenu}
-        onOpenNoteDir={requestOpenNoteDir}
-        onOpenVersionHistory={requestOpenVersionHistory}
-        onOpenNoteSettings={() => setNoteSettingsOpen(true)}
-        canFavorite={!!favoritesDoc}
-        onOpenFavorites={openFavoritesPicker}
-        onRequestDeleteNote={requestDeleteNote}
+        setMoreMenuAnchorEl={setMoreMenuAnchorEl}
+        closeMoreMenu={closeMoreMenu}
+        requestOpenNoteDir={requestOpenNoteDir}
+        requestOpenVersionHistory={requestOpenVersionHistory}
+        setNoteSettingsOpen={setNoteSettingsOpen}
+        favoritesDoc={favoritesDoc}
+        openFavoritesPicker={openFavoritesPicker}
+        requestDeleteNote={requestDeleteNote}
         deletableFaceIds={deletableFaceIds}
         deleteFaceMenuOpen={deleteFaceMenuOpen}
         deleteFaceMenuAnchorEl={deleteFaceMenuAnchorEl}
-        onDeleteFaceMenuOpen={setDeleteFaceMenuAnchorEl}
-        onDeleteFaceMenuClose={() => setDeleteFaceMenuAnchorEl(null)}
-        onRequestDeleteFace={requestDeleteFace}
-        onCopyNoteRef={handleCopyNoteRef}
+        setDeleteFaceMenuAnchorEl={setDeleteFaceMenuAnchorEl}
+        requestDeleteFace={requestDeleteFace}
+        handleCopyNoteRef={handleCopyNoteRef}
         infoSidebarVisible={infoSidebarVisible}
-        onToggleInfoSidebar={() => setInfoSidebarVisible(prev => !prev)}
+        setInfoSidebarVisible={setInfoSidebarVisible}
         addFaceSelectorVisible={addFaceSelectorVisible}
-        onToggleAddFaceSelector={() => setAddFaceSelectorVisible(prev => !prev)}
+        setAddFaceSelectorVisible={setAddFaceSelectorVisible}
         creatableFaceDeclarations={creatableFaceDeclarations}
         pendingAddFace={pendingAddFace}
-        onPickAddFace={setPendingAddFace}
-        onConfirmAddFace={() => void handleAddFace()}
+        setPendingAddFace={setPendingAddFace}
+        handleAddFace={handleAddFace}
         face={face}
         faces={faces}
         faceManifests={faceManifests}
-        onSelectFace={setFace}
-        onCopyFaceRef={copyFaceRef}
+        setFace={setFace}
+        copyFaceRef={copyFaceRef}
       />
 
       {loading ? <Typography sx={{ pt: 7 }} color="text.secondary">正在加载笔记...</Typography> : null}
@@ -708,286 +646,79 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       {!loading && !loadError && loaded ? (
         <Box sx={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', minWidth: 0, gap: 2, alignItems: 'stretch' }}>
-          <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain', pt: 7 }}>
-            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {editing ? (
-              <Box
-                sx={{
-                  minWidth: 0,
-                  width: '100%',
-                  mt: 0.5,
-                  px: 1,
-                  py: 0.75,
-                  borderRadius: 3,
-                  bgcolor: 'rgba(15,23,42,.035)',
-                }}
-              >
-                <InputBase
-                  value={editTitle}
-                  onChange={e => setEditTitle(e.target.value)}
-                  placeholder="输入标题"
-                  fullWidth
-                  inputProps={{ 'aria-label': '编辑笔记标题' }}
-                  sx={{
-                    fontSize: 28,
-                    lineHeight: 1.2,
-                    fontWeight: 900,
-                    color: '#111',
-                    '& input': { p: 0 },
-                  }}
-                />
-              </Box>
-            ) : (
-              <Typography sx={{ minWidth: 0, width: '100%', mt: 0.5, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                {editTitle || note.title || '未命名'}
-              </Typography>
-            )}
+          <NoteDetailContentArea
+            bodyScrollRef={bodyScrollRef}
+            editing={editing}
+            editTitle={editTitle}
+            setEditTitle={setEditTitle}
+            noteTitle={note.title}
+            editTags={editTags}
+            onRemoveTag={handleRemoveTag}
+            tagInput={tagInput}
+            setTagInput={setTagInput}
+            onAddTag={handleAddTag}
+            facesReady={facesReady}
+            faces={faces}
+            creatableFaceDeclarations={creatableFaceDeclarations}
+            onAddFace={handleAddFace}
+            FaceReadView={FaceReadView}
+            FaceEditView={FaceEditView}
+            faceEditing={faceEditing}
+            activeContent={activeContent}
+            visible={visible}
+            faceViewState={faceViewState}
+            onFaceViewStateChange={handleFaceViewStateChange}
+            faceViewContext={faceViewContext}
+          />
 
-            <Box sx={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-              {editing ? (
-                <>
-                  {editTags.map(tag => (
-                    <Box
-                      key={tag}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        minHeight: 30,
-                        pl: 1.25,
-                        pr: 0.5,
-                        borderRadius: 999,
-                        bgcolor: 'rgba(0,0,0,.05)',
-                        color: '#374151',
-                        fontSize: 12,
-                        lineHeight: 1,
-                        fontWeight: 600,
-                        gap: 0.25,
-                      }}
-                    >
-                      <Box component="span">{tag}</Box>
-                      <IconButton
-                        size="small"
-                        aria-label={`删除标签 ${tag}`}
-                        onClick={() => handleRemoveTag(tag)}
-                        sx={{
-                          color: 'rgba(0,0,0,.48)',
-                          p: 0.35,
-                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                        }}
-                      >
-                        ×
-                      </IconButton>
-                    </Box>
-                  ))}
-
-                  <Box
-                    sx={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      minHeight: 30,
-                      pl: 1.25,
-                      pr: 0.5,
-                      borderRadius: 999,
-                      bgcolor: 'rgba(15,23,42,.045)',
-                      gap: 0.25,
-                    }}
-                  >
-                    <InputBase
-                      value={tagInput}
-                      onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          handleAddTag()
-                        }
-                      }}
-                      placeholder="输入标签"
-                      inputProps={{ 'aria-label': '输入标签' }}
-                      sx={{
-                        minWidth: 88,
-                        fontSize: 12,
-                        lineHeight: 1,
-                        color: '#374151',
-                        '& input': { p: 0 },
-                      }}
-                    />
-                    <IconButton
-                      size="small"
-                      aria-label="添加标签"
-                      onClick={handleAddTag}
-                      sx={{
-                        color: 'rgba(0,0,0,.58)',
-                        p: 0.35,
-                        '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                      }}
-                    >
-                      <AddRoundedIcon fontSize="inherit" />
-                    </IconButton>
-                  </Box>
-                </>
-              ) : (editTags || []).length > 0 ? (
-                editTags.map(tag => (
-                  <Box
-                    key={tag}
-                    sx={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      minHeight: 28,
-                      px: 1.25,
-                      borderRadius: 999,
-                      bgcolor: 'rgba(0,0,0,.05)',
-                      color: '#374151',
-                      fontSize: 12,
-                      lineHeight: 1,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {tag}
-                  </Box>
-                ))
-              ) : (
-                <Typography sx={{ fontSize: 13, lineHeight: 1.5, color: 'rgba(0,0,0,.38)' }}>暂无标签</Typography>
-              )}
-            </Box>
-
-            {facesReady && faces.length === 0 ? (
-              <FaceEmptyState declarations={creatableFaceDeclarations} onCreateFace={kind => void handleAddFace(kind)} />
-            ) : FaceReadView ? (
-              faceEditing && FaceEditView ? (
-                <FaceEditView
-                  content={activeContent.content}
-                  visible={visible}
-                  onChange={activeContent.setContent}
-                  viewState={faceViewState}
-                  onViewStateChange={handleFaceViewStateChange}
-                  context={faceViewContext}
-                />
-              ) : (
-                <FaceReadView content={activeContent.content} visible={visible} viewState={faceViewState} onViewStateChange={handleFaceViewStateChange} context={faceViewContext} />
-              )
-            ) : (
-              <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
-                <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
-                  该面的类型暂不支持显示，内容已原样保留
-                </Typography>
-              </Box>
-            )}
-
-            </Box>
-          </Box>
-
-          {infoSidebarVisible ? (
-            <Box sx={{ flex: '0 0 280px', width: 280, minWidth: 280, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
-              <NoteInfoSidebar
-                noteId={noteId}
-                description={editDescription}
-                editing={editing}
-                createdAtMs={noteTimes.createdAtMs}
-                updatedAtMs={noteTimes.updatedAtMs}
-                outgoingIds={outgoingIds}
-                allBacklinks={allBacklinks}
-                faceBacklinkGroups={faceBacklinkGroups}
-                onDescriptionChange={setEditDescription}
-                resolveTitle={id => allNotesById[id]?.title}
-                canOpenId={id => !!allNotesById[id]}
-                onOpenId={id => {
-                  const meta = allNotesById[id]
-                  if (meta) onOpenNote(meta)
-                }}
-                onOpenRef={ref => {
-                  const meta = allNotesById[ref.noteId]
-                  if (meta) onOpenNote(meta, ref.faceId || undefined)
-                }}
-                isBacklinkStale={ref => isBacklinkStaleFromRelations(backlinkEdges, noteId, ref.noteId, faceId => !!faceManifests[String(faceId || '').trim()])}
-              />
-            </Box>
-          ) : null}
+          <NoteDetailInfoSidebar
+            infoSidebarVisible={infoSidebarVisible}
+            noteId={noteId}
+            editDescription={editDescription}
+            editing={editing}
+            noteTimes={noteTimes}
+            outgoingIds={outgoingIds}
+            allBacklinks={allBacklinks}
+            faceBacklinkGroups={faceBacklinkGroups}
+            setEditDescription={setEditDescription}
+            allNotesById={allNotesById}
+            onOpenNote={onOpenNote}
+            backlinkEdges={backlinkEdges}
+            faceManifests={faceManifests}
+          />
         </Box>
       ) : null}
 
-      <Dialog open={workspaceVisible && deleteNoteConfirmOpen} onClose={() => setDeleteNoteConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{isDraft ? '删除草稿' : trashEnabled ? '移入回收站' : '永久删除'}</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-            {isDraft
-              ? `确定删除草稿「${noteTitleForPrompt}」吗？这会丢弃当前内容。`
-              : trashEnabled
-                ? `确定将笔记「${noteTitleForPrompt}」移入回收站吗？`
-                : `回收站当前未启用。确定永久删除笔记「${noteTitleForPrompt}」吗？此操作不可撤销。`}
-          </Typography>
-          {dirty ? (
-            <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
-              提示：当前笔记有未保存改动。
-            </Typography>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteNoteConfirmOpen(false)} disabled={deleting === 'note'}>取消</Button>
-          <Button variant="contained" color="error" onClick={() => void confirmDeleteNote()} disabled={deleting === 'note' || saving}>
-            {deleting === 'note' ? '处理中…' : isDraft ? '删除' : trashEnabled ? '移入回收站' : '永久删除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={workspaceVisible && !!deleteFaceTarget} onClose={() => setDeleteFaceTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>{trashEnabled ? '移入回收站' : '永久删除面'}</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-            {trashEnabled
-              ? `确定将笔记的「${deleteFaceTarget ? resolveFaceLabel(deleteFaceTarget, faceManifests) : ''}」面移入回收站吗？删除后可在回收站恢复。`
-              : `回收站当前未启用。确定永久删除笔记的「${deleteFaceTarget ? resolveFaceLabel(deleteFaceTarget, faceManifests) : ''}」面吗？此操作不可撤销。`}
-          </Typography>
-          {dirty && !!faceStoresRef.current[String(deleteFaceTarget || '').trim()]?.isDirty() ? (
-            <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
-              提示：会丢弃该面的未保存改动。
-            </Typography>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteFaceTarget(null)} disabled={deleting === 'face'}>取消</Button>
-          <Button variant="contained" color="error" onClick={() => void confirmDeleteFace()} disabled={deleting === 'face' || saving}>
-            {deleting === 'face' ? '处理中…' : trashEnabled ? '移入回收站' : '永久删除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {favoritesDoc && favoritesTargets.target ? (
-        <FavoritesTreePickerDialog
-          open={favoritesTargets.pickerOpen}
-          doc={favoritesDoc}
-          kind={favoritesTargets.target.kind}
-          targetId={favoritesTargets.target.id}
-          onClose={favoritesTargets.closePicker}
-          onSave={favoritesTargets.saveResult}
-        />
-      ) : null}
-
-      {!isDraft && String(note.dir || '').trim() ? (
-        <NoteVersionHistoryDialog
-          open={versionHistoryOpen}
-          gateway={gateway}
-          scope={scope}
-          packageDir={note.dir}
-          dirty={dirty}
-          onClose={() => setVersionHistoryOpen(false)}
-          onSaveCurrent={saveCurrentForVersionPublish}
-          onRestoreVersion={handleRestoreVersion}
-        />
-      ) : null}
-
-      {!isDraft && String(note.dir || '').trim() ? (
-        <NoteSettingsDialog
-          open={noteSettingsOpen}
-          onClose={() => setNoteSettingsOpen(false)}
-          gateway={gateway}
-          scope={scope}
-          packageDir={note.dir}
-          faceManifests={faceManifests}
-          faceOrder={faces}
-          facePluginGlobalSettings={facePluginGlobalSettings}
-          onManifestSaved={applyNoteManifest}
-        />
-      ) : null}
+      <NoteDetailDialogs
+        isDraft={isDraft}
+        trashEnabled={trashEnabled}
+        noteTitleForPrompt={noteTitleForPrompt}
+        dirty={dirty}
+        deleting={deleting}
+        saving={saving}
+        deleteNoteConfirmOpen={deleteNoteConfirmOpen}
+        setDeleteNoteConfirmOpen={setDeleteNoteConfirmOpen}
+        confirmDeleteNote={confirmDeleteNote}
+        deleteFaceTarget={deleteFaceTarget}
+        setDeleteFaceTarget={setDeleteFaceTarget}
+        faceManifests={faceManifests}
+        faceStoresRef={faceStoresRef}
+        confirmDeleteFace={confirmDeleteFace}
+        favoritesDoc={favoritesDoc}
+        favoritesTargets={favoritesTargets}
+        versionHistoryOpen={versionHistoryOpen}
+        setVersionHistoryOpen={setVersionHistoryOpen}
+        noteSettingsOpen={noteSettingsOpen}
+        setNoteSettingsOpen={setNoteSettingsOpen}
+        gateway={gateway}
+        scope={scope}
+        noteDir={note.dir}
+        saveCurrentForVersionPublish={saveCurrentForVersionPublish}
+        handleRestoreVersion={handleRestoreVersion}
+        facePluginGlobalSettings={facePluginGlobalSettings}
+        faces={faces}
+        applyNoteManifest={applyNoteManifest}
+      />
     </Box>
   )
 })
