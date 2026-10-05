@@ -89,8 +89,6 @@ export function IndexPage(props: Props): React.ReactNode {
     addKind,
     addPickerKind,
     deleteFolderConfirmId,
-    folderTitleDraft,
-    folderDescriptionDraft,
     openAddDialog,
     openExistingPicker,
     closeAddDialog,
@@ -103,8 +101,6 @@ export function IndexPage(props: Props): React.ReactNode {
     handleGoBack,
     openDeleteCurrentFolderConfirm,
     confirmDeleteCurrentFolder,
-    setFolderTitleDraft,
-    setFolderDescriptionDraft,
     setAddPickerKind,
     setDeleteFolderConfirmId,
     favoritesEntity,
@@ -336,14 +332,10 @@ export function IndexPage(props: Props): React.ReactNode {
         currentFolderId={currentFolderId}
         addMode={addMode}
         addKind={addKind}
-        folderTitleDraft={folderTitleDraft}
-        folderDescriptionDraft={folderDescriptionDraft}
         folderSuggestions={folderSuggestions}
         folderDisabledReasonById={folderDisabledReasonById}
         deleteFolderConfirmId={deleteFolderConfirmId}
         onCloseAddDialog={closeAddDialog}
-        onFolderTitleDraftChange={setFolderTitleDraft}
-        onFolderDescriptionDraftChange={setFolderDescriptionDraft}
         onConfirmAddFolder={confirmAddFolder}
         onAddExistingFolder={addExistingFolder}
         renderFolderSuggestionCard={renderFolderSuggestionCard}

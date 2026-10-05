@@ -1,24 +1,21 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
 import type { AddKind, AddMode } from './types'
 import { folderDeleteHelperText, folderTitle } from './helpers'
 import { useWorkspaceVisible } from '../workspaceVisibility'
+import { EntityInfoDialog } from '../EntityInfoDialog'
 
 type Props = {
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
   addMode: AddMode | null
   addKind: AddKind | null
-  folderTitleDraft: string
-  folderDescriptionDraft: string
   folderSuggestions: FavoriteFolder[]
   folderDisabledReasonById: Record<string, string>
   deleteFolderConfirmId: string
   onCloseAddDialog: () => void
-  onFolderTitleDraftChange: (value: string) => void
-  onFolderDescriptionDraftChange: (value: string) => void
-  onConfirmAddFolder: () => void
+  onConfirmAddFolder: (info: { title: string; description: string }) => void
   onAddExistingFolder: (folderId: string) => void
   renderFolderSuggestionCard: (folder: FavoriteFolder) => React.ReactNode
   onCloseDeleteFolder: () => void
@@ -31,14 +28,10 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     currentFolderId,
     addMode,
     addKind,
-    folderTitleDraft,
-    folderDescriptionDraft,
     folderSuggestions,
     folderDisabledReasonById,
     deleteFolderConfirmId,
     onCloseAddDialog,
-    onFolderTitleDraftChange,
-    onFolderDescriptionDraftChange,
     onConfirmAddFolder,
     onAddExistingFolder,
     renderFolderSuggestionCard,
@@ -49,28 +42,14 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
 
   return (
     <>
-      <Dialog open={workspaceVisible && addMode === 'create' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>创建新收藏夹</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>会先创建一个真实收藏夹，再把它作为卡片放进当前索引页。</Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            <TextField fullWidth autoFocus label="收藏夹标题" value={folderTitleDraft} onChange={e => onFolderTitleDraftChange(e.target.value)} placeholder="例如：项目灵感 / 临时收纳" />
-            <TextField
-              fullWidth
-              multiline
-              minRows={3}
-              label="收藏夹说明"
-              value={folderDescriptionDraft}
-              onChange={e => onFolderDescriptionDraftChange(e.target.value)}
-              placeholder="写一点这个收藏夹用来收纳什么"
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onCloseAddDialog}>取消</Button>
-          <Button variant="contained" onClick={onConfirmAddFolder}>创建并添加</Button>
-        </DialogActions>
-      </Dialog>
+      <EntityInfoDialog
+        open={workspaceVisible && addMode === 'create' && addKind === 'folder'}
+        mode="create"
+        title=""
+        description=""
+        onClose={onCloseAddDialog}
+        onConfirm={onConfirmAddFolder}
+      />
 
       <Dialog open={workspaceVisible && addMode === 'existing' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
         <DialogTitle>添加已有收藏夹</DialogTitle>

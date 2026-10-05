@@ -63,8 +63,6 @@ export function useIndexPageActions(opts: Options) {
   const [createNewAnchorEl, setCreateNewAnchorEl] = React.useState<HTMLElement | null>(null)
   const [addMode, setAddMode] = React.useState<AddMode | null>(null)
   const [addKind, setAddKind] = React.useState<AddKind | null>(null)
-  const [folderTitleDraft, setFolderTitleDraft] = React.useState('')
-  const [folderDescriptionDraft, setFolderDescriptionDraft] = React.useState('')
   const [addPickerKind, setAddPickerKind] = React.useState<'note' | 'asset' | null>(null)
   const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
 
@@ -105,8 +103,6 @@ export function useIndexPageActions(opts: Options) {
     closeAddMenus()
     setAddMode(mode)
     setAddKind(kind)
-    setFolderTitleDraft('')
-    setFolderDescriptionDraft('')
   }
 
   const openExistingPicker = React.useCallback((kind: 'note' | 'asset') => {
@@ -129,12 +125,15 @@ export function useIndexPageActions(opts: Options) {
     void onUploadAssetsInIndex?.(currentFolderId)
   }, [currentFolderId, onUploadAssetsInIndex])
 
-  const confirmAddFolder = React.useCallback(() => {
-    const created = createFolder(doc, folderTitleDraft, folderDescriptionDraft)
-    const added = addRef(created.doc, currentFolderId, 'folder', created.folder.id)
-    onDocChange(added?.doc || created.doc)
-    closeAddDialog()
-  }, [currentFolderId, doc, folderDescriptionDraft, folderTitleDraft, onDocChange])
+  const confirmAddFolder = React.useCallback(
+    (info: { title: string; description: string }) => {
+      const created = createFolder(doc, info.title, info.description)
+      const added = addRef(created.doc, currentFolderId, 'folder', created.folder.id)
+      onDocChange(added?.doc || created.doc)
+      closeAddDialog()
+    },
+    [currentFolderId, doc, onDocChange],
+  )
 
   const addExistingFolder = React.useCallback(
     (folderId: string) => {
@@ -298,8 +297,6 @@ export function useIndexPageActions(opts: Options) {
     addKind,
     addPickerKind,
     deleteFolderConfirmId,
-    folderTitleDraft,
-    folderDescriptionDraft,
     openAddDialog,
     openExistingPicker,
     closeAddDialog,
@@ -312,8 +309,6 @@ export function useIndexPageActions(opts: Options) {
     handleGoBack,
     openDeleteCurrentFolderConfirm,
     confirmDeleteCurrentFolder,
-    setFolderTitleDraft,
-    setFolderDescriptionDraft,
     setAddPickerKind,
     setDeleteFolderConfirmId,
     favoritesEntity,

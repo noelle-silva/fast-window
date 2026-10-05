@@ -10,7 +10,7 @@ import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta } from '../core'
 import { findRefById, getFolderById, moveRef, removeRef, updateFolderInfo, deleteFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { ContextMenu, type ContextMenuItem, type ContextMenuLeaf } from './ContextMenu'
-import { EditEntityInfoDialog } from './EditEntityInfoDialog'
+import { EntityInfoDialog } from './EntityInfoDialog'
 import { FavoritesTreePickerDialog, type FavoritesSaveResult } from './FavoritesTreePickerDialog'
 import { entityDeleteHelperText } from './index-page/helpers'
 import { useFavoriteTargets } from './useFavoriteTargets'
@@ -217,8 +217,9 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
     <>
       <ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} items={items} onClose={closeMenu} />
       {editTarget ? (
-        <EditEntityInfoDialog
+        <EntityInfoDialog
           open
+          mode="edit"
           title={targetTitle(editTarget, caps.doc)}
           description={targetDescription(editTarget, caps.doc)}
           onClose={() => setEditTarget(null)}
