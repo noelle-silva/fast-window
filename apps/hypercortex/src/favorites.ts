@@ -242,6 +242,30 @@ export function findRefById(doc: HyperCortexFavoritesDocV1, refId: string): Favo
   return undefined
 }
 
+/**
+ * 判断一条引用能否迁移到目标收藏夹：目标页存在、不是源引用当前所在页，且文件夹引用不会形成自环或循环。
+ * 「移动到…」与拖拽移动共用的目标准入规则：右键选择器由树结构天然排除非法页，拖拽悬停用它判定可放入，
+ * moveRef 的逐目标过滤也复用它，保证交互预期与底层结果同源一致。
+ */
+export function canMoveRefToFolder(doc: HyperCortexFavoritesDocV1, ref: FavoriteItemRef, targetFolderId: string): boolean {
+  const target = String(targetFolderId || '').trim()
+  if (!target || target === ref.folderId) return false
+  if (!doc.folders[target]) return false
+  if (ref.kind === 'folder' && wouldCreateFolderReferenceCycle(doc, target, ref.targetId)) return false
+  return true
+}
+
+/**
+ * 拖拽移动模式的目标解析：悬停行是一条可迁入的收藏夹引用时返回该行标识，否则返回空串。
+ * 供收藏夹侧边栏判定「悬停即高亮」，与 canMoveRefToFolder 同源。
+ */
+export function resolveMoveDropTargetRefId(doc: HyperCortexFavoritesDocV1, activeRefId: string, overRefId: string): string {
+  const active = findRefById(doc, activeRefId)
+  const over = findRefById(doc, overRefId)
+  if (!active || !over || over.kind !== 'folder') return ''
+  return canMoveRefToFolder(doc, active, over.targetId) ? over.id : ''
+}
+
 /** 移动引用的结果：成功迁出、源引用不存在、没有可用目标。 */
 export type MoveRefOutcome = 'moved' | 'missing-ref' | 'no-target'
 
@@ -280,7 +304,7 @@ export function moveRef(
   let movedCount = 0
   let skippedCount = 0
   for (const target of targets) {
-    if (source.kind === 'folder' && wouldCreateFolderReferenceCycle(next, target, source.targetId)) {
+    if (!canMoveRefToFolder(next, source, target)) {
       skippedCount++
       continue
     }
