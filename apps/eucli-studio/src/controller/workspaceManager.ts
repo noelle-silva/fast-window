@@ -117,11 +117,10 @@ export function createWorkspaceManager(deps: {
   activeTargetKind: () => string
   activeRole: () => any
   activeWorkspace: () => any
-  activeChatFromData: () => any
   clearPendingWorkspaceChat: () => void
   removeLoadedChat?: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => void
 }) {
-  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, activeChatFromData, clearPendingWorkspaceChat, removeLoadedChat } = deps
+  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat } = deps
 
   function requireNetRequest() {
     if (typeof netRequest !== 'function') throw new Error('工作区请求通道不可用')
@@ -281,6 +280,19 @@ export function createWorkspaceManager(deps: {
     return null
   }
 
+  // 「工作区+角色」组合会话的唯一加载路径：先拉会话列表，再拉会话体，
+  // 数据到达后经刷新中枢 emit 自动呈现。进入工作区与切换角色都用这一条路径与节奏。
+  function loadWorkspaceRoleCombination(workspaceIdRaw: unknown) {
+    const state = getState()
+    if (!state?.data) return
+    const workspaceId = text(workspaceIdRaw)
+    if (!workspaceId) return
+    ensureWorkspaceBox(state, activeRole, workspaceId)
+    refreshActiveWorkspaceChats(workspaceId).catch(() => null).finally(() => {
+      ensureActiveWorkspaceChatLoaded().catch(() => null).finally(() => emit())
+    })
+  }
+
   function setActiveWorkspace(workspaceIdRaw: unknown) {
     const state = getState()
     if (!state?.data) return
@@ -291,11 +303,8 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).activeTargetKind = 'workspace'
     ;(state.draft as any).activeWorkspaceId = workspaceId
     if (!text(state.draft.activeRoleId)) state.draft.activeRoleId = firstRoleId(state)
-    ensureWorkspaceBox(state, activeRole, workspaceId)
     activateComposerDraftForCurrentSession(state)
-    refreshActiveWorkspaceChats(workspaceId).catch(() => null).finally(() => {
-      ensureActiveWorkspaceChatLoaded().catch(() => null).finally(() => emit())
-    })
+    loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
     emit()
   }
@@ -309,18 +318,8 @@ export function createWorkspaceManager(deps: {
     state.branchDraft = null
     state.draft.activeRoleId = roleId
     const workspaceId = text(activeWorkspace()?.id || (state.draft as any)?.activeWorkspaceId || (state.data.ui as any)?.activeWorkspaceId)
-    const currentChat = workspaceId ? pendingChatForTarget(state, 'workspace', workspaceRoleTargetId(workspaceId, roleId)) || activeChatFromData() : null
-    const currentRoleId = text((currentChat as any)?.roleId)
-    if (workspaceId && currentChat && currentRoleId && currentRoleId !== roleId) {
-      const pending = createPendingChatEntry('workspace', workspaceId, '工作区会话', roleId)
-      if (pending) {
-        state.pendingChat = null
-        state.pendingGroupChat = null
-        ;(state as any).pendingWorkspaceChat = pending
-        state.sideTab = 'chats'
-      }
-    }
     activateComposerDraftForCurrentSession(state)
+    if (workspaceId) loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
     emit()
   }

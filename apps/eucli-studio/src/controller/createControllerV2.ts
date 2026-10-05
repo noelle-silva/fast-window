@@ -367,7 +367,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     activeTargetKind,
     activeRole,
     activeWorkspace,
-    activeChatFromData,
     clearPendingWorkspaceChat,
     removeLoadedChat: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => {
       if (kind === 'workspace') {
