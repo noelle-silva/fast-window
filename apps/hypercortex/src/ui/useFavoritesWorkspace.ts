@@ -3,7 +3,7 @@ import { type HyperCortexFavoritesNavV1, type HyperCortexRepoStateV1, type NoteM
 import type { HyperCortexGateway } from '../gateway'
 import type { SidebarDisplayMode } from '../appSettingsModel'
 import type { AssetEntry } from '../assetTypes'
-import { addRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, createFolder, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger, type FavoritesLedger } from '../favoritesLedger'
 import { resolveAssetRef } from '../assetLookup'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -188,6 +188,7 @@ export function useFavoritesWorkspaceActions(opts: {
 }): {
   handleNavigateFolder: (folderId: string) => void
   handleDeleteFolderEntity: (folderId: string) => void
+  handleCreateFolderInFavorites: (info: { title: string; description: string }) => void
   handleUploadAssetsIntoIndex: (folderId: string) => Promise<void>
   handleFavoritesSidebarNavigate: (folderId: string) => void
   handleFavoritesSidebarBack: () => void
@@ -281,6 +282,18 @@ export function useFavoritesWorkspaceActions(opts: {
       }
     },
     [clearFavoritesScrollMemory, currentFolderId, persistRepoStatePatch],
+  )
+
+  // 右侧栏当前层级新建真实收藏夹：先建实体，再在当前浏览层挂上引用；确认即经统一文档入口落盘，不自动跳转。
+  const handleCreateFolderInFavorites = React.useCallback(
+    (info: { title: string; description: string }) => {
+      const base = favoritesDoc
+      if (!base) return
+      const created = createFolder(base, info.title, info.description)
+      const added = addRef(created.doc, favoritesNavRef.current.currentFolderId, 'folder', created.folder.id)
+      handleFavoritesDocChange(added?.doc || created.doc)
+    },
+    [favoritesDoc, handleFavoritesDocChange],
   )
 
   // 右侧收藏夹导航栏条目的实体操作：解析条目引用为统一目标，复用与索引页相同的菜单与对话框。
@@ -410,6 +423,7 @@ export function useFavoritesWorkspaceActions(opts: {
   return {
     handleNavigateFolder,
     handleDeleteFolderEntity,
+    handleCreateFolderInFavorites,
     handleUploadAssetsIntoIndex,
     handleFavoritesSidebarNavigate,
     handleFavoritesSidebarBack,

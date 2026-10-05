@@ -6,6 +6,7 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
@@ -28,6 +29,7 @@ import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { folderTitle } from './index-page/helpers'
+import { EntityInfoDialog } from './EntityInfoDialog'
 import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
 import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOverlay'
 
@@ -63,6 +65,8 @@ export type FavoritesSidebarPanelProps = {
   onOpenAsset: (asset: AssetEntry, openInTabs?: boolean) => void
   /** 在当前收藏夹新建草稿笔记（语义同左侧栏新建，不落盘）。 */
   onCreateNote?: () => void
+  /** 在当前所在层级创建一个真实收藏夹并挂上引用，确认即落盘。 */
+  onCreateFolder?: (info: { title: string; description: string }) => void
   /** 关闭草稿态笔记条目（语义同左侧标签栏关闭，丢弃内存草稿）。 */
   onCloseDraftNote?: (noteId: string) => void
   /** 条目右键：由上层统一实体操作菜单接管。 */
@@ -99,6 +103,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onOpenNote,
     onOpenAsset,
     onCreateNote,
+    onCreateFolder,
     onCloseDraftNote,
     onEntryContextMenu,
     onReorderRefs,
@@ -112,6 +117,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const [pathMenuAnchorEl, setPathMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [pathMenuWidth, setPathMenuWidth] = React.useState<number | null>(null)
   const [overflowMenuAnchorEl, setOverflowMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
   const pathMenuOpen = Boolean(pathMenuAnchorEl)
   const overflowMenuOpen = Boolean(overflowMenuAnchorEl)
   const pathItems = React.useMemo(
@@ -268,12 +274,19 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     </IconButton>
   )
 
+  const renderCreateFolderButton = (): React.ReactNode => (
+    <IconButton size="small" aria-label="新建收藏夹" onClick={() => setCreateFolderOpen(true)} sx={{ color: 'rgba(0,0,0,.58)' }}>
+      <CreateNewFolderRoundedIcon fontSize="small" />
+    </IconButton>
+  )
+
   return (
     <>
       <Box sx={{ px: 0.75, py: 0.5, display: 'flex', alignItems: 'center', gap: 0.25 }}>
         {!showTitle ? (
           <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
             {renderCreateNoteButton()}
+            {renderCreateFolderButton()}
             {renderOverflowButton()}
           </Box>
         ) : (
@@ -318,6 +331,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
               </Typography>
             </Button>
             {renderCreateNoteButton()}
+            {renderCreateFolderButton()}
             {renderOverflowButton()}
           </>
         )}
@@ -437,6 +451,18 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           </SortableSection>
         </SortableRoot>
       </Box>
+
+      <EntityInfoDialog
+        open={createFolderOpen}
+        mode="create"
+        title=""
+        description=""
+        onClose={() => setCreateFolderOpen(false)}
+        onConfirm={info => {
+          onCreateFolder?.(info)
+          setCreateFolderOpen(false)
+        }}
+      />
     </>
   )
 }

@@ -361,6 +361,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
   const {
     handleNavigateFolder,
     handleDeleteFolderEntity,
+    handleCreateFolderInFavorites,
     handleUploadAssetsIntoIndex,
     handleFavoritesSidebarNavigate,
     handleFavoritesSidebarBack,
@@ -481,6 +482,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
 
     handleNavigateFolder,
     handleDeleteFolderEntity,
+    handleCreateFolderInFavorites,
     handleUploadAssetsIntoIndex,
     handleFavoritesSidebarNavigate,
     handleFavoritesSidebarBack,
