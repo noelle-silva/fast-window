@@ -233,6 +233,7 @@ export function useIndexPageActions(opts: Options) {
     toast: message => void gateway.host.toast(message),
     onUpdateNoteInfo,
     onUpdateAssetInfo,
+    canDeleteRefs: true,
     onDeleteFolderEntity: folderId => {
       onDeleteFolderEntity?.(folderId)
       if (folderId === currentFolderId) onNavigateFolder('root')

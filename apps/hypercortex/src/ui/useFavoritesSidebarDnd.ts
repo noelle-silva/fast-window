@@ -3,6 +3,22 @@ import type { DragStartEvent } from '@dnd-kit/core'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { findRefById, resolveMoveDropTargetRefId } from '../favorites'
 
+/** 跨栏外来条目在右侧列表中的临时标识：进入右侧后以它参与原生排序预览。 */
+export const CROSS_PENDING_REF_ID = '__hc_cross_pending__'
+
+/** 跨栏拖拽载荷：左侧被拖入的笔记或附件。 */
+export type FavoritesForeignPayload = {
+  kind: 'note' | 'asset'
+  targetId: string
+}
+
+/** 跨栏松手落点：默认模式给出插入下标，放入模式给出悬停收藏夹引用。 */
+export type FavoritesForeignDrop = {
+  moveMode: boolean
+  overRefId: string
+  insertIndex: number
+}
+
 type UseFavoritesSidebarDndParams = {
   refs: FavoriteItemRef[]
   currentFolderId: string
@@ -11,18 +27,38 @@ type UseFavoritesSidebarDndParams = {
   onReorderRefs?: (folderId: string, orderedRefIds: string[]) => void
   /** 提供时启用「Ctrl 拖动 = 移动到收藏夹」的移动模式，松手把引用交给目标收藏夹。 */
   onMoveRef?: (refId: string, targetFolderId: string) => void
+  /** 跨栏外来条目松手提交：按落点写入（默认插到当前收藏夹、Ctrl 放进悬停收藏夹）。 */
+  onCommitForeign?: (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => void
 }
 
 /**
  * 收藏夹条目拖拽的统一交互逻辑：一个拖拽、两种模式。
  * - 排序（默认）：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
  * - 移动（拖动中按住 Ctrl/Cmd）：只认收藏夹条目为可放入目标，悬停即高亮；松手把引用交给底层统一迁移。
- * 拖动途中按/松 Ctrl 实时切换两个模式：切换瞬间同步维护排序预览（松开即按当前悬停位置恢复预演），
- * 不依赖后续悬停变化；模式判定以修饰键的实时状态为准，与渲染时序解耦。
- * 未提供 onMoveRef 的一方（如排序专用调用）行为与原来完全一致。
+ * 拖动途中按/松 Ctrl 实时切换两个模式；模式判定以修饰键的实时状态为准。
+ * 另提供跨栏接管：左侧条目进入右侧时以 CROSS_PENDING_REF_ID 加入本栏，走同一套排序/移动预览与落点提交。
  */
 export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
-  const { refs, currentFolderId, doc, onReorderRefs, onMoveRef } = params
+  const { refs, currentFolderId, doc, onReorderRefs, onMoveRef, onCommitForeign } = params
+
+  const [foreign, setForeign] = React.useState<FavoritesForeignPayload | null>(null)
+  const foreignRef = React.useMemo<FavoriteItemRef | null>(
+    () =>
+      foreign
+        ? {
+            id: CROSS_PENDING_REF_ID,
+            folderId: currentFolderId,
+            kind: foreign.kind,
+            targetId: foreign.targetId,
+            layout: { x: 0, y: 0, w: 2, h: 2 },
+            createdAtMs: 0,
+            updatedAtMs: 0,
+          }
+        : null,
+    [currentFolderId, foreign],
+  )
+  // 本栏参与拖拽的完整引用集：接管外来条目时在末尾追加临时条目，随预览一起参与原生排序。
+  const allRefs = React.useMemo(() => (foreignRef ? [...refs, foreignRef] : refs), [foreignRef, refs])
 
   const [dragPreviewIds, setDragPreviewIds] = React.useState<string[] | null>(null)
   const [dragActiveId, setDragActiveId] = React.useState('')
@@ -34,11 +70,12 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
   const modifierHeldRef = React.useRef(false)
   const dragOverIdRef = React.useRef('')
   const dragActiveIdRef = React.useRef('')
+  const foreignActiveRef = React.useRef(false)
 
   // 排序预览：把拖拽项从当前位置预演移动到悬停位置；预览与松手提交共用同一条落点计算。
   const previewSortMove = React.useCallback(
     (activeId: string, overId: string) => {
-      const base = dragBaseIdsRef.current.length ? dragBaseIdsRef.current : refs.map(ref => ref.id)
+      const base = dragBaseIdsRef.current.length ? dragBaseIdsRef.current : allRefs.map(ref => ref.id)
       const current = dragPreviewIdsRef.current || base
       const fromIndex = current.indexOf(activeId)
       const toIndex = current.indexOf(overId)
@@ -48,7 +85,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       dragPreviewIdsRef.current = next
       setDragPreviewIds(next)
     },
-    [refs],
+    [allRefs],
   )
 
   const clearSortPreview = React.useCallback(() => {
@@ -59,7 +96,6 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
 
   // 修饰键状态切换：按下 Ctrl 即丢弃排序预览（移动模式无排序预演），
   // 松开 Ctrl 即按当前悬停位置立即恢复排序预演，保证切回排序模式后落点不丢失。
-  // 以拖拽活动 ref 判定时机，拖拽结束瞬间的按键事件不会残留预演。
   const applyModifierHeld = React.useCallback(
     (held: boolean) => {
       if (held === modifierHeldRef.current) return
@@ -92,17 +128,32 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
   const moveMode = !!onMoveRef && !!dragActiveId && modifierHeld
 
   const effectiveRefs = React.useMemo(() => {
-    if (!dragPreviewIds) return refs
-    const byId = new Map(refs.map(ref => [ref.id, ref] as const))
+    if (!dragPreviewIds) return allRefs
+    const byId = new Map(allRefs.map(ref => [ref.id, ref] as const))
     const ordered = dragPreviewIds.map(id => byId.get(id)).filter((ref): ref is FavoriteItemRef => Boolean(ref))
-    return ordered.length === refs.length ? ordered : refs
-  }, [dragPreviewIds, refs])
+    return ordered.length === allRefs.length ? ordered : allRefs
+  }, [allRefs, dragPreviewIds])
 
   // 当前悬停的「可放入」收藏夹目标行：仅移动模式且悬停行可迁入时非空，供渲染层高亮。
-  const dropTargetRefId = React.useMemo(
-    () => (moveMode && doc ? resolveMoveDropTargetRefId(doc, dragActiveId, dragOverId) : ''),
-    [doc, dragActiveId, dragOverId, moveMode],
-  )
+  // 外来条目没有引用身份，直接以悬停的收藏夹行为目标。
+  const dropTargetRefId = React.useMemo(() => {
+    if (!moveMode || !doc) return ''
+    if (dragActiveId === CROSS_PENDING_REF_ID) {
+      const over = findRefById(doc, dragOverId)
+      return over && over.kind === 'folder' ? over.id : ''
+    }
+    return resolveMoveDropTargetRefId(doc, dragActiveId, dragOverId)
+  }, [doc, dragActiveId, dragOverId, moveMode])
+
+  const resetDragState = React.useCallback(() => {
+    dragBaseIdsRef.current = []
+    dragPreviewIdsRef.current = null
+    dragOverIdRef.current = ''
+    dragActiveIdRef.current = ''
+    setDragPreviewIds(null)
+    setDragOverId('')
+    setDragActiveId('')
+  }, [])
 
   const handleDragStart = React.useCallback(
     (activeRawId: string, event?: DragStartEvent) => {
@@ -114,7 +165,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       const held = !!keyed && (!!keyed.ctrlKey || !!keyed.metaKey)
       modifierHeldRef.current = held
       setModifierHeld(held)
-      dragBaseIdsRef.current = refs.map(ref => ref.id)
+      dragBaseIdsRef.current = allRefs.map(ref => ref.id)
       dragPreviewIdsRef.current = null
       setDragPreviewIds(null)
       dragOverIdRef.current = ''
@@ -122,7 +173,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       dragActiveIdRef.current = activeId
       setDragActiveId(activeId)
     },
-    [refs],
+    [allRefs],
   )
 
   const handleDragOver = React.useCallback(
@@ -147,13 +198,27 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       const overId = String(overRawId || '').trim()
       const next = dragPreviewIdsRef.current
       const base = dragBaseIdsRef.current
-      dragBaseIdsRef.current = []
-      dragPreviewIdsRef.current = null
-      dragOverIdRef.current = ''
-      dragActiveIdRef.current = ''
-      setDragPreviewIds(null)
-      setDragOverId('')
-      setDragActiveId('')
+      const wasForeign = foreignActiveRef.current
+      resetDragState()
+
+      // 跨栏外来条目：按落点写入，不参与本栏重排。
+      if (wasForeign || activeId === CROSS_PENDING_REF_ID) {
+        if (onCommitForeign && foreign) {
+          if (modifierHeldRef.current) {
+            const over = doc ? findRefById(doc, overId) : undefined
+            if (over && over.kind === 'folder') {
+              onCommitForeign(foreign, { moveMode: true, overRefId: over.id, insertIndex: -1 })
+            }
+          } else {
+            const insertIndex = next ? next.indexOf(CROSS_PENDING_REF_ID) : allRefs.length - 1
+            onCommitForeign(foreign, { moveMode: false, overRefId: overId, insertIndex: insertIndex >= 0 ? insertIndex : allRefs.length - 1 })
+          }
+        }
+        foreignActiveRef.current = false
+        setForeign(null)
+        return
+      }
+
       if (!activeId) return
 
       // 以修饰键的实时事实判定模式：悬停在收藏夹行即交给底层统一规则，成败由底层拦截与提示。
@@ -167,19 +232,42 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       if (next.length === base.length && next.every((id, index) => id === base[index])) return
       onReorderRefs?.(currentFolderId, next)
     },
-    [currentFolderId, doc, onMoveRef, onReorderRefs],
+    [allRefs.length, currentFolderId, doc, foreign, onCommitForeign, onMoveRef, onReorderRefs, resetDragState],
   )
 
   const handleDragCancel = React.useCallback(() => {
     dragSuppressClickRef.current = false
-    dragBaseIdsRef.current = []
-    dragPreviewIdsRef.current = null
-    dragOverIdRef.current = ''
-    dragActiveIdRef.current = ''
-    setDragPreviewIds(null)
-    setDragOverId('')
-    setDragActiveId('')
-  }, [])
+    foreignActiveRef.current = false
+    setForeign(null)
+    resetDragState()
+  }, [resetDragState])
+
+  // 跨栏接管：左侧条目进入右侧时登记外来载荷，并以临时条目参与本栏原生排序预览。
+  // 已在接管中时直接返回，避免每次落点变化都重复写状态。
+  const beginForeign = React.useCallback(
+    (payload: FavoritesForeignPayload, modifierHeldAtStart: boolean) => {
+      if (foreignActiveRef.current) return
+      modifierHeldRef.current = modifierHeldAtStart
+      setModifierHeld(modifierHeldAtStart)
+      foreignActiveRef.current = true
+      setForeign(payload)
+      dragBaseIdsRef.current = [...refs.map(ref => ref.id), CROSS_PENDING_REF_ID]
+      dragPreviewIdsRef.current = null
+      setDragPreviewIds(null)
+      dragOverIdRef.current = ''
+      setDragOverId('')
+      dragActiveIdRef.current = CROSS_PENDING_REF_ID
+      setDragActiveId(CROSS_PENDING_REF_ID)
+    },
+    [refs],
+  )
+
+  const endForeign = React.useCallback(() => {
+    if (!foreignActiveRef.current) return
+    foreignActiveRef.current = false
+    setForeign(null)
+    resetDragState()
+  }, [resetDragState])
 
   return {
     activeId: dragActiveId,
@@ -191,5 +279,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
     handleDragOver,
     handleDragEnd,
     handleDragCancel,
+    beginForeign,
+    endForeign,
   }
 }

@@ -35,6 +35,8 @@ export type FavoritesEntityCapabilities = {
   onOpenAsset?: (asset: AssetEntry) => void
   /** 开启「移动到…」：把引用从当前收藏夹迁移到另一个收藏夹（区别于「收藏到…」的复制）。 */
   canMoveRefs?: boolean
+  /** 开启「删除」父项（删除引用 / 删除引用与本体）；默认不提供，供只读上下文裁剪菜单。 */
+  canDeleteRefs?: boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
   /** 删除收藏夹本体；实现方负责把别处指向它的所有引用一并移除并随本体打包。 */
@@ -152,23 +154,25 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
       out.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => setEditTarget(target) })
     }
     // 「删除引用」与「删除引用与本体」两项统一归入「删除」父项，悬停展开二级菜单；两者都需要二次确认。
-    const removeLeaf: ContextMenuLeaf = {
-      id: 'remove',
-      label: '删除引用',
-      icon: <DeleteOutlineRoundedIcon fontSize="small" />,
-      onSelect: () => setRemoveRefTarget(target),
+    if (c.canDeleteRefs) {
+      const removeLeaf: ContextMenuLeaf = {
+        id: 'remove',
+        label: '删除引用',
+        icon: <DeleteOutlineRoundedIcon fontSize="small" />,
+        onSelect: () => setRemoveRefTarget(target),
+      }
+      const deleteChildren: ContextMenuLeaf[] = [removeLeaf]
+      if (target.kind !== 'stale') {
+        deleteChildren.push({
+          id: 'delete-with-ref',
+          label: '删除引用与本体',
+          danger: true,
+          icon: <DeleteSweepRoundedIcon fontSize="small" />,
+          onSelect: () => setDeleteRequest({ target }),
+        })
+      }
+      out.push({ id: 'delete-group', label: '删除', danger: true, icon: <DeleteOutlineRoundedIcon fontSize="small" />, children: deleteChildren })
     }
-    const deleteChildren: ContextMenuLeaf[] = [removeLeaf]
-    if (target.kind !== 'stale') {
-      deleteChildren.push({
-        id: 'delete-with-ref',
-        label: '删除引用与本体',
-        danger: true,
-        icon: <DeleteSweepRoundedIcon fontSize="small" />,
-        onSelect: () => setDeleteRequest({ target }),
-      })
-    }
-    out.push({ id: 'delete-group', label: '删除', danger: true, icon: <DeleteOutlineRoundedIcon fontSize="small" />, children: deleteChildren })
     return out
   }, [favoritesTargets, menu?.target, removeRefById])
 

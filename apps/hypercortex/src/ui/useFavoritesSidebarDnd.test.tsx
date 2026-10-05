@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DragStartEvent } from '@dnd-kit/core'
 import type { FavoriteFolder, FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
-import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
+import { useFavoritesSidebarDnd, CROSS_PENDING_REF_ID } from './useFavoritesSidebarDnd'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -158,5 +158,79 @@ describe('useFavoritesSidebarDnd modes', () => {
     act(() => api!.handleDragOver('r1', 'r3'))
     act(() => api!.handleDragEnd('r1', 'r3'))
     expect(onReorderRefs).toHaveBeenCalledWith('root', ['r2', 'r3', 'r1', 'r4'])
+  })
+})
+
+describe('useFavoritesSidebarDnd cross-column takeover', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    api = null
+  })
+
+  function renderHook(props: Parameters<typeof useFavoritesSidebarDnd>[0]): void {
+    act(() => {
+      root.render(<Harness {...props} />)
+    })
+  }
+
+  function refOrder(): string[] {
+    return api!.effectiveRefs.map(ref => ref.id)
+  }
+
+  it('takes over a foreign item and previews it in the native sort order', () => {
+    const doc = fixtureDoc()
+    const onCommitForeign = vi.fn()
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
+
+    act(() => api!.beginForeign({ kind: 'note', targetId: 'n9' }, false))
+    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4', CROSS_PENDING_REF_ID])
+
+    act(() => api!.handleDragOver(CROSS_PENDING_REF_ID, 'r3'))
+    expect(refOrder()).toEqual(['r1', 'r2', CROSS_PENDING_REF_ID, 'r3', 'r4'])
+
+    act(() => api!.handleDragEnd(CROSS_PENDING_REF_ID, 'r3'))
+    expect(onCommitForeign).toHaveBeenCalledWith(
+      { kind: 'note', targetId: 'n9' },
+      { moveMode: false, overRefId: 'r3', insertIndex: 2 },
+    )
+    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
+  })
+
+  it('drops a foreign item into the hovered folder while Ctrl is held', () => {
+    const doc = fixtureDoc()
+    const onCommitForeign = vi.fn()
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign, onMoveRef: vi.fn() })
+
+    act(() => api!.beginForeign({ kind: 'asset', targetId: 'a.png' }, true))
+    act(() => api!.handleDragOver(CROSS_PENDING_REF_ID, 'r2'))
+    expect(api!.moveMode).toBe(true)
+    expect(api!.dropTargetRefId).toBe('r2')
+
+    act(() => api!.handleDragEnd(CROSS_PENDING_REF_ID, 'r2'))
+    expect(onCommitForeign).toHaveBeenCalledWith(
+      { kind: 'asset', targetId: 'a.png' },
+      { moveMode: true, overRefId: 'r2', insertIndex: -1 },
+    )
+  })
+
+  it('clears the foreign preview when it leaves the right side', () => {
+    const doc = fixtureDoc()
+    const onCommitForeign = vi.fn()
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
+
+    act(() => api!.beginForeign({ kind: 'note', targetId: 'n9' }, false))
+    expect(refOrder()).toContain(CROSS_PENDING_REF_ID)
+    act(() => api!.endForeign())
+    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
   })
 })

@@ -27,11 +27,13 @@ import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { useScrollMemory } from './scrollMemory'
 import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
-import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
+import { SortableItem, SortableSection, SortableSideScope, type SortableItemRenderArgs } from './SortableDnd'
+import { DragOverlay } from '@dnd-kit/core'
 import { folderTitle } from './index-page/helpers'
 import { EntityInfoDialog } from './EntityInfoDialog'
-import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
+import { CROSS_PENDING_REF_ID, useFavoritesSidebarDnd, type FavoritesForeignDrop, type FavoritesForeignPayload } from './useFavoritesSidebarDnd'
 import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOverlay'
+import { DND_SIDE_ATTR, useWorkspaceDndParticipant, useWorkspaceDndSides } from './workspaceDnd'
 
 const ACTIVE_ENTRY_SCROLL_PADDING = 16
 
@@ -75,6 +77,8 @@ export type FavoritesSidebarPanelProps = {
   onReorderRefs?: (folderId: string, orderedRefIds: string[]) => void
   /** 提供时启用「Ctrl 拖动 = 移动到收藏夹」：松手把条目引用移入目标收藏夹。 */
   onMoveRef?: (refId: string, targetFolderId: string) => void
+  /** 跨栏外来条目松手提交：默认插到当前收藏夹落点、Ctrl 放进悬停收藏夹。 */
+  onCrossColumnCommit?: (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => void
 }
 
 /** 打开意图修饰键：按住 Ctrl（或 Mac 的 Cmd）点击表示“在左侧标签栏打开”。 */
@@ -110,6 +114,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onEntryContextMenu,
     onReorderRefs,
     onMoveRef,
+    onCrossColumnCommit,
   } = props
 
   const showTitle = panelWidth > 52
@@ -176,6 +181,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
 
   // 条目拖拽：排序与移动共用同一套机制。默认排序（实时预览重排 + 浮层跟手，拖拽项禁用 transform，
   // 松手即最终顺序）；拖动中按住 Ctrl 切到移动模式，只认收藏夹条目为可放入目标，悬停即高亮。
+  // 跨栏外来条目以临时条目加入本栏，走同一套原生排序/移动预览与落点提交。
   const {
     activeId: dragActiveId,
     effectiveRefs,
@@ -186,9 +192,36 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     handleDragOver,
     handleDragEnd,
     handleDragCancel,
-  } = useFavoritesSidebarDnd({ refs: visibleRefs, currentFolderId: nav.currentFolderId, doc, onReorderRefs, onMoveRef })
+    beginForeign,
+    endForeign,
+  } = useFavoritesSidebarDnd({
+    refs: visibleRefs,
+    currentFolderId: nav.currentFolderId,
+    doc,
+    onReorderRefs,
+    onMoveRef,
+    onCommitForeign: onCrossColumnCommit,
+  })
 
   const dragOverlay = useFavoritesSidebarOverlay({ activeId: dragActiveId, refs, doc, noteIndex, assetLookup })
+
+  // 非活动侧静态渲染：指针不在本侧、且本侧非拖拽来源时，条目不参与拖拽刷新与碰撞。
+  const dndSides = useWorkspaceDndSides()
+  const sideEnabled = !dndSides.dragging || dndSides.pointerSide === 'right' || dndSides.originSide === 'right'
+
+  // 与左侧共用一个拖拽上下文：注册右侧参与者。左侧条目进入右侧后由本栏原生机制接管。
+  useWorkspaceDndParticipant('right', {
+    onDragStart: (activeId, event) => handleDragStart(activeId, event),
+    onDragOver: (activeId, overId) => handleDragOver(activeId, overId),
+    onDragEnd: (activeId, overId) => handleDragEnd(activeId, overId),
+    onDragCancel: () => handleDragCancel(),
+    onForeignEnter: (payload, overId, modifierHeld) => {
+      beginForeign(payload, modifierHeld)
+      handleDragOver(CROSS_PENDING_REF_ID, overId)
+    },
+    onForeignLeave: () => endForeign(),
+    onForeignDrop: overId => handleDragEnd(CROSS_PENDING_REF_ID, overId),
+  })
 
   const renderFolderRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const folder = doc ? getFolderById(doc, ref.targetId) : undefined
@@ -210,7 +243,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const active = isRefActive(ref)
     const isDraft = isDraftNoteId(note.id)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} placeholder={ref.id === CROSS_PENDING_REF_ID} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
         {showTitle && isDraft ? (
@@ -244,7 +277,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const PreviewIcon = preview.icon
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} placeholder={ref.id === CROSS_PENDING_REF_ID} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
         ) : (
@@ -434,6 +467,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
 
       <Box
         ref={listScrollRef}
+        {...{ [DND_SIDE_ATTR]: 'right' }}
         onScroll={handleListScroll}
         sx={{
           flex: 1,
@@ -452,13 +486,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
         {!visibleRefs.length && showTitle ? (
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>这个收藏夹还是空的</Typography>
         ) : null}
-        <SortableRoot
-          overlay={dragOverlay}
-          onMove={handleDragEnd}
-          onPreviewMove={handleDragOver}
-          onDragStart={handleDragStart}
-          onDragCancel={handleDragCancel}
-        >
+        <SortableSideScope enabled={sideEnabled}>
           <SortableSection items={effectiveRefs.map(ref => ref.id)}>
             {effectiveRefs.map(ref => (
               <SortableItem key={ref.id} id={ref.id} disableTransform={dragActiveId === ref.id || dragMoveMode}>
@@ -466,8 +494,12 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
               </SortableItem>
             ))}
           </SortableSection>
-        </SortableRoot>
+        </SortableSideScope>
       </Box>
+
+      <DragOverlay dropAnimation={null} style={{ pointerEvents: 'none' }}>
+        {dragOverlay}
+      </DragOverlay>
 
       <EntityInfoDialog
         open={createFolderOpen}
@@ -492,6 +524,8 @@ function RowShell(props: {
   active?: boolean
   /** 拖拽移动模式下，本行是当前悬停的可放入收藏夹目标：高亮示意。 */
   dropTarget?: boolean
+  /** 跨栏外来条目的让位占位：半透明示意，位置由原生排序决定。 */
+  placeholder?: boolean
   activeRef?: React.MutableRefObject<HTMLElement | null>
   /** 「按住预览」的条目标识：标注后悬停即可上报预览目标。 */
   previewEntry?: string
@@ -501,7 +535,7 @@ function RowShell(props: {
   shouldSuppressClick?: () => boolean
   children: React.ReactNode
 }): React.ReactNode {
-  const { showTitle, title, tooltipDisabled, muted, active = false, dropTarget = false, activeRef, previewEntry, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
+  const { showTitle, title, tooltipDisabled, muted, active = false, dropTarget = false, placeholder = false, activeRef, previewEntry, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
   return (
     <Tooltip
       title={!showTitle && !tooltipDisabled ? title : ''}
@@ -543,7 +577,7 @@ function RowShell(props: {
           userSelect: 'none',
           cursor: sortable?.isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
           touchAction: sortable ? 'none' : undefined,
-          opacity: sortable?.isDragging ? 0.72 : muted ? 0.86 : 1,
+          opacity: sortable?.isDragging ? 0.72 : placeholder ? 0.44 : muted ? 0.86 : 1,
           zIndex: sortable?.isDragging ? 2 : undefined,
           position: sortable?.isDragging ? 'relative' : undefined,
           bgcolor: dropTarget || active ? 'var(--hc-primary-soft)' : 'transparent',

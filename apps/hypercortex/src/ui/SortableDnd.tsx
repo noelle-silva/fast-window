@@ -1,22 +1,7 @@
 import * as React from 'react'
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  MeasuringStrategy,
-  PointerSensor,
-  closestCenter,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import {
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
   type SortingStrategy,
@@ -38,18 +23,6 @@ export type SortableDropSlotRenderArgs = {
   isOver: boolean
 }
 
-const SORTABLE_MEASURING = { droppable: { strategy: MeasuringStrategy.Always } }
-
-type SortableRootProps = {
-  children: React.ReactNode
-  overlay?: React.ReactNode
-  onMove: (activeId: string, overId: string, event: DragEndEvent) => void
-  onPreviewMove?: (activeId: string, overId: string, event: DragOverEvent) => void
-  onDragCancel?: () => void
-  onDragStart?: (activeId: string, event: DragStartEvent) => void
-  collisionDetection?: CollisionDetection
-}
-
 type SortableSectionProps = {
   items: string[]
   strategy?: SortingStrategy
@@ -69,66 +42,29 @@ type SortableDropSlotProps = {
   children: (args: SortableDropSlotRenderArgs) => React.ReactNode
 }
 
+// 拖拽侧启用开关：非活动侧（指针不在、且非拖拽来源）的条目走静态渲染，
+// 不订阅拖拽上下文，从而不随拖拽刷新，也不参与测量与碰撞。
+const SortableSideEnabledContext = React.createContext(true)
+
+export function SortableSideScope(props: { enabled: boolean; children: React.ReactNode }) {
+  return <SortableSideEnabledContext.Provider value={props.enabled}>{props.children}</SortableSideEnabledContext.Provider>
+}
+
+const STATIC_ITEM_ARGS: SortableItemRenderArgs = {
+  setNodeRef: () => {},
+  setHandleRef: () => {},
+  handleProps: {},
+  isDragging: false,
+  style: {},
+}
+
+const STATIC_SLOT_ARGS: SortableDropSlotRenderArgs = { setNodeRef: () => {}, isOver: false }
+
 export function resolveSortMovePosition(items: string[], activeId: string, overId: string): SortMovePosition | null {
   const fromIndex = items.indexOf(activeId)
   const toIndex = items.indexOf(overId)
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return null
   return fromIndex < toIndex ? 'after' : 'before'
-}
-
-export function SortableRoot(props: SortableRootProps) {
-  const { children, overlay, onMove, onPreviewMove, onDragCancel, onDragStart, collisionDetection = closestCenter } = props
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-
-  const handleDragStart = React.useCallback(
-    (event: DragStartEvent) => {
-      const activeId = String(event.active.id || '').trim()
-      if (!activeId) return
-      onDragStart?.(activeId, event)
-    },
-    [onDragStart],
-  )
-
-  const handleDragOver = React.useCallback(
-    (event: DragOverEvent) => {
-      const activeId = String(event.active.id || '').trim()
-      const overId = String(event.over?.id || '').trim()
-      if (!activeId || !overId) return
-      onPreviewMove?.(activeId, overId, event)
-    },
-    [onPreviewMove],
-  )
-
-  const handleDragEnd = React.useCallback(
-    (event: DragEndEvent) => {
-      const activeId = String(event.active.id || '').trim()
-      const overId = String(event.over?.id || '').trim()
-      if (!activeId || !overId) {
-        onDragCancel?.()
-        return
-      }
-      onMove(activeId, overId, event)
-    },
-    [onDragCancel, onMove],
-  )
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      measuring={SORTABLE_MEASURING}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={onDragCancel}
-    >
-      {children}
-      <DragOverlay style={{ pointerEvents: 'none' }}>{overlay}</DragOverlay>
-    </DndContext>
-  )
 }
 
 export function SortableSection(props: SortableSectionProps) {
@@ -142,7 +78,22 @@ export function SortableSection(props: SortableSectionProps) {
 
 export function SortableItem(props: SortableItemProps) {
   const { id, disabled = false, disableTransform = false, children } = props
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
+  const sideEnabled = React.useContext(SortableSideEnabledContext)
+  if (disabled || !sideEnabled) return <>{children(STATIC_ITEM_ARGS)}</>
+  return (
+    <ActiveSortableItem id={id} disableTransform={disableTransform}>
+      {children}
+    </ActiveSortableItem>
+  )
+}
+
+function ActiveSortableItem(props: {
+  id: string
+  disableTransform: boolean
+  children: (args: SortableItemRenderArgs) => React.ReactNode
+}) {
+  const { id, disableTransform, children } = props
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id })
 
   const style = React.useMemo<React.CSSProperties>(
     () => ({
@@ -153,12 +104,19 @@ export function SortableItem(props: SortableItemProps) {
     [disableTransform, isDragging, transform, transition],
   )
 
-  return <>{children({ setNodeRef, setHandleRef: setActivatorNodeRef, handleProps: disabled ? {} : { ...attributes, ...listeners }, isDragging, style })}</>
+  return <>{children({ setNodeRef, setHandleRef: setActivatorNodeRef, handleProps: { ...attributes, ...listeners }, isDragging, style })}</>
 }
 
 export function SortableDropSlot(props: SortableDropSlotProps) {
   const { id, disabled = false, children } = props
-  const { isOver, setNodeRef } = useDroppable({ id, disabled })
+  const sideEnabled = React.useContext(SortableSideEnabledContext)
+  if (disabled || !sideEnabled) return <>{children(STATIC_SLOT_ARGS)}</>
+  return <ActiveDropSlot id={id}>{children}</ActiveDropSlot>
+}
+
+function ActiveDropSlot(props: { id: string; children: (args: SortableDropSlotRenderArgs) => React.ReactNode }) {
+  const { id, children } = props
+  const { isOver, setNodeRef } = useDroppable({ id })
   return <>{children({ setNodeRef, isOver })}</>
 }
 

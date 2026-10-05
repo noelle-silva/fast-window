@@ -8,6 +8,7 @@ import { OpenTabsPanel } from './OpenTabsPanel'
 import { FavoritesSidebarPanel } from './FavoritesSidebarPanel'
 import { PageOverlayHost } from './PageOverlayHost'
 import { WorkspaceVisibilityProvider } from './workspaceVisibility'
+import { WorkspaceDndProvider } from './workspaceDnd'
 import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewOverlay'
 import { encodeSidebarPreviewTarget } from './sidebar-preview/previewTarget'
 
@@ -56,128 +57,133 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
             <RepoWorkspaceToolbarHost orchestration={o} />
           ) : null}
 
+          <WorkspaceDndProvider>
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
-            <SidebarRail
-              side="left"
-              layout={o.leftSidebarLayout}
-              onResizeEnd={o.handleTabsSidebarResizeEnd}
-              onMouseEnter={o.onSidebarMouseEnter}
-              onMouseLeave={o.onSidebarMouseLeave}
-              onMouseOver={o.leftPreviewHover.onMouseOver}
-            >
-              <OpenTabsPanel
-                panelWidth={o.sidebarPanelWidth}
-                tabsMode={o.tabsMode}
-                sidebarSortMode={o.sidebarSortMode}
-                tabsCollapsed={o.tabsCollapsed}
-                sidebarItems={o.sidebarItems}
-                openTabKeys={o.openTabKeys}
-                activeTabKey={o.activeTabKey}
-                tabSelectionVisible={
-                  o.resolvedSelectionSource === 'tabs' &&
-                  (o.visiblePage === 'note-detail' || o.visiblePage === 'asset-detail')
-                }
-                activeTabScrollSignal={o.activeTabScrollSignal}
-                sidebarScrollTop={o.sidebarScrollTopsRef.current[o.activeWorkspaceId] ?? 0}
-                sidebarScrollRestoreSignal={o.sidebarScrollRestoreSignal}
-                onSidebarScrollTopChange={o.handleSidebarScrollTopChange}
-                openNoteTabs={o.openNoteTabs}
-                openAssetTabs={o.openAssetTabs}
-                playingTabKeys={o.playingTabKeys}
-                isNoteDirty={o.isNoteDirtyById}
-                workspaces={o.workspaces.map(w => ({ id: w.id, title: w.title }))}
-                activeWorkspaceId={o.activeWorkspaceId}
-                tabGroups={o.tabGrouping.groups}
-                tabGroupByTabKey={o.tabGrouping.byTabKey}
-                onToggleTabsCollapsed={o.toggleTabsCollapsed}
-                onToggleTabsMode={o.toggleTabsMode}
-                onCreateDraftNote={o.handleCreateDraftNote}
-                onCollapseAllGroups={o.handleCollapseAllGroups}
-                onSwitchWorkspace={o.handleSwitchWorkspace}
-                onCreateWorkspace={o.handleCreateWorkspace}
-                onRenameWorkspace={o.handleRenameWorkspace}
-                onDeleteWorkspace={o.handleDeleteWorkspace}
-                onCreateGroup={o.handleCreateTabGroup}
-                onOpenTab={tab => void o.handleOpenNote(tab)}
-                onCloseTab={o.handleCloseTab}
-                onOpenAssetTab={o.handleOpenAssetTab}
-                onCloseAssetTab={o.handleCloseAssetTab}
-                onAssignTabToGroup={o.handleAssignTabToGroup}
-                onUnassignTabFromGroup={o.handleUnassignTabFromGroup}
-                onToggleGroupCollapsed={o.handleToggleGroupCollapsed}
-                onRenameGroup={o.handleRenameGroup}
-                onSetGroupColor={o.handleSetGroupColor}
-                onDeleteGroupOnly={o.handleDeleteGroupOnly}
-                onDeleteGroupAndCloseTabs={o.handleDeleteGroupAndCloseTabs}
-                onCommitSidebarItems={o.handleCommitSidebarItems}
-                onMoveTabToUngroupedIndex={o.handleMoveTabToUngroupedIndex}
-                onMoveTabToGroupIndex={o.handleMoveTabToGroupIndex}
-                onMoveGroupToIndex={o.handleMoveGroupToIndex}
-              />
-            </SidebarRail>
-
-            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-              <RepoWorkspacePageContent orchestration={o} />
-
-              {o.previewTarget ? (
-                <SidebarHoldPreviewOverlay
-                  key={encodeSidebarPreviewTarget(o.previewTarget)}
-                  gateway={o.gateway}
-                  scope="library"
-                  target={o.previewTarget}
-                  noteIndex={o.resolvedNoteIndex}
-                  assetLookup={o.favoritesFolderView.lookup}
-                  favoritesDoc={o.favoritesDoc}
-                  noteIndexMap={o.noteIndexMap}
-                  allNotesById={o.allNotesById}
-                  facePluginGlobalSettings={o.facePluginSettings}
-                  globalFaceKindOrder={o.faceKindOrder}
-                  scrollRef={o.previewOverlayScrollRef}
+              <SidebarRail
+                side="left"
+                layout={o.leftSidebarLayout}
+                onResizeEnd={o.handleTabsSidebarResizeEnd}
+                onMouseEnter={o.onSidebarMouseEnter}
+                onMouseLeave={o.onSidebarMouseLeave}
+                onMouseOver={o.leftPreviewHover.onMouseOver}
+              >
+                <OpenTabsPanel
+                  panelWidth={o.sidebarPanelWidth}
+                  tabsMode={o.tabsMode}
+                  sidebarSortMode={o.sidebarSortMode}
+                  tabsCollapsed={o.tabsCollapsed}
+                  sidebarItems={o.sidebarItems}
+                  openTabKeys={o.openTabKeys}
+                  activeTabKey={o.activeTabKey}
+                  tabSelectionVisible={
+                    o.resolvedSelectionSource === 'tabs' &&
+                    (o.visiblePage === 'note-detail' || o.visiblePage === 'asset-detail')
+                  }
+                  activeTabScrollSignal={o.activeTabScrollSignal}
+                  sidebarScrollTop={o.sidebarScrollTopsRef.current[o.activeWorkspaceId] ?? 0}
+                  sidebarScrollRestoreSignal={o.sidebarScrollRestoreSignal}
+                  onSidebarScrollTopChange={o.handleSidebarScrollTopChange}
+                  openNoteTabs={o.openNoteTabs}
+                  openAssetTabs={o.openAssetTabs}
+                  playingTabKeys={o.playingTabKeys}
+                  isNoteDirty={o.isNoteDirtyById}
+                  workspaces={o.workspaces.map(w => ({ id: w.id, title: w.title }))}
+                  activeWorkspaceId={o.activeWorkspaceId}
+                  tabGroups={o.tabGrouping.groups}
+                  tabGroupByTabKey={o.tabGrouping.byTabKey}
+                  onToggleTabsCollapsed={o.toggleTabsCollapsed}
+                  onToggleTabsMode={o.toggleTabsMode}
+                  onCreateDraftNote={o.handleCreateDraftNote}
+                  onCollapseAllGroups={o.handleCollapseAllGroups}
+                  onSwitchWorkspace={o.handleSwitchWorkspace}
+                  onCreateWorkspace={o.handleCreateWorkspace}
+                  onRenameWorkspace={o.handleRenameWorkspace}
+                  onDeleteWorkspace={o.handleDeleteWorkspace}
+                  onCreateGroup={o.handleCreateTabGroup}
+                  onOpenTab={tab => void o.handleOpenNote(tab)}
+                  onCloseTab={o.handleCloseTab}
+                  onOpenAssetTab={o.handleOpenAssetTab}
+                  onCloseAssetTab={o.handleCloseAssetTab}
+                  onNoteContextMenu={o.handleWorkspaceNoteContextMenu}
+                  onAssetContextMenu={o.handleWorkspaceAssetContextMenu}
+                  onAssignTabToGroup={o.handleAssignTabToGroup}
+                  onUnassignTabFromGroup={o.handleUnassignTabFromGroup}
+                  onToggleGroupCollapsed={o.handleToggleGroupCollapsed}
+                  onRenameGroup={o.handleRenameGroup}
+                  onSetGroupColor={o.handleSetGroupColor}
+                  onDeleteGroupOnly={o.handleDeleteGroupOnly}
+                  onDeleteGroupAndCloseTabs={o.handleDeleteGroupAndCloseTabs}
+                  onCommitSidebarItems={o.handleCommitSidebarItems}
+                  onMoveTabToUngroupedIndex={o.handleMoveTabToUngroupedIndex}
+                  onMoveTabToGroupIndex={o.handleMoveTabToGroupIndex}
+                  onMoveGroupToIndex={o.handleMoveGroupToIndex}
                 />
-              ) : null}
-            </Box>
-
-            <SidebarRail
-              side="right"
-              layout={o.rightSidebarLayout}
-              onResizeEnd={o.handleFavoritesSidebarResizeEnd}
-              onMouseEnter={o.onFavoritesSidebarMouseEnter}
-              onMouseLeave={o.onFavoritesSidebarMouseLeave}
-              onMouseOver={o.rightPreviewHover.onMouseOver}
-            >
-              <FavoritesSidebarPanel
-                panelWidth={o.rightSidebarLayout.panelWidth}
-                mode={o.favoritesSidebarMode}
-                collapsed={o.favoritesSidebarCollapsed}
-                doc={o.favoritesDoc}
-                nav={o.favoritesNav}
-                folderView={o.favoritesFolderView}
-                noteIndex={o.resolvedNoteIndex}
-                activeTabKey={o.activeTabKey}
-                tabSelectionVisible={
-                  o.resolvedSelectionSource === 'favorites' &&
-                  (o.visiblePage === 'note-detail' || o.visiblePage === 'asset-detail')
-                }
-                activeEntryScrollSignal={o.favoritesActiveScrollSignal}
-                scrollTop={o.favoritesScrollTopsRef.current[o.favoritesNav.currentFolderId] ?? 0}
-                scrollRestoreSignal={o.favoritesScrollRestoreSignal}
-                onScrollTopChange={o.handleFavoritesScrollTopChange}
-                onNavigate={o.handleFavoritesSidebarNavigate}
-                onBack={o.handleFavoritesSidebarBack}
-                onForward={o.handleFavoritesSidebarForward}
-                onToggleCollapsed={o.toggleFavoritesSidebarCollapsed}
-                onToggleMode={o.toggleFavoritesSidebarMode}
-                onOpenNote={(note, openInTabs) => void o.handleOpenNote(note, undefined, openInTabs ? 'tabs' : 'favorites')}
-                onOpenAsset={(asset, openInTabs) => o.handleOpenAssetTab(asset, openInTabs ? 'tabs' : 'favorites')}
-                onCreateNote={() => o.handleCreateDraftNoteInFolder(o.favoritesNav.currentFolderId)}
-                onCreateFolder={o.handleCreateFolderInFavorites}
-                onCloseDraftNote={o.handleCloseTab}
+              </SidebarRail>
+  
+              <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+                <RepoWorkspacePageContent orchestration={o} />
+  
+                {o.previewTarget ? (
+                  <SidebarHoldPreviewOverlay
+                    key={encodeSidebarPreviewTarget(o.previewTarget)}
+                    gateway={o.gateway}
+                    scope="library"
+                    target={o.previewTarget}
+                    noteIndex={o.resolvedNoteIndex}
+                    assetLookup={o.favoritesFolderView.lookup}
+                    favoritesDoc={o.favoritesDoc}
+                    noteIndexMap={o.noteIndexMap}
+                    allNotesById={o.allNotesById}
+                    facePluginGlobalSettings={o.facePluginSettings}
+                    globalFaceKindOrder={o.faceKindOrder}
+                    scrollRef={o.previewOverlayScrollRef}
+                  />
+                ) : null}
+              </Box>
+  
+              <SidebarRail
+                side="right"
+                layout={o.rightSidebarLayout}
+                onResizeEnd={o.handleFavoritesSidebarResizeEnd}
+                onMouseEnter={o.onFavoritesSidebarMouseEnter}
+                onMouseLeave={o.onFavoritesSidebarMouseLeave}
+                onMouseOver={o.rightPreviewHover.onMouseOver}
+              >
+                <FavoritesSidebarPanel
+                  panelWidth={o.rightSidebarLayout.panelWidth}
+                  mode={o.favoritesSidebarMode}
+                  collapsed={o.favoritesSidebarCollapsed}
+                  doc={o.favoritesDoc}
+                  nav={o.favoritesNav}
+                  folderView={o.favoritesFolderView}
+                  noteIndex={o.resolvedNoteIndex}
+                  activeTabKey={o.activeTabKey}
+                  tabSelectionVisible={
+                    o.resolvedSelectionSource === 'favorites' &&
+                    (o.visiblePage === 'note-detail' || o.visiblePage === 'asset-detail')
+                  }
+                  activeEntryScrollSignal={o.favoritesActiveScrollSignal}
+                  scrollTop={o.favoritesScrollTopsRef.current[o.favoritesNav.currentFolderId] ?? 0}
+                  scrollRestoreSignal={o.favoritesScrollRestoreSignal}
+                  onScrollTopChange={o.handleFavoritesScrollTopChange}
+                  onNavigate={o.handleFavoritesSidebarNavigate}
+                  onBack={o.handleFavoritesSidebarBack}
+                  onForward={o.handleFavoritesSidebarForward}
+                  onToggleCollapsed={o.toggleFavoritesSidebarCollapsed}
+                  onToggleMode={o.toggleFavoritesSidebarMode}
+                  onOpenNote={(note, openInTabs) => void o.handleOpenNote(note, undefined, openInTabs ? 'tabs' : 'favorites')}
+                  onOpenAsset={(asset, openInTabs) => o.handleOpenAssetTab(asset, openInTabs ? 'tabs' : 'favorites')}
+                  onCreateNote={() => o.handleCreateDraftNoteInFolder(o.favoritesNav.currentFolderId)}
+                  onCreateFolder={o.handleCreateFolderInFavorites}
+                  onCloseDraftNote={o.handleCloseTab}
                 onEntryContextMenu={o.handleFavoritesSidebarContextMenu}
                 onReorderRefs={o.handleFavoritesSidebarReorder}
                 onMoveRef={o.handleFavoritesSidebarMoveRef}
-              />
-            </SidebarRail>
-          </Box>
+                onCrossColumnCommit={o.handleCrossColumnDrop}
+                />
+              </SidebarRail>
+            </Box>
+          </WorkspaceDndProvider>
 
           {visible && o.openModalPage ? (
             <PageOverlayHost open onClose={o.closeModalOverlay}>
@@ -186,6 +192,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           ) : null}
 
           {o.favoritesEntityNode}
+
+          {o.workspaceTabEntityNode}
 
           {o.noteCardMenuNode}
 

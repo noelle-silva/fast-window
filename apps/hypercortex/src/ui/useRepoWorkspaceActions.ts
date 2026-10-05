@@ -372,7 +372,11 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
     handleFavoritesSidebarMoveRef,
+    handleWorkspaceNoteContextMenu,
+    handleWorkspaceAssetContextMenu,
+    handleCrossColumnDrop,
     favoritesEntityNode,
+    workspaceTabEntityNode,
   } = useFavoritesWorkspaceActions({
     gateway,
     trashEnabled,
@@ -495,7 +499,11 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
     handleFavoritesSidebarMoveRef,
+    handleWorkspaceNoteContextMenu,
+    handleWorkspaceAssetContextMenu,
+    handleCrossColumnDrop,
     favoritesEntityNode,
+    workspaceTabEntityNode,
 
     handleDeleteGroupAndCloseTabs,
   }

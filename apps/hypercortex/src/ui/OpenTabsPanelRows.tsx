@@ -43,6 +43,9 @@ export type OpenTabsPanelRowsParams = {
   onCloseTab: (noteId: string) => void
   onOpenAssetTab?: (asset: AssetEntry) => void
   onCloseAssetTab?: (tabKey: string) => void
+  /** 笔记/附件条目右键：接入与收藏夹侧栏同源的实体操作菜单。 */
+  onNoteContextMenu?: (event: React.MouseEvent, note: NoteMeta) => void
+  onAssetContextMenu?: (event: React.MouseEvent, asset: AssetEntry) => void
   noteById: Record<string, NoteMeta>
   noteByTabKey: Record<string, NoteMeta>
   assetByTabKey: Record<string, AssetEntry>
@@ -230,6 +233,8 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
     onCloseTab,
     onOpenAssetTab,
     onCloseAssetTab,
+    onNoteContextMenu,
+    onAssetContextMenu,
     noteById,
     noteByTabKey,
     assetByTabKey,
@@ -264,6 +269,7 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
+            onContextMenu={onNoteContextMenu ? e => onNoteContextMenu(e, tab) : undefined}
             role="button"
             tabIndex={0}
               style={opts?.sortable?.style}
@@ -359,7 +365,7 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
+    [activeTabKey, dnd, isNoteDirty, onCloseTab, onNoteContextMenu, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
   )
 
   const renderAssetMetaRow = React.useCallback(
@@ -399,6 +405,7 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
+            onContextMenu={onAssetContextMenu ? e => onAssetContextMenu(e, asset) : undefined}
             role="button"
             tabIndex={0}
               style={opts?.sortable?.style}
@@ -473,7 +480,7 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
+    [activeTabKey, dnd, onAssetContextMenu, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
   )
 
   const renderMissingRow = React.useCallback(

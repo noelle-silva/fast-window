@@ -73,6 +73,13 @@ export function useOpenTabsSortableDnd(params: UseOpenTabsSortableDndParams) {
     setActiveId('')
   }, [updatePreviewItems])
 
+  // 跨栏拖拽接管时暂停左侧排序预览：仅丢弃预演顺序，保留拖拽基准，
+  // 指针回到左侧后由后续悬停重建预演，保证「进入右侧即停止左侧排序」。
+  const suspendPreview = React.useCallback(() => {
+    if (!baseItemsRef.current) return
+    updatePreviewItems(null)
+  }, [updatePreviewItems])
+
   const shouldDisableItemTransform = React.useCallback((id: string) => !!activeId && activeId === id, [activeId])
 
   return React.useMemo(
@@ -83,8 +90,9 @@ export function useOpenTabsSortableDnd(params: UseOpenTabsSortableDndParams) {
       handlePreviewMove,
       handleDragStart,
       handleDragCancel,
+      suspendPreview,
       shouldDisableItemTransform,
     }),
-    [activeId, handleDragCancel, handleDragStart, handleMove, handlePreviewMove, previewItems, shouldDisableItemTransform, sidebarItems],
+    [activeId, handleDragCancel, handleDragStart, handleMove, handlePreviewMove, previewItems, shouldDisableItemTransform, sidebarItems, suspendPreview],
   )
 }

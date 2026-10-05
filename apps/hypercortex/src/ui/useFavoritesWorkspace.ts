@@ -3,7 +3,7 @@ import { type HyperCortexFavoritesNavV1, type HyperCortexRepoStateV1, type NoteM
 import type { HyperCortexGateway } from '../gateway'
 import type { SidebarDisplayMode } from '../appSettingsModel'
 import type { AssetEntry } from '../assetTypes'
-import { addRef, collectRefsForTarget, createFolder, deleteFolder, getFolderById, getRefsByFolderId, moveRef, removeRefsByIds, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, collectRefsForTarget, createFolder, deleteFolder, findRefById, getFolderById, getRefsByFolderId, moveRef, removeRefsByIds, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger, type FavoritesLedger } from '../favoritesLedger'
 import { resolveAssetRef } from '../assetLookup'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -19,6 +19,7 @@ import { buildFavoriteFolderView, type FavoriteFolderView } from './favoritesSid
 import { ASSET_UPLOAD_WAIT_INTERVAL_MS, assetKeyFromResource, sleep } from './useAssetPoolSessions'
 import { useFavoritesEntityActions, type FavoritesEntityTarget } from './useFavoritesEntityActions'
 import { resolveSidebarLayout } from './sidebarLayout'
+import type { FavoritesForeignDrop, FavoritesForeignPayload } from './useFavoritesSidebarDnd'
 import type { SidebarPreviewTarget } from './sidebar-preview/previewTarget'
 
 // 收藏夹现场：收藏夹文档状态与落盘接线、主界面收藏夹页当前层与导航、右侧栏浏览位置（前进后退与文档调和）、
@@ -197,7 +198,13 @@ export function useFavoritesWorkspaceActions(opts: {
   handleFavoritesSidebarContextMenu: (event: React.MouseEvent, ref: FavoriteItemRef) => void
   handleFavoritesSidebarReorder: (folderId: string, orderedRefIds: string[]) => void
   handleFavoritesSidebarMoveRef: (refId: string, targetFolderId: string) => void
+  /** 左侧工作区侧栏条目的同源实体菜单：笔记/附件条目右键，仅保留打开、收藏到…、编辑信息。 */
+  handleWorkspaceNoteContextMenu: (event: React.MouseEvent, note: NoteMeta) => void
+  handleWorkspaceAssetContextMenu: (event: React.MouseEvent, asset: AssetEntry) => void
+  /** 跨栏拖拽落点写入：默认插到当前收藏夹的落点位置，Ctrl 放入悬停收藏夹；复用既有收藏能力，复制引用。 */
+  handleCrossColumnDrop: (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => void
   favoritesEntityNode: React.ReactNode
+  workspaceTabEntityNode: React.ReactNode
 } {
   const {
     gateway,
@@ -335,6 +342,7 @@ export function useFavoritesWorkspaceActions(opts: {
     onOpenNote: note => void handleOpenNote(note, undefined, 'favorites'),
     onOpenAsset: asset => handleOpenAssetTab(asset, 'favorites'),
     canMoveRefs: true,
+    canDeleteRefs: true,
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
     onDeleteFolderEntity: handleDeleteFolderEntity,
@@ -347,6 +355,83 @@ export function useFavoritesWorkspaceActions(opts: {
         }),
     onDeleteAssetEntity: (asset, refs) => requestDeleteAssetEntity(asset, { refs, mode: trashEnabled ? 'trash' : 'permanent' }),
   })
+
+  // 左侧工作区侧栏条目复用同一套实体操作菜单：只保留打开、收藏到…、编辑信息，
+  // 不含「移动到…」与「删除」（条目没有引用身份，删除/移动无意义）。
+  const workspaceTabEntity = useFavoritesEntityActions({
+    doc: favoritesDoc || { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} },
+    onDocChange: handleFavoritesDocChange,
+    toast: message => void gateway.host.toast(message),
+    onOpenNote: note => void handleOpenNote(note),
+    onOpenAsset: asset => handleOpenAssetTab(asset),
+    onUpdateNoteInfo: handleUpdateNoteInfo,
+    onUpdateAssetInfo: handleUpdateAssetInfo,
+  })
+
+  const handleWorkspaceNoteContextMenu = React.useCallback(
+    (event: React.MouseEvent, note: NoteMeta) => {
+      workspaceTabEntity.openMenu(event, { kind: 'note', refId: '', note })
+    },
+    [workspaceTabEntity.openMenu],
+  )
+
+  const handleWorkspaceAssetContextMenu = React.useCallback(
+    (event: React.MouseEvent, asset: AssetEntry) => {
+      workspaceTabEntity.openMenu(event, { kind: 'asset', refId: '', asset })
+    },
+    [workspaceTabEntity.openMenu],
+  )
+
+  // 跨栏拖拽松手：复用既有收藏写入能力复制引用，左侧标签不动；已收藏则提示不重复添加。
+  // 默认模式把条目插到当前收藏夹的落点位置；放入模式（Ctrl）放进悬停的收藏夹。
+  const handleCrossColumnDrop = React.useCallback(
+    (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => {
+      const base = favoritesDocRef.current
+      if (!base) return
+
+      const alreadyIn = (folderId: string) =>
+        getRefsByFolderId(base, folderId).some(ref => ref.kind === payload.kind && ref.targetId === payload.targetId)
+
+      if (target.moveMode) {
+        const overRef = findRefById(base, target.overRefId)
+        if (!overRef || overRef.kind !== 'folder') return
+        const folderId = overRef.targetId
+        if (!base.folders[folderId]) return
+        if (alreadyIn(folderId)) {
+          void gateway.host.toast('该条目已收藏到该收藏夹')
+          return
+        }
+        const added = addRef(base, folderId, payload.kind, payload.targetId)
+        if (!added) {
+          void gateway.host.toast('收藏失败')
+          return
+        }
+        handleFavoritesDocChange(added.doc)
+        void gateway.host.toast(`已收藏到 ${getFolderById(added.doc, folderId)?.title || '未命名收藏夹'}`)
+        return
+      }
+
+      const folderId = String(favoritesNavRef.current?.currentFolderId || '').trim() || 'root'
+      if (!base.folders[folderId]) return
+      if (alreadyIn(folderId)) {
+        void gateway.host.toast('该条目已收藏到该收藏夹')
+        return
+      }
+      const refs = getRefsByFolderId(base, folderId)
+      const insertIndex = Math.max(0, Math.min(target.insertIndex < 0 ? refs.length : target.insertIndex, refs.length))
+      const added = addRef(base, folderId, payload.kind, payload.targetId)
+      if (!added) {
+        void gateway.host.toast('收藏失败')
+        return
+      }
+      const orderedRefIds = refs.map(ref => ref.id)
+      orderedRefIds.splice(insertIndex, 0, added.ref.id)
+      const next = reorderRefsInFolder(added.doc, folderId, orderedRefIds)
+      handleFavoritesDocChange(next)
+      void gateway.host.toast(`已收藏到 ${getFolderById(next, folderId)?.title || '未命名收藏夹'}`)
+    },
+    [favoritesDocRef, favoritesNavRef, gateway, handleFavoritesDocChange],
+  )
 
   const handleFavoritesSidebarContextMenu = React.useCallback(
     (event: React.MouseEvent, ref: FavoriteItemRef) => {
@@ -483,6 +568,10 @@ export function useFavoritesWorkspaceActions(opts: {
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
     handleFavoritesSidebarMoveRef,
+    handleWorkspaceNoteContextMenu,
+    handleWorkspaceAssetContextMenu,
+    handleCrossColumnDrop,
     favoritesEntityNode: favoritesEntity.node,
+    workspaceTabEntityNode: workspaceTabEntity.node,
   }
 }

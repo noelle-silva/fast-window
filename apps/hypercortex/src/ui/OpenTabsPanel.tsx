@@ -19,12 +19,13 @@ import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
 import type { HyperCortexSidebarSortModeV1, HyperCortexTabGroupV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
-import { assetTabId } from '../assetTypes'
+import { assetRefKey, assetTabId } from '../assetTypes'
 import { noteTabKey } from '../tabKey'
 import type { SidebarItem } from './sidebarModel'
-import { SortableItem, SortableRoot, SortableSection } from './SortableDnd'
+import { SortableItem, SortableSection, SortableSideScope } from './SortableDnd'
+import { DragOverlay } from '@dnd-kit/core'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
-import { parseSortableId, sortableGroupId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
+import { parseSortableId, parseSortableSlotId, sortableGroupId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 import { useScrollMemory } from './scrollMemory'
@@ -32,6 +33,7 @@ import { useWorkspaceVisible } from './workspaceVisibility'
 import { SortableInsertionSlot, TopLevelDropSlot, useOpenTabsPanelRows } from './OpenTabsPanelRows'
 import { useOpenTabsPanelGroupSection } from './OpenTabsPanelGroupSection'
 import { OpenTabsPanelGroupContextMenu, OpenTabsPanelWorkspaceMenu, type OpenTabsPanelGroupMenuState } from './OpenTabsPanelMenus'
+import { DND_SIDE_ATTR, useWorkspaceDndParticipant, useWorkspaceDndSides } from './workspaceDnd'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -85,6 +87,9 @@ export type OpenTabsPanelProps = {
   onCloseTab: (noteId: string) => void
   onOpenAssetTab?: (asset: AssetEntry) => void
   onCloseAssetTab?: (tabKey: string) => void
+  /** 笔记/附件条目右键：接入与收藏夹侧栏同源的实体操作菜单。 */
+  onNoteContextMenu?: (event: React.MouseEvent, note: NoteMeta) => void
+  onAssetContextMenu?: (event: React.MouseEvent, asset: AssetEntry) => void
   onAssignTabToGroup: (tabKey: string, groupId: string) => void
   onUnassignTabFromGroup: (tabKey: string) => void
   onToggleGroupCollapsed: (groupId: string) => void
@@ -133,6 +138,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onCloseTab,
     onOpenAssetTab,
     onCloseAssetTab,
+    onNoteContextMenu,
+    onAssetContextMenu,
     onAssignTabToGroup,
     onUnassignTabFromGroup,
     onToggleGroupCollapsed,
@@ -182,6 +189,35 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onMoveTabToGroupIndex,
     onMoveGroupToIndex,
   })
+
+  // 与右侧共用一个拖拽上下文：注册左侧参与者。指针在左侧时按本侧原生排序；
+  // 指针进入右侧后由右侧原生机制接管，左侧排序预览立即停止。
+  const getCrossPayload = React.useCallback(
+    (activeId: string): { kind: 'note' | 'asset'; targetId: string } | null => {
+      const parsed = parseSortableId(activeId)
+      if (parsed?.kind !== 'tab') return null
+      const note = noteByTabKey[parsed.tabKey]
+      if (note) return { kind: 'note', targetId: note.id }
+      const asset = assetByTabKey[parsed.tabKey]
+      if (asset) return { kind: 'asset', targetId: assetRefKey(asset) }
+      return null
+    },
+    [assetByTabKey, noteByTabKey],
+  )
+
+  useWorkspaceDndParticipant('left', {
+    owns: id => !!parseSortableId(id) || !!parseSortableSlotId(id),
+    onDragStart: activeId => sortableDnd.handleDragStart(activeId),
+    onDragOver: (activeId, overId, event) => sortableDnd.handlePreviewMove(activeId, overId, event),
+    onDragEnd: (activeId, overId, event) => sortableDnd.handleMove(activeId, overId, event),
+    onDragCancel: () => sortableDnd.handleDragCancel(),
+    getDragPayload: getCrossPayload,
+    onCrossLeave: () => sortableDnd.suspendPreview(),
+  })
+
+  // 非活动侧静态渲染：指针不在本侧、且本侧非拖拽来源时，条目不参与拖拽刷新与碰撞。
+  const dndSides = useWorkspaceDndSides()
+  const sideEnabled = !dndSides.dragging || dndSides.pointerSide === 'left' || dndSides.originSide === 'left'
 
   const [groupMenu, setGroupMenu] = React.useState<OpenTabsPanelGroupMenuState>(null)
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
@@ -240,6 +276,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onCloseTab,
     onOpenAssetTab,
     onCloseAssetTab,
+    onNoteContextMenu,
+    onAssetContextMenu,
     noteById,
     noteByTabKey,
     assetByTabKey,
@@ -293,13 +331,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     () => {
       const topLevelIds = effectiveSidebarItems.map(item => (item.type === 'tab' ? sortableTabId(item.tabKey) : sortableGroupId(item.id)))
       return (
-        <SortableRoot
-          overlay={sortableOverlay}
-          onMove={sortableDnd.handleMove}
-          onPreviewMove={sortableDnd.handlePreviewMove}
-          onDragStart={sortableDnd.handleDragStart}
-          onDragCancel={sortableDnd.handleDragCancel}
-        >
+        <SortableSideScope enabled={sideEnabled}>
           <SortableSection items={topLevelIds}>
             <SortableInsertionSlot id={sortableTopSlotId(0)} enabled={!!sortableActiveId} showTitle={showTitle} />
             {effectiveSidebarItems.map((item, itemIndex) => {
@@ -325,10 +357,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               )
             })}
           </SortableSection>
-        </SortableRoot>
+        </SortableSideScope>
       )
     },
-    [effectiveSidebarItems, groupById, renderGroupSection, renderSortableTabKeyRow, showTitle, sortableActiveId, sortableDnd, sortableOverlay],
+    [effectiveSidebarItems, groupById, renderGroupSection, renderSortableTabKeyRow, showTitle, sideEnabled, sortableActiveId, sortableDnd],
   )
 
   return (
@@ -408,6 +440,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       <Box
         ref={scrollContainerRef}
         {...dnd.containerProps}
+        {...{ [DND_SIDE_ATTR]: 'left' }}
         onScroll={handleSidebarScroll}
         sx={{
           flex: 1,
@@ -581,6 +614,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <DragOverlay dropAnimation={null} style={{ pointerEvents: 'none' }}>
+        {sortableOverlay}
+      </DragOverlay>
     </>
   )
 }
