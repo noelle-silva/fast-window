@@ -3,20 +3,17 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconBut
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
-import { backlinksFromRelations, faceBacklinksFromRelations, isBacklinkStaleFromRelations, type NoteRefRelationEdge } from '../noteRefs'
-import { buildNotePlaceholderForCopy } from '../notePlaceholder'
+import { isBacklinkStaleFromRelations } from '../noteRefs'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
-import type { SaveNoteFaceContentInput } from '../gateway/types'
 import { resolveNoteFaceOrder } from '../facePreferences'
 import type { HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import type { FaceDeclaration } from '../shared/faceDeclarations'
 import { isDraftNoteId } from '../drafts'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import { FavoritesTreePickerDialog } from './FavoritesTreePickerDialog'
-import { useFavoriteTargets } from './useFavoriteTargets'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { NoteVersionHistoryDialog } from './note-version-history/NoteVersionHistoryDialog'
 import { NoteSettingsDialog } from './note-settings/NoteSettingsDialog'
@@ -38,11 +35,13 @@ import { resolveFaceSettingValues } from '../facePlugins/settings'
 import {
   appendTag,
   areNoteBaseFieldsEqual,
-  normalizeTagText,
   type NoteBaseFields,
   type NoteFaceId,
 } from './note-detail/noteDetailTools'
 import { NoteDetailTopBar } from './note-detail/NoteDetailTopBar'
+import { useNoteDetailFaceContent } from './useNoteDetailFaceContent'
+import { useNoteDetailReferences } from './useNoteDetailReferences'
+import { useNoteDetailToolbar } from './useNoteDetailToolbar'
 
 function FaceEmptyState(props: { declarations: readonly FaceDeclaration[]; onCreateFace: (kind: string) => void }): React.ReactNode {
   return (
@@ -231,19 +230,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [addFaceSelectorVisible, setAddFaceSelectorVisible] = React.useState(false)
   const [pendingAddFace, setPendingAddFace] = React.useState<NoteFaceId | null>(null)
 
-  const [moreMenuAnchorEl, setMoreMenuAnchorEl] = React.useState<HTMLElement | null>(null)
-  const moreMenuOpen = !!moreMenuAnchorEl
-  const [deleteFaceMenuAnchorEl, setDeleteFaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
-  const deleteFaceMenuOpen = !!deleteFaceMenuAnchorEl
-  const closeMoreMenu = React.useCallback(() => {
-    setMoreMenuAnchorEl(null)
-    setDeleteFaceMenuAnchorEl(null)
-  }, [])
-
-  const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
-  const [deleteFaceTarget, setDeleteFaceTarget] = React.useState<NoteFaceId | null>(null)
-  const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false)
-  const [noteSettingsOpen, setNoteSettingsOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
 
   const [baseFields, setBaseFields] = React.useState<NoteBaseFields>(
@@ -254,35 +240,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       resources: [],
     },
   )
-
-  // 面内容存储：内容由插件持有，宿主只取内容与脏标记，不持久化内容本身。
-  const faceStoresRef = React.useRef<Record<string, FaceContentStore>>({})
-  const faceSavedContentsRef = React.useRef<Record<string, string>>(init?.savedFaceContents ?? {})
-  // 已保存的面 ID 集合：放弃改动时用于回退本会话新增（尚未落盘）的面。
-  const savedFaceIdsRef = React.useRef<Set<string>>(new Set(Object.keys(init?.faceManifests ?? {})))
-  const [faceDirtyVersion, setFaceDirtyVersion] = React.useState(0)
-  const dirtyNotifyRef = React.useRef<() => void>(() => {})
-  React.useEffect(() => {
-    dirtyNotifyRef.current = () => setFaceDirtyVersion(v => v + 1)
-  }, [])
-  const createFaceStore = React.useCallback((faceId: string, kind: string, initialContent: string, savedContent?: string): FaceContentStore | null => {
-    const plugin = getFaceViewPlugin(kind)
-    if (!plugin) return null
-    const store = plugin.createContentStore({ faceId, initialContent, savedContent })
-    store.subscribe(() => dirtyNotifyRef.current())
-    return store
-  }, [])
-  const storesInitializedRef = React.useRef(false)
-  if (!storesInitializedRef.current) {
-    storesInitializedRef.current = true
-    if (init?.faceContents) {
-      for (const [faceId, manifest] of Object.entries(init.faceManifests || {})) {
-        // 会话迁移：草稿内容与已保存基线分离播种，未保存的面保持脏状态。
-        const store = createFaceStore(faceId, manifest.kind, init.faceContents[faceId] ?? '', init.savedFaceContents?.[faceId] ?? '')
-        if (store) faceStoresRef.current[faceId] = store
-      }
-    }
-  }
 
   const uploadPastedFiles = React.useCallback(
     (files: File[]) => uploadPastedAssetFiles(gateway, scope, files),
@@ -315,9 +272,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setFaceViewState(prev => ({ ...prev, ...(plugin ? plugin.defaultViewState : {}) }))
   }, [face, faceManifests])
 
-  // 当前面的内容由插件存储持有；宿主只订阅内容用于渲染与保存。
-  const activeContent = useFaceContent(faceStoresRef.current[face] || null)
-
   const draftFields = React.useMemo<NoteBaseFields>(() => ({
     title: editTitle,
     description: editDescription,
@@ -326,11 +280,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }), [editDescription, editResources, editTags, editTitle])
 
   const fieldsDirty = React.useMemo(() => !areNoteBaseFieldsEqual(draftFields, baseFields), [baseFields, draftFields])
-  const facesDirty = React.useMemo(
-    () => Object.values(faceStoresRef.current).some(store => store.isDirty()),
-    [faceDirtyVersion],
-  )
-  const dirty = fieldsDirty || facesDirty
   // 外部（索引页信息编辑等）更新笔记元信息时：未处于脏状态则同步到会话编辑字段；脏状态以用户改动优先。
   const lastSyncedNoteRef = React.useRef({ title: note.title, description: note.description })
   React.useEffect(() => {
@@ -381,116 +330,73 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setFaces(nextFaces)
     setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
   }, [globalFaceKindOrder])
+
+  // 面内容状态管理：面存储、脏标记与保存/放弃编排。
+  const {
+    faceStoresRef,
+    faceSavedContentsRef,
+    savedFaceIdsRef,
+    createFaceStore,
+    faceDirtyVersion,
+    facesDirty,
+    buildSessionSnapshot,
+    saveSessionToDisk,
+    handleSave,
+    handleSaveAllFaces,
+    saveCurrentForVersionPublish,
+    handleDiscard,
+  } = useNoteDetailFaceContent({
+    gateway,
+    scope,
+    noteId,
+    isDraft,
+    noteDir: note.dir,
+    init,
+    editing,
+    face,
+    faces,
+    faceManifests,
+    baseFields,
+    editTitle,
+    editDescription,
+    editTags,
+    editResources,
+    noteTimes,
+    tagInput,
+    faceViewState,
+    infoSidebarVisible,
+    globalFaceKindOrder,
+    saving,
+    deleting,
+    onSaved,
+    applyNoteManifest,
+    resetFaceViewState,
+    setBaseFields,
+    setNoteTimes,
+    setEditTitle,
+    setEditDescription,
+    setEditTags,
+    setEditResources,
+    setFaceManifests,
+    setFaces,
+    setFace,
+    setTagInput,
+    setAddFaceSelectorVisible,
+    setPendingAddFace,
+    setEditing,
+    setSaving,
+  })
+
+  // 当前面的内容由插件存储持有；宿主只订阅内容用于渲染与保存。
+  const activeContent = useFaceContent(faceStoresRef.current[face] || null)
+
+  const dirty = fieldsDirty || facesDirty
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
     if (lastDirtyRef.current === dirty) return
     lastDirtyRef.current = dirty
     onDirtyChange?.({ noteId, dirty })
   }, [dirty, noteId, onDirtyChange])
-
-  const requestDeleteNote = React.useCallback(() => {
-    closeMoreMenu()
-    setDeleteNoteConfirmOpen(true)
-  }, [closeMoreMenu])
-
-  const requestOpenNoteDir = React.useCallback(async () => {
-    closeMoreMenu()
-    const dir = String(note.dir || '').trim()
-    if (isDraft || !dir) {
-      void gateway.host.toast('草稿暂无所在目录（请先保存）')
-      return
-    }
-    try {
-      await gateway.host.openVaultDir(scope, dir)
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '打开目录失败'))
-    }
-  }, [closeMoreMenu, gateway, isDraft, note.dir, scope])
-
-  const requestOpenVersionHistory = React.useCallback(() => {
-    closeMoreMenu()
-    if (isDraft || !String(note.dir || '').trim()) {
-      void gateway.host.toast('请先保存笔记，再发布版本')
-      return
-    }
-    setVersionHistoryOpen(true)
-  }, [closeMoreMenu, gateway, isDraft, note.dir])
-
-  const favoritesTargets = useFavoriteTargets({
-    doc: favoritesDoc,
-    onDocChange: next => onFavoriteSaved?.(next),
-    toast: message => void gateway.host.toast(message),
-  })
-
-  const openFavoritesPicker = React.useCallback(() => {
-    closeMoreMenu()
-    favoritesTargets.openPicker({ kind: 'note', id: note.id })
-  }, [closeMoreMenu, favoritesTargets, note.id])
-
-  const confirmDeleteNote = React.useCallback(async () => {
-    if (deleting || saving) return
-    setDeleting('note')
-    try {
-      const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
-      await onRequestDeleteNote({ note, mode })
-      setDeleteNoteConfirmOpen(false)
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '删除失败'))
-    } finally {
-      setDeleting('')
-    }
-  }, [deleting, gateway, note, onRequestDeleteNote, saving, trashEnabled])
-
-  const requestDeleteFace = React.useCallback((faceId: string) => {
-    closeMoreMenu()
-    setDeleteFaceTarget(String(faceId || '').trim() || null)
-  }, [closeMoreMenu])
-
-  const confirmDeleteFace = React.useCallback(async () => {
-    const targetFaceId = String(deleteFaceTarget || '').trim()
-    const dir = String(note.dir || '').trim()
-    if (!targetFaceId || !dir || deleting || saving) return
-    setDeleting('face')
-    try {
-      const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
-      const result = await gateway.notes.deleteNoteFace(scope, dir, targetFaceId, mode)
-      delete faceStoresRef.current[targetFaceId]
-      delete faceSavedContentsRef.current[targetFaceId]
-      applyNoteManifest(result.manifest)
-      setAddFaceSelectorVisible(false)
-      setPendingAddFace(null)
-      setDeleteFaceTarget(null)
-      onSaved({ originalId: noteId, meta: result.meta })
-      void gateway.host.toast(mode === 'trash' ? '已移入回收站（可在回收站恢复）' : '已删除面')
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '删除面失败'))
-    } finally {
-      setDeleting('')
-    }
-  }, [applyNoteManifest, deleteFaceTarget, deleting, gateway, note.dir, noteId, onSaved, saving, scope, trashEnabled])
-
-  const updateFaceSettings = React.useCallback(async (patch: Record<string, unknown | null>) => {
-    const dir = String(note.dir || '').trim()
-    const faceId = String(face || '').trim()
-    if (!dir || !faceId) return
-    const result = await gateway.notes.saveFaceSettings(scope, dir, faceId, patch)
-    applyNoteManifest(result.manifest)
-  }, [applyNoteManifest, face, gateway, note.dir, scope])
-
-  const faceViewContext: FaceViewContext = React.useMemo(() => ({
-    gateway,
-    scope,
-    noteIndexMap,
-    getNoteMeta: noteId => allNotesById[noteId],
-    onOpenNote,
-    onPlayingChange: stableOnPlayingChange,
-    uploadFiles: uploadPastedFiles,
-    onResourcesAdded: handleResourcesAdded,
-    settings: faceEffectiveSettings,
-    noteSettings: faceNoteSettings,
-    globalSettings: faceGlobalSettings,
-    updateSettings: String(note.dir || '').trim() ? updateFaceSettings : undefined,
-  }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, note.dir, noteIndexMap, onOpenNote, scope, stableOnPlayingChange, updateFaceSettings, uploadPastedFiles])
 
   /** 统一读取通道：按笔记包读取清单与各面内容，构建内容存储与已保存基线。 */
   const readNotePackage = React.useCallback(async (packageDir: string): Promise<{
@@ -538,7 +444,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditResources(nextBase.resources.slice())
     setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
     setTagInput('')
-  }, [applyNoteManifest, note.description, note.title])
+  }, [applyNoteManifest, faceSavedContentsRef, faceStoresRef, note.description, note.title, savedFaceIdsRef, setBaseFields, setEditDescription, setEditResources, setEditTags, setEditTitle, setNoteTimes, setTagInput])
 
   const loadNoteIfNeeded = React.useCallback(async (options?: { force?: boolean }) => {
     if (!noteId) return
@@ -570,67 +476,79 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     void loadNoteIfNeeded()
   }, [loadNoteIfNeeded, visible])
 
-  // 出链与卡片预取统一从各面草稿内容提取（未保存的引用同样可见）；按面类型派发到各自的引用解析器。
-  const draftRefIds = React.useMemo(() => {
-    const ids = new Set<string>()
-    for (const [faceId, store] of Object.entries(faceStoresRef.current)) {
-      const kind = String(faceManifests[faceId]?.kind || '').trim()
-      const refs = kind ? getFaceViewPlugin(kind)?.extractRefs?.(store.getContent()) || [] : []
-      for (const ref of refs) {
-        const noteId = String(ref?.noteId || '').trim()
-        if (noteId) ids.add(noteId)
-      }
-    }
-    return Array.from(ids)
-  }, [faceDirtyVersion, loaded, faceManifests])
+  // 引用与反向引用：出链提取、卡片预取与后端反向引用查询。
+  const { outgoingIds, backlinkEdges, allBacklinks, faceBacklinkGroups } = useNoteDetailReferences({
+    gateway,
+    scope,
+    noteId,
+    visible,
+    refRelationsEpoch,
+    loaded,
+    infoSidebarVisible,
+    faceManifests,
+    faceDirtyVersion,
+    faceStoresRef,
+    faces,
+    allNotesById,
+    onEnsureNoteCardInfoLoaded,
+  })
 
-  const outgoingIds = React.useMemo(() => (infoSidebarVisible ? draftRefIds : []), [draftRefIds, infoSidebarVisible])
-
-  React.useEffect(() => {
-    if (!onEnsureNoteCardInfoLoaded) return
-    if (!loaded) return
-    for (const id of draftRefIds) {
-      const meta = allNotesById[id]
-      if (!meta) continue
-      try {
-        void Promise.resolve(onEnsureNoteCardInfoLoaded(meta)).catch(() => {})
-      } catch (_) {}
-    }
-  }, [allNotesById, draftRefIds, loaded, onEnsureNoteCardInfoLoaded])
-
-  // 反向引用来自后端关系查询（引用边）：仅可见会话请求，任何笔记保存/删除/恢复后重取（refRelationsEpoch）。
-  const [backlinkEdges, setBacklinkEdges] = React.useState<NoteRefRelationEdge[]>([])
-  React.useEffect(() => {
-    if (!visible || !noteId) return
-    let cancelled = false
-    void gateway.refs
-      .queryRelations(scope, noteId, 1, 'incoming')
-      .then(result => {
-        if (!cancelled) setBacklinkEdges(Array.isArray(result?.edges) ? result.edges : [])
-      })
-      .catch(() => {
-        if (!cancelled) setBacklinkEdges([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [gateway, noteId, refRelationsEpoch, scope, visible])
-
-  const allBacklinks = React.useMemo(() => {
-    if (!noteId) return []
-    return backlinksFromRelations(backlinkEdges, noteId)
-  }, [noteId, backlinkEdges])
-
-  const faceBacklinkGroups = React.useMemo(() => {
-    if (!noteId) return []
-    return faces
-      .map(faceId => ({
-        faceId,
-        label: `${resolveFaceLabel(faceId, faceManifests)}面引用`,
-        refs: faceBacklinksFromRelations(backlinkEdges, noteId, faceId),
-      }))
-      .filter(group => group.refs.length > 0)
-  }, [faces, faceManifests, noteId, backlinkEdges])
+  // 工具栏与设置接线：文件菜单、删除、收藏、版本历史与设置动作。
+  const {
+    moreMenuOpen,
+    moreMenuAnchorEl,
+    setMoreMenuAnchorEl,
+    closeMoreMenu,
+    deleteFaceMenuOpen,
+    deleteFaceMenuAnchorEl,
+    setDeleteFaceMenuAnchorEl,
+    requestOpenNoteDir,
+    requestOpenVersionHistory,
+    favoritesTargets,
+    openFavoritesPicker,
+    requestDeleteNote,
+    requestDeleteFace,
+    deleteNoteConfirmOpen,
+    setDeleteNoteConfirmOpen,
+    deleteFaceTarget,
+    setDeleteFaceTarget,
+    confirmDeleteNote,
+    confirmDeleteFace,
+    versionHistoryOpen,
+    setVersionHistoryOpen,
+    noteSettingsOpen,
+    setNoteSettingsOpen,
+    handleRestoreVersion,
+    updateFaceSettings,
+    handleCopyNoteRef,
+    copyFaceRef,
+  } = useNoteDetailToolbar({
+    gateway,
+    scope,
+    note,
+    noteId,
+    isDraft,
+    trashEnabled,
+    saving,
+    deleting,
+    setDeleting,
+    face,
+    faceManifests,
+    editTitle,
+    favoritesDoc,
+    onFavoriteSaved,
+    onRequestDeleteNote,
+    onSaved,
+    applyNoteManifest,
+    resetFaceViewState,
+    setEditing,
+    setAddFaceSelectorVisible,
+    setPendingAddFace,
+    faceStoresRef,
+    faceSavedContentsRef,
+    readNotePackage,
+    applyLoadedNote,
+  })
 
   const handleAddTag = React.useCallback(() => {
     setEditTags(prev => appendTag(prev, tagInput))
@@ -646,161 +564,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditing(prev => !prev)
   }, [loaded])
 
-  const handleDiscard = React.useCallback(() => {
-    if (saving || deleting) return
-    setEditTitle(baseFields.title)
-    setEditDescription(baseFields.description)
-    setEditTags(baseFields.tags.slice())
-    setEditResources(baseFields.resources.slice())
-    for (const [faceId, store] of Object.entries(faceStoresRef.current)) {
-      store.reset(faceSavedContentsRef.current[faceId] ?? '')
-    }
-    // 回退本会话新增（尚未落盘）的面：移除其内容存储、面清单与切换状态。
-    const savedIds = savedFaceIdsRef.current
-    for (const faceId of Object.keys(faceStoresRef.current)) {
-      if (!savedIds.has(faceId)) delete faceStoresRef.current[faceId]
-    }
-    setFaceManifests(prev => {
-      const next: Record<string, HyperCortexNoteFaceManifestV2> = {}
-      for (const [id, manifest] of Object.entries(prev)) {
-        if (savedIds.has(id)) next[id] = manifest
-      }
-      return next
-    })
-    const nextFaces = faces.filter(id => savedIds.has(id))
-    setFaces(nextFaces)
-    setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
-    setTagInput('')
-    setAddFaceSelectorVisible(false)
-    setPendingAddFace(null)
-    resetFaceViewState()
-    setEditing(false)
-  }, [baseFields, deleting, faces, resetFaceViewState, saving])
-
-  /** 会话迁移快照：草稿首次落盘换 id 时完整带走当前会话状态。 */
-  const buildSessionSnapshot = React.useCallback((input: {
-    baseFields: NoteBaseFields
-    manifest: HyperCortexNoteManifestV1
-    title: string
-    description: string
-    tags: string[]
-    updatedAtMs: number
-  }): NoteDetailSnapshotV1 => ({
-    baseFields: input.baseFields,
-    faceManifests: input.manifest.faces,
-    faceContents: Object.fromEntries(Object.entries(faceStoresRef.current).map(([id, store]) => [id, store.getContent()])),
-    savedFaceContents: { ...faceSavedContentsRef.current },
-    editing,
-    faceViewState,
-    face,
-    faces: resolveNoteFaceOrder({ faceOrder: input.manifest.faceOrder, faces: input.manifest.faces, globalKindOrder: globalFaceKindOrder }),
-    editTitle: input.title,
-    editDescription: input.description,
-    editTags: input.tags.slice(),
-    editResources,
-    tagInput,
-    noteTimes: { createdAtMs: noteTimes.createdAtMs, updatedAtMs: input.updatedAtMs },
-    infoSidebarVisible,
-  }), [editResources, editing, face, faceViewState, globalFaceKindOrder, infoSidebarVisible, noteTimes.createdAtMs, tagInput])
-
-  /** 统一保存管线：当前面（current）与所有面（all）共用同一提交、回收与快照逻辑，仅提交范围不同。 */
-  const saveSessionToDisk = React.useCallback(async (mode: 'current' | 'all'): Promise<boolean> => {
-    if (!noteId) return false
-    if (saving || deleting) return false
-    const rawTitle = String(editTitle || '').trim()
-    if (faces.length === 0 && !rawTitle) {
-      await gateway.host.toast('无面笔记至少需要一个标题')
-      return false
-    }
-    setSaving(true)
-    try {
-      const originalId = noteId
-      const title = rawTitle || '未命名'
-      const description = String(editDescription || '').trim()
-      const tags = editTags.map(normalizeTagText).filter(Boolean)
-      // 当前笔记的面清单（按界面顺序）：保存时确保这些面存在，即新笔记默认面的落盘点。
-      const faceKinds = faces.map(faceId => String(faceManifests[faceId]?.kind || '').trim()).filter(Boolean)
-      // 提交范围：当前面只取该面的内容存储；所有面按草稿规则（草稿首次落盘提交全部存在面，已保存笔记只提交有改动的面）。
-      const facePayloads: SaveNoteFaceContentInput[] = []
-      if (mode === 'current') {
-        const activeManifest = faceManifests[face]
-        const activeStore = faceStoresRef.current[face]
-        if (activeManifest && activeStore) {
-          facePayloads.push({ faceId: face, kind: activeManifest.kind, content: activeStore.getContent() })
-        }
-      } else {
-        for (const faceId of faces) {
-          const faceManifest = faceManifests[faceId]
-          const store = faceStoresRef.current[faceId]
-          if (!faceManifest || !store) continue
-          if (isDraft || store.isDirty()) {
-            facePayloads.push({ faceId, kind: faceManifest.kind, content: store.getContent() })
-          }
-        }
-      }
-
-      const result = await gateway.notes.saveNoteFaces(scope, {
-        id: isDraft ? undefined : originalId,
-        packageDir: isDraft ? undefined : note.dir,
-        title,
-        description,
-        tags,
-        createdAtMs: noteTimes.createdAtMs,
-        resources: editResources,
-        faceKinds,
-        faces: facePayloads,
-      })
-
-      for (const payload of facePayloads) {
-        const store = faceStoresRef.current[payload.faceId]
-        if (store) store.reset(payload.content)
-        faceSavedContentsRef.current[payload.faceId] = payload.content
-      }
-      applyNoteManifest(result.manifest)
-
-      const nextBaseFields: NoteBaseFields = { title, description, tags: tags.slice(), resources: editResources }
-      setBaseFields(nextBaseFields)
-      const nextUpdatedAtMs = result.meta.updatedAtMs
-      setNoteTimes(prev => ({ createdAtMs: prev.createdAtMs, updatedAtMs: nextUpdatedAtMs }))
-
-      const didMigrateId = isDraft && result.meta.id !== originalId
-      const snapshotForNewId: NoteDetailSnapshotV1 | undefined = didMigrateId
-        ? buildSessionSnapshot({ baseFields: nextBaseFields, manifest: result.manifest, title, description, tags, updatedAtMs: nextUpdatedAtMs })
-        : undefined
-
-      onSaved({ originalId, meta: result.meta, snapshotForNewId })
-      await gateway.host.toast(mode === 'current' ? '笔记已保存' : '笔记所有面已保存')
-      return true
-    } catch (e: any) {
-      await gateway.host.toast(String(e?.message || e || '保存失败'))
-      return false
-    } finally {
-      setSaving(false)
-    }
-  }, [applyNoteManifest, buildSessionSnapshot, deleting, editDescription, editResources, editTags, editTitle, face, faceManifests, faces, gateway, isDraft, note.dir, noteId, noteTimes, onSaved, saving, scope])
-
-  const handleSave = React.useCallback(async () => saveSessionToDisk('current'), [saveSessionToDisk])
-
-  const saveCurrentForVersionPublish = React.useCallback(async () => {
-    const saved = await handleSave()
-    if (!saved) throw new Error('保存当前笔记失败，已停止发布版本')
-  }, [handleSave])
-
-  // Q24：保存整个笔记所有面——与「保存当前面」共用同一保存管线，仅提交范围不同。
-  const handleSaveAllFaces = React.useCallback(async () => saveSessionToDisk('all'), [saveSessionToDisk])
-
-  const handleRestoreVersion = React.useCallback(async (versionId: string) => {
-    const dir = String(note.dir || '').trim()
-    if (!dir) throw new Error('请先保存笔记，再恢复版本')
-    const result = await gateway.notes.restoreNoteVersion(scope, dir, versionId)
-    // 恢复已落盘：经统一读取通道重建会话内容与基线，不再维护第二套装载逻辑。
-    const { manifest, stores, savedContents } = await readNotePackage(result.meta.dir)
-    applyLoadedNote(manifest, stores, savedContents)
-    setEditing(false)
-    resetFaceViewState()
-
-    onSaved({ originalId: noteId, meta: result.meta })
-  }, [applyLoadedNote, gateway, note.dir, noteId, onSaved, readNotePackage, resetFaceViewState, scope])
+  const faceViewContext: FaceViewContext = React.useMemo(() => ({
+    gateway,
+    scope,
+    noteIndexMap,
+    getNoteMeta: noteId => allNotesById[noteId],
+    onOpenNote,
+    onPlayingChange: stableOnPlayingChange,
+    uploadFiles: uploadPastedFiles,
+    onResourcesAdded: handleResourcesAdded,
+    settings: faceEffectiveSettings,
+    noteSettings: faceNoteSettings,
+    globalSettings: faceGlobalSettings,
+    updateSettings: String(note.dir || '').trim() ? updateFaceSettings : undefined,
+  }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, note.dir, noteIndexMap, onOpenNote, scope, stableOnPlayingChange, updateFaceSettings, uploadPastedFiles])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -829,19 +606,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       if (req && req.noteId === noteId) onFaceSwitchConsumed?.(req.seq)
     }
   }, [faceSwitchRequest, noteId, onFaceSwitchConsumed])
-
-  const handleCopyNoteRef = React.useCallback(() => {
-    void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, editTitle || note.title || ''))
-    void gateway.host.toast('已复制引用占位符')
-  }, [editTitle, gateway, note.title, noteId])
-
-  const copyFaceRef = React.useCallback((faceId: string) => {
-    const face = String(faceId || '').trim()
-    if (!face) return
-    const title = editTitle || note.title || ''
-    void gateway.clipboard.writeText(buildNotePlaceholderForCopy(noteId, title, face))
-    void gateway.host.toast('已复制此面引用占位符')
-  }, [editTitle, gateway, note.title, noteId])
 
   React.useImperativeHandle(ref, () => ({
     isDirty: () => dirty,
