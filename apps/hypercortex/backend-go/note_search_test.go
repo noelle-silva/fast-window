@@ -273,7 +273,7 @@ func TestRestoreTrashNoteRebuildsSearchIndex(t *testing.T) {
 	}
 
 	// 移入回收站：搜索索引应被清理
-	if _, err := svc.moveNoteToTrash(testRepoID(t, svc), mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel})); err != nil {
+	if _, err := svc.moveNoteToTrash(testRepoID(t, svc), mustJSONRaw(t, noteMeta{ID: noteID, Dir: rel}), nil); err != nil {
 		t.Fatal(err)
 	}
 	trashed, err := svc.queryNoteSearch(noteSearchQuery{Scope: testRepoID(t, svc), Query: "恢复关键词X"})

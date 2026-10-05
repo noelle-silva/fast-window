@@ -255,10 +255,15 @@ export type FavoritesService = {
 
 export type TrashService = {
   listTrashItems: (scope: VaultScope) => Promise<HyperCortexTrashItem[]>
-  moveNoteToTrash: (scope: VaultScope, note: NoteMeta) => Promise<{ trashDir: string }>
-  moveAssetToTrash: (scope: VaultScope, assetId: string, ext?: string) => Promise<{ trashDir: string }>
-  /** 收藏夹进回收站：提交完整快照（收藏夹信息 + 页面条目清单）。 */
-  moveFolderToTrash: (scope: VaultScope, snapshot: { folder: FavoriteFolder; refs: FavoriteItemRef[] }) => Promise<{ trashDir: string }>
+  /** 笔记进回收站：随本体一并打包已移除的收藏引用，写入该笔记的回收站元数据。 */
+  moveNoteToTrash: (scope: VaultScope, note: NoteMeta, refs?: FavoriteItemRef[]) => Promise<{ trashDir: string }>
+  /** 附件进回收站：随本体一并打包已移除的收藏引用。 */
+  moveAssetToTrash: (scope: VaultScope, assetId: string, ext?: string, refs?: FavoriteItemRef[]) => Promise<{ trashDir: string }>
+  /** 收藏夹进回收站：提交完整快照（收藏夹信息 + 页面条目清单 + 别处指向它的引用）。 */
+  moveFolderToTrash: (
+    scope: VaultScope,
+    snapshot: { folder: FavoriteFolder; refs: FavoriteItemRef[]; inboundRefs?: FavoriteItemRef[] },
+  ) => Promise<{ trashDir: string }>
   permanentlyDeleteNoteDir: (scope: VaultScope, noteId: string, dir: string) => Promise<void>
   permanentlyDeleteTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<void>
   restoreTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<{ meta?: NoteMeta; asset?: AssetEntry; favorites?: HyperCortexFavoritesDocV1 }>

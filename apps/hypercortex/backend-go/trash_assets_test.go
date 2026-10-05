@@ -31,7 +31,7 @@ func TestAssetTrashLifecycle(t *testing.T) {
 		t.Fatalf("save asset index failed: %v", err)
 	}
 
-	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext); err != nil {
+	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext, nil); err != nil {
 		t.Fatalf("move asset to trash failed: %v", err)
 	}
 	mustNotExist(t, filepath.Join(testRepoRoot(t, svc), filepath.FromSlash(relPath)))
@@ -80,7 +80,7 @@ func TestPermanentlyDeleteAssetTrashItem(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("save asset index failed: %v", err)
 	}
-	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext); err != nil {
+	if _, err := svc.moveAssetToTrash(testRepoID(t, svc), assetID, ext, nil); err != nil {
 		t.Fatalf("move asset to trash failed: %v", err)
 	}
 	items, err := svc.listTrash(testRepoID(t, svc))

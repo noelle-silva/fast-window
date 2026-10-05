@@ -128,7 +128,7 @@ func (svc *service) listAssetTrash(scope string, trashRoot string) ([]trashItem,
 	return out, nil
 }
 
-func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, error) {
+func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage, refsRaw json.RawMessage) (any, error) {
 	if err := repoScopeOrError(scope); err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 		return nil, err
 	}
 	deletedAt := nowMs()
-	_ = writeJSONFile(filepath.Join(to, trashMetaFile), trashMeta{Version: 1, Kind: "note", DeletedAtMs: deletedAt, OriginalDir: filepath.ToSlash(cleanFrom)})
+	_ = writeJSONFile(filepath.Join(to, trashMetaFile), trashMeta{Version: 1, Kind: "note", DeletedAtMs: deletedAt, OriginalDir: filepath.ToSlash(cleanFrom), Refs: parseTrashRefs(refsRaw)})
 	idx, _ := svc.loadNoteIndex(scope)
 	delete(idx.Notes, note.ID)
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
@@ -178,7 +178,7 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 	return map[string]string{"trashDir": toRel}, nil
 }
 
-func (svc *service) moveAssetToTrash(scope string, assetID string, ext string) (any, error) {
+func (svc *service) moveAssetToTrash(scope string, assetID string, ext string, refsRaw json.RawMessage) (any, error) {
 	if err := repoScopeOrError(scope); err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (svc *service) moveAssetToTrash(scope string, assetID string, ext string) (
 		return nil, err
 	}
 	deletedAt := nowMs()
-	if err := writeJSONFile(filepath.Join(trashEntryDir, trashMetaFile), trashMeta{Version: 1, Kind: "asset", DeletedAtMs: deletedAt, OriginalDir: filepath.ToSlash(rel), Asset: entry}); err != nil {
+	if err := writeJSONFile(filepath.Join(trashEntryDir, trashMetaFile), trashMeta{Version: 1, Kind: "asset", DeletedAtMs: deletedAt, OriginalDir: filepath.ToSlash(rel), Asset: entry, Refs: parseTrashRefs(refsRaw)}); err != nil {
 		_ = os.Rename(trashPath, from)
 		_ = os.RemoveAll(trashEntryDir)
 		return nil, err
@@ -320,6 +320,8 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	if err := os.Rename(from, to); err != nil {
 		return nil, err
 	}
+	trash := trashMeta{}
+	_ = readJSONFile(filepath.Join(to, trashMetaFile), &trash)
 	_ = os.Remove(filepath.Join(to, trashMetaFile))
 	manifest, err := svc.loadNoteManifest(scope, desired)
 	if err != nil {
@@ -334,7 +336,13 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	if _, err := svc.refreshDerivedIndexesForNote(scope, filepath.ToSlash(desired), manifest); err != nil {
 		return nil, err
 	}
-	return map[string]any{"meta": meta}, nil
+	result := map[string]any{"meta": meta}
+	if favorites, ok, err := svc.restoreRefsIntoFavorites(scope, trash.Refs); err != nil {
+		return nil, err
+	} else if ok {
+		result["favorites"] = favorites
+	}
+	return result, nil
 }
 
 func (svc *service) restoreAssetTrashItem(scope string, item trashItem) (any, error) {
@@ -390,7 +398,13 @@ func (svc *service) restoreAssetTrashItem(scope string, item trashItem) (any, er
 	if err := svc.saveAssetIndex(scope, idx); err != nil {
 		return nil, err
 	}
-	return map[string]any{"asset": assetPoolItemFromMetadata(idx.Assets[key])}, nil
+	result := map[string]any{"asset": assetPoolItemFromMetadata(idx.Assets[key])}
+	if favorites, ok, err := svc.restoreRefsIntoFavorites(scope, meta.Refs); err != nil {
+		return nil, err
+	} else if ok {
+		result["favorites"] = favorites
+	}
+	return result, nil
 }
 
 func (svc *service) permanentlyDeleteTrashItem(scope string, raw json.RawMessage) error {
@@ -465,4 +479,17 @@ func (svc *service) maybeAutoCleanupTrash(scope string, days float64) (any, erro
 		}
 	}
 	return map[string]int{"deletedCount": deleted}, nil
+}
+
+// parseTrashRefs 解析随本体一并打包的收藏引用清单；空载荷或非法载荷返回空清单。
+func parseTrashRefs(raw json.RawMessage) []favoriteItemRef {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	var refs []favoriteItemRef
+	if err := json.Unmarshal(raw, &refs); err != nil {
+		return nil
+	}
+	return refs
 }

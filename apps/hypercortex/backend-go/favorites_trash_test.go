@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// 收藏夹回收站全生命周期：快照进站、与其它条目同列、恢复时把收藏夹信息与页面条目清单原样放回；
-// 别处指向它的引用在删除期间保留，恢复后复活。
+// 收藏夹回收站全生命周期：快照进站、与其它条目同列、恢复时把收藏夹信息、页面条目清单
+// 与别处指向它的引用一并原样放回；删除期间这些引用随本体移除并打包。
 func TestFolderTrashLifecycle(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
@@ -42,6 +42,14 @@ func TestFolderTrashLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := trashFolderMeta{Folder: doc.Folders[folderA], Refs: doc.RefsByFolderID[folderA]}
+	for _, ref := range doc.RefsByFolderID[folderB] {
+		if ref.Kind == "folder" && ref.TargetID == folderA {
+			snapshot.InboundRefs = append(snapshot.InboundRefs, ref)
+		}
+	}
+	if len(snapshot.InboundRefs) != 1 {
+		t.Fatalf("inbound refs = %#v", snapshot.InboundRefs)
+	}
 	if _, err := svc.moveFolderToTrash(scope, mustJSONRaw(t, snapshot)); err != nil {
 		t.Fatalf("move folder to trash failed: %v", err)
 	}
@@ -54,9 +62,17 @@ func TestFolderTrashLifecycle(t *testing.T) {
 		t.Fatalf("unexpected trash items: %+v", items)
 	}
 
-	// 模拟界面侧删除：移除收藏夹本体与其页面条目清单，别处指向它的引用保留。
+	// 模拟界面侧「删除引用与本体」：移除收藏夹本体、页面条目清单，以及别处指向它的引用。
 	delete(doc.Folders, folderA)
 	delete(doc.RefsByFolderID, folderA)
+	keptB := []favoriteItemRef{}
+	for _, ref := range doc.RefsByFolderID[folderB] {
+		if ref.Kind == "folder" && ref.TargetID == folderA {
+			continue
+		}
+		keptB = append(keptB, ref)
+	}
+	doc.RefsByFolderID[folderB] = keptB
 	if _, err := svc.saveFavoritesDoc(scope, doc); err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +83,10 @@ func TestFolderTrashLifecycle(t *testing.T) {
 	if _, ok := afterDelete.Folders[folderA]; ok {
 		t.Fatalf("folder A should be gone after delete")
 	}
-	kept := false
 	for _, ref := range afterDelete.RefsByFolderID[folderB] {
 		if ref.Kind == "folder" && ref.TargetID == folderA {
-			kept = true
+			t.Fatalf("ref from B to A should be removed with the entity: %+v", afterDelete.RefsByFolderID[folderB])
 		}
-	}
-	if !kept {
-		t.Fatalf("ref from B to A should stay while A is trashed: %+v", afterDelete.RefsByFolderID[folderB])
 	}
 
 	result, err := svc.restoreTrashItem(scope, mustJSONRaw(t, items[0]))
@@ -97,13 +109,13 @@ func TestFolderTrashLifecycle(t *testing.T) {
 	if len(refs) != 1 || refs[0].Kind != "note" || refs[0].TargetID != noteID || refs[0].ID != snapshot.Refs[0].ID {
 		t.Fatalf("restored refs = %#v", refs)
 	}
-	kept = false
+	revived := false
 	for _, ref := range restored.RefsByFolderID[folderB] {
 		if ref.Kind == "folder" && ref.TargetID == folderA {
-			kept = true
+			revived = true
 		}
 	}
-	if !kept {
+	if !revived {
 		t.Fatalf("ref from B to A should revive after restore: %+v", restored.RefsByFolderID[folderB])
 	}
 

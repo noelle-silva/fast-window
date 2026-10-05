@@ -175,6 +175,7 @@ func (svc *service) restoreFolderTrashItem(scope string, item trashItem) (any, e
 		doc.RefsByFolderID = map[string][]favoriteItemRef{}
 	}
 	doc.RefsByFolderID[id] = refs
+	applyRefsToFavorites(&doc, snapshot.InboundRefs)
 	if _, err := svc.saveFavoritesDoc(scope, doc); err != nil {
 		return nil, err
 	}
@@ -182,4 +183,64 @@ func (svc *service) restoreFolderTrashItem(scope string, item trashItem) (any, e
 		return nil, err
 	}
 	return map[string]any{"favorites": doc}, nil
+}
+
+// applyRefsToFavorites 把随本体一并打包的引用原样写回其所在收藏夹：目标收藏夹已不存在或已有同源引用时跳过该条。
+// 引用标识、摆放位置与时间戳原样保留，保证恢复后引用重新生效且位置不变。返回文档是否发生变化。
+func applyRefsToFavorites(doc *favoritesDoc, refs []favoriteItemRef) bool {
+	if len(refs) == 0 {
+		return false
+	}
+	if doc.RefsByFolderID == nil {
+		doc.RefsByFolderID = map[string][]favoriteItemRef{}
+	}
+	now := nowMs()
+	changed := false
+	for _, ref := range refs {
+		folderID := strings.TrimSpace(ref.FolderID)
+		kind := normalizeFavoriteRefKind(ref.Kind)
+		targetID := strings.TrimSpace(ref.TargetID)
+		if folderID == "" || kind == "" || targetID == "" {
+			continue
+		}
+		if _, ok := doc.Folders[folderID]; !ok {
+			continue
+		}
+		if favoriteFolderHasRef(*doc, folderID, kind, targetID) {
+			continue
+		}
+		if strings.TrimSpace(ref.ID) == "" {
+			ref.ID = stableFavoriteRefID(folderID, kind, targetID)
+		}
+		ref.FolderID = folderID
+		ref.Kind = kind
+		ref.TargetID = targetID
+		ref.CreatedAtMs = positiveTimestamp(ref.CreatedAtMs, now)
+		ref.UpdatedAtMs = positiveTimestamp(ref.UpdatedAtMs, ref.CreatedAtMs)
+		doc.RefsByFolderID[folderID] = append(doc.RefsByFolderID[folderID], ref)
+		touchFavoriteFolder(doc, folderID, now)
+		changed = true
+	}
+	return changed
+}
+
+// restoreRefsIntoFavorites 读取收藏夹文档并把随本体打包的引用写回；没有可写回的引用时返回 ok=false。
+func (svc *service) restoreRefsIntoFavorites(scope string, refs []favoriteItemRef) (favoritesDoc, bool, error) {
+	if len(refs) == 0 {
+		return favoritesDoc{}, false, nil
+	}
+	doc, _, err := svc.tryLoadFavorites(scope)
+	if err != nil {
+		return favoritesDoc{}, false, err
+	}
+	if doc.Version != 1 {
+		doc = freshFavoritesDoc(nowMs())
+	}
+	if !applyRefsToFavorites(&doc, refs) {
+		return favoritesDoc{}, false, nil
+	}
+	if _, err := svc.saveFavoritesDoc(scope, doc); err != nil {
+		return favoritesDoc{}, false, err
+	}
+	return doc, true, nil
 }

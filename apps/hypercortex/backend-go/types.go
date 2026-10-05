@@ -264,9 +264,11 @@ type trashFaceMeta struct {
 }
 
 // trashFolderMeta 是收藏夹回收站条目的完整快照：收藏夹信息与其页面条目清单。
+// InboundRefs 记录别处指向该收藏夹、随本体一并移除的引用（所在收藏夹与摆放位置），恢复时原样放回。
 type trashFolderMeta struct {
-	Folder favoriteFolder    `json:"folder"`
-	Refs   []favoriteItemRef `json:"refs"`
+	Folder      favoriteFolder    `json:"folder"`
+	Refs        []favoriteItemRef `json:"refs"`
+	InboundRefs []favoriteItemRef `json:"inboundRefs,omitempty"`
 }
 
 type trashMeta struct {
@@ -277,4 +279,6 @@ type trashMeta struct {
 	Asset       assetIndexEntry  `json:"asset,omitempty"`
 	Face        *trashFaceMeta   `json:"face,omitempty"`
 	Folder      *trashFolderMeta `json:"folder,omitempty"`
+	// Refs 记录随本体一并移除的收藏引用（所在收藏夹与摆放位置），恢复时原样放回。
+	Refs []favoriteItemRef `json:"refs,omitempty"`
 }
