@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Typography } from '@mui/material'
 import { type HyperCortexIndexV1, type HyperCortexRepoStateV1, type HyperCortexWorkspaceV1, type NoteMeta } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import { isDraftNoteId } from '../drafts'
@@ -8,12 +7,11 @@ import { orderKindsByGlobalOrder } from '../facePreferences'
 import { noteIdFromTabKey, noteTabKey, tabKind, type TabKey } from '../tabKey'
 import { assetTabId, type AssetEntry } from '../assetTypes'
 import type { DraftIdentity } from './draftIdentity'
-import type { NoteCardInfo } from './noteCardInfo'
-import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
-import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
-import type { NoteDetailSessionHandle, NoteDetailSnapshotV1 } from './NoteDetailSession'
+import type { NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { closeTabsInSidebar, deriveSidebarFields, insertTabAsUngrouped, type SidebarItem } from './sidebarModel'
 import { buildNoteInitSnapshot, filterOpenNoteIdsForClose } from './useDraftOrchestration'
+import { useNoteCardMenus } from './useNoteCardMenus'
+import { useNoteSessionHandles } from './useNoteSessionHandles'
 import type { PageId } from './workspacePages'
 
 // 笔记会话现场：会话句柄注册与脏/保存状态、引用关系版本、全部笔记映射与卡片信息缓存（加载刷新预取）、
@@ -97,72 +95,17 @@ export function useNoteSessions(params: Params) {
     persistRepoStatePatch,
   } = params
 
-  const [noteCardMenu, setNoteCardMenu] = React.useState<{ anchorEl: HTMLElement; note: NoteMeta } | null>(null)
-  const openNoteCardMenu = React.useCallback((e: React.MouseEvent, note: NoteMeta) => {
-    e.stopPropagation()
-    setNoteCardMenu({ anchorEl: e.currentTarget as HTMLElement, note })
-  }, [])
-  const closeNoteCardMenu = React.useCallback(() => setNoteCardMenu(null), [])
-
-  const [noteCardDeleteTarget, setNoteCardDeleteTarget] = React.useState<NoteMeta | null>(null)
-
-  const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
-  const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
-  const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
-
-  const [noteDirtyById, setNoteDirtyById] = React.useState<Record<string, boolean>>({})
-  const handleNoteDirtyChange = React.useCallback((payload: { noteId: string; dirty: boolean }) => {
-    const nid = String(payload?.noteId || '').trim()
-    if (!nid) return
-    const nextDirty = payload?.dirty === true
-    setNoteDirtyById(prev => {
-      const had = Object.prototype.hasOwnProperty.call(prev, nid)
-      const prevValue = had ? prev[nid] === true : false
-      if (had && prevValue === nextDirty) return prev
-      return { ...prev, [nid]: nextDirty }
-    })
-  }, [])
-
-  const noteSessionRefCallbacksRef = React.useRef<Record<string, (handle: NoteDetailSessionHandle | null) => void>>({})
-  const setNoteSessionHandle = React.useCallback((noteId: string, handle: NoteDetailSessionHandle | null) => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return
-    if (!handle) {
-      delete noteSessionHandlesRef.current[nid]
-      setNoteDirtyById(prev => {
-        if (!Object.prototype.hasOwnProperty.call(prev, nid)) return prev
-        const next = { ...prev }
-        delete next[nid]
-        return next
-      })
-      return
-    }
-    noteSessionHandlesRef.current[nid] = handle
-  }, [])
-
-  const getNoteSessionRefCallback = React.useCallback((noteId: string) => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return undefined
-    if (!noteSessionRefCallbacksRef.current[nid]) {
-      noteSessionRefCallbacksRef.current[nid] = (handle: NoteDetailSessionHandle | null) => {
-        setNoteSessionHandle(nid, handle)
-      }
-    }
-    return noteSessionRefCallbacksRef.current[nid]
-  }, [setNoteSessionHandle])
-
-  const isNoteDirtyById = React.useCallback((noteId: string): boolean => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return false
-    if (Object.prototype.hasOwnProperty.call(noteDirtyById, nid)) return noteDirtyById[nid] === true
-    return noteSessionHandlesRef.current[nid]?.isDirty?.() === true
-  }, [noteDirtyById])
-
-  const isNoteSavingById = React.useCallback((noteId: string): boolean => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return false
-    return noteSessionHandlesRef.current[nid]?.isSaving?.() === true
-  }, [])
+  const {
+    noteSessionHandlesRef,
+    handleNoteDirtyChange,
+    getNoteSessionRefCallback,
+    isNoteDirtyById,
+    isNoteSavingById,
+    noteCardInfoById,
+    refreshNoteCardInfo,
+    ensureNoteCardInfoLoaded,
+    noteIndexMap,
+  } = useNoteSessionHandles({ visible, visiblePage, gateway, faceKindOrder, allNotes })
 
   // ---- 引用关系版本号：任何笔记保存/删除/恢复后自增，打开的会话据此重取反向引用。
   const [refRelationsEpoch, setRefRelationsEpoch] = React.useState(0)
@@ -183,69 +126,6 @@ export function useNoteSessions(params: Params) {
   const handleFaceSwitchConsumed = React.useCallback((seq: number) => {
     setFaceSwitchRequest(prev => (prev && prev.seq === seq ? null : prev))
   }, [])
-
-  // ---- 全部笔记：卡片摘要（tags / faces）
-  const [noteCardInfoById, setNoteCardInfoById] = React.useState<Record<string, NoteCardInfo>>({})
-  const noteCardInfoByIdRef = React.useRef<Record<string, NoteCardInfo>>({})
-  React.useEffect(() => {
-    noteCardInfoByIdRef.current = noteCardInfoById
-  }, [noteCardInfoById])
-
-  const upsertNoteCardInfo = React.useCallback((noteId: string, nextInfo: NoteCardInfo) => {
-    const nid = String(noteId || '').trim()
-    if (!nid) return
-    setNoteCardInfoById(prev => {
-      const existed = prev[nid]
-      if (
-        existed &&
-        existed.faceLabels.join('\n') === nextInfo.faceLabels.join('\n') &&
-        existed.faceIds.join('\n') === nextInfo.faceIds.join('\n') &&
-        existed.tags.join('\n') === nextInfo.tags.join('\n')
-      ) return prev
-      return { ...prev, [nid]: nextInfo }
-    })
-  }, [])
-
-  const refreshNoteCardInfo = React.useCallback(
-    async (meta: NoteMeta) => {
-      const nid = String(meta?.id || '').trim()
-      if (!nid) return
-      const info = await loadNoteCardInfo(gateway.notes, 'library', meta, faceKindOrder).catch(() => null)
-      if (!info) return
-      upsertNoteCardInfo(nid, info)
-    },
-    [faceKindOrder, gateway, upsertNoteCardInfo],
-  )
-
-  const ensureNoteCardInfoLoaded = React.useCallback(
-    async (meta: NoteMeta) => {
-      const nid = String(meta?.id || '').trim()
-      if (!nid) return
-      if (noteCardInfoByIdRef.current[nid]) return
-      await refreshNoteCardInfo(meta)
-    },
-    [refreshNoteCardInfo],
-  )
-
-  React.useEffect(() => {
-    if (!visible) return
-    if (visiblePage !== 'all-notes') return
-    const ctl = startPrefetchNoteCardInfo({
-      notes: allNotes,
-      getInfoById: id => noteCardInfoByIdRef.current[id],
-      refresh: ensureNoteCardInfoLoaded,
-      maxWorkers: 6,
-    })
-    return () => ctl.cancel()
-  }, [allNotes, ensureNoteCardInfoLoaded, visible, visiblePage])
-
-  const noteIndexMap = React.useMemo(() => {
-    const map: Record<string, { title: string; faceIds: string[] }> = {}
-    for (const n of allNotes) {
-      map[n.id] = { title: n.title, faceIds: noteCardInfoById[n.id]?.faceIds || [] }
-    }
-    return map
-  }, [allNotes, noteCardInfoById])
 
   const handleDeleteNote = React.useCallback(
     async (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => {
@@ -284,47 +164,6 @@ export function useNoteSessions(params: Params) {
     },
     [bumpRefRelationsEpoch, gateway],
   )
-
-  const confirmDeleteNoteFromCard = React.useCallback(async () => {
-    const target = noteCardDeleteTarget
-    if (!target) return
-    closeNoteCardMenu()
-    const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
-    try {
-      await handleDeleteNote({ note: target, mode })
-      setNoteCardDeleteTarget(null)
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '删除失败'))
-    }
-  }, [closeNoteCardMenu, gateway.host, handleDeleteNote, noteCardDeleteTarget, trashEnabled])
-
-  const requestCopyTitleFromCardMenu = React.useCallback(async () => {
-    const note = noteCardMenu?.note
-    if (!note) return
-    closeNoteCardMenu()
-    const title = String(note.title || '').trim() || '未命名'
-    try {
-      await gateway.clipboard.writeText(title)
-      void gateway.host.toast('已复制标题')
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '复制失败'))
-    }
-  }, [gateway, closeNoteCardMenu, noteCardMenu])
-
-  const requestOpenDirFromCardMenu = React.useCallback(async () => {
-    const note = noteCardMenu?.note
-    if (!note) return
-    closeNoteCardMenu()
-    if (isDraftNoteId(note.id) || !String(note.dir || '').trim()) {
-      void gateway.host.toast('草稿暂无所在目录（请先保存）')
-      return
-    }
-    try {
-      await gateway.host.openVaultDir('library', note.dir)
-    } catch (e: any) {
-      void gateway.host.toast(String(e?.message || e || '打开目录失败'))
-    }
-  }, [gateway, closeNoteCardMenu, noteCardMenu])
 
   const handleTrashRestored = React.useCallback(
     (meta: NoteMeta, kind: 'note' | 'asset' | 'face' = 'note') => {
@@ -546,21 +385,31 @@ export function useNoteSessions(params: Params) {
     [closeTabKeysDirect],
   )
 
-  const requestCloseTab = React.useCallback(
-    (noteId: string) => {
-      const nid = String(noteId || '').trim()
-      if (!nid) return
-      if (isNoteDirtyById(nid)) return setCloseTabPrompt({ noteId: nid })
-      handleCloseTabs([nid])
-    },
-    [handleCloseTabs, isNoteDirtyById],
-  )
-
-  const handleCloseTab = React.useCallback((noteId: string) => requestCloseTab(noteId), [requestCloseTab])
-
-  React.useEffect(() => {
-    requestCloseTabRef.current = requestCloseTab
-  }, [requestCloseTab])
+  const {
+    openNoteCardMenu,
+    noteCardMenuNode,
+    noteCardDeleteDialog,
+    requestCloseTabRef,
+    handleCloseTab,
+    closeTabPromptDialog,
+    setCloseTabPrompt,
+  } = useNoteCardMenus({
+    visible,
+    gateway,
+    trashEnabled,
+    allNotes,
+    openNoteTabs,
+    noteSessionHandlesRef,
+    isNoteDirtyById,
+    isNoteSavingById,
+    handleDeleteNote,
+    handleCloseTabs,
+    setDetailSelectionSource,
+    setActiveNoteId,
+    setActiveTabKey,
+    commitActiveWorkspacePatch,
+    navigatePage,
+  })
 
   const handleNoteSessionSaved = React.useCallback((payload: {
     originalId: string
@@ -598,115 +447,7 @@ export function useNoteSessions(params: Params) {
     bumpRefRelationsEpoch()
 
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
-  }, [activeNoteId, bumpRefRelationsEpoch, draftIdentity, refreshNoteCardInfo])
-
-  const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
-
-  const closeTabPromptTitle = React.useMemo(() => {
-    const nid = String(closeTabPrompt?.noteId || '').trim()
-    if (!nid) return '未命名'
-    const meta = openNoteTabs.find(t => t.id === nid) || allNotes.find(n => n.id === nid)
-    return meta?.title || nid.slice(0, 12) + '…'
-  }, [allNotes, closeTabPrompt?.noteId, openNoteTabs])
-
-  const handleCloseTabPromptCancel = React.useCallback(() => setCloseTabPrompt(null), [])
-
-  const handleCloseTabPromptGoSave = React.useCallback(() => {
-    const nid = String(closeTabPrompt?.noteId || '').trim()
-    if (!nid) return
-    setCloseTabPrompt(null)
-    setDetailSelectionSource('tabs')
-    setActiveNoteId(nid)
-    setActiveTabKey(noteTabKey(nid))
-    commitActiveWorkspacePatch({ activeTabKey: noteTabKey(nid) })
-    navigatePage('note-detail')
-    noteSessionHandlesRef.current[nid]?.enterEditMode?.()
-  }, [closeTabPrompt?.noteId, commitActiveWorkspacePatch, navigatePage])
-
-  const handleCloseTabPromptDiscardAndClose = React.useCallback(() => {
-    const nid = String(closeTabPrompt?.noteId || '').trim()
-    if (!nid) return
-    setCloseTabPrompt(null)
-    noteSessionHandlesRef.current[nid]?.discardChanges?.()
-    handleCloseTabs([nid])
-  }, [closeTabPrompt?.noteId, handleCloseTabs])
-
-  const noteCardMenuNode = (
-    <Menu
-      open={visible && !!noteCardMenu}
-      onClose={closeNoteCardMenu}
-      anchorEl={noteCardMenu?.anchorEl}
-      PaperProps={{ sx: menuPaperSx }}
-    >
-      <MenuItem onClick={() => void requestCopyTitleFromCardMenu()}>
-        复制标题
-      </MenuItem>
-      <MenuItem
-        onClick={() => void requestOpenDirFromCardMenu()}
-        disabled={!noteCardMenu?.note || isDraftNoteId(noteCardMenu.note.id) || !String(noteCardMenu.note.dir || '').trim()}
-      >
-        打开所在目录
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          const target = noteCardMenu?.note
-          if (!target) return
-          setNoteCardDeleteTarget(target)
-          closeNoteCardMenu()
-        }}
-        sx={menuDangerItemSx}
-      >
-        删除此笔记…
-      </MenuItem>
-    </Menu>
-  )
-
-  const noteCardDeleteDialog = (
-    <Dialog open={visible && !!noteCardDeleteTarget} onClose={() => setNoteCardDeleteTarget(null)} maxWidth="xs" fullWidth>
-      <DialogTitle>
-        {noteCardDeleteTarget && isDraftNoteId(noteCardDeleteTarget.id)
-          ? '删除草稿'
-          : trashEnabled
-            ? '移入回收站'
-            : '永久删除'}
-      </DialogTitle>
-      <DialogContent>
-        <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-          {noteCardDeleteTarget && isDraftNoteId(noteCardDeleteTarget.id)
-            ? `确定删除草稿「${noteCardDeleteTarget.title || '未命名'}」吗？这会丢弃当前内容。`
-            : trashEnabled
-              ? `确定将笔记「${noteCardDeleteTarget?.title || '未命名'}」移入回收站吗？`
-              : `回收站当前未启用。确定永久删除笔记「${noteCardDeleteTarget?.title || '未命名'}」吗？此操作不可撤销。`}
-        </Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setNoteCardDeleteTarget(null)}>取消</Button>
-        <Button variant="contained" color="error" onClick={() => void confirmDeleteNoteFromCard()}>
-          {noteCardDeleteTarget && isDraftNoteId(noteCardDeleteTarget.id)
-            ? '删除'
-            : trashEnabled
-              ? '移入回收站'
-              : '永久删除'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-
-  const closeTabPromptDialog = (
-    <Dialog open={visible && !!closeTabPrompt} onClose={handleCloseTabPromptCancel} maxWidth="xs" fullWidth>
-      <DialogTitle>未保存改动</DialogTitle>
-      <DialogContent>
-        <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-          笔记「{closeTabPromptTitle}」还有未保存的改动。关闭标签页会丢失这些改动，请先保存或放弃改动。
-        </Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleCloseTabPromptCancel}>取消</Button>
-        <Button variant="text" onClick={handleCloseTabPromptGoSave} sx={softButtonSx}>去保存</Button>
-        <Button variant="contained" color="error" onClick={handleCloseTabPromptDiscardAndClose} disabled={closeTabPromptTargetSaving}>放弃改动并关闭</Button>
-      </DialogActions>
-    </Dialog>
-  )
+  }, [activeNoteId, bumpRefRelationsEpoch, draftIdentity, refreshNoteCardInfo, setCloseTabPrompt])
 
   return {
     noteSessionHandlesRef,

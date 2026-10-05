@@ -7,42 +7,31 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  Menu,
-  MenuItem,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
-import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
-import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
 import type { HyperCortexSidebarSortModeV1, HyperCortexTabGroupV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
-import { assetRefKey, assetTabId } from '../assetTypes'
-import { SIDEBAR_PREVIEW_ENTRY_ATTR } from './sidebar-preview/previewTarget'
-import { pickAssetDisplayName } from '../assetDisplayName'
-import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
+import { assetTabId } from '../assetTypes'
+import { noteTabKey } from '../tabKey'
 import type { SidebarItem } from './sidebarModel'
-import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
-import { SortableDropSlot, SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
+import { SortableItem, SortableRoot, SortableSection } from './SortableDnd'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
-import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
+import { parseSortableId, sortableGroupId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
-import { menuPaperSx } from './pluginUiStyles'
-import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { useScrollMemory } from './scrollMemory'
-import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { useWorkspaceVisible } from './workspaceVisibility'
+import { SortableInsertionSlot, TopLevelDropSlot, useOpenTabsPanelRows } from './OpenTabsPanelRows'
+import { useOpenTabsPanelGroupSection } from './OpenTabsPanelGroupSection'
+import { OpenTabsPanelGroupContextMenu, OpenTabsPanelWorkspaceMenu, type OpenTabsPanelGroupMenuState } from './OpenTabsPanelMenus'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -57,133 +46,6 @@ function scrollActiveTabIntoView(container: HTMLElement, row: HTMLElement) {
     return
   }
   if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
-}
-
-function DndInsertCursor(props: { pos: 'before' | 'after'; color?: string }) {
-  const { pos, color } = props
-  const top = pos === 'before' ? 0 : 'auto'
-  const bottom = pos === 'after' ? 0 : 'auto'
-  return (
-    <Box
-      aria-hidden
-      sx={{
-        position: 'absolute',
-        left: 10,
-        right: 8,
-        top,
-        bottom,
-        height: 2,
-        borderRadius: 999,
-        bgcolor: color || 'var(--hc-primary)',
-        boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
-        pointerEvents: 'none',
-      }}
-    />
-  )
-}
-
-function TopLevelDropSlot(props: { index: number; active: boolean }) {
-  const { index, active } = props
-  return (
-    <Box
-      data-hc-dnd-top-slot-index={index}
-      aria-hidden
-      sx={{
-        position: 'relative',
-        height: 3,
-        mx: 0.5,
-        borderRadius: 999,
-        bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
-        transition: 'background-color 120ms ease',
-        '&::before': active
-          ? {
-              content: '""',
-              position: 'absolute',
-              left: 8,
-              right: 8,
-              top: 0.5,
-              height: 2,
-              borderRadius: 999,
-              bgcolor: 'var(--hc-primary)',
-              boxShadow: '0 0 0 2px var(--hc-surface)',
-            }
-          : undefined,
-      }}
-    />
-  )
-}
-
-function GroupDropSlot(props: { groupId: string; index: number; active: boolean; showTitle: boolean }) {
-  const { groupId, index, active, showTitle } = props
-  return (
-    <Box
-      data-hc-dnd-group-slot-id={groupId}
-      data-hc-dnd-group-slot-index={index}
-      aria-hidden
-      sx={{
-        position: 'relative',
-        height: 3,
-        ml: showTitle ? 1.5 : 1,
-        mr: 0.5,
-        borderRadius: 999,
-        bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
-        transition: 'background-color 120ms ease',
-        '&::before': active
-          ? {
-              content: '""',
-              position: 'absolute',
-              left: 8,
-              right: 8,
-              top: 0.5,
-              height: 2,
-              borderRadius: 999,
-              bgcolor: 'var(--hc-primary)',
-              boxShadow: '0 0 0 2px var(--hc-surface)',
-            }
-          : undefined,
-      }}
-    />
-  )
-}
-
-function SortableInsertionSlot(props: { id: string; enabled: boolean; indent?: boolean; showTitle: boolean }) {
-  const { id, enabled, indent = false, showTitle } = props
-  return (
-    <SortableDropSlot id={id} disabled={!enabled}>
-      {slot => {
-        const active = enabled && slot.isOver
-        return (
-          <Box
-            ref={slot.setNodeRef}
-            aria-hidden
-            sx={{
-              position: 'relative',
-              height: active ? 12 : 4,
-              ml: indent ? (showTitle ? 1.5 : 1) : 0.5,
-              mr: 0.5,
-              borderRadius: 999,
-              bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
-              transition: 'background-color 120ms ease, height 120ms ease',
-              '&::before': active
-                ? {
-                    content: '""',
-                    position: 'absolute',
-                    left: 8,
-                    right: 8,
-                    top: '50%',
-                    height: 2,
-                    borderRadius: 999,
-                    bgcolor: 'var(--hc-primary)',
-                    boxShadow: '0 0 0 2px var(--hc-surface)',
-                    transform: 'translateY(-50%)',
-                  }
-                : undefined,
-            }}
-          />
-        )
-      }}
-    </SortableDropSlot>
-  )
 }
 
 export type OpenTabsPanelProps = {
@@ -234,47 +96,6 @@ export type OpenTabsPanelProps = {
   onMoveTabToUngroupedIndex: (tabKey: string, index: number) => void
   onMoveTabToGroupIndex: (tabKey: string, groupId: string, index: number) => void
   onMoveGroupToIndex: (groupId: string, index: number) => void
-}
-
-type GroupMenuState = { mouseX: number; mouseY: number; groupId: string } | null
-
-function getSortableTabRowProps(args?: SortableItemRenderArgs, label?: string, activeRef?: React.MutableRefObject<HTMLElement | null>) {
-  if (!args) return {}
-  return {
-    ref: (node: HTMLElement | null) => {
-      if (activeRef) activeRef.current = node
-      args.setNodeRef(node)
-      args.setHandleRef(node)
-    },
-    'aria-label': label,
-    ...args.handleProps,
-  }
-}
-
-function getSortableRowHandleProps(args?: SortableItemRenderArgs, label?: string) {
-  if (!args) return {}
-  return {
-    ref: args.setHandleRef as any,
-    'aria-label': label,
-    ...args.handleProps,
-  }
-}
-
-function SortableIconSlot(props: { children: React.ReactNode }) {
-  const { children } = props
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flex: '0 0 auto',
-      }}
-    >
-      {children}
-    </Box>
-  )
 }
 
 export function OpenTabsPanel(props: OpenTabsPanelProps) {
@@ -362,7 +183,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onMoveGroupToIndex,
   })
 
-  const [groupMenu, setGroupMenu] = React.useState<GroupMenuState>(null)
+  const [groupMenu, setGroupMenu] = React.useState<OpenTabsPanelGroupMenuState>(null)
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
   const [workspaceMenuAnchorEl, setWorkspaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [workspaceEditor, setWorkspaceEditor] = React.useState<{ mode: 'create' | 'rename'; title: string } | null>(null)
@@ -406,443 +227,25 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     [groupById],
   )
 
-  // 分组右键菜单：颜色网格作为自定义区段，其余为普通动作。菜单打开时按当前分组即时构建。
-  const buildGroupMenuItems = React.useCallback((): ContextMenuItem[] => {
-    const gid = groupMenu?.groupId
-    return [
-      {
-        id: 'rename',
-        label: '改名…',
-        onSelect: () => {
-          if (gid) requestRename(gid)
-        },
-      },
-      {
-        id: 'colors',
-        render: () => (
-          <Box sx={{ px: 1.25, py: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 20px)', gap: 0.75, alignItems: 'center' }}>
-            {TAB_GROUP_PRESET_COLORS.map(c => (
-              <Box
-                key={c}
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  if (gid) onSetGroupColor(gid, c)
-                }}
-                onKeyDown={e => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return
-                  e.preventDefault()
-                  if (gid) onSetGroupColor(gid, c)
-                }}
-                sx={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 2,
-                  bgcolor: c,
-                  cursor: 'pointer',
-                  boxShadow: '0 6px 14px rgba(15,23,42,.12)',
-                  transition: 'transform 120ms ease, filter 120ms ease',
-                  '&:hover': { transform: 'translateY(-1px) scale(1.06)', filter: 'brightness(1.06)' },
-                }}
-              />
-            ))}
-          </Box>
-        ),
-      },
-      {
-        id: 'delete-only',
-        label: '仅删除分组标签',
-        onSelect: () => {
-          if (gid) onDeleteGroupOnly(gid)
-        },
-      },
-      {
-        id: 'delete-and-close',
-        label: '删除分组并关闭全部标签页',
-        danger: true,
-        onSelect: () => {
-          if (!gid) return
-          if (!window.confirm('确定删除这个分组，并关闭它下面的所有标签页吗？')) return
-          onDeleteGroupAndCloseTabs(gid)
-        },
-      },
-    ]
-  }, [groupMenu?.groupId, onDeleteGroupAndCloseTabs, onDeleteGroupOnly, onSetGroupColor, requestRename])
-
-  const renderNoteMetaRow = React.useCallback(
-    (tabKey: string, tab: NoteMeta, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
-      const title = tab.title || '未命名'
-      const dirty = !!isNoteDirty?.(tab.id)
-      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
-      const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
-      const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
-      const disableTitleTooltip = tabsMode === 'hover'
-      const isPlaying = !!playingTabKeys?.has(tabKey)
-      return (
-        <Tooltip
-          key={tabKey}
-          title={!showTitle && !disableTitleTooltip ? title : ''}
-          placement="right"
-          disableHoverListener={showTitle || disableTitleTooltip}
-          disableFocusListener={disableTitleTooltip}
-          disableTouchListener={disableTitleTooltip}
-            >
-            <Box
-              ref={isActive ? activeTabRowRef : undefined}
-              {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
-            data-hc-preview-entry={`note:${tab.id}`}
-            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
-            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
-            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
-            role="button"
-            tabIndex={0}
-              style={opts?.sortable?.style}
-            onClick={() => {
-              if (dnd.suppressClickRef.current) return
-              onOpenTab(tab)
-            }}
-            onKeyDown={e => {
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              onOpenTab(tab)
-            }}
-            sx={{
-              position: 'relative',
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: showTitle ? 1 : 0.75,
-              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
-              py: 0.6,
-              boxSizing: 'border-box',
-              borderRadius: 2,
-              userSelect: 'none',
-              outline: 'none',
-              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
-              touchAction: opts?.sortable ? 'none' : undefined,
-              opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
-            }}
-          >
-            <SortableIconSlot>
-              {isPlaying ? (
-                <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
-              ) : (
-                <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
-              )}
-              {dirty ? (
-                <Box
-                  aria-label="未保存改动"
-                  sx={{
-                    position: 'absolute',
-                    left: -1,
-                    top: -1,
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    bgcolor: 'var(--hc-accent-butter)',
-                    boxShadow: '0 0 0 2px var(--hc-surface)',
-                  }}
-                />
-              ) : null}
-            </SortableIconSlot>
-            {showTitle ? (
-              <Typography
-                noWrap
-                sx={{
-                  flex: 1,
-                  minWidth: 0,
-                  fontSize: 12,
-                  lineHeight: 1.2,
-                  fontWeight: isActive ? 900 : 600,
-                  color: isActive ? 'var(--hc-text)' : 'var(--hc-text-muted)',
-                }}
-              >
-                {title}
-              </Typography>
-            ) : null}
-            {showTitle ? (
-              <Tooltip title="关闭" placement="left">
-                <IconButton
-                  size="small"
-                  aria-label={`关闭 ${title}`}
-                  data-hc-no-drag="1"
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => {
-                    e.stopPropagation()
-                    onCloseTab(tab.id)
-                  }}
-                  sx={{
-                    color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                  }}
-                >
-                  <CloseRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            ) : null}
-          </Box>
-        </Tooltip>
-      )
-    },
-    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
-  )
-
-  const renderAssetMetaRow = React.useCallback(
-    (tabKey: string, asset: AssetEntry, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
-      const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
-      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
-      const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
-      const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
-      const disableTitleTooltip = tabsMode === 'hover'
-      const isPlaying = !!playingTabKeys?.has(tabKey)
-      const preview = getAssetPreviewDescriptor(asset)
-      const PreviewIcon = preview.icon
-      const iconEl =
-        isPlaying ? (
-          <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
-        ) : preview.kind !== 'unsupported' ? (
-          <PreviewIcon fontSize="small" sx={{ color: isActive ? preview.color : 'var(--hc-text-subtle)' }} />
-        ) : (
-          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
-        )
-
-      return (
-        <Tooltip
-          key={tabKey}
-          title={!showTitle && !disableTitleTooltip ? title : ''}
-          placement="right"
-          disableHoverListener={showTitle || disableTitleTooltip}
-          disableFocusListener={disableTitleTooltip}
-          disableTouchListener={disableTitleTooltip}
-            >
-            <Box
-              ref={isActive ? activeTabRowRef : undefined}
-              {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
-            data-hc-preview-entry={`asset:${assetRefKey(asset)}`}
-            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
-            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
-            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
-            role="button"
-            tabIndex={0}
-              style={opts?.sortable?.style}
-            onClick={() => {
-              if (dnd.suppressClickRef.current) return
-              onOpenAssetTab?.(asset)
-            }}
-            onKeyDown={e => {
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              onOpenAssetTab?.(asset)
-            }}
-            sx={{
-              position: 'relative',
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: showTitle ? 1 : 0.75,
-              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
-              py: 0.6,
-              boxSizing: 'border-box',
-              borderRadius: 2,
-              userSelect: 'none',
-              outline: 'none',
-              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
-              touchAction: opts?.sortable ? 'none' : undefined,
-              opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
-            }}
-          >
-            <SortableIconSlot>{iconEl}</SortableIconSlot>
-            {showTitle ? (
-              <Typography
-                noWrap
-                sx={{
-                  flex: 1,
-                  minWidth: 0,
-                  fontSize: 12,
-                  lineHeight: 1.2,
-                  fontWeight: isActive ? 900 : 600,
-                  color: isActive ? 'var(--hc-text)' : 'var(--hc-text-muted)',
-                }}
-              >
-                {title}
-              </Typography>
-            ) : null}
-            {showTitle ? (
-              <Tooltip title="关闭" placement="left">
-                <IconButton
-                  size="small"
-                  aria-label={`关闭 ${title}`}
-                  data-hc-no-drag="1"
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => {
-                    e.stopPropagation()
-                    onCloseAssetTab?.(tabKey)
-                  }}
-                  sx={{
-                    color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                  }}
-                >
-                  <CloseRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            ) : null}
-          </Box>
-        </Tooltip>
-      )
-    },
-    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
-  )
-
-  const renderMissingRow = React.useCallback(
-    (tabKey: string, kind: 'note' | 'asset', opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const isActive = !!tabSelectionVisible && String(activeTabKey || '').trim() === tabKey
-      const title = kind === 'note' ? '已丢失的笔记' : '已丢失的附件'
-      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
-      const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
-      const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
-      const disableTitleTooltip = tabsMode === 'hover'
-      const iconEl =
-        kind === 'note' ? (
-          <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
-        ) : (
-          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
-        )
-
-      return (
-        <Tooltip
-          key={tabKey}
-          title={!showTitle && !disableTitleTooltip ? title : ''}
-          placement="right"
-          disableHoverListener={showTitle || disableTitleTooltip}
-          disableFocusListener={disableTitleTooltip}
-          disableTouchListener={disableTitleTooltip}
-            >
-            <Box
-              ref={isActive ? activeTabRowRef : undefined}
-              {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
-            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
-            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
-            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
-            role="button"
-            tabIndex={0}
-              style={opts?.sortable?.style}
-            onClick={() => {
-              if (dnd.suppressClickRef.current) return
-              if (kind === 'note') return
-              return
-            }}
-            sx={{
-              position: 'relative',
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: showTitle ? 1 : 0.75,
-              minHeight: showTitle ? SIDEBAR_ROW_HEIGHT : undefined,
-              py: 0.6,
-              boxSizing: 'border-box',
-              borderRadius: 2,
-              userSelect: 'none',
-              outline: 'none',
-              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
-              touchAction: opts?.sortable ? 'none' : undefined,
-              opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 0.86,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
-              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
-            }}
-          >
-            <SortableIconSlot>{iconEl}</SortableIconSlot>
-            {showTitle ? (
-              <Typography
-                noWrap
-                sx={{
-                  flex: 1,
-                  minWidth: 0,
-                  fontSize: 12,
-                  lineHeight: 1.2,
-                  fontWeight: isActive ? 900 : 600,
-                  color: 'rgba(0,0,0,.55)',
-                }}
-              >
-                {title}
-              </Typography>
-            ) : null}
-            {showTitle ? (
-              <Tooltip title="关闭" placement="left">
-                <IconButton
-                  size="small"
-                  aria-label={`关闭 ${title}`}
-                  data-hc-no-drag="1"
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => {
-                    e.stopPropagation()
-                    if (kind === 'note') onCloseTab(noteIdFromTabKey(tabKey))
-                    else onCloseAssetTab?.(tabKey)
-                  }}
-                  sx={{
-                    color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
-                  }}
-                >
-                  <CloseRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            ) : null}
-          </Box>
-        </Tooltip>
-      )
-    },
-    [activeTabKey, dnd, noteIdFromTabKey, onCloseAssetTab, onCloseTab, showTitle, sortableActiveId, tabSelectionVisible, tabsMode],
-  )
-
-  const renderTabKeyRow = React.useCallback(
-    (tabKey: string, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; sortable?: SortableItemRenderArgs }) => {
-      const kind = tabKind(tabKey)
-      if (kind === 'note') {
-        const nid = noteIdFromTabKey(tabKey)
-        const meta = (nid && noteById[nid]) || noteByTabKey[tabKey]
-        if (!meta) return renderMissingRow(tabKey, 'note', opts)
-        return renderNoteMetaRow(tabKey, meta, opts)
-      }
-      if (kind === 'asset') {
-        const asset = assetByTabKey[tabKey]
-        if (!asset) return renderMissingRow(tabKey, 'asset', opts)
-        return renderAssetMetaRow(tabKey, asset, opts)
-      }
-      return null
-    },
-    [assetByTabKey, noteById, noteByTabKey, renderAssetMetaRow, renderMissingRow, renderNoteMetaRow],
-  )
-
-  const renderSortableTabKeyRow = React.useCallback(
-    (tabKey: string, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number; itemKey?: string }) => {
-      const id = sortableTabId(tabKey)
-      return (
-        <SortableItem key={opts?.itemKey || tabKey} id={id} disableTransform={sortableDnd.shouldDisableItemTransform(id)}>
-          {sortable => renderTabKeyRow(tabKey, { ...opts, sortable })}
-        </SortableItem>
-      )
-    },
-    [renderTabKeyRow, sortableDnd],
-  )
+  const { renderTabKeyRow, renderSortableTabKeyRow } = useOpenTabsPanelRows({
+    activeTabKey,
+    tabSelectionVisible,
+    tabsMode,
+    showTitle,
+    activeTabRowRef,
+    sortableActiveId,
+    playingTabKeys,
+    isNoteDirty,
+    onOpenTab,
+    onCloseTab,
+    onOpenAssetTab,
+    onCloseAssetTab,
+    noteById,
+    noteByTabKey,
+    assetByTabKey,
+    dnd,
+    sortableDnd,
+  })
 
   const sortableOverlay = useOpenTabsSortableOverlay({ activeId: sortableActiveId, assetByTabKey, groupById, noteById, noteByTabKey })
 
@@ -850,126 +253,16 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const canDropSortableTab = sortableActive?.kind === 'tab'
   const canDropSortableGroup = sortableActive?.kind === 'group'
 
-  const renderGroupSection = React.useCallback(
-    (params: { group: HyperCortexTabGroupV1; itemIndex: number; list: string[]; isCollapsed: boolean; sortable?: SortableItemRenderArgs; sortableTabs: boolean }) => {
-      const { group: g, itemIndex, list, isCollapsed, sortable, sortableTabs } = params
-      const isDragOver = dnd.dragOverKey === `group_${g.id}`
-      const isDragging = sortable?.isDragging || dnd.draggingKey === `group_${g.id}`
-      const isSortablePlaceholder = !!sortable && sortableActiveId === sortableGroupId(g.id)
-      const groupTitle = g.title || '分组'
-
-      const tabList = isCollapsed ? null : list.length || sortableTabs ? (
-        <Box
-          sx={{
-            position: 'relative',
-            pl: showTitle ? 1 : 0.75,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 0.25,
-            py: 0.25,
-            '&::before': {
-              content: '""',
-              position: 'absolute',
-              left: 0,
-              top: 2,
-              bottom: 2,
-              width: 3,
-              borderRadius: 2,
-              bgcolor: g.color,
-            },
-          }}
-        >
-          {sortableTabs ? null : <GroupDropSlot groupId={g.id} index={0} active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === 0} showTitle={showTitle} />}
-          {sortableTabs ? (
-            <SortableSection items={list.map(sortableTabId)}>
-              <SortableInsertionSlot id={sortableGroupSlotId(g.id, 0)} enabled={canDropSortableTab} indent showTitle={showTitle} />
-              {list.map((tabKey, groupTabIndex) => (
-                <React.Fragment key={`${g.id}_${tabKey}`}>
-                  {renderSortableTabKeyRow(tabKey, { topIndex: itemIndex, parentGroupId: g.id, groupTabIndex, itemKey: `${g.id}_${tabKey}` })}
-                  <SortableInsertionSlot id={sortableGroupSlotId(g.id, groupTabIndex + 1)} enabled={canDropSortableTab} indent showTitle={showTitle} />
-                </React.Fragment>
-              ))}
-            </SortableSection>
-          ) : (
-            list.map((tabKey, groupTabIndex) => (
-              <React.Fragment key={tabKey}>
-                {renderTabKeyRow(tabKey, { topIndex: itemIndex, parentGroupId: g.id, groupTabIndex })}
-                <GroupDropSlot
-                  groupId={g.id}
-                  index={groupTabIndex + 1}
-                  active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === groupTabIndex + 1}
-                  showTitle={showTitle}
-                />
-              </React.Fragment>
-            ))
-          )}
-        </Box>
-      ) : sortableTabs ? null : (
-        <GroupDropSlot groupId={g.id} index={0} active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === 0} showTitle={showTitle} />
-      )
-
-      return (
-        <Box ref={sortable?.setNodeRef as any} style={sortable?.style} sx={{ position: 'relative' }}>
-          <Box
-            {...dnd.getGroupProps(g.id)}
-            {...getSortableRowHandleProps(sortable, `拖拽排序分组 ${groupTitle}`)}
-            data-hc-dnd-group-index={itemIndex}
-            data-hc-dnd-group-section-index={itemIndex}
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              if (dnd.suppressClickRef.current) return
-              onToggleGroupCollapsed(g.id)
-            }}
-            onKeyDown={e => {
-              if (e.key !== 'Enter' && e.key !== ' ') return
-              e.preventDefault()
-              onToggleGroupCollapsed(g.id)
-            }}
-            onContextMenu={e => {
-              e.preventDefault()
-              setGroupMenu({ mouseX: e.clientX, mouseY: e.clientY, groupId: g.id })
-            }}
-            sx={{
-              position: 'relative',
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: showTitle ? 1 : 0.75,
-              py: 0.5,
-              borderRadius: 2,
-              userSelect: 'none',
-              outline: 'none',
-              cursor: isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
-              touchAction: sortable ? 'none' : undefined,
-              opacity: isSortablePlaceholder ? 0.5 : isDragging ? 0.78 : 1,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
-              backgroundImage: 'none',
-              bgcolor: isSortablePlaceholder || isDragOver ? 'var(--hc-primary-soft)' : g.color,
-              '&:hover': { filter: 'brightness(0.985)' },
-              '&:focus-visible': { bgcolor: 'var(--hc-primary-soft)', boxShadow: '0 10px 24px var(--hc-shadow)' },
-            }}
-          >
-            <SortableIconSlot>
-              <ChevronRightRoundedIcon
-                fontSize="small"
-                sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
-              />
-            </SortableIconSlot>
-            {showTitle ? (
-              <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.72)' }}>
-                {groupTitle}
-              </Typography>
-            ) : null}
-            {showTitle ? <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)' }}>{list.length}</Typography> : null}
-          </Box>
-          {tabList}
-        </Box>
-      )
-    },
-    [canDropSortableTab, dnd, onToggleGroupCollapsed, renderSortableTabKeyRow, renderTabKeyRow, showTitle, sortableActiveId],
-  )
+  const renderGroupSection = useOpenTabsPanelGroupSection({
+    showTitle,
+    dnd,
+    sortableActiveId,
+    canDropSortableTab,
+    renderTabKeyRow,
+    renderSortableTabKeyRow,
+    onToggleGroupCollapsed,
+    setGroupMenu,
+  })
 
   const renderPrecisionSidebarItems = React.useCallback(
     () => (
@@ -1139,63 +432,32 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         {isSortableMode ? renderSortableSidebarItems() : renderPrecisionSidebarItems()}
       </Box>
 
-      <ContextMenu
-        open={workspaceVisible && menuOpen}
-        x={groupMenu?.mouseX ?? 0}
-        y={groupMenu?.mouseY ?? 0}
+      <OpenTabsPanelGroupContextMenu
+        groupMenu={groupMenu}
+        menuOpen={menuOpen}
         onClose={closeMenu}
-        items={buildGroupMenuItems()}
+        requestRename={requestRename}
+        onSetGroupColor={onSetGroupColor}
+        onDeleteGroupOnly={onDeleteGroupOnly}
+        onDeleteGroupAndCloseTabs={onDeleteGroupAndCloseTabs}
       />
 
-      <Menu
-        open={workspaceVisible && workspaceMenuOpen}
-        onClose={closeWorkspaceMenu}
+      <OpenTabsPanelWorkspaceMenu
+        open={workspaceMenuOpen}
         anchorEl={workspaceMenuAnchorEl}
-        PaperProps={{ sx: menuPaperSx }}
-      >
-        {workspaces.map(ws => (
-          <MenuItem
-            key={ws.id}
-            selected={ws.id === (activeWorkspaceId || workspaces[0]?.id)}
-            onClick={() => {
-              closeWorkspaceMenu()
-              onSwitchWorkspace(ws.id)
-            }}
-          >
-            {ws.title || '工作区'}
-          </MenuItem>
-        ))}
-        <MenuItem
-          onClick={() => {
-            closeWorkspaceMenu()
-            setWorkspaceEditor({ mode: 'rename', title: activeWorkspaceTitle })
-          }}
-          sx={{ mt: 0.5, bgcolor: 'rgba(15,23,42,.035)' }}
-        >
-          重命名当前工作区…
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            closeWorkspaceMenu()
-            setWorkspaceEditor({ mode: 'create', title: '' })
-          }}
-        >
-          新建工作区…
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            closeWorkspaceMenu()
-            const wid = activeWorkspaceId || workspaces[0]?.id || ''
-            if (!wid) return
-            const title = workspaces.find(w => w.id === wid)?.title || '工作区'
-            setWorkspaceDeleteTarget({ id: wid, title })
-          }}
-          disabled={workspaces.length <= 1}
-          sx={{ color: 'var(--hc-danger)' }}
-        >
-          删除当前工作区
-        </MenuItem>
-      </Menu>
+        onClose={closeWorkspaceMenu}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onRequestRename={() => setWorkspaceEditor({ mode: 'rename', title: activeWorkspaceTitle })}
+        onRequestCreate={() => setWorkspaceEditor({ mode: 'create', title: '' })}
+        onRequestDelete={() => {
+          const wid = activeWorkspaceId || workspaces[0]?.id || ''
+          if (!wid) return
+          const title = workspaces.find(w => w.id === wid)?.title || '工作区'
+          setWorkspaceDeleteTarget({ id: wid, title })
+        }}
+      />
 
       <Dialog open={workspaceVisible && !!workspaceDeleteTarget} onClose={() => setWorkspaceDeleteTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle>删除工作区</DialogTitle>
