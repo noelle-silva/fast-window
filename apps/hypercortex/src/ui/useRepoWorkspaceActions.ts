@@ -368,6 +368,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleFavoritesSidebarForward,
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
+    handleFavoritesSidebarMoveRef,
     favoritesEntityNode,
   } = useFavoritesWorkspaceActions({
     gateway,
@@ -489,6 +490,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleFavoritesSidebarForward,
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
+    handleFavoritesSidebarMoveRef,
     favoritesEntityNode,
 
     handleDeleteGroupAndCloseTabs,

@@ -3,7 +3,7 @@ import { type HyperCortexFavoritesNavV1, type HyperCortexRepoStateV1, type NoteM
 import type { HyperCortexGateway } from '../gateway'
 import type { SidebarDisplayMode } from '../appSettingsModel'
 import type { AssetEntry } from '../assetTypes'
-import { addRef, createFolder, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, createFolder, getFolderById, moveRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger, type FavoritesLedger } from '../favoritesLedger'
 import { resolveAssetRef } from '../assetLookup'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -195,6 +195,7 @@ export function useFavoritesWorkspaceActions(opts: {
   handleFavoritesSidebarForward: () => void
   handleFavoritesSidebarContextMenu: (event: React.MouseEvent, ref: FavoriteItemRef) => void
   handleFavoritesSidebarReorder: (folderId: string, orderedRefIds: string[]) => void
+  handleFavoritesSidebarMoveRef: (refId: string, targetFolderId: string) => void
   favoritesEntityNode: React.ReactNode
 } {
   const {
@@ -343,6 +344,24 @@ export function useFavoritesWorkspaceActions(opts: {
     [favoritesDoc, handleFavoritesDocChange],
   )
 
+  // 拖拽移动的落点提交：底层与右键「移动到…」共用 moveRef；自我拖放、循环引用等非法目标由底层统一拦截，
+  // 这里按结果给出提示不静默，成功后提示「已移动到 目标名」。
+  const handleFavoritesSidebarMoveRef = React.useCallback(
+    (refId: string, targetFolderId: string) => {
+      const base = favoritesDoc
+      if (!base) return
+      const result = moveRef(base, refId, [targetFolderId])
+      if (result.outcome !== 'moved') {
+        void gateway.host.toast('不能移动到该收藏夹')
+        return
+      }
+      if (result.doc !== base) handleFavoritesDocChange(result.doc)
+      const targetTitle = getFolderById(result.doc, targetFolderId)?.title || '未命名收藏夹'
+      void gateway.host.toast(`已移动到 ${targetTitle}`)
+    },
+    [favoritesDoc, gateway, handleFavoritesDocChange],
+  )
+
   const handleUploadAssetsIntoIndex = React.useCallback(
     async (folderId: string) => {
       const fid = String(folderId || '').trim() || 'root'
@@ -430,6 +449,7 @@ export function useFavoritesWorkspaceActions(opts: {
     handleFavoritesSidebarForward,
     handleFavoritesSidebarContextMenu,
     handleFavoritesSidebarReorder,
+    handleFavoritesSidebarMoveRef,
     favoritesEntityNode: favoritesEntity.node,
   }
 }

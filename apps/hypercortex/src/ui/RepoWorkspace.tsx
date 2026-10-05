@@ -174,6 +174,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onCloseDraftNote={o.handleCloseTab}
                 onEntryContextMenu={o.handleFavoritesSidebarContextMenu}
                 onReorderRefs={o.handleFavoritesSidebarReorder}
+                onMoveRef={o.handleFavoritesSidebarMoveRef}
               />
             </SidebarRail>
           </Box>
