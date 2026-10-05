@@ -7,14 +7,15 @@
  * HTML/SVG 消毒复用宿主共享的通用安全设施（htmlSanitizer），不在本引擎内重复实现。
  */
 
-import { sanitizeHtml as sanitizeRenderHtml, sanitizeSvg as sanitizeRenderSvg, type RenderSafetyPolicy } from '../../../htmlSanitizer'
+import { type RenderSafetyPolicy } from '../../../htmlSanitizer'
 import { katex, marked, mermaid } from './vendor'
 import { type VaultScope } from '../../../core'
 import { bindMediaPlaybackReporterInElement, type MediaPlaybackCleanup } from '../../../mediaPlayback'
-import { parseNotePlaceholderBody } from '../../../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
-import { pickAssetDisplayName } from '../../../assetDisplayName'
 import type { AssetsService, ClipboardGateway, HostGateway } from '../../../gateway/types'
+import { ensureEngineCss } from './styles'
+import { sanitizeHtml, sanitizeSvg } from './sanitize'
+import { preprocessHtmlIndentation, preprocessContent } from './preprocess'
 
 export type MarkdownRenderEngine = {
   ensureRenderer: () => Promise<void>
@@ -76,86 +77,6 @@ function renderNoteRefAnchor(
   }
   const badge = faceList && faceList.includes(faceId) ? `<span class="hc-note-ref-badge">${esc(faceId)}</span>` : ''
   return `<a class="hc-note-ref" data-note-id="${esc(noteId)}"${indexAttr}${faceAttr}${remarksAttr}>${esc(label)}${badge}</a>`
-}
-
-/* ------------------------------------------------------------------ */
-/*  自注入 CSS（渲染产物所需的样式，挂在 .hc-render 根下）                   */
-/* ------------------------------------------------------------------ */
-
-const ENGINE_STYLE_ID = 'hc-render-engine-css'
-const ENGINE_CSS = `
-.hc-render{font-size:15px;line-height:1.75;word-break:break-word;color:var(--hc-text);}
-.hc-render h1{font-size:1.6em;margin:16px 0 8px;font-weight:700;}
-.hc-render h2{font-size:1.35em;margin:14px 0 6px;font-weight:700;}
-.hc-render h3{font-size:1.15em;margin:12px 0 4px;font-weight:600;}
-.hc-render h4,.hc-render h5,.hc-render h6{font-size:1em;margin:10px 0 4px;font-weight:600;}
-.hc-render p{margin:8px 0;}
-.hc-render ul,.hc-render ol{margin:8px 0 8px 18px;}
-.hc-render blockquote{margin:10px 0;padding:8px 12px;background:var(--hc-primary-soft);border-radius:12px;}
-.hc-render hr{border:0;height:2px;background:var(--hc-surface-muted);margin:10px 0;border-radius:999px;}
-.hc-render img{max-width:100%;height:auto;cursor:zoom-in;}
-.hc-render table{border-collapse:collapse;width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;border-radius:12px;display:block;}
-.hc-render th,.hc-render td{padding:8px;vertical-align:top;background:var(--hc-surface-soft);}
-.hc-render th{background:var(--hc-surface-muted);}
-.hc-render pre{overflow:auto;padding:10px;background:var(--hc-code-bg);color:var(--hc-code-text);border-radius:10px;}
-.hc-render pre.fw-code-block{position:relative;padding-top:38px;}
-.hc-render code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;}
-.hc-render pre.fw-code-block .fw-code-copy{position:absolute;top:8px;right:8px;z-index:1;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:var(--hc-code-control-bg);color:var(--hc-code-text);font-size:12px;cursor:pointer;user-select:none;-webkit-user-select:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:inline-flex;align-items:center;justify-content:center;}
-.hc-render pre.fw-code-block .fw-code-copy:hover{background:rgba(245,239,226,.14);}
-.hc-render pre.fw-code-block .fw-code-copy:active{background:rgba(245,239,226,.18);}
-.hc-render pre.fw-code-block .fw-code-copy:disabled{opacity:.75;cursor:default;}
-.hc-render pre.fw-code-block .fw-code-copy:focus-visible{box-shadow:0 0 0 3px rgba(245,239,226,.22);}
-.hc-render pre.fw-code-block .fw-code-copy[data-state="ok"]{color:var(--hc-success);}
-.hc-render pre.fw-code-block .fw-code-copy[data-state="fail"]{color:var(--hc-danger);}
-.hc-asset{display:inline-block;vertical-align:middle;}
-.hc-asset-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--hc-surface-soft);color:var(--hc-text-muted);font-size:12px;line-height:1;user-select:none;}
-.hc-asset-chip--loading{background:var(--hc-primary-soft);color:var(--hc-primary);}
-.hc-asset-chip--error{background:var(--hc-danger-soft);color:var(--hc-danger);}
-.hc-asset-chip--doc{background:var(--hc-surface-soft);color:var(--hc-text-muted);}
-.hc-asset-block{margin:10px 0;display:flex;flex-direction:column;gap:6px;}
-.hc-asset-title{font-size:12px;color:var(--hc-text-subtle);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.hc-note-ref{color:var(--hc-primary);text-decoration:none;background:var(--hc-primary-soft);border-radius:8px;padding:0 3px;cursor:pointer;transition:background-color 120ms ease;}
-.hc-note-ref:hover{background:var(--hc-primary-hover);}
-.hc-note-ref--broken{color:var(--hc-text-subtle);text-decoration:line-through;background:var(--hc-surface-soft);cursor:default;}
-.hc-note-ref--face-gone{color:var(--hc-text-subtle);text-decoration:line-through;background:var(--hc-surface-soft);cursor:pointer;}
-.hc-note-ref--face-gone:hover{background:var(--hc-surface-muted);}
-.hc-note-ref-badge{display:inline-flex;align-items:center;margin-left:4px;padding:0 5px;border-radius:999px;font-size:10px;line-height:1.5;font-weight:600;color:var(--hc-text-subtle);background:var(--hc-surface-muted);vertical-align:1px;user-select:none;}
-.math-block{margin:10px 0;overflow-x:auto;}
-.hc-render .katex,.hc-render .katex-display{max-width:100%;}
-.hc-render span.katex{display:inline-block;overflow:visible;vertical-align:middle;}
-.hc-render .katex-display{overflow:visible;}
-.hc-render .katex-display>.katex{display:block;overflow-x:visible;}
-.fw-math-host{position:relative;}
-.math-inline.fw-math-host{display:inline-block;}
-.math-block.fw-math-host{display:block;}
-.fw-math-copy{position:absolute;width:24px;height:24px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--hc-text-muted);cursor:pointer;user-select:none;-webkit-user-select:none;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;opacity:0;visibility:hidden;pointer-events:none;transition:opacity 120ms ease,background-color 120ms ease;}
-.fw-math-copy:hover{background:var(--hc-surface-soft);color:var(--hc-text);}
-.fw-math-copy:active{background:var(--hc-surface-muted);color:var(--hc-text);}
-.fw-math-copy:focus-visible{box-shadow:0 8px 18px var(--hc-shadow);}
-.math-inline.fw-math-host>.fw-math-copy{left:100%;top:50%;transform:translate(0,-50%);}
-.math-block.fw-math-host>.fw-math-copy{right:6px;top:50%;transform:translateY(-50%);}
-.fw-math-host:hover>.fw-math-copy,.fw-math-host:focus-within>.fw-math-copy{opacity:1;visibility:visible;pointer-events:auto;}
-.mermaid-block{margin:10px 0;overflow-x:auto;cursor:zoom-in;text-align:center;}
-.mermaid-block svg{max-width:100%;height:auto;display:block;margin:0 auto;}
-.mermaid-error{margin:10px 0;overflow-x:auto;}
-.mermaid-error-box{position:relative;background:var(--hc-surface);box-shadow:0 10px 24px var(--hc-shadow);border-radius:12px;padding:10px 12px;padding-right:48px;}
-.mermaid-error-copy{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:var(--hc-surface-soft);color:var(--hc-text-muted);cursor:pointer;user-select:none;-webkit-user-select:none;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
-.mermaid-error-copy:hover{background:var(--hc-surface-muted);color:var(--hc-text);}
-.mermaid-error-copy:active{background:var(--hc-primary-soft);}
-.mermaid-error-copy:disabled{opacity:.7;cursor:default;}
-.mermaid-error-copy:focus-visible{box-shadow:0 8px 18px var(--hc-shadow);}
-.mermaid-error-title{font-weight:900;font-size:12px;color:var(--hc-text-muted);}
-.mermaid-error-msg{margin-top:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:var(--hc-text-subtle);white-space:pre-wrap;word-break:break-word;}
-.mermaid-error-src{display:none;}
-.mermaid-error-err{display:none;}
-`
-
-function ensureEngineCss() {
-  if (document.getElementById(ENGINE_STYLE_ID)) return
-  const el = document.createElement('style')
-  el.id = ENGINE_STYLE_ID
-  el.textContent = ENGINE_CSS
-  document.head.appendChild(el)
 }
 
 /* ------------------------------------------------------------------ */
@@ -449,16 +370,6 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     }
   }
 
-  /* ---------- HTML 消毒（复用宿主共享的安全设施） ---------- */
-
-  function sanitizeHtml(html: unknown, policy?: RenderSafetyPolicy): string {
-    return sanitizeRenderHtml(html, policy)
-  }
-
-  function sanitizeSvg(svg: unknown, policy?: RenderSafetyPolicy): string {
-    return sanitizeRenderSvg(svg, policy)
-  }
-
   /* ---------- 图片预览标记 ---------- */
 
   function markPreviewImages(root: unknown) {
@@ -527,32 +438,6 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     }
 
     ensureMathCopyHandlerOnce(root)
-  }
-
-  /* ---------- HTML 缩进预处理 ---------- */
-
-  function preprocessHtmlIndentation(source: unknown) {
-    function dedentHtmlLines(s: unknown) {
-      const t = String(s || '')
-      return t.replace(/^([ \t]+)(?=<|<!--)/gm, (_m, ws) => {
-        const w = String(ws || '')
-        let cols = 0
-        for (let i = 0; i < w.length; i++) {
-          cols += w[i] === '\t' ? 4 - (cols % 4) : 1
-        }
-        if (cols < 4) return w
-        return ' '.repeat(cols % 4)
-      })
-    }
-
-    const src = String(source || '').replace(/\r\n/g, '\n')
-    const tokens = tokenizeFences(src)
-    return tokens
-      .map((t) => {
-        if (t.kind === 'text') return dedentHtmlLines(t.text)
-        return t.raw
-      })
-      .join('')
   }
 
   /* ---------- 主渲染入口 ---------- */
@@ -723,254 +608,4 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
 
   const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto, bindPlaybackReporter, refreshNoteRefs }
   return self
-}
-
-/* ================================================================== */
-/*  顶层辅助函数（不依赖闭包状态）                                        */
-/* ================================================================== */
-
-type PreprocessedMath = { tex: string; display: boolean }
-type PreprocessedAsset = { ref: string; name: string; width?: number; nameIsDefault?: boolean }
-type PreprocessedNoteRef = { noteId: string; faceId?: string; displayText: string; remarks: string }
-
-type FenceToken =
-  | { kind: 'text'; text: string }
-  | { kind: 'fence'; raw: string; lang: string; content: string; closed: boolean }
-
-function preprocessContent(
-  source: unknown,
-): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[]; noteRefs: PreprocessedNoteRef[] } {
-  const src = String(source || '').replace(/\r\n/g, '\n')
-  const tokens = tokenizeFences(src)
-
-  const mermaid: string[] = []
-  const math: PreprocessedMath[] = []
-  const assets: PreprocessedAsset[] = []
-  const noteRefs: PreprocessedNoteRef[] = []
-  const out: string[] = []
-  const withAssets = (input: string) => replaceAssetsOutsideInlineCode(input, assets)
-
-  for (const t of tokens) {
-    if (t.kind === 'fence') {
-      const lang = String(t.lang || '').trim().toLowerCase()
-      const isMermaid = t.closed && (lang === 'mermaid' || lang === 'flowchart' || lang === 'graph')
-      if (isMermaid) {
-        const id = mermaid.length
-        mermaid.push(String(t.content || '').trim())
-        out.push(`@@MERMAID_${id}@@`)
-      } else {
-        out.push(t.raw)
-      }
-      continue
-    }
-
-    const withNoteRefs = replaceNoteRefsOutsideInlineCode(withAssets(t.text), noteRefs)
-    const withMath = replaceMathOutsideInlineCode(withNoteRefs, math)
-    out.push(withMath)
-  }
-
-  return { text: out.join(''), math, mermaid, assets, noteRefs }
-}
-
-function replaceAssetsOutsideInlineCode(input: string, acc: PreprocessedAsset[]) {
-  const parts = splitInlineCodeSpans(input)
-  return parts
-    .map((p) => {
-      if (p.kind === 'code') return p.value
-      return replaceAssetsInPlainText(p.value, acc)
-    })
-    .join('')
-}
-
-function replaceAssetsInPlainText(input: string, acc: PreprocessedAsset[]) {
-  // 支持两种语法：
-  // 1) {{asset:ref}} / {{asset:ref|displayName|width}}
-  // 2) {{asset:ref||width}}（UI 当前默认生成这种“只带宽度”的格式）
-  const assetPattern = /\{\{asset:([^\}\n]+?)\}\}/g
-  return String(input || '').replace(assetPattern, (_m, bodyRaw) => {
-    const body = String(bodyRaw || '').trim()
-    if (!body) return ''
-
-    let refText = body
-    let displayName = ''
-    let widthStr = ''
-
-    const dbl = body.indexOf('||')
-    if (dbl >= 0) {
-      refText = body.slice(0, dbl).trim()
-      widthStr = body.slice(dbl + 2).trim()
-    } else {
-      const parts = body.split('|')
-      refText = String(parts[0] || '').trim()
-      displayName = String(parts[1] || '').trim()
-      widthStr = String(parts[2] || '').trim()
-    }
-
-    const ref = String(refText || '').trim()
-    if (!ref) return ''
-    const dotIdx = ref.lastIndexOf('.')
-    const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
-    const name0 = String(displayName || '').trim()
-    const nameIsDefault = !name0
-    const name = pickAssetDisplayName({ explicitName: name0, ext })
-    const widthNum = widthStr ? Number(widthStr) : NaN
-    const width = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : undefined
-    const id = acc.length
-    acc.push({ ref, name, width, nameIsDefault })
-    return `@@ASSET_${id}@@`
-  })
-}
-
-function tokenizeFences(input: string): FenceToken[] {
-  const src = String(input || '')
-  const lines = src.split('\n')
-
-  const out: FenceToken[] = []
-  const textBuf: string[] = []
-
-  const flushText = () => {
-    if (!textBuf.length) return
-    out.push({ kind: 'text', text: textBuf.join('') })
-    textBuf.length = 0
-  }
-
-  let inFence = false
-  let fenceMarker = ''
-  let fenceInfo = ''
-  let openLineRaw = ''
-  const fenceLinesRaw: string[] = []
-
-  const openRe = /^(\s*)(`{3,})(.*)$/
-  const closeRe = /^(\s*)(`{3,})\s*$/
-  let fenceIndent = ''
-
-  for (let idx = 0; idx < lines.length; idx++) {
-    const line = lines[idx]
-    const withNl = idx < lines.length - 1 ? line + '\n' : line
-    if (!inFence) {
-      const m = openRe.exec(line)
-      if (!m) { textBuf.push(withNl); continue }
-
-      flushText()
-      inFence = true
-      fenceIndent = String(m[1] || '')
-      fenceMarker = String(m[2] || '```')
-      fenceInfo = String(m[3] || '').trim()
-      openLineRaw = withNl
-      fenceLinesRaw.length = 0
-      continue
-    }
-
-    const m2 = closeRe.exec(line)
-    if (m2 && String(m2[1] || '') === fenceIndent && String(m2[2] || '') === fenceMarker) {
-      const content = fenceLinesRaw.join('')
-      const raw = `${openLineRaw}${content}${withNl}`
-      const lang = fenceInfo.split(/\s+/g)[0] || ''
-      out.push({ kind: 'fence', raw, lang, content, closed: true })
-      inFence = false
-      fenceMarker = ''
-      fenceIndent = ''
-      fenceInfo = ''
-      openLineRaw = ''
-      fenceLinesRaw.length = 0
-      continue
-    }
-
-    fenceLinesRaw.push(withNl)
-  }
-
-  if (inFence) {
-    const content = fenceLinesRaw.join('')
-    const raw = openLineRaw + content
-    const lang = fenceInfo.split(/\s+/g)[0] || ''
-    out.push({ kind: 'fence', raw, lang, content, closed: false })
-  }
-
-  flushText()
-  return out
-}
-
-function splitInlineCodeSpans(input: string): Array<{ kind: 'text' | 'code'; value: string }> {
-  const s = String(input || '')
-  const out: Array<{ kind: 'text' | 'code'; value: string }> = []
-  let i = 0
-  let last = 0
-
-  while (i < s.length) {
-    if (s[i] !== '`') { i++; continue }
-
-    let n = 1
-    while (i + n < s.length && s[i + n] === '`') n++
-    const marker = '`'.repeat(n)
-    const start = i
-    const end = s.indexOf(marker, i + n)
-    if (end < 0) break
-
-    if (start > last) out.push({ kind: 'text', value: s.slice(last, start) })
-    out.push({ kind: 'code', value: s.slice(start, end + n) })
-    i = end + n
-    last = i
-  }
-
-  if (last < s.length) out.push({ kind: 'text', value: s.slice(last) })
-  return out
-}
-
-function replaceMathOutsideInlineCode(input: string, acc: PreprocessedMath[]) {
-  const parts = splitInlineCodeSpans(input)
-  return parts
-    .map((p) => {
-      if (p.kind === 'code') return p.value
-      return replaceMathInPlainText(p.value, acc)
-    })
-    .join('')
-}
-
-function replaceNoteRefsOutsideInlineCode(input: string, acc: PreprocessedNoteRef[]) {
-  const notePlaceholderPattern = /\[\[([^\]\n]+?)\]\]/g
-  const parts = splitInlineCodeSpans(input)
-  return parts
-    .map((p) => {
-      if (p.kind === 'code') return p.value
-      return p.value.replace(notePlaceholderPattern, (m, innerRaw) => {
-        const inner = String(innerRaw || '').trim()
-        const parsed = parseNotePlaceholderBody(inner)
-        if (!parsed?.noteId) return m
-        const noteId = String(parsed.noteId || '').trim()
-        if (!noteId) return m
-        const displayText = String(parsed.title || '').trim()
-        const remarks = String(parsed.remarks || '').trim()
-        const faceId = String(parsed.face || '').trim() || undefined
-        const id = acc.length
-        acc.push({ noteId, faceId, displayText, remarks })
-        return `@@NOTE_REF_${id}@@`
-      })
-    })
-    .join('')
-}
-
-function replaceMathInPlainText(input: string, acc: PreprocessedMath[]) {
-  let s = String(input || '')
-
-  const stash = (tex: string, display: boolean) => {
-    const id = acc.length
-    acc.push({ tex: String(tex || ''), display })
-    return `@@MATH_${display ? 'BLOCK' : 'INLINE'}_${id}@@`
-  }
-
-  // display: $$...$$
-  s = s.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_m, tex) => stash(String(tex || '').trim(), true))
-  // display: \[...\]
-  s = s.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_m, tex) => stash(String(tex || '').trim(), true))
-  // inline: \( ... \)
-  s = s.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (_m, tex) => stash(String(tex || '').trim(), false))
-  // inline: $...$（防误判：必须像"公式"）
-  s = s.replace(/\$([^\$\n]+?)\$/g, (m, tex) => {
-    const t = String(tex || '').trim()
-    if (!t) return m
-    if (!/[A-Za-z\\]|[_^]/.test(t)) return m
-    return stash(t, false)
-  })
-
-  return s
 }

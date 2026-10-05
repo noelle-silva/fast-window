@@ -28,6 +28,8 @@ import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { folderTitle } from './index-page/helpers'
+import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
+import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOverlay'
 
 const ACTIVE_ENTRY_SCROLL_PADDING = 16
 
@@ -67,10 +69,6 @@ export type FavoritesSidebarPanelProps = {
   onEntryContextMenu?: (event: React.MouseEvent, ref: FavoriteItemRef) => void
   /** 条目拖拽排序：提交当前收藏夹内条目的新顺序（引用标识序列）。 */
   onReorderRefs?: (folderId: string, orderedRefIds: string[]) => void
-}
-
-function assetRowTitle(asset: AssetEntry): string {
-  return String(asset.displayName || asset.fileName || asset.assetId || '附件')
 }
 
 /** 打开意图修饰键：按住 Ctrl（或 Mac 的 Cmd）点击表示“在左侧标签栏打开”。 */
@@ -157,94 +155,17 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   }, [activeEntryScrollSignal, listScrollRef])
 
   // 条目拖拽排序：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
-  const dragSuppressClickRef = React.useRef(false)
-  const [dragPreviewIds, setDragPreviewIds] = React.useState<string[] | null>(null)
-  const [dragActiveId, setDragActiveId] = React.useState('')
-  const dragBaseIdsRef = React.useRef<string[]>([])
-  const dragPreviewIdsRef = React.useRef<string[] | null>(null)
+  const {
+    activeId: dragActiveId,
+    effectiveRefs,
+    suppressClickRef: dragSuppressClickRef,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useFavoritesSidebarDnd({ refs, currentFolderId: nav.currentFolderId, onReorderRefs })
 
-  const effectiveRefs = React.useMemo(() => {
-    if (!dragPreviewIds) return refs
-    const byId = new Map(refs.map(ref => [ref.id, ref] as const))
-    const ordered = dragPreviewIds.map(id => byId.get(id)).filter((ref): ref is FavoriteItemRef => Boolean(ref))
-    return ordered.length === refs.length ? ordered : refs
-  }, [dragPreviewIds, refs])
-
-  const dragOverlayRef = React.useMemo(() => (dragActiveId ? refs.find(ref => ref.id === dragActiveId) ?? null : null), [dragActiveId, refs])
-  const dragOverlayTitle = React.useMemo(() => {
-    if (!dragOverlayRef) return ''
-    if (dragOverlayRef.kind === 'folder') return doc ? folderTitle(doc, dragOverlayRef.targetId) : '收藏夹'
-    if (dragOverlayRef.kind === 'note') return noteIndex?.[dragOverlayRef.targetId]?.title || '已丢失的笔记'
-    if (dragOverlayRef.kind === 'asset') {
-      const asset = resolveAssetRef(assetLookup, dragOverlayRef.targetId)
-      return asset ? assetRowTitle(asset) : '已丢失的附件'
-    }
-    return '已丢失的条目'
-  }, [assetLookup, doc, dragOverlayRef, noteIndex])
-
-  const dragOverlayIcon = React.useMemo(() => {
-    if (!dragOverlayRef) return null
-    if (dragOverlayRef.kind === 'folder') return <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
-    if (dragOverlayRef.kind === 'note') return <NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
-    if (dragOverlayRef.kind === 'asset') {
-      const asset = resolveAssetRef(assetLookup, dragOverlayRef.targetId)
-      if (asset) {
-        const preview = getAssetPreviewDescriptor(asset)
-        const PreviewIcon = preview.icon
-        if (preview.kind !== 'unsupported') return <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
-      }
-    }
-    return <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
-  }, [assetLookup, dragOverlayRef])
-
-  const handleDragStart = React.useCallback(
-    (activeId: string) => {
-      dragBaseIdsRef.current = refs.map(ref => ref.id)
-      dragPreviewIdsRef.current = null
-      setDragPreviewIds(null)
-      setDragActiveId(activeId)
-    },
-    [refs],
-  )
-
-  const handleDragOver = React.useCallback(
-    (activeId: string, overId: string) => {
-      const base = dragBaseIdsRef.current.length ? dragBaseIdsRef.current : refs.map(ref => ref.id)
-      const current = dragPreviewIdsRef.current || base
-      const fromIndex = current.indexOf(activeId)
-      const toIndex = current.indexOf(overId)
-      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return
-      const next = current.slice()
-      next.splice(toIndex, 0, next.splice(fromIndex, 1)[0])
-      dragPreviewIdsRef.current = next
-      setDragPreviewIds(next)
-    },
-    [refs],
-  )
-
-  const handleDragEnd = React.useCallback(() => {
-    dragSuppressClickRef.current = true
-    window.setTimeout(() => {
-      dragSuppressClickRef.current = false
-    }, 0)
-    const next = dragPreviewIdsRef.current
-    const base = dragBaseIdsRef.current
-    dragBaseIdsRef.current = []
-    dragPreviewIdsRef.current = null
-    setDragPreviewIds(null)
-    setDragActiveId('')
-    if (!next || !base.length) return
-    if (next.length === base.length && next.every((id, index) => id === base[index])) return
-    onReorderRefs?.(nav.currentFolderId, next)
-  }, [nav.currentFolderId, onReorderRefs])
-
-  const handleDragCancel = React.useCallback(() => {
-    dragSuppressClickRef.current = false
-    dragBaseIdsRef.current = []
-    dragPreviewIdsRef.current = null
-    setDragPreviewIds(null)
-    setDragActiveId('')
-  }, [])
+  const dragOverlay = useFavoritesSidebarOverlay({ activeId: dragActiveId, refs, doc, noteIndex, assetLookup })
 
   const renderFolderRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
     const folder = doc ? getFolderById(doc, ref.targetId) : undefined
@@ -501,7 +422,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>这个收藏夹还是空的</Typography>
         ) : null}
         <SortableRoot
-          overlay={dragActiveId ? <FavoritesDragOverlayCard title={dragOverlayTitle} icon={dragOverlayIcon} /> : null}
+          overlay={dragOverlay}
           onMove={handleDragEnd}
           onPreviewMove={handleDragOver}
           onDragStart={handleDragStart}
@@ -589,32 +510,6 @@ function RowShell(props: {
         {children}
       </Box>
     </Tooltip>
-  )
-}
-
-function FavoritesDragOverlayCard(props: { title: string; icon: React.ReactNode }): React.ReactNode {
-  const { title, icon } = props
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.75,
-        width: '100%',
-        boxSizing: 'border-box',
-        px: 1,
-        py: 0.6,
-        borderRadius: 2,
-        bgcolor: 'var(--hc-surface)',
-        boxShadow: '0 14px 38px rgba(0,0,0,.22)',
-        pointerEvents: 'none',
-      }}
-    >
-      <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{icon}</Box>
-      <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.2, fontWeight: 800, color: 'var(--hc-text)' }}>
-        {title}
-      </Typography>
-    </Box>
   )
 }
 
