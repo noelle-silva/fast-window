@@ -18,7 +18,8 @@
         "decorations": false,
         "resizable": true,
         "visible": false,
-        "skipTaskbar": false
+        "skipTaskbar": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=10063"
       }
     ],
     "security": {
