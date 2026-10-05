@@ -3,7 +3,7 @@ import { type HyperCortexFavoritesNavV1, type HyperCortexRepoStateV1, type NoteM
 import type { HyperCortexGateway } from '../gateway'
 import type { SidebarDisplayMode } from '../appSettingsModel'
 import type { AssetEntry } from '../assetTypes'
-import { addRef, createFolder, getFolderById, moveRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, createFolder, deleteFolder, getFolderById, getRefsByFolderId, moveRef, removeRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger, type FavoritesLedger } from '../favoritesLedger'
 import { resolveAssetRef } from '../assetLookup'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -165,6 +165,7 @@ export function useFavoritesWorkspaceActions(opts: {
   gateway: HyperCortexGateway
   trashEnabled: boolean
   favoritesDoc: HyperCortexFavoritesDocV1 | null
+  favoritesDocRef: React.MutableRefObject<HyperCortexFavoritesDocV1 | null>
   handleFavoritesDocChange: (nextDoc: HyperCortexFavoritesDocV1) => void
   currentFolderId: string
   setCurrentFolderId: React.Dispatch<React.SetStateAction<string>>
@@ -184,10 +185,10 @@ export function useFavoritesWorkspaceActions(opts: {
   handleUpdateNoteInfo: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void>
   handleUpdateAssetInfo: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void>
   handleDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void>
-  requestDeleteAssetEntity: (asset: AssetEntry) => void
+  requestDeleteAssetEntity: (asset: AssetEntry) => Promise<boolean>
 }): {
   handleNavigateFolder: (folderId: string) => void
-  handleDeleteFolderEntity: (folderId: string) => void
+  handleDeleteFolderEntity: (folderId: string, opts?: { removeRefId?: string }) => void
   handleCreateFolderInFavorites: (info: { title: string; description: string }) => void
   handleUploadAssetsIntoIndex: (folderId: string) => Promise<void>
   handleFavoritesSidebarNavigate: (folderId: string) => void
@@ -202,6 +203,7 @@ export function useFavoritesWorkspaceActions(opts: {
     gateway,
     trashEnabled,
     favoritesDoc,
+    favoritesDocRef,
     handleFavoritesDocChange,
     currentFolderId,
     setCurrentFolderId,
@@ -271,18 +273,44 @@ export function useFavoritesWorkspaceActions(opts: {
     [persistRepoStatePatch],
   )
 
+  // 删除收藏夹实体：回收站启用时先把完整快照（收藏夹信息 + 页面条目清单）移入回收站，
+  // 再移除文档中的收藏夹本体与页面条目；别处指向它的引用保留为已丢失，可随恢复复活。
+  // 同时删除引用时，引用移除与实体移除在这里合并为一次文档更新，避免连续两次提交丢更新。
   const handleDeleteFolderEntity = React.useCallback(
-    (folderId: string) => {
+    (folderId: string, opts?: { removeRefId?: string }) => {
       const id = String(folderId || '').trim()
-      if (!id) return
-      // 删除收藏夹时丢弃其滚动记账，避免陈旧记忆残留。
-      clearFavoritesScrollMemory(id)
-      if (currentFolderId === id) {
-        setCurrentFolderId('root')
-        if (repoReadyRef.current) void persistRepoStatePatch({ currentFolderId: 'root' }).catch(() => {})
+      if (!id || id === 'root') return
+      const base = favoritesDocRef.current
+      const folder = base?.folders[id]
+      if (!base || !folder) return
+
+      const refs = getRefsByFolderId(base, id)
+      let next = base
+      const removeRefId = String(opts?.removeRefId || '').trim()
+      if (removeRefId) next = removeRef(next, removeRefId)
+      const withoutEntity = deleteFolder(next, id)
+      if (!withoutEntity) return
+
+      const finish = () => {
+        handleFavoritesDocChange(withoutEntity)
+        // 删除收藏夹时丢弃其滚动记账，避免陈旧记忆残留。
+        clearFavoritesScrollMemory(id)
+        if (currentFolderId === id) {
+          setCurrentFolderId('root')
+          if (repoReadyRef.current) void persistRepoStatePatch({ currentFolderId: 'root' }).catch(() => {})
+        }
       }
+
+      if (!trashEnabled) {
+        finish()
+        return
+      }
+      void gateway.trash
+        .moveFolderToTrash('library', { folder, refs })
+        .then(finish)
+        .catch((e: any) => void gateway.host.toast(`删除收藏夹失败：${String(e?.message || e || '未知错误')}`))
     },
-    [clearFavoritesScrollMemory, currentFolderId, persistRepoStatePatch],
+    [clearFavoritesScrollMemory, currentFolderId, favoritesDocRef, gateway, handleFavoritesDocChange, persistRepoStatePatch, repoReadyRef, setCurrentFolderId, trashEnabled],
   )
 
   // 右侧栏当前层级新建真实收藏夹：先建实体，再在当前浏览层挂上引用；确认即经统一文档入口落盘，不自动跳转。
@@ -311,7 +339,13 @@ export function useFavoritesWorkspaceActions(opts: {
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
     onDeleteFolderEntity: handleDeleteFolderEntity,
-    onDeleteNoteEntity: note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void gateway.host.toast(String(e?.message || e || '删除失败'))),
+    onDeleteNoteEntity: note =>
+      handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })
+        .then(() => true)
+        .catch((e: any) => {
+          void gateway.host.toast(String(e?.message || e || '删除失败'))
+          return false
+        }),
     onDeleteAssetEntity: requestDeleteAssetEntity,
   })
 

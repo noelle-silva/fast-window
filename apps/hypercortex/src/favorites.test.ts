@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canMoveRefToFolder,
+  deleteFolder,
   moveRef,
   resolveMoveDropTargetRefId,
   type FavoriteFolder,
@@ -127,5 +128,26 @@ describe('moveRef target filtering', () => {
     expect(result.movedCount).toBe(1)
     expect(result.doc.refsByFolderId.b).toHaveLength(0)
     expect(result.doc.refsByFolderId.c).toHaveLength(1)
+  })
+})
+
+describe('deleteFolder', () => {
+  it('removes the folder and its own page refs but keeps refs pointing at it', () => {
+    const doc = fixture()
+    const next = deleteFolder(doc, 'a')
+    expect(next).not.toBeNull()
+    expect(next!.folders.a).toBeUndefined()
+    expect(next!.refsByFolderId.a).toBeUndefined()
+    // root 中指向 a 的引用保留：目标缺失期间显示已丢失，随恢复复活。
+    expect(next!.refsByFolderId.root).toEqual([itemRef('ref-a', 'root', 'folder', 'a')])
+    expect(next!.folders.root).toBeDefined()
+    expect(next!.folders.b).toBeDefined()
+  })
+
+  it('rejects root, blank and unknown ids', () => {
+    const doc = fixture()
+    expect(deleteFolder(doc, 'root')).toBeNull()
+    expect(deleteFolder(doc, '')).toBeNull()
+    expect(deleteFolder(doc, 'nope')).toBeNull()
   })
 })

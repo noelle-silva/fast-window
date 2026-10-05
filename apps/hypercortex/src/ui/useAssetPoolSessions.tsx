@@ -67,6 +67,8 @@ export function useAssetPoolSessions(params: Params) {
   const [playingTabKeys, setPlayingTabKeys] = React.useState<ReadonlySet<string>>(() => new Set())
   const [assetEntityDeleteTarget, setAssetEntityDeleteTarget] = React.useState<AssetEntry | null>(null)
   const [assetEntityDeleting, setAssetEntityDeleting] = React.useState(false)
+  // 删除确认的结果回执：删除请求返回的 Promise 由确认/取消时结算（true=已删除，false=取消或失败）。
+  const assetEntityDeleteResolveRef = React.useRef<((deleted: boolean) => void) | null>(null)
 
   const setTabPlaying = React.useCallback((tabKey: string, playing: boolean) => {
     const key = String(tabKey || '').trim()
@@ -166,9 +168,9 @@ export function useAssetPoolSessions(params: Params) {
   }, [])
 
   const handleDeleteAssetEntity = React.useCallback(
-    async (asset: AssetEntry) => {
+    async (asset: AssetEntry): Promise<boolean> => {
       const assetId = String(asset?.assetId || '').trim()
-      if (!assetId) return
+      if (!assetId) return false
       try {
         await gateway.trash.moveAssetToTrash('library', assetId, asset.ext)
         const tabKey = assetTabId(asset)
@@ -180,19 +182,27 @@ export function useAssetPoolSessions(params: Params) {
           return { ...(prev as any), assets }
         })
         void gateway.host.toast('附件已移入回收站')
+        return true
       } catch (e: any) {
         void gateway.host.toast(String(e?.message || e || '删除附件失败'))
+        return false
       }
     },
     [gateway],
   )
 
-  const requestDeleteAssetEntity = React.useCallback((asset: AssetEntry) => {
-    setAssetEntityDeleteTarget(asset)
+  // 删除请求：弹出确认框并返回结果 Promise，调用方据此在删除完成后（而非之前）做后续处理。
+  const requestDeleteAssetEntity = React.useCallback((asset: AssetEntry): Promise<boolean> => {
+    return new Promise<boolean>(resolve => {
+      assetEntityDeleteResolveRef.current = resolve
+      setAssetEntityDeleteTarget(asset)
+    })
   }, [])
 
   const closeAssetEntityDeleteDialog = React.useCallback(() => {
     if (assetEntityDeleting) return
+    assetEntityDeleteResolveRef.current?.(false)
+    assetEntityDeleteResolveRef.current = null
     setAssetEntityDeleteTarget(null)
   }, [assetEntityDeleting])
 
@@ -201,10 +211,12 @@ export function useAssetPoolSessions(params: Params) {
     if (!target || assetEntityDeleting) return
     setAssetEntityDeleting(true)
     try {
-      await handleDeleteAssetEntity(target)
-      setAssetEntityDeleteTarget(null)
+      const deleted = await handleDeleteAssetEntity(target)
+      assetEntityDeleteResolveRef.current?.(deleted)
     } finally {
+      assetEntityDeleteResolveRef.current = null
       setAssetEntityDeleting(false)
+      setAssetEntityDeleteTarget(null)
     }
   }, [assetEntityDeleteTarget, assetEntityDeleting, handleDeleteAssetEntity])
 

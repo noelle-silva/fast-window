@@ -53,3 +53,21 @@ export function isFavoriteRefActive(ref: FavoriteItemRef, activeTabKey: string, 
   const key = favoriteRefTabKey(ref, lookup)
   return !!key && key === String(activeTabKey || '').trim()
 }
+
+/**
+ * 关闭当前激活条目后，在当前收藏夹页按原位置选下一个续接目标：
+ * 先沿下方找下一条、再沿上方找上一条，跳过同批被关闭的条目；只认笔记与附件（entries 已过滤）。
+ * 当前条目不在本页时返回空串，交由上层走既有回退。
+ */
+export function nextFavoriteEntryAfterClose(
+  entries: readonly { tabKey: string }[],
+  currentTabKey: string,
+  closing: ReadonlySet<string>,
+): string {
+  const current = String(currentTabKey || '').trim()
+  if (!current) return ''
+  const idx = entries.findIndex(entry => entry.tabKey === current)
+  if (idx < 0) return ''
+  const candidates = [...entries.slice(idx + 1), ...entries.slice(0, idx).reverse()]
+  return candidates.find(entry => !closing.has(entry.tabKey))?.tabKey || ''
+}

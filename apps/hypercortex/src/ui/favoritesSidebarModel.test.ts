@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFavoriteFolderView, isFavoriteRefActive } from './favoritesSidebarModel'
+import { buildFavoriteFolderView, isFavoriteRefActive, nextFavoriteEntryAfterClose } from './favoritesSidebarModel'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 
 function ref(id: string, kind: FavoriteItemRef['kind'], targetId: string): FavoriteItemRef {
@@ -87,5 +87,34 @@ describe('isFavoriteRefActive', () => {
 
   it('returns false for a mismatching tab key', () => {
     expect(isFavoriteRefActive(noteRef, 'note:other', view.lookup)).toBe(false)
+  })
+})
+
+describe('nextFavoriteEntryAfterClose', () => {
+  const entries = [{ tabKey: 'a' }, { tabKey: 'b' }, { tabKey: 'c' }, { tabKey: 'd' }]
+
+  it('picks the next entry below the closed one', () => {
+    expect(nextFavoriteEntryAfterClose(entries, 'b', new Set())).toBe('c')
+  })
+
+  it('falls back to the previous entry when at the tail', () => {
+    expect(nextFavoriteEntryAfterClose(entries, 'd', new Set())).toBe('c')
+  })
+
+  it('picks the next entry when at the head', () => {
+    expect(nextFavoriteEntryAfterClose(entries, 'a', new Set())).toBe('b')
+  })
+
+  it('skips entries closed in the same batch, searching lower first then upper', () => {
+    expect(nextFavoriteEntryAfterClose(entries, 'b', new Set(['c']))).toBe('d')
+    expect(nextFavoriteEntryAfterClose(entries, 'c', new Set(['d']))).toBe('b')
+  })
+
+  it('returns empty when the current entry is not on the page', () => {
+    expect(nextFavoriteEntryAfterClose(entries, 'missing', new Set())).toBe('')
+  })
+
+  it('returns empty for a blank current key', () => {
+    expect(nextFavoriteEntryAfterClose(entries, '  ', new Set())).toBe('')
   })
 })

@@ -41,9 +41,9 @@ type Props = {
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
   onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
-  onDeleteFolderEntity?: (folderId: string) => void
-  onDeleteNoteEntity?: (note: NoteMeta) => void
-  onDeleteAssetEntity?: (asset: AssetEntry) => void
+  onDeleteFolderEntity?: (folderId: string, opts?: { removeRefId?: string }) => void
+  onDeleteNoteEntity?: (note: NoteMeta) => Promise<boolean> | boolean
+  onDeleteAssetEntity?: (asset: AssetEntry) => Promise<boolean> | boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
 }

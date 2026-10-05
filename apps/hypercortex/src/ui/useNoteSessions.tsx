@@ -9,6 +9,7 @@ import { assetTabId, type AssetEntry } from '../assetTypes'
 import type { DraftIdentity } from './draftIdentity'
 import type { NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { closeTabsInSidebar, deriveSidebarFields, insertTabAsUngrouped, type SidebarItem } from './sidebarModel'
+import { nextFavoriteEntryAfterClose, type FavoriteFolderView } from './favoritesSidebarModel'
 import { buildNoteInitSnapshot, filterOpenNoteIdsForClose } from './useDraftOrchestration'
 import { useNoteCardMenus } from './useNoteCardMenus'
 import { useNoteSessionHandles } from './useNoteSessionHandles'
@@ -38,6 +39,12 @@ type Params = {
   openNoteIdsRef: React.MutableRefObject<string[]>
   noteScrollTopByIdRef: React.MutableRefObject<Record<string, number>>
   repoReadyRef: React.MutableRefObject<boolean>
+  /** 右侧收藏夹栏当前页视图：关闭从收藏栏打开的内容时据此续接下一条/上一条（只认笔记与附件）。 */
+  favoritesFolderViewRef: React.MutableRefObject<FavoriteFolderView>
+  /** 当前选中是否归属右侧收藏夹栏：决定关闭后是否走收藏夹页续接。 */
+  resolvedSelectionSourceRef: React.MutableRefObject<'tabs' | 'favorites'>
+  /** 激活右侧收藏夹栏条目的入口：续接打开时选中留在右侧栏。实现定义晚于本模块，经 ref 连接。 */
+  activateFavoritesEntryKeyRef: React.MutableRefObject<(tabKey: string) => boolean>
   /** 关闭标签直接执行的入口：实现定义晚于附件会话等消费方，经 ref 连接。 */
   closeTabKeysDirectRef: React.MutableRefObject<(tabKeys: string[]) => void>
   /** 激活已开标签的入口：实现定义晚于装载流程，经 ref 连接。 */
@@ -79,6 +86,9 @@ export function useNoteSessions(params: Params) {
     openNoteIdsRef,
     noteScrollTopByIdRef,
     repoReadyRef,
+    favoritesFolderViewRef,
+    resolvedSelectionSourceRef,
+    activateFavoritesEntryKeyRef,
     closeTabKeysDirectRef,
     activateExistingTabKeyRef,
     setDetailSelectionSource,
@@ -348,7 +358,14 @@ export function useNoteSessions(params: Params) {
 
       if (!didCloseActive) return
 
-      // 关闭了当前激活目标：选中态回到左侧标签栏（右侧栏引用已不在当前详情）。
+      // 关闭的是从右侧收藏夹栏打开的内容：在当前收藏夹页按原位置续接下一条/上一条
+      // （只认笔记与附件；跳过同批被关闭的），接着打开，选中留在右侧栏。
+      if (resolvedSelectionSourceRef.current === 'favorites') {
+        const nextKey = nextFavoriteEntryAfterClose(favoritesFolderViewRef.current.entries, currentActive, closing)
+        if (nextKey && activateFavoritesEntryKeyRef.current(nextKey)) return
+      }
+
+      // 选中态回到左侧标签栏（右侧栏没有可切换的条目）。
       setDetailSelectionSource('tabs')
 
       if (!nextActive) {

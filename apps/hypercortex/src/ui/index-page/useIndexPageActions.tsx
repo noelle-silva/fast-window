@@ -7,7 +7,6 @@ import type { NoteMeta } from '../../core'
 import {
   addRef,
   createFolder,
-  deleteFolder,
   getRefsByFolderId,
   type FavoriteItemRef,
   type HyperCortexFavoritesDocV1,
@@ -35,9 +34,9 @@ type Options = {
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
   onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
-  onDeleteFolderEntity?: (folderId: string) => void
-  onDeleteNoteEntity?: (note: NoteMeta) => void
-  onDeleteAssetEntity?: (asset: AssetEntry) => void
+  onDeleteFolderEntity?: (folderId: string, opts?: { removeRefId?: string }) => void
+  onDeleteNoteEntity?: (note: NoteMeta) => Promise<boolean> | boolean
+  onDeleteAssetEntity?: (asset: AssetEntry) => Promise<boolean> | boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
 }
@@ -222,16 +221,11 @@ export function useIndexPageActions(opts: Options) {
   const confirmDeleteCurrentFolder = React.useCallback(() => {
     const targetId = String(deleteFolderConfirmId || '').trim()
     if (!targetId) return
-    const nextDoc = deleteFolder(doc, targetId)
-    if (!nextDoc) {
-      void gateway.host.toast('删除收藏夹失败')
-      return
-    }
-    onDocChange(nextDoc)
     setDeleteFolderConfirmId('')
-    onNavigateFolder('root')
+    // 实体删除统一交给上层入口执行（回收站或永久删除），本层只负责关闭确认与回到根层。
     onDeleteFolderEntity?.(targetId)
-  }, [deleteFolderConfirmId, doc, gateway, onDeleteFolderEntity, onDocChange, onNavigateFolder])
+    onNavigateFolder('root')
+  }, [deleteFolderConfirmId, onDeleteFolderEntity, onNavigateFolder])
 
   const favoritesEntity = useFavoritesEntityActions({
     doc,
@@ -239,8 +233,8 @@ export function useIndexPageActions(opts: Options) {
     toast: message => void gateway.host.toast(message),
     onUpdateNoteInfo,
     onUpdateAssetInfo,
-    onDeleteFolderEntity: folderId => {
-      onDeleteFolderEntity?.(folderId)
+    onDeleteFolderEntity: (folderId, opts) => {
+      onDeleteFolderEntity?.(folderId, opts)
       if (folderId === currentFolderId) onNavigateFolder('root')
     },
     onDeleteNoteEntity,

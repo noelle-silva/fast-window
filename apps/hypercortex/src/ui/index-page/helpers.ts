@@ -43,11 +43,11 @@ export function getRefPixelRect(layout: GridLayout, gridWidth: number): { left: 
 
 export function folderDeleteHelperText(folderId: string): string {
   if (folderId === 'root') return '根目录是系统入口，不能删除。'
-  return '这是 delete entity，会删除收藏夹本体，并清理所有页面里对它的引用。'
+  return '这是 delete entity，会删除收藏夹本体；现有页面中指向它的卡片会变成失效引用卡片。'
 }
 
 export function entityDeleteHelperText(kind: DeleteEntityTarget['kind']): string {
-  if (kind === 'folder') return '这是 delete entity，不是 remove ref。删除后，所有页面中指向这个收藏夹的卡片都会被清理。'
+  if (kind === 'folder') return '这是 delete entity，不是 remove ref。删除后，现有页面中指向这个收藏夹的卡片会变成失效引用卡片。'
   if (kind === 'note') return '这是 delete entity，不是 remove ref。删除后，现有页面中的相关卡片会变成失效引用卡片。'
   return '这是 delete entity，不是 remove ref。确认后附件会移入回收站，现有页面中的相关卡片会变成失效引用卡片。'
 }

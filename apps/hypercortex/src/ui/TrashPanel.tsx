@@ -1,10 +1,12 @@
 import * as React from 'react'
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta, VaultScope } from '../core'
+import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
 import { softButtonSx } from './pluginUiStyles'
 import { useWorkspaceVisible } from './workspaceVisibility'
@@ -19,11 +21,12 @@ function formatDateTime(ms: number): string {
 export function TrashPanel(props: {
   gateway: HyperCortexGateway
   scope: VaultScope
-  onRestored?: (meta: NoteMeta, kind: HyperCortexTrashItem['kind']) => void
+  onRestored?: (meta: NoteMeta, kind: Exclude<HyperCortexTrashItem['kind'], 'folder'>) => void
   onAssetRestored?: (asset: AssetEntry) => void
+  onFavoritesRestored?: (doc: HyperCortexFavoritesDocV1) => void
   onPermanentlyDeleted?: (item: HyperCortexTrashItem) => void
 }) {
-  const { gateway, scope, onRestored, onAssetRestored, onPermanentlyDeleted } = props
+  const { gateway, scope, onRestored, onAssetRestored, onFavoritesRestored, onPermanentlyDeleted } = props
   const workspaceVisible = useWorkspaceVisible()
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -57,8 +60,9 @@ export function TrashPanel(props: {
       setRestoringId(item.id)
       try {
         const result = await gateway.trash.restoreTrashItem(scope, item)
-        if (result.meta) onRestored?.(result.meta, item.kind)
+        if (result.meta && (item.kind === 'note' || item.kind === 'asset' || item.kind === 'face')) onRestored?.(result.meta, item.kind)
         if (result.asset) onAssetRestored?.(result.asset)
+        if (result.favorites) onFavoritesRestored?.(result.favorites)
         setItems(prev => prev.filter(x => x.dir !== item.dir))
       } catch (e: any) {
         setError(String(e?.message || e || '恢复失败'))
@@ -66,7 +70,7 @@ export function TrashPanel(props: {
         setRestoringId('')
       }
     },
-    [gateway, onAssetRestored, onRestored, restoringId, scope],
+    [gateway, onAssetRestored, onFavoritesRestored, onRestored, restoringId, scope],
   )
 
   const confirmDelete = React.useCallback((item: HyperCortexTrashItem) => setDeleteTarget(item), [])
@@ -125,8 +129,10 @@ export function TrashPanel(props: {
                   </Typography>
                   <Chip
                     size="small"
-                    icon={item.kind === 'asset' ? <AttachFileRoundedIcon /> : item.kind === 'face' ? <LayersRoundedIcon /> : <NotesRoundedIcon />}
-                    label={item.kind === 'asset' ? '附件' : item.kind === 'face' ? '笔记面' : '笔记'}
+                    icon={
+                      item.kind === 'asset' ? <AttachFileRoundedIcon /> : item.kind === 'face' ? <LayersRoundedIcon /> : item.kind === 'folder' ? <FolderRoundedIcon /> : <NotesRoundedIcon />
+                    }
+                    label={item.kind === 'asset' ? '附件' : item.kind === 'face' ? '笔记面' : item.kind === 'folder' ? '收藏夹' : '笔记'}
                     sx={{ mt: 0.75, height: 22, fontSize: 11, fontWeight: 800 }}
                   />
                   <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.58)', lineHeight: 1.6 }}>

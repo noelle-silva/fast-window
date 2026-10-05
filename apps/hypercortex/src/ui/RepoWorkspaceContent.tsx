@@ -140,7 +140,14 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             onCreateNoteInIndex={o.handleCreateNoteInIndex}
             onUploadAssetsInIndex={o.handleUploadAssetsIntoIndex}
             onDeleteFolderEntity={o.handleDeleteFolderEntity}
-            onDeleteNoteEntity={note => void o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void o.gateway.host.toast(String(e?.message || e || '删除失败')))}
+            onDeleteNoteEntity={note =>
+              o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' })
+                .then(() => true)
+                .catch((e: any) => {
+                  void o.gateway.host.toast(String(e?.message || e || '删除失败'))
+                  return false
+                })
+            }
             onDeleteAssetEntity={o.requestDeleteAssetEntity}
             onUpdateNoteInfo={o.handleUpdateNoteInfo}
             onUpdateAssetInfo={o.handleUpdateAssetInfo}
@@ -152,6 +159,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             scope="library"
             onRestored={o.handleTrashRestored}
             onAssetRestored={asset => void o.handleTrashAssetRestored(asset)}
+            onFavoritesRestored={doc => o.handleFavoritesDocChange(doc)}
             onPermanentlyDeleted={item => {
               if (item.kind === 'asset') {
                 const key = item.ext ? `${item.assetId}.${item.ext}` : item.assetId || item.id
@@ -164,7 +172,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
                 o.closeTabKeysDirectRef.current([`asset:${key}`])
                 return
               }
-              if (item.kind === 'face') return
+              if (item.kind === 'face' || item.kind === 'folder') return
               const nid = String(item.id || '').trim()
               if (!nid) return
               o.closeTabKeysDirectRef.current([noteTabKey(nid)])
@@ -225,7 +233,14 @@ export function RepoWorkspaceModalBody(props: { orchestration: RepoWorkspaceOrch
           onCreateNoteInIndex={o.handleCreateNoteInIndex}
           onUploadAssetsInIndex={o.handleUploadAssetsIntoIndex}
           onDeleteFolderEntity={o.handleDeleteFolderEntity}
-          onDeleteNoteEntity={note => void o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' }).catch((e: any) => void o.gateway.host.toast(String(e?.message || e || '删除失败')))}
+          onDeleteNoteEntity={note =>
+            o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' })
+              .then(() => true)
+              .catch((e: any) => {
+                void o.gateway.host.toast(String(e?.message || e || '删除失败'))
+                return false
+              })
+          }
           onDeleteAssetEntity={o.requestDeleteAssetEntity}
           onUpdateNoteInfo={o.handleUpdateNoteInfo}
           onUpdateAssetInfo={o.handleUpdateAssetInfo}

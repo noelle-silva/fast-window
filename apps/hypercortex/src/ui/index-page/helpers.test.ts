@@ -84,13 +84,13 @@ describe('folderDeleteHelperText', () => {
   })
 
   it('explains entity deletion otherwise', () => {
-    expect(folderDeleteHelperText('g1')).toBe('这是 delete entity，会删除收藏夹本体，并清理所有页面里对它的引用。')
+    expect(folderDeleteHelperText('g1')).toBe('这是 delete entity，会删除收藏夹本体；现有页面中指向它的卡片会变成失效引用卡片。')
   })
 })
 
 describe('entityDeleteHelperText', () => {
   it.each([
-    ['folder', '这是 delete entity，不是 remove ref。删除后，所有页面中指向这个收藏夹的卡片都会被清理。'],
+    ['folder', '这是 delete entity，不是 remove ref。删除后，现有页面中指向这个收藏夹的卡片会变成失效引用卡片。'],
     ['note', '这是 delete entity，不是 remove ref。删除后，现有页面中的相关卡片会变成失效引用卡片。'],
     ['asset', '这是 delete entity，不是 remove ref。确认后附件会移入回收站，现有页面中的相关卡片会变成失效引用卡片。'],
   ] as const)('returns the copy for kind %s', (kind, expected) => {

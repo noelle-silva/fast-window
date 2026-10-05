@@ -152,39 +152,21 @@ export function updateFolderInfo(
   }
 }
 
+/**
+ * 删除收藏夹实体：移除收藏夹本体与其页面条目清单；别处指向它的引用保留在文档中，
+ * 目标缺失期间显示为已丢失，可随回收站恢复复活。根收藏夹与未知标识不可删除。
+ */
 export function deleteFolder(doc: HyperCortexFavoritesDocV1, folderId: string): HyperCortexFavoritesDocV1 | null {
   const id = String(folderId || '').trim()
   if (!id) return null
   if (id === doc.rootFolderId) return null
   if (!doc.folders[id]) return null
 
-  const nowMs = Date.now()
-  const nextFoldersBase: Record<string, FavoriteFolder> = { ...doc.folders }
-  delete nextFoldersBase[id]
+  const nextFolders: Record<string, FavoriteFolder> = { ...doc.folders }
+  delete nextFolders[id]
 
   const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = { ...doc.refsByFolderId }
   delete nextRefsByFolderId[id]
-
-  const touchedFolderIds = new Set<string>()
-
-  for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
-    if (fid === id) continue
-    const list = Array.isArray(refs) ? refs : []
-    const filtered = list.filter(ref => !(ref?.folderId === id || (ref?.kind === 'folder' && ref?.targetId === id)))
-    if (filtered.length !== list.length) {
-      nextRefsByFolderId[fid] = filtered
-      touchedFolderIds.add(fid)
-    }
-  }
-
-  if (touchedFolderIds.size === 0) return { ...doc, folders: nextFoldersBase, refsByFolderId: nextRefsByFolderId }
-
-  const nextFolders: Record<string, FavoriteFolder> = { ...nextFoldersBase }
-  for (const fid of touchedFolderIds) {
-    const f = nextFolders[fid]
-    if (!f) continue
-    nextFolders[fid] = { ...f, updatedAtMs: nowMs }
-  }
 
   return { ...doc, folders: nextFolders, refsByFolderId: nextRefsByFolderId }
 }
