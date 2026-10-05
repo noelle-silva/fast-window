@@ -382,6 +382,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.moveNoteToTrash(requireScope(params), rawField(params, "note"))
 	case "hypercortex.trash.moveAsset":
 		return svc.moveAssetToTrash(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
+	case "hypercortex.trash.moveFolder":
+		return svc.moveFolderToTrash(requireScope(params), rawField(params, "folder"))
 	case "hypercortex.trash.permanentlyDeleteNoteDir":
 		return nil, svc.permanentlyDeleteNoteDir(requireScope(params), stringField(params, "noteId"), stringField(params, "dir"))
 	case "hypercortex.trash.permanentlyDeleteItem":

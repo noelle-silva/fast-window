@@ -263,11 +263,18 @@ type trashFaceMeta struct {
 	Face      noteFaceManifest `json:"face"`
 }
 
+// trashFolderMeta 是收藏夹回收站条目的完整快照：收藏夹信息与其页面条目清单。
+type trashFolderMeta struct {
+	Folder favoriteFolder    `json:"folder"`
+	Refs   []favoriteItemRef `json:"refs"`
+}
+
 type trashMeta struct {
-	Version     int             `json:"version"`
-	Kind        string          `json:"kind,omitempty"`
-	DeletedAtMs float64         `json:"deletedAtMs"`
-	OriginalDir string          `json:"originalDir,omitempty"`
-	Asset       assetIndexEntry `json:"asset,omitempty"`
-	Face        *trashFaceMeta  `json:"face,omitempty"`
+	Version     int              `json:"version"`
+	Kind        string           `json:"kind,omitempty"`
+	DeletedAtMs float64          `json:"deletedAtMs"`
+	OriginalDir string           `json:"originalDir,omitempty"`
+	Asset       assetIndexEntry  `json:"asset,omitempty"`
+	Face        *trashFaceMeta   `json:"face,omitempty"`
+	Folder      *trashFolderMeta `json:"folder,omitempty"`
 }

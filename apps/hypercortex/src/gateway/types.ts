@@ -1,6 +1,6 @@
 import type { VaultScope } from '../core'
 import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
-import type { HyperCortexFavoritesDocV1 } from '../favorites'
+import type { HyperCortexFavoritesDocV1, FavoriteFolder, FavoriteItemRef } from '../favorites'
 import type { NoteRefEntryMap, NoteRefIndex, NoteRefRelationDirection, NoteRefRelationResult } from '../noteRefs'
 import type { HyperCortexNoteFaceDoc } from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
@@ -10,7 +10,7 @@ import type { AssetEntry } from '../assetTypes'
 import type { FaceDeclaration } from '../shared/faceDeclarations'
 
 export type HyperCortexTrashItem = {
-  kind: 'note' | 'asset' | 'face'
+  kind: 'note' | 'asset' | 'face' | 'folder'
   id: string
   title: string
   dir: string
@@ -257,9 +257,11 @@ export type TrashService = {
   listTrashItems: (scope: VaultScope) => Promise<HyperCortexTrashItem[]>
   moveNoteToTrash: (scope: VaultScope, note: NoteMeta) => Promise<{ trashDir: string }>
   moveAssetToTrash: (scope: VaultScope, assetId: string, ext?: string) => Promise<{ trashDir: string }>
+  /** 收藏夹进回收站：提交完整快照（收藏夹信息 + 页面条目清单）。 */
+  moveFolderToTrash: (scope: VaultScope, snapshot: { folder: FavoriteFolder; refs: FavoriteItemRef[] }) => Promise<{ trashDir: string }>
   permanentlyDeleteNoteDir: (scope: VaultScope, noteId: string, dir: string) => Promise<void>
   permanentlyDeleteTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<void>
-  restoreTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<{ meta?: NoteMeta; asset?: AssetEntry }>
+  restoreTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<{ meta?: NoteMeta; asset?: AssetEntry; favorites?: HyperCortexFavoritesDocV1 }>
   maybeAutoCleanupTrash: (scope: VaultScope, days: number) => Promise<{ deletedCount: number }>
 }
 
