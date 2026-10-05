@@ -3,7 +3,7 @@ import { type HyperCortexFavoritesNavV1, type HyperCortexRepoStateV1, type NoteM
 import type { HyperCortexGateway } from '../gateway'
 import type { SidebarDisplayMode } from '../appSettingsModel'
 import type { AssetEntry } from '../assetTypes'
-import { addRef, createFolder, deleteFolder, getFolderById, getRefsByFolderId, moveRef, removeRef, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, collectRefsForTarget, createFolder, deleteFolder, getFolderById, getRefsByFolderId, moveRef, removeRefsByIds, reorderRefsInFolder, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { createFavoritesLedger, type FavoritesLedger } from '../favoritesLedger'
 import { resolveAssetRef } from '../assetLookup'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -184,11 +184,11 @@ export function useFavoritesWorkspaceActions(opts: {
   handleOpenAssetTab: (asset: AssetEntry, source?: 'tabs' | 'favorites', opts?: { recordHistory?: boolean }) => void
   handleUpdateNoteInfo: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void>
   handleUpdateAssetInfo: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void>
-  handleDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void>
-  requestDeleteAssetEntity: (asset: AssetEntry) => Promise<boolean>
+  handleDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent'; refs?: FavoriteItemRef[] }) => Promise<void>
+  requestDeleteAssetEntity: (asset: AssetEntry, opts?: { refs?: FavoriteItemRef[]; mode?: 'trash' | 'permanent' }) => Promise<boolean>
 }): {
   handleNavigateFolder: (folderId: string) => void
-  handleDeleteFolderEntity: (folderId: string, opts?: { removeRefId?: string }) => void
+  handleDeleteFolderEntity: (folderId: string) => void
   handleCreateFolderInFavorites: (info: { title: string; description: string }) => void
   handleUploadAssetsIntoIndex: (folderId: string) => Promise<void>
   handleFavoritesSidebarNavigate: (folderId: string) => void
@@ -273,11 +273,11 @@ export function useFavoritesWorkspaceActions(opts: {
     [persistRepoStatePatch],
   )
 
-  // 删除收藏夹实体：回收站启用时先把完整快照（收藏夹信息 + 页面条目清单）移入回收站，
-  // 再移除文档中的收藏夹本体与页面条目；别处指向它的引用保留为已丢失，可随恢复复活。
-  // 同时删除引用时，引用移除与实体移除在这里合并为一次文档更新，避免连续两次提交丢更新。
+  // 删除收藏夹实体：回收站启用时先把完整快照（收藏夹信息 + 页面条目清单 + 别处指向它的引用）移入回收站，
+  // 再移除文档中的收藏夹本体、页面条目与别处指向它的引用；恢复时本体与引用一起原样放回。
+  // 引用移除与实体移除在这里合并为一次文档更新，避免连续两次提交丢更新。
   const handleDeleteFolderEntity = React.useCallback(
-    (folderId: string, opts?: { removeRefId?: string }) => {
+    (folderId: string) => {
       const id = String(folderId || '').trim()
       if (!id || id === 'root') return
       const base = favoritesDocRef.current
@@ -285,10 +285,9 @@ export function useFavoritesWorkspaceActions(opts: {
       if (!base || !folder) return
 
       const refs = getRefsByFolderId(base, id)
-      let next = base
-      const removeRefId = String(opts?.removeRefId || '').trim()
-      if (removeRefId) next = removeRef(next, removeRefId)
-      const withoutEntity = deleteFolder(next, id)
+      // 别处指向本收藏夹的引用：随本体一并移除并打包，恢复时原样放回。
+      const inboundRefs = collectRefsForTarget(base, 'folder', id)
+      const withoutEntity = deleteFolder(removeRefsByIds(base, inboundRefs.map(ref => ref.id)), id)
       if (!withoutEntity) return
 
       const finish = () => {
@@ -306,7 +305,7 @@ export function useFavoritesWorkspaceActions(opts: {
         return
       }
       void gateway.trash
-        .moveFolderToTrash('library', { folder, refs })
+        .moveFolderToTrash('library', { folder, refs, inboundRefs })
         .then(finish)
         .catch((e: any) => void gateway.host.toast(`删除收藏夹失败：${String(e?.message || e || '未知错误')}`))
     },
@@ -339,14 +338,14 @@ export function useFavoritesWorkspaceActions(opts: {
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
     onDeleteFolderEntity: handleDeleteFolderEntity,
-    onDeleteNoteEntity: note =>
-      handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })
+    onDeleteNoteEntity: (note, refs) =>
+      handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent', refs })
         .then(() => true)
         .catch((e: any) => {
           void gateway.host.toast(String(e?.message || e || '删除失败'))
           return false
         }),
-    onDeleteAssetEntity: requestDeleteAssetEntity,
+    onDeleteAssetEntity: (asset, refs) => requestDeleteAssetEntity(asset, { refs, mode: trashEnabled ? 'trash' : 'permanent' }),
   })
 
   const handleFavoritesSidebarContextMenu = React.useCallback(

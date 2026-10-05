@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   canMoveRefToFolder,
+  collectRefsForTarget,
   deleteFolder,
   moveRef,
+  removeRefsByIds,
   resolveMoveDropTargetRefId,
   type FavoriteFolder,
   type FavoriteItemRef,
@@ -138,7 +140,7 @@ describe('deleteFolder', () => {
     expect(next).not.toBeNull()
     expect(next!.folders.a).toBeUndefined()
     expect(next!.refsByFolderId.a).toBeUndefined()
-    // root 中指向 a 的引用保留：目标缺失期间显示已丢失，随恢复复活。
+    // deleteFolder 只删本体与自身页面条目；别处指向它的引用由上层「删除引用与本体」一并移除。
     expect(next!.refsByFolderId.root).toEqual([itemRef('ref-a', 'root', 'folder', 'a')])
     expect(next!.folders.root).toBeDefined()
     expect(next!.folders.b).toBeDefined()
@@ -149,5 +151,37 @@ describe('deleteFolder', () => {
     expect(deleteFolder(doc, 'root')).toBeNull()
     expect(deleteFolder(doc, '')).toBeNull()
     expect(deleteFolder(doc, 'nope')).toBeNull()
+  })
+})
+
+describe('collectRefsForTarget', () => {
+  it('collects refs pointing at the same target across folders', () => {
+    const doc = fixture()
+    doc.refsByFolderId.c.push(itemRef('ref-note-c', 'c', 'note', 'n1'))
+    const refs = collectRefsForTarget(doc, 'note', 'n1')
+    expect(refs.map(ref => ref.id).sort()).toEqual(['ref-note', 'ref-note-c'])
+  })
+
+  it('returns empty for a blank target or no match', () => {
+    const doc = fixture()
+    expect(collectRefsForTarget(doc, 'note', '')).toEqual([])
+    expect(collectRefsForTarget(doc, 'note', 'missing')).toEqual([])
+    expect(collectRefsForTarget(doc, 'asset', 'n1')).toEqual([])
+  })
+})
+
+describe('removeRefsByIds', () => {
+  it('removes every matching ref in one pass', () => {
+    const doc = fixture()
+    doc.refsByFolderId.c.push(itemRef('ref-note-c', 'c', 'note', 'n1'))
+    const next = removeRefsByIds(doc, ['ref-note', 'ref-note-c'])
+    expect(next.refsByFolderId.b).toHaveLength(0)
+    expect(next.refsByFolderId.c).toHaveLength(0)
+  })
+
+  it('returns the same doc when nothing matches', () => {
+    const doc = fixture()
+    expect(removeRefsByIds(doc, [])).toBe(doc)
+    expect(removeRefsByIds(doc, ['missing'])).toBe(doc)
   })
 })

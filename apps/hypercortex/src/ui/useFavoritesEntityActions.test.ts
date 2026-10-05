@@ -1,52 +1,52 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { deleteEntityThenRemoveRef } from './useFavoritesEntityActions'
+import { deleteEntityThenRemoveRefs } from './useFavoritesEntityActions'
 
-describe('deleteEntityThenRemoveRef', () => {
-  it('removes the ref only after the entity deletion resolves', async () => {
+describe('deleteEntityThenRemoveRefs', () => {
+  it('removes refs only after the entity deletion resolves', async () => {
     const order: string[] = []
     let resolveDelete!: (deleted: boolean) => void
     const pending = new Promise<boolean>(resolve => {
       resolveDelete = resolve
     })
 
-    deleteEntityThenRemoveRef({
-      removeRefId: 'ref-1',
+    deleteEntityThenRemoveRefs({
+      refIds: ['ref-1', 'ref-2'],
       deleteEntity: () => {
         order.push('delete')
         return pending
       },
-      removeRef: refId => order.push(`remove:${refId}`),
+      removeRefs: refIds => order.push(`remove:${refIds.join(',')}`),
     })
 
     expect(order).toEqual(['delete'])
     resolveDelete(true)
     await pending
     await Promise.resolve()
-    expect(order).toEqual(['delete', 'remove:ref-1'])
+    expect(order).toEqual(['delete', 'remove:ref-1,ref-2'])
   })
 
-  it('leaves the ref untouched when deletion fails or is canceled', async () => {
-    const removeRef = vi.fn()
-    deleteEntityThenRemoveRef({ removeRefId: 'ref-1', deleteEntity: () => Promise.resolve(false), removeRef })
+  it('leaves refs untouched when deletion fails or is canceled', async () => {
+    const removeRefs = vi.fn()
+    deleteEntityThenRemoveRefs({ refIds: ['ref-1'], deleteEntity: () => Promise.resolve(false), removeRefs })
     await Promise.resolve()
     await Promise.resolve()
-    expect(removeRef).not.toHaveBeenCalled()
+    expect(removeRefs).not.toHaveBeenCalled()
   })
 
-  it('does not touch any ref for a plain entity delete', async () => {
-    const removeRef = vi.fn()
-    deleteEntityThenRemoveRef({ removeRefId: '', deleteEntity: () => true, removeRef })
+  it('does not touch any ref when there is nothing to remove', async () => {
+    const removeRefs = vi.fn()
+    deleteEntityThenRemoveRefs({ refIds: [], deleteEntity: () => true, removeRefs })
     await Promise.resolve()
     await Promise.resolve()
-    expect(removeRef).not.toHaveBeenCalled()
+    expect(removeRefs).not.toHaveBeenCalled()
   })
 
   it('handles a synchronous boolean result', async () => {
-    const removeRef = vi.fn()
-    deleteEntityThenRemoveRef({ removeRefId: 'ref-1', deleteEntity: () => true, removeRef })
+    const removeRefs = vi.fn()
+    deleteEntityThenRemoveRefs({ refIds: ['ref-1'], deleteEntity: () => true, removeRefs })
     await Promise.resolve()
     await Promise.resolve()
-    expect(removeRef).toHaveBeenCalledWith('ref-1')
+    expect(removeRefs).toHaveBeenCalledWith(['ref-1'])
   })
 })

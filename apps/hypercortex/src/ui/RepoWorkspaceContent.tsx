@@ -140,15 +140,15 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             onCreateNoteInIndex={o.handleCreateNoteInIndex}
             onUploadAssetsInIndex={o.handleUploadAssetsIntoIndex}
             onDeleteFolderEntity={o.handleDeleteFolderEntity}
-            onDeleteNoteEntity={note =>
-              o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' })
+            onDeleteNoteEntity={(note, refs) =>
+              o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent', refs })
                 .then(() => true)
                 .catch((e: any) => {
                   void o.gateway.host.toast(String(e?.message || e || '删除失败'))
                   return false
                 })
             }
-            onDeleteAssetEntity={o.requestDeleteAssetEntity}
+            onDeleteAssetEntity={(asset, refs) => o.requestDeleteAssetEntity(asset, { refs, mode: o.trashEnabled ? 'trash' : 'permanent' })}
             onUpdateNoteInfo={o.handleUpdateNoteInfo}
             onUpdateAssetInfo={o.handleUpdateAssetInfo}
           />
@@ -233,15 +233,15 @@ export function RepoWorkspaceModalBody(props: { orchestration: RepoWorkspaceOrch
           onCreateNoteInIndex={o.handleCreateNoteInIndex}
           onUploadAssetsInIndex={o.handleUploadAssetsIntoIndex}
           onDeleteFolderEntity={o.handleDeleteFolderEntity}
-          onDeleteNoteEntity={note =>
-            o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent' })
+          onDeleteNoteEntity={(note, refs) =>
+            o.handleDeleteNote({ note, mode: o.trashEnabled ? 'trash' : 'permanent', refs })
               .then(() => true)
               .catch((e: any) => {
                 void o.gateway.host.toast(String(e?.message || e || '删除失败'))
                 return false
               })
           }
-          onDeleteAssetEntity={o.requestDeleteAssetEntity}
+          onDeleteAssetEntity={(asset, refs) => o.requestDeleteAssetEntity(asset, { refs, mode: o.trashEnabled ? 'trash' : 'permanent' })}
           onUpdateNoteInfo={o.handleUpdateNoteInfo}
           onUpdateAssetInfo={o.handleUpdateAssetInfo}
         />

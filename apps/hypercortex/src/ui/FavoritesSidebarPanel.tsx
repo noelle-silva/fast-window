@@ -129,6 +129,17 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   )
   const assetLookup = folderView.lookup
   const refs = folderView.refs
+  // 界面不显示没有对应本体的引用：目标缺失的已丢失条目直接不出现在列表中。
+  const visibleRefs = React.useMemo(
+    () =>
+      refs.filter(ref => {
+        if (ref.kind === 'folder') return !!doc?.folders?.[ref.targetId]
+        if (ref.kind === 'note') return !!noteIndex?.[ref.targetId]
+        if (ref.kind === 'asset') return !!resolveAssetRef(assetLookup, ref.targetId)
+        return false
+      }),
+    [refs, doc, noteIndex, assetLookup],
+  )
 
   // 选中态归属右侧栏时，把当前激活目标（标签键）映射回当前页的条目引用。
   const activeKey = tabSelectionVisible ? String(activeTabKey || '').trim() : ''
@@ -175,7 +186,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     handleDragOver,
     handleDragEnd,
     handleDragCancel,
-  } = useFavoritesSidebarDnd({ refs, currentFolderId: nav.currentFolderId, doc, onReorderRefs, onMoveRef })
+  } = useFavoritesSidebarDnd({ refs: visibleRefs, currentFolderId: nav.currentFolderId, doc, onReorderRefs, onMoveRef })
 
   const dragOverlay = useFavoritesSidebarOverlay({ activeId: dragActiveId, refs, doc, noteIndex, assetLookup })
 
@@ -438,7 +449,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           gap: 0.25,
         }}
       >
-        {!refs.length && showTitle ? (
+        {!visibleRefs.length && showTitle ? (
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>这个收藏夹还是空的</Typography>
         ) : null}
         <SortableRoot

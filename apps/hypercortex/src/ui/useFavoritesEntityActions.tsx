@@ -5,11 +5,10 @@ import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteSweepRoundedIcon from '@mui/icons-material/DeleteSweepRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta } from '../core'
-import { findRefById, getFolderById, moveRef, removeRef, updateFolderInfo, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { collectRefsForTarget, findRefById, getFolderById, moveRef, removeRef, removeRefsByIds, updateFolderInfo, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { ContextMenu, type ContextMenuItem, type ContextMenuLeaf } from './ContextMenu'
 import { EntityInfoDialog } from './EntityInfoDialog'
 import { FavoritesTreePickerDialog, type FavoritesSaveResult } from './FavoritesTreePickerDialog'
@@ -38,11 +37,12 @@ export type FavoritesEntityCapabilities = {
   canMoveRefs?: boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
-  onDeleteFolderEntity?: (folderId: string, opts?: { removeRefId?: string }) => void
-  /** 删除笔记实体；返回是否已删除，供调用方在删除完成后决定是否移除引用。 */
-  onDeleteNoteEntity?: (note: NoteMeta) => Promise<boolean> | boolean
-  /** 删除附件实体；返回是否已删除（取消确认框为否），供调用方在删除完成后决定是否移除引用。 */
-  onDeleteAssetEntity?: (asset: AssetEntry) => Promise<boolean> | boolean
+  /** 删除收藏夹本体；实现方负责把别处指向它的所有引用一并移除并随本体打包。 */
+  onDeleteFolderEntity?: (folderId: string) => void
+  /** 删除笔记本体；refs 为该笔记在收藏夹里的全部引用，随本体一并打包进回收站。返回是否已删除。 */
+  onDeleteNoteEntity?: (note: NoteMeta, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
+  /** 删除附件本体；refs 为该附件在收藏夹里的全部引用，随本体一并打包进回收站。返回是否已删除。 */
+  onDeleteAssetEntity?: (asset: AssetEntry, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
 }
 
 function assetTargetId(asset: AssetEntry): string {
@@ -64,18 +64,18 @@ function targetDescription(target: FavoritesEntityTarget, doc: HyperCortexFavori
 }
 
 /**
- * 删除实体并（可选）在删除完成后移除引用：引用移除一律排在实体删除之后，
- * 让「同时删除引用与实体」与「删除实体」在关闭标签/续接那一刻看到完全相同的页面上下文；
+ * 删除本体并在删除完成后批量移除其收藏引用：引用移除一律排在本体删除之后，
+ * 让删除在关闭标签/续接那一刻看到完全相同的页面上下文；
  * 删除失败或取消确认（deleted 为假）时不动引用。
  */
-export function deleteEntityThenRemoveRef(opts: {
-  removeRefId: string
+export function deleteEntityThenRemoveRefs(opts: {
+  refIds: readonly string[]
   deleteEntity: () => Promise<boolean> | boolean | void
-  removeRef: (refId: string) => void
+  removeRefs: (refIds: readonly string[]) => void
 }): void {
   const pending = opts.deleteEntity()
   Promise.resolve(pending).then(deleted => {
-    if (opts.removeRefId && deleted) opts.removeRef(opts.removeRefId)
+    if (opts.refIds.length && deleted) opts.removeRefs(opts.refIds)
   })
 }
 
@@ -86,8 +86,8 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
 
   const [menu, setMenu] = React.useState<{ x: number; y: number; target: FavoritesEntityTarget } | null>(null)
   const [editTarget, setEditTarget] = React.useState<FavoritesEntityTarget | null>(null)
-  // 删除请求：目标 + 是否同时移除当前页引用（两者复用同一个删除确认）。
-  const [deleteRequest, setDeleteRequest] = React.useState<{ target: FavoritesEntityTarget; alsoRemoveRef: boolean } | null>(null)
+  // 删除请求：目标；确认后连同该对象在收藏夹里的所有引用一并删除并随本体打包。
+  const [deleteRequest, setDeleteRequest] = React.useState<{ target: FavoritesEntityTarget } | null>(null)
   const [removeRefTarget, setRemoveRefTarget] = React.useState<FavoritesEntityTarget | null>(null)
   // 移动目标：待迁移的引用及其当前所在收藏夹（引用自带 folderId）。
   const [moveTarget, setMoveTarget] = React.useState<FavoriteItemRef | null>(null)
@@ -109,6 +109,12 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
   const removeRefById = React.useCallback((refId: string) => {
     const { doc, onDocChange } = capsRef.current
     const next = removeRef(doc, refId)
+    if (next !== doc) onDocChange(next)
+  }, [])
+
+  const removeRefsByIdsFromDoc = React.useCallback((refIds: readonly string[]) => {
+    const { doc, onDocChange } = capsRef.current
+    const next = removeRefsByIds(doc, refIds)
     if (next !== doc) onDocChange(next)
   }, [])
 
@@ -145,31 +151,22 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
       }
       out.push({ id: 'edit', label: '编辑信息', icon: <EditRoundedIcon fontSize="small" />, onSelect: () => setEditTarget(target) })
     }
-    // 移除引用与删除实体归并到「删除」父项，悬停展开二级菜单；移除引用同样需要二次确认。
+    // 「删除引用」与「删除引用与本体」两项统一归入「删除」父项，悬停展开二级菜单；两者都需要二次确认。
     const removeLeaf: ContextMenuLeaf = {
       id: 'remove',
-      label: '从当前页移除引用',
+      label: '删除引用',
       icon: <DeleteOutlineRoundedIcon fontSize="small" />,
       onSelect: () => setRemoveRefTarget(target),
     }
     const deleteChildren: ContextMenuLeaf[] = [removeLeaf]
     if (target.kind !== 'stale') {
-      deleteChildren.push(
-        {
-          id: 'delete',
-          label: '删除实体',
-          danger: true,
-          icon: <DeleteForeverRoundedIcon fontSize="small" />,
-          onSelect: () => setDeleteRequest({ target, alsoRemoveRef: false }),
-        },
-        {
-          id: 'delete-with-ref',
-          label: '同时删除引用与实体',
-          danger: true,
-          icon: <DeleteSweepRoundedIcon fontSize="small" />,
-          onSelect: () => setDeleteRequest({ target, alsoRemoveRef: true }),
-        },
-      )
+      deleteChildren.push({
+        id: 'delete-with-ref',
+        label: '删除引用与本体',
+        danger: true,
+        icon: <DeleteSweepRoundedIcon fontSize="small" />,
+        onSelect: () => setDeleteRequest({ target }),
+      })
     }
     out.push({ id: 'delete-group', label: '删除', danger: true, icon: <DeleteOutlineRoundedIcon fontSize="small" />, children: deleteChildren })
     return out
@@ -227,19 +224,22 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
     if (!request) return
     setDeleteRequest(null)
     const target = request.target
+    if (target.kind === 'stale') return
     const c = capsRef.current
     if (target.kind === 'folder') {
-      // 收藏夹实体与引用同属一份文档：删除实体与移除引用合并为一次文档更新（原子，避免竞态）。
-      c.onDeleteFolderEntity?.(target.folderId, request.alsoRemoveRef ? { removeRefId: target.refId } : undefined)
+      // 收藏夹实体与引用同属一份文档：删除实体与移除全部引用由实现方合并为一次文档更新（原子，避免竞态）。
+      c.onDeleteFolderEntity?.(target.folderId)
       return
     }
-    if (target.kind === 'stale') return
-    deleteEntityThenRemoveRef({
-      removeRefId: request.alsoRemoveRef ? target.refId : '',
-      deleteEntity: () => (target.kind === 'note' ? c.onDeleteNoteEntity?.(target.note) : c.onDeleteAssetEntity?.(target.asset)),
-      removeRef: removeRefById,
+    // 「删除引用与本体」：把该对象在收藏夹里的所有引用一并移除，并随本体打包进回收站。
+    const targetId = target.kind === 'note' ? target.note.id : assetTargetId(target.asset)
+    const refs = collectRefsForTarget(c.doc, target.kind, targetId)
+    deleteEntityThenRemoveRefs({
+      refIds: refs.map(ref => ref.id),
+      deleteEntity: () => (target.kind === 'note' ? c.onDeleteNoteEntity?.(target.note, refs) : c.onDeleteAssetEntity?.(target.asset, refs)),
+      removeRefs: removeRefsByIdsFromDoc,
     })
-  }, [deleteRequest, removeRefById])
+  }, [deleteRequest, removeRefsByIdsFromDoc])
 
   const node = (
     <>
@@ -255,20 +255,20 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
         />
       ) : null}
       <Dialog open={workspaceVisible && !!removeRefTarget} onClose={() => setRemoveRefTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>移除引用</DialogTitle>
+        <DialogTitle>删除引用</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>
-            确定从当前收藏夹页面移除这条引用吗？这只会移除当前页的卡片，不会删除实体本身。
+            确定删除这条引用吗？只会从当前收藏夹移除该引用，本体不会删除。
           </Typography>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 1 }}>当前目标：{removeRefTarget ? targetTitle(removeRefTarget, caps.doc) : '未命名'}</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemoveRefTarget(null)}>取消</Button>
-          <Button color="error" variant="contained" onClick={confirmRemoveRef}>移除引用</Button>
+          <Button color="error" variant="contained" onClick={confirmRemoveRef}>删除引用</Button>
         </DialogActions>
       </Dialog>
       <Dialog open={workspaceVisible && !!deleteRequest} onClose={() => setDeleteRequest(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>删除目标实体</DialogTitle>
+        <DialogTitle>删除引用与本体</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)', lineHeight: 1.7 }}>
             {deleteRequest && deleteRequest.target.kind !== 'stale' ? entityDeleteHelperText(deleteRequest.target.kind) : ''}
@@ -277,7 +277,7 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteRequest(null)}>取消</Button>
-          <Button color="error" variant="contained" onClick={confirmDelete}>删除实体</Button>
+          <Button color="error" variant="contained" onClick={confirmDelete}>删除引用与本体</Button>
         </DialogActions>
       </Dialog>
       {favoritesTargets.target ? (

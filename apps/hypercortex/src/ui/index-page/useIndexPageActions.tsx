@@ -34,9 +34,9 @@ type Options = {
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
   onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
-  onDeleteFolderEntity?: (folderId: string, opts?: { removeRefId?: string }) => void
-  onDeleteNoteEntity?: (note: NoteMeta) => Promise<boolean> | boolean
-  onDeleteAssetEntity?: (asset: AssetEntry) => Promise<boolean> | boolean
+  onDeleteFolderEntity?: (folderId: string) => void
+  onDeleteNoteEntity?: (note: NoteMeta, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
+  onDeleteAssetEntity?: (asset: AssetEntry, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
 }
@@ -233,8 +233,8 @@ export function useIndexPageActions(opts: Options) {
     toast: message => void gateway.host.toast(message),
     onUpdateNoteInfo,
     onUpdateAssetInfo,
-    onDeleteFolderEntity: (folderId, opts) => {
-      onDeleteFolderEntity?.(folderId, opts)
+    onDeleteFolderEntity: folderId => {
+      onDeleteFolderEntity?.(folderId)
       if (folderId === currentFolderId) onNavigateFolder('root')
     },
     onDeleteNoteEntity,

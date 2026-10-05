@@ -2,7 +2,7 @@ import * as React from 'react'
 import { type HyperCortexIndexV1, type HyperCortexRepoStateV1, type HyperCortexWorkspaceV1, type NoteMeta } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import { isDraftNoteId } from '../drafts'
-import { addRef, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { orderKindsByGlobalOrder } from '../facePreferences'
 import { noteIdFromTabKey, noteTabKey, tabKind, type TabKey } from '../tabKey'
 import { assetTabId, type AssetEntry } from '../assetTypes'
@@ -138,7 +138,7 @@ export function useNoteSessions(params: Params) {
   }, [])
 
   const handleDeleteNote = React.useCallback(
-    async (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => {
+    async (payload: { note: NoteMeta; mode: 'trash' | 'permanent'; refs?: FavoriteItemRef[] }) => {
       const note = payload.note
       const nid = String(note?.id || '').trim()
       if (!nid) return
@@ -156,7 +156,7 @@ export function useNoteSessions(params: Params) {
       }
 
       try {
-        if (payload.mode === 'trash') await gateway.trash.moveNoteToTrash('library', note)
+        if (payload.mode === 'trash') await gateway.trash.moveNoteToTrash('library', note, payload.refs)
         else await gateway.trash.permanentlyDeleteNoteDir('library', nid, note.dir)
 
         closeTabKeysDirectRef.current([noteTabKey(nid)])

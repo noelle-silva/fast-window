@@ -225,6 +225,26 @@ export function findRefById(doc: HyperCortexFavoritesDocV1, refId: string): Favo
 }
 
 /**
+ * 收集整份文档中指向同一对象的全部引用（跨收藏夹页）：
+ * 「删除引用与本体」据此把该对象在收藏夹里的所有引用一并移除并随本体打包进回收站。
+ */
+export function collectRefsForTarget(
+  doc: HyperCortexFavoritesDocV1,
+  kind: FavoriteItemRef['kind'],
+  targetId: string,
+): FavoriteItemRef[] {
+  const tid = String(targetId || '').trim()
+  if (!tid) return []
+  const out: FavoriteItemRef[] = []
+  for (const refs of Object.values(doc.refsByFolderId)) {
+    for (const ref of Array.isArray(refs) ? refs : []) {
+      if (ref?.kind === kind && ref.targetId === tid) out.push(ref)
+    }
+  }
+  return out
+}
+
+/**
  * 判断一条引用能否迁移到目标收藏夹：目标页存在、不是源引用当前所在页，且文件夹引用不会形成自环或循环。
  * 「移动到…」与拖拽移动共用的目标准入规则：右键选择器由树结构天然排除非法页，拖拽悬停用它判定可放入，
  * moveRef 的逐目标过滤也复用它，保证交互预期与底层结果同源一致。
@@ -317,6 +337,38 @@ export function removeRef(doc: HyperCortexFavoritesDocV1, refId: string): HyperC
   for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
     const list = Array.isArray(refs) ? refs : []
     const filtered = list.filter(ref => ref?.id !== id)
+    if (filtered.length !== list.length) {
+      nextRefsByFolderId[fid] = filtered
+      touchedFolderIds.add(fid)
+      changed = true
+    }
+  }
+
+  if (!changed) return doc
+
+  const nextFolders: Record<string, FavoriteFolder> = { ...doc.folders }
+  for (const fid of touchedFolderIds) {
+    const f = nextFolders[fid]
+    if (!f) continue
+    nextFolders[fid] = { ...f, updatedAtMs: nowMs }
+  }
+
+  return { ...doc, folders: nextFolders, refsByFolderId: nextRefsByFolderId }
+}
+
+/** 按引用标识批量移除：一次遍历完成，避免逐条重算整份文档。 */
+export function removeRefsByIds(doc: HyperCortexFavoritesDocV1, refIds: readonly string[]): HyperCortexFavoritesDocV1 {
+  const ids = new Set((refIds || []).map(id => String(id || '').trim()).filter(Boolean))
+  if (!ids.size) return doc
+
+  let changed = false
+  const nowMs = Date.now()
+  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = { ...doc.refsByFolderId }
+  const touchedFolderIds = new Set<string>()
+
+  for (const [fid, refs] of Object.entries(doc.refsByFolderId)) {
+    const list = Array.isArray(refs) ? refs : []
+    const filtered = list.filter(ref => !ids.has(ref?.id))
     if (filtered.length !== list.length) {
       nextRefsByFolderId[fid] = filtered
       touchedFolderIds.add(fid)

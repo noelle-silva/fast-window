@@ -4,6 +4,7 @@ import type { HyperCortexWorkspaceV1 } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey, assetTabId } from '../assetTypes'
+import type { FavoriteItemRef } from '../favorites'
 import type { TabKey } from '../tabKey'
 import { deriveSidebarFields, insertTabAsUngrouped, type SidebarItem } from './sidebarModel'
 import type { PageId } from './workspacePages'
@@ -69,6 +70,10 @@ export function useAssetPoolSessions(params: Params) {
   const [assetEntityDeleting, setAssetEntityDeleting] = React.useState(false)
   // 删除确认的结果回执：删除请求返回的 Promise 由确认/取消时结算（true=已删除，false=取消或失败）。
   const assetEntityDeleteResolveRef = React.useRef<((deleted: boolean) => void) | null>(null)
+  // 删除请求携带的收藏引用清单：确认后随附件本体一并打包进回收站。
+  const assetEntityDeleteRefsRef = React.useRef<FavoriteItemRef[]>([])
+  // 删除请求的落点：回收站启用时移入回收站，未启用时永久删除（引用一并清除）。
+  const assetEntityDeleteModeRef = React.useRef<'trash' | 'permanent'>('trash')
 
   const setTabPlaying = React.useCallback((tabKey: string, playing: boolean) => {
     const key = String(tabKey || '').trim()
@@ -168,11 +173,13 @@ export function useAssetPoolSessions(params: Params) {
   }, [])
 
   const handleDeleteAssetEntity = React.useCallback(
-    async (asset: AssetEntry): Promise<boolean> => {
+    async (asset: AssetEntry, opts?: { refs?: FavoriteItemRef[]; mode?: 'trash' | 'permanent' }): Promise<boolean> => {
       const assetId = String(asset?.assetId || '').trim()
       if (!assetId) return false
+      const mode: 'trash' | 'permanent' = opts?.mode === 'permanent' ? 'permanent' : 'trash'
       try {
-        await gateway.trash.moveAssetToTrash('library', assetId, asset.ext)
+        if (mode === 'trash') await gateway.trash.moveAssetToTrash('library', assetId, asset.ext, opts?.refs)
+        else await gateway.assets.deleteAsset('library', assetId, asset.ext)
         const tabKey = assetTabId(asset)
         closeTabKeysDirectRef.current([tabKey])
         setAssetPoolIndex(prev => {
@@ -181,7 +188,7 @@ export function useAssetPoolSessions(params: Params) {
           delete assets[asset.ext ? `${assetId}.${asset.ext}` : assetId]
           return { ...(prev as any), assets }
         })
-        void gateway.host.toast('附件已移入回收站')
+        void gateway.host.toast(mode === 'trash' ? '附件已移入回收站' : '附件已永久删除')
         return true
       } catch (e: any) {
         void gateway.host.toast(String(e?.message || e || '删除附件失败'))
@@ -192,17 +199,25 @@ export function useAssetPoolSessions(params: Params) {
   )
 
   // 删除请求：弹出确认框并返回结果 Promise，调用方据此在删除完成后（而非之前）做后续处理。
-  const requestDeleteAssetEntity = React.useCallback((asset: AssetEntry): Promise<boolean> => {
-    return new Promise<boolean>(resolve => {
-      assetEntityDeleteResolveRef.current = resolve
-      setAssetEntityDeleteTarget(asset)
-    })
-  }, [])
+  // refs 为该附件在收藏夹里的全部引用，随本体一并打包进回收站；mode 决定移入回收站或永久删除。
+  const requestDeleteAssetEntity = React.useCallback(
+    (asset: AssetEntry, opts?: { refs?: FavoriteItemRef[]; mode?: 'trash' | 'permanent' }): Promise<boolean> => {
+      return new Promise<boolean>(resolve => {
+        assetEntityDeleteResolveRef.current = resolve
+        assetEntityDeleteRefsRef.current = opts?.refs || []
+        assetEntityDeleteModeRef.current = opts?.mode === 'permanent' ? 'permanent' : 'trash'
+        setAssetEntityDeleteTarget(asset)
+      })
+    },
+    [],
+  )
 
   const closeAssetEntityDeleteDialog = React.useCallback(() => {
     if (assetEntityDeleting) return
     assetEntityDeleteResolveRef.current?.(false)
     assetEntityDeleteResolveRef.current = null
+    assetEntityDeleteRefsRef.current = []
+    assetEntityDeleteModeRef.current = 'trash'
     setAssetEntityDeleteTarget(null)
   }, [assetEntityDeleting])
 
@@ -211,10 +226,12 @@ export function useAssetPoolSessions(params: Params) {
     if (!target || assetEntityDeleting) return
     setAssetEntityDeleting(true)
     try {
-      const deleted = await handleDeleteAssetEntity(target)
+      const deleted = await handleDeleteAssetEntity(target, { refs: assetEntityDeleteRefsRef.current, mode: assetEntityDeleteModeRef.current })
       assetEntityDeleteResolveRef.current?.(deleted)
     } finally {
       assetEntityDeleteResolveRef.current = null
+      assetEntityDeleteRefsRef.current = []
+      assetEntityDeleteModeRef.current = 'trash'
       setAssetEntityDeleting(false)
       setAssetEntityDeleteTarget(null)
     }
@@ -231,16 +248,17 @@ export function useAssetPoolSessions(params: Params) {
 
   const assetEntityDeleteDialog = (
     <Dialog open={visible && !!assetEntityDeleteTarget} onClose={closeAssetEntityDeleteDialog} maxWidth="xs" fullWidth>
-      <DialogTitle>移入回收站</DialogTitle>
+      <DialogTitle>{assetEntityDeleteModeRef.current === 'permanent' ? '永久删除' : '删除引用与本体'}</DialogTitle>
       <DialogContent>
         <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
-          确定将附件「{assetEntityDeleteTarget ? assetRefKey(assetEntityDeleteTarget) : '未命名附件'}」移入回收站吗？现有页面中的相关卡片会变成失效引用卡片。
+          确定删除附件「{assetEntityDeleteTarget ? assetRefKey(assetEntityDeleteTarget) : '未命名附件'}」吗？它在收藏夹里的所有引用会一并删除
+          {assetEntityDeleteModeRef.current === 'permanent' ? '，此操作不可撤销。' : '，可在回收站恢复。'}
         </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={closeAssetEntityDeleteDialog} disabled={assetEntityDeleting}>取消</Button>
         <Button variant="contained" color="error" onClick={() => void confirmDeleteAssetEntity()} disabled={assetEntityDeleting}>
-          {assetEntityDeleting ? '处理中...' : '移入回收站'}
+          {assetEntityDeleting ? '处理中...' : assetEntityDeleteModeRef.current === 'permanent' ? '永久删除' : '删除引用与本体'}
         </Button>
       </DialogActions>
     </Dialog>
