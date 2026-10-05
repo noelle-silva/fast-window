@@ -1,24 +1,20 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, IconButton, TextField, Typography } from '@mui/material'
-import KeyboardArrowLeftRoundedIcon from '@mui/icons-material/KeyboardArrowLeftRounded'
-import KeyboardArrowRightRoundedIcon from '@mui/icons-material/KeyboardArrowRightRounded'
-import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
-import ZoomInRoundedIcon from '@mui/icons-material/ZoomInRounded'
-import ZoomOutRoundedIcon from '@mui/icons-material/ZoomOutRounded'
-import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
+import { Box, CircularProgress, Typography } from '@mui/material'
 import { createPdfDocumentLoadingTask, type PdfDocumentProxy, type PdfPageProxy } from '../../pdf/pdfRuntime'
 import { isPdfRenderCancelled, pdfPageRenderQueue } from '../../pdf/pdfRenderQueue'
 import type { AssetPreviewContext } from './registry'
 import { attachAssetReaderCtrlWheelZoom } from './assetReaderCtrlWheelZoom'
 import { attachAssetReaderWheelPaging } from './assetReaderWheelPaging'
-import { getAssetReaderPageNumberProps, getAssetReaderPageSelector, restoreAssetReaderViewportAnchor, type AssetReaderViewportAnchor } from './assetReaderViewportAnchor'
+import { getAssetReaderPageSelector, restoreAssetReaderViewportAnchor, type AssetReaderViewportAnchor } from './assetReaderViewportAnchor'
 import { AssetPreviewToolbarPortal } from './assetPreviewToolbar'
-import { commitPdfRenderedPageFrame, createPdfPageRenderBuffer, createPdfRenderedPageFrame } from './pdfPageRenderBuffer'
-import { getPdfPageFrameKey, PdfPageRenderCache, type PdfRenderedPageFrame } from './pdfPageRenderCache'
+import { PdfPageFrameView } from './PdfPageFrameView'
+import { PdfReaderToolbar } from './PdfReaderToolbar'
+import { PdfSpreadReader } from './PdfSpreadReader'
+import { createPdfPageRenderBuffer, createPdfRenderedPageFrame } from './pdfPageRenderBuffer'
+import { getPdfPageFrameKey, PdfPageRenderCache } from './pdfPageRenderCache'
 import { getPdfRenderWindowRequests } from './pdfRenderWindow'
 import { getNextPdfSpreadStartPage, getPdfSpreadFitScale, getPdfSpreadStartPage, getPreviousPdfSpreadStartPage, type PdfPageSize, type PdfReaderLayout } from './pdfReaderLayout'
 import { useAssetReaderElementSize } from './useAssetReaderElementSize'
-import { softButtonSx } from '../pluginUiStyles'
 
 const PDF_SCALE_MIN = 0.2
 const PDF_SCALE_MAX = 1
@@ -28,7 +24,6 @@ const DEFAULT_PDF_SPREAD_ZOOM = 1
 const DEFAULT_PDF_READER_LAYOUT: PdfReaderLayout = 'spread'
 const PAGE_ESTIMATED_WIDTH = 720
 const PAGE_ESTIMATED_HEIGHT = 1018
-const PAGE_OBSERVER_ROOT_MARGIN = '900px 0px'
 const CANVAS_MAX_AREA = 16_000_000
 const CANVAS_MAX_SIDE = 16_384
 
@@ -55,231 +50,6 @@ function getCanvasOutputScale(width: number, height: number): number {
   const sideLimitScale = Math.min(CANVAS_MAX_SIDE / safeWidth, CANVAS_MAX_SIDE / safeHeight)
   const scale = Math.min(dpr, areaLimitScale, sideLimitScale)
   return Number.isFinite(scale) && scale > 0 ? scale : 1
-}
-
-function usePageVisibility(rootRef: React.RefObject<HTMLDivElement>, pageNumber: number, scale: number, forceVisible = false): [React.RefObject<HTMLDivElement>, boolean] {
-  const ref = React.useRef<HTMLDivElement | null>(null)
-  const [visible, setVisible] = React.useState(forceVisible || pageNumber === 1)
-
-  React.useEffect(() => {
-    if (forceVisible) {
-      setVisible(true)
-      return
-    }
-    const el = ref.current
-    if (!el) return
-    const root = rootRef.current
-    if (!root || typeof IntersectionObserver === 'undefined') {
-      setVisible(true)
-      return
-    }
-
-    const observer = new IntersectionObserver(
-      entries => {
-        const entry = entries[0]
-        if (entry?.isIntersecting) setVisible(true)
-      },
-      { root, rootMargin: PAGE_OBSERVER_ROOT_MARGIN, threshold: 0.01 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [forceVisible, pageNumber, rootRef, scale])
-
-  return [ref, visible]
-}
-
-function PdfPageFrameView({
-  frame,
-  pageNumber,
-  scale,
-  scrollRootRef,
-  pageSize,
-  visible,
-  onVisible,
-  forceVisible = false,
-  pagePadding = { px: 2, py: 1.5 },
-}: {
-  frame: PdfRenderedPageFrame | null
-  pageNumber: number
-  scale: number
-  scrollRootRef: React.RefObject<HTMLDivElement>
-  pageSize: PdfPageSize
-  visible: boolean
-  onVisible: () => void
-  forceVisible?: boolean
-  pagePadding?: { px: number; py: number }
-}) {
-  const [pageRef, observedVisible] = usePageVisibility(scrollRootRef, pageNumber, scale, forceVisible)
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
-  const [displayFrame, setDisplayFrame] = React.useState<PdfRenderedPageFrame | null>(frame)
-
-  React.useEffect(() => {
-    if (!observedVisible) return
-    onVisible()
-  }, [observedVisible, onVisible])
-
-  React.useEffect(() => {
-    if (!frame) return
-    setDisplayFrame(frame)
-    const canvas = canvasRef.current
-    if (canvas) commitPdfRenderedPageFrame(canvas, frame)
-  }, [frame])
-
-  const width = Math.floor(pageSize.width * scale)
-  const height = Math.floor(pageSize.height * scale)
-  const shouldShowPlaceholder = !displayFrame && visible
-
-  return (
-    <Box ref={pageRef} sx={{ display: 'flex', justifyContent: 'center', px: pagePadding.px, py: pagePadding.py }}>
-      <Box {...getAssetReaderPageNumberProps(pageNumber)} sx={{ position: 'relative', width, height, flex: '0 0 auto', bgcolor: '#fff', borderRadius: 1, boxShadow: '0 10px 34px rgba(0,0,0,.18)', overflow: 'hidden' }}>
-        <canvas ref={canvasRef} aria-label={`PDF 第 ${pageNumber} 页`} style={{ display: displayFrame ? 'block' : 'none' }} />
-        {shouldShowPlaceholder ? (
-          <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(0,0,0,.42)', bgcolor: '#fffdf8' }}>
-            <Typography sx={{ fontSize: 12 }}>第 {pageNumber} 页</Typography>
-          </Box>
-        ) : null}
-      </Box>
-    </Box>
-  )
-}
-
-function PdfSpreadReader({
-  scale,
-  spreadStartPage,
-  pageCount,
-  scrollRootRef,
-  pageSize,
-  getFrame,
-  onPageVisible,
-}: {
-  scale: number
-  spreadStartPage: number
-  pageCount: number
-  scrollRootRef: React.RefObject<HTMLDivElement>
-  pageSize: PdfPageSize
-  getFrame: (pageNumber: number) => PdfRenderedPageFrame | null
-  onPageVisible: (pageNumber: number) => void
-}) {
-  const pageNumbers = [spreadStartPage, spreadStartPage + 1].filter(pageNumber => pageNumber <= pageCount)
-
-  return (
-    <Box sx={{ minWidth: 'max-content', height: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 0, px: 0, py: 0 }}>
-      {pageNumbers.map(pageNumber => (
-        <PdfPageFrameView key={pageNumber} frame={getFrame(pageNumber)} pageNumber={pageNumber} scale={scale} scrollRootRef={scrollRootRef} pageSize={pageSize} visible onVisible={() => onPageVisible(pageNumber)} forceVisible pagePadding={{ px: 0, py: 0 }} />
-      ))}
-    </Box>
-  )
-}
-
-function PdfReaderToolbar({
-  pageCount,
-  scale,
-  targetPage,
-  layout,
-  spreadStartPage,
-  onTargetPageChange,
-  onJumpToTargetPage,
-  onLayoutChange,
-  onPreviousSpread,
-  onNextSpread,
-  onResetSpreadView,
-  onZoomOut,
-  onResetZoom,
-  onZoomIn,
-}: {
-  pageCount: number
-  scale: number
-  targetPage: string
-  layout: PdfReaderLayout
-  spreadStartPage: number
-  onTargetPageChange: (value: string) => void
-  onJumpToTargetPage: (event: React.FormEvent<HTMLFormElement>) => void
-  onLayoutChange: (layout: PdfReaderLayout) => void
-  onPreviousSpread: () => void
-  onNextSpread: () => void
-  onResetSpreadView: () => void
-  onZoomOut: () => void
-  onResetZoom: () => void
-  onZoomIn: () => void
-}) {
-  const spreadEndPage = Math.min(spreadStartPage + 1, pageCount)
-
-  return (
-    <Box
-      aria-label="PDF 阅读控制"
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 0.75,
-        flexWrap: 'wrap',
-        minWidth: 0,
-      }}
-    >
-      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.62)', whiteSpace: 'nowrap' }}>
-        {layout === 'spread' ? `${spreadStartPage}-${spreadEndPage}` : `${pageCount} 页`} · {Math.round(scale * 100)}%
-      </Typography>
-      <Button size="small" variant="text" onClick={() => onLayoutChange(layout === 'spread' ? 'scroll' : 'spread')} sx={{ ...softButtonSx, minWidth: 72, height: 28, px: 1, fontSize: 12 }}>
-        {layout === 'spread' ? '连续滚动' : '双页翻页'}
-      </Button>
-      {layout === 'spread' ? (
-        <>
-          <IconButton size="small" aria-label="上一组 PDF 双页" onClick={onPreviousSpread} disabled={spreadStartPage <= 1} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-            <KeyboardArrowLeftRoundedIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" aria-label="下一组 PDF 双页" onClick={onNextSpread} disabled={spreadEndPage >= pageCount} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-            <KeyboardArrowRightRoundedIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" aria-label="重置 PDF 双页视角" onClick={onResetSpreadView} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-            <FitScreenRoundedIcon fontSize="small" />
-          </IconButton>
-        </>
-      ) : null}
-      <Box
-        component="form"
-        onSubmit={onJumpToTargetPage}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-          minWidth: 0,
-          px: 0.65,
-          py: 0.35,
-          borderRadius: 999,
-          bgcolor: 'rgba(0,0,0,.045)',
-        }}
-      >
-        <TextField
-          value={targetPage}
-          onChange={event => onTargetPageChange(event.target.value)}
-          type="number"
-          size="small"
-          aria-label="跳转到 PDF 页码"
-          inputProps={{ min: 1, max: pageCount, step: 1 }}
-          sx={{
-            width: 68,
-            '& .MuiInputBase-root': { height: 28, fontSize: 12, fontWeight: 800, bgcolor: 'rgba(255,255,255,.72)' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent' },
-            '& .Mui-focused': { bgcolor: 'rgba(255,255,255,.95)', boxShadow: '0 10px 24px rgba(0,0,0,.08)' },
-            '& input': { textAlign: 'center', px: 1 },
-          }}
-        />
-        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.48)', whiteSpace: 'nowrap' }}>/ {pageCount}</Typography>
-        <Button type="submit" size="small" variant="text" sx={{ ...softButtonSx, minWidth: 48, height: 28, px: 1, fontSize: 12 }}>
-          跳转
-        </Button>
-      </Box>
-      <IconButton size="small" aria-label="缩小 PDF" onClick={onZoomOut} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-        <ZoomOutRoundedIcon fontSize="small" />
-      </IconButton>
-      <IconButton size="small" aria-label="重置 PDF 缩放" onClick={onResetZoom} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-        <RestartAltRoundedIcon fontSize="small" />
-      </IconButton>
-      <IconButton size="small" aria-label="放大 PDF" onClick={onZoomIn} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
-        <ZoomInRoundedIcon fontSize="small" />
-      </IconButton>
-    </Box>
-  )
 }
 
 export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
