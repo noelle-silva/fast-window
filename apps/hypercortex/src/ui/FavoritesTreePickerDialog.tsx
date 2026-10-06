@@ -5,13 +5,16 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
-import { getRefsByFolderId } from '../favorites'
+import { getFolderRefs, getRefsByFolderId } from '../favorites'
+import { getFolderRefIssue } from '../favoritesGraph'
 import { buildFolderTree, collectTreeKeys, collectUniqueFolderIds, filterFolderTree, type FolderTreeNode } from './favoritesTree'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
-// 收藏夹树选择器：一棵树、两种用途。
+// 收藏夹树选择器：一棵树、三种用途，共用同一套树、搜索与定位。
 // - favorite（默认）：多选，「收藏到收藏夹」，已收藏的页预勾选，确认后增删引用。
 // - move：多选，「移动到收藏夹」，排除当前所在页，确认后把引用迁移到所选各页（源页不再保留）。
+// - add-folder：多选，「添加已有收藏夹」，把选中的收藏夹作为引用加入当前页，已在当前页的预勾选。
+// 文件夹引用会形成循环的条目一律灰掉、不可勾选，并在行尾标注原因；笔记、附件不涉及循环。
 
 type FavoritesSaveResult = {
   selectedFolderIds: string[]
@@ -20,35 +23,78 @@ type FavoritesSaveResult = {
 
 export type { FavoritesSaveResult }
 
-type Props = {
+type BaseProps = {
   open: boolean
   doc: HyperCortexFavoritesDocV1
-  kind: FavoriteItemRef['kind']
-  targetId: string
-  /** 选择模式：多选收藏（默认）或多选移动。 */
-  mode?: 'favorite' | 'move'
-  /** 移动模式下引用当前所在的收藏夹：该页不可作为目标（移到自己无意义）。 */
-  sourceFolderId?: string
   onClose: () => void
   onSave: (result: FavoritesSaveResult) => void
 }
 
-export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
-  const { open, doc, kind, targetId, mode = 'favorite', sourceFolderId, onClose, onSave } = props
+type FavoriteModeProps = {
+  mode?: 'favorite'
+  kind: FavoriteItemRef['kind']
+  targetId: string
+}
+
+type MoveModeProps = {
+  mode: 'move'
+  kind: FavoriteItemRef['kind']
+  targetId: string
+  /** 移动模式下引用当前所在的收藏夹：该页不可作为目标（移到自己无意义）。 */
+  sourceFolderId: string
+}
+
+type AddFolderModeProps = {
+  mode: 'add-folder'
+  /** 接收引用的当前收藏夹：选中的收藏夹将作为引用加入此页。 */
+  containerFolderId: string
+}
+
+export type FavoritesTreePickerDialogProps = BaseProps & (FavoriteModeProps | MoveModeProps | AddFolderModeProps)
+
+/** 会形成循环引用的收藏夹条目在行尾的统一标注。 */
+const CYCLE_REASON = '会形成循环引用，不能添加'
+
+export function FavoritesTreePickerDialog(props: FavoritesTreePickerDialogProps): React.ReactNode {
+  const { open, doc, onClose, onSave } = props
   const workspaceVisible = useWorkspaceVisible()
-  const isMove = mode === 'move'
+  const isMove = props.mode === 'move'
+  const isAddFolder = props.mode === 'add-folder'
+  // 添加已有收藏夹模式下操作对象恒为收藏夹；其余模式由调用方给出条目类型。
+  const itemKind: FavoriteItemRef['kind'] = props.mode === 'add-folder' ? 'folder' : props.kind
+  const targetId = props.mode === 'add-folder' ? '' : props.targetId
+  const sourceFolderId = props.mode === 'move' ? props.sourceFolderId : ''
+  const containerFolderId = props.mode === 'add-folder' ? props.containerFolderId : ''
 
   const nodes = React.useMemo(() => buildFolderTree(doc), [doc])
   const allTreeKeys = React.useMemo(() => collectTreeKeys(nodes), [nodes])
   const allFolderIds = React.useMemo(() => collectUniqueFolderIds(nodes), [nodes])
+
+  // 预勾选集合：收藏模式为已含该条目的收藏夹；添加模式为当前页已引用的收藏夹；移动模式不预勾选。
   const savedFolderIds = React.useMemo(() => {
     const set = new Set<string>()
+    if (isAddFolder) {
+      for (const ref of getFolderRefs(doc, containerFolderId)) set.add(ref.targetId)
+      return set
+    }
     for (const id of allFolderIds) {
       const refs = getRefsByFolderId(doc, id)
-      if (refs.some(ref => ref.kind === kind && ref.targetId === targetId)) set.add(id)
+      if (refs.some(ref => ref.kind === itemKind && ref.targetId === targetId)) set.add(id)
     }
     return set
-  }, [allFolderIds, doc, kind, targetId])
+  }, [allFolderIds, containerFolderId, doc, isAddFolder, itemKind, targetId])
+
+  // 会形成循环引用的收藏夹条目：一律灰掉、不可勾选；笔记、附件不涉及循环，不做判定。
+  const disabledReasonById = React.useMemo(() => {
+    const out = new Map<string, string>()
+    if (itemKind !== 'folder') return out
+    for (const id of allFolderIds) {
+      if (isMove && id === sourceFolderId) continue
+      const issue = isAddFolder ? getFolderRefIssue(doc, containerFolderId, id) : getFolderRefIssue(doc, id, targetId)
+      if (issue === 'cycle' || issue === 'self-reference') out.set(id, CYCLE_REASON)
+    }
+    return out
+  }, [allFolderIds, containerFolderId, doc, isAddFolder, isMove, itemKind, sourceFolderId, targetId])
 
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
@@ -81,6 +127,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
   const toggleSelect = React.useCallback(
     (id: string) => {
       if (isMove && id === sourceFolderId) return
+      if (disabledReasonById.has(id)) return
       setSelectedIds(prev => {
         const next = new Set(prev)
         if (next.has(id)) next.delete(id)
@@ -88,7 +135,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
         return next
       })
     },
-    [isMove, sourceFolderId],
+    [disabledReasonById, isMove, sourceFolderId],
   )
 
   const confirmSave = React.useCallback(() => {
@@ -101,6 +148,8 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
     const canExpand = hasChildren && !isSearching
     const expanded = effectiveExpandedKeys.has(node.key)
     const isSource = isMove && node.id === sourceFolderId
+    const disabledReason = disabledReasonById.get(node.id) || ''
+    const disabled = isSource || !!disabledReason
     return (
       <React.Fragment key={node.key}>
         <Box sx={{ pl: depth * 1.6, pr: 0.75, display: 'flex', alignItems: 'center', gap: 0.25 }}>
@@ -134,18 +183,22 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
               '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
             }}
           >
-            <FolderRoundedIcon fontSize="small" sx={{ flexShrink: 0, color: 'var(--hc-primary)' }} />
-            <Typography noWrap sx={{ flex: 1, fontSize: 13, fontWeight: 600, color: isSource ? 'rgba(0,0,0,.4)' : undefined }}>
+            <FolderRoundedIcon fontSize="small" sx={{ flexShrink: 0, color: disabled ? 'rgba(0,0,0,.26)' : 'var(--hc-primary)' }} />
+            <Typography noWrap sx={{ flex: 1, fontSize: 13, fontWeight: 600, color: disabled ? 'rgba(0,0,0,.4)' : undefined }}>
               {node.title}{isSource ? '（当前所在）' : ''}
             </Typography>
-            <Checkbox
-              size="small"
-              checked={selectedIds.has(node.id)}
-              disabled={isSource}
-              onClick={e => e.stopPropagation()}
-              onChange={() => toggleSelect(node.id)}
-              sx={{ p: 0.5, m: 0 }}
-            />
+            {disabledReason ? (
+              <Typography noWrap sx={{ flexShrink: 0, fontSize: 11, color: 'var(--hc-text)' }}>{disabledReason}</Typography>
+            ) : (
+              <Checkbox
+                size="small"
+                checked={selectedIds.has(node.id)}
+                disabled={isSource}
+                onClick={e => e.stopPropagation()}
+                onChange={() => toggleSelect(node.id)}
+                sx={{ p: 0.5, m: 0 }}
+              />
+            )}
           </Box>
         </Box>
         {hasChildren && expanded ? node.children.map(child => renderNode(child, depth + 1)) : null}
@@ -155,7 +208,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
 
   return (
     <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{isMove ? '移动到收藏夹' : '收藏到收藏夹'}</DialogTitle>
+      <DialogTitle>{isMove ? '移动到收藏夹' : isAddFolder ? '添加已有收藏夹' : '收藏到收藏夹'}</DialogTitle>
       <DialogContent>
         <TextField
           autoFocus

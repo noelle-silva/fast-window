@@ -1,14 +1,13 @@
 import * as React from 'react'
 import type { NoteMeta } from '../../core'
-import { addRef, type HyperCortexFavoritesDocV1 } from '../../favorites'
-import { getFolderRefIssue } from '../../favoritesGraph'
+import { addRef, getRefsByFolderId, removeRef, type HyperCortexFavoritesDocV1 } from '../../favorites'
 import type { HyperCortexGateway } from '../../gateway'
-import { AddExistingFolderDialog } from './AddExistingFolderDialog'
+import { FavoritesTreePickerDialog, type FavoritesSaveResult } from '../FavoritesTreePickerDialog'
 import { IndexPickerDialog } from './IndexPickerDialog'
 import type { AddKind } from './types'
 
 // 「添加已有」到某一收藏夹页的统一挑选流程：笔记、附件走 IndexPickerDialog，收藏夹走
-// AddExistingFolderDialog；自引用、循环引用与重复条目一律由既有 addRef / getFolderRefIssue 判定拦截。
+// FavoritesTreePickerDialog 的添加模式；重复与循环引用一律由既有 addRef / getFolderRefIssue 判定拦截。
 // 索引页与右侧收藏夹栏共用同一份挑选弹窗与判定，不另造第二套。
 
 type Options = {
@@ -62,26 +61,31 @@ export function useAddExistingRefs(opts: Options): {
     [doc, folderId, gateway, onDocChange],
   )
 
-  const addExistingFolder = React.useCallback(
-    (targetFolderId: string) => {
-      const issue = getFolderRefIssue(doc, folderId, targetFolderId)
-      if (issue === 'self-reference') {
-        void gateway.host.toast('不能把当前收藏夹再次引用到自己页面里')
-        return
+  // 添加已有收藏夹：把选中的收藏夹作为引用加入当前页；已在当前页的默认勾选，取消勾选即移除该引用。
+  const confirmAddFolders = React.useCallback(
+    (result: FavoritesSaveResult) => {
+      const selected = new Set(result.selectedFolderIds)
+      const already = new Set(result.alreadySavedFolderIds)
+      let next = doc
+
+      for (const targetId of result.selectedFolderIds) {
+        if (already.has(targetId)) continue
+        const added = addRef(next, folderId, 'folder', targetId)
+        if (added) next = added.doc
       }
-      if (issue === 'cycle') {
-        void gateway.host.toast('这次添加会形成收藏夹循环引用，已阻止')
-        return
+
+      for (const targetId of result.alreadySavedFolderIds) {
+        if (selected.has(targetId)) continue
+        const existing = getRefsByFolderId(next, folderId).find(ref => ref.kind === 'folder' && ref.targetId === targetId)
+        if (!existing) continue
+        const afterRemove = removeRef(next, existing.id)
+        if (afterRemove !== next) next = afterRemove
       }
-      const added = addRef(doc, folderId, 'folder', targetFolderId)
-      if (!added) {
-        void gateway.host.toast('这个收藏夹已经在当前页面里了，或无法添加')
-        return
-      }
-      onDocChange(added.doc)
+
       setFolderPickerOpen(false)
+      if (next !== doc) onDocChange(next)
     },
-    [doc, folderId, gateway, onDocChange],
+    [doc, folderId, onDocChange],
   )
 
   const node = (
@@ -103,12 +107,13 @@ export function useAddExistingRefs(opts: Options): {
           }}
         />
       ) : null}
-      <AddExistingFolderDialog
+      <FavoritesTreePickerDialog
         open={folderPickerOpen}
+        mode="add-folder"
         doc={doc}
-        currentFolderId={folderId}
+        containerFolderId={folderId}
         onClose={() => setFolderPickerOpen(false)}
-        onAddExistingFolder={addExistingFolder}
+        onSave={confirmAddFolders}
       />
     </>
   )
