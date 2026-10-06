@@ -33,6 +33,8 @@ type Params = {
   favoritesDoc: HyperCortexFavoritesDocV1 | null
   handleFavoritesDocChange: (nextDoc: HyperCortexFavoritesDocV1) => void
   draftIdentity: DraftIdentity
+  /** 外部改动信号：仓库笔记被外部改动时自增，用于清空卡片摘要缓存以就地重载。 */
+  externalNotesSignal: number
   openTabKeysRef: React.MutableRefObject<TabKey[]>
   activeTabKeyRef: React.MutableRefObject<TabKey>
   pageRef: React.MutableRefObject<PageId>
@@ -80,6 +82,7 @@ export function useNoteSessions(params: Params) {
     favoritesDoc,
     handleFavoritesDocChange,
     draftIdentity,
+    externalNotesSignal,
     openTabKeysRef,
     activeTabKeyRef,
     pageRef,
@@ -115,7 +118,7 @@ export function useNoteSessions(params: Params) {
     refreshNoteCardInfo,
     ensureNoteCardInfoLoaded,
     noteIndexMap,
-  } = useNoteSessionHandles({ visible, visiblePage, gateway, faceKindOrder, allNotes })
+  } = useNoteSessionHandles({ visible, visiblePage, gateway, faceKindOrder, allNotes, externalNotesSignal })
 
   // ---- 引用关系版本号：任何笔记保存/删除/恢复后自增，打开的会话据此重取反向引用。
   const [refRelationsEpoch, setRefRelationsEpoch] = React.useState(0)

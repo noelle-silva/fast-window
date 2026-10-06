@@ -3,6 +3,7 @@ import {
   type HyperCortexWorkspaceV1,
 } from '../core'
 import { sortNotesByUpdatedAtDesc } from '../noteCatalog'
+import { carryDraftNoteRefs } from '../favorites'
 import { useNoteScrollMemory } from './noteScrollMemory'
 import { type SidebarItem } from './sidebarModel'
 import { useTabWorkspaceSidebarState } from './useTabWorkspaceSidebar'
@@ -15,6 +16,7 @@ import { useAppSettings } from './useAppSettings'
 import { useFavoritesWorkspaceState } from './useFavoritesWorkspace'
 import { useRepoStateBootstrap } from './useRepoStateBootstrap'
 import { useSidebarHoldPreview } from './sidebar-preview/useSidebarHoldPreview'
+import { useExternalChangeSync } from './useExternalChangeSync'
 import type { HomePageStats } from './HomePage'
 
 // 状态组合段：应用设置派生、顶部栏与详情选中状态、按住预览、标签页与侧边栏状态、
@@ -279,6 +281,46 @@ export function useRepoWorkspaceState(props: { repoId: string; visible: boolean 
   const { index: noteIndex, setIndex: setNoteIndex, loading: noteIndexLoading, error: noteIndexLoadError } = useNoteIndex(gateway, repoId, repoReady)
   const allNotes = React.useMemo(() => sortNotesByUpdatedAtDesc(Object.values(noteIndex?.notes || {})), [noteIndex])
 
+  // ---- 外部改动同步：展示数据一通知就就地重载（索引 / 收藏夹 / 附件索引 / 回收站），
+  // 只重载数据块，不动界面位置；编辑中的笔记由笔记会话按干净/脏分别处理。
+  const [externalNotesSignal, setExternalNotesSignal] = React.useState(0)
+  const [externalTrashSignal, setExternalTrashSignal] = React.useState(0)
+  const handleExternalChange = React.useCallback(
+    (kinds: string[]) => {
+      const changed = new Set(kinds)
+      if (changed.has('notes')) {
+        void gateway.notes
+          .loadNoteIndex('library')
+          .then(next => {
+            if (next) setNoteIndex(next)
+          })
+          .catch(() => {})
+        setExternalNotesSignal(signal => signal + 1)
+      }
+      if (changed.has('favorites')) {
+        void favoritesLedger
+          .load()
+          .then(doc => {
+            // 草稿引用只活在内存：重载磁盘文档时带回，避免外部改动把本地草稿条目弄丢。
+            const current = favoritesDocRef.current
+            setFavoritesDoc(current ? carryDraftNoteRefs(current, doc) : doc)
+          })
+          .catch(() => {})
+      }
+      if (changed.has('assets')) {
+        void gateway.assets
+          .ensureAssetsIndex('library')
+          .then(next => setAssetPoolIndex(next as any))
+          .catch(() => {})
+      }
+      if (changed.has('trash')) {
+        setExternalTrashSignal(signal => signal + 1)
+      }
+    },
+    [favoritesLedger, gateway, setAssetPoolIndex, setFavoritesDoc, setNoteIndex],
+  )
+  useExternalChangeSync({ gateway, repoId, enabled: repoReady, onChange: handleExternalChange })
+
   // 打开的会话标识：真实笔记记真实标识，草稿记草稿标识；草稿元数据与转正后标识一律向档案查询。
   const [openNoteIds, setOpenNoteIds] = React.useState<string[]>([])
   const openNoteIdsRef = React.useRef<string[]>([])
@@ -468,6 +510,9 @@ export function useRepoWorkspaceState(props: { repoId: string; visible: boolean 
     noteIndexLoading,
     noteIndexLoadError,
     allNotes,
+
+    externalNotesSignal,
+    externalTrashSignal,
 
     openNoteIds,
     setOpenNoteIds,

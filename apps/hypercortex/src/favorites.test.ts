@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canMoveRefToFolder,
+  carryDraftNoteRefs,
   collectFoldersForTarget,
   collectRefsForTarget,
   deleteFolder,
@@ -198,5 +199,32 @@ describe('removeRefsByIds', () => {
     const doc = fixture()
     expect(removeRefsByIds(doc, [])).toBe(doc)
     expect(removeRefsByIds(doc, ['missing'])).toBe(doc)
+  })
+})
+
+describe('carryDraftNoteRefs', () => {
+  it('把内存草稿引用带回重载后的文档，普通引用不受影响', () => {
+    const current = fixture()
+    current.refsByFolderId.b.push(itemRef('ref-draft', 'b', 'note', 'draft_abc'))
+    const reloaded = fixture() // 磁盘态：没有草稿引用
+    const merged = carryDraftNoteRefs(current, reloaded)
+    expect(merged.refsByFolderId.b.map(ref => ref.id)).toEqual(['ref-note', 'ref-draft'])
+    expect(merged.refsByFolderId.b[1].targetId).toBe('draft_abc')
+  })
+
+  it('目标收藏夹已不存在时丢弃对应草稿引用', () => {
+    const current = fixture()
+    current.refsByFolderId.b.push(itemRef('ref-draft', 'b', 'note', 'draft_abc'))
+    const reloaded = fixture()
+    delete reloaded.folders.b
+    reloaded.refsByFolderId.b = []
+    const merged = carryDraftNoteRefs(current, reloaded)
+    expect(merged.refsByFolderId.b).toEqual([])
+  })
+
+  it('无草稿引用时原样返回重载文档', () => {
+    const current = fixture()
+    const reloaded = fixture()
+    expect(carryDraftNoteRefs(current, reloaded)).toBe(reloaded)
   })
 })

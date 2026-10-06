@@ -24,6 +24,9 @@ export type NoteDetailTopBarHostProps = {
   onSave: () => void
   onSaveAllFaces: () => void
   onDiscard: () => void
+  /** 本地未保存改动与外部改动冲突：黄点旁亮绿点，点开三栏对照窗。 */
+  conflict: boolean
+  onOpenConflict: () => void
   FaceToolbarLeft: React.ComponentType<FaceToolbarProps> | null
   FaceToolbarRight: React.ComponentType<FaceToolbarProps> | null
   faceViewState: Record<string, unknown>
@@ -75,6 +78,8 @@ export function NoteDetailTopBarHost(props: NoteDetailTopBarHostProps): React.Re
     onSave,
     onSaveAllFaces,
     onDiscard,
+    conflict,
+    onOpenConflict,
     FaceToolbarLeft,
     FaceToolbarRight,
     faceViewState,
@@ -126,6 +131,8 @@ export function NoteDetailTopBarHost(props: NoteDetailTopBarHostProps): React.Re
       onSave={onSave}
       onSaveAllFaces={onSaveAllFaces}
       onDiscard={onDiscard}
+      conflict={conflict}
+      onOpenConflict={onOpenConflict}
       FaceToolbarLeft={FaceToolbarLeft}
       FaceToolbarRight={FaceToolbarRight}
       faceViewState={faceViewState}

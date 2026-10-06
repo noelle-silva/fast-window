@@ -15,10 +15,12 @@ type Params = {
   gateway: HyperCortexGateway
   faceKindOrder: readonly string[]
   allNotes: NoteMeta[]
+  /** 外部改动信号：变化时清空卡片摘要缓存，让标签/面摘要随索引就地重载。 */
+  externalNotesSignal: number
 }
 
 export function useNoteSessionHandles(params: Params) {
-  const { visible, visiblePage, gateway, faceKindOrder, allNotes } = params
+  const { visible, visiblePage, gateway, faceKindOrder, allNotes, externalNotesSignal } = params
 
   const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
 
@@ -82,6 +84,15 @@ export function useNoteSessionHandles(params: Params) {
   React.useEffect(() => {
     noteCardInfoByIdRef.current = noteCardInfoById
   }, [noteCardInfoById])
+
+  // 外部改动：清空卡片摘要缓存，让标签与面摘要随索引就地重载（可见页预取与按需装载会重新填充）。
+  const lastExternalNotesSignalRef = React.useRef(externalNotesSignal)
+  React.useEffect(() => {
+    if (externalNotesSignal === lastExternalNotesSignalRef.current) return
+    lastExternalNotesSignalRef.current = externalNotesSignal
+    noteCardInfoByIdRef.current = {}
+    setNoteCardInfoById({})
+  }, [externalNotesSignal])
 
   const upsertNoteCardInfo = React.useCallback((noteId: string, nextInfo: NoteCardInfo) => {
     const nid = String(noteId || '').trim()

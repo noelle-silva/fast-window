@@ -34,6 +34,9 @@ export type NoteDetailTopBarProps = {
   onSave: () => void
   onSaveAllFaces: () => void
   onDiscard: () => void
+  /** 本地未保存改动与外部改动冲突：黄点旁再亮一个绿点，绿点本身是按钮。 */
+  conflict: boolean
+  onOpenConflict: () => void
   FaceToolbarLeft: React.ComponentType<FaceToolbarProps> | null
   FaceToolbarRight: React.ComponentType<FaceToolbarProps> | null
   faceViewState: Record<string, unknown>
@@ -86,6 +89,8 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
     onSave,
     onSaveAllFaces,
     onDiscard,
+    conflict,
+    onOpenConflict,
     FaceToolbarLeft,
     FaceToolbarRight,
     faceViewState,
@@ -231,6 +236,29 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
                 borderRadius: 999,
                 bgcolor: '#f59e0b',
                 boxShadow: '0 0 0 2px #fff',
+                flex: '0 0 auto',
+              }}
+            />
+          </Tooltip>
+        ) : null}
+
+        {dirty && conflict ? (
+          <Tooltip title="有外部改动与未保存改动冲突，点击查看" placement="bottom-start">
+            <Box
+              component="button"
+              type="button"
+              aria-label="外部改动冲突"
+              onClick={onOpenConflict}
+              sx={{
+                ml: 0.25,
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                bgcolor: '#22c55e',
+                boxShadow: '0 0 0 2px #fff',
+                border: 0,
+                p: 0,
+                cursor: 'pointer',
                 flex: '0 0 auto',
               }}
             />

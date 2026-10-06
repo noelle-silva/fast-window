@@ -86,7 +86,8 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
                 bodyScrollRef={o.page === 'note-detail' && tab.id === o.activeNoteId ? o.mainScrollElRef : undefined}
                 noteIndexMap={o.noteIndexMap}
                 allNotesById={o.allNotesById}
-                refRelationsEpoch={o.refRelationsEpoch}
+                refRelationsEpoch={o.refRelationsEpoch + o.externalNotesSignal}
+                externalChangeSignal={o.externalNotesSignal}
                 faceSwitchRequest={o.faceSwitchRequest}
                 faceSwitchLatestSeq={o.faceSwitchLatestSeq}
                 onFaceSwitchConsumed={o.handleFaceSwitchConsumed}
@@ -158,6 +159,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
           <TrashPanel
             gateway={o.gateway}
             scope="library"
+            refreshSignal={o.externalTrashSignal}
             onRestored={o.handleTrashRestored}
             onAssetRestored={asset => void o.handleTrashAssetRestored(asset)}
             onFavoritesRestored={doc => o.handleFavoritesDocChange(doc)}

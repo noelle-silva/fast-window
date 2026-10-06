@@ -33,6 +33,7 @@ import { NoteDetailTopBarHost } from './note-detail/NoteDetailTopBarHost'
 import { NoteDetailContentArea } from './note-detail/NoteDetailContentArea'
 import { NoteDetailInfoSidebar } from './note-detail/NoteDetailInfoSidebar'
 import { NoteDetailDialogs } from './note-detail/NoteDetailDialogs'
+import { NoteConflictDialog } from './note-detail/NoteConflictDialog'
 import { useNoteDetailFaceContent } from './useNoteDetailFaceContent'
 import { useNoteDetailReferences } from './useNoteDetailReferences'
 import { useNoteDetailToolbar } from './useNoteDetailToolbar'
@@ -70,6 +71,12 @@ export type NoteDetailSessionHandle = {
   reload: () => Promise<void>
 }
 
+/** 外部改动冲突：本地未保存改动与外部传入的同一笔记改动并存时，暂存外部版本供三栏对照与选择。 */
+type NoteConflictState = {
+  manifest: HyperCortexNoteManifestV1
+  contents: Record<string, string>
+}
+
 export type NoteDetailSessionProps = {
   gateway: HyperCortexGateway
   scope: VaultScope
@@ -79,6 +86,8 @@ export type NoteDetailSessionProps = {
   noteIndexMap: Record<string, { title: string; faceIds?: string[] }>
   allNotesById: Record<string, NoteMeta>
   refRelationsEpoch: number
+  /** 外部改动信号：仓库笔记被外部改动时自增，会话据此就地刷新或提示冲突。 */
+  externalChangeSignal?: number
   faceSwitchRequest?: { noteId: string; faceId: string; seq: number } | null
   faceSwitchLatestSeq?: number
   onFaceSwitchConsumed?: (seq: number) => void
@@ -113,6 +122,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     noteIndexMap,
     allNotesById,
     refRelationsEpoch,
+    externalChangeSignal = 0,
     faceSwitchRequest,
     faceSwitchLatestSeq,
     onFaceSwitchConsumed,
@@ -274,6 +284,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
   }, [globalFaceKindOrder])
 
+  // 外部改动冲突：脏状态下收到外部改动，或保存被版本保险丝拦下时，暂存外部版本并唤出三栏窗。
+  const [conflict, setConflict] = React.useState<NoteConflictState | null>(null)
+  const [conflictOpen, setConflictOpen] = React.useState(false)
+  const conflictRef = React.useRef<NoteConflictState | null>(null)
+  React.useEffect(() => {
+    conflictRef.current = conflict
+  }, [conflict])
+  // 版本冲突出口：保存管线定义早于冲突抓取实现，经 ref 连接。
+  const onVersionConflictRef = React.useRef<() => void>(() => {})
+  const handleVersionConflict = React.useCallback(() => {
+    onVersionConflictRef.current()
+  }, [])
+
   // 面内容状态管理：面存储、脏标记与保存/放弃编排。
   const {
     faceStoresRef,
@@ -312,6 +335,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     saving,
     deleting,
     onSaved,
+    onVersionConflict: handleVersionConflict,
     applyNoteManifest,
     resetFaceViewState,
     setBaseFields,
@@ -388,6 +412,87 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
     setTagInput('')
   }, [applyNoteManifest, faceSavedContentsRef, faceStoresRef, note.description, note.title, savedFaceIdsRef, setBaseFields, setEditDescription, setEditResources, setEditTags, setEditTitle, setNoteTimes, setTagInput])
+
+  /** 只读外部版本：读取清单与各面内容原文，不建立会话内容存储（用于冲突对照与干净刷新）。 */
+  const readNotePackageRaw = React.useCallback(async (packageDir: string): Promise<{ manifest: HyperCortexNoteManifestV1; contents: Record<string, string> }> => {
+    const manifest = await gateway.notes.loadNoteManifest(scope, packageDir)
+    const faceIds = Object.keys(manifest.faces)
+    const faceDocs = await Promise.all(
+      faceIds.map(id => gateway.notes.loadNoteFace(scope, packageDir, id).catch(() => null)),
+    )
+    const contents: Record<string, string> = {}
+    for (let i = 0; i < faceIds.length; i++) contents[faceIds[i]] = faceDocs[i]?.content ?? ''
+    return { manifest, contents }
+  }, [gateway, scope])
+
+  /** 应用外部版本快照：以外部内容建立会话内容存储与已保存基线，就地替换当前笔记内容。 */
+  const applyExternalSnapshot = React.useCallback((snapshot: NoteConflictState) => {
+    const stores: Record<string, FaceContentStore> = {}
+    for (const [faceId, faceManifest] of Object.entries(snapshot.manifest.faces)) {
+      const content = snapshot.contents[faceId] ?? ''
+      const store = createFaceStore(faceId, faceManifest.kind, content, content)
+      if (store) stores[faceId] = store
+    }
+    applyLoadedNote(snapshot.manifest, stores, { ...snapshot.contents })
+  }, [applyLoadedNote, createFaceStore])
+
+  /** 抓取外部版本（失败返回 null）；冲突对照与干净刷新共用同一读取通道。 */
+  const fetchExternalSnapshot = React.useCallback(async (): Promise<NoteConflictState | null> => {
+    if (isDraft || !String(note.dir || '').trim()) return null
+    try {
+      return await readNotePackageRaw(note.dir)
+    } catch {
+      return null
+    }
+  }, [isDraft, note.dir, readNotePackageRaw])
+
+  /** 抓取外部版本并进入冲突态（唤出三栏窗）：保存被版本保险丝拦下时调用。 */
+  const captureExternalConflict = React.useCallback(async () => {
+    const snapshot = await fetchExternalSnapshot()
+    if (!snapshot) return
+    setConflict(snapshot)
+    setConflictOpen(true)
+  }, [fetchExternalSnapshot])
+
+  React.useEffect(() => {
+    onVersionConflictRef.current = () => {
+      void captureExternalConflict()
+    }
+  }, [captureExternalConflict])
+
+  // 外部改动：干净会话就地刷新，脏会话只提示冲突、不覆盖未保存改动。
+  const lastExternalSignalRef = React.useRef(externalChangeSignal)
+  const dirtyRef = React.useRef(dirty)
+  React.useEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
+  const loadedRef = React.useRef(loaded)
+  React.useEffect(() => {
+    loadedRef.current = loaded
+  }, [loaded])
+  const noteTimesRef = React.useRef(noteTimes)
+  React.useEffect(() => {
+    noteTimesRef.current = noteTimes
+  }, [noteTimes])
+
+  React.useEffect(() => {
+    if (externalChangeSignal === lastExternalSignalRef.current) return
+    lastExternalSignalRef.current = externalChangeSignal
+    if (!loadedRef.current || isDraft || !String(note.dir || '').trim()) return
+    void (async () => {
+      const snapshot = await fetchExternalSnapshot()
+      if (!snapshot) return
+      if (snapshot.manifest.updatedAtMs <= noteTimesRef.current.updatedAtMs) return
+      if (!dirtyRef.current) {
+        applyExternalSnapshot(snapshot)
+        setConflict(null)
+        setConflictOpen(false)
+        void gateway.host.toast('笔记已被外部更新，已就地刷新')
+        return
+      }
+      setConflict(snapshot)
+    })()
+  }, [externalChangeSignal, applyExternalSnapshot, fetchExternalSnapshot, gateway.host, isDraft, note.dir])
 
   const loadNoteIfNeeded = React.useCallback(async (options?: { force?: boolean }) => {
     if (!noteId) return
@@ -550,16 +655,71 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [faceSwitchRequest, noteId, onFaceSwitchConsumed])
 
+  const handleSaveRequest = React.useCallback(async () => {
+    if (conflictRef.current) {
+      setConflictOpen(true)
+      return
+    }
+    await handleSave()
+  }, [handleSave])
+
+  const handleSaveAllFacesRequest = React.useCallback(async () => {
+    if (conflictRef.current) {
+      setConflictOpen(true)
+      return
+    }
+    await handleSaveAllFaces()
+  }, [handleSaveAllFaces])
+
+  const handleDiscardRequest = React.useCallback(() => {
+    setConflict(null)
+    setConflictOpen(false)
+    handleDiscard()
+  }, [handleDiscard])
+
+  // 冲突解决：顶部先选其一，点接受才落盘。
+  // 采用外部：就地替换为外部版本；保留我的：以外部版本为期望版本强制覆盖，保住本地改动。
+  const handleAcceptConflict = React.useCallback(
+    async (choice: 'mine' | 'external') => {
+      const current = conflictRef.current
+      if (!current) {
+        setConflictOpen(false)
+        return
+      }
+      if (choice === 'external') {
+        applyExternalSnapshot(current)
+        setConflict(null)
+        setConflictOpen(false)
+        void gateway.host.toast('已采用外部版本')
+        return
+      }
+      const saved = await saveSessionToDisk('all', { expectedVersion: current.manifest.updatedAtMs })
+      if (saved) {
+        setConflict(null)
+        setConflictOpen(false)
+      }
+    },
+    [applyExternalSnapshot, gateway.host, saveSessionToDisk],
+  )
+
+  const conflictFaceLabel = React.useMemo(() => {
+    const manifest = faceManifests[face]
+    return String(manifest?.title || manifest?.kind || face || '当前面')
+  }, [face, faceManifests])
+  const conflictMine = conflict ? faceStoresRef.current[face]?.getContent() ?? '' : ''
+  const conflictBase = conflict ? faceSavedContentsRef.current[face] ?? '' : ''
+  const conflictExternal = conflict ? conflict.contents[face] ?? '' : ''
+
   React.useImperativeHandle(ref, () => ({
     isDirty: () => dirty,
     isSaving: () => saving,
     enterEditMode: () => setEditing(true),
     toggleMode: () => handleToggleMode(),
     cycleFace: () => handleCycleFace(),
-    save: async () => { await handleSave() },
-    discardChanges: () => handleDiscard(),
+    save: async () => { await handleSaveRequest() },
+    discardChanges: () => handleDiscardRequest(),
     reload: async () => { await loadNoteIfNeeded({ force: true }) },
-  }), [dirty, handleCycleFace, handleDiscard, handleSave, handleToggleMode, loadNoteIfNeeded, saving])
+  }), [dirty, handleCycleFace, handleDiscardRequest, handleSaveRequest, handleToggleMode, loadNoteIfNeeded, saving])
 
   const handleAddFace = React.useCallback(async (kind?: string) => {
     const targetKind = String(kind || pendingAddFace || '').trim()
@@ -616,9 +776,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         packageAvailable={packageAvailable}
         faceEditing={faceEditing}
         onToggleMode={handleToggleMode}
-        onSave={handleSave}
-        onSaveAllFaces={handleSaveAllFaces}
-        onDiscard={handleDiscard}
+        onSave={handleSaveRequest}
+        onSaveAllFaces={handleSaveAllFacesRequest}
+        onDiscard={handleDiscardRequest}
+        conflict={!!conflict}
+        onOpenConflict={() => setConflictOpen(true)}
         FaceToolbarLeft={FaceToolbarLeft}
         FaceToolbarRight={FaceToolbarRight}
         faceViewState={faceViewState}
@@ -734,6 +896,18 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         facePluginGlobalSettings={facePluginGlobalSettings}
         faces={faces}
         applyNoteManifest={applyNoteManifest}
+      />
+
+      <NoteConflictDialog
+        open={visible && conflictOpen && !!conflict}
+        noteTitle={noteTitleForPrompt}
+        faceLabel={conflictFaceLabel}
+        mine={conflictMine}
+        base={conflictBase}
+        external={conflictExternal}
+        busy={saving}
+        onAccept={choice => void handleAcceptConflict(choice)}
+        onClose={() => setConflictOpen(false)}
       />
     </Box>
   )

@@ -111,6 +111,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleUpdateAssetInfo,
     handleOpenAssetTab,
     requestDeleteAssetEntity,
+    externalNotesSignal,
   } = state
 
   const patchAppSettings = shell.patchAppSettings
@@ -277,6 +278,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     favoritesDoc,
     handleFavoritesDocChange,
     draftIdentity,
+    externalNotesSignal,
     openTabKeysRef,
     activeTabKeyRef,
     pageRef,

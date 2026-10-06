@@ -21,12 +21,14 @@ function formatDateTime(ms: number): string {
 export function TrashPanel(props: {
   gateway: HyperCortexGateway
   scope: VaultScope
+  /** 外部改动信号：变化时就地重载回收站列表（首次不重复触发，初始装载已覆盖）。 */
+  refreshSignal?: number
   onRestored?: (meta: NoteMeta, kind: Exclude<HyperCortexTrashItem['kind'], 'folder'>) => void
   onAssetRestored?: (asset: AssetEntry) => void
   onFavoritesRestored?: (doc: HyperCortexFavoritesDocV1) => void
   onPermanentlyDeleted?: (item: HyperCortexTrashItem) => void
 }) {
-  const { gateway, scope, onRestored, onAssetRestored, onFavoritesRestored, onPermanentlyDeleted } = props
+  const { gateway, scope, refreshSignal, onRestored, onAssetRestored, onFavoritesRestored, onPermanentlyDeleted } = props
   const workspaceVisible = useWorkspaceVisible()
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -52,6 +54,14 @@ export function TrashPanel(props: {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // 外部改动通知：就地重载回收站列表，不动其它界面状态；首次挂载已由上面的装载覆盖。
+  const lastRefreshSignalRef = React.useRef(refreshSignal)
+  React.useEffect(() => {
+    if (refreshSignal === lastRefreshSignalRef.current) return
+    lastRefreshSignalRef.current = refreshSignal
+    void load()
+  }, [refreshSignal, load])
 
   const handleRestore = React.useCallback(
     async (item: HyperCortexTrashItem) => {

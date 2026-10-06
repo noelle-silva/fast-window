@@ -35,6 +35,8 @@ export type UseNoteDetailFaceContentInput = {
   saving: boolean
   deleting: 'note' | 'face' | ''
   onSaved: (payload: { originalId: string; meta: NoteMeta; snapshotForNewId?: NoteDetailSnapshotV1 }) => void
+  /** 保存被版本保险丝拦下（VERSION_CONFLICT）：交给会话处理冲突（抓取外部版本并提示）。 */
+  onVersionConflict: () => void
   applyNoteManifest: (manifest: HyperCortexNoteManifestV1) => void
   resetFaceViewState: () => void
   setBaseFields: React.Dispatch<React.SetStateAction<NoteBaseFields>>
@@ -68,7 +70,7 @@ export type NoteDetailFaceContent = {
     tags: string[]
     updatedAtMs: number
   }) => NoteDetailSnapshotV1
-  saveSessionToDisk: (mode: 'current' | 'all') => Promise<boolean>
+  saveSessionToDisk: (mode: 'current' | 'all', opts?: { expectedVersion?: number }) => Promise<boolean>
   handleSave: () => Promise<boolean>
   handleSaveAllFaces: () => Promise<boolean>
   saveCurrentForVersionPublish: () => Promise<void>
@@ -100,6 +102,7 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
     saving,
     deleting,
     onSaved,
+    onVersionConflict,
     applyNoteManifest,
     resetFaceViewState,
     setBaseFields,
@@ -121,6 +124,11 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
   // 面内容存储：内容由插件持有，宿主只取内容与脏标记，不持久化内容本身。
   const faceStoresRef = React.useRef<Record<string, FaceContentStore>>({})
   const faceSavedContentsRef = React.useRef<Record<string, string>>(init?.savedFaceContents ?? {})
+  // 版本冲突出口：常驻回调经 ref 读取最新实现，避免保存管线因回调引用变化而重建。
+  const onVersionConflictRef = React.useRef(onVersionConflict)
+  React.useEffect(() => {
+    onVersionConflictRef.current = onVersionConflict
+  }, [onVersionConflict])
   // 已保存的面 ID 集合：放弃改动时用于回退本会话新增（尚未落盘）的面。
   const savedFaceIdsRef = React.useRef<Set<string>>(new Set(Object.keys(init?.faceManifests ?? {})))
   const [faceDirtyVersion, setFaceDirtyVersion] = React.useState(0)
@@ -210,7 +218,7 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
   }), [editResources, editing, face, faceViewState, globalFaceKindOrder, infoSidebarVisible, noteTimes.createdAtMs, tagInput])
 
   /** 统一保存管线：当前面（current）与所有面（all）共用同一提交、回收与快照逻辑，仅提交范围不同。 */
-  const saveSessionToDisk = React.useCallback(async (mode: 'current' | 'all'): Promise<boolean> => {
+  const saveSessionToDisk = React.useCallback(async (mode: 'current' | 'all', opts?: { expectedVersion?: number }): Promise<boolean> => {
     if (!noteId) return false
     if (saving || deleting) return false
     const rawTitle = String(editTitle || '').trim()
@@ -245,6 +253,10 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
         }
       }
 
+      // 版本保险丝：保存时带上加载时的版本号；版本对不上由后端拒绝并回报当前版本。
+      // 冲突解决选择「保留我的」时经 opts 覆盖为外部版本，强制覆盖外部改动。
+      const expectedVersion = opts?.expectedVersion ?? (!isDraft && noteTimes.updatedAtMs > 0 ? noteTimes.updatedAtMs : undefined)
+
       const result = await gateway.notes.saveNoteFaces(scope, {
         id: isDraft ? undefined : originalId,
         packageDir: isDraft ? undefined : noteDir,
@@ -255,7 +267,7 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
         resources: editResources,
         faceKinds,
         faces: facePayloads,
-      })
+      }, expectedVersion)
 
       for (const payload of facePayloads) {
         const store = faceStoresRef.current[payload.faceId]
@@ -278,6 +290,11 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
       await gateway.host.toast(mode === 'current' ? '笔记已保存' : '笔记所有面已保存')
       return true
     } catch (e: any) {
+      // 版本冲突：不当作普通失败提示，交给会话唤出冲突窗。
+      if (e?.code === 'VERSION_CONFLICT') {
+        onVersionConflictRef.current()
+        return false
+      }
       await gateway.host.toast(String(e?.message || e || '保存失败'))
       return false
     } finally {

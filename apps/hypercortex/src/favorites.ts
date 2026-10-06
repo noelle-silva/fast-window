@@ -85,6 +85,28 @@ export function getRefsByFolderId(doc: HyperCortexFavoritesDocV1, folderId: stri
   return Array.isArray(refs) ? refs : []
 }
 
+/**
+ * 外部改动后重载收藏夹文档时，把内存里的草稿引用带回到新文档：
+ * 草稿只活在内存、磁盘上没有，重载不得把它们弄丢；目标收藏夹已不存在的草稿引用随之丢弃。
+ * 同 id 引用已存在时不重复添加。
+ */
+export function carryDraftNoteRefs(from: HyperCortexFavoritesDocV1, to: HyperCortexFavoritesDocV1): HyperCortexFavoritesDocV1 {
+  let changed = false
+  const nextRefsByFolderId: Record<string, FavoriteItemRef[]> = { ...to.refsByFolderId }
+  for (const [folderId, refs] of Object.entries(from.refsByFolderId)) {
+    if (!to.folders[folderId]) continue
+    const drafts = (Array.isArray(refs) ? refs : []).filter(isDraftNoteRef)
+    if (!drafts.length) continue
+    const existing = Array.isArray(nextRefsByFolderId[folderId]) ? nextRefsByFolderId[folderId] : []
+    const seen = new Set(existing.map(ref => ref.id))
+    const additions = drafts.filter(ref => !seen.has(ref.id))
+    if (!additions.length) continue
+    nextRefsByFolderId[folderId] = [...existing, ...additions]
+    changed = true
+  }
+  return changed ? { ...to, refsByFolderId: nextRefsByFolderId } : to
+}
+
 export function getFolderById(doc: HyperCortexFavoritesDocV1, folderId: string): FavoriteFolder | undefined {
   return doc.folders[folderId]
 }
