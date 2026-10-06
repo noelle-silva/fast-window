@@ -303,6 +303,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     faceSavedContentsRef,
     savedFaceIdsRef,
     createFaceStore,
+    replaceFaceStores,
     faceDirtyVersion,
     facesDirty,
     buildSessionSnapshot,
@@ -394,8 +395,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     stores: Record<string, FaceContentStore>,
     savedContents: Record<string, string>,
   ) => {
-    faceStoresRef.current = stores
-    faceSavedContentsRef.current = savedContents
+    // 整体替换内容存储（含刷新脏标记版本）：采用外部版本后未保存状态随之清除。
+    replaceFaceStores(stores, savedContents)
     savedFaceIdsRef.current = new Set(Object.keys(manifest.faces))
     applyNoteManifest(manifest)
     const nextBase: NoteBaseFields = {
@@ -411,7 +412,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditResources(nextBase.resources.slice())
     setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
     setTagInput('')
-  }, [applyNoteManifest, faceSavedContentsRef, faceStoresRef, note.description, note.title, savedFaceIdsRef, setBaseFields, setEditDescription, setEditResources, setEditTags, setEditTitle, setNoteTimes, setTagInput])
+  }, [applyNoteManifest, note.description, note.title, replaceFaceStores, savedFaceIdsRef, setBaseFields, setEditDescription, setEditResources, setEditTags, setEditTitle, setNoteTimes, setTagInput])
 
   /** 只读外部版本：读取清单与各面内容原文，不建立会话内容存储（用于冲突对照与干净刷新）。 */
   const readNotePackageRaw = React.useCallback(async (packageDir: string): Promise<{ manifest: HyperCortexNoteManifestV1; contents: Record<string, string> }> => {

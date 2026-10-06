@@ -60,6 +60,8 @@ export type NoteDetailFaceContent = {
   faceSavedContentsRef: React.MutableRefObject<Record<string, string>>
   savedFaceIdsRef: React.MutableRefObject<Set<string>>
   createFaceStore: (faceId: string, kind: string, initialContent: string, savedContent?: string) => FaceContentStore | null
+  /** 整体替换面内容存储（装载 / 外部刷新 / 版本恢复共用）：替换后刷新脏标记版本，避免脏状态滞留。 */
+  replaceFaceStores: (stores: Record<string, FaceContentStore>, savedContents: Record<string, string>) => void
   faceDirtyVersion: number
   facesDirty: boolean
   buildSessionSnapshot: (input: {
@@ -154,6 +156,14 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
       }
     }
   }
+
+  // 整体替换面内容存储：替换后必须刷新脏标记版本——facesDirty 依赖该版本重算，
+  // 否则引用被换掉但记忆值不更新，脏状态会滞留（如「采用外部版本」后仍显示未保存）。
+  const replaceFaceStores = React.useCallback((stores: Record<string, FaceContentStore>, savedContents: Record<string, string>) => {
+    faceStoresRef.current = stores
+    faceSavedContentsRef.current = savedContents
+    setFaceDirtyVersion(v => v + 1)
+  }, [])
 
   const facesDirty = React.useMemo(
     () => Object.values(faceStoresRef.current).some(store => store.isDirty()),
@@ -317,6 +327,7 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
     faceSavedContentsRef,
     savedFaceIdsRef,
     createFaceStore,
+    replaceFaceStores,
     faceDirtyVersion,
     facesDirty,
     buildSessionSnapshot,
