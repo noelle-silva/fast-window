@@ -8,7 +8,7 @@ export function createNotesService(background: BackgroundClient): NotesService {
     tryReadNoteManifest: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.tryReadManifest, { scope, packageDir }),
     loadNoteFace: (scope, packageDir, faceId) => background.invoke(HyperCortexRpc.notes.loadFace, { scope, packageDir, faceId }),
     deleteNoteFace: (scope, packageDir, faceId, mode) => background.invoke(HyperCortexRpc.notes.deleteFace, { scope, packageDir, faceId, mode }),
-    saveNoteFaces: (scope, input) => background.invoke(HyperCortexRpc.notes.saveFaces, { scope, input }),
+    saveNoteFaces: (scope, input, expectedVersion) => background.invoke(HyperCortexRpc.notes.saveFaces, { scope, input, expectedVersion }),
     saveNoteFaceOrder: (scope, packageDir, faceOrder) => background.invoke(HyperCortexRpc.notes.saveFaceOrder, { scope, packageDir, faceOrder }),
     saveFaceSettings: (scope, packageDir, faceId, settings) => background.invoke(HyperCortexRpc.notes.saveFaceSettings, { scope, packageDir, faceId, settings }),
     publishNoteVersion: (scope, packageDir, commitName) => background.invoke(HyperCortexRpc.notes.versions.publish, { scope, packageDir, commitName }),

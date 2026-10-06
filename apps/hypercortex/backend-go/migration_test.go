@@ -21,6 +21,7 @@ func newTestService(t *testing.T) *service {
 		pluginReadyRepos: map[string]bool{},
 	}
 	svc.accessServer = newAccessServer(svc)
+	svc.changes = newChangeHub()
 	t.Cleanup(svc.accessServer.stop)
 	return svc
 }

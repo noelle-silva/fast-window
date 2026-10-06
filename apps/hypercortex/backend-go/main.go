@@ -26,6 +26,7 @@ type service struct {
 	mu               sync.Mutex
 	uploadTasks      *assetUploadTaskStore
 	accessServer     *accessServer
+	changes          *changeHub
 	// 插件声明指纹调和：每个仓库进程内只执行一次，保证派生索引与插件声明一致。
 	pluginMu         sync.Mutex
 	pluginReadyRepos map[string]bool
@@ -121,6 +122,7 @@ func newService() (*service, error) {
 		pluginReadyRepos: map[string]bool{},
 	}
 	svc.accessServer = newAccessServer(svc)
+	svc.changes = newChangeHub()
 	return svc, nil
 }
 
@@ -133,7 +135,12 @@ func mustGetwd() string {
 }
 
 func handleConnection(conn *websocket.Conn, svc *service) {
-	defer conn.Close()
+	client := &changeClient{conn: conn}
+	svc.changes.register(client)
+	defer func() {
+		svc.changes.unregister(client)
+		conn.Close()
+	}()
 	for {
 		var frame requestFrame
 		if err := conn.ReadJSON(&frame); err != nil {
@@ -146,9 +153,14 @@ func handleConnection(conn *websocket.Conn, svc *service) {
 		result, err := svc.dispatchSafe(frame.Method, frame.Params)
 		response := responseFrame{ID: frame.ID, Type: "response", OK: err == nil, Result: result}
 		if err != nil {
-			response.Error = map[string]any{"message": convergeErrorMessage(frame.Method, err)}
+			payload := map[string]any{"message": convergeErrorMessage(frame.Method, err)}
+			// 机器可读错误码随响应透出：前端据此区分版本冲突等需要特殊处理的失败。
+			if code := convergeErrorCode(frame.Method, err); code != "" {
+				payload["code"] = code
+			}
+			response.Error = payload
 		}
-		_ = conn.WriteJSON(response)
+		_ = client.writeJSON(response)
 	}
 }
 
@@ -196,6 +208,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	defer svc.mu.Unlock()
 
 	switch method {
+	case "hypercortex.changes.revision":
+		return map[string]any{"revision": svc.changes.revision(requireScope(params))}, nil
 	case "hypercortex.metadata.tryLoad":
 		return svc.tryLoadJSON("data", metadataFile)
 	case "hypercortex.metadata.ensure":

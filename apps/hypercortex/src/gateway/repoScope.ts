@@ -17,6 +17,8 @@ export function resolveRequestScope(params: unknown, repoId: string): unknown {
 export function bindRepoScope(background: BackgroundClient, repoId: string): BackgroundClient {
   return {
     invoke: (method, params, options) => background.invoke(method, resolveRequestScope(params, repoId), options),
+    // 推送事件与作用域无关（事件自带仓库标识），原样转发订阅。
+    subscribe: handler => background.subscribe(handler),
     close: () => background.close(),
   }
 }

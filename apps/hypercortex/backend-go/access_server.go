@@ -129,6 +129,11 @@ func (a *accessServer) handle(w http.ResponseWriter, r *http.Request) {
 		writeAccessResponse(w, http.StatusOK, accessError(method, err))
 		return
 	}
+	// 外部写入成功：把「变了」（带仓库与变更类别）顺着既有常驻连线推给前端；
+	// 只推外部改的，本地界面自己的写入不经过这里。
+	if kinds := changeKindsForMethod(method); len(kinds) > 0 {
+		a.svc.changes.publish(repoID, kinds...)
+	}
 	writeAccessResponse(w, http.StatusOK, accessSuccess(result))
 }
 

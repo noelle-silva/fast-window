@@ -151,7 +151,7 @@ export type NotesService = {
   listFacePlugins: () => Promise<FaceDeclaration[]>
   loadNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteFaceDoc>
   deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string, mode: 'trash' | 'permanent') => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
-  saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
+  saveNoteFaces: (scope: VaultScope, input: SaveNoteFacesInput, expectedVersion?: number) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1; refs?: NoteRefEntryMap }>
   saveNoteFaceOrder: (scope: VaultScope, packageDir: string, faceOrder: string[]) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   saveFaceSettings: (scope: VaultScope, packageDir: string, faceId: string, settings: HyperCortexNoteFaceSettingsPatch) => Promise<{ meta: NoteMeta; manifest: HyperCortexNoteManifestV1 }>
   publishNoteVersion: (scope: VaultScope, packageDir: string, commitName: string) => Promise<HyperCortexNoteVersionSummary>
@@ -280,6 +280,20 @@ export type RefsService = {
   ) => Promise<NoteRefRelationResult>
 }
 
+// 外部改动通知：带仓库标识与变更类别，前端只让对应仓库现场反应。
+export type ChangeEvent = {
+  repoId: string
+  kinds: string[]
+  revision: number
+}
+
+// 变更服务：查询仓库变更修订号用于重连对账，并订阅外部改动与常驻连线重建。
+export type ChangesService = {
+  revision: (scope: VaultScope) => Promise<number>
+  subscribeChanges: (handler: (event: ChangeEvent) => void) => () => void
+  subscribeReconnect: (handler: () => void) => () => void
+}
+
 export type NoteSearchFaceKind = {
   kind: string
   label: string
@@ -390,6 +404,7 @@ export type HyperCortexGateway = {
   favorites: FavoritesService
   trash: TrashService
   refs: RefsService
+  changes: ChangesService
   search: SearchService
   metadata: MetadataService
   repoState: RepoStateService

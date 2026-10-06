@@ -1,5 +1,11 @@
+// 后台推送事件：changed 为外部改动通知（带仓库与变更类别），reconnect 为常驻连线重建完成。
+export type BackgroundEvent =
+  | { type: 'changed'; repoId: string; kinds: string[]; revision: number }
+  | { type: 'reconnect' }
+
 export type BackgroundClient = {
   invoke<T = unknown>(method: string, params?: unknown, options?: InvokeOptions): Promise<T>
+  subscribe: (handler: (event: BackgroundEvent) => void) => () => void
   close(): void
 }
 
@@ -83,6 +89,8 @@ class HyperCortexBackgroundClient implements BackgroundClient {
   private seq = 0
   private closed = false
   private readonly pending = new Map<string, PendingRequest>()
+  private readonly listeners = new Set<(event: BackgroundEvent) => void>()
+  private hasConnected = false
   private readonly cleanupResumeTriggers: () => void
 
   constructor(private readonly loadEndpoint: () => Promise<any>) {
@@ -91,6 +99,23 @@ class HyperCortexBackgroundClient implements BackgroundClient {
 
   open = async (): Promise<void> => {
     await this.ensureConnected()
+  }
+
+  subscribe = (handler: (event: BackgroundEvent) => void): (() => void) => {
+    this.listeners.add(handler)
+    return () => {
+      this.listeners.delete(handler)
+    }
+  }
+
+  private emit(event: BackgroundEvent) {
+    for (const handler of this.listeners) {
+      try {
+        handler(event)
+      } catch {
+        // 单个订阅者异常不影响其它订阅者与连接。
+      }
+    }
   }
 
   invoke = async <T = unknown,>(method: string, params?: unknown, options?: InvokeOptions): Promise<T> => {
@@ -159,19 +184,39 @@ class HyperCortexBackgroundClient implements BackgroundClient {
       ws.close()
       throw new Error('HyperCortex 后台连接已关闭')
     }
+    // 常驻连线重建完成：首次连接由初始装载覆盖，后续重连提示前端重新对账。
+    const isReconnect = this.hasConnected
+    this.hasConnected = true
+    if (isReconnect) this.emit({ type: 'reconnect' })
   }
 
   private handleMessage(event: MessageEvent) {
     let frame: any = null
     try { frame = JSON.parse(String(event.data)) } catch { return }
-    if (!frame || frame.type !== 'response') return
+    if (!frame) return
+    if (frame.type === 'event') {
+      if (frame.event === 'changed') {
+        this.emit({
+          type: 'changed',
+          repoId: String(frame.repoId || ''),
+          kinds: Array.isArray(frame.kinds) ? frame.kinds.map((k: unknown) => String(k)) : [],
+          revision: Number(frame.revision) || 0,
+        })
+      }
+      return
+    }
+    if (frame.type !== 'response') return
     const id = String(frame.id || '')
     const entry = this.pending.get(id)
     if (!entry) return
     this.pending.delete(id)
     if (entry.timer) clearTimeout(entry.timer)
     if (frame.ok) entry.resolve(frame.result)
-    else entry.reject(new Error(String(frame.error?.message || 'HyperCortex 后台请求失败')))
+    else {
+      const error = new Error(String(frame.error?.message || 'HyperCortex 后台请求失败')) as Error & { code?: string }
+      if (frame.error?.code) error.code = String(frame.error.code)
+      entry.reject(error)
+    }
   }
 
   private markDisconnected(ws: WebSocket | null, error: Error) {

@@ -1,5 +1,6 @@
 import { createAccessService } from '../services/accessService'
 import { createAssetsService } from '../services/assetsService'
+import { createChangesService } from '../services/changesService'
 import { createFavoritesService } from '../services/favoritesService'
 import { createMetadataService } from '../services/metadataService'
 import { createNotesService } from '../services/notesService'
@@ -54,6 +55,7 @@ function assembleHyperCortexGateway(transport: GatewayTransport, repoId: string)
     repos: createReposService(scopedBackground),
     access: createAccessService(scopedBackground),
     refs: createRefsService(scopedBackground),
+    changes: createChangesService(scopedBackground),
     search: createSearchService(scopedBackground),
     metadata: createMetadataService(scopedBackground),
     notes: createNotesService(scopedBackground),
