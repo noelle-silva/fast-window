@@ -8,6 +8,7 @@ export type FolderTreeNode = {
   key: string
   id: string
   title: string
+  description: string
   children: FolderTreeNode[]
 }
 
@@ -32,11 +33,29 @@ export function buildFolderTree(doc: HyperCortexFavoritesDocV1): FolderTreeNode[
       key: currentPath.join('/'),
       id,
       title: folderDisplayTitle(id, folder.title),
+      description: String(folder.description || '').trim(),
       children,
     }
   }
   const root = walk(doc.rootFolderId || 'root', [])
   return root ? [root] : []
+}
+
+// 按关键词过滤文件夹树：命中「名称或说明」的收藏夹连同其上级一起保留，其余分支剪除。
+// 只改变呈现，不触碰选择状态；空关键词原样返回整棵树。
+export function filterFolderTree(nodes: FolderTreeNode[], query: string): FolderTreeNode[] {
+  const needle = String(query || '').trim().toLowerCase()
+  if (!needle) return nodes
+  const walk = (list: FolderTreeNode[]): FolderTreeNode[] => {
+    const out: FolderTreeNode[] = []
+    for (const node of list) {
+      const children = walk(node.children)
+      const haystack = `${node.title}\n${node.description}`.toLowerCase()
+      if (children.length > 0 || haystack.includes(needle)) out.push({ ...node, children })
+    }
+    return out
+  }
+  return walk(nodes)
 }
 
 export function collectTreeKeys(nodes: FolderTreeNode[]): string[] {

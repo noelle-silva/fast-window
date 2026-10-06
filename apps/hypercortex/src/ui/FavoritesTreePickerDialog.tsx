@@ -1,10 +1,12 @@
 import * as React from 'react'
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material'
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, TextField, Typography } from '@mui/material'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getRefsByFolderId } from '../favorites'
-import { buildFolderTree, collectTreeKeys, collectUniqueFolderIds, type FolderTreeNode } from './favoritesTree'
+import { buildFolderTree, collectTreeKeys, collectUniqueFolderIds, filterFolderTree, type FolderTreeNode } from './favoritesTree'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
 // 收藏夹树选择器：一棵树、两种用途。
@@ -50,12 +52,22 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
 
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
+  const [query, setQuery] = React.useState('')
 
   React.useEffect(() => {
     if (!open) return
     setExpandedKeys(new Set(allTreeKeys))
     setSelectedIds(isMove ? new Set() : new Set(savedFolderIds))
+    setQuery('')
   }, [allTreeKeys, isMove, open, savedFolderIds])
+
+  // 搜索只改变呈现：过滤后保留命中项与其祖先，并自动展开到命中处；清空后回到原有展开状态。
+  const isSearching = query.trim().length > 0
+  const visibleNodes = React.useMemo(() => filterFolderTree(nodes, query), [nodes, query])
+  const effectiveExpandedKeys = React.useMemo(
+    () => (isSearching ? new Set(collectTreeKeys(visibleNodes)) : expandedKeys),
+    [isSearching, visibleNodes, expandedKeys],
+  )
 
   const toggleExpand = React.useCallback((key: string) => {
     setExpandedKeys(prev => {
@@ -85,20 +97,22 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
 
   const renderNode = (node: FolderTreeNode, depth: number): React.ReactNode => {
     const hasChildren = node.children.length > 0
-    const expanded = expandedKeys.has(node.key)
+    // 搜索态下树自动展开到命中处，锁定手动折叠，避免污染原有展开状态。
+    const canExpand = hasChildren && !isSearching
+    const expanded = effectiveExpandedKeys.has(node.key)
     const isSource = isMove && node.id === sourceFolderId
     return (
       <React.Fragment key={node.key}>
         <Box sx={{ pl: depth * 1.6, pr: 0.75, display: 'flex', alignItems: 'center', gap: 0.25 }}>
-          <IconButton size="small" disabled={!hasChildren} onClick={() => hasChildren && toggleExpand(node.key)} aria-label={expanded ? '收起' : '展开'} sx={{ width: 24, height: 24, mx: -0.25 }}>
+          <IconButton size="small" disabled={!canExpand} onClick={() => canExpand && toggleExpand(node.key)} aria-label={expanded ? '收起' : '展开'} sx={{ width: 24, height: 24, mx: -0.25 }}>
             <ChevronRightRoundedIcon fontSize="small" sx={{ transition: 'transform .15s ease', transform: expanded ? 'rotate(90deg)' : 'none' }} />
           </IconButton>
           <Box
-            role={hasChildren ? 'button' : undefined}
-            tabIndex={hasChildren ? 0 : -1}
-            onClick={hasChildren ? () => toggleExpand(node.key) : undefined}
+            role={canExpand ? 'button' : undefined}
+            tabIndex={canExpand ? 0 : -1}
+            onClick={canExpand ? () => toggleExpand(node.key) : undefined}
             onKeyDown={
-              hasChildren
+              canExpand
                 ? e => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
@@ -116,7 +130,7 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
               py: 0.5,
               px: 0.5,
               borderRadius: 2,
-              cursor: hasChildren ? 'pointer' : 'default',
+              cursor: canExpand ? 'pointer' : 'default',
               '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
             }}
           >
@@ -143,13 +157,41 @@ export function FavoritesTreePickerDialog(props: Props): React.ReactNode {
     <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isMove ? '移动到收藏夹' : '收藏到收藏夹'}</DialogTitle>
       <DialogContent>
-        {nodes.length === 0 ? (
-          <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.45)' }}>暂无收藏夹可用</Typography>
-        ) : (
-          <Box role="tree" sx={{ border: '1px solid rgba(0,0,0,.06)', borderRadius: 3, p: 0.75, maxHeight: 'min(440px, 55vh)', overflowY: 'auto' }}>
-            {nodes.map(node => renderNode(node, 0))}
-          </Box>
-        )}
+        <TextField
+          autoFocus
+          size="small"
+          fullWidth
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="搜索收藏夹…"
+          aria-label="搜索收藏夹"
+          sx={{ mb: 1 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.4)' }} />
+              </InputAdornment>
+            ),
+            endAdornment: query ? (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => setQuery('')} aria-label="清空搜索">
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          }}
+        />
+        <Box sx={{ height: 'min(440px, 55vh)', display: 'flex', flexDirection: 'column' }}>
+          {nodes.length === 0 ? (
+            <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.45)' }}>暂无收藏夹可用</Typography>
+          ) : visibleNodes.length === 0 ? (
+            <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.45)' }}>没有匹配的收藏夹</Typography>
+          ) : (
+            <Box role="tree" sx={{ border: '1px solid rgba(0,0,0,.06)', borderRadius: 3, p: 0.75, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              {visibleNodes.map(node => renderNode(node, 0))}
+            </Box>
+          )}
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>取消</Button>
