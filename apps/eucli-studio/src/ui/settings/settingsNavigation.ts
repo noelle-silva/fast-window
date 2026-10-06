@@ -1,3 +1,5 @@
+import { GROUP_ENTRY_VISIBLE } from '../appConstants'
+
 export type SettingsTabValue = 'appearance' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access' | 'requestRecords'
 
 export type SettingsNavigationItem = {
@@ -5,7 +7,7 @@ export type SettingsNavigationItem = {
   label: string
 }
 
-export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
+const ALL_SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'tools', label: 'AI 工具管理' },
   { value: 'systemPlugins', label: '系统插件管理' },
   { value: 'roles', label: '角色管理' },
@@ -25,6 +27,11 @@ export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
   { value: 'requestRecords', label: '请求记录' },
   { value: 'data', label: '客户端数据' },
 ]
+
+// 群组入口显隐总开关（唯一事实源）关闭时，从导航列表过滤掉「群组管理」；开启时原样恢复。
+export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = ALL_SETTINGS_NAVIGATION_ITEMS.filter(
+  (item) => GROUP_ENTRY_VISIBLE || item.value !== 'groups',
+)
 
 // 解析当前应显示的设置分类：给定值合法则用给定值，否则回落到排序中的第一个分类。
 export function resolveSettingsTab(value: unknown, items: SettingsNavigationItem[]): SettingsTabValue {

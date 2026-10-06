@@ -6,6 +6,18 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX, SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { GROUP_ENTRY_VISIBLE } from '../appConstants'
+
+type RolePickerTab = 'roles' | 'groups' | 'workspaces'
+
+// 选择器页签的唯一来源：群组页签的可见性由总开关决定。
+// 页签的显示与当前页签的回落都从这份清单派生，开关只在这一处被判断。
+const ROLE_PICKER_TABS: Array<{ value: RolePickerTab; label: string; visible: boolean }> = [
+  { value: 'roles', label: '选择角色', visible: true },
+  { value: 'groups', label: '群组', visible: GROUP_ENTRY_VISIBLE },
+  { value: 'workspaces', label: '工作区', visible: true },
+]
+const VISIBLE_ROLE_PICKER_TABS = ROLE_PICKER_TABS.filter((tab) => tab.visible)
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
@@ -13,8 +25,8 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   rolePickerEl: HTMLElement | null
   closeRolePicker: () => void
   rolePickerMode: 'global' | 'workspaceRole'
-  rolePickerTab: 'roles' | 'groups' | 'workspaces'
-  setRolePickerTab: React.Dispatch<React.SetStateAction<'roles' | 'groups' | 'workspaces'>>
+  rolePickerTab: RolePickerTab
+  setRolePickerTab: React.Dispatch<React.SetStateAction<RolePickerTab>>
   roles: any[]
   groups: any[]
   workspaces: any[]
@@ -46,6 +58,11 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
   useUiDataVersion(controller)
 
+  // 当前页签若落在被藏页签上，自动回落到第一个可见页签。
+  const activeTab = VISIBLE_ROLE_PICKER_TABS.some((tab) => tab.value === rolePickerTab)
+    ? rolePickerTab
+    : VISIBLE_ROLE_PICKER_TABS[0].value
+
   return (
     <DependablePopover
       open={!!rolePickerEl}
@@ -59,17 +76,17 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
         {rolePickerMode === 'global' ? (
           <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
             <Tabs
-              value={rolePickerTab}
-              onChange={(_e, v) => setRolePickerTab(v === 'groups' ? 'groups' : v === 'workspaces' ? 'workspaces' : 'roles')}
+              value={activeTab}
+              onChange={(_e, v) => setRolePickerTab(v)}
               variant="fullWidth"
             >
-              <Tab value="roles" label="选择角色" />
-              <Tab value="groups" label="群组" />
-              <Tab value="workspaces" label="工作区" />
+              {VISIBLE_ROLE_PICKER_TABS.map((tab) => (
+                <Tab key={tab.value} value={tab.value} label={tab.label} />
+              ))}
             </Tabs>
           </Box>
         ) : null}
-        {rolePickerTab === 'roles' ? (
+        {activeTab === 'roles' ? (
           <List dense sx={SOFT_POPOVER_LIST_SX}>
             {roles.map((r: any) => {
               const on = String(r?.id || '') === String(draftActiveRoleId || '')
@@ -119,7 +136,7 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
               )
             })}
           </List>
-        ) : rolePickerTab === 'groups' ? groups.length ? (
+        ) : activeTab === 'groups' ? groups.length ? (
           <List dense sx={SOFT_POPOVER_LIST_SX}>
             {groups.map((g: any) => {
               const on = String(g?.id || '') === String(activeGroupId || '')
