@@ -35,6 +35,10 @@ async function createVerifyFixture(options = {}) {
   await fs.mkdir(path.join(packageDir, 'assets'), { recursive: true })
   if (!options.omitExe) await fs.writeFile(path.join(packageDir, 'sample-app.exe'), 'fake-exe', 'utf8')
   if (!options.omitIcon) await fs.writeFile(path.join(packageDir, 'assets', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8')
+  if (options.includeDataDir) {
+    await fs.mkdir(path.join(packageDir, 'data'), { recursive: true })
+    await fs.writeFile(path.join(packageDir, 'data', 'icudtl.dat'), 'x', 'utf8')
+  }
   const packagedManifest = {
     type: manifest.type,
     id: manifest.id,
@@ -203,6 +207,23 @@ test('独立校验拒绝缺少入口程序的包', async t => {
     () => verifyAppArtifact({ protocolDir: fixture.protocolDir }),
     /缺少入口程序/,
   )
+})
+
+test('豁免声明让点名的保留数据目录通过成品校验', async t => {
+  const blocked = await createVerifyFixture({ includeDataDir: true })
+  t.after(() => fs.rm(blocked.root, { recursive: true, force: true }))
+  await assert.rejects(
+    () => verifyAppArtifact({ protocolDir: blocked.protocolDir }),
+    /不允许包含保留数据目录/,
+  )
+
+  const allowed = await createVerifyFixture({
+    includeDataDir: true,
+    sourceOverrides: { reservedNameExemptions: [{ name: 'data', reason: 'Flutter 运行资源目录' }] },
+  })
+  t.after(() => fs.rm(allowed.root, { recursive: true, force: true }))
+  const result = await verifyAppArtifact({ protocolDir: allowed.protocolDir })
+  assert.ok(result.checks.some(check => check.name === 'no-reserved-data-dir' && check.ok))
 })
 
 test('独立校验按可选本地目录比对条目', async t => {

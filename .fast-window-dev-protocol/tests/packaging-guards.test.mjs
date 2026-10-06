@@ -425,7 +425,7 @@ test('repository apps expose single-source fw-app.json plus fw-app.build.json', 
     })
     const buildConfig = normalizeV5AppBuildConfig(
       JSON.parse(await fs.readFile(buildPath, 'utf8')),
-      { buildPath },
+      { buildPath, reservedNameExemptions: config.reservedNameExemptions },
     )
     assert.equal(config.type, 'desktop-app')
     for (const profile of Object.values(buildConfig.profiles)) {
@@ -442,4 +442,98 @@ test('getV5AppConfig loads a repository app by id', async () => {
   assert.equal(config.id, 'webview')
   assert.equal(config.executable, 'webview.exe')
   assert.equal(config.profiles.release.stageDir, 'dist-app/v5-windows')
+})
+
+test('豁免声明让点名的保留目录通过构建配置校验', () => {
+  const files = [
+    { from: 'build/fake.exe', to: 'fake.exe' },
+    { from: 'build/data', to: 'data' },
+  ]
+  const buildConfig = {
+    profiles: {
+      release: { build: { command: 'node', args: ['-e', '0'] }, stageDir: 'dist-app/v5-windows', files },
+      dev: { build: { command: 'node', args: ['-e', '0'] }, stageDir: 'dist-app/v5-windows-dev', files },
+    },
+  }
+  assert.throws(
+    () => normalizeV5AppBuildConfig(buildConfig, { buildPath: 'fw-app.build.json' }),
+    /不允许写入 staging 容器保留目录/,
+  )
+  const normalized = normalizeV5AppBuildConfig(buildConfig, {
+    buildPath: 'fw-app.build.json',
+    reservedNameExemptions: [{ name: 'data', reason: 'Flutter 运行资源目录' }],
+  })
+  assert.equal(normalized.profiles.release.files.at(-1).to, 'data')
+})
+
+test('豁免声明让点名的保留目录通过装配后校验', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fw-v5-exempt-'))
+  try {
+    const appDir = path.join(root, 'app')
+    await fs.mkdir(path.join(appDir, 'build', 'data'), { recursive: true })
+    await fs.mkdir(path.join(appDir, 'build', 'assets'), { recursive: true })
+    await fs.writeFile(path.join(appDir, 'build', 'fake.exe'), 'exe', 'utf8')
+    await fs.writeFile(path.join(appDir, 'build', 'assets', 'icon.svg'), '<svg />', 'utf8')
+    await fs.writeFile(path.join(appDir, 'build', 'data', 'icudtl.dat'), 'x', 'utf8')
+    await fs.writeFile(path.join(appDir, 'version.json'), JSON.stringify({ version: '1.2.3' }), 'utf8')
+    const files = [
+      { from: 'build/fake.exe', to: 'fake.exe' },
+      { from: 'build/assets', to: 'assets' },
+      { from: 'build/data', to: 'data' },
+    ]
+    const profile = { buildCommand: { command: 'node', args: ['-e', '0'] }, stageDir: 'dist-app/v5-windows', files }
+    const config = {
+      appDir,
+      type: 'desktop-app',
+      id: 'exempt-app',
+      name: 'Exempt App',
+      description: 'Exempt app',
+      versionSource: 'version.json',
+      executable: 'fake.exe',
+      icon: 'assets/icon.svg',
+      displayMode: 'default',
+      commands: [],
+      profiles: {
+        release: { id: 'release', ...profile },
+        dev: { id: 'dev', ...profile, stageDir: 'dist-app/v5-windows-dev' },
+      },
+    }
+
+    await assert.rejects(
+      () => stageV5AppPackage(config, { noBuild: true, validateArtifacts: false }),
+      /不允许包含保留数据目录/,
+    )
+
+    config.reservedNameExemptions = [{ name: 'data', reason: 'Flutter 运行资源目录' }]
+    const staged = await stageV5AppPackage(config, { noBuild: true, validateArtifacts: false })
+    assert.equal(await exists(path.join(staged.packageDir, 'data', 'icudtl.dat')), true)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('豁免声明格式不合规时快速失败', () => {
+  const base = {
+    type: 'desktop-app',
+    id: 'bad-app',
+    name: 'Bad App',
+    description: 'Bad app',
+    versionSource: 'release.json',
+    package: { windowsExecutable: 'bad-app.exe', icon: 'assets/icon.svg' },
+    displayMode: 'default',
+    commands: [],
+  }
+  const manifestPath = 'fw-app.json'
+  const normalize = exemptions => normalizeV5AppManifest(
+    { ...base, reservedNameExemptions: exemptions },
+    { appDir: 'app', expectedId: 'bad-app', manifestPath },
+  )
+  assert.throws(() => normalize([{ name: '', reason: 'x' }]), /name 不能为空/)
+  assert.throws(() => normalize([{ name: 'data', reason: '' }]), /reason 不能为空/)
+  assert.throws(() => normalize([{ name: 'data', reason: 'x' }, { name: 'data', reason: 'y' }]), /name 重复/)
+  assert.throws(() => normalize([{ name: 'a/b', reason: 'x' }]), /必须是单个目录名/)
+  assert.deepEqual(
+    normalize([{ name: 'data', reason: 'Flutter 运行资源目录' }]).reservedNameExemptions,
+    [{ name: 'data', reason: 'Flutter 运行资源目录' }],
+  )
 })
