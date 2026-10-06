@@ -18,7 +18,7 @@ const ENGINE_CSS = `
 .hc-render th,.hc-render td{padding:8px;vertical-align:top;background:var(--hc-surface-soft);}
 .hc-render th{background:var(--hc-surface-muted);}
 .hc-render pre{overflow:auto;padding:10px;background:var(--hc-code-bg);color:var(--hc-code-text);border-radius:10px;}
-.hc-render pre.fw-code-block{position:relative;padding-top:38px;}
+.hc-render pre.fw-code-block{position:relative;padding-top:38px;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:hidden;overflow-y:auto;}
 .hc-render code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;}
 .hc-render pre.fw-code-block .fw-code-copy{position:absolute;top:8px;right:8px;z-index:1;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:var(--hc-code-control-bg);color:var(--hc-code-text);font-size:12px;cursor:pointer;user-select:none;-webkit-user-select:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:inline-flex;align-items:center;justify-content:center;}
 .hc-render pre.fw-code-block .fw-code-copy:hover{background:rgba(245,239,226,.14);}
