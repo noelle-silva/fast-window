@@ -276,6 +276,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     allNotes,
     openNoteTabs,
     favoritesDoc,
+    favoritesDocRef,
     handleFavoritesDocChange,
     draftIdentity,
     externalNotesSignal,

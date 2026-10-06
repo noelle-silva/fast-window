@@ -278,36 +278,6 @@ func (svc *service) saveFavoritesDoc(scope string, doc favoritesDoc) (float64, e
 	return doc.UpdatedAtMs, nil
 }
 
-// saveFavorites 保存整份收藏夹文档（提交内容先规范化）。
-// expectedVersion 为防覆盖保险丝：非零时必须与当前收藏夹版本一致才允许写入，不一致说明读取后
-// 收藏夹已被其他修改更新，直接拒绝并回报当前版本；写入成功后返回本次产生的新版本标记。
-func (svc *service) saveFavorites(scope string, raw json.RawMessage, expectedVersion float64) (any, error) {
-	var value any
-	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
-		value = nil
-	} else if err := json.Unmarshal(raw, &value); err != nil {
-		return nil, err
-	}
-	doc, _ := normalizeFavoritesDoc(value)
-	if expectedVersion > 0 {
-		current, _, err := svc.tryLoadFavorites(scope)
-		if err != nil {
-			return nil, err
-		}
-		if current.Version != 1 {
-			return nil, coded(codeVersionConflict, "收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
-		}
-		if err := checkVersionConflict("收藏夹", expectedVersion, current.UpdatedAtMs); err != nil {
-			return nil, err
-		}
-	}
-	version, err := svc.saveFavoritesDoc(scope, doc)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"version": version}, nil
-}
-
 // collectFavoriteNoteIDs 递归收集收藏夹（含嵌套子收藏夹）中的笔记标识；
 // 未知收藏夹快速失败，环引用安全跳过。
 func collectFavoriteNoteIDs(doc favoritesDoc, folderID string) (map[string]bool, error) {

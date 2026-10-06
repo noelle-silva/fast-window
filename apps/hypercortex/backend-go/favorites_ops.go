@@ -10,25 +10,38 @@ import (
 	"time"
 )
 
-// 收藏夹语义写入口：建夹、改夹、放入、移出、挪夹。
-// 每个入口都走同一条主路：读取当前文档 → 校验防覆盖保险丝 → 在内存中应用变更 → 经唯一写入点写回。
-// 调用者（工具与外部访问）只表达意图，不需要了解整份文档的结构与版本管理细节。
+// 收藏夹语义写入口：建夹、改夹、放入、移出、挪夹、排序、布局、删除。
+// 每个入口都走同一条主路：读取当前文档 → 在内存中应用变更 → 经唯一写入点写回。
+// 调用者（界面与外部访问）只表达意图，不需要了解整份文档的结构。
+// 后端在同一把串行锁（service.mu）下读改写，不同来源的并发写天然不互相覆盖；
+// 收藏夹不引入版本保险丝。
 
-// loadFavoritesForWrite 读取收藏夹文档供写入：文档缺失时按空文档建立初始结构；
-// expectedVersion 非零时必须与当前版本一致，否则拒绝写入并回报当前版本。
-func (svc *service) loadFavoritesForWrite(scope string, expectedVersion float64) (favoritesDoc, error) {
+// favoriteRefIdentity 是收藏条目的稳定身份：类型 + 目标标识。
+// 语义入口以身份定位条目，与条目标识解耦，界面侧生成的条目标识不参与后端寻址。
+type favoriteRefIdentity struct {
+	Kind     string `json:"kind"`
+	TargetID string `json:"targetId"`
+}
+
+func favoriteIdentityKey(kind string, targetID string) string {
+	return strings.TrimSpace(kind) + ":" + strings.TrimSpace(targetID)
+}
+
+// favoriteRefIdentitiesField 解析排序入口提交的条目身份清单；缺失或非法载荷返回空清单。
+func favoriteRefIdentitiesField(raw json.RawMessage, key string) []favoriteRefIdentity {
+	var ordered []favoriteRefIdentity
+	_ = json.Unmarshal(rawField(raw, key), &ordered)
+	return ordered
+}
+
+// loadFavoritesForWrite 读取收藏夹文档供写入：文档缺失时按空文档建立初始结构。
+func (svc *service) loadFavoritesForWrite(scope string) (favoritesDoc, error) {
 	doc, _, err := svc.tryLoadFavorites(scope)
 	if err != nil {
 		return favoritesDoc{}, err
 	}
 	if doc.Version != 1 {
-		if expectedVersion > 0 {
-			return favoritesDoc{}, coded(codeVersionConflict, "收藏夹版本不匹配：期望版本 %.0f，但目标收藏夹不存在", expectedVersion)
-		}
 		return freshFavoritesDoc(nowMs()), nil
-	}
-	if err := checkVersionConflict("收藏夹", expectedVersion, doc.UpdatedAtMs); err != nil {
-		return favoritesDoc{}, err
 	}
 	return doc, nil
 }
@@ -185,12 +198,13 @@ func normalizeFavoriteItemKind(kind string) (string, error) {
 }
 
 // createFavoriteFolder 建夹：在指定收藏夹下新建一个子收藏夹并建立引用。
-func (svc *service) createFavoriteFolder(scope string, parentID string, title string, description string, expectedVersion float64) (any, error) {
+// 可选标识：界面侧生成标识时原样采用（保证界面内存态与磁盘态标识一致）；缺省由后端生成。
+func (svc *service) createFavoriteFolder(scope string, parentID string, title string, description string, ids ...string) (any, error) {
 	name := strings.TrimSpace(title)
 	if name == "" {
 		return nil, errors.New("收藏夹标题不能为空")
 	}
-	doc, err := svc.loadFavoritesForWrite(scope, expectedVersion)
+	doc, err := svc.loadFavoritesForWrite(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -199,22 +213,31 @@ func (svc *service) createFavoriteFolder(scope string, parentID string, title st
 		return nil, err
 	}
 	now := nowMs()
-	id := newFavoriteFolderID()
-	doc.Folders[id] = favoriteFolder{ID: id, Title: name, Description: strings.TrimSpace(description), CreatedAtMs: now, UpdatedAtMs: now}
-	if doc.RefsByFolderID[id] == nil {
-		doc.RefsByFolderID[id] = []favoriteItemRef{}
+	folderID := ""
+	if len(ids) > 0 {
+		folderID = strings.TrimSpace(ids[0])
 	}
-	favoriteAddRef(doc, parent.ID, "folder", id)
+	if folderID == "" {
+		folderID = newFavoriteFolderID()
+	}
+	if _, exists := doc.Folders[folderID]; exists {
+		return nil, fmt.Errorf("收藏夹已存在：%s", folderID)
+	}
+	doc.Folders[folderID] = favoriteFolder{ID: folderID, Title: name, Description: strings.TrimSpace(description), CreatedAtMs: now, UpdatedAtMs: now}
+	if doc.RefsByFolderID[folderID] == nil {
+		doc.RefsByFolderID[folderID] = []favoriteItemRef{}
+	}
+	favoriteAddRef(doc, parent.ID, "folder", folderID)
 	version, err := svc.saveFavoritesDoc(scope, doc)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"version": version, "folderId": id, "parentId": parent.ID}, nil
+	return map[string]any{"version": version, "folderId": folderID, "parentId": parent.ID}, nil
 }
 
 // updateFavoriteFolder 改夹：增量更新收藏夹的标题与说明（缺失字段沿用旧值）。
-func (svc *service) updateFavoriteFolder(scope string, folderID string, raw json.RawMessage, expectedVersion float64) (any, error) {
-	doc, err := svc.loadFavoritesForWrite(scope, expectedVersion)
+func (svc *service) updateFavoriteFolder(scope string, folderID string, raw json.RawMessage) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -262,8 +285,8 @@ func (svc *service) updateFavoriteFolder(scope string, folderID string, raw json
 }
 
 // addFavoriteItem 放入：把笔记、附件或子收藏夹收进指定收藏夹。
-func (svc *service) addFavoriteItem(scope string, folderID string, kind string, targetID string, expectedVersion float64) (any, error) {
-	doc, err := svc.loadFavoritesForWrite(scope, expectedVersion)
+func (svc *service) addFavoriteItem(scope string, folderID string, kind string, targetID string) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -294,8 +317,8 @@ func (svc *service) addFavoriteItem(scope string, folderID string, kind string, 
 }
 
 // removeFavoriteItem 移出：把条目从收藏夹中移除（只摘引用，不动被收藏的对象本身）。
-func (svc *service) removeFavoriteItem(scope string, folderID string, kind string, targetID string, expectedVersion float64) (any, error) {
-	doc, err := svc.loadFavoritesForWrite(scope, expectedVersion)
+func (svc *service) removeFavoriteItem(scope string, folderID string, kind string, targetID string) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -334,8 +357,8 @@ func (svc *service) removeFavoriteItem(scope string, folderID string, kind strin
 }
 
 // moveFavoriteItem 挪夹：把条目从一个收藏夹移到另一个收藏夹。
-func (svc *service) moveFavoriteItem(scope string, fromFolderID string, toFolderID string, kind string, targetID string, expectedVersion float64) (any, error) {
-	doc, err := svc.loadFavoritesForWrite(scope, expectedVersion)
+func (svc *service) moveFavoriteItem(scope string, fromFolderID string, toFolderID string, kind string, targetID string) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -386,6 +409,130 @@ func (svc *service) moveFavoriteItem(scope string, fromFolderID string, toFolder
 		return nil, err
 	}
 	return map[string]any{"version": version, "refId": ref.ID, "fromFolderId": from.ID, "toFolderId": to.ID}, nil
+}
+
+// reorderFavoriteItems 排序：按身份清单重排收藏夹内条目。
+// 清单中未出现的条目（如外部并发新增）保留在末尾，原相对顺序不变，不因本操作丢失。
+func (svc *service) reorderFavoriteItems(scope string, folderID string, ordered []favoriteRefIdentity) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
+	if err != nil {
+		return nil, err
+	}
+	folder, err := favoriteFolderOrFail(doc, folderID)
+	if err != nil {
+		return nil, err
+	}
+	refs := doc.RefsByFolderID[folder.ID]
+	if len(refs) <= 1 {
+		return map[string]any{"version": doc.UpdatedAtMs, "folderId": folder.ID, "changed": false}, nil
+	}
+	byKey := map[string]favoriteItemRef{}
+	for _, ref := range refs {
+		byKey[favoriteIdentityKey(ref.Kind, ref.TargetID)] = ref
+	}
+	used := map[string]bool{}
+	next := make([]favoriteItemRef, 0, len(refs))
+	for _, identity := range ordered {
+		key := favoriteIdentityKey(identity.Kind, identity.TargetID)
+		ref, ok := byKey[key]
+		if !ok || used[key] {
+			continue
+		}
+		used[key] = true
+		next = append(next, ref)
+	}
+	for _, ref := range refs {
+		key := favoriteIdentityKey(ref.Kind, ref.TargetID)
+		if used[key] {
+			continue
+		}
+		next = append(next, ref)
+	}
+	if favoriteRefsSameOrder(refs, next) {
+		return map[string]any{"version": doc.UpdatedAtMs, "folderId": folder.ID, "changed": false}, nil
+	}
+	doc.RefsByFolderID[folder.ID] = next
+	touchFavoriteFolder(&doc, folder.ID, nowMs())
+	version, err := svc.saveFavoritesDoc(scope, doc)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"version": version, "folderId": folder.ID, "changed": true}, nil
+}
+
+// favoriteRefsSameOrder 判断两条条目清单是否同序（按条目标识逐位比对）。
+func favoriteRefsSameOrder(a []favoriteItemRef, b []favoriteItemRef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID {
+			return false
+		}
+	}
+	return true
+}
+
+// updateFavoriteItemLayout 布局：按身份定位条目并更新其栅格摆放。
+func (svc *service) updateFavoriteItemLayout(scope string, folderID string, kind string, targetID string, layout favoriteGridLayout) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
+	if err != nil {
+		return nil, err
+	}
+	folder, err := favoriteFolderOrFail(doc, folderID)
+	if err != nil {
+		return nil, err
+	}
+	itemKind, err := normalizeFavoriteItemKind(kind)
+	if err != nil {
+		return nil, err
+	}
+	target := strings.TrimSpace(targetID)
+	if target == "" {
+		return nil, errors.New("收藏目标标识不能为空")
+	}
+	refs := doc.RefsByFolderID[folder.ID]
+	for i := range refs {
+		if refs[i].Kind != itemKind || strings.TrimSpace(refs[i].TargetID) != target {
+			continue
+		}
+		if refs[i].Layout == layout {
+			return map[string]any{"version": doc.UpdatedAtMs, "folderId": folder.ID, "changed": false}, nil
+		}
+		refs[i].Layout = layout
+		refs[i].UpdatedAtMs = nowMs()
+		doc.RefsByFolderID[folder.ID] = refs
+		touchFavoriteFolder(&doc, folder.ID, nowMs())
+		version, err := svc.saveFavoritesDoc(scope, doc)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"version": version, "folderId": folder.ID, "changed": true}, nil
+	}
+	return nil, fmt.Errorf("收藏夹中没有该条目：%s %s", itemKind, target)
+}
+
+// deleteFavoriteFolder 删除收藏夹本体：移除收藏夹与其页面条目清单。
+// 别处指向它的引用不在本操作范围内（由调用方按「删除引用与本体」语义单独移出）。
+func (svc *service) deleteFavoriteFolder(scope string, folderID string) (any, error) {
+	doc, err := svc.loadFavoritesForWrite(scope)
+	if err != nil {
+		return nil, err
+	}
+	folder, err := favoriteFolderOrFail(doc, folderID)
+	if err != nil {
+		return nil, err
+	}
+	if folder.ID == doc.RootFolderID || folder.ID == "root" {
+		return nil, errors.New("根收藏夹不能删除")
+	}
+	delete(doc.Folders, folder.ID)
+	delete(doc.RefsByFolderID, folder.ID)
+	version, err := svc.saveFavoritesDoc(scope, doc)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"version": version, "folderId": folder.ID}, nil
 }
 
 // newFavoriteFolderID 生成收藏夹标识；与界面侧 nowId 同格式（36 进制毫秒 + 随机后缀），

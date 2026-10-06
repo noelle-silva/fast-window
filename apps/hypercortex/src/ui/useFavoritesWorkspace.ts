@@ -49,6 +49,7 @@ export function useFavoritesWorkspaceState(opts: {
   setFavoritesDoc: React.Dispatch<React.SetStateAction<HyperCortexFavoritesDocV1 | null>>
   favoritesDocRef: React.MutableRefObject<HyperCortexFavoritesDocV1 | null>
   handleFavoritesDocChange: (nextDoc: HyperCortexFavoritesDocV1) => void
+  handleFavoritesDocAdopt: (doc: HyperCortexFavoritesDocV1) => void
   currentFolderId: string
   setCurrentFolderId: React.Dispatch<React.SetStateAction<string>>
   favoritesNav: HyperCortexFavoritesNavV1
@@ -75,8 +76,11 @@ export function useFavoritesWorkspaceState(opts: {
     handleSidebarPreviewHover,
   } = opts
 
-  // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 落盘）。
-  const favoritesLedger = React.useMemo(() => createFavoritesLedger(gateway, 'library'), [gateway])
+  // 收藏夹账本管理员：收藏夹文档的唯一读写入口（装载 + 语义写操作收敛）。
+  const favoritesLedger = React.useMemo(
+    () => createFavoritesLedger(gateway, 'library', { onError: message => void gateway.host.toast(message) }),
+    [gateway],
+  )
 
   const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
@@ -138,9 +142,21 @@ export function useFavoritesWorkspaceState(opts: {
 
   const handleFavoritesDocChange = React.useCallback(
     (nextDoc: HyperCortexFavoritesDocV1) => {
+      // 同步刷新「最新值」引用：账本基线与内存态保持一致，后续按局部意图收敛时不会误判差异。
+      favoritesDocRef.current = nextDoc
       setFavoritesDoc(nextDoc)
-      // 内存保留草稿引用；落盘由账本管理员统一转换（磁盘态过滤草稿引用）。
+      // 内存保留草稿引用；写入由账本管理员收敛为一组语义写操作报给后端。
       favoritesLedger.commit(nextDoc)
+    },
+    [favoritesLedger],
+  )
+
+  // 采纳后端权威文档（回收站恢复等）：只更新基线，不产生写操作，避免把后端已应用的变更重复登记。
+  const handleFavoritesDocAdopt = React.useCallback(
+    (doc: HyperCortexFavoritesDocV1) => {
+      favoritesDocRef.current = doc
+      setFavoritesDoc(doc)
+      favoritesLedger.adopt(doc)
     },
     [favoritesLedger],
   )
@@ -151,6 +167,7 @@ export function useFavoritesWorkspaceState(opts: {
     setFavoritesDoc,
     favoritesDocRef,
     handleFavoritesDocChange,
+    handleFavoritesDocAdopt,
     currentFolderId,
     setCurrentFolderId,
     favoritesNav,
@@ -307,10 +324,13 @@ export function useFavoritesWorkspaceActions(opts: {
       const refs = getRefsByFolderId(base, id)
       // 别处指向本收藏夹的引用：随本体一并移除并打包，恢复时原样放回。
       const inboundRefs = collectRefsForTarget(base, 'folder', id)
-      const withoutEntity = deleteFolder(removeRefsByIds(base, inboundRefs.map(ref => ref.id)), id)
-      if (!withoutEntity) return
 
       const finish = () => {
+        // 以提交时刻的最新文档为准：等待回收站写入期间的外部改动不被误当作本地删除而覆盖。
+        const latest = favoritesDocRef.current || base
+        const latestInbound = collectRefsForTarget(latest, 'folder', id)
+        const withoutEntity = deleteFolder(removeRefsByIds(latest, latestInbound.map(ref => ref.id)), id)
+        if (!withoutEntity) return
         handleFavoritesDocChange(withoutEntity)
         // 删除收藏夹时丢弃其滚动记账，避免陈旧记忆残留。
         clearFavoritesScrollMemory(id)
@@ -506,8 +526,7 @@ export function useFavoritesWorkspaceActions(opts: {
   const handleUploadAssetsIntoIndex = React.useCallback(
     async (folderId: string) => {
       const fid = String(folderId || '').trim() || 'root'
-      const baseDoc = favoritesDoc
-      if (!baseDoc) return
+      if (!favoritesDocRef.current) return
 
       try {
         const task = await startPickedLocalAssetUploadTask(gateway, 'library')
@@ -529,6 +548,9 @@ export function useFavoritesWorkspaceActions(opts: {
 
         const imported = completed.result || []
         if (!imported.length) return
+        // 以上传完成时刻的最新文档为基：等待期间的外部改动不被误当作本地删除而覆盖。
+        const baseDoc = favoritesDocRef.current
+        if (!baseDoc) return
         let nextDoc = baseDoc
         let addedCount = 0
         for (const resource of imported) {
@@ -548,7 +570,7 @@ export function useFavoritesWorkspaceActions(opts: {
         void gateway.host.toast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
       }
     },
-    [favoritesDoc, gateway, handleFavoritesDocChange],
+    [favoritesDocRef, gateway, handleFavoritesDocChange, setAssetPoolIndex],
   )
 
   // 右侧条目激活：命中当前页条目时打开详情，并把选中来源归到右侧栏。

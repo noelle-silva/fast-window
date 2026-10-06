@@ -15,7 +15,7 @@ func TestCreateFavoriteFolderCreatesFolderAndRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	result, err := svc.createFavoriteFolder(scope, "", "读书笔记", "读书记录", 0)
+	result, err := svc.createFavoriteFolder(scope, "", "读书笔记", "读书记录")
 	if err != nil {
 		t.Fatalf("createFavoriteFolder failed: %v", err)
 	}
@@ -48,10 +48,10 @@ func TestCreateFavoriteFolderRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	if _, err := svc.createFavoriteFolder(scope, "", "   ", "", 0); err == nil || !strings.Contains(err.Error(), "标题不能为空") {
+	if _, err := svc.createFavoriteFolder(scope, "", "   ", ""); err == nil || !strings.Contains(err.Error(), "标题不能为空") {
 		t.Fatalf("empty title err = %v", err)
 	}
-	if _, err := svc.createFavoriteFolder(scope, "ghost", "子夹", "", 0); err == nil || !strings.Contains(err.Error(), "收藏夹不存在") {
+	if _, err := svc.createFavoriteFolder(scope, "ghost", "子夹", ""); err == nil || !strings.Contains(err.Error(), "收藏夹不存在") {
 		t.Fatalf("missing parent err = %v", err)
 	}
 }
@@ -63,13 +63,13 @@ func TestUpdateFavoriteFolderPatchesFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.createFavoriteFolder(scope, "", "旧标题", "旧说明", 0)
+	created, err := svc.createFavoriteFolder(scope, "", "旧标题", "旧说明")
 	if err != nil {
 		t.Fatal(err)
 	}
 	folderID := created.(map[string]any)["folderId"].(string)
 
-	result, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"新标题"}`), 0)
+	result, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"新标题"}`))
 	if err != nil {
 		t.Fatalf("updateFavoriteFolder failed: %v", err)
 	}
@@ -85,14 +85,14 @@ func TestUpdateFavoriteFolderPatchesFields(t *testing.T) {
 		t.Fatalf("folder = %#v", folder)
 	}
 
-	unchanged, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"新标题"}`), 0)
+	unchanged, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"新标题"}`))
 	if err != nil {
 		t.Fatalf("idempotent update failed: %v", err)
 	}
 	if unchanged.(map[string]any)["changed"] != false {
 		t.Fatalf("unchanged = %#v", unchanged)
 	}
-	if _, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{}`), 0); err == nil || !strings.Contains(err.Error(), "至少提供") {
+	if _, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "至少提供") {
 		t.Fatalf("empty patch err = %v", err)
 	}
 }
@@ -110,22 +110,22 @@ func TestAddFavoriteItemValidatesTargetsAndDuplicates(t *testing.T) {
 	}
 	noteID := created.(map[string]any)["meta"].(noteMeta).ID
 
-	if _, err := svc.addFavoriteItem(scope, "", "note", noteID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, "", "note", noteID); err != nil {
 		t.Fatalf("add note failed: %v", err)
 	}
-	if _, err := svc.addFavoriteItem(scope, "", "note", noteID, 0); err == nil || !strings.Contains(err.Error(), "已存在") {
+	if _, err := svc.addFavoriteItem(scope, "", "note", noteID); err == nil || !strings.Contains(err.Error(), "已存在") {
 		t.Fatalf("duplicate add err = %v", err)
 	}
-	if _, err := svc.addFavoriteItem(scope, "", "note", "ghost-note", 0); err == nil || !strings.Contains(err.Error(), "笔记不存在") {
+	if _, err := svc.addFavoriteItem(scope, "", "note", "ghost-note"); err == nil || !strings.Contains(err.Error(), "笔记不存在") {
 		t.Fatalf("missing note err = %v", err)
 	}
-	if _, err := svc.addFavoriteItem(scope, "", "asset", "ghost.txt", 0); err == nil || !strings.Contains(err.Error(), "附件不存在") {
+	if _, err := svc.addFavoriteItem(scope, "", "asset", "ghost.txt"); err == nil || !strings.Contains(err.Error(), "附件不存在") {
 		t.Fatalf("missing asset err = %v", err)
 	}
-	if _, err := svc.addFavoriteItem(scope, "", "folder", "root", 0); err == nil || !strings.Contains(err.Error(), "自身") {
+	if _, err := svc.addFavoriteItem(scope, "", "folder", "root"); err == nil || !strings.Contains(err.Error(), "自身") {
 		t.Fatalf("self folder err = %v", err)
 	}
-	if _, err := svc.addFavoriteItem(scope, "", "weird", "x", 0); err == nil || !strings.Contains(err.Error(), "未知收藏条目类型") {
+	if _, err := svc.addFavoriteItem(scope, "", "weird", "x"); err == nil || !strings.Contains(err.Error(), "未知收藏条目类型") {
 		t.Fatalf("unknown kind err = %v", err)
 	}
 }
@@ -142,10 +142,10 @@ func TestRemoveFavoriteItemDetachesRefOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteID := created.(map[string]any)["meta"].(noteMeta).ID
-	if _, err := svc.addFavoriteItem(scope, "", "note", noteID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, "", "note", noteID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.removeFavoriteItem(scope, "", "note", noteID, 0); err != nil {
+	if _, err := svc.removeFavoriteItem(scope, "", "note", noteID); err != nil {
 		t.Fatalf("removeFavoriteItem failed: %v", err)
 	}
 	doc, _, err := svc.tryLoadFavorites(scope)
@@ -159,7 +159,7 @@ func TestRemoveFavoriteItemDetachesRefOnly(t *testing.T) {
 	if _, err := svc.loadNoteManifest(scope, created.(map[string]any)["meta"].(noteMeta).Dir); err != nil {
 		t.Fatalf("note removed unexpectedly: %v", err)
 	}
-	if _, err := svc.removeFavoriteItem(scope, "", "note", noteID, 0); err == nil || !strings.Contains(err.Error(), "没有该条目") {
+	if _, err := svc.removeFavoriteItem(scope, "", "note", noteID); err == nil || !strings.Contains(err.Error(), "没有该条目") {
 		t.Fatalf("missing ref err = %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestMoveFavoriteItemTransfersBetweenFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	createdFolder, err := svc.createFavoriteFolder(scope, "", "目标夹", "", 0)
+	createdFolder, err := svc.createFavoriteFolder(scope, "", "目标夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,11 +181,11 @@ func TestMoveFavoriteItemTransfersBetweenFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteID := createdNote.(map[string]any)["meta"].(noteMeta).ID
-	if _, err := svc.addFavoriteItem(scope, "root", "note", noteID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, "root", "note", noteID); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.moveFavoriteItem(scope, "root", targetFolder, "note", noteID, 0); err != nil {
+	if _, err := svc.moveFavoriteItem(scope, "root", targetFolder, "note", noteID); err != nil {
 		t.Fatalf("moveFavoriteItem failed: %v", err)
 	}
 	doc, _, err := svc.tryLoadFavorites(scope)
@@ -201,10 +201,10 @@ func TestMoveFavoriteItemTransfersBetweenFolders(t *testing.T) {
 	if len(refs) != 1 || refs[0].TargetID != noteID {
 		t.Fatalf("target refs = %#v", refs)
 	}
-	if _, err := svc.moveFavoriteItem(scope, targetFolder, "root", "note", noteID, 0); err != nil {
+	if _, err := svc.moveFavoriteItem(scope, targetFolder, "root", "note", noteID); err != nil {
 		t.Fatalf("move back failed: %v", err)
 	}
-	if _, err := svc.moveFavoriteItem(scope, "root", "root", "note", noteID, 0); err == nil || !strings.Contains(err.Error(), "相同") {
+	if _, err := svc.moveFavoriteItem(scope, "root", "root", "note", noteID); err == nil || !strings.Contains(err.Error(), "相同") {
 		t.Fatalf("same folder err = %v", err)
 	}
 }
@@ -216,51 +216,168 @@ func TestAddFavoriteFolderRejectsCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	parent, err := svc.createFavoriteFolder(scope, "root", "父夹", "", 0)
+	parent, err := svc.createFavoriteFolder(scope, "root", "父夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	parentID := parent.(map[string]any)["folderId"].(string)
-	child, err := svc.createFavoriteFolder(scope, parentID, "子夹", "", 0)
+	child, err := svc.createFavoriteFolder(scope, parentID, "子夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	childID := child.(map[string]any)["folderId"].(string)
 	// 把父夹放进子夹：形成环，必须拒绝。
-	if _, err := svc.addFavoriteItem(scope, childID, "folder", parentID, 0); err == nil || !strings.Contains(err.Error(), "环") {
+	if _, err := svc.addFavoriteItem(scope, childID, "folder", parentID); err == nil || !strings.Contains(err.Error(), "环") {
 		t.Fatalf("cycle err = %v", err)
 	}
 }
 
-// 收藏夹防覆盖保险丝：版本不匹配拒绝写入并回报当前版本。
-func TestFavoriteOpsRespectExpectedVersion(t *testing.T) {
+// 排序：按身份清单重排条目；清单未列出的条目保留在末尾，不丢失。
+func TestReorderFavoriteItemsByRefOrder(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.ensureRoots(); err != nil {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.createFavoriteFolder(scope, "", "夹", "", 0)
+	first, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": "甲"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	folderID := created.(map[string]any)["folderId"].(string)
-	staleVersion := created.(map[string]any)["version"].(float64)
-
-	// 第一次改夹让版本前进。
-	if _, err := svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"改名"}`), staleVersion); err != nil {
-		t.Fatalf("first update failed: %v", err)
+	second, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": "乙"}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	// 用旧版本再写：拒绝并回报当前版本。
-	_, err = svc.updateFavoriteFolder(scope, folderID, json.RawMessage(`{"title":"再改"}`), staleVersion)
-	if err == nil || !strings.Contains(err.Error(), "版本不匹配") {
-		t.Fatalf("stale update err = %v", err)
+	third, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": "丙"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idA := first.(map[string]any)["meta"].(noteMeta).ID
+	idB := second.(map[string]any)["meta"].(noteMeta).ID
+	idC := third.(map[string]any)["meta"].(noteMeta).ID
+	for _, id := range []string{idA, idB, idC} {
+		if _, err := svc.addFavoriteItem(scope, "root", "note", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := svc.reorderFavoriteItems(scope, "root", []favoriteRefIdentity{
+		{Kind: "note", TargetID: idC},
+		{Kind: "note", TargetID: idA},
+		{Kind: "note", TargetID: idB},
+	})
+	if err != nil {
+		t.Fatalf("reorderFavoriteItems failed: %v", err)
+	}
+	if result.(map[string]any)["changed"] != true {
+		t.Fatalf("changed = %#v", result)
 	}
 	doc, _, err := svc.tryLoadFavorites(scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Folders[folderID].Title != "改名" {
-		t.Fatalf("stale write applied: %#v", doc.Folders[folderID])
+	got := []string{}
+	for _, ref := range doc.RefsByFolderID["root"] {
+		got = append(got, ref.TargetID)
+	}
+	want := []string{idC, idA, idB}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+
+	// 清单只列部分条目：未列出的保留在末尾。
+	partial, err := svc.reorderFavoriteItems(scope, "root", []favoriteRefIdentity{
+		{Kind: "note", TargetID: idB},
+	})
+	if err != nil {
+		t.Fatalf("partial reorder failed: %v", err)
+	}
+	if partial.(map[string]any)["changed"] != true {
+		t.Fatalf("partial changed = %#v", partial)
+	}
+	doc, _, err = svc.tryLoadFavorites(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = got[:0]
+	for _, ref := range doc.RefsByFolderID["root"] {
+		got = append(got, ref.TargetID)
+	}
+	if got[0] != idB || len(got) != 3 {
+		t.Fatalf("partial order = %v", got)
+	}
+}
+
+// 布局：按身份定位条目并更新栅格摆放；目标缺失时快速失败。
+func TestUpdateFavoriteItemLayoutByIdentity(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+	created, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": "笔记"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	noteID := created.(map[string]any)["meta"].(noteMeta).ID
+	if _, err := svc.addFavoriteItem(scope, "root", "note", noteID); err != nil {
+		t.Fatal(err)
+	}
+	layout := favoriteGridLayout{X: 3, Y: 1, W: 2, H: 4}
+	if _, err := svc.updateFavoriteItemLayout(scope, "root", "note", noteID, layout); err != nil {
+		t.Fatalf("updateFavoriteItemLayout failed: %v", err)
+	}
+	doc, _, err := svc.tryLoadFavorites(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := doc.RefsByFolderID["root"]
+	if len(refs) != 1 || refs[0].Layout != layout {
+		t.Fatalf("layout = %#v", refs)
+	}
+	if _, err := svc.updateFavoriteItemLayout(scope, "root", "note", "ghost", layout); err == nil || !strings.Contains(err.Error(), "没有该条目") {
+		t.Fatalf("missing ref err = %v", err)
+	}
+}
+
+// 删除：移除收藏夹本体与其页面条目清单；根收藏夹不可删除。
+func TestDeleteFavoriteFolderRemovesEntity(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.ensureRoots(); err != nil {
+		t.Fatal(err)
+	}
+	scope := testRepoID(t, svc)
+	created, err := svc.createFavoriteFolder(scope, "", "待删夹", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	folderID := created.(map[string]any)["folderId"].(string)
+	note, err := svc.createNote(scope, mustJSONRaw(t, map[string]any{"title": "夹内笔记"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	noteID := note.(map[string]any)["meta"].(noteMeta).ID
+	if _, err := svc.addFavoriteItem(scope, folderID, "note", noteID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.deleteFavoriteFolder(scope, folderID); err != nil {
+		t.Fatalf("deleteFavoriteFolder failed: %v", err)
+	}
+	doc, _, err := svc.tryLoadFavorites(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Folders[folderID]; ok {
+		t.Fatalf("folder still present: %#v", doc.Folders)
+	}
+	if _, ok := doc.RefsByFolderID[folderID]; ok {
+		t.Fatalf("folder refs still present: %#v", doc.RefsByFolderID)
+	}
+	if _, err := svc.deleteFavoriteFolder(scope, "root"); err == nil || !strings.Contains(err.Error(), "根收藏夹不能删除") {
+		t.Fatalf("root delete err = %v", err)
+	}
+	if _, err := svc.deleteFavoriteFolder(scope, "ghost"); err == nil || !strings.Contains(err.Error(), "收藏夹不存在") {
+		t.Fatalf("missing folder err = %v", err)
 	}
 }
 
@@ -277,25 +394,25 @@ func TestFavoriteOpsBumpVersionEachWrite(t *testing.T) {
 	}
 	noteID := note.(map[string]any)["meta"].(noteMeta).ID
 
-	first, err := svc.createFavoriteFolder(scope, "", "夹", "", 0)
+	first, err := svc.createFavoriteFolder(scope, "", "夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	folderID := first.(map[string]any)["folderId"].(string)
 	version1 := first.(map[string]any)["version"].(float64)
 
-	second, err := svc.addFavoriteItem(scope, folderID, "note", noteID, version1)
+	second, err := svc.addFavoriteItem(scope, folderID, "note", noteID)
 	if err != nil {
-		t.Fatalf("add with matching version failed: %v", err)
+		t.Fatalf("add failed: %v", err)
 	}
 	version2 := second.(map[string]any)["version"].(float64)
 	if version2 == version1 {
 		t.Fatalf("version not bumped: %v", version2)
 	}
 
-	third, err := svc.moveFavoriteItem(scope, folderID, "root", "note", noteID, version2)
+	third, err := svc.moveFavoriteItem(scope, folderID, "root", "note", noteID)
 	if err != nil {
-		t.Fatalf("move with matching version failed: %v", err)
+		t.Fatalf("move failed: %v", err)
 	}
 	version3 := third.(map[string]any)["version"].(float64)
 	if version3 == version2 {
@@ -458,14 +575,14 @@ func TestFavoriteOpsLeaveNoSideEffectsOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.createFavoriteFolder(scope, "", "夹", "", 0)
+	created, err := svc.createFavoriteFolder(scope, "", "夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	folderID := created.(map[string]any)["folderId"].(string)
 	version := created.(map[string]any)["version"].(float64)
 
-	if _, err := svc.addFavoriteItem(scope, folderID, "note", "ghost", version); err == nil {
+	if _, err := svc.addFavoriteItem(scope, folderID, "note", "ghost"); err == nil {
 		t.Fatal("expected missing note rejection")
 	}
 	doc, _, err := svc.tryLoadFavorites(scope)

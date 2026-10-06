@@ -116,7 +116,7 @@ func TestFavoriteIDsFollowFrontendFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := testRepoID(t, svc)
-	created, err := svc.createFavoriteFolder(scope, "", "格式夹", "", 0)
+	created, err := svc.createFavoriteFolder(scope, "", "格式夹", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestFavoriteIDsFollowFrontendFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteID := added.(map[string]any)["meta"].(noteMeta).ID
-	refResult, err := svc.addFavoriteItem(scope, "root", "note", noteID, 0)
+	refResult, err := svc.addFavoriteItem(scope, "root", "note", noteID)
 	if err != nil {
 		t.Fatal(err)
 	}

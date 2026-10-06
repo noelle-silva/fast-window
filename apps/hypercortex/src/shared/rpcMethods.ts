@@ -78,12 +78,14 @@ export const HyperCortexRpc = {
   favorites: {
     tryLoad: 'hypercortex.favorites.tryLoad',
     ensure: 'hypercortex.favorites.ensure',
-    save: 'hypercortex.favorites.save',
     createFolder: 'hypercortex.favorites.createFolder',
     updateFolder: 'hypercortex.favorites.updateFolder',
     addItem: 'hypercortex.favorites.addItem',
     removeItem: 'hypercortex.favorites.removeItem',
     moveItem: 'hypercortex.favorites.moveItem',
+    reorderItems: 'hypercortex.favorites.reorderItems',
+    updateItemLayout: 'hypercortex.favorites.updateItemLayout',
+    deleteFolder: 'hypercortex.favorites.deleteFolder',
   },
   trash: {
     list: 'hypercortex.trash.list',

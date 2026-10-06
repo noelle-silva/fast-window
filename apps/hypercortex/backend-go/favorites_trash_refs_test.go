@@ -21,10 +21,10 @@ func TestNoteTrashPacksAndRestoresRefs(t *testing.T) {
 
 	folderA := createFolderForTest(t, svc, scope, "夹 A")
 	folderB := createFolderForTest(t, svc, scope, "夹 B")
-	if _, err := svc.addFavoriteItem(scope, folderA, "note", note.ID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, folderA, "note", note.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFavoriteItem(scope, folderB, "note", note.ID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, folderB, "note", note.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,7 +94,7 @@ func TestAssetTrashPacksAndRestoresRefs(t *testing.T) {
 	}
 
 	folderA := createFolderForTest(t, svc, scope, "附件夹")
-	if _, err := svc.addFavoriteItem(scope, folderA, "asset", key, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, folderA, "asset", key); err != nil {
 		t.Fatal(err)
 	}
 	doc, _, err := svc.tryLoadFavorites(scope)
@@ -137,7 +137,7 @@ func TestAssetTrashPacksAndRestoresRefs(t *testing.T) {
 
 func createFolderForTest(t *testing.T, svc *service, scope string, title string) string {
 	t.Helper()
-	created, err := svc.createFavoriteFolder(scope, "", title, "", 0)
+	created, err := svc.createFavoriteFolder(scope, "", title, "")
 	if err != nil {
 		t.Fatalf("create folder %q failed: %v", title, err)
 	}

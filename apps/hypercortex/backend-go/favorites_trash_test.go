@@ -15,7 +15,7 @@ func TestFolderTrashLifecycle(t *testing.T) {
 	}
 	scope := testRepoID(t, svc)
 
-	createdA, err := svc.createFavoriteFolder(scope, "", "资料夹", "写点说明", 0)
+	createdA, err := svc.createFavoriteFolder(scope, "", "资料夹", "写点说明")
 	if err != nil {
 		t.Fatalf("create folder A failed: %v", err)
 	}
@@ -25,15 +25,15 @@ func TestFolderTrashLifecycle(t *testing.T) {
 		t.Fatalf("create note failed: %v", err)
 	}
 	noteID := createdNote.(map[string]any)["meta"].(noteMeta).ID
-	if _, err := svc.addFavoriteItem(scope, folderA, "note", noteID, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, folderA, "note", noteID); err != nil {
 		t.Fatalf("add note into A failed: %v", err)
 	}
-	createdB, err := svc.createFavoriteFolder(scope, "", "目标夹 B", "", 0)
+	createdB, err := svc.createFavoriteFolder(scope, "", "目标夹 B", "")
 	if err != nil {
 		t.Fatalf("create folder B failed: %v", err)
 	}
 	folderB := createdB.(map[string]any)["folderId"].(string)
-	if _, err := svc.addFavoriteItem(scope, folderB, "folder", folderA, 0); err != nil {
+	if _, err := svc.addFavoriteItem(scope, folderB, "folder", folderA); err != nil {
 		t.Fatalf("add folder ref into B failed: %v", err)
 	}
 

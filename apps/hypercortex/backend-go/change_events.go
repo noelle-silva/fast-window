@@ -17,7 +17,9 @@ func changeKindsForMethod(method string) []string {
 		"hypercortex.favorites.addItem",
 		"hypercortex.favorites.removeItem",
 		"hypercortex.favorites.moveItem",
-		"hypercortex.favorites.save":
+		"hypercortex.favorites.reorderItems",
+		"hypercortex.favorites.updateItemLayout",
+		"hypercortex.favorites.deleteFolder":
 		return []string{changeKindFavorites}
 
 	case "hypercortex.notes.create",

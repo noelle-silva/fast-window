@@ -1,6 +1,6 @@
 import type { VaultScope } from '../core'
 import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
-import type { HyperCortexFavoritesDocV1, FavoriteFolder, FavoriteItemRef } from '../favorites'
+import type { HyperCortexFavoritesDocV1, FavoriteFolder, FavoriteItemRef, GridLayout } from '../favorites'
 import type { NoteRefEntryMap, NoteRefIndex, NoteRefRelationDirection, NoteRefRelationResult } from '../noteRefs'
 import type { HyperCortexNoteFaceDoc } from '../noteFaces'
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
@@ -247,10 +247,36 @@ export type ThumbnailRebuildReport = {
   completedMs: number
 }
 
+// 收藏夹条目身份：语义入口以「类型 + 目标标识」定位条目，不依赖条目标识。
+export type FavoriteRefIdentity = {
+  kind: FavoriteItemRef['kind']
+  targetId: string
+}
+
+// 收藏夹语义写操作的返回信封：后端在同一把串行锁下读改写，返回本次写入的新版本。
+export type FavoritesWriteResult = {
+  version: number
+  changed?: boolean
+  folderId?: string
+  parentId?: string
+  refId?: string
+  fromFolderId?: string
+  toFolderId?: string
+}
+
+// 收藏夹服务：语义写操作（建夹 / 改夹 / 放入 / 移出 / 挪夹 / 排序 / 布局 / 删除）+ 装载。
+// 界面只表达意图，不再整份文档覆盖写回。
 export type FavoritesService = {
   ensureFavorites: (scope: VaultScope) => Promise<HyperCortexFavoritesDocV1>
   tryLoadFavorites: (scope: VaultScope) => Promise<HyperCortexFavoritesDocV1 | null>
-  saveFavorites: (scope: VaultScope, doc: HyperCortexFavoritesDocV1) => Promise<void>
+  createFolder: (scope: VaultScope, parentId: string, title: string, description: string, id?: string) => Promise<FavoritesWriteResult>
+  updateFolder: (scope: VaultScope, folderId: string, patch: { title?: string; description?: string }) => Promise<FavoritesWriteResult>
+  addItem: (scope: VaultScope, folderId: string, kind: FavoriteItemRef['kind'], targetId: string) => Promise<FavoritesWriteResult>
+  removeItem: (scope: VaultScope, folderId: string, kind: FavoriteItemRef['kind'], targetId: string) => Promise<FavoritesWriteResult>
+  moveItem: (scope: VaultScope, fromFolderId: string, toFolderId: string, kind: FavoriteItemRef['kind'], targetId: string) => Promise<FavoritesWriteResult>
+  reorderItems: (scope: VaultScope, folderId: string, orderedRefs: FavoriteRefIdentity[]) => Promise<FavoritesWriteResult>
+  updateItemLayout: (scope: VaultScope, folderId: string, kind: FavoriteItemRef['kind'], targetId: string, layout: GridLayout) => Promise<FavoritesWriteResult>
+  deleteFolder: (scope: VaultScope, folderId: string) => Promise<FavoritesWriteResult>
 }
 
 export type TrashService = {

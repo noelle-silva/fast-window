@@ -31,6 +31,7 @@ type Params = {
   allNotes: NoteMeta[]
   openNoteTabs: NoteMeta[]
   favoritesDoc: HyperCortexFavoritesDocV1 | null
+  favoritesDocRef: React.MutableRefObject<HyperCortexFavoritesDocV1 | null>
   handleFavoritesDocChange: (nextDoc: HyperCortexFavoritesDocV1) => void
   draftIdentity: DraftIdentity
   /** 外部改动信号：仓库笔记被外部改动时自增，用于清空卡片摘要缓存以就地重载。 */
@@ -80,6 +81,7 @@ export function useNoteSessions(params: Params) {
     allNotes,
     openNoteTabs,
     favoritesDoc,
+    favoritesDocRef,
     handleFavoritesDocChange,
     draftIdentity,
     externalNotesSignal,
@@ -241,8 +243,6 @@ export function useNoteSessions(params: Params) {
   const handleCreateNoteInIndex = React.useCallback(
     async (folderId: string) => {
       const fid = String(folderId || '').trim() || 'root'
-      const baseDoc = favoritesDoc
-      if (!baseDoc) return
 
       try {
         const result = await gateway.notes.createEmptyNote('library', {
@@ -252,6 +252,12 @@ export function useNoteSessions(params: Params) {
           faceKinds: orderKindsByGlobalOrder(defaultFaceKinds, faceKindOrder),
         })
         const meta = result.meta
+        // 以创建完成时刻的最新文档为基：等待期间的外部改动不被误当作本地删除而覆盖。
+        const baseDoc = favoritesDocRef.current
+        if (!baseDoc) {
+          void gateway.host.toast('笔记已创建，但收藏夹尚未就绪')
+          return
+        }
         const added = addRef(baseDoc, fid, 'note', meta.id)
         if (!added) {
           void gateway.host.toast('笔记已创建，但无法添加到当前索引页')
@@ -283,7 +289,7 @@ export function useNoteSessions(params: Params) {
         void gateway.host.toast(String(e?.message || e || '创建笔记失败'))
       }
     },
-    [defaultFaceKinds, draftIdentity, faceKindOrder, favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
+    [defaultFaceKinds, draftIdentity, faceKindOrder, favoritesDocRef, gateway, handleFavoritesDocChange, handleOpenNote],
   )
 
   const activateExistingTabKey = React.useCallback(

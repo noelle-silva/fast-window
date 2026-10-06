@@ -236,20 +236,22 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return doc, nil
 	case "hypercortex.favorites.ensure":
 		return svc.ensureFavorites(requireScope(params))
-	case "hypercortex.favorites.save":
-		payload := map[string]json.RawMessage{}
-		_ = json.Unmarshal(params, &payload)
-		return svc.saveFavorites(requireScope(params), payload["doc"], numberField(params, "expectedVersion"))
 	case "hypercortex.favorites.createFolder":
-		return svc.createFavoriteFolder(requireScope(params), stringField(params, "parentId"), stringField(params, "title"), stringField(params, "description"), numberField(params, "expectedVersion"))
+		return svc.createFavoriteFolder(requireScope(params), stringField(params, "parentId"), stringField(params, "title"), stringField(params, "description"), optionalStringField(params, "id"))
 	case "hypercortex.favorites.updateFolder":
-		return svc.updateFavoriteFolder(requireScope(params), stringField(params, "folderId"), rawField(params, "patch"), numberField(params, "expectedVersion"))
+		return svc.updateFavoriteFolder(requireScope(params), stringField(params, "folderId"), rawField(params, "patch"))
 	case "hypercortex.favorites.addItem":
-		return svc.addFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
+		return svc.addFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"))
 	case "hypercortex.favorites.removeItem":
-		return svc.removeFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
+		return svc.removeFavoriteItem(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"))
 	case "hypercortex.favorites.moveItem":
-		return svc.moveFavoriteItem(requireScope(params), stringField(params, "fromFolderId"), stringField(params, "toFolderId"), stringField(params, "kind"), stringField(params, "targetId"), numberField(params, "expectedVersion"))
+		return svc.moveFavoriteItem(requireScope(params), stringField(params, "fromFolderId"), stringField(params, "toFolderId"), stringField(params, "kind"), stringField(params, "targetId"))
+	case "hypercortex.favorites.reorderItems":
+		return svc.reorderFavoriteItems(requireScope(params), stringField(params, "folderId"), favoriteRefIdentitiesField(params, "orderedRefs"))
+	case "hypercortex.favorites.updateItemLayout":
+		return svc.updateFavoriteItemLayout(requireScope(params), stringField(params, "folderId"), stringField(params, "kind"), stringField(params, "targetId"), normalizeFavoriteLayout(rawField(params, "layout")))
+	case "hypercortex.favorites.deleteFolder":
+		return svc.deleteFavoriteFolder(requireScope(params), stringField(params, "folderId"))
 
 	case "hypercortex.repos.list":
 		return svc.listRepos()

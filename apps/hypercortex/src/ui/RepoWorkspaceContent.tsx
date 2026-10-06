@@ -162,7 +162,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             refreshSignal={o.externalTrashSignal}
             onRestored={o.handleTrashRestored}
             onAssetRestored={asset => void o.handleTrashAssetRestored(asset)}
-            onFavoritesRestored={doc => o.handleFavoritesDocChange(doc)}
+            onFavoritesRestored={o.handleFavoritesDocAdopt}
             onPermanentlyDeleted={item => {
               if (item.kind === 'asset') {
                 const key = item.ext ? `${item.assetId}.${item.ext}` : item.assetId || item.id
