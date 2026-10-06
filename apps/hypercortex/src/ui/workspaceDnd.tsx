@@ -100,14 +100,17 @@ function pointerFromEvent(event: DragMoveEvent | DragEndEvent): { x: number; y: 
   return { x: point.clientX + event.delta.x, y: point.clientY + event.delta.y }
 }
 
-/** 按指针坐标判定其当前所在侧：直接比对两侧容器矩形，不受浮层/传送门遮挡影响；不在任一侧内时返回空串。 */
-function readSideAt(clientX: number, clientY: number): Side {
+/** 按指针横坐标判定其当前所在侧：只认可见现场的侧栏（隐藏现场的面板仍在 DOM，需按可见性排除），
+ *  以横向范围归属，使面板头部与列表同样能判定；不在任一侧栏横向范围内时返回空串。 */
+function readSideAt(clientX: number): Side {
   const hosts = document.querySelectorAll<HTMLElement>(`[${DND_SIDE_ATTR}]`)
   for (const host of Array.from(hosts)) {
     const side = host.getAttribute(DND_SIDE_ATTR)
     if (side !== 'left' && side !== 'right') continue
+    const style = window.getComputedStyle(host)
+    if (style.visibility === 'hidden' || style.display === 'none') continue
     const rect = host.getBoundingClientRect()
-    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) return side
+    if (clientX >= rect.left && clientX <= rect.right) return side
   }
   return ''
 }
@@ -207,7 +210,7 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
   const handleDragMove = React.useCallback((event: DragMoveEvent) => {
     const point = pointerFromEvent(event)
     if (!point) return
-    const side = readSideAt(point.x, point.y)
+    const side = readSideAt(point.x)
     if (!side || sidesRef.current.pointerSide === side) return
     setSides(prev => (prev.dragging ? { ...prev, pointerSide: side } : prev))
   }, [])
@@ -250,7 +253,6 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
 
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
-      const pointerSideBefore = sidesRef.current.pointerSide
       finishDrag()
       const activeId = String(event.active.id || '')
       const overId = String(event.over?.id || '')
@@ -259,11 +261,9 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
       const activeOwner = ownerOf(activeId)
       if (!activeOwner) return
 
-      // 落点归属以松手瞬间指针实际所在侧为准：拉回左侧松手即取消，不因中途碰过右侧而锁定。
-      // 指针恰在两侧标记之外时，退回拖拽期间记录的所在侧。
+      // 落点归属以松手瞬间指针实际所在侧为准：只在指针确实落在右侧时才收藏，拉回左侧（或两侧之间）松手即取消。
       const point = pointerFromEvent(event)
-      const measuredSide = point ? readSideAt(point.x, point.y) : ''
-      const releaseSide: Side = measuredSide || pointerSideBefore
+      const releaseSide: Side = point ? readSideAt(point.x) : ''
       const foreignActive = !!crossIdRef.current
       crossIdRef.current = ''
 
