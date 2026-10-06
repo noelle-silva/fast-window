@@ -88,6 +88,10 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
     '.prose pre.fw-code-block': {
       position: 'relative',
       paddingTop: 38,
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'anywhere',
+      overflowX: 'hidden',
+      overflowY: 'auto',
     },
     '.prose pre.fw-code-block .fw-code-copy': {
       position: 'absolute',
