@@ -8,7 +8,6 @@ import type { HyperCortexGateway } from '../gateway'
 import {
   getFolderById,
   getRefsByFolderId,
-  type FavoriteFolder,
   type FavoriteItemRef,
   type HyperCortexFavoritesDocV1,
 } from '../favorites'
@@ -19,14 +18,13 @@ import { StaleRefCard } from './index-cards/StaleRefCard'
 import { IndexCardShell } from './index-page/IndexCardShell'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
 import { ContextMenu } from './ContextMenu'
-import { IndexPickerDialog } from './index-page/IndexPickerDialog'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
 import { IndexPageAddMenus } from './index-page/IndexPageAddMenus'
-import { FolderSuggestionCard } from './index-page/FolderSuggestionCard'
 import type { ResizeHandleDirection } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 import { useIndexPageActions } from './index-page/useIndexPageActions'
+import { useAddExistingRefs } from './index-page/useAddExistingRefs'
 
 type Props = {
   gateway: HyperCortexGateway
@@ -69,13 +67,20 @@ export function IndexPage(props: Props): React.ReactNode {
     onUpdateAssetInfo,
   } = props
 
+  const addExisting = useAddExistingRefs({
+    gateway,
+    activeRepoId,
+    doc,
+    folderId: currentFolderId,
+    noteIndex,
+    onDocChange,
+  })
+
   const {
     refs,
     currentTitle,
     canGoBack,
     breadcrumbItems,
-    folderSuggestions,
-    folderDisabledReasonById,
     contextMenu,
     openContextMenu,
     closeContextMenu,
@@ -87,7 +92,6 @@ export function IndexPage(props: Props): React.ReactNode {
     openCreateNewMenu,
     addMode,
     addKind,
-    addPickerKind,
     deleteFolderConfirmId,
     openAddDialog,
     openExistingPicker,
@@ -95,13 +99,9 @@ export function IndexPage(props: Props): React.ReactNode {
     createNewNote,
     uploadNewAssets,
     confirmAddFolder,
-    addExistingFolder,
-    confirmAddNote,
-    confirmAddAsset,
     handleGoBack,
     openDeleteCurrentFolderConfirm,
     confirmDeleteCurrentFolder,
-    setAddPickerKind,
     setDeleteFolderConfirmId,
     favoritesEntity,
   } = useIndexPageActions({
@@ -110,6 +110,7 @@ export function IndexPage(props: Props): React.ReactNode {
     currentFolderId,
     onNavigateFolder,
     onDocChange,
+    onAddExisting: addExisting.openAddExisting,
     onCreateNoteInIndex,
     onUploadAssetsInIndex,
     onDeleteFolderEntity,
@@ -139,11 +140,6 @@ export function IndexPage(props: Props): React.ReactNode {
     currentFolderId,
     onDocChange,
   })
-
-  const renderFolderSuggestionCard = React.useCallback(
-    (folder: FavoriteFolder) => <FolderSuggestionCard doc={doc} folder={folder} />,
-    [doc],
-  )
 
   const renderRef = React.useCallback(
     (
@@ -311,7 +307,7 @@ export function IndexPage(props: Props): React.ReactNode {
         addExistingAnchorEl={addExistingAnchorEl}
         createNewAnchorEl={createNewAnchorEl}
         onClose={closeAddMenus}
-        onAddExistingFolder={() => openAddDialog('existing', 'folder')}
+        onAddExistingFolder={() => openExistingPicker('folder')}
         onAddExistingNote={() => openExistingPicker('note')}
         onAddExistingAsset={() => openExistingPicker('asset')}
         onCreateFolder={() => openAddDialog('create', 'folder')}
@@ -321,36 +317,16 @@ export function IndexPage(props: Props): React.ReactNode {
 
       {favoritesEntity.node}
 
-      {addPickerKind ? (
-        <IndexPickerDialog
-          open
-          kind={addPickerKind}
-          gateway={gateway}
-          activeRepoId={activeRepoId}
-          folderId={currentFolderId}
-          doc={doc}
-          noteIndex={noteIndex}
-          onClose={() => setAddPickerKind(null)}
-          onPick={(kind, targetId) => {
-            setAddPickerKind(null)
-            if (kind === 'note') confirmAddNote(targetId)
-            else confirmAddAsset(targetId)
-          }}
-        />
-      ) : null}
+      {addExisting.node}
 
       <IndexPageDialogs
         doc={doc}
         currentFolderId={currentFolderId}
         addMode={addMode}
         addKind={addKind}
-        folderSuggestions={folderSuggestions}
-        folderDisabledReasonById={folderDisabledReasonById}
         deleteFolderConfirmId={deleteFolderConfirmId}
         onCloseAddDialog={closeAddDialog}
         onConfirmAddFolder={confirmAddFolder}
-        onAddExistingFolder={addExistingFolder}
-        renderFolderSuggestionCard={renderFolderSuggestionCard}
         onCloseDeleteFolder={() => setDeleteFolderConfirmId('')}
         onConfirmDeleteFolder={confirmDeleteCurrentFolder}
       />

@@ -27,9 +27,11 @@ import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { useScrollMemory } from './scrollMemory'
 import { favoritesNavTrail } from './favoritesNavigator'
 import { menuPaperSx } from './pluginUiStyles'
+import { useMenuSubmenu } from './menuSubmenu'
 import { SortableItem, SortableSection, SortableSideScope, type SortableItemRenderArgs } from './SortableDnd'
 import { DragOverlay } from '@dnd-kit/core'
 import { folderTitle } from './index-page/helpers'
+import type { AddKind } from './index-page/types'
 import { EntityInfoDialog } from './EntityInfoDialog'
 import { useFavoritesSidebarDnd, type FavoritesForeignDrop } from './useFavoritesSidebarDnd'
 import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOverlay'
@@ -79,6 +81,8 @@ export type FavoritesSidebarPanelProps = {
   onMoveRef?: (refId: string, targetFolderId: string) => void
   /** 跨栏外来条目松手提交：默认插到当前收藏夹落点、Ctrl 放进悬停收藏夹。 */
   onCrossColumnCommit?: (item: WorkspaceTransferItem, target: FavoritesForeignDrop) => void
+  /** 「添加已有」挑选入口：把选中对象作为引用加入当前浏览的收藏夹（复用索引页同源流程）。 */
+  onAddExisting?: (kind: AddKind) => void
 }
 
 /** 打开意图修饰键：按住 Ctrl（或 Mac 的 Cmd）点击表示“在左侧标签栏打开”。 */
@@ -115,6 +119,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onReorderRefs,
     onMoveRef,
     onCrossColumnCommit,
+    onAddExisting,
   } = props
 
   const showTitle = panelWidth > 52
@@ -128,6 +133,24 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
   const pathMenuOpen = Boolean(pathMenuAnchorEl)
   const overflowMenuOpen = Boolean(overflowMenuAnchorEl)
+
+  // 「添加已有」二级菜单：与右键菜单共用同一套统一机制（定位/左右翻转/无动画/视口夹取）。
+  const submenu = useMenuSubmenu(overflowMenuOpen)
+
+  // 「…」菜单整体关闭：二级菜单随一级菜单一并收起，避免残留。
+  const closeOverflowMenu = React.useCallback(() => {
+    setOverflowMenuAnchorEl(null)
+    submenu.closeSubmenu()
+  }, [submenu])
+
+  // 选中二级项：先收起菜单，再交给上层打开同源挑选流程。
+  const selectAddExisting = React.useCallback(
+    (kind: AddKind) => {
+      closeOverflowMenu()
+      onAddExisting?.(kind)
+    },
+    [closeOverflowMenu, onAddExisting],
+  )
   const pathItems = React.useMemo(
     () => (doc ? favoritesNavTrail(nav).map(id => ({ id, title: folderTitle(doc, id) })) : []),
     [doc, nav],
@@ -388,15 +411,16 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
       <Menu
         anchorEl={overflowMenuAnchorEl}
         open={overflowMenuOpen}
-        onClose={() => setOverflowMenuAnchorEl(null)}
+        onClose={closeOverflowMenu}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         transitionDuration={0}
-        PaperProps={{ sx: menuPaperSx }}
+        slotProps={submenu.rootPaperSlotProps}
       >
         <MenuItem
+          onMouseEnter={() => submenu.closeSubmenu()}
           onClick={() => {
-            setOverflowMenuAnchorEl(null)
+            closeOverflowMenu()
             onToggleCollapsed()
           }}
           sx={{ fontSize: 12, gap: 0.75 }}
@@ -407,8 +431,9 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
           <ListItemText primary={collapsed ? '展开收藏夹栏' : '收起收藏夹栏'} primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }} />
         </MenuItem>
         <MenuItem
+          onMouseEnter={() => submenu.closeSubmenu()}
           onClick={() => {
-            setOverflowMenuAnchorEl(null)
+            closeOverflowMenu()
             onToggleMode()
           }}
           sx={{ fontSize: 12, gap: 0.75 }}
@@ -421,7 +446,28 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
             primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }}
           />
         </MenuItem>
+        <MenuItem
+          aria-haspopup="menu"
+          aria-expanded={submenu.submenuParentId === 'add-existing'}
+          onMouseEnter={e => submenu.openSubmenu('add-existing', e.currentTarget)}
+          onClick={e => submenu.openSubmenu('add-existing', e.currentTarget)}
+          sx={{ fontSize: 12, gap: 0.75 }}
+        >
+          <ListItemIcon sx={{ minWidth: 0, mr: 1 }}>
+            <AddRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="添加已有" primaryTypographyProps={{ fontSize: 12, fontWeight: 600 }} />
+          <ChevronRightRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.4)', flexShrink: 0 }} />
+        </MenuItem>
       </Menu>
+
+      {submenu.renderSubmenu(
+        <>
+          <MenuItem onClick={() => selectAddExisting('note')} sx={{ fontSize: 12 }}>笔记</MenuItem>
+          <MenuItem onClick={() => selectAddExisting('folder')} sx={{ fontSize: 12 }}>收藏夹</MenuItem>
+          <MenuItem onClick={() => selectAddExisting('asset')} sx={{ fontSize: 12 }}>附件</MenuItem>
+        </>,
+      )}
 
       <Menu
         anchorEl={pathMenuAnchorEl}

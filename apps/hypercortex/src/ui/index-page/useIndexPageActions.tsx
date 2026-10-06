@@ -11,7 +11,6 @@ import {
   type FavoriteItemRef,
   type HyperCortexFavoritesDocV1,
 } from '../../favorites'
-import { getFolderRefIssue } from '../../favoritesGraph'
 import type { HyperCortexGateway } from '../../gateway'
 import type { ContextMenuAction } from '../ContextMenu'
 import { useFavoritesEntityActions } from '../useFavoritesEntityActions'
@@ -32,6 +31,8 @@ type Options = {
   currentFolderId: string
   onNavigateFolder: (folderId: string) => void
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
+  /** 「添加已有」挑选入口：由上层注入共享挑选流程（笔记/收藏夹/附件同源）。 */
+  onAddExisting: (kind: AddKind) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
   onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
   onDeleteFolderEntity?: (folderId: string) => void
@@ -48,6 +49,7 @@ export function useIndexPageActions(opts: Options) {
     currentFolderId,
     onNavigateFolder,
     onDocChange,
+    onAddExisting,
     onCreateNoteInIndex,
     onUploadAssetsInIndex,
     onDeleteFolderEntity,
@@ -62,7 +64,6 @@ export function useIndexPageActions(opts: Options) {
   const [createNewAnchorEl, setCreateNewAnchorEl] = React.useState<HTMLElement | null>(null)
   const [addMode, setAddMode] = React.useState<AddMode | null>(null)
   const [addKind, setAddKind] = React.useState<AddKind | null>(null)
-  const [addPickerKind, setAddPickerKind] = React.useState<'note' | 'asset' | null>(null)
   const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
 
   const refs = React.useMemo(() => getRefsByFolderId(doc, currentFolderId), [doc, currentFolderId])
@@ -104,10 +105,10 @@ export function useIndexPageActions(opts: Options) {
     setAddKind(kind)
   }
 
-  const openExistingPicker = React.useCallback((kind: 'note' | 'asset') => {
+  const openExistingPicker = React.useCallback((kind: AddKind) => {
     closeAddMenus()
-    setAddPickerKind(kind)
-  }, [])
+    onAddExisting(kind)
+  }, [onAddExisting])
 
   const closeAddDialog = () => {
     setAddMode(null)
@@ -133,73 +134,6 @@ export function useIndexPageActions(opts: Options) {
     },
     [currentFolderId, doc, onDocChange],
   )
-
-  const addExistingFolder = React.useCallback(
-    (folderId: string) => {
-      const issue = getFolderRefIssue(doc, currentFolderId, folderId)
-      if (issue === 'self-reference') {
-        void gateway.host.toast('不能把当前收藏夹再次引用到自己页面里')
-        return
-      }
-      if (issue === 'cycle') {
-        void gateway.host.toast('这次添加会形成收藏夹循环引用，已阻止')
-        return
-      }
-      const added = addRef(doc, currentFolderId, 'folder', folderId)
-      if (!added) {
-        void gateway.host.toast('这个收藏夹已经在当前页面里了，或无法添加')
-        return
-      }
-      onDocChange(added.doc)
-      closeAddDialog()
-    },
-    [currentFolderId, doc, gateway, onDocChange],
-  )
-
-  const confirmAddNote = React.useCallback(
-    (id: string) => {
-      const targetId = String(id || '').trim()
-      if (!targetId) return
-      const added = addRef(doc, currentFolderId, 'note', targetId)
-      if (!added) {
-        void gateway.host.toast('这条笔记已经在当前页面里了，或无法添加')
-        return
-      }
-      onDocChange(added.doc)
-    },
-    [currentFolderId, doc, gateway, onDocChange],
-  )
-
-  const confirmAddAsset = React.useCallback(
-    (id: string) => {
-      const targetId = String(id || '').trim()
-      if (!targetId) return
-      const added = addRef(doc, currentFolderId, 'asset', targetId)
-      if (!added) {
-        void gateway.host.toast('这个附件已经在当前页面里了，或无法添加')
-        return
-      }
-      onDocChange(added.doc)
-    },
-    [currentFolderId, doc, gateway, onDocChange],
-  )
-
-  const folderSuggestions = React.useMemo(() => {
-    const all = Object.values(doc.folders || {})
-      .filter(f => f && f.id && f.id !== 'root' && f.id !== currentFolderId)
-      .sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
-    return all.slice(0, 12)
-  }, [doc, currentFolderId])
-
-  const folderDisabledReasonById = React.useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const folder of folderSuggestions) {
-      const issue = getFolderRefIssue(doc, currentFolderId, folder.id)
-      if (issue === 'cycle') out[folder.id] = '会形成循环引用，不能添加'
-      else if (issue === 'self-reference') out[folder.id] = '不能引用自己'
-    }
-    return out
-  }, [currentFolderId, doc, folderSuggestions])
 
   const handleGoBack = React.useCallback(() => {
     if (!canGoBack) {
@@ -249,7 +183,7 @@ export function useIndexPageActions(opts: Options) {
         label: '添加已有',
         icon: <AddRoundedIcon fontSize="small" />,
         children: [
-          { id: 'add-folder', label: '已有收藏夹', onSelect: () => openAddDialog('existing', 'folder') },
+          { id: 'add-folder', label: '已有收藏夹', onSelect: () => openExistingPicker('folder') },
           { id: 'add-note', label: '已有笔记', onSelect: () => openExistingPicker('note') },
           { id: 'add-asset', label: '已有附件', onSelect: () => openExistingPicker('asset') },
         ],
@@ -277,8 +211,6 @@ export function useIndexPageActions(opts: Options) {
     currentTitle,
     canGoBack,
     breadcrumbItems,
-    folderSuggestions,
-    folderDisabledReasonById,
     contextMenu,
     openContextMenu,
     closeContextMenu,
@@ -290,7 +222,6 @@ export function useIndexPageActions(opts: Options) {
     openCreateNewMenu,
     addMode,
     addKind,
-    addPickerKind,
     deleteFolderConfirmId,
     openAddDialog,
     openExistingPicker,
@@ -298,13 +229,9 @@ export function useIndexPageActions(opts: Options) {
     createNewNote,
     uploadNewAssets,
     confirmAddFolder,
-    addExistingFolder,
-    confirmAddNote,
-    confirmAddAsset,
     handleGoBack,
     openDeleteCurrentFolderConfirm,
     confirmDeleteCurrentFolder,
-    setAddPickerKind,
     setDeleteFolderConfirmId,
     favoritesEntity,
   }

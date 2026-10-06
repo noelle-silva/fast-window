@@ -180,6 +180,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                 onReorderRefs={o.handleFavoritesSidebarReorder}
                 onMoveRef={o.handleFavoritesSidebarMoveRef}
                 onCrossColumnCommit={o.handleCrossColumnDrop}
+                onAddExisting={o.handleAddExisting}
                 />
               </SidebarRail>
             </Box>
@@ -192,6 +193,8 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           ) : null}
 
           {o.favoritesEntityNode}
+
+          {o.favoritesAddExistingNode}
 
           {o.workspaceTabEntityNode}
 

@@ -16,6 +16,8 @@ import {
   reconcileFavoritesNav,
 } from './favoritesNavigator'
 import { buildFavoriteFolderView, type FavoriteFolderView } from './favoritesSidebarModel'
+import { useAddExistingRefs } from './index-page/useAddExistingRefs'
+import type { AddKind } from './index-page/types'
 import { ASSET_UPLOAD_WAIT_INTERVAL_MS, assetKeyFromResource, sleep } from './useAssetPoolSessions'
 import { useFavoritesEntityActions, type FavoritesEntityTarget } from './useFavoritesEntityActions'
 import { resolveSidebarLayout } from './sidebarLayout'
@@ -28,6 +30,9 @@ import type { SidebarPreviewTarget } from './sidebar-preview/previewTarget'
 // 与右侧栏条目激活入口。
 // 中心文件先接状态（供装载与草稿编排消费），待打开/删除/更新等能力齐备后再接动作。
 // 两段之间只经显式入参与回调连接，不引入隐式全局。
+
+/** 收藏夹文档未就绪时的占位空文档：实体操作与「添加已有」流程共用。 */
+const EMPTY_FAVORITES_DOC: HyperCortexFavoritesDocV1 = { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} }
 
 export function useFavoritesWorkspaceState(opts: {
   gateway: HyperCortexGateway
@@ -165,12 +170,14 @@ export function useFavoritesWorkspaceState(opts: {
 
 export function useFavoritesWorkspaceActions(opts: {
   gateway: HyperCortexGateway
+  repoId: string
   trashEnabled: boolean
   favoritesDoc: HyperCortexFavoritesDocV1 | null
   favoritesDocRef: React.MutableRefObject<HyperCortexFavoritesDocV1 | null>
   handleFavoritesDocChange: (nextDoc: HyperCortexFavoritesDocV1) => void
   currentFolderId: string
   setCurrentFolderId: React.Dispatch<React.SetStateAction<string>>
+  favoritesNav: HyperCortexFavoritesNavV1
   setFavoritesNav: React.Dispatch<React.SetStateAction<HyperCortexFavoritesNavV1>>
   favoritesNavRef: React.MutableRefObject<HyperCortexFavoritesNavV1>
   persistRepoStatePatch: (patch: Partial<HyperCortexRepoStateV1>) => Promise<void>
@@ -204,17 +211,22 @@ export function useFavoritesWorkspaceActions(opts: {
   handleWorkspaceAssetContextMenu: (event: React.MouseEvent, asset: AssetEntry) => void
   /** 跨栏拖拽落点写入：默认插到当前收藏夹的落点位置，Ctrl 放入悬停收藏夹；复用既有收藏能力，复制引用。 */
   handleCrossColumnDrop: (item: WorkspaceTransferItem, target: FavoritesForeignDrop) => void
+  /** 右侧栏「添加已有」入口：把选中对象作为引用加入当前浏览的收藏夹。 */
+  handleAddExisting: (kind: AddKind) => void
+  favoritesAddExistingNode: React.ReactNode
   favoritesEntityNode: React.ReactNode
   workspaceTabEntityNode: React.ReactNode
 } {
   const {
     gateway,
+    repoId,
     trashEnabled,
     favoritesDoc,
     favoritesDocRef,
     handleFavoritesDocChange,
     currentFolderId,
     setCurrentFolderId,
+    favoritesNav,
     setFavoritesNav,
     favoritesNavRef,
     persistRepoStatePatch,
@@ -332,11 +344,21 @@ export function useFavoritesWorkspaceActions(opts: {
     [favoritesDoc, handleFavoritesDocChange],
   )
 
+  // 右侧栏「添加已有」：复用索引页同一套挑选弹窗与判定，把选中对象作为引用加入当前浏览的收藏夹。
+  const addExisting = useAddExistingRefs({
+    gateway,
+    activeRepoId: repoId,
+    doc: favoritesDoc || EMPTY_FAVORITES_DOC,
+    folderId: favoritesNav.currentFolderId,
+    noteIndex: resolvedNoteIndex,
+    onDocChange: handleFavoritesDocChange,
+  })
+
   // 右侧收藏夹导航栏条目的实体操作：解析条目引用为统一目标，复用与索引页相同的菜单与对话框。
   // 附件查找表复用当前页视图，避免各处重复组装。
   const favoritesAssetLookup = favoritesFolderView.lookup
   const favoritesEntity = useFavoritesEntityActions({
-    doc: favoritesDoc || { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} },
+    doc: favoritesDoc || EMPTY_FAVORITES_DOC,
     onDocChange: handleFavoritesDocChange,
     toast: message => void gateway.host.toast(message),
     onOpenFolder: handleFavoritesSidebarNavigate,
@@ -360,7 +382,7 @@ export function useFavoritesWorkspaceActions(opts: {
   // 左侧工作区侧栏条目复用同一套实体操作菜单：只保留打开、收藏到…、编辑信息，
   // 不含「移动到…」与「删除」（条目没有引用身份，删除/移动无意义）。
   const workspaceTabEntity = useFavoritesEntityActions({
-    doc: favoritesDoc || { version: 1, rootFolderId: 'root', folders: {}, refsByFolderId: {} },
+    doc: favoritesDoc || EMPTY_FAVORITES_DOC,
     onDocChange: handleFavoritesDocChange,
     toast: message => void gateway.host.toast(message),
     onOpenNote: note => void handleOpenNote(note),
@@ -572,6 +594,8 @@ export function useFavoritesWorkspaceActions(opts: {
     handleWorkspaceNoteContextMenu,
     handleWorkspaceAssetContextMenu,
     handleCrossColumnDrop,
+    handleAddExisting: addExisting.openAddExisting,
+    favoritesAddExistingNode: addExisting.node,
     favoritesEntityNode: favoritesEntity.node,
     workspaceTabEntityNode: workspaceTabEntity.node,
   }
