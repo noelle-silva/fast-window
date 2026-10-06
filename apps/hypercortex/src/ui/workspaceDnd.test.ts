@@ -1,62 +1,42 @@
-// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { isDroppableOnSide, isRightTarget, shouldCommitCrossDrop } from './workspaceDnd'
+import { isSideEngaged, resolveActiveSide } from './workspaceDnd'
 
-// 左侧条目身份以 `tab:` 前缀示意，右侧条目身份以 `ref:` 前缀示意。
-const isLeftId = (id: string) => id.startsWith('tab:')
-const CROSSED = 'tab:note:n1'
-
-describe('workspaceDnd 跨栏碰撞归属', () => {
-  it('指针在右侧时，跨栏中的条目作为右侧一员参与碰撞', () => {
-    expect(isDroppableOnSide(CROSSED, 'right', CROSSED, isLeftId)).toBe(true)
+describe('workspaceDnd 条目当前所属容器', () => {
+  it('可迁移且指针落在另一侧时，条目归指针所在容器', () => {
+    expect(resolveActiveSide({ originSide: 'left', pointerSide: 'right', canTransfer: true })).toBe('right')
+    expect(resolveActiveSide({ originSide: 'right', pointerSide: 'left', canTransfer: true })).toBe('left')
   })
 
-  it('指针在左侧时，跨栏中的条目不再属于左侧', () => {
-    expect(isDroppableOnSide(CROSSED, 'left', CROSSED, isLeftId)).toBe(false)
+  it('指针仍在起点侧时，条目留在起点容器', () => {
+    expect(resolveActiveSide({ originSide: 'left', pointerSide: 'left', canTransfer: true })).toBe('left')
   })
 
-  it('未跨栏的左侧条目在右侧不参与碰撞，在左侧参与', () => {
-    expect(isDroppableOnSide('tab:note:n2', 'right', CROSSED, isLeftId)).toBe(false)
-    expect(isDroppableOnSide('tab:note:n2', 'left', CROSSED, isLeftId)).toBe(true)
+  it('指针不在任一侧（两侧之间）时，条目留在起点容器', () => {
+    expect(resolveActiveSide({ originSide: 'left', pointerSide: '', canTransfer: true })).toBe('left')
   })
 
-  it('右侧条目在右侧参与碰撞，在左侧不参与', () => {
-    expect(isDroppableOnSide('ref:r1', 'right', CROSSED, isLeftId)).toBe(true)
-    expect(isDroppableOnSide('ref:r1', 'left', CROSSED, isLeftId)).toBe(false)
-  })
-
-  it('无侧向时不筛选', () => {
-    expect(isDroppableOnSide('ref:r1', '', CROSSED, isLeftId)).toBe(true)
-    expect(isDroppableOnSide(CROSSED, '', CROSSED, isLeftId)).toBe(true)
+  it('条目不可迁移时，无论指针在哪都留在起点容器', () => {
+    expect(resolveActiveSide({ originSide: 'left', pointerSide: 'right', canTransfer: false })).toBe('left')
+    expect(resolveActiveSide({ originSide: 'right', pointerSide: 'left', canTransfer: false })).toBe('right')
   })
 })
 
-describe('workspaceDnd 落点判定', () => {
-  it('右侧条目与已跨栏条目都算右侧目标', () => {
-    expect(isRightTarget('ref:r1', CROSSED, isLeftId)).toBe(true)
-    expect(isRightTarget(CROSSED, CROSSED, isLeftId)).toBe(true)
+describe('workspaceDnd 侧栏参与拖拽', () => {
+  it('未拖拽时两侧都参与（静态渲染）', () => {
+    expect(isSideEngaged({ dragging: false, pointerSide: '', originSide: '', side: 'left' })).toBe(true)
+    expect(isSideEngaged({ dragging: false, pointerSide: '', originSide: '', side: 'right' })).toBe(true)
   })
 
-  it('未跨栏的左侧条目与空落点不算右侧目标', () => {
-    expect(isRightTarget('tab:note:n2', CROSSED, isLeftId)).toBe(false)
-    expect(isRightTarget('', CROSSED, isLeftId)).toBe(false)
-  })
-})
-
-describe('workspaceDnd 跨栏落定判定', () => {
-  it('接管中且松手时指针确实在右侧才提交', () => {
-    expect(shouldCommitCrossDrop({ foreignActive: true, releaseSide: 'right' })).toBe(true)
+  it('指针进入某侧（含空白区域）该侧即参与，不依赖是否压中条目', () => {
+    expect(isSideEngaged({ dragging: true, pointerSide: 'right', originSide: 'left', side: 'right' })).toBe(true)
+    expect(isSideEngaged({ dragging: true, pointerSide: 'left', originSide: 'right', side: 'left' })).toBe(true)
   })
 
-  it('拉回左侧松手不提交（可回退取消）', () => {
-    expect(shouldCommitCrossDrop({ foreignActive: true, releaseSide: 'left' })).toBe(false)
+  it('拖拽来源侧始终参与', () => {
+    expect(isSideEngaged({ dragging: true, pointerSide: '', originSide: 'left', side: 'left' })).toBe(true)
   })
 
-  it('松手时指针不在任一侧也不提交', () => {
-    expect(shouldCommitCrossDrop({ foreignActive: true, releaseSide: '' })).toBe(false)
-  })
-
-  it('未接管时不提交', () => {
-    expect(shouldCommitCrossDrop({ foreignActive: false, releaseSide: 'right' })).toBe(false)
+  it('指针不在且非来源的一侧不参与', () => {
+    expect(isSideEngaged({ dragging: true, pointerSide: '', originSide: 'left', side: 'right' })).toBe(false)
   })
 })

@@ -19,7 +19,8 @@ import { buildFavoriteFolderView, type FavoriteFolderView } from './favoritesSid
 import { ASSET_UPLOAD_WAIT_INTERVAL_MS, assetKeyFromResource, sleep } from './useAssetPoolSessions'
 import { useFavoritesEntityActions, type FavoritesEntityTarget } from './useFavoritesEntityActions'
 import { resolveSidebarLayout } from './sidebarLayout'
-import type { FavoritesForeignDrop, FavoritesForeignPayload } from './useFavoritesSidebarDnd'
+import type { FavoritesForeignDrop } from './useFavoritesSidebarDnd'
+import type { WorkspaceTransferItem } from './workspaceDnd'
 import type { SidebarPreviewTarget } from './sidebar-preview/previewTarget'
 
 // 收藏夹现场：收藏夹文档状态与落盘接线、主界面收藏夹页当前层与导航、右侧栏浏览位置（前进后退与文档调和）、
@@ -202,7 +203,7 @@ export function useFavoritesWorkspaceActions(opts: {
   handleWorkspaceNoteContextMenu: (event: React.MouseEvent, note: NoteMeta) => void
   handleWorkspaceAssetContextMenu: (event: React.MouseEvent, asset: AssetEntry) => void
   /** 跨栏拖拽落点写入：默认插到当前收藏夹的落点位置，Ctrl 放入悬停收藏夹；复用既有收藏能力，复制引用。 */
-  handleCrossColumnDrop: (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => void
+  handleCrossColumnDrop: (item: WorkspaceTransferItem, target: FavoritesForeignDrop) => void
   favoritesEntityNode: React.ReactNode
   workspaceTabEntityNode: React.ReactNode
 } {
@@ -385,12 +386,12 @@ export function useFavoritesWorkspaceActions(opts: {
   // 跨栏拖拽松手：复用既有收藏写入能力复制引用，左侧标签不动；已收藏则提示不重复添加。
   // 默认模式把条目插到当前收藏夹的落点位置；放入模式（Ctrl）放进悬停的收藏夹。
   const handleCrossColumnDrop = React.useCallback(
-    (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => {
+    (item: WorkspaceTransferItem, target: FavoritesForeignDrop) => {
       const base = favoritesDocRef.current
       if (!base) return
 
       const alreadyIn = (folderId: string) =>
-        getRefsByFolderId(base, folderId).some(ref => ref.kind === payload.kind && ref.targetId === payload.targetId)
+        getRefsByFolderId(base, folderId).some(ref => ref.kind === item.kind && ref.targetId === item.targetId)
 
       if (target.moveMode) {
         const overRef = findRefById(base, target.overRefId)
@@ -401,7 +402,7 @@ export function useFavoritesWorkspaceActions(opts: {
           void gateway.host.toast('该条目已收藏到该收藏夹')
           return
         }
-        const added = addRef(base, folderId, payload.kind, payload.targetId)
+        const added = addRef(base, folderId, item.kind, item.targetId)
         if (!added) {
           void gateway.host.toast('收藏失败')
           return
@@ -419,7 +420,7 @@ export function useFavoritesWorkspaceActions(opts: {
       }
       const refs = getRefsByFolderId(base, folderId)
       const insertIndex = Math.max(0, Math.min(target.insertIndex < 0 ? refs.length : target.insertIndex, refs.length))
-      const added = addRef(base, folderId, payload.kind, payload.targetId)
+      const added = addRef(base, folderId, item.kind, item.targetId)
       if (!added) {
         void gateway.host.toast('收藏失败')
         return

@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box } from '@mui/material'
 import type { SidebarLayout } from './sidebarLayout'
 import { resolveSidebarExpandedWidthFromDrag } from '../sidebarWidth'
+import { useWorkspaceSideContainer } from './workspaceDnd'
 
 export type SidebarRailProps = {
   /** 边栏所在侧：决定浮层锚点、阴影方向与拖拽方向。 */
@@ -25,6 +26,9 @@ export function SidebarRail(props: SidebarRailProps): React.ReactNode {
   const panelRef = React.useRef<HTMLDivElement | null>(null)
   const dragRef = React.useRef<null | { pointerId: number; startX: number; startWidth: number; width: number }>(null)
   const [dragging, setDragging] = React.useState(false)
+
+  // 面板整体注册为带 side 的 droppable 容器：指针命中即得当前侧，无需任何坐标判定。
+  const setSideContainerRef = useWorkspaceSideContainer(side)
 
   // 非拖拽时清空手动内联宽度，交回样式系统接管，避免残留覆盖后续状态。
   React.useLayoutEffect(() => {
@@ -114,7 +118,10 @@ export function SidebarRail(props: SidebarRailProps): React.ReactNode {
       }}
     >
       <Box
-        ref={panelRef}
+        ref={(node: HTMLDivElement | null) => {
+          panelRef.current = node
+          setSideContainerRef(node)
+        }}
         sx={{
           width: layout.panelWidth,
           minHeight: 0,

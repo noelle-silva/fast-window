@@ -27,9 +27,14 @@ function containsTab(items: SidebarItem[], tabKey: string): boolean {
   return items.some(item => (item.type === 'tab' ? item.tabKey === tabKey : item.tabKeys.includes(tabKey)))
 }
 
-describe('useOpenTabsSortableDnd 跨栏接管', () => {
+function order(items: SidebarItem[]): string[] {
+  return items.map(item => (item.type === 'tab' ? item.tabKey : item.id))
+}
+
+describe('useOpenTabsSortableDnd 跨栏呈现', () => {
   let container: HTMLDivElement
   let root: Root
+  let current: Parameters<typeof useOpenTabsSortableDnd>[0]
 
   beforeEach(() => {
     container = document.createElement('div')
@@ -43,46 +48,45 @@ describe('useOpenTabsSortableDnd 跨栏接管', () => {
     api = null
   })
 
-  function renderHook(): void {
+  function renderHook(patch: Partial<Parameters<typeof useOpenTabsSortableDnd>[0]>): void {
+    current = { enabled: true, sidebarItems: fixtureItems(), onCommitSidebarItems: vi.fn(), activeId: '', crossedActiveId: '', ...patch }
     act(() => {
-      root.render(<Harness enabled sidebarItems={fixtureItems()} onCommitSidebarItems={vi.fn()} />)
+      root.render(<Harness {...current} />)
     })
   }
 
-  it('跨栏接管把顶层被拖条目从本栏移出', () => {
-    renderHook()
-    act(() => api!.handleDragStart('tab:note:n1'))
-    expect(containsTab(api!.effectiveSidebarItems, 'note:n1')).toBe(true)
+  function rerender(patch: Partial<Parameters<typeof useOpenTabsSortableDnd>[0]>): void {
+    current = { ...current, ...patch }
+    act(() => {
+      root.render(<Harness {...current} />)
+    })
+  }
 
-    act(() => api!.beginCrossTakeover())
+  it('跨栏到右侧时把顶层被拖条目从本栏移出', () => {
+    renderHook({ activeId: 'tab:note:n1', crossedActiveId: 'tab:note:n1' })
     expect(containsTab(api!.effectiveSidebarItems, 'note:n1')).toBe(false)
     expect(containsTab(api!.effectiveSidebarItems, 'note:n3')).toBe(true)
   })
 
-  it('跨栏接管把分组内被拖条目从本栏移出且保留分组', () => {
-    renderHook()
-    act(() => api!.handleDragStart('tab:note:n2'))
-    act(() => api!.beginCrossTakeover())
-
+  it('跨栏到右侧时把分组内被拖条目从本栏移出且保留分组', () => {
+    renderHook({ activeId: 'tab:note:n2', crossedActiveId: 'tab:note:n2' })
     expect(containsTab(api!.effectiveSidebarItems, 'note:n2')).toBe(false)
     expect(api!.effectiveSidebarItems.some(item => item.type === 'group' && item.id === 'g1')).toBe(true)
   })
 
   it('指针回到本侧时交还条目并按悬停重建排序预览', () => {
-    renderHook()
-    act(() => api!.handleDragStart('tab:note:n1'))
-    act(() => api!.beginCrossTakeover())
+    renderHook({ activeId: 'tab:note:n1', crossedActiveId: 'tab:note:n1' })
     expect(containsTab(api!.effectiveSidebarItems, 'note:n1')).toBe(false)
 
-    act(() => api!.handlePreviewMove('tab:note:n1', 'tab:note:n3', {} as never))
+    rerender({ crossedActiveId: '' })
+    act(() => api!.handlePreviewMove('tab:note:n1', 'tab:note:n3'))
     expect(containsTab(api!.effectiveSidebarItems, 'note:n1')).toBe(true)
-    expect(api!.effectiveSidebarItems.map(item => (item.type === 'tab' ? item.tabKey : item.id))).toEqual(['g1', 'note:n3', 'note:n1'])
+    expect(order(api!.effectiveSidebarItems)).toEqual(['g1', 'note:n3', 'note:n1'])
   })
 
-  it('拖拽取消后被拖条目回到本栏', () => {
-    renderHook()
-    act(() => api!.handleDragStart('tab:note:n1'))
-    act(() => api!.beginCrossTakeover())
+  it('取消后被拖条目回到本栏', () => {
+    renderHook({ activeId: 'tab:note:n1', crossedActiveId: 'tab:note:n1' })
+    rerender({ crossedActiveId: '' })
     act(() => api!.handleDragCancel())
     expect(containsTab(api!.effectiveSidebarItems, 'note:n1')).toBe(true)
   })

@@ -31,9 +31,9 @@ import { SortableItem, SortableSection, SortableSideScope, type SortableItemRend
 import { DragOverlay } from '@dnd-kit/core'
 import { folderTitle } from './index-page/helpers'
 import { EntityInfoDialog } from './EntityInfoDialog'
-import { useFavoritesSidebarDnd, type FavoritesForeignDrop, type FavoritesForeignPayload } from './useFavoritesSidebarDnd'
+import { useFavoritesSidebarDnd, type FavoritesForeignDrop } from './useFavoritesSidebarDnd'
 import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOverlay'
-import { DND_SIDE_ATTR, useWorkspaceDndParticipant, useWorkspaceDndSides } from './workspaceDnd'
+import { isSideEngaged, useWorkspaceDnd, useWorkspaceDndModifier, useWorkspaceDndParticipant, type WorkspaceTransferItem } from './workspaceDnd'
 
 const ACTIVE_ENTRY_SCROLL_PADDING = 16
 
@@ -78,7 +78,7 @@ export type FavoritesSidebarPanelProps = {
   /** 提供时启用「Ctrl 拖动 = 移动到收藏夹」：松手把条目引用移入目标收藏夹。 */
   onMoveRef?: (refId: string, targetFolderId: string) => void
   /** 跨栏外来条目松手提交：默认插到当前收藏夹落点、Ctrl 放进悬停收藏夹。 */
-  onCrossColumnCommit?: (payload: FavoritesForeignPayload, target: FavoritesForeignDrop) => void
+  onCrossColumnCommit?: (item: WorkspaceTransferItem, target: FavoritesForeignDrop) => void
 }
 
 /** 打开意图修饰键：按住 Ctrl（或 Mac 的 Cmd）点击表示“在左侧标签栏打开”。 */
@@ -181,7 +181,13 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
 
   // 条目拖拽：排序与移动共用同一套机制。默认排序（实时预览重排 + 浮层跟手，拖拽项禁用 transform，
   // 松手即最终顺序）；拖动中按住 Ctrl 切到移动模式，只认收藏夹条目为可放入目标，悬停即高亮。
-  // 跨栏外来条目以临时条目加入本栏，走同一套原生排序/移动预览与落点提交。
+  // 跨栏外来条目以同一身份加入本栏，走同一套原生排序/移动预览与落点提交。
+  const sharedDnd = useWorkspaceDnd()
+  const modifierHeld = useWorkspaceDndModifier()
+  const rightActiveId = sharedDnd.activeSide === 'right' ? sharedDnd.activeId : ''
+  const foreignItem = sharedDnd.activeItem
+  const sideEnabled = isSideEngaged({ dragging: sharedDnd.dragging, pointerSide: sharedDnd.pointerSide, originSide: sharedDnd.originSide, side: 'right' })
+
   const {
     activeId: dragActiveId,
     effectiveRefs,
@@ -192,8 +198,6 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     handleDragOver,
     handleDragEnd,
     handleDragCancel,
-    beginForeign,
-    endForeign,
   } = useFavoritesSidebarDnd({
     refs: visibleRefs,
     currentFolderId: nav.currentFolderId,
@@ -201,26 +205,20 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     onReorderRefs,
     onMoveRef,
     onCommitForeign: onCrossColumnCommit,
+    activeId: rightActiveId,
+    foreignItem,
+    modifierHeld,
   })
 
   const dragOverlay = useFavoritesSidebarOverlay({ activeId: dragActiveId, refs, doc, noteIndex, assetLookup })
 
-  // 非活动侧静态渲染：指针不在本侧、且本侧非拖拽来源时，条目不参与拖拽刷新与碰撞。
-  const dndSides = useWorkspaceDndSides()
-  const sideEnabled = !dndSides.dragging || dndSides.pointerSide === 'right' || dndSides.originSide === 'right'
-
   // 与左侧共用一个拖拽上下文：注册右侧参与者。左侧条目进入右侧后以同一身份成为本栏一员，由本栏原生机制接管。
   useWorkspaceDndParticipant('right', {
-    onDragStart: (activeId, event) => handleDragStart(activeId, event),
+    ownsItem: id => visibleRefs.some(ref => ref.id === id),
+    onDragStart: () => handleDragStart(),
     onDragOver: (activeId, overId) => handleDragOver(activeId, overId),
     onDragEnd: (activeId, overId) => handleDragEnd(activeId, overId),
     onDragCancel: () => handleDragCancel(),
-    onForeignEnter: (payload, overId, modifierHeld) => {
-      beginForeign(payload, modifierHeld)
-      handleDragOver(payload.id, overId)
-    },
-    onForeignLeave: () => endForeign(),
-    onForeignDrop: overId => handleDragEnd(dragActiveId, overId),
   })
 
   const renderFolderRow = (ref: FavoriteItemRef, sortable?: SortableItemRenderArgs): React.ReactNode => {
@@ -467,7 +465,6 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
 
       <Box
         ref={listScrollRef}
-        {...{ [DND_SIDE_ATTR]: 'right' }}
         onScroll={handleListScroll}
         sx={{
           flex: 1,

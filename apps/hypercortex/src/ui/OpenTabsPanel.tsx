@@ -33,8 +33,7 @@ import { useWorkspaceVisible } from './workspaceVisibility'
 import { SortableInsertionSlot, TopLevelDropSlot, useOpenTabsPanelRows } from './OpenTabsPanelRows'
 import { useOpenTabsPanelGroupSection } from './OpenTabsPanelGroupSection'
 import { OpenTabsPanelGroupContextMenu, OpenTabsPanelWorkspaceMenu, type OpenTabsPanelGroupMenuState } from './OpenTabsPanelMenus'
-import { DND_SIDE_ATTR, useWorkspaceDndParticipant, useWorkspaceDndSides } from './workspaceDnd'
-import type { FavoritesForeignPayload } from './useFavoritesSidebarDnd'
+import { isSideEngaged, useWorkspaceDnd, useWorkspaceDndParticipant, type WorkspaceTransferItem } from './workspaceDnd'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -157,8 +156,23 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const showTitle = panelWidth > 52
   const isSortableMode = sidebarSortMode === 'sortable'
-  const sortableDnd = useOpenTabsSortableDnd({ enabled: isSortableMode, sidebarItems, onCommitSidebarItems })
-  const { activeId: sortableActiveId, effectiveSidebarItems } = sortableDnd
+
+  // 与右侧共用一个拖拽上下文：本侧是否参与、条目当前所属容器都由统一状态给出。
+  const sharedDnd = useWorkspaceDnd()
+  const isLeftOrigin = sharedDnd.originSide === 'left'
+  const leftActiveId = isLeftOrigin ? sharedDnd.activeId : ''
+  const crossedActiveId = sharedDnd.dragging && isLeftOrigin && sharedDnd.activeSide === 'right' ? sharedDnd.activeId : ''
+  const sideEnabled = isSideEngaged({ dragging: sharedDnd.dragging, pointerSide: sharedDnd.pointerSide, originSide: sharedDnd.originSide, side: 'left' })
+
+  const sortableDnd = useOpenTabsSortableDnd({
+    enabled: isSortableMode,
+    sidebarItems,
+    onCommitSidebarItems,
+    activeId: leftActiveId,
+    crossedActiveId,
+  })
+  const { effectiveSidebarItems } = sortableDnd
+  const sortableActiveId = leftActiveId
 
   const noteById = React.useMemo(() => {
     const out: Record<string, NoteMeta> = {}
@@ -191,10 +205,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onMoveGroupToIndex,
   })
 
-  // 与右侧共用一个拖拽上下文：注册左侧参与者。指针在左侧时按本侧原生排序；
-  // 指针进入右侧后本栏移出该条目，由右侧以同一身份接管，左侧排序预览立即停止。
-  const getCrossPayload = React.useCallback(
-    (activeId: string): FavoritesForeignPayload | null => {
+  // 与右侧共用一个拖拽上下文：本侧把可迁出的条目描述出来，供其以同一身份加入右侧。
+  const describeTransfer = React.useCallback(
+    (activeId: string): WorkspaceTransferItem | null => {
       const parsed = parseSortableId(activeId)
       if (parsed?.kind !== 'tab') return null
       const note = noteByTabKey[parsed.tabKey]
@@ -207,18 +220,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   )
 
   useWorkspaceDndParticipant('left', {
-    owns: id => !!parseSortableId(id) || !!parseSortableSlotId(id),
-    onDragStart: activeId => sortableDnd.handleDragStart(activeId),
-    onDragOver: (activeId, overId, event) => sortableDnd.handlePreviewMove(activeId, overId, event),
-    onDragEnd: (activeId, overId, event) => sortableDnd.handleMove(activeId, overId, event),
+    ownsItem: id => !!parseSortableId(id) || !!parseSortableSlotId(id),
+    describeTransfer,
+    onDragStart: () => sortableDnd.handleDragStart(),
+    onDragOver: (activeId, overId) => sortableDnd.handlePreviewMove(activeId, overId),
+    onDragEnd: (activeId, overId) => sortableDnd.handleMove(activeId, overId),
     onDragCancel: () => sortableDnd.handleDragCancel(),
-    getDragPayload: getCrossPayload,
-    onCrossLeave: () => sortableDnd.beginCrossTakeover(),
   })
-
-  // 非活动侧静态渲染：指针不在本侧、且本侧非拖拽来源时，条目不参与拖拽刷新与碰撞。
-  const dndSides = useWorkspaceDndSides()
-  const sideEnabled = !dndSides.dragging || dndSides.pointerSide === 'left' || dndSides.originSide === 'left'
 
   const [groupMenu, setGroupMenu] = React.useState<OpenTabsPanelGroupMenuState>(null)
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
@@ -441,7 +449,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       <Box
         ref={scrollContainerRef}
         {...dnd.containerProps}
-        {...{ [DND_SIDE_ATTR]: 'left' }}
         onScroll={handleSidebarScroll}
         sx={{
           flex: 1,

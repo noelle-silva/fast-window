@@ -3,7 +3,6 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DragStartEvent } from '@dnd-kit/core'
 import type { FavoriteFolder, FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
 
@@ -29,10 +28,6 @@ function fixtureDoc(): HyperCortexFavoritesDocV1 {
   }
 }
 
-function ctrlDragStart(): DragStartEvent {
-  return { activatorEvent: { ctrlKey: true } } as unknown as DragStartEvent
-}
-
 let api: ReturnType<typeof useFavoritesSidebarDnd> | null = null
 
 function Harness(props: Parameters<typeof useFavoritesSidebarDnd>[0]): null {
@@ -43,6 +38,7 @@ function Harness(props: Parameters<typeof useFavoritesSidebarDnd>[0]): null {
 describe('useFavoritesSidebarDnd modes', () => {
   let container: HTMLDivElement
   let root: Root
+  let current: Parameters<typeof useFavoritesSidebarDnd>[0]
 
   beforeEach(() => {
     container = document.createElement('div')
@@ -57,8 +53,16 @@ describe('useFavoritesSidebarDnd modes', () => {
   })
 
   function renderHook(props: Parameters<typeof useFavoritesSidebarDnd>[0]): void {
+    current = props
     act(() => {
       root.render(<Harness {...props} />)
+    })
+  }
+
+  function rerender(patch: Partial<Parameters<typeof useFavoritesSidebarDnd>[0]>): void {
+    current = { ...current, ...patch }
+    act(() => {
+      root.render(<Harness {...current} />)
     })
   }
 
@@ -66,20 +70,18 @@ describe('useFavoritesSidebarDnd modes', () => {
     return api!.effectiveRefs.map(ref => ref.id)
   }
 
-  it('restores the sort preview on Ctrl release and commits the reorder on drop', () => {
+  it('按下 Ctrl 期间无排序预演，松开后按悬停位置恢复预演并在松手提交重排', () => {
     const doc = fixtureDoc()
     const onReorderRefs = vi.fn()
     const onMoveRef = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef })
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef, activeId: 'r1', foreignItem: null, modifierHeld: true })
 
-    act(() => api!.handleDragStart('r1', ctrlDragStart()))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver('r1', 'r3'))
     expect(api!.moveMode).toBe(true)
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
 
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' }))
-    })
+    rerender({ modifierHeld: false })
     expect(api!.moveMode).toBe(false)
     expect(refOrder()).toEqual(['r2', 'r3', 'r1', 'r4'])
 
@@ -88,17 +90,15 @@ describe('useFavoritesSidebarDnd modes', () => {
     expect(onReorderRefs).toHaveBeenCalledWith('root', ['r2', 'r3', 'r1', 'r4'])
   })
 
-  it('keeps updating the sort preview after Ctrl release while still dragging', () => {
+  it('松开 Ctrl 后继续拖拽仍持续更新排序预演', () => {
     const doc = fixtureDoc()
     const onReorderRefs = vi.fn()
     const onMoveRef = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef })
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef, activeId: 'r1', foreignItem: null, modifierHeld: true })
 
-    act(() => api!.handleDragStart('r1', ctrlDragStart()))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver('r1', 'r2'))
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' }))
-    })
+    rerender({ modifierHeld: false })
     expect(refOrder()).toEqual(['r2', 'r1', 'r3', 'r4'])
 
     act(() => api!.handleDragOver('r1', 'r4'))
@@ -109,19 +109,17 @@ describe('useFavoritesSidebarDnd modes', () => {
     expect(onReorderRefs).toHaveBeenCalledWith('root', ['r2', 'r3', 'r4', 'r1'])
   })
 
-  it('drops the sort preview when Ctrl is pressed again mid-drag', () => {
+  it('拖动中按下 Ctrl 即丢弃排序预演并切到移动模式', () => {
     const doc = fixtureDoc()
     const onReorderRefs = vi.fn()
     const onMoveRef = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef })
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef, activeId: 'r1', foreignItem: null, modifierHeld: false })
 
-    act(() => api!.handleDragStart('r1'))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver('r1', 'r3'))
     expect(refOrder()).toEqual(['r2', 'r3', 'r1', 'r4'])
 
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true }))
-    })
+    rerender({ modifierHeld: true })
     expect(api!.moveMode).toBe(true)
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
     expect(api!.dropTargetRefId).toBe('')
@@ -134,13 +132,13 @@ describe('useFavoritesSidebarDnd modes', () => {
     expect(onReorderRefs).not.toHaveBeenCalled()
   })
 
-  it('moves the ref into the hovered folder when Ctrl is held at drop', () => {
+  it('松手时按住 Ctrl 则移入悬停收藏夹', () => {
     const doc = fixtureDoc()
     const onReorderRefs = vi.fn()
     const onMoveRef = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef })
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, onMoveRef, activeId: 'r1', foreignItem: null, modifierHeld: true })
 
-    act(() => api!.handleDragStart('r1', ctrlDragStart()))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver('r1', 'r2'))
     expect(api!.dropTargetRefId).toBe('r2')
 
@@ -149,12 +147,12 @@ describe('useFavoritesSidebarDnd modes', () => {
     expect(onReorderRefs).not.toHaveBeenCalled()
   })
 
-  it('keeps pure sorting behavior when no move capability is provided', () => {
+  it('未提供移动能力时保持纯排序行为', () => {
     const doc = fixtureDoc()
     const onReorderRefs = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs })
+    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onReorderRefs, activeId: 'r1', foreignItem: null, modifierHeld: false })
 
-    act(() => api!.handleDragStart('r1', ctrlDragStart()))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver('r1', 'r3'))
     act(() => api!.handleDragEnd('r1', 'r3'))
     expect(onReorderRefs).toHaveBeenCalledWith('root', ['r2', 'r3', 'r1', 'r4'])
@@ -164,6 +162,7 @@ describe('useFavoritesSidebarDnd modes', () => {
 describe('useFavoritesSidebarDnd cross-column takeover', () => {
   let container: HTMLDivElement
   let root: Root
+  let current: Parameters<typeof useFavoritesSidebarDnd>[0]
 
   beforeEach(() => {
     container = document.createElement('div')
@@ -178,8 +177,16 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
   })
 
   function renderHook(props: Parameters<typeof useFavoritesSidebarDnd>[0]): void {
+    current = props
     act(() => {
       root.render(<Harness {...props} />)
+    })
+  }
+
+  function rerender(patch: Partial<Parameters<typeof useFavoritesSidebarDnd>[0]>): void {
+    current = { ...current, ...patch }
+    act(() => {
+      root.render(<Harness {...current} />)
     })
   }
 
@@ -189,12 +196,20 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
 
   const NOTE_TAB = 'tab:note:n9'
 
-  it('joins a foreign item under its own identity and previews it in the native sort order', () => {
+  it('外来条目以同一身份加入本栏并按落点提交', () => {
     const doc = fixtureDoc()
     const onCommitForeign = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
+    renderHook({
+      refs: doc.refsByFolderId.root,
+      currentFolderId: 'root',
+      doc,
+      onCommitForeign,
+      activeId: NOTE_TAB,
+      foreignItem: { id: NOTE_TAB, kind: 'note', targetId: 'n9' },
+      modifierHeld: false,
+    })
 
-    act(() => api!.beginForeign({ id: NOTE_TAB, kind: 'note', targetId: 'n9' }, false))
+    act(() => api!.handleDragStart())
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4', NOTE_TAB])
 
     act(() => api!.handleDragOver(NOTE_TAB, 'r3'))
@@ -205,16 +220,46 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
       { id: NOTE_TAB, kind: 'note', targetId: 'n9' },
       { moveMode: false, overRefId: 'r3', insertIndex: 2 },
     )
+
+    rerender({ activeId: '', foreignItem: null })
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
   })
 
-  it('drops a foreign item into the hovered folder while Ctrl is held', () => {
+  it('外来条目首次事件时尚未随渲染到达本栏也能立即落进空位', () => {
+    const doc = fixtureDoc()
+    const onCommitForeign = vi.fn()
+    renderHook({
+      refs: doc.refsByFolderId.root,
+      currentFolderId: 'root',
+      doc,
+      onCommitForeign,
+      activeId: NOTE_TAB,
+      foreignItem: null,
+      modifierHeld: false,
+    })
+
+    // 首次事件时外来载荷尚未随渲染到达本栏，预览仍应立即落在悬停空位。
+    act(() => api!.handleDragOver(NOTE_TAB, 'r3'))
+    rerender({ foreignItem: { id: NOTE_TAB, kind: 'note', targetId: 'n9' } })
+    expect(refOrder()).toEqual(['r1', 'r2', NOTE_TAB, 'r3', 'r4'])
+  })
+
+  it('按住 Ctrl 时外来条目放入悬停收藏夹', () => {
     const doc = fixtureDoc()
     const onCommitForeign = vi.fn()
     const ASSET_TAB = 'tab:asset:a.png'
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign, onMoveRef: vi.fn() })
+    renderHook({
+      refs: doc.refsByFolderId.root,
+      currentFolderId: 'root',
+      doc,
+      onCommitForeign,
+      onMoveRef: vi.fn(),
+      activeId: ASSET_TAB,
+      foreignItem: { id: ASSET_TAB, kind: 'asset', targetId: 'a.png' },
+      modifierHeld: true,
+    })
 
-    act(() => api!.beginForeign({ id: ASSET_TAB, kind: 'asset', targetId: 'a.png' }, true))
+    act(() => api!.handleDragStart())
     act(() => api!.handleDragOver(ASSET_TAB, 'r2'))
     expect(api!.moveMode).toBe(true)
     expect(api!.dropTargetRefId).toBe('r2')
@@ -224,16 +269,5 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
       { id: ASSET_TAB, kind: 'asset', targetId: 'a.png' },
       { moveMode: true, overRefId: 'r2', insertIndex: -1 },
     )
-  })
-
-  it('clears the foreign preview when it leaves the right side', () => {
-    const doc = fixtureDoc()
-    const onCommitForeign = vi.fn()
-    renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
-
-    act(() => api!.beginForeign({ id: NOTE_TAB, kind: 'note', targetId: 'n9' }, false))
-    expect(refOrder()).toContain(NOTE_TAB)
-    act(() => api!.endForeign())
-    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
   })
 })
