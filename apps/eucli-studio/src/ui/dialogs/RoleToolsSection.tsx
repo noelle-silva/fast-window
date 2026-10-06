@@ -43,11 +43,12 @@ const toggleGroupSx = {
     color: 'text.secondary',
     borderRadius: 1.5,
     '&.Mui-selected': {
-      color: 'text.primary',
-      bgcolor: 'var(--studio-paper)',
+      color: 'var(--studio-button-text)',
+      bgcolor: 'var(--studio-primary)',
       boxShadow: 'var(--studio-shadow-strong)',
+      fontWeight: 800,
     },
-    '&.Mui-selected:hover': { bgcolor: 'var(--studio-paper)' },
+    '&.Mui-selected:hover': { bgcolor: 'var(--studio-primary-hover)' },
   },
 } as const
 
