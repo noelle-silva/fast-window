@@ -24,6 +24,8 @@ export type NoteDetailInfoSidebarProps = {
   onOpenNote: (note: NoteMeta, faceId?: string) => void
   backlinkEdges: NoteRefRelationEdge[]
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
+  favoriteFolders: { id: string; title: string }[]
+  onRevealFavoriteFolder: (folderId: string) => void
 }
 
 export function NoteDetailInfoSidebar(props: NoteDetailInfoSidebarProps): React.ReactNode {
@@ -41,6 +43,8 @@ export function NoteDetailInfoSidebar(props: NoteDetailInfoSidebarProps): React.
     onOpenNote,
     backlinkEdges,
     faceManifests,
+    favoriteFolders,
+    onRevealFavoriteFolder,
   } = props
 
   if (!infoSidebarVisible) return null
@@ -68,6 +72,8 @@ export function NoteDetailInfoSidebar(props: NoteDetailInfoSidebarProps): React.
           if (meta) onOpenNote(meta, ref.faceId || undefined)
         }}
         isBacklinkStale={ref => isBacklinkStaleFromRelations(backlinkEdges, noteId, ref.noteId, faceId => !!faceManifests[String(faceId || '').trim()])}
+        favoriteFolders={favoriteFolders}
+        onRevealFavoriteFolder={onRevealFavoriteFolder}
       />
     </Box>
   )

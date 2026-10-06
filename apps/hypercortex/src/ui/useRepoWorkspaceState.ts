@@ -73,6 +73,8 @@ export function useRepoWorkspaceState(props: { repoId: string; visible: boolean 
   const [activeTabScrollSignal, setActiveTabScrollSignal] = React.useState(0)
   // 右侧收藏夹栏的激活条目滚动信号：键盘切换后把当前条目滚入视野。
   const [favoritesActiveScrollSignal, setFavoritesActiveScrollSignal] = React.useState(0)
+  // 右侧收藏夹栏的激活条目闪烁信号：从笔记详情「收藏于」跳转后闪烁两下，指明目标条目。
+  const [favoritesActiveFlashSignal, setFavoritesActiveFlashSignal] = React.useState(0)
 
   // ---- 按住预览：快捷键按住期间，悬停任一边栏条目即在主区域覆盖展示其预览。
   const {
@@ -342,6 +344,8 @@ export function useRepoWorkspaceState(props: { repoId: string; visible: boolean 
     setActiveTabScrollSignal,
     favoritesActiveScrollSignal,
     setFavoritesActiveScrollSignal,
+    favoritesActiveFlashSignal,
+    setFavoritesActiveFlashSignal,
 
     previewTarget,
     previewHoldRef,

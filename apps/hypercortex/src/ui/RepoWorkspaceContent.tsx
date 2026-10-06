@@ -99,6 +99,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
                 onRequestDeleteNote={o.handleDeleteNote}
                 favoritesDoc={o.favoritesDoc}
                 onFavoriteSaved={o.handleFavoritesDocChange}
+                onRevealNoteInFavorites={o.handleRevealNoteInFavorites}
                 onPlayingChange={playing => o.setTabPlaying(noteTabKey(tab.id), playing)}
                 facePluginGlobalSettings={o.facePluginSettings}
                 globalFaceKindOrder={o.faceKindOrder}

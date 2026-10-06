@@ -71,6 +71,31 @@ function NoteIdChip(props: {
   )
 }
 
+function FavoriteFolderChip(props: { title: string; onClick: () => void }) {
+  return (
+    <Box
+      component="span"
+      onClick={props.onClick}
+      title={props.title}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        px: 1.25,
+        py: 0.5,
+        borderRadius: 999,
+        fontSize: 12,
+        color: 'var(--hc-primary)',
+        bgcolor: 'var(--hc-primary-soft)',
+        cursor: 'pointer',
+        transition: 'background 120ms',
+        '&:hover': { bgcolor: 'var(--hc-primary-hover)' },
+      }}
+    >
+      {props.title || '未命名收藏夹'}
+    </Box>
+  )
+}
+
 function NoteRefSection(props: {
   title: string
   ids: string[]
@@ -164,6 +189,8 @@ export function NoteInfoSidebar(props: {
   onOpenId: (id: string) => void
   onOpenRef: (ref: NoteBacklinkRef) => void
   isBacklinkStale?: (ref: NoteBacklinkRef) => boolean
+  favoriteFolders: { id: string; title: string }[]
+  onRevealFavoriteFolder: (folderId: string) => void
 }) {
   const noteId = String(props.noteId || '').trim()
   return (
@@ -192,6 +219,21 @@ export function NoteInfoSidebar(props: {
             onOpenRef={props.onOpenRef}
           />
         ))}
+      </Box>
+
+      <Box sx={{ mt: 2.25 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 0.75 }}>
+          收藏于
+        </Typography>
+        {props.favoriteFolders.length ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+            {props.favoriteFolders.map(folder => (
+              <FavoriteFolderChip key={folder.id} title={folder.title} onClick={() => props.onRevealFavoriteFolder(folder.id)} />
+            ))}
+          </Box>
+        ) : (
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.35)' }}>暂无</Typography>
+        )}
       </Box>
 
       <Box sx={{ mt: 2.25, display: 'flex', flexDirection: 'column', gap: 1 }}>

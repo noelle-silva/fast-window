@@ -163,6 +163,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
                     (o.visiblePage === 'note-detail' || o.visiblePage === 'asset-detail')
                   }
                   activeEntryScrollSignal={o.favoritesActiveScrollSignal}
+                  activeEntryFlashSignal={o.favoritesActiveFlashSignal}
                   scrollTop={o.favoritesScrollTopsRef.current[o.favoritesNav.currentFolderId] ?? 0}
                   scrollRestoreSignal={o.favoritesScrollRestoreSignal}
                   onScrollTopChange={o.handleFavoritesScrollTopChange}

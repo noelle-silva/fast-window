@@ -54,6 +54,8 @@ export type FavoritesSidebarPanelProps = {
   tabSelectionVisible?: boolean
   /** 激活条目滚动信号：变化即把当前选中条目滚入视野。 */
   activeEntryScrollSignal?: number
+  /** 激活条目闪烁信号：变化即让当前选中条目闪烁两下。 */
+  activeEntryFlashSignal?: number
   /** 当前收藏夹记忆的滚动位置：切回该收藏夹时还原。 */
   scrollTop?: number
   /** 滚动还原信号：变化即按 scrollTop 还原列表位置。 */
@@ -102,6 +104,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     activeTabKey,
     tabSelectionVisible = false,
     activeEntryScrollSignal = 0,
+    activeEntryFlashSignal = 0,
     scrollTop = 0,
     scrollRestoreSignal = 0,
     onScrollTopChange,
@@ -202,6 +205,23 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
   }, [activeEntryScrollSignal, listScrollRef])
 
+  // 激活条目闪烁两下：与滚动同源、作用于同一个激活行，闪两下后回到常态高亮。
+  const [flashActive, setFlashActive] = React.useState(false)
+  React.useEffect(() => {
+    if (activeEntryFlashSignal <= 0) return
+    let alive = true
+    setFlashActive(true)
+    const timers = [
+      window.setTimeout(() => { if (alive) setFlashActive(false) }, 180),
+      window.setTimeout(() => { if (alive) setFlashActive(true) }, 360),
+      window.setTimeout(() => { if (alive) setFlashActive(false) }, 540),
+    ]
+    return () => {
+      alive = false
+      timers.forEach(timer => window.clearTimeout(timer))
+    }
+  }, [activeEntryFlashSignal])
+
   // 条目拖拽：排序与移动共用同一套机制。默认排序（实时预览重排 + 浮层跟手，拖拽项禁用 transform，
   // 松手即最终顺序）；拖动中按住 Ctrl 切到移动模式，只认收藏夹条目为可放入目标，悬停即高亮。
   // 跨栏外来条目以同一身份加入本栏，走同一套原生排序/移动预览与落点提交。
@@ -264,7 +284,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const active = isRefActive(ref)
     const isDraft = isDraftNoteId(note.id)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} flash={flashActive && active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
         {showTitle && isDraft ? (
@@ -298,7 +318,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const PreviewIcon = preview.icon
     const active = isRefActive(ref)
     return (
-      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} activeRef={active ? activeRowRef : undefined} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
+      <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} flash={flashActive && active} activeRef={active ? activeRowRef : undefined} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
         {preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
         ) : (
@@ -565,6 +585,8 @@ function RowShell(props: {
   tooltipDisabled: boolean
   muted?: boolean
   active?: boolean
+  /** 从笔记详情跳转后短暂闪烁两下，指明目标条目。 */
+  flash?: boolean
   /** 拖拽移动模式下，本行是当前悬停的可放入收藏夹目标：高亮示意。 */
   dropTarget?: boolean
   activeRef?: React.MutableRefObject<HTMLElement | null>
@@ -576,7 +598,7 @@ function RowShell(props: {
   shouldSuppressClick?: () => boolean
   children: React.ReactNode
 }): React.ReactNode {
-  const { showTitle, title, tooltipDisabled, muted, active = false, dropTarget = false, activeRef, previewEntry, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
+  const { showTitle, title, tooltipDisabled, muted, active = false, flash = false, dropTarget = false, activeRef, previewEntry, onClick, onContextMenu, sortable, shouldSuppressClick, children } = props
   return (
     <Tooltip
       title={!showTitle && !tooltipDisabled ? title : ''}
@@ -621,9 +643,9 @@ function RowShell(props: {
           opacity: sortable?.isDragging ? 0.72 : muted ? 0.86 : 1,
           zIndex: sortable?.isDragging ? 2 : undefined,
           position: sortable?.isDragging ? 'relative' : undefined,
-          bgcolor: dropTarget || active ? 'var(--hc-primary-soft)' : 'transparent',
-          outline: dropTarget ? '2px solid var(--hc-primary)' : 'none',
-          outlineOffset: dropTarget ? '-2px' : undefined,
+          bgcolor: flash ? 'var(--hc-primary-hover)' : dropTarget || active ? 'var(--hc-primary-soft)' : 'transparent',
+          outline: dropTarget || flash ? '2px solid var(--hc-primary)' : 'none',
+          outlineOffset: dropTarget || flash ? '-2px' : undefined,
           '&:hover': { bgcolor: dropTarget || active ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
           '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
         }}

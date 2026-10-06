@@ -245,6 +245,21 @@ export function collectRefsForTarget(
 }
 
 /**
+ * 反查包含某对象的收藏夹：从收藏夹文档单向派生，按收藏夹创建顺序返回去重后的收藏夹列表。
+ * 只读引用，不写入笔记元数据；草稿引用只活在内存文档中，因此同样被自然收录。
+ */
+export function collectFoldersForTarget(
+  doc: HyperCortexFavoritesDocV1,
+  kind: FavoriteItemRef['kind'],
+  targetId: string,
+): FavoriteFolder[] {
+  const refs = collectRefsForTarget(doc, kind, targetId)
+  if (!refs.length) return []
+  const folderIds = new Set(refs.map(ref => ref.folderId))
+  return getAllFolders(doc).filter(folder => folderIds.has(folder.id))
+}
+
+/**
  * 判断一条引用能否迁移到目标收藏夹：目标页存在、不是源引用当前所在页，且文件夹引用不会形成自环或循环。
  * 「移动到…」与拖拽移动共用的目标准入规则：右键选择器由树结构天然排除非法页，拖拽悬停用它判定可放入，
  * moveRef 的逐目标过滤也复用它，保证交互预期与底层结果同源一致。

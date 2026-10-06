@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canMoveRefToFolder,
+  collectFoldersForTarget,
   collectRefsForTarget,
   deleteFolder,
   moveRef,
@@ -167,6 +168,20 @@ describe('collectRefsForTarget', () => {
     expect(collectRefsForTarget(doc, 'note', '')).toEqual([])
     expect(collectRefsForTarget(doc, 'note', 'missing')).toEqual([])
     expect(collectRefsForTarget(doc, 'asset', 'n1')).toEqual([])
+  })
+})
+
+describe('collectFoldersForTarget', () => {
+  it('returns the folders containing the target, deduped and in creation order', () => {
+    const doc = fixture()
+    doc.refsByFolderId.c.push(itemRef('ref-note-c', 'c', 'note', 'n1'))
+    expect(collectFoldersForTarget(doc, 'note', 'n1').map(folder => folder.id)).toEqual(['b', 'c'])
+  })
+
+  it('returns empty when no folder contains the target', () => {
+    const doc = fixture()
+    expect(collectFoldersForTarget(doc, 'note', 'missing')).toEqual([])
+    expect(collectFoldersForTarget(doc, 'asset', 'n1')).toEqual([])
   })
 })
 

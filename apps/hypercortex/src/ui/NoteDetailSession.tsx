@@ -9,7 +9,7 @@ import type { HyperCortexGateway } from '../gateway'
 import { resolveNoteFaceOrder } from '../facePreferences'
 import type { HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
-import type { HyperCortexFavoritesDocV1 } from '../favorites'
+import { collectFoldersForTarget, type HyperCortexFavoritesDocV1 } from '../favorites'
 import {
   faceManifestFromDeclaration,
   filterCreatableFaceDeclarations,
@@ -36,6 +36,7 @@ import { NoteDetailDialogs } from './note-detail/NoteDetailDialogs'
 import { useNoteDetailFaceContent } from './useNoteDetailFaceContent'
 import { useNoteDetailReferences } from './useNoteDetailReferences'
 import { useNoteDetailToolbar } from './useNoteDetailToolbar'
+import { folderTitle } from './index-page/helpers'
 
 export type NoteDetailSnapshotV1 = {
   baseFields: NoteBaseFields
@@ -94,6 +95,8 @@ export type NoteDetailSessionProps = {
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
   favoritesDoc?: HyperCortexFavoritesDocV1 | null
   onFavoriteSaved?: (doc: HyperCortexFavoritesDocV1) => void
+  /** 「收藏于」标签点击：把右侧收藏夹栏切到该收藏夹并指明该笔记条目。 */
+  onRevealNoteInFavorites?: (folderId: string) => void
   onPlayingChange?: (playing: boolean) => void
   facePluginGlobalSettings?: Record<string, Record<string, unknown>>
   globalFaceKindOrder?: readonly string[]
@@ -121,6 +124,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onRequestDeleteNote,
     favoritesDoc,
     onFavoriteSaved,
+    onRevealNoteInFavorites,
     onPlayingChange,
     facePluginGlobalSettings = {},
     globalFaceKindOrder = [],
@@ -576,6 +580,16 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setPendingAddFace(null)
   }, [createFaceStore, faceManifests, loaded, pendingAddFace])
 
+  // 「收藏于」：从收藏夹文档单向反查，按收藏夹创建顺序列出收藏了当前笔记的收藏夹。
+  // 草稿引用只活在内存文档中，因此草稿同样能被列出。
+  const favoriteFolders = React.useMemo(
+    () =>
+      infoSidebarVisible && favoritesDoc
+        ? collectFoldersForTarget(favoritesDoc, 'note', noteId).map(folder => ({ id: folder.id, title: folderTitle(favoritesDoc, folder.id) }))
+        : [],
+    [favoritesDoc, infoSidebarVisible, noteId],
+  )
+
   if (!noteId) return null
 
   return (
@@ -685,6 +699,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             onOpenNote={onOpenNote}
             backlinkEdges={backlinkEdges}
             faceManifests={faceManifests}
+            favoriteFolders={favoriteFolders}
+            onRevealFavoriteFolder={folderId => onRevealNoteInFavorites?.(folderId)}
           />
         </Box>
       ) : null}
