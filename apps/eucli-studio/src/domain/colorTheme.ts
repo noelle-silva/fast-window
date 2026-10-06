@@ -140,7 +140,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#eaf2f7',
       surface: '#fffaf3',
-      surfaceCode: '#0b1220',
+      surfaceCode: '#e8eef8',
       primary: '#4f72b8',
       secondary: '#7c3aed',      text: '#0f172a',
       border: 'rgba(15,23,42,.12)',
@@ -157,7 +157,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#0d1020',
       surface: '#211827',
-      surfaceCode: '#08070d',
+      surfaceCode: '#f4eef5',
       primary: '#c884a6',
       secondary: '#a78bfa',      text: '#f8fafc',
       border: 'rgba(255,255,255,.12)',
@@ -174,7 +174,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#f7f1fb',
       surface: '#fff7fb',
-      surfaceCode: '#25213a',
+      surfaceCode: '#f0e6f7',
       primary: '#9a86c8',
       secondary: '#f472b6',      text: '#312e4f',
       border: 'rgba(49,46,79,.13)',
@@ -191,7 +191,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#edf7ef',
       surface: '#fbfff7',
-      surfaceCode: '#102016',
+      surfaceCode: '#e6f2ea',
       primary: '#4f7f5b',
       secondary: '#0f766e',      text: '#17351f',
       border: 'rgba(23,53,31,.14)',
@@ -208,7 +208,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#fff1f2',
       surface: '#fffaf7',
-      surfaceCode: '#2b1220',
+      surfaceCode: '#fce8ea',
       primary: '#c06a78',
       secondary: '#f97316',      text: '#4a1d2a',
       border: 'rgba(74,29,42,.13)',
@@ -225,7 +225,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#f3efff',
       surface: '#fbf8ff',
-      surfaceCode: '#211536',
+      surfaceCode: '#ece4fa',
       primary: '#8870bd',
       secondary: '#a855f7',      text: '#2e214f',
       border: 'rgba(46,33,79,.13)',
@@ -242,7 +242,7 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
     baseColors: {
       background: '#f3ead7',
       surface: '#fff8e8',
-      surfaceCode: '#2f2115',
+      surfaceCode: '#f5ead2',
       primary: '#9a7046',
       secondary: '#a16207',      text: '#3f2f1c',
       border: 'rgba(63,47,28,.16)',

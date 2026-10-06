@@ -62,6 +62,14 @@ describe('getColorThemeColors', () => {
     }
   })
 
+  it('keeps code text readable on every builtin preset code surface', () => {
+    for (const preset of COLOR_THEME_BUILTIN_PRESETS) {
+      const colors = getColorThemeColors(preset)
+      const ratio = wcagContrast(colors.codeText, colors.codeBackground)
+      expect(ratio, `${preset.id} codeText`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it('keeps system text readable on every builtin preset', () => {
     for (const preset of COLOR_THEME_BUILTIN_PRESETS) {
       const colors = getColorThemeColors(preset)

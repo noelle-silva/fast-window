@@ -103,7 +103,9 @@ export function deriveFullColorTheme(base: BaseColors, mode: ColorThemeMode): Co
     // 文字
     textPrimary: ensureContrast(base.text, base.background),
     textSecondary: withAlpha(base.text, 0.88), // 调整为0.88接近原版
-    codeText: isDark ? lighten(base.text, 0.05) : darken(base.text, 0.02),
+    // 代码块文字随「代码块表面」的实际明暗自适应：表面是浅色就用深字，表面是深色就用白字。
+    // 这样代码块表面无论被配成什么颜色，文字都必然可读，不再依赖主题的明暗模式。
+    codeText: pickReadableOn(base.surfaceCode),
 
     // 边框/光圈
     border: base.border,
