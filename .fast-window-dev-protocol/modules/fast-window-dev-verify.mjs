@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { storeIconPackagePath, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
+import { isReservedNameExempted, parseReservedNameExemptions, storeIconPackagePath, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
 import {
   artifactFacts,
   manifestFacts,
@@ -104,6 +104,7 @@ export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath
   const root = path.dirname(path.resolve(protocolDir))
   const sourceManifest = readManifest(protocolDir)
   const manifest = manifestFacts(sourceManifest)
+  const reservedNameExemptions = parseReservedNameExemptions(sourceManifest.reservedNameExemptions)
   const version = readVersion(root, manifest.versionSource)
 
   const explicit = String(artifactPath ?? '').trim()
@@ -142,7 +143,10 @@ export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath
     }
     checks.push({ name: 'windows-executable', ok: true, detail: executableRel })
 
-    if (await pathExists(path.join(tempDir, reservedPackageDataDirName))) {
+    if (
+      await pathExists(path.join(tempDir, reservedPackageDataDirName)) &&
+      !isReservedNameExempted(reservedNameExemptions, reservedPackageDataDirName)
+    ) {
       throw new Error(`商店包不允许包含保留数据目录：${reservedPackageDataDirName}`)
     }
     checks.push({ name: 'no-reserved-data-dir', ok: true })

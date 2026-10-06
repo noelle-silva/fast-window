@@ -388,6 +388,37 @@ function overlayCopyTree(sourceDir, targetDir) {
   }
 }
 
+// 保留目录名豁免声明：应用协议清单点名允许的保留目录名与理由。
+// 格式与解析规则由本工具承载，供各应用复制使用；应用侧打包库与中央成品校验共用同一份规则。
+function parseReservedNameExemptions(value, label = 'reservedNameExemptions') {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) throw new Error(`${label} 必须是数组`)
+  const seen = new Set()
+  return value.map((item, index) => {
+    const where = `${label}[${index}]`
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${where} 必须是对象`)
+    }
+    for (const key of Object.keys(item)) {
+      if (key !== 'name' && key !== 'reason') throw new Error(`${where} 不支持的字段 ${key}`)
+    }
+    const name = String(item.name ?? '').trim()
+    const reason = String(item.reason ?? '').trim()
+    if (name === '') throw new Error(`${where}.name 不能为空`)
+    if (reason === '') throw new Error(`${where}.reason 不能为空`)
+    if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+      throw new Error(`${where}.name 必须是单个目录名: ${name}`)
+    }
+    if (seen.has(name)) throw new Error(`${where}.name 重复: ${name}`)
+    seen.add(name)
+    return { name, reason }
+  })
+}
+
+function isReservedNameExempted(exemptions, name) {
+  return Array.isArray(exemptions) && exemptions.some(item => item?.name === name)
+}
+
 function readSourceManifest(file) {
   let payload
   try {
@@ -430,6 +461,7 @@ function readSourceManifest(file) {
   }
   validateSourceService(manifest.type, manifest.service)
   normalizeCommands(manifest.commands)
+  parseReservedNameExemptions(manifest.reservedNameExemptions)
   return manifest
 }
 
@@ -784,4 +816,11 @@ if (isDirectRun) {
   await main()
 }
 
-export { buildStorePackage, packZipDirectory, storeIconPackagePath, unpackZip }
+export {
+  buildStorePackage,
+  isReservedNameExempted,
+  packZipDirectory,
+  parseReservedNameExemptions,
+  storeIconPackagePath,
+  unpackZip,
+}

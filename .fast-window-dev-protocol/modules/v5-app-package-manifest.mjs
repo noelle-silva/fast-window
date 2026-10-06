@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isReservedNameExempted, parseReservedNameExemptions } from '../app-template/fast-window-dev-tool.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -54,8 +55,9 @@ function pathStartsWithReservedStageEntry(rel) {
   return RESERVED_STAGE_ENTRY_NAMES.has(first)
 }
 
-function assertNotReservedPackagePath(rel, field) {
-  if (pathStartsWithReservedStageEntry(rel)) {
+function assertNotReservedPackagePath(rel, field, exemptions) {
+  const first = String(rel || '').split('/')[0]
+  if (pathStartsWithReservedStageEntry(rel) && !isReservedNameExempted(exemptions, first)) {
     throw new Error(`${field} 不允许写入 staging 容器保留目录: ${rel}`)
   }
 }
@@ -125,7 +127,7 @@ function validateCommands(value, field) {
   })
 }
 
-function validatePackageFiles(value, field) {
+function validatePackageFiles(value, field, exemptions) {
   if (!Array.isArray(value) || value.length === 0) throw new Error(`${field} 必须是非空数组`)
   const seenTo = new Set()
   return value.map((entry, index) => {
@@ -134,30 +136,30 @@ function validatePackageFiles(value, field) {
     const from = normalizeRel(requiredString(item.from, `${field}[${index}].from`, 300), `${field}[${index}].from`)
     const to = normalizeRel(requiredString(item.to, `${field}[${index}].to`, 300), `${field}[${index}].to`)
     if (to === 'fw-app.json') throw new Error(`${field}[${index}].to 不能覆盖 fw-app.json`)
-    assertNotReservedPackagePath(to, `${field}[${index}].to`)
+    assertNotReservedPackagePath(to, `${field}[${index}].to`, exemptions)
     if (seenTo.has(to)) throw new Error(`${field}[${index}].to 重复: ${to}`)
     seenTo.add(to)
     return { from, to }
   })
 }
 
-function validatePackageProfile(value, field) {
+function validatePackageProfile(value, field, exemptions) {
   const profile = assertPlainObject(value, field)
   assertKnownKeys(profile, field, ['build', 'stageDir', 'files'])
   return {
     buildCommand: validateBuildCommand(profile.build, `${field}.build`),
     stageDir: normalizeStageDir(requiredString(profile.stageDir, `${field}.stageDir`, 240), `${field}.stageDir`),
-    files: validatePackageFiles(profile.files, `${field}.files`),
+    files: validatePackageFiles(profile.files, `${field}.files`, exemptions),
   }
 }
 
-function validatePackageProfiles(value, field) {
+function validatePackageProfiles(value, field, exemptions) {
   const profiles = assertPlainObject(value, field)
   assertKnownKeys(profiles, field, V5_APP_PROFILE_IDS)
   const out = {}
   for (const profileId of V5_APP_PROFILE_IDS) {
     if (!(profileId in profiles)) throw new Error(`${field}.${profileId} 缺失`)
-    out[profileId] = validatePackageProfile(profiles[profileId], `${field}.${profileId}`)
+    out[profileId] = validatePackageProfile(profiles[profileId], `${field}.${profileId}`, exemptions)
   }
   return out
 }
@@ -180,6 +182,7 @@ export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }
     'package',
     'displayMode',
     'commands',
+    'reservedNameExemptions',
   ])
 
   const type = requiredString(manifest.type, 'type', 24)
@@ -191,10 +194,15 @@ export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }
   if (!isSafeId(id)) throw new Error(`app id 不合法: ${id}`)
   if (id !== expectedId) throw new Error(`发布声明 id 与 --app 不一致: manifest=${id}, app=${expectedId}`)
 
+  const reservedNameExemptions = parseReservedNameExemptions(
+    manifest.reservedNameExemptions,
+    `${manifestPath}.reservedNameExemptions`,
+  )
+
   const pkg = assertPlainObject(manifest.package, 'package')
   assertKnownKeys(pkg, 'package', ['windowsExecutable', 'icon'])
   const executable = normalizeRel(requiredString(pkg.windowsExecutable, 'package.windowsExecutable', 240), 'package.windowsExecutable')
-  assertNotReservedPackagePath(executable, 'package.windowsExecutable')
+  assertNotReservedPackagePath(executable, 'package.windowsExecutable', reservedNameExemptions)
   if (!executable.toLowerCase().endsWith('.exe')) throw new Error('package.windowsExecutable 必须指向 .exe')
 
   return {
@@ -208,18 +216,19 @@ export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }
     executable,
     icon: (() => {
       const icon = normalizeRel(requiredString(pkg.icon, 'package.icon', 240), 'package.icon')
-      assertNotReservedPackagePath(icon, 'package.icon')
+      assertNotReservedPackagePath(icon, 'package.icon', reservedNameExemptions)
       return icon
     })(),
     displayMode: validateDisplayMode(manifest.displayMode, 'displayMode'),
     commands: validateCommands(manifest.commands, 'commands'),
+    reservedNameExemptions,
   }
 }
 
-export function normalizeV5AppBuildConfig(raw, { buildPath }) {
+export function normalizeV5AppBuildConfig(raw, { buildPath, reservedNameExemptions = [] }) {
   const config = assertPlainObject(raw, buildPath)
   assertKnownKeys(config, buildPath, ['profiles'])
-  return { buildPath, profiles: validatePackageProfiles(config.profiles, 'profiles') }
+  return { buildPath, profiles: validatePackageProfiles(config.profiles, 'profiles', reservedNameExemptions) }
 }
 
 async function readRequiredJson(filePath, label) {
@@ -240,7 +249,10 @@ export async function loadV5AppConfig(appId) {
   const manifest = await readRequiredJson(manifestPath, 'v5 app 应用清单')
   const buildConfig = await readRequiredJson(buildPath, 'v5 app 构建配置')
   const normalizedManifest = normalizeV5AppManifest(manifest, { appDir, expectedId: id, manifestPath })
-  const normalizedBuild = normalizeV5AppBuildConfig(buildConfig, { buildPath })
+  const normalizedBuild = normalizeV5AppBuildConfig(buildConfig, {
+    buildPath,
+    reservedNameExemptions: normalizedManifest.reservedNameExemptions,
+  })
   validateProfileExecutableMappings(normalizedBuild.profiles, normalizedManifest.executable)
   return { ...normalizedManifest, ...normalizedBuild }
 }

@@ -17,6 +17,7 @@ import {
 } from './v5-app-package-manifest.mjs'
 import { isolatedV5AppTauriBuildEnv } from './tauri-build-env-policy.mjs'
 import { validateV5AppWindowsExecutableMetadata } from './v5-app-artifact-validation.mjs'
+import { isReservedNameExempted } from '../app-template/fast-window-dev-tool.mjs'
 
 export { DEFAULT_V5_APP_PROFILE, compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
 
@@ -183,8 +184,8 @@ async function prepareStageContainer(stageDir) {
   }
 }
 
-async function assertNoReservedPackageDataDir(packageRoot) {
-  if (await exists(path.join(packageRoot, V5_APP_DATA_DIR_NAME))) {
+async function assertNoReservedPackageDataDir(packageRoot, exemptions) {
+  if (await exists(path.join(packageRoot, V5_APP_DATA_DIR_NAME)) && !isReservedNameExempted(exemptions, V5_APP_DATA_DIR_NAME)) {
     throw new Error(`程序包根目录不允许包含保留数据目录: ${V5_APP_DATA_DIR_NAME}`)
   }
 }
@@ -269,7 +270,7 @@ function buildRuntimeManifest(config, version) {
   }
 }
 
-async function validateStagedV5App(packageRoot, manifest) {
+async function validateStagedV5App(packageRoot, manifest, exemptions = []) {
   if (manifest.type !== 'desktop-app') throw new Error(`fw-app.type 必须为 desktop-app: ${manifest.type}`)
   const executable = normalizeRel(manifest.package.windowsExecutable, 'fw-app.package.windowsExecutable')
   const icon = normalizeRel(manifest.package.icon, 'fw-app.package.icon')
@@ -277,7 +278,7 @@ async function validateStagedV5App(packageRoot, manifest) {
   if (!(await exists(path.join(packageRoot, icon)))) throw new Error(`icon 不存在: ${icon}`)
   if (!getV5AppIconMime(icon)) throw new Error(`fw-app.package.icon 必须是受支持的图片格式: ${icon}`)
   if (!(await exists(path.join(packageRoot, 'fw-app.json')))) throw new Error('staging 目录缺少 fw-app.json')
-  await assertNoReservedPackageDataDir(packageRoot)
+  await assertNoReservedPackageDataDir(packageRoot, exemptions)
 }
 
 async function writeRuntimeManifest(packageRoot, manifest) {
@@ -295,7 +296,7 @@ async function populateV5AppStageDir(config, profileConfig, packageRoot, version
 
   const manifest = buildRuntimeManifest(config, version)
   await writeRuntimeManifest(packageRoot, manifest)
-  await validateStagedV5App(packageRoot, manifest)
+  await validateStagedV5App(packageRoot, manifest, config.reservedNameExemptions)
   return manifest
 }
 
@@ -385,7 +386,7 @@ export async function syncV5AppExecutable(config, opts = {}) {
     throw new Error(`替换 staging 入口 exe 失败，可能应用仍在运行: ${dst} (${error.message})`)
   }
 
-  await validateStagedV5App(packageDir, expectedManifest)
+  await validateStagedV5App(packageDir, expectedManifest, config.reservedNameExemptions)
   await validateV5AppArtifact(config, profile.id, dst, opts)
   return {
     appId: config.id,
