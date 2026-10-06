@@ -411,7 +411,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     requestDeleteAssetEntity,
   })
 
-  // 笔记详情「收藏于」标签：把右侧收藏夹栏切到该收藏夹，并把该笔记条目滚入视野并闪烁两下。
+  // 笔记详情「收藏于」标签：把右侧收藏夹栏切到该收藏夹，并把该笔记条目滚入视野并闪烁数次。
   // 导航复用右侧栏统一入口；滚动与闪烁复用其激活条目机制，不新造第二套。
   const handleRevealNoteInFavorites = React.useCallback(
     (folderId: string) => {

@@ -38,6 +38,9 @@ import { assetRowTitle, useFavoritesSidebarOverlay } from './FavoritesSidebarOve
 import { isSideEngaged, useWorkspaceDnd, useWorkspaceDndModifier, useWorkspaceDndParticipant, type WorkspaceTransferItem } from './workspaceDnd'
 
 const ACTIVE_ENTRY_SCROLL_PADDING = 16
+// 激活条目闪烁：每次亮灭的间隔与亮起次数（亮→灭算一次切换）。
+const ACTIVE_ENTRY_FLASH_INTERVAL_MS = 180
+const ACTIVE_ENTRY_FLASH_COUNT = 5
 
 export type FavoritesSidebarPanelProps = {
   panelWidth: number
@@ -54,7 +57,7 @@ export type FavoritesSidebarPanelProps = {
   tabSelectionVisible?: boolean
   /** 激活条目滚动信号：变化即把当前选中条目滚入视野。 */
   activeEntryScrollSignal?: number
-  /** 激活条目闪烁信号：变化即让当前选中条目闪烁两下。 */
+  /** 激活条目闪烁信号：变化即让当前选中条目闪烁数次。 */
   activeEntryFlashSignal?: number
   /** 当前收藏夹记忆的滚动位置：切回该收藏夹时还原。 */
   scrollTop?: number
@@ -205,17 +208,20 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
   }, [activeEntryScrollSignal, listScrollRef])
 
-  // 激活条目闪烁两下：与滚动同源、作用于同一个激活行，闪两下后回到常态高亮。
+  // 激活条目闪烁：与滚动同源、作用于同一个激活行，闪指定次数后回到常态高亮。
   const [flashActive, setFlashActive] = React.useState(false)
   React.useEffect(() => {
     if (activeEntryFlashSignal <= 0) return
     let alive = true
     setFlashActive(true)
-    const timers = [
-      window.setTimeout(() => { if (alive) setFlashActive(false) }, 180),
-      window.setTimeout(() => { if (alive) setFlashActive(true) }, 360),
-      window.setTimeout(() => { if (alive) setFlashActive(false) }, 540),
-    ]
+    const timers: number[] = []
+    for (let step = 1; step < ACTIVE_ENTRY_FLASH_COUNT * 2; step++) {
+      timers.push(
+        window.setTimeout(() => {
+          if (alive) setFlashActive(step % 2 === 0)
+        }, step * ACTIVE_ENTRY_FLASH_INTERVAL_MS),
+      )
+    }
     return () => {
       alive = false
       timers.forEach(timer => window.clearTimeout(timer))
@@ -585,7 +591,7 @@ function RowShell(props: {
   tooltipDisabled: boolean
   muted?: boolean
   active?: boolean
-  /** 从笔记详情跳转后短暂闪烁两下，指明目标条目。 */
+  /** 从笔记详情跳转后短暂闪烁数次，指明目标条目。 */
   flash?: boolean
   /** 拖拽移动模式下，本行是当前悬停的可放入收藏夹目标：高亮示意。 */
   dropTarget?: boolean
