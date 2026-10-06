@@ -3,11 +3,9 @@ import type { DragStartEvent } from '@dnd-kit/core'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { findRefById, resolveMoveDropTargetRefId } from '../favorites'
 
-/** 跨栏外来条目在右侧列表中的临时标识：进入右侧后以它参与原生排序预览。 */
-export const CROSS_PENDING_REF_ID = '__hc_cross_pending__'
-
-/** 跨栏拖拽载荷：左侧被拖入的笔记或附件。 */
+/** 跨栏拖拽载荷：左侧被拖入的笔记或附件，携带其原始拖拽标识以同一身份加入右侧。 */
 export type FavoritesForeignPayload = {
+  id: string
   kind: 'note' | 'asset'
   targetId: string
 }
@@ -36,7 +34,7 @@ type UseFavoritesSidebarDndParams = {
  * - 排序（默认）：实时预览重排 + 浮层跟手，拖拽项禁用 transform，松手即最终顺序，避免落位闪烁。
  * - 移动（拖动中按住 Ctrl/Cmd）：只认收藏夹条目为可放入目标，悬停即高亮；松手把引用交给底层统一迁移。
  * 拖动途中按/松 Ctrl 实时切换两个模式；模式判定以修饰键的实时状态为准。
- * 另提供跨栏接管：左侧条目进入右侧时以 CROSS_PENDING_REF_ID 加入本栏，走同一套排序/移动预览与落点提交。
+ * 另提供跨栏接管：左侧条目进入右侧时以同一身份加入本栏，成为本栏排序体系的一员，走同一套排序/移动预览与落点提交。
  */
 export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
   const { refs, currentFolderId, doc, onReorderRefs, onMoveRef, onCommitForeign } = params
@@ -46,7 +44,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
     () =>
       foreign
         ? {
-            id: CROSS_PENDING_REF_ID,
+            id: foreign.id,
             folderId: currentFolderId,
             kind: foreign.kind,
             targetId: foreign.targetId,
@@ -57,7 +55,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
         : null,
     [currentFolderId, foreign],
   )
-  // 本栏参与拖拽的完整引用集：接管外来条目时在末尾追加临时条目，随预览一起参与原生排序。
+  // 本栏参与拖拽的完整引用集：接管外来条目时以同一身份追加，随预览一起参与本栏原生排序。
   const allRefs = React.useMemo(() => (foreignRef ? [...refs, foreignRef] : refs), [foreignRef, refs])
 
   const [dragPreviewIds, setDragPreviewIds] = React.useState<string[] | null>(null)
@@ -135,15 +133,15 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
   }, [allRefs, dragPreviewIds])
 
   // 当前悬停的「可放入」收藏夹目标行：仅移动模式且悬停行可迁入时非空，供渲染层高亮。
-  // 外来条目没有引用身份，直接以悬停的收藏夹行为目标。
+  // 外来条目以同一身份加入本栏，落点判定与本栏条目一致。
   const dropTargetRefId = React.useMemo(() => {
     if (!moveMode || !doc) return ''
-    if (dragActiveId === CROSS_PENDING_REF_ID) {
+    if (foreign && dragActiveId === foreign.id) {
       const over = findRefById(doc, dragOverId)
       return over && over.kind === 'folder' ? over.id : ''
     }
     return resolveMoveDropTargetRefId(doc, dragActiveId, dragOverId)
-  }, [doc, dragActiveId, dragOverId, moveMode])
+  }, [doc, dragActiveId, dragOverId, foreign, moveMode])
 
   const resetDragState = React.useCallback(() => {
     dragBaseIdsRef.current = []
@@ -201,8 +199,8 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       const wasForeign = foreignActiveRef.current
       resetDragState()
 
-      // 跨栏外来条目：按落点写入，不参与本栏重排。
-      if (wasForeign || activeId === CROSS_PENDING_REF_ID) {
+      // 跨栏外来条目：以同一身份参与本栏排序，松手按落点写入，不参与本栏重排。
+      if (wasForeign || (foreign && activeId === foreign.id)) {
         if (onCommitForeign && foreign) {
           if (modifierHeldRef.current) {
             const over = doc ? findRefById(doc, overId) : undefined
@@ -210,7 +208,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
               onCommitForeign(foreign, { moveMode: true, overRefId: over.id, insertIndex: -1 })
             }
           } else {
-            const insertIndex = next ? next.indexOf(CROSS_PENDING_REF_ID) : allRefs.length - 1
+            const insertIndex = next ? next.indexOf(foreign.id) : allRefs.length - 1
             onCommitForeign(foreign, { moveMode: false, overRefId: overId, insertIndex: insertIndex >= 0 ? insertIndex : allRefs.length - 1 })
           }
         }
@@ -242,7 +240,7 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
     resetDragState()
   }, [resetDragState])
 
-  // 跨栏接管：左侧条目进入右侧时登记外来载荷，并以临时条目参与本栏原生排序预览。
+  // 跨栏接管：左侧条目进入右侧时登记外来载荷，并以同一身份参与本栏原生排序预览。
   // 已在接管中时直接返回，避免每次落点变化都重复写状态。
   const beginForeign = React.useCallback(
     (payload: FavoritesForeignPayload, modifierHeldAtStart: boolean) => {
@@ -251,13 +249,13 @@ export function useFavoritesSidebarDnd(params: UseFavoritesSidebarDndParams) {
       setModifierHeld(modifierHeldAtStart)
       foreignActiveRef.current = true
       setForeign(payload)
-      dragBaseIdsRef.current = [...refs.map(ref => ref.id), CROSS_PENDING_REF_ID]
+      dragBaseIdsRef.current = [...refs.map(ref => ref.id), payload.id]
       dragPreviewIdsRef.current = null
       setDragPreviewIds(null)
       dragOverIdRef.current = ''
       setDragOverId('')
-      dragActiveIdRef.current = CROSS_PENDING_REF_ID
-      setDragActiveId(CROSS_PENDING_REF_ID)
+      dragActiveIdRef.current = payload.id
+      setDragActiveId(payload.id)
     },
     [refs],
   )

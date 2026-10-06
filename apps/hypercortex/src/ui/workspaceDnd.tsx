@@ -93,19 +93,40 @@ function readModifier(event: DragStartEvent): boolean {
   return !!keyed && (!!keyed.ctrlKey || !!keyed.metaKey)
 }
 
-function pointerFromMoveEvent(event: DragMoveEvent): { x: number; y: number } | null {
+function pointerFromEvent(event: DragMoveEvent | DragEndEvent): { x: number; y: number } | null {
   const activator = event.activatorEvent
   if (!activator || !('clientX' in activator)) return null
   const point = activator as MouseEvent
   return { x: point.clientX + event.delta.x, y: point.clientY + event.delta.y }
 }
 
-/** 按指针坐标判定其当前所在侧；不在任一侧标记内时返回空串。 */
+/** 按指针坐标判定其当前所在侧：直接比对两侧容器矩形，不受浮层/传送门遮挡影响；不在任一侧内时返回空串。 */
 function readSideAt(clientX: number, clientY: number): Side {
-  const hit = document.elementFromPoint(clientX, clientY)
-  const host = hit instanceof Element ? hit.closest(`[${DND_SIDE_ATTR}]`) : null
-  const side = host?.getAttribute(DND_SIDE_ATTR)
-  return side === 'left' || side === 'right' ? side : ''
+  const hosts = document.querySelectorAll<HTMLElement>(`[${DND_SIDE_ATTR}]`)
+  for (const host of Array.from(hosts)) {
+    const side = host.getAttribute(DND_SIDE_ATTR)
+    if (side !== 'left' && side !== 'right') continue
+    const rect = host.getBoundingClientRect()
+    if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) return side
+  }
+  return ''
+}
+
+/** 某落点是否属于指针当前所在侧：跨栏中的条目此刻归右侧，其余按自身归属。 */
+export function isDroppableOnSide(id: string, side: Side, crossId: string, isLeftId: (id: string) => boolean): boolean {
+  if (!side) return true
+  if (id === crossId) return side === 'right'
+  return (side === 'left') === isLeftId(id)
+}
+
+/** 落点是否为右侧目标：右侧自身条目，或已跨栏、此刻属于右侧的当前条目。 */
+export function isRightTarget(overId: string, crossId: string, isLeftId: (id: string) => boolean): boolean {
+  return !!overId && (!isLeftId(overId) || overId === crossId)
+}
+
+/** 跨栏落定判定：确实接管中、且松手瞬间指针确实落在右侧时才提交收藏（拉回左侧即取消）。 */
+export function shouldCommitCrossDrop(params: { foreignActive: boolean; releaseSide: Side }): boolean {
+  return params.foreignActive && params.releaseSide === 'right'
 }
 
 export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
@@ -126,6 +147,8 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
   const sidesRef = React.useRef(sides)
   sidesRef.current = sides
   const modifierRef = React.useRef(false)
+  // 跨栏接管中的条目身份：进入右侧后它属于右侧，碰撞与落点都按右侧一员对待，指针离开右侧即清空。
+  const crossIdRef = React.useRef('')
 
   const detachKeysRef = React.useRef<(() => void) | null>(null)
   const stopTrackingModifier = React.useCallback(() => {
@@ -144,11 +167,12 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
   )
 
   // 碰撞只在指针当前所在侧计算：排除另一侧的落点，避免两侧全扫。
+  // 跨栏条目以同一身份加入右侧，故指针在右侧时把它当作右侧一员参与碰撞，让右侧原生让位自然成立。
   const collisionDetection = React.useCallback<CollisionDetection>(
     args => {
       const side = sidesRef.current.pointerSide
       if (!side) return closestCenter(args)
-      const droppableContainers = args.droppableContainers.filter(c => (side === 'left') === isLeftId(String(c.id)))
+      const droppableContainers = args.droppableContainers.filter(c => isDroppableOnSide(String(c.id), side, crossIdRef.current, isLeftId))
       return closestCenter({ ...args, droppableContainers })
     },
     [isLeftId],
@@ -181,7 +205,7 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
 
   // 指针所在侧只在真正跨越时更新一次状态，不随每次移动刷新。
   const handleDragMove = React.useCallback((event: DragMoveEvent) => {
-    const point = pointerFromMoveEvent(event)
+    const point = pointerFromEvent(event)
     if (!point) return
     const side = readSideAt(point.x, point.y)
     if (!side || sidesRef.current.pointerSide === side) return
@@ -203,14 +227,17 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
       if (!activeOwner) return
 
       if (activeOwner === left) {
-        if (overId && !isLeftId(overId) && right) {
+        // 右侧落点：既包括右侧自身条目，也包括已跨栏的当前条目（它此刻属于右侧）。
+        if (isRightTarget(overId, crossIdRef.current, isLeftId) && right) {
           const payload = left.getDragPayload?.(activeId) ?? null
           if (payload) {
+            crossIdRef.current = activeId
             right.onForeignEnter?.(payload, overId, modifierRef.current)
             left.onCrossLeave?.()
             return
           }
         }
+        crossIdRef.current = ''
         right?.onForeignLeave?.()
         activeOwner.onDragOver(activeId, overId, event)
         return
@@ -223,6 +250,7 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
 
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
+      const pointerSideBefore = sidesRef.current.pointerSide
       finishDrag()
       const activeId = String(event.active.id || '')
       const overId = String(event.over?.id || '')
@@ -231,8 +259,16 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
       const activeOwner = ownerOf(activeId)
       if (!activeOwner) return
 
+      // 落点归属以松手瞬间指针实际所在侧为准：拉回左侧松手即取消，不因中途碰过右侧而锁定。
+      // 指针恰在两侧标记之外时，退回拖拽期间记录的所在侧。
+      const point = pointerFromEvent(event)
+      const measuredSide = point ? readSideAt(point.x, point.y) : ''
+      const releaseSide: Side = measuredSide || pointerSideBefore
+      const foreignActive = !!crossIdRef.current
+      crossIdRef.current = ''
+
       if (activeOwner === left) {
-        if (overId && !isLeftId(overId) && right) {
+        if (shouldCommitCrossDrop({ foreignActive, releaseSide }) && right) {
           // 右侧落定后，左侧仅需清除自身拖拽激活态（落点与写入由右侧负责）。
           right.onForeignDrop?.(overId)
           left.onDragCancel()
@@ -245,11 +281,12 @@ export function WorkspaceDndProvider(props: { children: React.ReactNode }) {
 
       activeOwner.onDragEnd(activeId, overId, event)
     },
-    [finishDrag, isLeftId, ownerOf],
+    [finishDrag, ownerOf],
   )
 
   const handleDragCancel = React.useCallback(() => {
     finishDrag()
+    crossIdRef.current = ''
     registry.current.left?.onDragCancel()
     registry.current.right?.onForeignLeave?.()
   }, [finishDrag])

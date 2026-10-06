@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DragStartEvent } from '@dnd-kit/core'
 import type { FavoriteFolder, FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
-import { useFavoritesSidebarDnd, CROSS_PENDING_REF_ID } from './useFavoritesSidebarDnd'
+import { useFavoritesSidebarDnd } from './useFavoritesSidebarDnd'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -187,20 +187,22 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
     return api!.effectiveRefs.map(ref => ref.id)
   }
 
-  it('takes over a foreign item and previews it in the native sort order', () => {
+  const NOTE_TAB = 'tab:note:n9'
+
+  it('joins a foreign item under its own identity and previews it in the native sort order', () => {
     const doc = fixtureDoc()
     const onCommitForeign = vi.fn()
     renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
 
-    act(() => api!.beginForeign({ kind: 'note', targetId: 'n9' }, false))
-    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4', CROSS_PENDING_REF_ID])
+    act(() => api!.beginForeign({ id: NOTE_TAB, kind: 'note', targetId: 'n9' }, false))
+    expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4', NOTE_TAB])
 
-    act(() => api!.handleDragOver(CROSS_PENDING_REF_ID, 'r3'))
-    expect(refOrder()).toEqual(['r1', 'r2', CROSS_PENDING_REF_ID, 'r3', 'r4'])
+    act(() => api!.handleDragOver(NOTE_TAB, 'r3'))
+    expect(refOrder()).toEqual(['r1', 'r2', NOTE_TAB, 'r3', 'r4'])
 
-    act(() => api!.handleDragEnd(CROSS_PENDING_REF_ID, 'r3'))
+    act(() => api!.handleDragEnd(NOTE_TAB, 'r3'))
     expect(onCommitForeign).toHaveBeenCalledWith(
-      { kind: 'note', targetId: 'n9' },
+      { id: NOTE_TAB, kind: 'note', targetId: 'n9' },
       { moveMode: false, overRefId: 'r3', insertIndex: 2 },
     )
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
@@ -209,16 +211,17 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
   it('drops a foreign item into the hovered folder while Ctrl is held', () => {
     const doc = fixtureDoc()
     const onCommitForeign = vi.fn()
+    const ASSET_TAB = 'tab:asset:a.png'
     renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign, onMoveRef: vi.fn() })
 
-    act(() => api!.beginForeign({ kind: 'asset', targetId: 'a.png' }, true))
-    act(() => api!.handleDragOver(CROSS_PENDING_REF_ID, 'r2'))
+    act(() => api!.beginForeign({ id: ASSET_TAB, kind: 'asset', targetId: 'a.png' }, true))
+    act(() => api!.handleDragOver(ASSET_TAB, 'r2'))
     expect(api!.moveMode).toBe(true)
     expect(api!.dropTargetRefId).toBe('r2')
 
-    act(() => api!.handleDragEnd(CROSS_PENDING_REF_ID, 'r2'))
+    act(() => api!.handleDragEnd(ASSET_TAB, 'r2'))
     expect(onCommitForeign).toHaveBeenCalledWith(
-      { kind: 'asset', targetId: 'a.png' },
+      { id: ASSET_TAB, kind: 'asset', targetId: 'a.png' },
       { moveMode: true, overRefId: 'r2', insertIndex: -1 },
     )
   })
@@ -228,8 +231,8 @@ describe('useFavoritesSidebarDnd cross-column takeover', () => {
     const onCommitForeign = vi.fn()
     renderHook({ refs: doc.refsByFolderId.root, currentFolderId: 'root', doc, onCommitForeign })
 
-    act(() => api!.beginForeign({ kind: 'note', targetId: 'n9' }, false))
-    expect(refOrder()).toContain(CROSS_PENDING_REF_ID)
+    act(() => api!.beginForeign({ id: NOTE_TAB, kind: 'note', targetId: 'n9' }, false))
+    expect(refOrder()).toContain(NOTE_TAB)
     act(() => api!.endForeign())
     expect(refOrder()).toEqual(['r1', 'r2', 'r3', 'r4'])
   })

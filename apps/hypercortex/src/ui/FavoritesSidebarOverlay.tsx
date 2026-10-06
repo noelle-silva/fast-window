@@ -55,7 +55,8 @@ export function useFavoritesSidebarOverlay(params: UseFavoritesSidebarOverlayPar
     return <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
   }, [assetLookup, dragOverlayRef])
 
-  if (!activeId) return null
+  // 本栏只为自己名下的条目呈现浮层；跨栏外来条目由来源侧浮层跟手，此处不重复呈现。
+  if (!activeId || !dragOverlayRef) return null
   return <FavoritesDragOverlayCard title={dragOverlayTitle} icon={dragOverlayIcon} />
 }
 

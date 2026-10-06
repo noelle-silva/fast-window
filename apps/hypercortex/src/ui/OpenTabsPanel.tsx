@@ -34,6 +34,7 @@ import { SortableInsertionSlot, TopLevelDropSlot, useOpenTabsPanelRows } from '.
 import { useOpenTabsPanelGroupSection } from './OpenTabsPanelGroupSection'
 import { OpenTabsPanelGroupContextMenu, OpenTabsPanelWorkspaceMenu, type OpenTabsPanelGroupMenuState } from './OpenTabsPanelMenus'
 import { DND_SIDE_ATTR, useWorkspaceDndParticipant, useWorkspaceDndSides } from './workspaceDnd'
+import type { FavoritesForeignPayload } from './useFavoritesSidebarDnd'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -191,15 +192,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   })
 
   // 与右侧共用一个拖拽上下文：注册左侧参与者。指针在左侧时按本侧原生排序；
-  // 指针进入右侧后由右侧原生机制接管，左侧排序预览立即停止。
+  // 指针进入右侧后本栏移出该条目，由右侧以同一身份接管，左侧排序预览立即停止。
   const getCrossPayload = React.useCallback(
-    (activeId: string): { kind: 'note' | 'asset'; targetId: string } | null => {
+    (activeId: string): FavoritesForeignPayload | null => {
       const parsed = parseSortableId(activeId)
       if (parsed?.kind !== 'tab') return null
       const note = noteByTabKey[parsed.tabKey]
-      if (note) return { kind: 'note', targetId: note.id }
+      if (note) return { id: activeId, kind: 'note', targetId: note.id }
       const asset = assetByTabKey[parsed.tabKey]
-      if (asset) return { kind: 'asset', targetId: assetRefKey(asset) }
+      if (asset) return { id: activeId, kind: 'asset', targetId: assetRefKey(asset) }
       return null
     },
     [assetByTabKey, noteByTabKey],
@@ -212,7 +213,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onDragEnd: (activeId, overId, event) => sortableDnd.handleMove(activeId, overId, event),
     onDragCancel: () => sortableDnd.handleDragCancel(),
     getDragPayload: getCrossPayload,
-    onCrossLeave: () => sortableDnd.suspendPreview(),
+    onCrossLeave: () => sortableDnd.beginCrossTakeover(),
   })
 
   // 非活动侧静态渲染：指针不在本侧、且本侧非拖拽来源时，条目不参与拖拽刷新与碰撞。
