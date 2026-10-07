@@ -250,7 +250,7 @@ func (svc *service) restoreFaceTrashItem(scope string, item trashItem) (any, err
 		}
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: note.Dir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: note.Dir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}

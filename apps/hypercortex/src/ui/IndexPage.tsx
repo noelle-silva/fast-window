@@ -3,6 +3,8 @@ import { Box, Typography } from '@mui/material'
 
 import type { AssetEntry } from '../assetTypes'
 import { type NoteMeta } from '../core'
+import type { EntityIcon } from '../entityIcon'
+import type { HyperCortexNoteManifestV1 } from '../noteSchema'
 import { buildAssetLookup, resolveAssetRef } from '../assetLookup'
 import type { HyperCortexGateway } from '../gateway'
 import {
@@ -44,6 +46,8 @@ type Props = {
   onDeleteAssetEntity?: (asset: AssetEntry, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
+  onUpdateNoteIcon?: (note: NoteMeta, payload: { icon?: EntityIcon; manifest?: HyperCortexNoteManifestV1 }) => void
+  onUpdateAssetIcon?: (asset: AssetEntry, icon: EntityIcon | undefined) => void
 }
 
 export function IndexPage(props: Props): React.ReactNode {
@@ -65,6 +69,8 @@ export function IndexPage(props: Props): React.ReactNode {
     onDeleteAssetEntity,
     onUpdateNoteInfo,
     onUpdateAssetInfo,
+    onUpdateNoteIcon,
+    onUpdateAssetIcon,
   } = props
 
   const addExisting = useAddExistingRefs({
@@ -118,6 +124,8 @@ export function IndexPage(props: Props): React.ReactNode {
     onDeleteAssetEntity,
     onUpdateNoteInfo,
     onUpdateAssetInfo,
+    onUpdateNoteIcon,
+    onUpdateAssetIcon,
   })
 
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
@@ -172,7 +180,7 @@ export function IndexPage(props: Props): React.ReactNode {
             onContextMenu={e => favoritesEntity.openMenu(e, { kind: 'folder', refId: ref.id, folderId: folder.id })}
             onStartResize={onStartResize}
           >
-            <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} compact={compact} onClick={fid => onNavigateFolder(fid)} />
+            <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} icon={folder.icon} compact={compact} onClick={fid => onNavigateFolder(fid)} />
           </IndexCardShell>
         )
       }

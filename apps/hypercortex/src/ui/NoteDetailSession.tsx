@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 
 import { type HyperCortexNoteManifestV1, type HyperCortexNoteResourceRef } from '../noteSchema'
+import type { EntityIcon } from '../entityIcon'
 import { mergeNoteResources } from '../noteResources'
 import { uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope } from '../core'
@@ -154,6 +155,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const init = initRef.current
 
   const [faceManifests, setFaceManifests] = React.useState<Record<string, HyperCortexNoteFaceManifestV2>>(init?.faceManifests ?? {})
+  const [noteIcon, setNoteIcon] = React.useState<EntityIcon | undefined>(note.icon)
   const [loaded, setLoaded] = React.useState(() => !!init || isDraft)
   const [noteTimes, setNoteTimes] = React.useState(() => init?.noteTimes ?? {
     createdAtMs: Number(note.createdAtMs) > 0 ? Number(note.createdAtMs) : Date.now(),
@@ -279,6 +281,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   // 笔记级设置写回后，把最新面清单同步到会话状态（面顺序与缩放覆盖共用同一入口）。
   const applyNoteManifest = React.useCallback((manifest: HyperCortexNoteManifestV1) => {
     setFaceManifests(manifest.faces)
+    setNoteIcon(manifest.icon)
+    // 设置/图标等元数据写回会刷新笔记版本：同步会话版本标记，后续保存的保险丝才不会误判冲突。
+    setNoteTimes({ createdAtMs: manifest.createdAtMs, updatedAtMs: manifest.updatedAtMs })
     const nextFaces = resolveNoteFaceOrder({ faceOrder: manifest.faceOrder, faces: manifest.faces, globalKindOrder: globalFaceKindOrder })
     setFaces(nextFaces)
     setFace(prev => (nextFaces.includes(prev) ? prev : nextFaces[0] || ''))
@@ -892,6 +897,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         gateway={gateway}
         scope={scope}
         noteDir={note.dir}
+        noteIcon={noteIcon}
         saveCurrentForVersionPublish={saveCurrentForVersionPublish}
         handleRestoreVersion={handleRestoreVersion}
         facePluginGlobalSettings={facePluginGlobalSettings}

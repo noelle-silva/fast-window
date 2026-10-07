@@ -9,6 +9,7 @@ import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { noteIdFromTabKey, tabKind } from '../tabKey'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { parseSortableId } from './openTabsSortableModel'
 
 type UseOpenTabsSortableOverlayParams = {
@@ -67,16 +68,22 @@ export function useOpenTabsSortableOverlay(params: UseOpenTabsSortableOverlayPar
     if (kind === 'note') {
       const nid = noteIdFromTabKey(parsed.tabKey)
       const meta = (nid && noteById[nid]) || noteByTabKey[parsed.tabKey]
-      return <SortableDragOverlayCard title={meta?.title || '已丢失的笔记'} icon={<NotesRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.48)' }} />} />
+      return (
+        <SortableDragOverlayCard
+          title={meta?.title || '已丢失的笔记'}
+          icon={<EntityIcon icon={meta?.icon} fallback={<NotesRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.48)' }} />} targetKind="note" targetRef={meta?.dir || ''} size={18} />}
+        />
+      )
     }
 
     const asset = assetByTabKey[parsed.tabKey]
     const title = asset ? pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件' : '已丢失的附件'
-    const icon = asset?.kind === 'image'
+    const fallback = asset?.kind === 'image'
       ? <ImageRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.48)' }} />
       : asset?.kind === 'video'
         ? <VideoFileRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.48)' }} />
         : <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.48)' }} />
+    const icon = <EntityIcon icon={asset?.icon} fallback={fallback} targetKind="asset" targetRef={asset?.assetId || ''} size={18} />
     return <SortableDragOverlayCard title={title} icon={icon} />
   }, [activeId, assetByTabKey, groupById, noteById, noteByTabKey])
 }

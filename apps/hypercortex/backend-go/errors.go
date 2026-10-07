@@ -86,6 +86,8 @@ func errorSubject(method string) string {
 	switch {
 	case strings.HasPrefix(method, "hypercortex.notes."):
 		return "笔记"
+	case strings.HasPrefix(method, "hypercortex.icons."):
+		return "图标"
 	case strings.HasPrefix(method, "hypercortex.assets."):
 		return "附件"
 	case strings.HasPrefix(method, "hypercortex.favorites."):
@@ -114,6 +116,8 @@ func errorSubjectCode(method string) string {
 	switch {
 	case strings.HasPrefix(method, "hypercortex.notes."):
 		return "NOTE"
+	case strings.HasPrefix(method, "hypercortex.icons."):
+		return "ICON"
 	case strings.HasPrefix(method, "hypercortex.assets."):
 		return "ASSET"
 	case strings.HasPrefix(method, "hypercortex.favorites."):

@@ -3,6 +3,7 @@ import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography }
 
 import type { HyperCortexGateway } from '../../gateway'
 import type { VaultScope } from '../../core'
+import type { EntityIcon } from '../../entityIcon'
 import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
 import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
 import type { FaceContentStore } from '../../facePlugins'
@@ -43,6 +44,8 @@ export type NoteDetailDialogsProps = {
   gateway: HyperCortexGateway
   scope: VaultScope
   noteDir: string
+  /** 当前笔记图标：笔记设置窗口的图标编辑块初值。 */
+  noteIcon?: EntityIcon
   saveCurrentForVersionPublish: () => Promise<void>
   handleRestoreVersion: (versionId: string) => Promise<void>
   facePluginGlobalSettings: Record<string, Record<string, unknown>>
@@ -75,6 +78,7 @@ export function NoteDetailDialogs(props: NoteDetailDialogsProps): React.ReactNod
     gateway,
     scope,
     noteDir,
+    noteIcon,
     saveCurrentForVersionPublish,
     handleRestoreVersion,
     facePluginGlobalSettings,
@@ -166,6 +170,7 @@ export function NoteDetailDialogs(props: NoteDetailDialogsProps): React.ReactNod
           faceManifests={faceManifests}
           faceOrder={faces}
           facePluginGlobalSettings={facePluginGlobalSettings}
+          noteIcon={noteIcon}
           onManifestSaved={applyNoteManifest}
         />
       ) : null}

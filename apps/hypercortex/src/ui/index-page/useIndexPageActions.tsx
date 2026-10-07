@@ -4,6 +4,8 @@ import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRound
 
 import type { AssetEntry } from '../../assetTypes'
 import type { NoteMeta } from '../../core'
+import type { EntityIcon } from '../../entityIcon'
+import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
 import {
   addRef,
   createFolder,
@@ -40,6 +42,8 @@ type Options = {
   onDeleteAssetEntity?: (asset: AssetEntry, refs?: FavoriteItemRef[]) => Promise<boolean> | boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
+  onUpdateNoteIcon?: (note: NoteMeta, payload: { icon?: EntityIcon; manifest?: HyperCortexNoteManifestV1 }) => void
+  onUpdateAssetIcon?: (asset: AssetEntry, icon: EntityIcon | undefined) => void
 }
 
 export function useIndexPageActions(opts: Options) {
@@ -57,6 +61,8 @@ export function useIndexPageActions(opts: Options) {
     onDeleteAssetEntity,
     onUpdateNoteInfo,
     onUpdateAssetInfo,
+    onUpdateNoteIcon,
+    onUpdateAssetIcon,
   } = opts
 
   const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
@@ -165,8 +171,12 @@ export function useIndexPageActions(opts: Options) {
     doc,
     onDocChange,
     toast: message => void gateway.host.toast(message),
+    gateway,
+    scope: 'library',
     onUpdateNoteInfo,
     onUpdateAssetInfo,
+    onUpdateNoteIcon,
+    onUpdateAssetIcon,
     canDeleteRefs: true,
     onDeleteFolderEntity: folderId => {
       onDeleteFolderEntity?.(folderId)

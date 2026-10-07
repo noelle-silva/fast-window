@@ -37,6 +37,13 @@ func changeKindsForMethod(method string) []string {
 		"hypercortex.assets.updateMetadata":
 		return []string{changeKindAssets}
 
+	case "hypercortex.icons.updateNote":
+		return []string{changeKindNotes}
+	case "hypercortex.icons.updateFolder":
+		return []string{changeKindFavorites}
+	case "hypercortex.icons.updateAsset":
+		return []string{changeKindAssets}
+
 	case "hypercortex.trash.moveNote",
 		"hypercortex.trash.permanentlyDeleteNoteDir":
 		return []string{changeKindNotes, changeKindTrash}

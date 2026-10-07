@@ -1,3 +1,5 @@
+import type { EntityIcon } from './entityIcon'
+
 export type AssetEntry = {
   relPath: string
   fileName: string
@@ -14,6 +16,7 @@ export type AssetEntry = {
   modifiedMs: number
   remark?: string
   tags?: string[]
+  icon?: EntityIcon
   thumbnailUrl?: string
   thumbnailError?: string
 }

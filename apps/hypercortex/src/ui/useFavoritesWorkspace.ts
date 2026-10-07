@@ -210,6 +210,8 @@ export function useFavoritesWorkspaceActions(opts: {
   handleOpenAssetTab: (asset: AssetEntry, source?: 'tabs' | 'favorites', opts?: { recordHistory?: boolean }) => void
   handleUpdateNoteInfo: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void>
   handleUpdateAssetInfo: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void>
+  handleUpdateNoteIcon?: (note: NoteMeta, payload: { icon?: import('../entityIcon').EntityIcon; manifest?: import('../noteSchema').HyperCortexNoteManifestV1 }) => void
+  handleUpdateAssetIcon?: (asset: AssetEntry, icon: import('../entityIcon').EntityIcon | undefined) => void
   handleDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent'; refs?: FavoriteItemRef[] }) => Promise<void>
   requestDeleteAssetEntity: (asset: AssetEntry, opts?: { refs?: FavoriteItemRef[]; mode?: 'trash' | 'permanent' }) => Promise<boolean>
 }): {
@@ -259,6 +261,8 @@ export function useFavoritesWorkspaceActions(opts: {
     handleOpenAssetTab,
     handleUpdateNoteInfo,
     handleUpdateAssetInfo,
+    handleUpdateNoteIcon,
+    handleUpdateAssetIcon,
     handleDeleteNote,
     requestDeleteAssetEntity,
   } = opts
@@ -386,8 +390,12 @@ export function useFavoritesWorkspaceActions(opts: {
     onOpenAsset: asset => handleOpenAssetTab(asset, 'favorites'),
     canMoveRefs: true,
     canDeleteRefs: true,
+    gateway,
+    scope: 'library',
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
+    onUpdateNoteIcon: handleUpdateNoteIcon,
+    onUpdateAssetIcon: handleUpdateAssetIcon,
     onDeleteFolderEntity: handleDeleteFolderEntity,
     onDeleteNoteEntity: (note, refs) =>
       handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent', refs })
@@ -407,8 +415,12 @@ export function useFavoritesWorkspaceActions(opts: {
     toast: message => void gateway.host.toast(message),
     onOpenNote: note => void handleOpenNote(note),
     onOpenAsset: asset => handleOpenAssetTab(asset),
+    gateway,
+    scope: 'library',
     onUpdateNoteInfo: handleUpdateNoteInfo,
     onUpdateAssetInfo: handleUpdateAssetInfo,
+    onUpdateNoteIcon: handleUpdateNoteIcon,
+    onUpdateAssetIcon: handleUpdateAssetIcon,
   })
 
   const handleWorkspaceNoteContextMenu = React.useCallback(

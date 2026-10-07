@@ -7,7 +7,7 @@ import { useNoteSessions } from './useNoteSessions'
 import { useAppCommandDispatch } from './useAppCommandDispatch'
 import { useGlobalShortcuts } from './useGlobalShortcuts'
 import { useFavoritesWorkspaceActions } from './useFavoritesWorkspace'
-import { useNoteInfoUpdate } from './useNoteInfoUpdate'
+import { useNoteIconUpdate, useNoteInfoUpdate } from './useNoteInfoUpdate'
 import { useRepoRestore } from './useRepoRestore'
 import { useDeleteGroupAndCloseTabs } from './useDeleteGroupAndCloseTabs'
 import type { RepoWorkspaceState } from './useRepoWorkspaceState'
@@ -109,6 +109,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     setTabGrouping,
     handleFavoritesDocChange,
     handleUpdateAssetInfo,
+    handleUpdateAssetIcon,
     handleOpenAssetTab,
     requestDeleteAssetEntity,
     externalNotesSignal,
@@ -306,6 +307,7 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
   })
 
   const handleUpdateNoteInfo = useNoteInfoUpdate({ gateway, setNoteIndex, refreshNoteCardInfo })
+  const handleUpdateNoteIcon = useNoteIconUpdate({ setNoteIndex, refreshNoteCardInfo })
 
   const handleRepoRestored = useRepoRestore({ gateway, refreshRepos })
 
@@ -410,6 +412,8 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     handleOpenAssetTab,
     handleUpdateNoteInfo,
     handleUpdateAssetInfo,
+    handleUpdateNoteIcon,
+    handleUpdateAssetIcon,
     handleDeleteNote,
     requestDeleteAssetEntity,
   })
@@ -511,6 +515,8 @@ export function useRepoWorkspaceActions(state: RepoWorkspaceState) {
     closeTabPromptDialog,
 
     handleUpdateNoteInfo,
+    handleUpdateNoteIcon,
+    handleUpdateAssetIcon,
     handleRepoRestored,
 
     handleNavigateFolder,

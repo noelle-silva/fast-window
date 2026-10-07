@@ -9,6 +9,7 @@ import { pickAssetDisplayName } from '../assetDisplayName'
 import { buildAssetMarker } from '../assetMarker'
 import { canAssetHaveThumbnail } from '../assetThumbnailCapabilities'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import type { HyperCortexGateway } from '../gateway'
 import { assetToneFromKind, toneChipSx } from './uiTones'
 
@@ -303,7 +304,7 @@ export function AssetCard({
               color: preview.color,
             }}
           >
-            <Icon fontSize="medium" />
+            <EntityIcon icon={asset.icon} fallback={<Icon fontSize="medium" />} targetKind="asset" targetRef={asset.assetId} size={40} />
           </Box>
         )}
       </Box>

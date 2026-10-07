@@ -72,7 +72,7 @@ func normalizeManifest(input noteManifest) noteManifest {
 	for _, id := range keys {
 		push(id)
 	}
-	return noteManifest{SchemaVersion: noteFaceSchemaVersion, ID: strings.TrimSpace(input.ID), Title: nonEmpty(input.Title, "未命名"), Description: strings.TrimSpace(input.Description), Tags: uniqueStrings(input.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: order, Faces: faces, Resources: normalizeResourceRefs(input.Resources)}
+	return noteManifest{SchemaVersion: noteFaceSchemaVersion, ID: strings.TrimSpace(input.ID), Title: nonEmpty(input.Title, "未命名"), Description: strings.TrimSpace(input.Description), Tags: uniqueStrings(input.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: order, Faces: faces, Resources: normalizeResourceRefs(input.Resources), Icon: sanitizeEntityIcon(input.Icon)}
 }
 
 func (svc *service) loadNoteManifest(scope string, packageDir string) (noteManifest, error) {
@@ -150,7 +150,7 @@ func (svc *service) createNote(scope string, raw json.RawMessage) (any, error) {
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(desiredDir, manifestFile)), manifest); err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}

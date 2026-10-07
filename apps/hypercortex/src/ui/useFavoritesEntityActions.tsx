@@ -6,11 +6,21 @@ import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DeleteSweepRoundedIcon from '@mui/icons-material/DeleteSweepRounded'
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
+import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded'
 import type { AssetEntry } from '../assetTypes'
-import type { NoteMeta } from '../core'
+import type { NoteMeta, VaultScope } from '../core'
+import type { EntityIcon } from '../entityIcon'
+import type { HyperCortexGateway } from '../gateway'
+import type { HyperCortexNoteManifestV1 } from '../noteSchema'
 import { collectRefsForTarget, findRefById, getFolderById, moveRef, removeRef, removeRefsByIds, updateFolderInfo, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { ContextMenu, type ContextMenuItem, type ContextMenuLeaf } from './ContextMenu'
 import { EntityInfoDialog } from './EntityInfoDialog'
+import type { EntityIconEditorProps } from './entity-icon/EntityIconEditor'
 import { FavoritesTreePickerDialog, type FavoritesSaveResult } from './FavoritesTreePickerDialog'
 import { entityDeleteHelperText } from './index-page/helpers'
 import { useFavoriteTargets } from './useFavoriteTargets'
@@ -39,6 +49,11 @@ export type FavoritesEntityCapabilities = {
   canDeleteRefs?: boolean
   onUpdateNoteInfo?: (note: NoteMeta, patch: { title: string; description: string }) => Promise<void> | void
   onUpdateAssetInfo?: (asset: AssetEntry, patch: { displayName: string; remark: string }) => Promise<void> | void
+  /** 图标编辑所需的网关与作用域；提供后「编辑信息」弹窗对三类实体显示图标编辑块。 */
+  gateway?: HyperCortexGateway
+  scope?: VaultScope
+  onUpdateNoteIcon?: (note: NoteMeta, payload: { icon?: EntityIcon; manifest?: HyperCortexNoteManifestV1 }) => void
+  onUpdateAssetIcon?: (asset: AssetEntry, icon: EntityIcon | undefined) => void
   /** 删除收藏夹本体；实现方负责把别处指向它的所有引用一并移除并随本体打包。 */
   onDeleteFolderEntity?: (folderId: string) => void
   /** 删除笔记本体；refs 为该笔记在收藏夹里的全部引用，随本体一并打包进回收站。返回是否已删除。 */
@@ -49,6 +64,14 @@ export type FavoritesEntityCapabilities = {
 
 function assetTargetId(asset: AssetEntry): string {
   return asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+}
+
+// 附件默认图标：按附件类型给出固定默认图标（不引入预览注册表，避免牵动重型预览依赖）。
+function assetKindFallbackIcon(kind: string): React.ReactNode {
+  if (kind === 'image') return <ImageRoundedIcon fontSize="small" />
+  if (kind === 'video') return <VideoFileRoundedIcon fontSize="small" />
+  if (kind === 'audio') return <AudioFileRoundedIcon fontSize="small" />
+  return <InsertDriveFileRoundedIcon fontSize="small" />
 }
 
 function targetTitle(target: FavoritesEntityTarget, doc: HyperCortexFavoritesDocV1): string {
@@ -245,6 +268,67 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
     })
   }, [deleteRequest, removeRefsByIdsFromDoc])
 
+  // 编辑信息弹窗中的图标编辑块：三类实体共用同一编辑器；提供网关与作用域时才出现。
+  const iconEditorProps = React.useMemo<Omit<EntityIconEditorProps, 'disabled'> | null>(() => {
+    const target = editTarget
+    const c = capsRef.current
+    if (!target || !c.gateway || !c.scope) return null
+    const handleChanged = (payload: { icon?: EntityIcon; manifest?: HyperCortexNoteManifestV1 }) => {
+      if (target.kind === 'folder') {
+        const base = capsRef.current.doc
+        const folder = base.folders[target.folderId]
+        if (folder) {
+          const next = { ...base, folders: { ...base.folders, [folder.id]: { ...folder, icon: payload.icon } } }
+          capsRef.current.onDocChange(next)
+        }
+        return
+      }
+      if (target.kind === 'note') {
+        capsRef.current.onUpdateNoteIcon?.(target.note, payload)
+        return
+      }
+      if (target.kind === 'asset') {
+        capsRef.current.onUpdateAssetIcon?.(target.asset, payload.icon)
+      }
+    }
+    if (target.kind === 'folder') {
+      const folder = getFolderById(c.doc, target.folderId)
+      return {
+        gateway: c.gateway,
+        scope: c.scope,
+        targetKind: 'folder',
+        targetRef: target.folderId,
+        value: folder?.icon,
+        fallback: <FolderRoundedIcon fontSize="small" />,
+        onChanged: handleChanged,
+      }
+    }
+    if (target.kind === 'note') {
+      return {
+        gateway: c.gateway,
+        scope: c.scope,
+        targetKind: 'note',
+        targetRef: String(target.note.dir || ''),
+        value: target.note.icon,
+        fallback: <DescriptionRoundedIcon fontSize="small" />,
+        onChanged: handleChanged,
+      }
+    }
+    if (target.kind === 'asset') {
+      return {
+        gateway: c.gateway,
+        scope: c.scope,
+        targetKind: 'asset',
+        targetRef: target.asset.assetId,
+        targetExt: target.asset.ext,
+        value: target.asset.icon,
+        fallback: assetKindFallbackIcon(target.asset.kind),
+        onChanged: handleChanged,
+      }
+    }
+    return null
+  }, [editTarget])
+
   const node = (
     <>
       <ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} items={items} onClose={closeMenu} />
@@ -254,6 +338,7 @@ export function useFavoritesEntityActions(caps: FavoritesEntityCapabilities) {
           mode="edit"
           title={targetTitle(editTarget, caps.doc)}
           description={targetDescription(editTarget, caps.doc)}
+          iconEditor={iconEditorProps}
           onClose={() => setEditTarget(null)}
           onConfirm={confirmEdit}
         />

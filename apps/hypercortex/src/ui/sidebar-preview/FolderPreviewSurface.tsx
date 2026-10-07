@@ -9,6 +9,7 @@ import type { AssetLookup } from '../../assetLookup'
 import { resolveAssetRef } from '../../assetLookup'
 import { getFolderById, getRefsByFolderId, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../../favorites'
 import { getAssetPreviewDescriptor } from '../assetPreview/registry'
+import { EntityIcon } from '../entity-icon/EntityIcon'
 import { folderTitle } from '../index-page/helpers'
 
 /** 收藏夹预览面：只读展示该收藏夹的下一级条目列表（文件夹/笔记/附件）。 */
@@ -26,14 +27,22 @@ export function FolderPreviewSurface(props: {
       const folder = getFolderById(doc, ref.targetId)
       if (!folder) return null
       return (
-        <PreviewRow key={ref.id} icon={<FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />} title={folder.title || '未命名收藏夹'} />
+        <PreviewRow
+          key={ref.id}
+          icon={<EntityIcon icon={folder.icon} fallback={<FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />} targetKind="folder" targetRef={folder.id} size={18} />}
+          title={folder.title || '未命名收藏夹'}
+        />
       )
     }
     if (ref.kind === 'note') {
       const note = noteIndex[ref.targetId]
       if (!note) return null
       return (
-        <PreviewRow key={ref.id} icon={<NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />} title={note.title || '未命名'} />
+        <PreviewRow
+          key={ref.id}
+          icon={<EntityIcon icon={note.icon} fallback={<NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />} targetKind="note" targetRef={note.dir} size={18} />}
+          title={note.title || '未命名'}
+        />
       )
     }
     if (ref.kind === 'asset') {
@@ -42,10 +51,10 @@ export function FolderPreviewSurface(props: {
       const preview = getAssetPreviewDescriptor(asset)
       const Icon = preview.icon
       const title = String(asset.displayName || asset.fileName || asset.assetId || '附件')
-      const icon = preview.kind !== 'unsupported'
+      const fallback = preview.kind !== 'unsupported'
         ? <Icon fontSize="small" sx={{ color: preview.color }} />
         : <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-asset-file)' }} />
-      return <PreviewRow key={ref.id} icon={icon} title={title} />
+      return <PreviewRow key={ref.id} icon={<EntityIcon icon={asset.icon} fallback={fallback} targetKind="asset" targetRef={asset.assetId} size={18} />} title={title} />
     }
     return null
   }

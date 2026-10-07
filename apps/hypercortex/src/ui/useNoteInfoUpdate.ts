@@ -1,7 +1,9 @@
 import * as React from 'react'
 import { type HyperCortexIndexV1, type NoteMeta } from '../core'
 import { isDraftNoteId } from '../drafts'
+import type { EntityIcon } from '../entityIcon'
 import type { HyperCortexGateway } from '../gateway'
+import type { HyperCortexNoteManifestV1 } from '../noteSchema'
 
 // 笔记信息更新：草稿暂无所在目录时拒绝；真实笔记读 manifest 后经统一通道提交笔记级元数据，内容不动。
 // 由中心编排的动作组合段在笔记会话之后、收藏夹动作之前接线。
@@ -44,5 +46,27 @@ export function useNoteInfoUpdate(opts: {
       }
     },
     [gateway, refreshNoteCardInfo],
+  )
+}
+
+// 笔记图标更新后的界面同步：图标已由编辑器落盘，这里只把最新图标写回笔记索引并刷新卡片信息。
+export function useNoteIconUpdate(opts: {
+  setNoteIndex: React.Dispatch<React.SetStateAction<HyperCortexIndexV1 | null>>
+  refreshNoteCardInfo: (meta: NoteMeta) => Promise<void>
+}) {
+  const { setNoteIndex, refreshNoteCardInfo } = opts
+
+  return React.useCallback(
+    (note: NoteMeta, payload: { icon?: EntityIcon; manifest?: HyperCortexNoteManifestV1 }) => {
+      const icon = payload.icon ?? (payload.manifest?.icon as EntityIcon | undefined)
+      const updatedAtMs = Number(payload.manifest?.updatedAtMs) > 0 ? Number(payload.manifest?.updatedAtMs) : note.updatedAtMs
+      setNoteIndex(prev => {
+        const current = prev || { version: 1, notes: {} }
+        const existing = current.notes?.[note.id] || note
+        return { ...current, notes: { ...(current.notes || {}), [note.id]: { ...existing, icon, updatedAtMs } } }
+      })
+      void refreshNoteCardInfo({ ...note, icon, updatedAtMs }).catch(() => {})
+    },
+    [refreshNoteCardInfo, setNoteIndex],
   )
 }

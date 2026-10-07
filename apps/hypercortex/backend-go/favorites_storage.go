@@ -17,11 +17,12 @@ type favoriteGridLayout struct {
 }
 
 type favoriteFolder struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	CreatedAtMs float64 `json:"createdAtMs"`
-	UpdatedAtMs float64 `json:"updatedAtMs"`
+	ID          string      `json:"id"`
+	Title       string      `json:"title"`
+	Description string      `json:"description"`
+	CreatedAtMs float64     `json:"createdAtMs"`
+	UpdatedAtMs float64     `json:"updatedAtMs"`
+	Icon        *entityIcon `json:"icon,omitempty"`
 }
 
 type favoriteItemRef struct {
@@ -120,7 +121,11 @@ func normalizeFavoriteFolder(now float64, id string, raw any) favoriteFolder {
 	if id == "root" && title == "未命名收藏夹" {
 		title = "根目录"
 	}
-	return favoriteFolder{ID: id, Title: title, Description: description, CreatedAtMs: created, UpdatedAtMs: updated}
+	icon := (*entityIcon)(nil)
+	if rec != nil {
+		icon = entityIconFromRaw(rec["icon"])
+	}
+	return favoriteFolder{ID: id, Title: title, Description: description, CreatedAtMs: created, UpdatedAtMs: updated, Icon: icon}
 }
 
 func normalizeFavoriteRefKind(value any) string {

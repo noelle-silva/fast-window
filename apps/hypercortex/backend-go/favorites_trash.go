@@ -52,8 +52,11 @@ func (svc *service) moveFolderToTrash(scope string, raw json.RawMessage) (any, e
 	if err := os.MkdirAll(entryDir, 0o755); err != nil {
 		return nil, err
 	}
+	// 图片图标随收藏夹快照一并移入回收站条目目录。
+	svc.moveIconFileIntoDir(scope, snapshot.Folder.Icon, entryDir)
 	meta := trashMeta{Version: 1, Kind: "folder", DeletedAtMs: nowMs(), Folder: &snapshot}
 	if err := writeJSONFile(filepath.Join(entryDir, trashMetaFile), meta); err != nil {
+		svc.restoreIconFileFromDir(scope, snapshot.Folder.Icon, entryDir)
 		_ = os.RemoveAll(entryDir)
 		return nil, err
 	}
@@ -99,14 +102,16 @@ func (svc *service) listFolderTrash(scope string, trashRoot string) ([]trashItem
 			if deletedAt <= 0 && info != nil {
 				deletedAt = float64(info.ModTime().UnixMilli())
 			}
+			entryDir := filepath.ToSlash(filepath.Join(trashDir, trashFoldersDirName, month.Name(), entry.Name()))
 			out = append(out, trashItem{
 				Kind:        "folder",
 				ID:          id,
 				Title:       nonEmpty(folder.Title, "未命名收藏夹"),
-				Dir:         filepath.ToSlash(filepath.Join(trashDir, trashFoldersDirName, month.Name(), entry.Name())),
+				Dir:         entryDir,
 				CreatedAtMs: folder.CreatedAtMs,
 				UpdatedAtMs: folder.UpdatedAtMs,
 				DeletedAtMs: deletedAt,
+				Icon:        trashDisplayIconForMovedFile(folder.Icon, entryDir),
 			})
 		}
 	}
@@ -179,6 +184,8 @@ func (svc *service) restoreFolderTrashItem(scope string, item trashItem) (any, e
 	if _, err := svc.saveFavoritesDoc(scope, doc); err != nil {
 		return nil, err
 	}
+	// 图片图标随收藏夹本体一并还原回 Icons/。
+	svc.restoreIconFileFromDir(scope, folder.Icon, fromDir)
 	if err := os.RemoveAll(fromDir); err != nil {
 		return nil, err
 	}

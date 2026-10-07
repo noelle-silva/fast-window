@@ -1,9 +1,12 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
 import { useWorkspaceVisible } from './workspaceVisibility'
+import { EntityIconEditor, type EntityIconEditorProps } from './entity-icon/EntityIconEditor'
+import { ENTITY_ICON_DIALOG_PAPER_SX } from './entity-icon/dialogLayout'
 
 // 实体信息对话框：新建收藏夹与编辑信息共用一个表单，两种模式只换文案与按钮。
 // 新建允许留空标题（由收藏夹文档统一回落到默认名），编辑要求标题非空。
+// 编辑模式下嵌入共用的实体图标编辑器，对笔记、收藏夹、附件三类都出现。
 
 export type EntityInfoDialogMode = 'create' | 'edit'
 
@@ -15,10 +18,12 @@ type Props = {
   description: string
   onClose: () => void
   onConfirm: (next: { title: string; description: string }) => void
+  /** 编辑模式下的图标编辑块：三类实体共用同一编辑器。 */
+  iconEditor?: Omit<EntityIconEditorProps, 'disabled'> | null
 }
 
 export function EntityInfoDialog(props: Props): React.ReactNode {
-  const { open, mode, title, description, onClose, onConfirm } = props
+  const { open, mode, title, description, onClose, onConfirm, iconEditor } = props
   const workspaceVisible = useWorkspaceVisible()
   const isCreate = mode === 'create'
 
@@ -32,6 +37,7 @@ export function EntityInfoDialog(props: Props): React.ReactNode {
   }, [open, title, description])
 
   const cannotSave = !isCreate && !String(titleDraft ?? '').trim()
+  const withIconEditor = !isCreate && !!iconEditor
 
   const confirm = React.useCallback(() => {
     if (cannotSave) return
@@ -39,7 +45,13 @@ export function EntityInfoDialog(props: Props): React.ReactNode {
   }, [cannotSave, descriptionDraft, onConfirm, titleDraft])
 
   return (
-    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={workspaceVisible && open}
+      onClose={onClose}
+      maxWidth={withIconEditor ? false : 'sm'}
+      fullWidth={!withIconEditor}
+      PaperProps={withIconEditor ? { sx: ENTITY_ICON_DIALOG_PAPER_SX } : undefined}
+    >
       <DialogTitle>{isCreate ? '新建收藏夹' : '编辑信息'}</DialogTitle>
       <DialogContent>
         {isCreate ? (
@@ -69,6 +81,11 @@ export function EntityInfoDialog(props: Props): React.ReactNode {
             onChange={e => setDescriptionDraft(e.target.value)}
             placeholder={isCreate ? '写一点这个收藏夹用来收纳什么' : '补充一点说明'}
           />
+          {!isCreate && iconEditor ? (
+            <Box sx={{ pt: 0.5 }}>
+              <EntityIconEditor {...iconEditor} />
+            </Box>
+          ) : null}
         </Box>
       </DialogContent>
       <DialogActions>

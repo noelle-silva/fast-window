@@ -12,6 +12,7 @@ import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { ImageDialog } from './preview/ImageDialog'
 import { useImageViewerController } from './preview/useImageViewerController'
 import { AssetInfoSidebar } from './AssetInfoSidebar'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { softButtonSx } from './pluginUiStyles'
 
 export function AssetDetailSession({
@@ -116,7 +117,9 @@ export function AssetDetailSession({
       >
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: '1 1 280px' }}>
-            <Box sx={{ color: preview.color, display: 'inline-flex', alignItems: 'center' }}><Icon fontSize="small" /></Box>
+            <Box sx={{ color: preview.color, display: 'inline-flex', alignItems: 'center' }}>
+              <EntityIcon icon={asset.icon} fallback={<Icon fontSize="small" />} targetKind="asset" targetRef={asset.assetId} size={20} />
+            </Box>
             <Typography noWrap sx={{ fontSize: 18, fontWeight: 900, color: '#111', minWidth: 0 }}>
               {title}
             </Typography>

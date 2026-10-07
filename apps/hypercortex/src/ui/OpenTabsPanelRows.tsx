@@ -9,6 +9,7 @@ import type { AssetEntry } from '../assetTypes'
 import { assetRefKey } from '../assetTypes'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { noteIdFromTabKey, tabKind } from '../tabKey'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { SIDEBAR_ROW_HEIGHT } from './sidebarLayout'
 import { SortableDropSlot, SortableItem, type SortableItemRenderArgs } from './SortableDnd'
@@ -308,7 +309,13 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
               {isPlaying ? (
                 <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
               ) : (
-                <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
+                <EntityIcon
+                  icon={tab.icon}
+                  fallback={<NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />}
+                  targetKind="note"
+                  targetRef={tab.dir}
+                  size={18}
+                />
               )}
               {dirty ? (
                 <Box
@@ -379,14 +386,17 @@ export function useOpenTabsPanelRows(params: OpenTabsPanelRowsParams) {
       const isPlaying = !!playingTabKeys?.has(tabKey)
       const preview = getAssetPreviewDescriptor(asset)
       const PreviewIcon = preview.icon
-      const iconEl =
-        isPlaying ? (
-          <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
-        ) : preview.kind !== 'unsupported' ? (
+      const fallbackIcon =
+        preview.kind !== 'unsupported' ? (
           <PreviewIcon fontSize="small" sx={{ color: isActive ? preview.color : 'var(--hc-text-subtle)' }} />
         ) : (
           <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
         )
+      const iconEl = isPlaying ? (
+        <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
+      ) : (
+        <EntityIcon icon={asset.icon} fallback={fallbackIcon} targetKind="asset" targetRef={asset.assetId} size={18} />
+      )
 
       return (
         <Tooltip

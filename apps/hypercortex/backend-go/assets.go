@@ -164,6 +164,7 @@ func (svc *service) listAssetsPage(scope string, limit int, offset int) ([]asset
 					DisplayName:  entry.DisplayName,
 					Remark:       entry.Remark,
 					Tags:         entry.Tags,
+					Icon:         entry.Icon,
 				})
 				out = append(out, assetPoolItemFromMetadata(nextEntry))
 				if !assetIndexEntriesEqual(entry, nextEntry) {

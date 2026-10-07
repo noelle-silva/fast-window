@@ -1,4 +1,5 @@
 import { isDraftNoteId } from './drafts'
+import type { EntityIcon } from './entityIcon'
 import { wouldCreateFolderReferenceCycle } from './favoritesGraph'
 
 // 草稿引用的判定：指向尚未落盘草稿笔记的 note 引用。草稿只活在内存，
@@ -20,6 +21,7 @@ export type FavoriteFolder = {
   description: string
   createdAtMs: number
   updatedAtMs: number
+  icon?: EntityIcon
 }
 
 export type FavoriteItemRef = {

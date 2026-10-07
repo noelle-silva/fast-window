@@ -62,6 +62,7 @@ func newAssetMetadata(input assetIndexEntry) assetIndexEntry {
 		DisplayName:     normalizeAssetShortText(input.DisplayName, maxAssetDisplayNameLength),
 		Remark:          normalizeAssetShortText(input.Remark, maxAssetTextLength),
 		Tags:            normalizeAssetTags(input.Tags),
+		Icon:            input.Icon,
 	}
 }
 
@@ -100,6 +101,7 @@ func migrateAssetIndexEntry(key string, input assetIndexEntry, info os.FileInfo)
 		DisplayName:  input.DisplayName,
 		Remark:       input.Remark,
 		Tags:         input.Tags,
+		Icon:         input.Icon,
 	})
 }
 
@@ -121,6 +123,7 @@ func assetPoolItemFromMetadata(entry assetIndexEntry) assetPoolItem {
 		UploadedAtMs: entry.UploadedAtMs,
 		UpdatedAtMs:  entry.UpdatedAtMs,
 		ModifiedMs:   entry.ModifiedMs,
+		Icon:         entry.Icon,
 	}
 }
 

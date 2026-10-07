@@ -1,4 +1,5 @@
 import type { VaultScope } from '../core'
+import type { EntityIcon, EntityIconDraft, EntityIconTargetKind } from '../entityIcon'
 import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1, FavoriteFolder, FavoriteItemRef, GridLayout } from '../favorites'
 import type { NoteRefEntryMap, NoteRefIndex, NoteRefRelationDirection, NoteRefRelationResult } from '../noteRefs'
@@ -22,6 +23,8 @@ export type HyperCortexTrashItem = {
   updatedAtMs: number
   deletedAtMs: number
   originalDir: string
+  /** 回收站条目的展示图标：图片图标的路径指向图标文件当前所在位置（仓库根相对）。 */
+  icon?: EntityIcon
 }
 
 export type HostGateway = {
@@ -420,6 +423,26 @@ export type RepoStateService = {
   saveRepoState: (scope: VaultScope, state: HyperCortexRepoStateV1) => Promise<void>
 }
 
+// 实体图标服务：笔记/收藏夹/附件的图标统一由后端落盘与写回元数据。
+export type IconsService = {
+  updateNote: (
+    scope: VaultScope,
+    input: { packageDir: string; icon: EntityIconDraft; expectedVersion?: number },
+  ) => Promise<{ version: number; changed?: boolean; manifest?: HyperCortexNoteManifestV1; meta?: NoteMeta }>
+  updateFolder: (
+    scope: VaultScope,
+    input: { folderId: string; icon: EntityIconDraft },
+  ) => Promise<{ version?: number; changed?: boolean; folder?: FavoriteFolder }>
+  updateAsset: (
+    scope: VaultScope,
+    input: { assetId: string; ext?: string; icon: EntityIconDraft },
+  ) => Promise<{ changed?: boolean; asset?: AssetPoolItem }>
+  readImage: (
+    scope: VaultScope,
+    input: { targetKind: EntityIconTargetKind; ref?: string; path: string },
+  ) => Promise<string>
+}
+
 export type HyperCortexGateway = {
   host: HostGateway
   clipboard: ClipboardGateway
@@ -427,6 +450,7 @@ export type HyperCortexGateway = {
   access: AccessService
   notes: NotesService
   assets: AssetsService
+  icons: IconsService
   favorites: FavoritesService
   trash: TrashService
   refs: RefsService

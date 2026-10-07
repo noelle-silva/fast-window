@@ -1,3 +1,4 @@
+import type { EntityIcon } from './entityIcon'
 import type { HyperCortexNoteFaceManifestV2 } from './noteFaces'
 
 /**
@@ -26,6 +27,7 @@ export type HyperCortexNoteManifestV2 = {
   faceOrder: string[]
   faces: Record<string, HyperCortexNoteFaceManifestV2>
   resources: HyperCortexNoteResourceRef[]
+  icon?: EntityIcon
 }
 
 export type HyperCortexNoteManifestV1 = HyperCortexNoteManifestV2

@@ -135,7 +135,7 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 	}
 	// 目录改名已发生：立即同步笔记索引目录，缩短「磁盘已改名、索引未更新」的窗口。
 	if existing.ID != "" && currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
-		meta := noteMeta{ID: existing.ID, Title: existing.Title, Description: existing.Description, Dir: desiredDir, CreatedAtMs: existing.CreatedAtMs, UpdatedAtMs: existing.UpdatedAtMs}
+		meta := noteMeta{ID: existing.ID, Title: existing.Title, Description: existing.Description, Dir: desiredDir, CreatedAtMs: existing.CreatedAtMs, UpdatedAtMs: existing.UpdatedAtMs, Icon: existing.Icon}
 		if err := svc.upsertNoteMeta(scope, meta); err != nil {
 			// 索引更新失败：回滚目录改名，保持索引与磁盘一致。
 			_ = svc.renamePackageIfNeeded(scope, desiredDir, currentDir)
@@ -165,7 +165,7 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 	if raw, ok := input["description"]; ok {
 		description = strings.TrimSpace(asString(raw))
 	}
-	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil}
+	manifest := noteManifest{ID: id, Title: title, Description: description, Tags: tagsOrExisting(input["tags"], existing.Tags), CreatedAtMs: created, UpdatedAtMs: updated, FaceOrder: existing.FaceOrder, Faces: faces, Resources: nil, Icon: existing.Icon}
 	if err := svc.ensureFaceKinds(scope, desiredDir, &manifest, faceKindsFromAny(input["faceKinds"]), len(existing.FaceOrder) == 0, updated); err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (svc *service) saveNoteFacesInput(scope string, input map[string]any) (any,
 		tx.rollback()
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: desiredDir, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (svc *service) saveNoteFaceOrder(scope string, packageDir string, faceOrder
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}
@@ -370,7 +370,7 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	// 空操作短路：规范化结果与现有设置一致时不写盘、不推进版本，
 	// 让空补丁与重复提交成为真无副作用；设置回显照常给出，可用于探读当前设置。
 	if faceSettingsEqual(face.Settings, normalized) {
-		meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+		meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 		return map[string]any{"meta": meta, "manifest": manifest, "version": manifest.UpdatedAtMs, "changed": false}, nil
 	}
 	updated := nowMs()
@@ -383,7 +383,7 @@ func (svc *service) saveNoteFaceSettings(scope string, packageDir string, faceID
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(packageDir, manifestFile)), manifest); err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(packageDir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}

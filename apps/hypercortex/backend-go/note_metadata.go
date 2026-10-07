@@ -69,7 +69,7 @@ func (svc *service) updateNoteMetadata(scope string, packageDir string, raw json
 	if err := svc.writeJSON(scope, filepath.ToSlash(filepath.Join(dir, manifestFile)), manifest); err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(dir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(dir), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	if err := svc.upsertNoteMeta(scope, meta); err != nil {
 		return nil, err
 	}

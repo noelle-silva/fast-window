@@ -50,7 +50,7 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, trashItem{Kind: "note", ID: manifest.ID, Title: nonEmpty(manifest.Title, "未命名"), Dir: rel, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, DeletedAtMs: deletedAt, OriginalDir: original})
+			out = append(out, trashItem{Kind: "note", ID: manifest.ID, Title: nonEmpty(manifest.Title, "未命名"), Dir: rel, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, DeletedAtMs: deletedAt, OriginalDir: original, Icon: trashDisplayIconForPackage(manifest.Icon, rel)})
 		}
 	}
 	assets, err := svc.listAssetTrash(scope, trashRoot)
@@ -111,17 +111,19 @@ func (svc *service) listAssetTrash(scope string, trashRoot string) ([]trashItem,
 			}
 			key := assetKey(asset.AssetID, asset.Ext)
 			title := nonEmpty(asset.DisplayName, nonEmpty(asset.SourceName, key))
+			entryDir := filepath.ToSlash(filepath.Join(trashDir, "assets", month.Name(), assetDir.Name()))
 			out = append(out, trashItem{
 				Kind:        "asset",
 				ID:          key,
 				Title:       title,
-				Dir:         filepath.ToSlash(filepath.Join(trashDir, "assets", month.Name(), assetDir.Name())),
+				Dir:         entryDir,
 				AssetID:     asset.AssetID,
 				Ext:         asset.Ext,
 				CreatedAtMs: asset.CreatedAtMs,
 				UpdatedAtMs: asset.UpdatedAtMs,
 				DeletedAtMs: deletedAt,
 				OriginalDir: asset.Path,
+				Icon:        trashDisplayIconForMovedFile(asset.Icon, entryDir),
 			})
 		}
 	}
@@ -224,6 +226,7 @@ func (svc *service) moveAssetToTrash(scope string, assetID string, ext string, r
 		DisplayName:  entry.DisplayName,
 		Remark:       entry.Remark,
 		Tags:         entry.Tags,
+		Icon:         entry.Icon,
 	})
 
 	trashRel := filepath.ToSlash(filepath.Join(trashDir, "assets", time.Now().Format("2006-01"), key))
@@ -245,14 +248,18 @@ func (svc *service) moveAssetToTrash(scope string, assetID string, ext string, r
 	if err := os.Rename(from, trashPath); err != nil {
 		return nil, err
 	}
+	// 图片图标随附件本体一并移入回收站条目目录。
+	svc.moveIconFileIntoDir(scope, entry.Icon, trashEntryDir)
 	deletedAt := nowMs()
 	if err := writeJSONFile(filepath.Join(trashEntryDir, trashMetaFile), trashMeta{Version: 1, Kind: "asset", DeletedAtMs: deletedAt, OriginalDir: filepath.ToSlash(rel), Asset: entry, Refs: parseTrashRefs(refsRaw)}); err != nil {
 		_ = os.Rename(trashPath, from)
+		svc.restoreIconFileFromDir(scope, entry.Icon, trashEntryDir)
 		_ = os.RemoveAll(trashEntryDir)
 		return nil, err
 	}
 	if err := svc.removeAssetFromIndex(scope, assetID, ext); err != nil {
 		_ = os.Rename(trashPath, from)
+		svc.restoreIconFileFromDir(scope, entry.Icon, trashEntryDir)
 		_ = os.RemoveAll(trashEntryDir)
 		return nil, err
 	}
@@ -327,7 +334,7 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	if err != nil {
 		return nil, err
 	}
-	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(desired), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs}
+	meta := noteMeta{ID: manifest.ID, Title: manifest.Title, Description: manifest.Description, Dir: filepath.ToSlash(desired), CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, Icon: manifest.Icon}
 	idx, _ := svc.loadNoteIndex(scope)
 	idx.Notes[meta.ID] = meta
 	if path, err := svc.resolvePath(scope, indexFile); err == nil {
@@ -384,6 +391,8 @@ func (svc *service) restoreAssetTrashItem(scope string, item trashItem) (any, er
 	if err := os.Rename(from, to); err != nil {
 		return nil, err
 	}
+	// 图片图标随附件本体一并还原回 Icons/。
+	svc.restoreIconFileFromDir(scope, entry.Icon, fromDir)
 	_ = os.RemoveAll(fromDir)
 	if info, err := os.Stat(to); err == nil && !info.IsDir() {
 		entry.Size = info.Size()

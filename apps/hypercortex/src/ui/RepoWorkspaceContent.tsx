@@ -153,6 +153,8 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             onDeleteAssetEntity={(asset, refs) => o.requestDeleteAssetEntity(asset, { refs, mode: o.trashEnabled ? 'trash' : 'permanent' })}
             onUpdateNoteInfo={o.handleUpdateNoteInfo}
             onUpdateAssetInfo={o.handleUpdateAssetInfo}
+            onUpdateNoteIcon={o.handleUpdateNoteIcon}
+            onUpdateAssetIcon={o.handleUpdateAssetIcon}
           />
         ) : null}
         {o.page === 'trash' ? (
@@ -247,6 +249,8 @@ export function RepoWorkspaceModalBody(props: { orchestration: RepoWorkspaceOrch
           onDeleteAssetEntity={(asset, refs) => o.requestDeleteAssetEntity(asset, { refs, mode: o.trashEnabled ? 'trash' : 'permanent' })}
           onUpdateNoteInfo={o.handleUpdateNoteInfo}
           onUpdateAssetInfo={o.handleUpdateAssetInfo}
+          onUpdateNoteIcon={o.handleUpdateNoteIcon}
+          onUpdateAssetIcon={o.handleUpdateAssetIcon}
         />
       )
     }

@@ -4,6 +4,7 @@ import { useWorkspaceVisible } from '../workspaceVisibility'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 
 import type { VaultScope } from '../../core'
+import type { EntityIcon } from '../../entityIcon'
 import type { HyperCortexGateway } from '../../gateway'
 import type { HyperCortexNoteManifestV1 } from '../../noteSchema'
 import { getFaceDeclaration, resolveFaceLabel, useFaceDeclarations } from '../../facePlugins'
@@ -11,7 +12,10 @@ import { resolveFaceSettingValues } from '../../facePlugins/settings'
 import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
 import type { FaceDeclaration } from '../../shared/faceDeclarations'
 import { FaceOrderList } from '../FaceOrderList'
+import { EntityIconEditor } from '../entity-icon/EntityIconEditor'
+import { ENTITY_ICON_DIALOG_PAPER_SX } from '../entity-icon/dialogLayout'
 import { FaceNoteSettingsSection } from '../face-settings/FaceNoteSettingsSection'
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 
 type Props = {
   open: boolean
@@ -22,6 +26,8 @@ type Props = {
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
   faceOrder: readonly string[]
   facePluginGlobalSettings: Record<string, Record<string, unknown>>
+  /** 当前笔记图标：图标编辑块的初值。 */
+  noteIcon?: EntityIcon
   /** 任一设置保存成功后带回最新 manifest，由会话同步到界面状态。 */
   onManifestSaved: (manifest: HyperCortexNoteManifestV1) => void
 }
@@ -37,6 +43,7 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
     faceManifests,
     faceOrder,
     facePluginGlobalSettings,
+    noteIcon,
     onManifestSaved,
   } = props
   const workspaceVisible = useWorkspaceVisible()
@@ -89,7 +96,7 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
   const faceLabel = React.useCallback((faceId: string) => resolveFaceLabel(faceId, faceManifests), [faceManifests])
 
   return (
-    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={workspaceVisible && open} onClose={onClose} maxWidth={false} PaperProps={{ sx: ENTITY_ICON_DIALOG_PAPER_SX }}>
       <DialogTitle
         sx={{
           display: 'flex',
@@ -108,6 +115,18 @@ export function NoteSettingsDialog(props: Props): React.ReactNode {
       </DialogTitle>
       <DialogContent dividers sx={{ pt: 2, pb: 3 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.25 }}>
+          <EntityIconEditor
+            gateway={gateway}
+            scope={scope}
+            targetKind="note"
+            targetRef={packageDir}
+            value={noteIcon}
+            fallback={<DescriptionRoundedIcon fontSize="small" />}
+            onChanged={payload => {
+              if (payload.manifest) onManifestSaved(payload.manifest)
+            }}
+          />
+          <Divider />
           {settingsFaces.map(({ declaration, face }) => {
             const noteValues = (face.settings || {}) as Record<string, unknown>
             const globalValues = facePluginGlobalSettings[declaration.kind] || {}

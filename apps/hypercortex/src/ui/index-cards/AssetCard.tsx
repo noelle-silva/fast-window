@@ -4,6 +4,7 @@ import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import type { AssetEntry } from '../../assetTypes'
 import { pickAssetDisplayName } from '../../assetDisplayName'
+import { EntityIcon } from '../entity-icon/EntityIcon'
 import { CardFrame } from './CardFrame'
 import { formatFileSize, formatTimeAgo } from './cardMeta'
 import { assetToneFromKind, toneChipSx, toneFgVar } from '../uiTones'
@@ -32,7 +33,9 @@ export function AssetCard(props: Props): React.ReactNode {
   const name = pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.sourceName || asset.fileName, ext: asset.ext })
   const tone = assetToneFromKind(asset.kind)
   const showThumb = Boolean(asset.thumbnailUrl)
-  const icon = showThumb ? (
+  const icon = asset.icon ? (
+    <EntityIcon icon={asset.icon} fallback={kindIcon(asset)} targetKind="asset" targetRef={asset.assetId} size={20} />
+  ) : showThumb ? (
     <Box component="img" src={asset.thumbnailUrl || ''} alt={name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
   ) : (
     kindIcon(asset)

@@ -130,6 +130,24 @@ export function useAssetPoolSessions(params: Params) {
     [gateway],
   )
 
+  // 附件图标更新后的界面同步：图标已由编辑器落盘，这里只把最新图标写回附件索引。
+  const handleUpdateAssetIcon = React.useCallback(
+    (asset: AssetEntry, icon: import('../entityIcon').EntityIcon | undefined) => {
+      setAssetPoolIndex(prev => {
+        if (!prev || typeof prev !== 'object') return prev
+        const key = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+        return {
+          ...(prev as any),
+          assets: {
+            ...((prev as any).assets || {}),
+            [key]: { ...((prev as any).assets?.[key] || {}), icon },
+          },
+        }
+      })
+    },
+    [],
+  )
+
   const handleOpenAssetTab = React.useCallback(
     (asset: AssetEntry, source: 'tabs' | 'favorites' = 'tabs', opts?: { recordHistory?: boolean }) => {
       setDetailSelectionSource(source)
@@ -272,6 +290,7 @@ export function useAssetPoolSessions(params: Params) {
     playingTabKeys,
     setTabPlaying,
     handleUpdateAssetInfo,
+    handleUpdateAssetIcon,
     handleOpenAssetTab,
     handleAssetTabUpdated,
     requestDeleteAssetEntity,

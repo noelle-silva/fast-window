@@ -31,6 +31,7 @@ export function buildAssetEntry(item: AssetPoolItem): AssetEntry {
     modifiedMs: Number(item.modifiedMs) || 0,
     remark: String(item.remark || '').trim() || undefined,
     tags: Array.isArray(item.tags) ? item.tags.map(tag => String(tag || '').trim()).filter(Boolean) : [],
+    icon: item.icon,
   }
 }
 

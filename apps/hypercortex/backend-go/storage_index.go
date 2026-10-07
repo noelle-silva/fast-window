@@ -62,7 +62,7 @@ func (svc *service) rebuildNoteIndexInto(scope string, idx noteIndex) (noteIndex
 			if updated <= 0 {
 				updated = modified
 			}
-			notes[manifest.ID] = noteMeta{ID: manifest.ID, Title: nonEmpty(manifest.Title, "未命名"), Description: manifest.Description, Dir: rel, CreatedAtMs: created, UpdatedAtMs: updated}
+			notes[manifest.ID] = noteMeta{ID: manifest.ID, Title: nonEmpty(manifest.Title, "未命名"), Description: manifest.Description, Dir: rel, CreatedAtMs: created, UpdatedAtMs: updated, Icon: manifest.Icon}
 		}
 	}
 	idx.Notes = notes

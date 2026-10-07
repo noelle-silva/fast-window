@@ -9,7 +9,18 @@ import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
 import { softButtonSx } from './pluginUiStyles'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { useWorkspaceVisible } from './workspaceVisibility'
+
+// 回收站条目图标：图片图标的展示路径已是仓库根相对（图标文件随条目进了回收站），
+// 因此统一按仓库根相对读取；笔记/附件/收藏夹各自回退到类型默认图标。
+function TrashItemIcon(props: { item: HyperCortexTrashItem }): React.ReactNode {
+  const { item } = props
+  const fallback =
+    item.kind === 'asset' ? <AttachFileRoundedIcon fontSize="small" /> : item.kind === 'face' ? <LayersRoundedIcon fontSize="small" /> : item.kind === 'folder' ? <FolderRoundedIcon fontSize="small" /> : <NotesRoundedIcon fontSize="small" />
+  if (item.kind === 'face') return fallback
+  return <EntityIcon icon={item.icon} fallback={fallback} targetKind="asset" targetRef="" size={18} />
+}
 
 function formatDateTime(ms: number): string {
   if (!(Number(ms) > 0)) return ''
@@ -139,9 +150,7 @@ export function TrashPanel(props: {
                   </Typography>
                   <Chip
                     size="small"
-                    icon={
-                      item.kind === 'asset' ? <AttachFileRoundedIcon /> : item.kind === 'face' ? <LayersRoundedIcon /> : item.kind === 'folder' ? <FolderRoundedIcon /> : <NotesRoundedIcon />
-                    }
+                    icon={<TrashItemIcon item={item} />}
                     label={item.kind === 'asset' ? '附件' : item.kind === 'face' ? '笔记面' : item.kind === 'folder' ? '收藏夹' : '笔记'}
                     sx={{ mt: 0.75, height: 22, fontSize: 11, fontWeight: 800 }}
                   />

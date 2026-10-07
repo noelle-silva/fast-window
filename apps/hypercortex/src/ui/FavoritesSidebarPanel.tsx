@@ -13,6 +13,7 @@ import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import type { HyperCortexFavoritesNavV1, NoteMeta } from '../core'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
 import { getFolderById } from '../favorites'
@@ -276,7 +277,7 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const title = folder.title || '未命名收藏夹'
     return (
       <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} dropTarget={dropTargetRefId === ref.id} previewEntry={`folder:${folder.id}`} onClick={() => onNavigate(folder.id)} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
-        <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
+        <EntityIcon icon={folder.icon} fallback={<FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />} targetKind="folder" targetRef={folder.id} size={18} />
         {showTitle ? <RowLabel title={title} /> : null}
         {showTitle ? <ChevronRightRoundedIcon fontSize="small" sx={{ color: 'rgba(0,0,0,.32)', flexShrink: 0 }} /> : null}
       </RowShell>
@@ -291,7 +292,13 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const isDraft = isDraftNoteId(note.id)
     return (
       <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} flash={flashActive && active} activeRef={active ? activeRowRef : undefined} previewEntry={`note:${note.id}`} onClick={event => onOpenNote(note, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
-        <NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
+        <EntityIcon
+          icon={note.icon}
+          fallback={<NotesRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />}
+          targetKind="note"
+          targetRef={note.dir}
+          size={18}
+        />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
         {showTitle && isDraft ? (
           <Tooltip title="关闭" placement="left">
@@ -325,11 +332,19 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
     const active = isRefActive(ref)
     return (
       <RowShell showTitle={showTitle} title={title} tooltipDisabled={disableTooltips} active={active} flash={flashActive && active} activeRef={active ? activeRowRef : undefined} previewEntry={`asset:${assetRefKey(asset)}`} onClick={event => onOpenAsset(asset, isOpenInTabsModifier(event))} onContextMenu={e => onEntryContextMenu?.(e, ref)} sortable={sortable} shouldSuppressClick={() => dragSuppressClickRef.current}>
-        {preview.kind !== 'unsupported' ? (
-          <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
-        ) : (
-          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-asset-file)' }} />
-        )}
+        <EntityIcon
+          icon={asset.icon}
+          fallback={
+            preview.kind !== 'unsupported' ? (
+              <PreviewIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : preview.color }} />
+            ) : (
+              <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: active ? 'var(--hc-primary)' : 'var(--hc-asset-file)' }} />
+            )
+          }
+          targetKind="asset"
+          targetRef={asset.assetId}
+          size={18}
+        />
         {showTitle ? <RowLabel title={title} active={active} /> : null}
       </RowShell>
     )
@@ -526,7 +541,14 @@ export function FavoritesSidebarPanel(props: FavoritesSidebarPanelProps): React.
               }}
               sx={{ fontSize: 12, gap: 0.75 }}
             >
-              <FolderRoundedIcon fontSize="small" sx={{ color: isCurrent ? 'var(--hc-primary)' : 'var(--hc-text-subtle)', flexShrink: 0 }} />
+              <EntityIcon
+                icon={doc?.folders?.[item.id]?.icon}
+                fallback={<FolderRoundedIcon fontSize="small" sx={{ color: isCurrent ? 'var(--hc-primary)' : 'var(--hc-text-subtle)', flexShrink: 0 }} />}
+                targetKind="folder"
+                targetRef={item.id}
+                size={18}
+                sx={{ flexShrink: 0 }}
+              />
               <Typography noWrap sx={{ fontSize: 12, fontWeight: isCurrent ? 800 : 600, color: isCurrent ? 'var(--hc-text)' : 'var(--hc-text-muted)' }}>
                 {item.title}
               </Typography>

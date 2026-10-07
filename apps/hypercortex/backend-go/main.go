@@ -326,6 +326,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "hypercortex.notes.versions.restore":
 		return svc.restoreNoteVersion(requireScope(params), stringField(params, "packageDir"), stringField(params, "versionId"))
 
+	case "hypercortex.icons.updateNote":
+		return svc.updateNoteIcon(requireScope(params), params, numberField(params, "expectedVersion"))
+	case "hypercortex.icons.updateFolder":
+		return svc.updateFolderIcon(requireScope(params), params)
+	case "hypercortex.icons.updateAsset":
+		return svc.updateAssetIcon(requireScope(params), params)
+	case "hypercortex.icons.readImage":
+		return svc.readEntityIconImage(requireScope(params), params)
+
 	case "hypercortex.assets.ensureIndex":
 		return svc.ensureAssetIndex(requireScope(params))
 	case "hypercortex.assets.list":

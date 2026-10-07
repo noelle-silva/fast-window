@@ -1,4 +1,5 @@
 import { ASSETS_DIR, kindFromMime, mimeFromExt, type Api, type VaultScope, monthFolder } from './core'
+import { normalizeEntityIcon, type EntityIcon } from './entityIcon'
 
 type AssetCategory = 'images' | 'videos' | 'docs'
 
@@ -20,6 +21,7 @@ export type AssetsIndexEntryV2 = {
   displayName?: string
   remark?: string
   tags: string[]
+  icon?: EntityIcon
 }
 
 export type HyperCortexAssetsIndexV2 = {
@@ -43,6 +45,7 @@ export type AssetPoolItem = {
   uploadedAtMs: number
   updatedAtMs: number
   modifiedMs: number
+  icon?: EntityIcon
 }
 
 const ASSET_INDEX_VERSION = 2
@@ -315,6 +318,7 @@ function normalizeAssetMetadata(key: string, raw: Partial<AssetsIndexEntryV2>): 
     displayName: String(raw.displayName || '').trim() || undefined,
     remark: String(raw.remark || '').trim() || undefined,
     tags: Array.isArray(raw.tags) ? raw.tags.map(tag => String(tag || '').trim()).filter(Boolean) : [],
+    icon: normalizeEntityIcon(raw.icon),
   }
 }
 
@@ -335,5 +339,6 @@ function assetPoolItemFromMetadata(entry: AssetsIndexEntryV2): AssetPoolItem {
     uploadedAtMs: entry.uploadedAtMs,
     updatedAtMs: entry.updatedAtMs,
     modifiedMs: entry.modifiedMs,
+    icon: entry.icon,
   }
 }

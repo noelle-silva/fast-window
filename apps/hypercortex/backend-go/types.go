@@ -52,12 +52,13 @@ type fileEntry struct {
 }
 
 type noteMeta struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Dir         string  `json:"dir"`
-	CreatedAtMs float64 `json:"createdAtMs"`
-	UpdatedAtMs float64 `json:"updatedAtMs"`
+	ID          string      `json:"id"`
+	Title       string      `json:"title"`
+	Description string      `json:"description"`
+	Dir         string      `json:"dir"`
+	CreatedAtMs float64     `json:"createdAtMs"`
+	UpdatedAtMs float64     `json:"updatedAtMs"`
+	Icon        *entityIcon `json:"icon,omitempty"`
 }
 
 type noteIndex struct {
@@ -183,6 +184,7 @@ type noteManifest struct {
 	FaceOrder     []string                    `json:"faceOrder"`
 	Faces         map[string]noteFaceManifest `json:"faces"`
 	Resources     []resourceRef               `json:"resources"`
+	Icon          *entityIcon                 `json:"icon,omitempty"`
 }
 
 type noteFaceDoc struct {
@@ -211,10 +213,11 @@ type assetIndexEntry struct {
 	UploadedAtMs    float64  `json:"uploadedAtMs"`
 	UpdatedAtMs     float64  `json:"updatedAtMs"`
 	ModifiedMs      float64  `json:"modifiedMs"`
-	SourceName      string   `json:"sourceName,omitempty"`
-	DisplayName     string   `json:"displayName,omitempty"`
-	Remark          string   `json:"remark,omitempty"`
-	Tags            []string `json:"tags"`
+	SourceName      string      `json:"sourceName,omitempty"`
+	DisplayName     string      `json:"displayName,omitempty"`
+	Remark          string      `json:"remark,omitempty"`
+	Tags            []string    `json:"tags"`
+	Icon            *entityIcon `json:"icon,omitempty"`
 }
 
 type assetIndex struct {
@@ -233,26 +236,30 @@ type assetPoolItem struct {
 	DisplayName  string   `json:"displayName,omitempty"`
 	Remark       string   `json:"remark,omitempty"`
 	Tags         []string `json:"tags"`
-	Size         int64    `json:"size"`
-	CreatedAtMs  float64  `json:"createdAtMs"`
-	UploadedAtMs float64  `json:"uploadedAtMs"`
-	UpdatedAtMs  float64  `json:"updatedAtMs"`
-	ModifiedMs   float64  `json:"modifiedMs"`
+	Size         int64       `json:"size"`
+	CreatedAtMs  float64     `json:"createdAtMs"`
+	UploadedAtMs float64     `json:"uploadedAtMs"`
+	UpdatedAtMs  float64     `json:"updatedAtMs"`
+	ModifiedMs   float64     `json:"modifiedMs"`
+	Icon         *entityIcon `json:"icon,omitempty"`
 }
 
 type trashItem struct {
-	Kind        string  `json:"kind"`
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Dir         string  `json:"dir"`
-	AssetID     string  `json:"assetId,omitempty"`
-	Ext         string  `json:"ext,omitempty"`
-	NoteID      string  `json:"noteId,omitempty"`
-	FaceID      string  `json:"faceId,omitempty"`
-	CreatedAtMs float64 `json:"createdAtMs"`
-	UpdatedAtMs float64 `json:"updatedAtMs"`
-	DeletedAtMs float64 `json:"deletedAtMs"`
-	OriginalDir string  `json:"originalDir"`
+	Kind        string      `json:"kind"`
+	ID          string      `json:"id"`
+	Title       string      `json:"title"`
+	Dir         string      `json:"dir"`
+	AssetID     string      `json:"assetId,omitempty"`
+	Ext         string      `json:"ext,omitempty"`
+	NoteID      string      `json:"noteId,omitempty"`
+	FaceID      string      `json:"faceId,omitempty"`
+	CreatedAtMs float64     `json:"createdAtMs"`
+	UpdatedAtMs float64     `json:"updatedAtMs"`
+	DeletedAtMs float64     `json:"deletedAtMs"`
+	OriginalDir string      `json:"originalDir"`
+	// Icon 是回收站条目的展示图标：图片图标的 Path 指向图标文件当前所在位置（仓库根相对），
+	// 供列表直接渲染；恢复时仍按元数据里记录的原始位置放回。
+	Icon *entityIcon `json:"icon,omitempty"`
 }
 
 type trashFaceMeta struct {

@@ -19,6 +19,12 @@ export const HyperCortexRpc = {
       restore: 'hypercortex.notes.versions.restore',
     },
   },
+  icons: {
+    updateNote: 'hypercortex.icons.updateNote',
+    updateFolder: 'hypercortex.icons.updateFolder',
+    updateAsset: 'hypercortex.icons.updateAsset',
+    readImage: 'hypercortex.icons.readImage',
+  },
   assets: {
     ensureIndex: 'hypercortex.assets.ensureIndex',
     list: 'hypercortex.assets.list',

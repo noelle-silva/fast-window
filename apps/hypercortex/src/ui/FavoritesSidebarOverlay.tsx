@@ -4,11 +4,12 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import type { NoteMeta } from '../core'
-import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
+import { getFolderById, type FavoriteItemRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import type { AssetEntry } from '../assetTypes'
 import type { AssetLookup } from '../assetLookup'
 import { resolveAssetRef } from '../assetLookup'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { folderTitle } from './index-page/helpers'
 
 export function assetRowTitle(asset: AssetEntry): string {
@@ -42,18 +43,23 @@ export function useFavoritesSidebarOverlay(params: UseFavoritesSidebarOverlayPar
 
   const dragOverlayIcon = React.useMemo(() => {
     if (!dragOverlayRef) return null
-    if (dragOverlayRef.kind === 'folder') return <FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />
-    if (dragOverlayRef.kind === 'note') return <NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
+    if (dragOverlayRef.kind === 'folder') {
+      const folder = doc ? getFolderById(doc, dragOverlayRef.targetId) : undefined
+      return <EntityIcon icon={folder?.icon} fallback={<FolderRoundedIcon fontSize="small" sx={{ color: 'var(--hc-primary)' }} />} targetKind="folder" targetRef={dragOverlayRef.targetId} size={18} />
+    }
+    if (dragOverlayRef.kind === 'note') {
+      const note = noteIndex?.[dragOverlayRef.targetId]
+      return <EntityIcon icon={note?.icon} fallback={<NotesRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />} targetKind="note" targetRef={note?.dir || ''} size={18} />
+    }
     if (dragOverlayRef.kind === 'asset') {
       const asset = resolveAssetRef(assetLookup, dragOverlayRef.targetId)
-      if (asset) {
-        const preview = getAssetPreviewDescriptor(asset)
-        const PreviewIcon = preview.icon
-        if (preview.kind !== 'unsupported') return <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
-      }
+      const preview = asset ? getAssetPreviewDescriptor(asset) : null
+      const PreviewIcon = preview && preview.kind !== 'unsupported' ? preview.icon : InsertDriveFileRoundedIcon
+      const color = preview && preview.kind !== 'unsupported' ? preview.color : 'var(--hc-text-subtle)'
+      return <EntityIcon icon={asset?.icon} fallback={<PreviewIcon fontSize="small" sx={{ color }} />} targetKind="asset" targetRef={asset?.assetId || ''} size={18} />
     }
     return <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: 'var(--hc-text-subtle)' }} />
-  }, [assetLookup, dragOverlayRef])
+  }, [assetLookup, doc, dragOverlayRef, noteIndex])
 
   // 本栏只为自己名下的条目呈现浮层；跨栏外来条目由来源侧浮层跟手，此处不重复呈现。
   if (!activeId || !dragOverlayRef) return null

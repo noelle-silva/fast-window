@@ -1,6 +1,7 @@
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
 import type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 import type { PageDisplayModesV1 } from './pageDisplay'
+import type { EntityIcon } from './entityIcon'
 export { ACCEPTED_FILE_EXTENSIONS, extFromMime, kindFromMime, mimeFromExt } from './assetFileTypes'
 export type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 
@@ -39,6 +40,7 @@ export type NoteMeta = {
   dir: string
   createdAtMs: number
   updatedAtMs: number
+  icon?: EntityIcon
 }
 
 export type HyperCortexIndexV1 = {

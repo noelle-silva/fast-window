@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 import type { NoteMeta } from '../../core'
+import { EntityIcon } from '../entity-icon/EntityIcon'
 import { CardFrame } from './CardFrame'
 import { formatTimeAgo } from './cardMeta'
 
@@ -20,7 +21,7 @@ export function NoteCard(props: Props): React.ReactNode {
   return (
     <CardFrame
       tone="lavender"
-      icon={<DescriptionRoundedIcon fontSize="small" />}
+      icon={<EntityIcon icon={note.icon} fallback={<DescriptionRoundedIcon fontSize="small" />} targetKind="note" targetRef={note.dir} size={20} />}
       title={note.title || '未命名笔记'}
       subtitle={subtitle}
       onClick={disabled ? undefined : () => onClick(note)}

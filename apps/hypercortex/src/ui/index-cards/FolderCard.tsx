@@ -1,6 +1,8 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import type { EntityIcon } from '../../entityIcon'
+import { EntityIcon as EntityIconView } from '../entity-icon/EntityIcon'
 import { CardFrame } from './CardFrame'
 import { formatCountLabel } from './cardMeta'
 import { stableToneFromString, toneChipSx, toneFgVar } from '../uiTones'
@@ -10,20 +12,21 @@ type Props = {
   title: string
   description?: string
   refCount: number
+  icon?: EntityIcon
   disabled?: boolean
   compact?: boolean
   onClick: (folderId: string) => void
 }
 
 export function FolderCard(props: Props): React.ReactNode {
-  const { folderId, title, description, refCount, disabled, compact = false, onClick } = props
+  const { folderId, title, description, refCount, icon, disabled, compact = false, onClick } = props
   const tone = stableToneFromString(folderId || title || 'folder')
   const desc = String(description || '').trim()
 
   return (
     <CardFrame
       tone={tone}
-      icon={<FolderRoundedIcon fontSize="small" />}
+      icon={<EntityIconView icon={icon} fallback={<FolderRoundedIcon fontSize="small" />} targetKind="folder" targetRef={folderId} size={20} />}
       title={title || '未命名收藏夹'}
       subtitle={desc || undefined}
       onClick={disabled ? undefined : () => onClick(folderId)}

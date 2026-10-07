@@ -5,8 +5,9 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { FavoriteItemRef, HyperCortexFavoritesDocV1 } from '../favorites'
-import { getFolderRefs, getRefsByFolderId } from '../favorites'
+import { getFolderById, getFolderRefs, getRefsByFolderId } from '../favorites'
 import { getFolderRefIssue } from '../favoritesGraph'
+import { EntityIcon } from './entity-icon/EntityIcon'
 import { buildFolderTree, collectTreeKeys, collectUniqueFolderIds, filterFolderTree, type FolderTreeNode } from './favoritesTree'
 import { useWorkspaceVisible } from './workspaceVisibility'
 
@@ -183,7 +184,14 @@ export function FavoritesTreePickerDialog(props: FavoritesTreePickerDialogProps)
               '&:hover': { bgcolor: 'var(--hc-surface-soft)' },
             }}
           >
-            <FolderRoundedIcon fontSize="small" sx={{ flexShrink: 0, color: disabled ? 'rgba(0,0,0,.26)' : 'var(--hc-primary)' }} />
+            <EntityIcon
+              icon={getFolderById(doc, node.id)?.icon}
+              fallback={<FolderRoundedIcon fontSize="small" sx={{ flexShrink: 0, color: disabled ? 'rgba(0,0,0,.26)' : 'var(--hc-primary)' }} />}
+              targetKind="folder"
+              targetRef={node.id}
+              size={18}
+              sx={{ flexShrink: 0 }}
+            />
             <Typography noWrap sx={{ flex: 1, fontSize: 13, fontWeight: 600, color: disabled ? 'rgba(0,0,0,.4)' : undefined }}>
               {node.title}{isSource ? '（当前所在）' : ''}
             </Typography>

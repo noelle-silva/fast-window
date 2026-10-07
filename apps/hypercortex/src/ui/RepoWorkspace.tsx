@@ -11,6 +11,7 @@ import { WorkspaceVisibilityProvider } from './workspaceVisibility'
 import { WorkspaceDndProvider } from './workspaceDnd'
 import { SidebarHoldPreviewOverlay } from './sidebar-preview/SidebarHoldPreviewOverlay'
 import { encodeSidebarPreviewTarget } from './sidebar-preview/previewTarget'
+import { EntityIconRuntimeProvider } from './entity-icon/EntityIcon'
 
 export type RepoWorkspaceProps = {
   repoId: string
@@ -52,6 +53,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
           onRetry={() => void o.runRepoInitialization()}
         />
       ) : (
+        <EntityIconRuntimeProvider gateway={o.gateway} scope="library">
         <WorkspaceVisibilityProvider visible={visible}>
           {visible ? (
             <RepoWorkspaceToolbarHost orchestration={o} />
@@ -207,6 +209,7 @@ export function RepoWorkspace(props: RepoWorkspaceProps) {
 
           {o.closeTabPromptDialog}
         </WorkspaceVisibilityProvider>
+        </EntityIconRuntimeProvider>
       )}
     </Box>
   )

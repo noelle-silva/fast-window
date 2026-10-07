@@ -1,4 +1,5 @@
 import { kindFromMime, mimeFromExt } from './core'
+import { normalizeEntityIcon } from './entityIcon'
 import type { AssetEntry } from './assetTypes'
 import { buildAssetEntry } from './assetEntryModel'
 
@@ -42,6 +43,7 @@ export function buildAssetLookup(assetIndex?: Record<string, any>): AssetLookup 
       uploadedAtMs: Number(raw.uploadedAtMs || 0) || 0,
       updatedAtMs: Number(raw.updatedAtMs || 0) || 0,
       modifiedMs: Number(raw.modifiedMs || 0) || 0,
+      icon: normalizeEntityIcon(raw.icon),
     })
     const refKey = ext ? `${assetId}.${ext}` : assetId
     byKey[key || refKey] = asset
