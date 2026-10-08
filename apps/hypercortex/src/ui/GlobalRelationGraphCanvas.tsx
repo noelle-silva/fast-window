@@ -16,18 +16,55 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force'
 import { drag } from 'd3-drag'
-import { zoom } from 'd3-zoom'
+import { zoom, zoomIdentity } from 'd3-zoom'
 import { maxDegreeOf, nodeRadiusForDegree, type GlobalRelationGraph } from '../globalRelationGraph'
 
 // 全局关系图的渲染与交互：d3-force 负责布局，绘制走 <canvas> 2D 上下文，
 // 每帧绘制由 requestAnimationFrame 合并调度——仿真 tick 绝不触发 React 重渲染。
 // d3-zoom 负责缩放平移，d3-drag 负责单节点拖动；命中判定在画布坐标系内做反变换。
 
-type GraphNode = SimulationNodeDatum & {
+export type GraphNode = SimulationNodeDatum & {
   id: string
   title: string
   degree: number
   radius: number
+}
+
+/** 图数据（节点）的入参形态：调和时按 id 匹配既有节点。 */
+export type RelationGraphNodeInput = { id: string; title: string; degree: number }
+
+/**
+ * 图数据变化时的节点调和：按 id 复用已存在节点对象（其坐标与速度随之保留），只增删节点，不整图重排。
+ * 非首帧时新节点落到给定簇心，避免从原点飞入；首帧则交给力布局自行铺开。
+ */
+export function reconcileGraphNodes(
+  previousNodes: readonly GraphNode[],
+  incoming: readonly RelationGraphNodeInput[],
+  resolveRadius: (degree: number) => number,
+  seed: { x: number; y: number },
+  isFirstLayout: boolean,
+): GraphNode[] {
+  const previousById = new Map(previousNodes.map(node => [node.id, node]))
+  return incoming.map(node => {
+    const existing = previousById.get(node.id)
+    if (existing) {
+      existing.title = node.title
+      existing.degree = node.degree
+      existing.radius = resolveRadius(node.degree)
+      return existing
+    }
+    const created: GraphNode = {
+      id: node.id,
+      title: node.title,
+      degree: node.degree,
+      radius: resolveRadius(node.degree),
+    }
+    if (!isFirstLayout) {
+      created.x = seed.x
+      created.y = seed.y
+    }
+    return created
+  })
 }
 
 type GraphLink = SimulationLinkDatum<GraphNode> & {
@@ -44,6 +81,8 @@ type DragSubject = { node: GraphNode; x: number; y: number }
 const LINK_DISTANCE = 70
 const LINK_STRENGTH = 0.4
 const DRAG_REHEAT_ALPHA = 0.3
+/** 图数据变化（如查看半径切换）时的再加热强度：只温和收敛，避免整图重排瞬移。 */
+const GRAPH_UPDATE_ALPHA = 0.3
 const HIT_RADIUS_PADDING = 2
 const COLLIDE_RADIUS_PADDING = 4
 const ARROW_HEAD_LENGTH = 14
@@ -99,9 +138,13 @@ export function GlobalRelationGraphCanvas(props: {
   showArrows: boolean
   /** 悬停时是否虚化其余节点：开启只保留该节点及其直接邻居，关闭则悬停不虚化。 */
   dimOnHover: boolean
+  /** 需要特别高亮的节点：局部关系图用于标记关注笔记；缺省不高亮任何节点。 */
+  highlightNodeId?: string | null
+  /** 首次布局的初始缩放：局部关系图用于进入即拉近；缺省 1（不缩放）。 */
+  initialScale?: number
   onOpenNode: (id: string) => void
 }) {
-  const { graph, chargeStrength, centerStrength, minNodeRadius, maxNodeRadius, linkWidth, showArrows, dimOnHover, onOpenNode } = props
+  const { graph, chargeStrength, centerStrength, minNodeRadius, maxNodeRadius, linkWidth, showArrows, dimOnHover, highlightNodeId = null, initialScale = 1, onOpenNode } = props
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [size, setSize] = React.useState({ width: 0, height: 0 })
@@ -129,6 +172,7 @@ export function GlobalRelationGraphCanvas(props: {
   const radiusRef = React.useRef({ min: minNodeRadius, max: maxNodeRadius })
   const maxDegreeRef = React.useRef(0)
   const visualRef = React.useRef({ linkWidth, showArrows, dimOnHover })
+  const highlightRef = React.useRef<string | null>(highlightNodeId)
   const scheduleDrawRef = React.useRef<() => void>(() => {})
 
   React.useEffect(() => {
@@ -168,12 +212,19 @@ export function GlobalRelationGraphCanvas(props: {
 
     const maxDegree = maxDegreeOf(graph)
     const { min: radiusMin, max: radiusMax } = radiusRef.current
-    const nodes: GraphNode[] = graph.nodes.map(node => ({
-      id: node.id,
-      title: node.title,
-      degree: node.degree,
-      radius: nodeRadiusForDegree(node.degree, maxDegree, radiusMin, radiusMax),
-    }))
+    const resolveRadius = (degree: number) => nodeRadiusForDegree(degree, maxDegree, radiusMin, radiusMax)
+    // 调和节点：复用已存在节点对象（坐标与速度随之保留），只增删节点，不整图重排。
+    const previousNodes = nodesRef.current
+    const nextIds = new Set(graph.nodes.map(node => node.id))
+    const surviving = previousNodes.filter(node => nextIds.has(node.id))
+    const isFirstLayout = previousNodes.length === 0
+    const seed = surviving.length
+      ? {
+          x: surviving.reduce((sum, node) => sum + (node.x ?? 0), 0) / surviving.length,
+          y: surviving.reduce((sum, node) => sum + (node.y ?? 0), 0) / surviving.length,
+        }
+      : { x: width / 2, y: height / 2 }
+    const nodes = reconcileGraphNodes(previousNodes, graph.nodes, resolveRadius, seed, isFirstLayout)
     const links: GraphLink[] = graph.edges.map(edge => ({
       source: edge.source,
       target: edge.target,
@@ -190,12 +241,13 @@ export function GlobalRelationGraphCanvas(props: {
     linksRef.current = links
     neighborsRef.current = neighbors
     maxDegreeRef.current = maxDegree
-    transformRef.current = { k: 1, x: 0, y: 0 }
+    // 视角（缩放与平移）跨图变化保留，不重置。
     hoverRef.current = null
 
     function draw() {
       const { primary, surface, text, edge } = colorsRef.current
       const { linkWidth, showArrows, dimOnHover } = visualRef.current
+      const highlightId = highlightRef.current
       const transform = transformRef.current
       // 虚化开关关闭时，悬停不改变任何透明度；开启时只保留悬停节点与其直接邻居。
       const dimActive = dimOnHover ? hoverRef.current : null
@@ -242,13 +294,30 @@ export function GlobalRelationGraphCanvas(props: {
         const active = !dimActive || node.id === dimActive || (activeNeighbors ? activeNeighbors.has(node.id) : false)
         const x = node.x ?? 0
         const y = node.y ?? 0
-        ctx.globalAlpha = dimActive ? (active ? 1 : 0.15) : 1
+        const isHighlighted = !!highlightId && node.id === highlightId
+        const bodyAlpha = dimActive ? (active ? 1 : 0.15) : 1
+        // 关注节点：更强光晕 + 更大 + 提亮填充 + 高对比描边，确保比其余节点更醒目。
+        if (isHighlighted) {
+          ctx.globalAlpha = dimActive ? (active ? 0.45 : 0.08) : 0.38
+          ctx.beginPath()
+          ctx.arc(x, y, node.radius + 9, 0, Math.PI * 2)
+          ctx.fillStyle = primary
+          ctx.fill()
+        }
+        ctx.globalAlpha = bodyAlpha
         ctx.beginPath()
-        ctx.arc(x, y, node.radius, 0, Math.PI * 2)
+        ctx.arc(x, y, isHighlighted ? node.radius + 3 : node.radius, 0, Math.PI * 2)
         ctx.fillStyle = primary
         ctx.fill()
-        ctx.lineWidth = 1.5
-        ctx.strokeStyle = surface
+        if (isHighlighted) {
+          // 叠一层白提亮填充，使关注节点比其余节点更亮。
+          ctx.globalAlpha = bodyAlpha * 0.34
+          ctx.fillStyle = '#ffffff'
+          ctx.fill()
+          ctx.globalAlpha = bodyAlpha
+        }
+        ctx.lineWidth = isHighlighted ? 3 : 1.5
+        ctx.strokeStyle = isHighlighted ? '#ffffff' : surface
         ctx.stroke()
 
         ctx.globalAlpha = dimActive ? (active ? 1 : 0.15) : 0.9
@@ -275,6 +344,8 @@ export function GlobalRelationGraphCanvas(props: {
       .force('x', forceX<GraphNode>(width / 2).strength(centerStrength))
       .force('y', forceY<GraphNode>(height / 2).strength(centerStrength))
       .force('collide', forceCollide<GraphNode>().radius(node => node.radius + COLLIDE_RADIUS_PADDING))
+    // 首帧完整铺开；后续图变化只温和再加热，既有节点位置基本不动。
+    if (!isFirstLayout) simulation.alpha(GRAPH_UPDATE_ALPHA)
     simulation.on('tick', scheduleDraw)
 
     simulationRef.current = simulation
@@ -351,6 +422,15 @@ export function GlobalRelationGraphCanvas(props: {
       })
     select(canvas).call(zoomBehavior)
 
+    // 首次布局按初始缩放拉近，并同步 d3-zoom 的内部变换，保证后续手势从同一视角继续。
+    if (isFirstLayout && initialScale !== 1) {
+      const k = initialScale
+      const x = (width / 2) * (1 - k)
+      const y = (height / 2) * (1 - k)
+      transformRef.current = { k, x, y }
+      select(canvas).property('__zoom', zoomIdentity.translate(x, y).scale(k))
+    }
+
     const handleMove = (event: MouseEvent) => {
       if (gestureActive > 0) return
       const point = pointAt(event.clientX, event.clientY)
@@ -410,11 +490,12 @@ export function GlobalRelationGraphCanvas(props: {
     simulation.alpha(0.5).restart()
   }, [chargeStrength, centerStrength, minNodeRadius, maxNodeRadius])
 
-  // 外观参数（连线粗细、箭头显示、悬停虚化）只改绘制，不触发布局、不重建图形。
+  // 外观参数（连线粗细、箭头显示、悬停虚化、关注节点高亮）只改绘制，不触发布局、不重建图形。
   React.useEffect(() => {
     visualRef.current = { linkWidth, showArrows, dimOnHover }
+    highlightRef.current = highlightNodeId
     scheduleDrawRef.current()
-  }, [dimOnHover, linkWidth, showArrows])
+  }, [dimOnHover, highlightNodeId, linkWidth, showArrows])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>

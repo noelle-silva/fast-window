@@ -9,6 +9,7 @@ import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway } from '../gateway'
 import { resolveNoteFaceOrder } from '../facePreferences'
 import type { HyperCortexNoteFaceManifestV2 } from '../noteFaces'
+import type { HyperCortexGraphSettingsV1 } from '../graphSettings'
 import { isDraftNoteId } from '../drafts'
 import { collectFoldersForTarget, type HyperCortexFavoritesDocV1 } from '../favorites'
 import {
@@ -35,6 +36,7 @@ import { NoteDetailContentArea } from './note-detail/NoteDetailContentArea'
 import { NoteDetailInfoSidebar } from './note-detail/NoteDetailInfoSidebar'
 import { NoteDetailDialogs } from './note-detail/NoteDetailDialogs'
 import { NoteConflictDialog } from './note-detail/NoteConflictDialog'
+import { NoteLocalRelationGraphDialog } from './NoteLocalRelationGraphDialog'
 import { useNoteDetailFaceContent } from './useNoteDetailFaceContent'
 import { useNoteDetailReferences } from './useNoteDetailReferences'
 import { useNoteDetailToolbar } from './useNoteDetailToolbar'
@@ -110,6 +112,8 @@ export type NoteDetailSessionProps = {
   onPlayingChange?: (playing: boolean) => void
   facePluginGlobalSettings?: Record<string, Record<string, unknown>>
   globalFaceKindOrder?: readonly string[]
+  /** 全局关系图的持久化外观设置：局部关系图复用其外观，但不可在此修改。 */
+  graphSettings: HyperCortexGraphSettingsV1
 }
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
@@ -139,6 +143,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onPlayingChange,
     facePluginGlobalSettings = {},
     globalFaceKindOrder = [],
+    graphSettings,
   } = props
 
   const noteId = String(note.id || '').trim()
@@ -186,6 +191,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [pendingAddFace, setPendingAddFace] = React.useState<NoteFaceId | null>(null)
 
   const [deleting, setDeleting] = React.useState<'note' | 'face' | ''>('')
+
+  const [localGraphOpen, setLocalGraphOpen] = React.useState(false)
 
   const [baseFields, setBaseFields] = React.useState<NoteBaseFields>(
     init?.baseFields ?? {
@@ -798,6 +805,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         closeMoreMenu={closeMoreMenu}
         requestOpenNoteDir={requestOpenNoteDir}
         requestOpenVersionHistory={requestOpenVersionHistory}
+        requestOpenLocalGraph={() => setLocalGraphOpen(true)}
         setNoteSettingsOpen={setNoteSettingsOpen}
         favoritesDoc={favoritesDoc}
         openFavoritesPicker={openFavoritesPicker}
@@ -904,6 +912,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         faces={faces}
         applyNoteManifest={applyNoteManifest}
       />
+
+      {localGraphOpen ? (
+        <NoteLocalRelationGraphDialog
+          open
+          gateway={gateway}
+          scope={scope}
+          noteId={noteId}
+          allNotesById={allNotesById}
+          settings={graphSettings}
+          refRelationsEpoch={refRelationsEpoch}
+          onClose={() => setLocalGraphOpen(false)}
+          onOpenNote={onOpenNote}
+        />
+      ) : null}
 
       <NoteConflictDialog
         open={visible && conflictOpen && !!conflict}

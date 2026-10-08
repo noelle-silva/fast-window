@@ -57,6 +57,24 @@ export function extractRefsFromText(body: string): NoteRef[] {
 
 // 反向引用视图：全部由后端关系查询结果（引用边）推导，前端不再自算全表。
 
+/**
+ * 把关系查询返回的真实引用边还原为引用索引（来源笔记 → 来源面 → 目标引用），
+ * 供关系图等消费方复用与全局关系图同源的图构建逻辑。
+ */
+export function refIndexFromRelations(edges: NoteRefRelationEdge[] | null | undefined): NoteRefIndex {
+  const index: NoteRefIndex = {}
+  for (const edge of edges || []) {
+    const from = String(edge?.fromNoteId || '').trim()
+    const to = String(edge?.toNoteId || '').trim()
+    if (!from || !to) continue
+    const fromFace = String(edge?.fromFaceId || '').trim()
+    const faces = index[from] ?? (index[from] = {})
+    const refs = faces[fromFace] ?? (faces[fromFace] = [])
+    refs.push({ noteId: to, faceId: String(edge?.toFaceId || '').trim() || undefined })
+  }
+  return index
+}
+
 export function backlinksFromRelations(edges: NoteRefRelationEdge[], noteId: string): NoteBacklinkRef[] {
   const id = String(noteId || '').trim()
   if (!id) return []

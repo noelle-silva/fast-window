@@ -119,6 +119,7 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
                 onPlayingChange={playing => o.setTabPlaying(noteTabKey(tab.id), playing)}
                 facePluginGlobalSettings={o.facePluginSettings}
                 globalFaceKindOrder={o.faceKindOrder}
+                graphSettings={o.graphSettings}
               />
             ))
           )}

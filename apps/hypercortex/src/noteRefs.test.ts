@@ -4,6 +4,7 @@ import {
   extractRefsFromText,
   faceBacklinksFromRelations,
   isBacklinkStaleFromRelations,
+  refIndexFromRelations,
   type NoteRefRelationEdge,
 } from './noteRefs'
 
@@ -59,6 +60,46 @@ describe('extractRefsFromText', () => {
 
   it('does not match placeholders spanning a newline', () => {
     expect(extractRefsFromText('[[note_id=n1\nface=f1]]')).toEqual([])
+  })
+})
+
+describe('refIndexFromRelations', () => {
+  it('returns an empty index for no edges', () => {
+    expect(refIndexFromRelations([])).toEqual({})
+    expect(refIndexFromRelations(null)).toEqual({})
+  })
+
+  it('groups edges by source note and source face', () => {
+    expect(refIndexFromRelations([
+      edge('a', 'b', { fromFaceId: 'af1' }),
+      edge('a', 'c', { fromFaceId: 'af1' }),
+      edge('a', 'd', { fromFaceId: 'af2' }),
+      edge('b', 'a'),
+    ])).toEqual({
+      a: { af1: [{ noteId: 'b', faceId: undefined }, { noteId: 'c', faceId: undefined }], af2: [{ noteId: 'd', faceId: undefined }] },
+      b: { '': [{ noteId: 'a', faceId: undefined }] },
+    })
+  })
+
+  it('carries the target face and drops a blank target face', () => {
+    expect(refIndexFromRelations([
+      edge('a', 'b', { toFaceId: 'bf' }),
+      edge('a', 'c', { toFaceId: '  ' }),
+    ])).toEqual({ a: { '': [{ noteId: 'b', faceId: 'bf' }, { noteId: 'c', faceId: undefined }] } })
+  })
+
+  it('ignores edges with a blank source or target', () => {
+    expect(refIndexFromRelations([
+      edge('', 'b'),
+      edge('a', ''),
+      edge('  ', '  '),
+    ])).toEqual({})
+  })
+
+  it('trims ids and source faces before grouping', () => {
+    expect(refIndexFromRelations([edge(' a ', ' b ', { fromFaceId: ' af ' })])).toEqual({
+      a: { af: [{ noteId: 'b', faceId: undefined }] },
+    })
   })
 })
 

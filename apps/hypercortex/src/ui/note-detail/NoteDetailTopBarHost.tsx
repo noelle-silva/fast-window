@@ -38,6 +38,7 @@ export type NoteDetailTopBarHostProps = {
   closeMoreMenu: () => void
   requestOpenNoteDir: () => void
   requestOpenVersionHistory: () => void
+  requestOpenLocalGraph: () => void
   setNoteSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>
   favoritesDoc?: HyperCortexFavoritesDocV1 | null
   openFavoritesPicker: () => void
@@ -91,6 +92,7 @@ export function NoteDetailTopBarHost(props: NoteDetailTopBarHostProps): React.Re
     closeMoreMenu,
     requestOpenNoteDir,
     requestOpenVersionHistory,
+    requestOpenLocalGraph,
     setNoteSettingsOpen,
     favoritesDoc,
     openFavoritesPicker,
@@ -144,6 +146,7 @@ export function NoteDetailTopBarHost(props: NoteDetailTopBarHostProps): React.Re
       onMoreMenuClose={closeMoreMenu}
       onOpenNoteDir={requestOpenNoteDir}
       onOpenVersionHistory={requestOpenVersionHistory}
+      onOpenLocalGraph={requestOpenLocalGraph}
       onOpenNoteSettings={() => setNoteSettingsOpen(true)}
       canFavorite={!!favoritesDoc}
       onOpenFavorites={openFavoritesPicker}

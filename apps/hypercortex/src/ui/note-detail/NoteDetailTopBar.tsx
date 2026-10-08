@@ -7,6 +7,7 @@ import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
+import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 
 import type { HyperCortexNoteFaceManifestV2 } from '../../noteFaces'
@@ -48,6 +49,7 @@ export type NoteDetailTopBarProps = {
   onMoreMenuClose: () => void
   onOpenNoteDir: () => void
   onOpenVersionHistory: () => void
+  onOpenLocalGraph: () => void
   onOpenNoteSettings: () => void
   canFavorite: boolean
   onOpenFavorites: () => void
@@ -102,6 +104,7 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
     onMoreMenuClose,
     onOpenNoteDir,
     onOpenVersionHistory,
+    onOpenLocalGraph,
     onOpenNoteSettings,
     canFavorite,
     onOpenFavorites,
@@ -286,6 +289,23 @@ export function NoteDetailTopBar(props: NoteDetailTopBarProps): React.ReactNode 
               }}
             >
               <HistoryRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="查看此笔记的局部关系图" placement="bottom-end">
+            <IconButton
+              size="small"
+              aria-label="查看此笔记的局部关系图"
+              onClick={onOpenLocalGraph}
+              disabled={!packageAvailable}
+              sx={{
+                color: 'rgba(0,0,0,.58)',
+                bgcolor: 'transparent',
+                '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
+                '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+              }}
+            >
+              <HubRoundedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
 
