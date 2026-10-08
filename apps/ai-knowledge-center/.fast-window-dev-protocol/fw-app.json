@@ -8,7 +8,6 @@
     "windowsExecutable": "ai-knowledge-center.exe",
     "icon": "assets/icon.svg"
   },
-  "displayMode": "default",
   "commands": [
     {
       "id": "open-knowledge-center",

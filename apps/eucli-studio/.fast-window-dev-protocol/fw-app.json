@@ -8,7 +8,6 @@
     "windowsExecutable": "eucli-studio-app.exe",
     "icon": "assets/icon.svg"
   },
-  "displayMode": "default",
   "commands": [
     {
       "id": "new-chat",

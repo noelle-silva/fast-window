@@ -14,8 +14,6 @@ export const DEFAULT_V5_APP_PROFILE = 'release'
 export const V5_APP_PROFILE_IDS = ['release', 'dev']
 const RESERVED_STAGE_ENTRY_NAMES = new Set(['package', 'data'])
 
-const APP_DISPLAY_MODES = new Set(['default', 'window', 'top'])
-
 export function isSafeId(id) {
   return /^[A-Za-z0-9_-]+$/.test(String(id || '').trim())
 }
@@ -106,12 +104,6 @@ function validateBuildCommand(value, field) {
   }
 }
 
-function validateDisplayMode(value, field) {
-  const mode = requiredString(value, field, 24)
-  if (!APP_DISPLAY_MODES.has(mode)) throw new Error(`${field} 必须为 default/window/top`)
-  return mode
-}
-
 function validateCommands(value, field) {
   if (!Array.isArray(value)) throw new Error(`${field} 必须是数组`)
   const seen = new Set()
@@ -180,7 +172,6 @@ export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }
     'description',
     'versionSource',
     'package',
-    'displayMode',
     'commands',
     'reservedNameExemptions',
   ])
@@ -219,7 +210,6 @@ export function normalizeV5AppManifest(raw, { appDir, expectedId, manifestPath }
       assertNotReservedPackagePath(icon, 'package.icon', reservedNameExemptions)
       return icon
     })(),
-    displayMode: validateDisplayMode(manifest.displayMode, 'displayMode'),
     commands: validateCommands(manifest.commands, 'commands'),
     reservedNameExemptions,
   }

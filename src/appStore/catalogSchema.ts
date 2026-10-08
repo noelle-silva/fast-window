@@ -1,4 +1,4 @@
-import type { AppDisplayMode, AppKind, RegisteredAppShortcut } from '../apps/types'
+import type { AppKind, RegisteredAppShortcut } from '../apps/types'
 import { parseSemverStrict } from './semver'
 import type {
   HostUpdateEntry,
@@ -48,12 +48,6 @@ function sha256(value: unknown, field: string): string {
   const hash = text(value, field).toLowerCase()
   if (!SHA256_RE.test(hash)) throw new Error(`${field} must be a sha256 hex string`)
   return hash
-}
-
-function optionalDisplayMode(value: unknown, field: string): AppDisplayMode | undefined {
-  if (value === undefined) return undefined
-  if (value === 'default' || value === 'window' || value === 'top') return value
-  throw new Error(`${field} must be default | window | top`)
 }
 
 function appKind(value: unknown, field: string): AppKind {
@@ -158,7 +152,6 @@ function parseAppEntry(value: unknown, index: number): StoreAppEntry {
     platforms: {
       windows: parseAsset(value.platforms.windows, `${field}.platforms.windows`),
     },
-    displayMode: optionalDisplayMode(value.displayMode, `${field}.displayMode`),
     commands: parseCommands(value.commands, `${field}.commands`),
   }
 }

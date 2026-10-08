@@ -84,7 +84,6 @@ async function createFakeApp() {
       },
       executable: 'fake.exe',
       icon: 'assets/icon.svg',
-      displayMode: 'default',
       commands: [{ id: 'open', title: 'Open' }],
     },
   }
@@ -112,7 +111,6 @@ async function writeAppManifests(appDir, overrides = {}) {
       windowsExecutable: overrides.windowsExecutable || 'fake.exe',
       icon: overrides.icon || 'assets/icon.svg',
     },
-    displayMode: 'default',
     commands: [{ id: 'open', title: 'Open' }],
   }
   const buildConfig = {
@@ -491,7 +489,6 @@ test('豁免声明让点名的保留目录通过装配后校验', async () => {
       versionSource: 'version.json',
       executable: 'fake.exe',
       icon: 'assets/icon.svg',
-      displayMode: 'default',
       commands: [],
       profiles: {
         release: { id: 'release', ...profile },
@@ -520,7 +517,6 @@ test('豁免声明格式不合规时快速失败', () => {
     description: 'Bad app',
     versionSource: 'release.json',
     package: { windowsExecutable: 'bad-app.exe', icon: 'assets/icon.svg' },
-    displayMode: 'default',
     commands: [],
   }
   const manifestPath = 'fw-app.json'

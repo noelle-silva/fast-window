@@ -62,7 +62,6 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
     platforms: {
       windows: { downloadUrl, sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
     },
-    displayMode: manifest.displayMode,
     commands: manifest.commands,
   }
 
