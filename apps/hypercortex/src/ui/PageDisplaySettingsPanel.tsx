@@ -12,6 +12,7 @@ const PAGE_DISPLAY_LABELS: Record<ModalCapablePageId, string> = {
   index: '收藏夹',
   attachments: '附件',
   'all-notes': '全部笔记',
+  graph: '全局关系图',
   settings: '设置',
 }
 

@@ -4,6 +4,7 @@ import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage } from './HomePage'
 import { IndexPage } from './IndexPage'
 import { AllNotesPage } from './AllNotesPage'
+import { GlobalRelationGraphPage } from './GlobalRelationGraphPage'
 import { NoteDetailSession } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
 import { SettingsPage } from './SettingsPage'
@@ -18,22 +19,24 @@ import type { RepoWorkspaceOrchestration } from './useRepoWorkspaceOrchestration
 
 export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOrchestration }) {
   const o = props.orchestration
+  // 整页填充型页面：自身铺满内容区、不外滚（详情会话与全局关系图）。
+  const fillPage = o.page === 'note-detail' || o.page === 'asset-detail' || o.page === 'graph'
 
   return (
     <Box
       sx={{
         position: 'absolute',
         inset: 0,
-        overflow: o.page === 'note-detail' || o.page === 'asset-detail' ? 'hidden' : 'auto',
+        overflow: fillPage ? 'hidden' : 'auto',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <Box
         sx={{
-          minHeight: o.page === 'note-detail' || o.page === 'asset-detail' ? 0 : '100%',
-          height: o.page === 'note-detail' || o.page === 'asset-detail' ? '100%' : 'auto',
-          p: o.page === 'note-detail' || o.page === 'asset-detail' ? 0 : 2,
+          minHeight: fillPage ? 0 : '100%',
+          height: fillPage ? '100%' : 'auto',
+          p: fillPage ? 0 : 2,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -67,6 +70,16 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
               void o.gateway.host.toast('已复制引用占位符')
             }}
             onMore={o.openNoteCardMenu}
+          />
+        ) : null}
+        {o.page === 'graph' ? (
+          <GlobalRelationGraphPage
+            gateway={o.gateway}
+            repoId={o.repoId}
+            notes={o.allNotes}
+            notesLoading={o.noteIndexLoading}
+            refreshSignal={o.externalNotesSignal}
+            onOpenNote={note => void o.handleOpenNote(note)}
           />
         ) : null}
         <Box sx={{ display: o.page === 'note-detail' ? 'flex' : 'none', flex: 1, minHeight: 0, width: '100%', flexDirection: 'column' }}>
@@ -281,6 +294,17 @@ export function RepoWorkspaceModalBody(props: { orchestration: RepoWorkspaceOrch
             void o.gateway.host.toast('已复制引用占位符')
           }}
           onMore={o.openNoteCardMenu}
+        />
+      )
+    case 'graph':
+      return (
+        <GlobalRelationGraphPage
+          gateway={o.gateway}
+          repoId={o.repoId}
+          notes={o.allNotes}
+          notesLoading={o.noteIndexLoading}
+          refreshSignal={o.externalNotesSignal}
+          onOpenNote={note => void o.handleOpenNote(note)}
         />
       )
     case 'settings':

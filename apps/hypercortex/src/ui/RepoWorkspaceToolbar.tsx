@@ -7,6 +7,7 @@ import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
+import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
@@ -143,6 +144,14 @@ export function RepoWorkspaceToolbar(props: RepoWorkspaceToolbarProps) {
         onClick={() => navigation.onGoTo('index')}
       >
         <StarRoundedIcon fontSize="small" />
+      </NavIconButton>
+      <NavIconButton
+        ariaLabel="全局关系图"
+        label="全局关系图"
+        active={navigation.page === 'graph'}
+        onClick={() => navigation.onGoTo('graph')}
+      >
+        <HubRoundedIcon fontSize="small" />
       </NavIconButton>
     </Box>
   )
