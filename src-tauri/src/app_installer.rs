@@ -42,8 +42,6 @@ struct AppPackageManifest {
     #[serde(default)]
     service: Option<ServiceDeclaration>,
     #[serde(default)]
-    display_mode: Option<String>,
-    #[serde(default)]
     commands: Vec<AppPackageCommand>,
 }
 
@@ -183,7 +181,6 @@ pub(crate) struct InstalledAppInfo {
     path: String,
     icon: String,
     app_kind: String,
-    display_mode: String,
     commands: Vec<AppPackageCommand>,
 }
 
@@ -655,14 +652,6 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
         path: installed.exe_path.to_string_lossy().to_string(),
         icon: resolve_installed_app_icon(installed)?,
         app_kind: installed.manifest.app_type.as_str().to_string(),
-        display_mode: installed
-            .manifest
-            .display_mode
-            .as_deref()
-            .map(str::trim)
-            .filter(|mode| !mode.is_empty())
-            .unwrap_or("default")
-            .to_string(),
         commands: resolve_app_commands(&installed.manifest, &installed.manifest_dir)?,
     })
 }
@@ -976,7 +965,6 @@ fn validate_package_manifest(
     {
         return Err("fw-app.package.windowsExecutable 必须指向 .exe 文件".to_string());
     }
-    validate_display_mode(manifest.display_mode.as_deref())?;
     validate_icon(manifest.package.icon.as_deref(), "fw-app.package.icon")?;
     validate_app_type_consistency(manifest)?;
     validate_commands(&manifest.commands)?;
@@ -989,17 +977,6 @@ fn validate_app_type_consistency(manifest: &AppPackageManifest) -> Result<(), St
         (true, false) => Err("fw-app.type 为 service-app 时必须提供 service 段".to_string()),
         (false, true) => Err("fw-app.type 为 desktop-app 时不允许提供 service 段".to_string()),
         _ => Ok(()),
-    }
-}
-
-fn validate_display_mode(value: Option<&str>) -> Result<(), String> {
-    let Some(mode) = value.map(str::trim).filter(|mode| !mode.is_empty()) else {
-        return Ok(());
-    };
-    if matches!(mode, "default" | "window" | "top") {
-        Ok(())
-    } else {
-        Err("fw-app.displayMode 必须为 default/window/top".to_string())
     }
 }
 
@@ -1155,7 +1132,12 @@ pub(crate) async fn install_extracted_app_package(
     let package_dir = crate::app_layout::app_package_dir(&app_container);
     let exe_rel = safe_relative_path_no_curdir(&package.manifest.package.windows_executable)?;
     let exe_path = package_dir.join(exe_rel);
-    let record = build_registered_app_record(&package.manifest, &exe_path, existing.as_ref());
+    let record = build_registered_app_record(
+        &package.manifest,
+        &exe_path,
+        &package.tmp_dir,
+        existing.as_ref(),
+    )?;
 
     let created_container = prepare_app_container(&app_container)?;
     let tag = format!("app-package-{app_id}");
@@ -1224,13 +1206,15 @@ fn format_with_cleanup_error(message: String, cleanup: Option<String>) -> String
     }
 }
 
-/// 组装注册记录：只写入注册事实（id、path），并原样保留既有的用户配置。
-/// 清单展示字段由 app_registry 按“读时最新，写时迁移”在读写时统一处理。
+/// 组装注册记录：写入注册事实（id、path）并原样保留既有注册信息。
+/// 首次安装时由应用清单提供名称、图标、命令的默认值写入注册信息；
+/// 后续商店更新只更新注册事实，不覆盖注册信息里用户可编辑的内容。
 fn build_registered_app_record(
     manifest: &AppPackageManifest,
     registry_exe_path: &Path,
+    package_root: &Path,
     existing: Option<&Value>,
-) -> Value {
+) -> Result<Value, String> {
     let mut record = existing
         .and_then(Value::as_object)
         .cloned()
@@ -1243,7 +1227,24 @@ fn build_registered_app_record(
         "path".to_string(),
         Value::String(registry_exe_path.to_string_lossy().to_string()),
     );
-    Value::Object(record)
+
+    if existing.is_none() {
+        // 首次安装：应用侧内容以清单为默认值写入注册信息。
+        record.insert(
+            "name".to_string(),
+            Value::String(manifest.name.trim().to_string()),
+        );
+        let exe_rel = safe_relative_path_no_curdir(&manifest.package.windows_executable)?;
+        let resolve_exe = package_root.join(&exe_rel);
+        let icon = resolve_app_icon(manifest, package_root, &resolve_exe)?;
+        record.insert("icon".to_string(), Value::String(icon));
+        let commands = resolve_app_commands(manifest, package_root)?;
+        let commands = serde_json::to_value(commands)
+            .map_err(|error| format!("序列化宿主快捷命令失败: {error}"))?;
+        record.insert("commands".to_string(), commands);
+    }
+
+    Ok(Value::Object(record))
 }
 
 fn resolve_installed_app_icon(installed: &ResolvedInstalledApp) -> Result<String, String> {
@@ -1586,7 +1587,6 @@ mod tests {
                 "version": "0.1.0",
                 "windowsExecutable": "demo-app.exe",
                 "icon": "D",
-                "displayMode": "window",
                 "commands": [{ "id": "open", "title": "Open" }]
             }"#,
         );
@@ -1599,7 +1599,6 @@ mod tests {
         assert_eq!(info.name, "Demo App");
         assert_eq!(info.version, "0.1.0");
         assert_eq!(info.app_kind, "desktop-app");
-        assert_eq!(info.display_mode, "window");
         assert_eq!(info.icon, "D");
         assert_eq!(info.commands.len(), 1);
         assert_eq!(info.path, exe_path.to_string_lossy());
@@ -1874,6 +1873,85 @@ mod tests {
             StoreAppState::Installed(app) => assert_eq!(app.registry_id, "eucli-box"),
             _ => panic!("应判定为已安装"),
         }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn first_install_seeds_app_content_from_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-seed-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("创建测试目录失败");
+        let manifest = parse_manifest(
+            r#"{
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "Demo App",
+                "version": "0.1.0",
+                "package": { "windowsExecutable": "demo-app.exe", "icon": "D" },
+                "commands": [{ "id": "open", "title": "Open" }]
+            }"#,
+        );
+        let exe_path = root.join("demo-app.exe");
+
+        let record = build_registered_app_record(&manifest, &exe_path, &root, None)
+            .expect("首次安装应组装注册记录");
+
+        assert_eq!(record["id"], "demo-app");
+        assert_eq!(
+            record["path"].as_str(),
+            Some(exe_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(record["name"], "Demo App");
+        assert_eq!(record["icon"], "D");
+        assert_eq!(record["commands"][0]["id"], "open");
+        assert_eq!(record["commands"][0]["title"], "Open");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn update_preserves_registered_app_content() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-preserve-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("创建测试目录失败");
+        let manifest = parse_manifest(
+            r#"{
+                "type": "desktop-app",
+                "id": "demo-app",
+                "name": "New Name",
+                "version": "0.2.0",
+                "package": { "windowsExecutable": "demo-app.exe", "icon": "N" },
+                "commands": [{ "id": "open", "title": "New Open" }]
+            }"#,
+        );
+        let exe_path = root.join("demo-app.exe");
+        let existing = serde_json::json!({
+            "id": "demo-app",
+            "path": "C:/old/demo-app.exe",
+            "name": "用户改名",
+            "icon": "用户图标",
+            "displayMode": "top",
+            "commands": [{ "id": "open", "title": "用户命令" }]
+        });
+
+        let record = build_registered_app_record(&manifest, &exe_path, &root, Some(&existing))
+            .expect("更新应组装注册记录");
+
+        assert_eq!(
+            record["path"].as_str(),
+            Some(exe_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(record["name"], "用户改名");
+        assert_eq!(record["icon"], "用户图标");
+        assert_eq!(record["displayMode"], "top");
+        assert_eq!(record["commands"][0]["title"], "用户命令");
 
         let _ = std::fs::remove_dir_all(&root);
     }

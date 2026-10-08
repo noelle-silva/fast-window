@@ -41,7 +41,6 @@ export interface InstalledAppInfo {
   path: string
   icon: string
   appKind?: AppKind
-  displayMode: AppDisplayMode
   commands: RegisteredAppShortcut[]
 }
 

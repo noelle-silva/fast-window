@@ -175,7 +175,6 @@ export default function AppRegistrationPanel({
         name: info.name,
         path: info.path,
         icon: nextIcon,
-        displayMode: info.displayMode,
         hostShortcuts: info.commands,
         hostShortcutsEdited: true,
         appKind: info.appKind ?? null,

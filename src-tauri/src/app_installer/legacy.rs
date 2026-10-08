@@ -1,14 +1,14 @@
 //! 旧形态已安装清单兼容：一次性迁移通道（未来可删）。
 //!
 //! 早期安装包内的 fw-app.json 是扁平形态：顶层 `windowsExecutable` / `icon` /
-//! `service` / `displayMode` / `commands`，没有 `type` 与 `package` 段。当前宿主只认
+//! `service` / `commands`，没有 `type` 与 `package` 段。当前宿主只认
 //! 新形态，导致这些历史安装包在商店里被误判为未安装。本模块只服务于「已安装历史包」
 //! 的读取路径：把旧形态归一化为当前 `AppPackageManifest` 视图；新包的安装校验完全
 //! 不经过这里。
 //!
 //! 迁移通道边界：
 //! - 基础身份（id、version、入口 exe 路径与文件）必须成立；
-//! - 展示字段（icon / commands / displayMode）与独立服务声明尽力归一化，坏值降级不阻断；
+//! - 展示字段（icon / commands）与独立服务声明尽力归一化，坏值降级不阻断；
 //! - 历史安装全部升级为新形态后，整个模块可直接删除。
 
 use std::path::Path;
@@ -45,8 +45,6 @@ struct LegacyAppPackageManifest {
     icon: Option<String>,
     #[serde(default)]
     service: Option<String>,
-    #[serde(default)]
-    display_mode: Option<String>,
     #[serde(default)]
     commands: Vec<LegacyAppPackageCommand>,
 }
@@ -101,7 +99,6 @@ pub(super) fn parse_legacy_installed_manifest(
             icon: sanitize_icon(legacy.icon.as_deref(), manifest_dir),
         },
         service,
-        display_mode: sanitize_display_mode(legacy.display_mode.as_deref()),
         commands: sanitize_commands(legacy.commands, manifest_dir),
     }))
 }
@@ -172,11 +169,6 @@ fn sanitize_icon(icon: Option<&str>, manifest_dir: &Path) -> Option<String> {
     manifest_dir.join(rel).is_file().then(|| icon.to_string())
 }
 
-fn sanitize_display_mode(mode: Option<&str>) -> Option<String> {
-    let mode = mode.map(str::trim).filter(|mode| !mode.is_empty())?;
-    matches!(mode, "default" | "window" | "top").then(|| mode.to_string())
-}
-
 fn sanitize_commands(
     commands: Vec<LegacyAppPackageCommand>,
     manifest_dir: &Path,
@@ -203,7 +195,6 @@ mod tests {
         "version": "0.1.0",
         "windowsExecutable": "demo-app.exe",
         "icon": "assets/icon.svg",
-        "displayMode": "window",
         "commands": [{ "id": "open", "title": "Open", "icon": "assets/open.svg", "hotkey": "Alt+O" }]
     }"#;
 
@@ -247,7 +238,6 @@ mod tests {
         assert_eq!(manifest.version, "0.1.0");
         assert_eq!(manifest.package.windows_executable, "demo-app.exe");
         assert_eq!(manifest.package.icon.as_deref(), Some("assets/icon.svg"));
-        assert_eq!(manifest.display_mode.as_deref(), Some("window"));
         assert_eq!(manifest.commands.len(), 1);
         assert_eq!(manifest.commands[0].icon.as_deref(), Some("assets/open.svg"));
         assert_eq!(manifest.commands[0].hotkey.as_deref(), Some("Alt+O"));
@@ -264,18 +254,6 @@ mod tests {
 
         assert!(manifest.package.icon.is_none());
         assert!(manifest.commands[0].icon.is_none());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn drops_invalid_display_mode() {
-        let root = test_root("bad-mode");
-        let text = LEGACY_DESKTOP_MANIFEST.replace("\"window\"", "\"fullscreen\"");
-
-        let manifest = parse_manifest(&root, &text);
-
-        assert!(manifest.display_mode.is_none());
 
         let _ = std::fs::remove_dir_all(&root);
     }
