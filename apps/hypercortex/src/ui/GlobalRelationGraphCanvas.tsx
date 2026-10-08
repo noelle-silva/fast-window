@@ -88,16 +88,66 @@ const COLLIDE_RADIUS_PADDING = 4
 const ARROW_HEAD_LENGTH = 14
 const ARROW_HEAD_WIDTH = 10
 
-/** 在 tip 处沿 (dirX, dirY) 方向画一个实心箭头。 */
-function drawArrowHead(ctx: CanvasRenderingContext2D, tipX: number, tipY: number, dirX: number, dirY: number): void {
-  const baseX = tipX - dirX * ARROW_HEAD_LENGTH
-  const baseY = tipY - dirY * ARROW_HEAD_LENGTH
-  const halfX = -dirY * (ARROW_HEAD_WIDTH / 2)
-  const halfY = dirX * (ARROW_HEAD_WIDTH / 2)
+/**
+ * 把一条引用边画成「线体自然收束成箭头」的一体成型形状（单个填充多边形）。
+ * 线体保持 shaftWidth 宽，在带头的一端平滑张成 headWidth 并收束到端点，
+ * 因此是一支完整箭头，而不是「描一条线 + 贴一个三角形」两块拼接。
+ */
+function drawArrowEdge(
+  ctx: CanvasRenderingContext2D,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  shaftWidth: number,
+  headLength: number,
+  headWidth: number,
+  headAtStart: boolean,
+  headAtEnd: boolean,
+): void {
+  const dx = endX - startX
+  const dy = endY - startY
+  const length = Math.hypot(dx, dy)
+  if (length < 1e-3) return
+  const ux = dx / length
+  const uy = dy / length
+  const px = -uy
+  const py = ux
+  const half = shaftWidth / 2
+  const wing = headWidth / 2
+  const head = Math.min(headLength, length * 0.45)
+
+  const startBaseX = startX + ux * head
+  const startBaseY = startY + uy * head
+  const endBaseX = endX - ux * head
+  const endBaseY = endY - uy * head
+
   ctx.beginPath()
-  ctx.moveTo(tipX, tipY)
-  ctx.lineTo(baseX + halfX, baseY + halfY)
-  ctx.lineTo(baseX - halfX, baseY - halfY)
+  if (headAtStart) {
+    // 从 start 端箭头尖起笔，张开左翼，再收到线体左沿。
+    ctx.moveTo(startX, startY)
+    ctx.lineTo(startBaseX + px * wing, startBaseY + py * wing)
+    ctx.lineTo(startBaseX + px * half, startBaseY + py * half)
+  } else {
+    ctx.moveTo(startX + px * half, startY + py * half)
+  }
+  if (headAtEnd) {
+    // 沿线体左沿到 end 端头基，张开左翼，收束到箭头尖，再沿右翼回线体。
+    ctx.lineTo(endBaseX + px * half, endBaseY + py * half)
+    ctx.lineTo(endBaseX + px * wing, endBaseY + py * wing)
+    ctx.lineTo(endX, endY)
+    ctx.lineTo(endBaseX - px * wing, endBaseY - py * wing)
+    ctx.lineTo(endBaseX - px * half, endBaseY - py * half)
+  } else {
+    ctx.lineTo(endX + px * half, endY + py * half)
+    ctx.lineTo(endX - px * half, endY - py * half)
+  }
+  if (headAtStart) {
+    ctx.lineTo(startBaseX - px * half, startBaseY - py * half)
+    ctx.lineTo(startBaseX - px * wing, startBaseY - py * wing)
+  } else {
+    ctx.lineTo(startX - px * half, startY - py * half)
+  }
   ctx.closePath()
   ctx.fill()
 }
@@ -259,8 +309,6 @@ export function GlobalRelationGraphCanvas(props: {
       ctx.translate(transform.x, transform.y)
       ctx.scale(transform.k, transform.k)
 
-      ctx.lineWidth = linkWidth
-      ctx.strokeStyle = edge
       ctx.fillStyle = edge
       for (const link of linksRef.current) {
         const source = link.source as GraphNode
@@ -271,21 +319,20 @@ export function GlobalRelationGraphCanvas(props: {
         const sy = source.y ?? 0
         const tx = target.x ?? 0
         const ty = target.y ?? 0
-        ctx.beginPath()
-        ctx.moveTo(sx, sy)
-        ctx.lineTo(tx, ty)
-        ctx.stroke()
-
-        if (!showArrows) continue
         const dx = tx - sx
         const dy = ty - sy
         const distance = Math.hypot(dx, dy)
-        if (distance < 1) continue
+        if (distance < 1e-3) continue
         const ux = dx / distance
         const uy = dy / distance
-        // 单向引用画一个箭头（指向被引用方）；双向引用两端都画箭头。
-        if (link.targetToSource) drawArrowHead(ctx, sx + ux * source.radius, sy + uy * source.radius, -ux, -uy)
-        if (link.sourceToTarget) drawArrowHead(ctx, tx - ux * target.radius, ty - uy * target.radius, ux, uy)
+        // 单向引用在目标端收束成箭头；双向引用两端都收束。不带头的一端藏进节点，避免端帽露缝。
+        const headAtStart = showArrows && link.targetToSource
+        const headAtEnd = showArrows && link.sourceToTarget
+        const startX = headAtStart ? sx + ux * source.radius : sx
+        const startY = headAtStart ? sy + uy * source.radius : sy
+        const endX = headAtEnd ? tx - ux * target.radius : tx
+        const endY = headAtEnd ? ty - uy * target.radius : ty
+        drawArrowEdge(ctx, startX, startY, endX, endY, linkWidth, ARROW_HEAD_LENGTH, ARROW_HEAD_WIDTH, headAtStart, headAtEnd)
       }
 
       ctx.textBaseline = 'middle'
@@ -296,7 +343,7 @@ export function GlobalRelationGraphCanvas(props: {
         const y = node.y ?? 0
         const isHighlighted = !!highlightId && node.id === highlightId
         const bodyAlpha = dimActive ? (active ? 1 : 0.15) : 1
-        // 关注节点：更强光晕 + 更大 + 提亮填充 + 高对比描边，确保比其余节点更醒目。
+        // 关注节点：更强光晕 + 更大 + 深色加重 + 高对比描边，比其余节点更重、更突出。
         if (isHighlighted) {
           ctx.globalAlpha = dimActive ? (active ? 0.45 : 0.08) : 0.38
           ctx.beginPath()
@@ -310,14 +357,14 @@ export function GlobalRelationGraphCanvas(props: {
         ctx.fillStyle = primary
         ctx.fill()
         if (isHighlighted) {
-          // 叠一层白提亮填充，使关注节点比其余节点更亮。
-          ctx.globalAlpha = bodyAlpha * 0.34
-          ctx.fillStyle = '#ffffff'
+          // 叠一层深色，把关注节点压得更深、更饱和，明显比其余节点更重。
+          ctx.globalAlpha = bodyAlpha * 0.46
+          ctx.fillStyle = '#000000'
           ctx.fill()
           ctx.globalAlpha = bodyAlpha
         }
         ctx.lineWidth = isHighlighted ? 3 : 1.5
-        ctx.strokeStyle = isHighlighted ? '#ffffff' : surface
+        ctx.strokeStyle = surface
         ctx.stroke()
 
         ctx.globalAlpha = dimActive ? (active ? 1 : 0.15) : 0.9

@@ -95,17 +95,19 @@ describe('GlobalRelationGraphCanvas', () => {
     await renderCanvas(graph, false)
 
     expect(container.querySelector('canvas')).not.toBeNull()
-    // 节点数 = arc 调用次数，边数 = moveTo 调用次数（首帧同步绘制）。
+    // 节点数 = arc 调用次数；每条边是一个填充多边形，各一次 moveTo（首帧同步绘制）。
     expect(contextStub.arc).toHaveBeenCalledTimes(3)
     expect(contextStub.moveTo).toHaveBeenCalledTimes(1)
     expect(contextStub.clearRect).toHaveBeenCalled()
   })
 
-  it('单向引用只画一个箭头，双向引用两端都画箭头', async () => {
+  it('引用边画成一体成型的箭头：整条边是单个封闭形状', async () => {
     const oneWay = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] } })
     await renderCanvas(oneWay, true)
-    // 一条连线 + 一个箭头 = 2 次 moveTo。
-    expect(contextStub.moveTo).toHaveBeenCalledTimes(2)
+    // 一条边 = 单个多边形（1 次 moveTo），线体与箭头一体，不再是「线 + 贴片」两块。
+    expect(contextStub.moveTo).toHaveBeenCalledTimes(1)
+    // 单头：moveTo + 6 lineTo（线体两侧 + 箭头两翼与肩部）。
+    expect(contextStub.lineTo).toHaveBeenCalledTimes(6)
 
     act(() => root.unmount())
     contextStub = createContextStub()
@@ -113,11 +115,12 @@ describe('GlobalRelationGraphCanvas', () => {
 
     const twoWay = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] }, b: { f1: [{ noteId: 'a' }] } })
     await renderCanvas(twoWay, true)
-    // 一条连线 + 两端箭头 = 3 次 moveTo。
-    expect(contextStub.moveTo).toHaveBeenCalledTimes(3)
+    // 双头仍是一条边一个多边形：moveTo + 9 lineTo。
+    expect(contextStub.moveTo).toHaveBeenCalledTimes(1)
+    expect(contextStub.lineTo).toHaveBeenCalledTimes(9)
   })
 
-  it('关注节点更醒目：更大半径 + 提亮填充，其余节点保持常规', async () => {
+  it('关注节点更醒目：更大半径 + 深色加重，其余节点保持常规', async () => {
     const graph = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] } })
     const fills: string[] = []
     const arcs: number[] = []
@@ -126,14 +129,14 @@ describe('GlobalRelationGraphCanvas', () => {
 
     await renderCanvas(graph, false, 'a')
 
-    // 关注节点叠加白色提亮层（其余节点没有），整体更亮。
-    expect(fills).toContain('#ffffff')
+    // 关注节点叠加深色层（其余节点没有），整体更深、更重。
+    expect(fills).toContain('#000000')
     // 关注节点本体半径放大到 13+3=16，外圈光晕到 13+9=22。
     expect(arcs).toContain(16)
     expect(arcs).toContain(22)
   })
 
-  it('未指定关注节点时不做提亮、不放大', async () => {
+  it('未指定关注节点时不做加重、不放大', async () => {
     const graph = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] } })
     const fills: string[] = []
     const arcs: number[] = []
@@ -142,7 +145,7 @@ describe('GlobalRelationGraphCanvas', () => {
 
     await renderCanvas(graph, false)
 
-    expect(fills).not.toContain('#ffffff')
+    expect(fills).not.toContain('#000000')
     expect(arcs).not.toContain(16)
     expect(arcs).not.toContain(22)
   })

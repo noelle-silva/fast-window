@@ -118,7 +118,6 @@ export function NoteLocalRelationGraphDialog(props: NoteLocalRelationGraphDialog
             position: 'relative',
             flex: 1,
             minHeight: 0,
-            border: '1px solid var(--hc-text-subtle)',
             borderRadius: 2,
             overflow: 'hidden',
             bgcolor: 'var(--hc-surface)',
