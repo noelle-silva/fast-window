@@ -42,8 +42,6 @@ struct AppPackageManifest {
     #[serde(default)]
     service: Option<ServiceDeclaration>,
     #[serde(default)]
-    display_mode: Option<String>,
-    #[serde(default)]
     commands: Vec<AppPackageCommand>,
 }
 
@@ -180,7 +178,6 @@ pub(crate) struct InstalledAppInfo {
     path: String,
     icon: String,
     app_kind: String,
-    display_mode: String,
     commands: Vec<AppPackageCommand>,
 }
 
@@ -553,14 +550,6 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
         path: installed.exe_path.to_string_lossy().to_string(),
         icon: resolve_installed_app_icon(installed)?,
         app_kind: installed.manifest.app_type.as_str().to_string(),
-        display_mode: installed
-            .manifest
-            .display_mode
-            .as_deref()
-            .map(str::trim)
-            .filter(|mode| !mode.is_empty())
-            .unwrap_or("default")
-            .to_string(),
         commands: resolve_app_commands(&installed.manifest, &installed.manifest_dir)?,
     })
 }
@@ -855,7 +844,6 @@ fn validate_package_manifest(
     {
         return Err("fw-app.package.windowsExecutable 必须指向 .exe 文件".to_string());
     }
-    validate_display_mode(manifest.display_mode.as_deref())?;
     validate_icon(manifest.package.icon.as_deref(), "fw-app.package.icon")?;
     validate_app_type_consistency(manifest)?;
     validate_commands(&manifest.commands)?;
@@ -868,17 +856,6 @@ fn validate_app_type_consistency(manifest: &AppPackageManifest) -> Result<(), St
         (true, false) => Err("fw-app.type 为 service-app 时必须提供 service 段".to_string()),
         (false, true) => Err("fw-app.type 为 desktop-app 时不允许提供 service 段".to_string()),
         _ => Ok(()),
-    }
-}
-
-fn validate_display_mode(value: Option<&str>) -> Result<(), String> {
-    let Some(mode) = value.map(str::trim).filter(|mode| !mode.is_empty()) else {
-        return Ok(());
-    };
-    if matches!(mode, "default" | "window" | "top") {
-        Ok(())
-    } else {
-        Err("fw-app.displayMode 必须为 default/window/top".to_string())
     }
 }
 
@@ -1103,8 +1080,8 @@ fn format_with_cleanup_error(message: String, cleanup: Option<String>) -> String
     }
 }
 
-/// 组装注册记录：只写入注册事实（id、path），并原样保留既有的用户配置。
-/// 清单展示字段由 app_registry 按“读时最新，写时迁移”在读写时统一处理。
+/// 组装注册记录：写入注册事实（id、path），并保留既有宿主配置。
+/// 应用内容（名字、图标、命令）不落盘，读取时实时来自应用清单。
 fn build_registered_app_record(
     manifest: &AppPackageManifest,
     registry_exe_path: &Path,
@@ -1478,7 +1455,6 @@ mod tests {
         assert_eq!(info.name, "Demo App");
         assert_eq!(info.version, "0.1.0");
         assert_eq!(info.app_kind, "desktop-app");
-        assert_eq!(info.display_mode, "window");
         assert_eq!(info.icon, "D");
         assert_eq!(info.commands.len(), 1);
         assert_eq!(info.path, exe_path.to_string_lossy());

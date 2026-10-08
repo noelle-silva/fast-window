@@ -1,9 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppDisplayMode, AppKind, InstalledAppInfo } from './types'
-
-function normalizeDisplayMode(value: string): AppDisplayMode {
-  return value === 'window' || value === 'top' ? value : 'default'
-}
+import type { AppKind, InstalledAppInfo } from './types'
 
 function normalizeAppKind(value: AppKind | undefined): AppKind {
   return value === 'service-app' ? 'service-app' : 'desktop-app'
@@ -23,7 +19,6 @@ function normalizeInstalledAppInfo(info: InstalledAppInfo): InstalledAppInfo {
   return {
     ...info,
     appKind: normalizeAppKind(info.appKind),
-    displayMode: normalizeDisplayMode(info.displayMode),
     commands: Array.isArray(info.commands) ? info.commands : [],
   }
 }

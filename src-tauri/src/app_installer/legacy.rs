@@ -8,7 +8,7 @@
 //!
 //! 迁移通道边界：
 //! - 基础身份（id、version、入口 exe 路径与文件）必须成立；
-//! - 展示字段（icon / commands / displayMode）与独立服务声明尽力归一化，坏值降级不阻断；
+//! - 展示字段（icon / commands）与独立服务声明尽力归一化，坏值降级不阻断；
 //! - 历史安装全部升级为新形态后，整个模块可直接删除。
 
 use std::path::Path;
@@ -45,8 +45,6 @@ struct LegacyAppPackageManifest {
     icon: Option<String>,
     #[serde(default)]
     service: Option<String>,
-    #[serde(default)]
-    display_mode: Option<String>,
     #[serde(default)]
     commands: Vec<LegacyAppPackageCommand>,
 }
@@ -101,7 +99,6 @@ pub(super) fn parse_legacy_installed_manifest(
             icon: sanitize_icon(legacy.icon.as_deref(), manifest_dir),
         },
         service,
-        display_mode: sanitize_display_mode(legacy.display_mode.as_deref()),
         commands: sanitize_commands(legacy.commands, manifest_dir),
     }))
 }
@@ -170,11 +167,6 @@ fn sanitize_icon(icon: Option<&str>, manifest_dir: &Path) -> Option<String> {
     }
     let rel = safe_relative_path_no_curdir(icon).ok()?;
     manifest_dir.join(rel).is_file().then(|| icon.to_string())
-}
-
-fn sanitize_display_mode(mode: Option<&str>) -> Option<String> {
-    let mode = mode.map(str::trim).filter(|mode| !mode.is_empty())?;
-    matches!(mode, "default" | "window" | "top").then(|| mode.to_string())
 }
 
 fn sanitize_commands(
@@ -247,7 +239,6 @@ mod tests {
         assert_eq!(manifest.version, "0.1.0");
         assert_eq!(manifest.package.windows_executable, "demo-app.exe");
         assert_eq!(manifest.package.icon.as_deref(), Some("assets/icon.svg"));
-        assert_eq!(manifest.display_mode.as_deref(), Some("window"));
         assert_eq!(manifest.commands.len(), 1);
         assert_eq!(manifest.commands[0].icon.as_deref(), Some("assets/open.svg"));
         assert_eq!(manifest.commands[0].hotkey.as_deref(), Some("Alt+O"));
@@ -264,18 +255,6 @@ mod tests {
 
         assert!(manifest.package.icon.is_none());
         assert!(manifest.commands[0].icon.is_none());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn drops_invalid_display_mode() {
-        let root = test_root("bad-mode");
-        let text = LEGACY_DESKTOP_MANIFEST.replace("\"window\"", "\"fullscreen\"");
-
-        let manifest = parse_manifest(&root, &text);
-
-        assert!(manifest.display_mode.is_none());
 
         let _ = std::fs::remove_dir_all(&root);
     }
