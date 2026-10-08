@@ -404,7 +404,7 @@ function readSourceManifest(file) {
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('解析应用清单失败：顶层必须是 JSON 对象')
   }
-  for (const field of ['type', 'id', 'name', 'description', 'versionSource']) {
+  for (const field of ['type', 'id', 'name', 'description', 'versionSource', 'displayMode']) {
     if (manifest[field] !== undefined && typeof manifest[field] !== 'string') {
       throw new Error(`应用清单 ${field} 必须是字符串`)
     }
@@ -527,6 +527,9 @@ function writeStoreManifest(packageRoot, manifest, facts) {
   }
   if (manifest.service !== undefined && manifest.service !== null) {
     storeManifest.service = manifest.service
+  }
+  if (typeof manifest.displayMode === 'string' && manifest.displayMode !== '') {
+    storeManifest.displayMode = manifest.displayMode
   }
   const commands = normalizeCommands(manifest.commands)
   if (commands.length > 0) {

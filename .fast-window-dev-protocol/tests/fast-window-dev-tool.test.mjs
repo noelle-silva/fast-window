@@ -223,6 +223,7 @@ function createStoreFixture() {
           ready: { type: 'log', match: 'is ready' },
           stop: { type: 'terminate' },
         },
+        displayMode: 'default',
         commands: [{ id: 'open', title: '打开' }],
       },
       null,
@@ -286,6 +287,7 @@ test('storePackage 布尔形态把基础成品包加工成可安装商店包', t
     ready: { type: 'log', match: 'is ready' },
     stop: { type: 'terminate' },
   })
+  assert.equal(manifest.displayMode, 'default')
   assert.deepEqual(manifest.commands, [{ id: 'open', title: '打开' }])
   assert.equal(manifest.versionSource, undefined)
   assert.equal(existsSync(path.join(inspectDir, 'sample-app.exe')), true)
@@ -427,6 +429,7 @@ function createReleaseFixture() {
       description: '样例应用',
       versionSource: 'release.json',
       package: { windowsExecutable: 'sample-app.exe', icon: 'icon.svg' },
+      displayMode: 'default',
       commands: [],
     })}\n`,
     'utf8',

@@ -8,6 +8,7 @@
     "windowsExecutable": "v5-reference-app-go.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-reference",

@@ -485,6 +485,19 @@ function App() {
     return registeredAppFromListItem(registeredApps, plugin.id)
   }, [registeredApps])
 
+  const updateRegisteredAppShortcut = useCallback(async (
+    app: RegisteredApp,
+    shortcutId: string,
+    updateShortcut: (shortcut: RegisteredAppShortcut) => RegisteredAppShortcut,
+  ) => {
+    const shortcutExists = app.commands.some(shortcut => shortcut.id === shortcutId)
+    if (!shortcutExists) return false
+    await updateRegisteredApp(app.id, {
+      commands: app.commands.map(shortcut => shortcut.id === shortcutId ? updateShortcut(shortcut) : shortcut),
+    })
+    return true
+  }, [updateRegisteredApp])
+
   const appDetail = useMemo(() => {
     if (!appDetailId) return null
     return registeredApps.find(app => app.id === appDetailId) ?? null
@@ -515,16 +528,24 @@ function App() {
       const dataUrl = await readIconImageDataUrl(source)
       if (!dataUrl) return
       const selection = parseRegisteredAppListItemId(plugin.id)
+      if (selection.type === 'appShortcut') {
+        const updated = await updateRegisteredAppShortcut(app, selection.shortcutId, shortcut => ({ ...shortcut, icon: dataUrl }))
+        showToast(updated ? '快捷入口图标已更新' : '快捷入口不存在，未更改图标')
+        return
+      }
       if (selection.type === 'appCapability') {
         await updateAppCapabilitySelection(app.id, selection.capabilityId, { icon: dataUrl })
         showToast('能力图标已更新')
+        return
       }
+      await updateRegisteredApp(app.id, { icon: dataUrl })
+      showToast('应用图标已更新')
     } catch (error: any) {
       console.error('Failed to change registered app icon:', error)
       const msg = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
       showToast(msg ? `更改图标失败：${msg}` : '更改图标失败')
     }
-  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateAppCapabilitySelection])
+  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateAppCapabilitySelection, updateRegisteredApp, updateRegisteredAppShortcut])
 
   const resetMenuItemIcon = useCallback(async () => {
     const plugin = pluginMenu?.plugin
@@ -537,15 +558,41 @@ function App() {
 
     try {
       const selection = parseRegisteredAppListItemId(plugin.id)
+      if (selection.type === 'appShortcut') {
+        const updated = await updateRegisteredAppShortcut(app, selection.shortcutId, shortcut => {
+          const { icon: _icon, ...nextShortcut } = shortcut
+          return nextShortcut
+        })
+        showToast(updated ? '快捷入口图标已恢复为跟随应用' : '快捷入口不存在，未恢复图标')
+        return
+      }
       if (selection.type === 'appCapability') {
         await updateAppCapabilitySelection(app.id, selection.capabilityId, { icon: undefined })
         showToast('能力图标已恢复为跟随应用')
+        return
       }
+      const icon = await invoke<string>('app_icon_data_url', { exePath: app.path }).catch(() => '')
+      await updateRegisteredApp(app.id, { icon })
+      showToast('应用图标已恢复默认')
     } catch (error: any) {
       console.error('Failed to reset registered app icon:', error)
       showToast('恢复默认图标失败（详情见控制台）')
     }
-  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateAppCapabilitySelection])
+  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateAppCapabilitySelection, updateRegisteredApp, updateRegisteredAppShortcut])
+
+  const removeRegisteredAppShortcutFromMenu = useCallback(async (app: RegisteredApp, shortcutId: string) => {
+    const shortcut = app.commands.find(command => command.id === shortcutId)
+    if (!shortcut) return
+
+    try {
+      await updateRegisteredApp(app.id, {
+        commands: app.commands.filter(command => command.id !== shortcutId),
+      })
+      showToast(`已从主页移除快捷入口：${shortcut.title}`)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '移除快捷入口失败'))
+    }
+  }, [showToast, updateRegisteredApp])
 
   const removeRegisteredAppCapabilityFromMenu = useCallback(async (app: RegisteredApp, capabilityId: string) => {
     try {
@@ -637,11 +684,14 @@ function App() {
     const detailAction: ContextMenuAction = app
       ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
       : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
+    const selectedShortcut = app && selection.type === 'appShortcut'
+      ? app.commands.find(shortcut => shortcut.id === selection.shortcutId)
+      : null
     const selectedCapability = selection.type === 'appCapability'
       ? appCapabilitySelections.find(item => item.appId === selection.appId && item.capabilityId === selection.capabilityId) ?? null
       : null
-    const selectedEntryIcon = selectedCapability?.icon
-    const selectedEntryUsesAppIcon = selection.type === 'appCapability'
+    const selectedEntryIcon = selectedShortcut?.icon ?? selectedCapability?.icon
+    const selectedEntryUsesAppIcon = selection.type === 'appShortcut' || selection.type === 'appCapability'
     const iconAction = buildIconContextMenuAction({
       chooseImage: () => void changeMenuItemIcon('file'),
       pasteImage: () => void changeMenuItemIcon('clipboard'),
@@ -649,14 +699,22 @@ function App() {
       resetDefaultLabel: selectedEntryUsesAppIcon ? '恢复为跟随 App 图标' : undefined,
       resetDefaultDisabled: selectedEntryUsesAppIcon ? !selectedEntryIcon : undefined,
     })
-    // 应用与应用内容（图标、命令）由应用清单提供，宿主不提供图标编辑入口。
-    const showsIconAction = !app || selection.type === 'appCapability'
-    const commonActions: ContextMenuAction[] = showsIconAction
-      ? [detailAction, iconAction]
-      : [detailAction]
+    const commonActions: ContextMenuAction[] = [
+      detailAction,
+      iconAction,
+    ]
 
     if (app) {
-      const entryActions: ContextMenuAction[] = selection.type === 'appCapability'
+      const entryActions: ContextMenuAction[] = selection.type === 'appShortcut'
+        ? [
+          {
+            id: 'remove-app-shortcut-entry',
+            label: '从主页移除此快捷入口',
+            color: 'error',
+            onSelect: () => void removeRegisteredAppShortcutFromMenu(app, selection.shortcutId),
+          },
+        ]
+        : selection.type === 'appCapability'
         ? [
           {
             id: 'remove-app-capability-entry',
@@ -693,7 +751,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [appCapabilitySelections, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, removeRegisteredAppCapabilityFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, uninstallingPluginId])
+  }, [appCapabilitySelections, changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, removeRegisteredAppCapabilityFromMenu, removeRegisteredAppShortcutFromMenu, requestAppRegistrationEdit, requestPluginUninstall, resetMenuItemIcon, restartRegisteredAppFromMenu, uninstallingPluginId])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

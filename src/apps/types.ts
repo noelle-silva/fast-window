@@ -41,6 +41,7 @@ export interface InstalledAppInfo {
   path: string
   icon: string
   appKind?: AppKind
+  displayMode: AppDisplayMode
   commands: RegisteredAppShortcut[]
 }
 
@@ -67,12 +68,7 @@ export interface AppRegistrationEditRequest {
   requestId: number
 }
 
-export type RegisteredAppUpdatePatch = Partial<
-  Pick<
-    RegisteredApp,
-    'path' | 'displayMode' | 'autoStart' | 'windowWidth' | 'windowHeight' | 'windowX' | 'windowY'
-  >
-> & {
+export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey' | 'hotkeyLaunchBehavior'>> & {
   hotkey?: string | null
   hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior | null
 }

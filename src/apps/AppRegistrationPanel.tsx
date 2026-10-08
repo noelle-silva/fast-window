@@ -13,11 +13,13 @@ import type { AppServiceInfo } from './appServiceInfo'
 import AppCardView from './AppCardView'
 import AppRegistrationEditor, { emptyAppRegistrationDraft, type AppRegistrationDraft } from './AppRegistrationEditor'
 import { getAppStatus } from './appLauncher'
+import { listAppHostShortcuts } from './appHostShortcuts'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { inspectInstalledApp } from './installedAppInfo'
 import { loadAppServiceInfo } from './appServiceInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
+import { readIconImageDataUrl, type IconImageSource } from '../iconImageInput'
 import { hostButtonSx, hostDangerButtonSx, hostHiddenScrollbarSx, hostSoftChipSx, hostSurfaceSx } from '../components/hostUiStyles'
 import { useHostAppearance } from '../components/hostAppearance'
 
@@ -38,6 +40,20 @@ type RemoveConfirmState = {
   step: RemoveConfirmStep
 } | null
 
+type HostShortcutReadConfirmState = {
+  app: RegisteredApp
+  message: string
+} | null
+
+async function readAppIcon(path: string) {
+  try {
+    return await invoke<string>('app_icon_data_url', { exePath: path })
+  } catch (error) {
+    console.warn('[app] failed to read app icon:', error)
+    return ''
+  }
+}
+
 export default function AppRegistrationPanel({
   apps,
   onAdd,
@@ -53,9 +69,12 @@ export default function AppRegistrationPanel({
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pickingPath, setPickingPath] = useState(false)
+  const [iconChanging, setIconChanging] = useState(false)
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
+  const [readingHostShortcuts, setReadingHostShortcuts] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
+  const [hostShortcutReadConfirm, setHostShortcutReadConfirm] = useState<HostShortcutReadConfirmState>(null)
   const [detailMenuAnchorEl, setDetailMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [serviceInfo, setServiceInfo] = useState<AppServiceInfo | null>(null)
   const [serviceInfoLoading, setServiceInfoLoading] = useState(false)
@@ -101,16 +120,22 @@ export default function AppRegistrationPanel({
 
   const selectApp = (app: RegisteredApp) => {
     setHotkeyRecording(false)
+    setHostShortcutReadConfirm(null)
     setPickingPath(false)
+    setIconChanging(false)
     setCreating(false)
     setSelectedAppId(app.id)
     setDraft({
       name: app.name,
       path: app.path,
+      icon: app.icon || '',
       hotkey: app.hotkey ?? '',
       hotkeyLaunchBehavior: app.hotkeyLaunchBehavior ?? 'launch',
       displayMode: app.displayMode,
       autoStart: app.autoStart,
+      hostShortcuts: Array.isArray(app.commands) ? app.commands : [],
+      hostShortcutsEdited: false,
+      hostShortcutCandidates: null,
       appKind: app.appKind ?? null,
     })
     closeDetailMenu()
@@ -119,7 +144,9 @@ export default function AppRegistrationPanel({
 
   const openAdd = () => {
     setHotkeyRecording(false)
+    setHostShortcutReadConfirm(null)
     setPickingPath(false)
+    setIconChanging(false)
     setCreating(true)
     setSelectedAppId(null)
     setDraft(emptyAppRegistrationDraft())
@@ -143,9 +170,14 @@ export default function AppRegistrationPanel({
       const picked = await invoke<string | null>('host_dialog_pick_app_executable')
       if (!picked) return
       const info = await inspectInstalledApp(picked)
+      const nextIcon = info.icon || await readAppIcon(info.path)
       updateDraft({
         name: info.name,
         path: info.path,
+        icon: nextIcon,
+        displayMode: info.displayMode,
+        hostShortcuts: info.commands,
+        hostShortcutsEdited: true,
         appKind: info.appKind ?? null,
       })
       void refreshServiceInfo(info.path)
@@ -153,6 +185,114 @@ export default function AppRegistrationPanel({
       await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
     } finally {
       setPickingPath(false)
+    }
+  }
+
+  const normalizedHostShortcuts = () => draft.hostShortcuts
+    .map(shortcut => ({
+      ...shortcut,
+      id: shortcut.id.trim(),
+      title: shortcut.title.trim(),
+      icon: shortcut.icon?.trim() || undefined,
+      hotkey: shortcut.hotkey?.trim() || undefined,
+    }))
+    .filter(shortcut => shortcut.id && shortcut.title)
+
+  const currentAppForHostShortcutRead = async (): Promise<RegisteredApp | null> => {
+    const p = draft.path.trim()
+    if (!p) {
+      await hostToast('请先选择可执行文件')
+      return null
+    }
+
+    const info = await inspectInstalledApp(p)
+    const existingApp = selectedApp
+    return {
+      id: info.id,
+      name: draft.name.trim() || info.name,
+      icon: draft.icon || info.icon || await readAppIcon(info.path) || '',
+      path: info.path,
+      hotkey: draft.hotkey.trim() || undefined,
+      hotkeyLaunchBehavior: draft.hotkey.trim() ? draft.hotkeyLaunchBehavior : undefined,
+      displayMode: draft.displayMode,
+      commands: normalizedHostShortcuts(),
+      autoStart: draft.autoStart,
+      windowWidth: existingApp?.windowWidth,
+      windowHeight: existingApp?.windowHeight,
+      windowX: existingApp?.windowX,
+      windowY: existingApp?.windowY,
+    }
+  }
+
+  const applyReadHostShortcuts = async (app: RegisteredApp, launchPolicy: 'runningOnly' | 'allowLaunch') => {
+    setReadingHostShortcuts(true)
+    try {
+      const result = await listAppHostShortcuts([app], { launchPolicy })
+      const hit = result.apps.find(item => item.appId === app.id)
+      if (hit) {
+        const hostShortcuts = Array.isArray(hit.hostShortcuts) ? hit.hostShortcuts : []
+        updateDraft({ hostShortcutCandidates: hostShortcuts })
+        await hostToast(hostShortcuts.length ? `已读取 ${hostShortcuts.length} 个宿主快捷命令，可在搜索框中挑选` : '这个 App 当前没有返回宿主快捷命令')
+        return
+      }
+
+      const error = result.errors.find(item => item.appId === app.id)
+      if (error?.canLaunch && launchPolicy === 'runningOnly') {
+        setHostShortcutReadConfirm({ app, message: error.message || 'App 未运行，是否启动后读取宿主快捷命令？' })
+        return
+      }
+      await hostToast(error?.message || '读取宿主快捷命令失败')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '读取宿主快捷命令失败'))
+    } finally {
+      setReadingHostShortcuts(false)
+    }
+  }
+
+  const readHostShortcuts = async () => {
+    const app = await currentAppForHostShortcutRead()
+    if (!app) return
+    await applyReadHostShortcuts(app, 'runningOnly')
+  }
+
+  const confirmLaunchAndReadHostShortcuts = async () => {
+    const app = hostShortcutReadConfirm?.app
+    if (!app) return
+    setHostShortcutReadConfirm(null)
+    await applyReadHostShortcuts(app, 'allowLaunch')
+  }
+
+  const changeIcon = async (source: IconImageSource) => {
+    setIconChanging(true)
+    try {
+      const dataUrl = await readIconImageDataUrl(source)
+      if (!dataUrl) return
+      updateDraft({ icon: dataUrl })
+      await hostToast('图标已更新，保存后生效')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '更改图标失败'))
+    } finally {
+      setIconChanging(false)
+    }
+  }
+
+  const resetIconToDefault = async () => {
+    const p = draft.path.trim()
+    if (!p) {
+      await hostToast('请先选择可执行文件')
+      return
+    }
+
+    setIconChanging(true)
+    try {
+      const info = await inspectInstalledApp(p)
+      const defaultIcon = info.icon || await readAppIcon(info.path)
+      updateDraft({ path: info.path, icon: defaultIcon || '' })
+      await hostToast('已恢复默认图标，保存后生效')
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '恢复默认图标失败'))
+    } finally {
+      setIconChanging(false)
     }
   }
 
@@ -234,24 +374,29 @@ export default function AppRegistrationPanel({
   }
 
   const save = async () => {
+    const n = draft.name.trim()
     const p = draft.path.trim()
     if (!p) return
 
     setSaving(true)
     try {
       const info = await inspectInstalledApp(p)
+      const nextName = n || info.name
       const existingApp = selectedApp
+      const nextIcon = draft.icon || info.icon || await readAppIcon(info.path) || ''
       const nextHotkey = draft.hotkey.trim()
       const nextHotkeyLaunchBehavior = nextHotkey ? draft.hotkeyLaunchBehavior : undefined
+      const nextHostShortcuts = normalizedHostShortcuts()
+      const hostShortcutsToSave = draft.hostShortcutsEdited ? nextHostShortcuts : (existingApp?.commands ?? info.commands)
       const nextApp: RegisteredApp = {
         id: info.id,
-        name: info.name,
-        icon: info.icon,
+        name: nextName,
+        icon: nextIcon,
         path: info.path,
         hotkey: nextHotkey || undefined,
         hotkeyLaunchBehavior: nextHotkeyLaunchBehavior,
         displayMode: draft.displayMode,
-        commands: info.commands,
+        commands: hostShortcutsToSave,
         autoStart: draft.autoStart,
         windowWidth: existingApp?.windowWidth,
         windowHeight: existingApp?.windowHeight,
@@ -262,11 +407,14 @@ export default function AppRegistrationPanel({
       if (selectedAppId) {
         if (selectedAppId === info.id) {
           await onUpdate(selectedAppId, {
+            name: nextApp.name,
             path: nextApp.path,
+            icon: nextIcon,
             hotkey: nextHotkey || null,
             hotkeyLaunchBehavior: nextHotkeyLaunchBehavior ?? null,
             displayMode: draft.displayMode,
             autoStart: draft.autoStart,
+            commands: hostShortcutsToSave,
           })
         } else {
           await onReplace(selectedAppId, nextApp)
@@ -398,14 +546,19 @@ export default function AppRegistrationPanel({
                   draft={draft}
                   saving={saving}
                   pickingPath={pickingPath}
+                  iconChanging={iconChanging}
                   hotkeyRecording={hotkeyRecording}
+                  readingHostShortcuts={readingHostShortcuts}
                   serviceInfo={serviceInfo}
                   serviceInfoLoading={serviceInfoLoading}
                   serviceInfoError={serviceInfoError}
                   onDraftChange={updateDraft}
                   onPickPath={() => void pickExecutablePath()}
+                  onIconChange={source => void changeIcon(source)}
+                  onIconReset={() => void resetIconToDefault()}
                   onStartHotkeyRecording={startHotkeyRecording}
                   onCancelHotkeyRecording={cancelHotkeyRecording}
+                  onReadHostShortcuts={() => void readHostShortcuts()}
                   onServiceInfoSaved={() => void refreshServiceInfo(draft.path.trim())}
                 />
               </Box>
@@ -442,6 +595,21 @@ export default function AppRegistrationPanel({
             sx={hostDangerButtonSx}
           >
             {removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!hostShortcutReadConfirm} onClose={() => !readingHostShortcuts && setHostShortcutReadConfirm(null)} fullWidth maxWidth="xs">
+        <DialogTitle>启动并读取宿主快捷命令</DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography variant="body2" color="text.secondary">
+            {hostShortcutReadConfirm?.message || 'App 未运行，是否启动后读取宿主快捷命令？'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={readingHostShortcuts} onClick={() => setHostShortcutReadConfirm(null)}>取消</Button>
+          <Button disabled={readingHostShortcuts} variant="contained" onClick={() => void confirmLaunchAndReadHostShortcuts()} sx={hostButtonSx}>
+            启动并读取
           </Button>
         </DialogActions>
       </Dialog>

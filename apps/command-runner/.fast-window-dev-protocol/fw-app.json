@@ -8,6 +8,7 @@
     "windowsExecutable": "command-runner.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-command-runner",

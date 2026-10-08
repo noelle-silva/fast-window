@@ -8,6 +8,7 @@
     "windowsExecutable": "quick-bar.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-settings",

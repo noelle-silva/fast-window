@@ -8,5 +8,6 @@
     "windowsExecutable": "webview.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": []
 }

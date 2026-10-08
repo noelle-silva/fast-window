@@ -8,6 +8,7 @@
     "windowsExecutable": "ai-once.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-settings",

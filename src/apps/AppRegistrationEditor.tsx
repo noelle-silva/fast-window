@@ -3,23 +3,26 @@ import {
   Box, Button, FormControlLabel, Stack, Switch, TextField,
   ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material'
-import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppKind } from './types'
+import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppKind, RegisteredAppShortcut } from './types'
 import type { AppServiceInfo } from './appServiceInfo'
+import type { IconImageSource } from '../iconImageInput'
+import AppHostShortcutEditor from './AppHostShortcutEditor'
+import AppIconEditor from './AppIconEditor'
 import AppServiceInfoPanel from './AppServiceInfoPanel'
 import { hostButtonSx, hostSurfaceSx, hostTextFieldSx, hostToggleGroupSx } from '../components/hostUiStyles'
 import { useHostAppearance } from '../components/hostAppearance'
 
-/**
- * 注册草稿只承载宿主侧配置（路径、窗口模式、快捷键、自启）。
- * 应用内容（名字、图标、命令）由应用清单提供，这里仅只读展示名字。
- */
 export type AppRegistrationDraft = {
   name: string
   path: string
+  icon: string
   hotkey: string
   hotkeyLaunchBehavior: AppHotkeyLaunchBehavior
   displayMode: AppDisplayMode
   autoStart: boolean
+  hostShortcuts: RegisteredAppShortcut[]
+  hostShortcutsEdited: boolean
+  hostShortcutCandidates: RegisteredAppShortcut[] | null
   appKind: AppKind | null
 }
 
@@ -27,10 +30,14 @@ export function emptyAppRegistrationDraft(): AppRegistrationDraft {
   return {
     name: '',
     path: '',
+    icon: '',
     hotkey: '',
     hotkeyLaunchBehavior: 'launch',
     displayMode: 'default',
     autoStart: false,
+    hostShortcuts: [],
+    hostShortcutsEdited: false,
+    hostShortcutCandidates: null,
     appKind: null,
   }
 }
@@ -39,14 +46,19 @@ type AppRegistrationEditorProps = {
   draft: AppRegistrationDraft
   saving: boolean
   pickingPath: boolean
+  iconChanging: boolean
   hotkeyRecording: boolean
+  readingHostShortcuts: boolean
   serviceInfo: AppServiceInfo | null
   serviceInfoLoading: boolean
   serviceInfoError: string | null
   onDraftChange: (patch: Partial<AppRegistrationDraft>) => void
   onPickPath: () => void
+  onIconChange: (source: IconImageSource) => void
+  onIconReset: () => void
   onStartHotkeyRecording: () => void
   onCancelHotkeyRecording: () => void
+  onReadHostShortcuts: () => void
   onServiceInfoSaved: () => void
 }
 
@@ -81,14 +93,19 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
     draft,
     saving,
     pickingPath,
+    iconChanging,
     hotkeyRecording,
+    readingHostShortcuts,
     serviceInfo,
     serviceInfoLoading,
     serviceInfoError,
     onDraftChange,
     onPickPath,
+    onIconChange,
+    onIconReset,
     onStartHotkeyRecording,
     onCancelHotkeyRecording,
+    onReadHostShortcuts,
     onServiceInfoSaved,
   } = props
 
@@ -118,13 +135,13 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <EditorSection title="应用信息" description="名称与图标由应用清单提供，这里只登记启动路径。">
+      <EditorSection title="应用信息" description="名称用于主页与列表展示，路径指向要启动的可执行文件。">
         <TextField
           label="名称"
           value={draft.name}
+          onChange={e => onDraftChange({ name: e.target.value })}
           size="small"
           fullWidth
-          InputProps={{ readOnly: true }}
           sx={hostTextFieldSx}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -147,6 +164,16 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
           </Button>
         </Box>
       </EditorSection>
+
+      <AppIconEditor
+        name={draft.name}
+        icon={draft.icon}
+        saving={saving}
+        changing={iconChanging}
+        canReset={!!draft.path.trim()}
+        onChange={onIconChange}
+        onResetDefault={onIconReset}
+      />
 
       {showServiceInfo ? (
         <>
@@ -226,6 +253,20 @@ export default function AppRegistrationEditor(props: AppRegistrationEditorProps)
               </ToggleButtonGroup>
             </Box>
             {autoStartField}
+          </EditorSection>
+
+          <EditorSection title="宿主快捷命令" description="宿主快捷命令会出现在主页搜索列表里，用于快速打开应用内部页面或动作。这里不展示 App 能力 API。">
+            <AppHostShortcutEditor
+              shortcuts={draft.hostShortcuts}
+              candidateShortcuts={draft.hostShortcutCandidates}
+              appIcon={draft.icon}
+              appName={draft.name}
+              disabled={saving}
+              readingHostShortcuts={readingHostShortcuts}
+              canReadHostShortcuts={!!draft.path.trim()}
+              onReadHostShortcuts={onReadHostShortcuts}
+              onChange={nextShortcuts => onDraftChange({ hostShortcuts: nextShortcuts, hostShortcutsEdited: true })}
+            />
           </EditorSection>
         </>
       )}

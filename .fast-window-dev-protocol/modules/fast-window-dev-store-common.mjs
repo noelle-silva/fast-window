@@ -7,6 +7,7 @@ export const manifestFileName = 'fw-app.json'
 export const appTypes = new Set(['desktop-app', 'service-app'])
 export const catalogIconMaxDataUrlLength = 200000
 export const safeIDPattern = /^[A-Za-z0-9_-]+$/
+export const displayModes = new Set(['default', 'window', 'top'])
 export const iconMimeByExtension = new Map([
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
@@ -41,6 +42,10 @@ export function manifestFacts(manifest) {
   if (description === '') {
     throw new Error('清单 description 不能为空')
   }
+  const displayMode = String(manifest?.displayMode ?? '').trim()
+  if (!displayModes.has(displayMode)) {
+    throw new Error('清单 displayMode 必须为 default、window 或 top')
+  }
   const commands = (Array.isArray(manifest?.commands) ? manifest.commands : []).map((item, index) => {
     const commandId = String(item?.id ?? '').trim()
     const title = String(item?.title ?? '').trim()
@@ -57,6 +62,7 @@ export function manifestFacts(manifest) {
     versionSource: manifest?.versionSource,
     executable: manifest?.package?.windowsExecutable,
     icon: manifest?.package?.icon,
+    displayMode,
     commands,
   }
 }

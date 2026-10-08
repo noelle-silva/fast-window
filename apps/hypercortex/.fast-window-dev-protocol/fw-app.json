@@ -8,6 +8,7 @@
     "windowsExecutable": "hypercortex-app.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "new-note",

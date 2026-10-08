@@ -8,6 +8,7 @@
     "windowsExecutable": "language-learning.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-language-learning",

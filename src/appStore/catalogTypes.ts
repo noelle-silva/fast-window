@@ -1,4 +1,4 @@
-import type { AppKind, RegisteredAppShortcut } from '../apps/types'
+import type { AppDisplayMode, AppKind, RegisteredAppShortcut } from '../apps/types'
 
 export type StoreImageIconRef =
   | { type: 'url'; url: string }
@@ -33,6 +33,7 @@ export interface StoreAppEntry {
   platforms: {
     windows: StoreDownloadAsset
   }
+  displayMode?: AppDisplayMode
   commands?: RegisteredAppShortcut[]
 }
 

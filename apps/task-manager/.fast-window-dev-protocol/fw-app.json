@@ -8,6 +8,7 @@
     "windowsExecutable": "task-manager.exe",
     "icon": "assets/icon.svg"
   },
+  "displayMode": "default",
   "commands": [
     {
       "id": "open-tasks",
