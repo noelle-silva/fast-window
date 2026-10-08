@@ -148,9 +148,12 @@ impl PackageTaskObserver {
 pub(crate) const TASK_CANCELED_MESSAGE: &str = "已取消";
 
 /// 安装目标准备结果：请求已归一化，安装容器已通过占用校验。
+/// 若命中的是失效记录，`existing_record`/`registry_id` 携带该记录，安装成功后据此覆盖修复。
 pub(crate) struct PreparedInstall {
     pub(crate) req: AppStoreInstallRequest,
     pub(crate) app_container: PathBuf,
+    pub(crate) existing_record: Option<Value>,
+    pub(crate) registry_id: Option<String>,
 }
 
 /// 更新目标准备结果：来自已注册应用的登记事实。
@@ -206,6 +209,34 @@ struct RegisteredInstalledApp {
     registry_id: String,
     record: Value,
     installed: ResolvedInstalledApp,
+}
+
+/// 商店应用三态判定结论：全系统唯一的「商店应用状态」来源。
+enum StoreAppState {
+    /// 无对应注册记录。
+    NotInstalled,
+    /// 有注册记录，但记录指向的应用当前不可用（如可执行文件已丢失）。
+    Broken(Value),
+    /// 已注册且可用。
+    Installed(RegisteredInstalledApp),
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum StoreAppStateKind {
+    NotInstalled,
+    Installed,
+    Broken,
+}
+
+/// 判定结果的前端视图：只暴露三态结论与已安装版本。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoreAppStateView {
+    id: String,
+    state: StoreAppStateKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
 }
 
 pub(crate) struct InstalledServiceApp {
@@ -266,33 +297,74 @@ pub(crate) fn resolve_installed_app_info(
     installed_app_info(&installed).map(Some)
 }
 
+/// 商店应用状态判定入口：对给定商店条目 id 逐一给出三态结论。
 #[tauri::command]
-pub(crate) fn inspect_local_store_app(
-    exe_path: String,
-) -> Result<Option<InstalledAppInfo>, String> {
-    let exe_path = PathBuf::from(exe_path.trim());
-    let Some(installed) = resolve_installed_app_from_exe(&exe_path)? else {
-        return Ok(None);
-    };
-    installed_app_info(&installed).map(Some)
+pub(crate) fn inspect_store_app_states(
+    app: AppHandle,
+    store_ids: Vec<String>,
+) -> Result<Vec<StoreAppStateView>, String> {
+    let records = crate::app_registry::load_registered_app_records(&app)?;
+    store_ids
+        .iter()
+        .map(|raw_id| {
+            let id = raw_id.trim();
+            let view = match classify_store_app_state(&records, id)? {
+                StoreAppState::Installed(installed) => {
+                    let (_, version) = manifest_identity(&installed.installed.manifest)?;
+                    StoreAppStateView {
+                        id: id.to_string(),
+                        state: StoreAppStateKind::Installed,
+                        version: Some(version),
+                    }
+                }
+                StoreAppState::Broken(_) => StoreAppStateView {
+                    id: id.to_string(),
+                    state: StoreAppStateKind::Broken,
+                    version: None,
+                },
+                StoreAppState::NotInstalled => StoreAppStateView {
+                    id: id.to_string(),
+                    state: StoreAppStateKind::NotInstalled,
+                    version: None,
+                },
+            };
+            Ok(view)
+        })
+        .collect()
 }
 
-/// 安装前置准备：归一化请求、拒绝已注册应用、确认安装容器可用。
+/// 安装前置准备：归一化请求、确认安装容器可用。
+/// 已注册且可用时要求改用更新；失效记录按未安装放行，并携带该记录用于安装后覆盖修复。
 pub(crate) fn prepare_install_target(
     app: &AppHandle,
     req: AppStoreInstallRequest,
 ) -> Result<PreparedInstall, String> {
     let req = normalize_install_request(req)?;
-    if find_registered_app_by_store_id(app, &req.expected_id)?.is_some() {
-        return Err("应用已注册，请使用更新操作".to_string());
-    }
+    let (existing_record, registry_id) = match resolve_store_app_state(app, &req.expected_id)? {
+        StoreAppState::Installed(_) => {
+            return Err("应用已注册，请使用更新操作".to_string());
+        }
+        StoreAppState::NotInstalled => (None, None),
+        StoreAppState::Broken(record) => {
+            let registry_id = registered_app_id(&record)?;
+            (Some(record), Some(registry_id))
+        }
+    };
+
     let install_root = PathBuf::from(req.install_dir.trim());
     ensure_writable_dir(&install_root)?;
 
     let app_container = crate::app_layout::app_container_dir(&install_root, &req.expected_id);
-    validate_install_target_available(&app_container)?;
+    // 失效记录的残留目录允许被本次安装覆盖，形成自愈。
+    let replaceable = existing_record.as_ref().and_then(record_container_dir);
+    validate_install_target_available(&app_container, replaceable.as_deref())?;
 
-    Ok(PreparedInstall { req, app_container })
+    Ok(PreparedInstall {
+        req,
+        app_container,
+        existing_record,
+        registry_id,
+    })
 }
 
 /// 更新前置准备：归一化请求、定位已注册应用的安装容器与登记记录。
@@ -301,8 +373,15 @@ pub(crate) fn prepare_update_target(
     req: AppStoreUpdateRequest,
 ) -> Result<PreparedUpdate, String> {
     let req = normalize_update_request(req)?;
-    let existing = find_registered_app_by_store_id(app, &req.expected_id)?
-        .ok_or_else(|| format!("注册应用不存在: {}", req.expected_id))?;
+    let existing = match resolve_store_app_state(app, &req.expected_id)? {
+        StoreAppState::Installed(existing) => existing,
+        StoreAppState::NotInstalled => {
+            return Err(format!("注册应用不存在: {}", req.expected_id));
+        }
+        StoreAppState::Broken(_) => {
+            return Err(format!("已注册应用不可用，无法更新: {}", req.expected_id));
+        }
+    };
     let app_container = existing.installed.app_container.clone();
     if !app_container.is_dir() {
         return Err("已注册应用安装目录不存在，拒绝更新".to_string());
@@ -408,12 +487,20 @@ fn is_strict_semver(version: &str) -> bool {
         .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
 }
 
-fn validate_install_target_available(dst_dir: &Path) -> Result<(), String> {
+/// 安装容器占用校验。`replaceable_dir` 是失效记录的残留目录：
+/// 目标恰为该目录时允许覆盖，避免残留文件阻断自愈安装。
+fn validate_install_target_available(
+    dst_dir: &Path,
+    replaceable_dir: Option<&Path>,
+) -> Result<(), String> {
     if !dst_dir.exists() {
         return Ok(());
     }
     if !dst_dir.is_dir() {
         return Err("目标应用路径已存在但不是目录，拒绝覆盖".to_string());
+    }
+    if replaceable_dir.is_some_and(|dir| same_path(dir, dst_dir)) {
+        return Ok(());
     }
     if dst_dir.join(FW_APP_MANIFEST).is_file()
         || crate::app_layout::app_package_dir(dst_dir)
@@ -423,6 +510,21 @@ fn validate_install_target_available(dst_dir: &Path) -> Result<(), String> {
         return Err("目标应用已存在，请使用更新操作".to_string());
     }
     Err("目标应用目录已存在但不是 Fast Window v5 应用，拒绝覆盖".to_string())
+}
+
+/// 从注册记录的可执行文件路径推导应用容器目录（用于识别失效记录的残留目录）。
+fn record_container_dir(record: &Value) -> Option<PathBuf> {
+    let path = record
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())?;
+    let parent = Path::new(path).parent()?;
+    if crate::app_layout::is_package_dir(parent) {
+        parent.parent().map(Path::to_path_buf)
+    } else {
+        Some(parent.to_path_buf())
+    }
 }
 
 fn registered_app_path(value: &Value) -> Result<PathBuf, String> {
@@ -554,47 +656,66 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
     })
 }
 
-fn registered_record_as_installed_app(value: Value) -> Result<RegisteredInstalledApp, String> {
-    let registry_id = registered_app_id(&value)?;
-    let exe_path = registered_app_path(&value)?;
+fn registered_record_as_installed_app(value: &Value) -> Result<RegisteredInstalledApp, String> {
+    let registry_id = registered_app_id(value)?;
+    let exe_path = registered_app_path(value)?;
     let installed = resolve_installed_app_from_exe(&exe_path)?
         .ok_or_else(|| "无法定位已安装应用的 fw-app.json，拒绝商店更新".to_string())?;
     Ok(RegisteredInstalledApp {
         registry_id,
-        record: value,
+        record: value.clone(),
         installed,
     })
 }
 
-fn find_registered_app_by_store_id(
-    app: &AppHandle,
+/// 商店应用三态判定：全系统唯一的判定源。
+/// 结论只取决于注册记录本身，以及记录指向的应用当前是否可用。
+/// 记录 id 命中但记录不可解析、或记录 id 与清单 id 不一致时，结论均为「失效」。
+fn classify_store_app_state(
+    records: &[Value],
     expected_id: &str,
-) -> Result<Option<RegisteredInstalledApp>, String> {
+) -> Result<StoreAppState, String> {
     let mut matches = Vec::new();
-    for record in crate::app_registry::load_registered_app_records(app)? {
-        let registry_id = registered_app_id(&record)?;
+    let mut broken_record: Option<Value> = None;
+    for record in records {
+        let registry_id = registered_app_id(record)?;
         let exact_registry_id = registry_id == expected_id;
         let installed = match registered_record_as_installed_app(record) {
             Ok(installed) => installed,
-            Err(error) if exact_registry_id => return Err(error),
-            Err(_) => continue,
+            Err(_) => {
+                if exact_registry_id && broken_record.is_none() {
+                    broken_record = Some(record.clone());
+                }
+                continue;
+            }
         };
 
         let (app_id, _) = manifest_identity(&installed.installed.manifest)?;
         if app_id == expected_id {
             matches.push(installed);
-        } else if exact_registry_id {
-            return Err(format!(
-                "注册应用 id 与 fw-app.id 不一致：registered={}, manifest={}",
-                expected_id, app_id
-            ));
+        } else if exact_registry_id && broken_record.is_none() {
+            broken_record = Some(record.clone());
         }
     }
 
     if matches.len() > 1 {
         return Err(format!("多个注册应用指向同一个商店应用: {expected_id}"));
     }
-    Ok(matches.pop())
+    if let Some(installed) = matches.pop() {
+        return Ok(StoreAppState::Installed(installed));
+    }
+    Ok(match broken_record {
+        Some(record) => StoreAppState::Broken(record),
+        None => StoreAppState::NotInstalled,
+    })
+}
+
+fn resolve_store_app_state(
+    app: &AppHandle,
+    expected_id: &str,
+) -> Result<StoreAppState, String> {
+    let records = crate::app_registry::load_registered_app_records(app)?;
+    classify_store_app_state(&records, expected_id)
 }
 
 /// 读取已安装清单：先按当前形态解析，失败时经旧形态兼容归一化
@@ -1631,7 +1752,7 @@ mod tests {
         });
 
         let located =
-            registered_record_as_installed_app(record).expect("定位旧形态已注册应用失败");
+            registered_record_as_installed_app(&record).expect("定位旧形态已注册应用失败");
 
         assert_eq!(located.registry_id, "demo-app");
         assert_eq!(located.installed.manifest.id, "demo-app");
@@ -1660,6 +1781,75 @@ mod tests {
             error.starts_with("已安装 fw-app.json 解析失败（旧形态）"),
             "{error}"
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn store_state_view_serializes_to_frontend_contract() {
+        let view = StoreAppStateView {
+            id: "demo-app".to_string(),
+            state: StoreAppStateKind::Broken,
+            version: None,
+        };
+
+        let value = serde_json::to_value(&view).expect("视图应可序列化");
+        assert_eq!(value["id"], "demo-app");
+        assert_eq!(value["state"], "broken");
+        assert!(value.get("version").is_none());
+    }
+
+    #[test]
+    fn store_state_is_not_installed_without_record() {
+        let state = classify_store_app_state(&[], "demo-app").expect("判定失败");
+
+        assert!(matches!(state, StoreAppState::NotInstalled));
+    }
+
+    #[test]
+    fn store_state_is_broken_when_record_file_missing() {
+        let record = serde_json::json!({
+            "id": "demo-app",
+            "path": "C:/definitely-missing/demo-app.exe"
+        });
+
+        let state = classify_store_app_state(&[record], "demo-app").expect("判定失败");
+
+        assert!(matches!(state, StoreAppState::Broken(_)));
+    }
+
+    #[test]
+    fn store_state_is_installed_for_usable_record() {
+        let root = std::env::temp_dir().join(format!(
+            "fw-app-installer-test-store-state-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let (_package_dir, exe_path) = write_test_package(
+            &root,
+            r#"{
+                "type": "service-app",
+                "id": "eucli-box",
+                "name": "eucli-box",
+                "version": "0.1.2",
+                "package": { "windowsExecutable": "eucli-box.exe" },
+                "service": {
+                    "ready": { "type": "log", "match": "is ready" },
+                    "stop": { "type": "terminate" }
+                }
+            }"#,
+        );
+        let record = serde_json::json!({
+            "id": "eucli-box",
+            "path": exe_path.to_string_lossy()
+        });
+
+        let state = classify_store_app_state(&[record], "eucli-box").expect("判定失败");
+
+        match state {
+            StoreAppState::Installed(app) => assert_eq!(app.registry_id, "eucli-box"),
+            _ => panic!("应判定为已安装"),
+        }
 
         let _ = std::fs::remove_dir_all(&root);
     }

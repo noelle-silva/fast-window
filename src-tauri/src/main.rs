@@ -2535,7 +2535,7 @@ fn main() {
         app_installer::open_apps_dir,
         app_installer::pick_app_install_dir,
         app_installer::inspect_installed_app,
-        app_installer::inspect_local_store_app,
+        app_installer::inspect_store_app_states,
         app_store_tasks::app_store_task_start,
         app_store_tasks::app_store_task_cancel,
         app_store_tasks::app_store_task_list,

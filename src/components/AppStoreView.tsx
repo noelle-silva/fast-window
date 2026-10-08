@@ -26,11 +26,10 @@ import { getAppsDir, pickAppInstallDir } from '../appStore/appInstaller'
 import { fetchStoreCatalog } from '../appStore/catalogClient'
 import type { StoreAppEntry, StoreCatalog } from '../appStore/catalogTypes'
 import { isStoreImageIcon, storeIconToDisplay } from '../appStore/icon'
-import { loadLocalStoreApps, type LocalStoreApp } from '../appStore/localApps'
+import { loadStoreAppStates, type StoreAppState, type StoreAppStateKind } from '../appStore/localApps'
 import { cmpSemver, parseSemverStrict } from '../appStore/semver'
 import { cancelStoreTask, dismissStoreTask, startStoreTask, type StoreTaskSnapshot } from '../appStore/storeTasks'
 import { useStoreTasks, type StoreTasksMap } from '../appStore/useStoreTasks'
-import { loadRegistry } from '../apps/appRegistry'
 import { hostToast } from '../host/hostPrimitives'
 import HostPageHeader from './HostPageHeader'
 import { hostButtonSx, hostDangerButtonSx, hostPageRootSx, hostPageScrollSx, hostSoftChipSx, hostSurfaceSx } from './hostUiStyles'
@@ -40,7 +39,7 @@ type Props = {
   onBack: () => void
 }
 
-type ConfirmState = { item: StoreAppEntry; action: 'install' | 'update' }
+type ConfirmState = { item: StoreAppEntry; action: 'install' | 'update'; broken: boolean }
 
 function toast(message: string) {
   void hostToast(message)
@@ -90,7 +89,7 @@ export default function AppStoreView(props: Props) {
   const { onBack } = props
 
   const [catalog, setCatalog] = useState<StoreCatalog | null>(null)
-  const [localApps, setLocalApps] = useState<Map<string, LocalStoreApp>>(new Map())
+  const [localApps, setLocalApps] = useState<Map<string, StoreAppState>>(new Map())
   const [defaultAppsDir, setDefaultAppsDir] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -105,12 +104,11 @@ export default function AppStoreView(props: Props) {
   }, [])
 
   const refreshLocalState = useCallback(async (storeIds: readonly string[]) => {
-    const [apps, appsDir] = await Promise.all([
-      loadRegistry(),
+    const [states, appsDir] = await Promise.all([
+      loadStoreAppStates(storeIds),
       getAppsDir().catch(() => ''),
     ])
-    const localStoreApps = await loadLocalStoreApps(storeIds, apps)
-    setLocalApps(localStoreApps)
+    setLocalApps(states)
     setDefaultAppsDir(appsDir)
   }, [])
 
@@ -225,7 +223,7 @@ export default function AppStoreView(props: Props) {
                 tasks={tasks}
                 panelSx={panelSx}
                 surfaceMode={hostAppearance.surfaceMode}
-                onAction={(item, action) => setConfirm({ item, action })}
+                onAction={(item, action, broken) => setConfirm({ item, action, broken })}
                 onCancel={(appId) => void handleCancel(appId)}
                 onDismiss={(appId) => void handleDismiss(appId)}
               />
@@ -238,7 +236,7 @@ export default function AppStoreView(props: Props) {
                   tasks={tasks}
                   panelSx={panelSx}
                   surfaceMode={hostAppearance.surfaceMode}
-                  onAction={(item, action) => setConfirm({ item, action })}
+                  onAction={(item, action, broken) => setConfirm({ item, action, broken })}
                   onCancel={(appId) => void handleCancel(appId)}
                   onDismiss={(appId) => void handleDismiss(appId)}
                 />
@@ -276,11 +274,11 @@ function StoreAppSection(props: {
   note?: string
   emptyText?: string
   items: StoreAppEntry[]
-  localApps: Map<string, LocalStoreApp>
+  localApps: Map<string, StoreAppState>
   tasks: StoreTasksMap
   panelSx: (theme: any) => any
   surfaceMode: HostSurfaceMode
-  onAction: (item: StoreAppEntry, action: 'install' | 'update') => void
+  onAction: (item: StoreAppEntry, action: 'install' | 'update', broken: boolean) => void
   onCancel: (appId: string) => void
   onDismiss: (appId: string) => void
 }) {
@@ -296,14 +294,16 @@ function StoreAppSection(props: {
       {items.length === 0 ? (emptyText ? <EmptyText text={emptyText} /> : null) : (
         <StoreGrid>
           {items.map(item => {
-            const local = localApps.get(item.id)
-            const localVersion = installedVersion(local?.version)
+            const state: StoreAppStateKind = localApps.get(item.id)?.state ?? 'notInstalled'
+            const localVersion = state === 'installed' ? installedVersion(localApps.get(item.id)?.version) : ''
             const compare = localVersion ? compareVersions(item.version, localVersion) : null
-            const needsUpdate = !!local && (!localVersion || compare == null || compare > 0)
-            const action: 'install' | 'update' | 'none' = !local ? 'install' : needsUpdate ? 'update' : 'none'
+            const needsUpdate = state === 'installed' && (!localVersion || compare == null || compare > 0)
+            const action: 'install' | 'update' | 'none' =
+              state === 'installed' ? (needsUpdate ? 'update' : 'none') : 'install'
+            const broken = state === 'broken'
             const icon = storeIconToDisplay(item.icon)
             const display = iconDisplay(icon, (item.name || item.id).slice(0, 1) || 'A')
-            const versionText = !local
+            const versionText = state !== 'installed'
               ? item.version
               : needsUpdate
                 ? `${localVersion || '未知'} → ${item.version}`
@@ -319,10 +319,10 @@ function StoreAppSection(props: {
                 iconText={display.text}
                 badge={badge}
                 action={action}
-                doneText={local ? '已是最新' : '已安装'}
+                doneText={state === 'installed' ? '已是最新' : '已安装'}
                 task={tasks.get(item.id)}
                 surfaceMode={surfaceMode}
-                onAction={() => action !== 'none' && onAction(item, action)}
+                onAction={() => action !== 'none' && onAction(item, action, broken)}
                 onCancel={() => onCancel(item.id)}
                 onDismiss={() => onDismiss(item.id)}
               />
@@ -501,7 +501,14 @@ function ConfirmDialog(props: {
             <Typography variant="body2" sx={{ fontWeight: 700 }}>{name}（{id}）</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>版本：{version}</Typography>
             {confirm.action === 'install' ? (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>下一步会弹出目录选择窗口，安装成功后自动注册到 v5 应用列表。</Typography>
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>下一步会弹出目录选择窗口，安装成功后自动注册到 v5 应用列表。</Typography>
+                {confirm.broken ? (
+                  <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2 }}>
+                    检测到一条已失效的注册记录（应用文件已丢失）。继续安装会覆盖修复该记录，与所选安装目录无关。
+                  </Alert>
+                ) : null}
+              </>
             ) : null}
             {confirm.action === 'update' ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>更新会使用已注册应用的安装目录，并在替换文件前停止正在运行的应用。</Typography>

@@ -165,8 +165,8 @@ fn build_plan(app: &AppHandle, req: StoreTaskStartRequest) -> Result<StoreTaskPl
                 action: StoreTaskAction::Install,
                 install_req: prepared.req,
                 app_container: prepared.app_container,
-                existing_record: None,
-                registry_id: None,
+                existing_record: prepared.existing_record,
+                registry_id: prepared.registry_id,
             })
         }
         StoreTaskAction::Update => {

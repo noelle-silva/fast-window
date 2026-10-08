@@ -10,11 +10,6 @@ export async function inspectInstalledApp(path: string): Promise<InstalledAppInf
   return normalizeInstalledAppInfo(info)
 }
 
-export async function inspectLocalStoreApp(path: string): Promise<InstalledAppInfo | null> {
-  const info = await invoke<InstalledAppInfo | null>('inspect_local_store_app', { exePath: path })
-  return info ? normalizeInstalledAppInfo(info) : null
-}
-
 function normalizeInstalledAppInfo(info: InstalledAppInfo): InstalledAppInfo {
   return {
     ...info,
