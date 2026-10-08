@@ -1044,46 +1044,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
               )}
              </CustomScrollArea>
 
-             <ComposerImagePickerPopover
-               controller={controller}
-               loading={!!s.loading}
-               activeRole={activeRole}
-               imagePickerEl={imagePickerEl}
-               closeImagePicker={closeImagePicker}
-               onPickDraftImages={onPickDraftImages}
-             />
-
-              <MessageMenusDialogs
-                controller={controller}
-                loading={!!s.loading}
-                uiBusy={uiBusy}
-                msgMenu={msgMenu}
-                closeMsgMenu={closeMsgMenu}
-                msgMenuIsToolResponse={msgMenuIsToolResponse}
-                msgMenuMid={msgMenuMid}
-                msgMenuText={msgMenuText}
-                copyMessageText={copyMessageText}
-                toggleExpandedToolMsg={toggleExpandedToolMsg}
-                expandedToolMsgIds={expandedToolMsgIds}
-                msgMenuCanEdit={msgMenuCanEdit}
-                startEditMessage={startEditMessage}
-                messageMutationBlocked={messageMutationBlocked}
-                msgMenuCanRegen={msgMenuCanRegen}
-                msgMenuRegenMid={msgMenuRegenMid}
-                msgMenuRegenRole={msgMenuRegenRole}
-                setRegen={setRegen}
-                regen={regen}
-                treeNodeMenu={treeNodeMenu}
-                closeTreeNodeMenu={closeTreeNodeMenu}
-                confirmDelMsg={confirmDelMsg}
-                setConfirmDelMsg={setConfirmDelMsg}
-                confirmDelTree={confirmDelTree}
-                setConfirmDelTree={setConfirmDelTree}
-                regenPathParentMid={regenPathParentMid}
-                onRunStarted={(runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))}
-              />
-
-
               <ChatTreeModal
                 treeOpen={treeOpen}
                 effectiveTreeView={effectiveTreeView}
@@ -1177,159 +1137,202 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 onPaste={onPaste}
               />
         </Box>
-
-
-        <ComposerControlsPopovers
-          controller={controller}
-          loading={!!s.loading}
-          providers={providers}
-          roleSessionControlsEnabled={roleSessionControlsEnabled}
-          tempModelPickerEl={tempModelPickerEl}
-          closeTempModelPicker={closeTempModelPicker}
-          tempModelProviderId={tempModelProviderId}
-          onTempProviderChanged={onTempProviderChanged}
-          tempModelPick={tempModelPick}
-          setTempModelPick={setTempModelPick}
-          clearTempModelOverride={clearTempModelOverride}
-          hasChatOverride={hasChatOverride}
-          saveTempModelOverride={saveTempModelOverride}
-          reasoningPickerEl={reasoningPickerEl}
-          closeReasoningPicker={closeReasoningPicker}
-          activeEffectiveReasoningEffort={activeEffectiveReasoningEffort}
-          activeChatReasoningEffort={activeChatReasoningEffort}
-          pickReasoningEffort={pickReasoningEffort}
-          clearReasoningEffort={clearReasoningEffort}
-          hasChatReasoningOverride={hasChatReasoningOverride}
-          asyncToolTasksEl={asyncToolTasksEl}
-          closeAsyncToolTasks={closeAsyncToolTasks}
-          refreshAsyncToolTasks={refreshAsyncToolTasks}
-          asyncToolTasksLoading={asyncToolTasksLoading}
-          asyncToolTasks={asyncToolTasks}
-        />
-
-
-        <RolePickerPopover
-          controller={controller}
-          rolePickerEl={rolePickerEl}
-          closeRolePicker={closeRolePicker}
-          rolePickerMode={rolePickerMode}
-          rolePickerTab={rolePickerTab}
-          setRolePickerTab={setRolePickerTab}
-          roles={roles}
-          groups={groups}
-          workspaces={workspaces}
-          draftActiveRoleId={String(s.draft?.activeRoleId || '')}
-          activeGroupId={activeGroupId}
-          activeWorkspaceId={activeWorkspaceId}
-          activeTargetKind={activeTargetKind}
-          formatModelRefText={formatModelRefText}
-          openPluginSettings={openPluginSettings}
-        />
-
-        <ChatPickerPopover
-          controller={controller}
-          data={data}
-          chatPickerEl={chatPickerEl}
-          closeChatPicker={closeChatPicker}
-          chatPickerView={chatPickerView}
-          setChatPickerView={setChatPickerView}
-          chatPickerSearchOpen={chatPickerSearchOpen}
-          setChatPickerSearchOpen={setChatPickerSearchOpen}
-          chatPickerSearchText={chatPickerSearchText}
-          setChatPickerSearchText={setChatPickerSearchText}
-          chatPickerSearchInputRef={chatPickerSearchInputRef}
-          chatHistoryScrollRef={chatHistoryScrollRef}
-          onChatHistoryScrollPositionChange={onChatHistoryScrollPositionChange}
-          chatHistoryVisibleCount={chatHistoryVisibleCount}
-          favoriteSearchOpen={favoriteSearchOpen}
-          setFavoriteSearchOpen={setFavoriteSearchOpen}
-          favoriteSearchText={favoriteSearchText}
-          setFavoriteSearchText={setFavoriteSearchText}
-          favoriteSearchInputRef={favoriteSearchInputRef}
-          favoriteFolders={favoriteFolders}
-          renderFavoriteFolderTree={renderFavoriteFolderTree}
-          collapseAllFavoriteFolders={collapseAllFavoriteFolders}
-          openCreateFavoriteFolder={openCreateFavoriteFolder}
-          activeTargetKind={activeTargetKind}
-          activeGroup={activeGroup}
-          activeWorkspace={activeWorkspace}
-          activeRole={activeRole}
-          activeChatTargetId={String(activeChatTargetId || '')}
-          pendingGroupChat={(s as any)?.pendingGroupChat}
-          pendingWorkspaceChat={(s as any)?.pendingWorkspaceChat}
-          pendingRoleChat={(s as any)?.pendingChat}
-          chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
-          clearChatSessionRunNotice={clearChatSessionRunNotice}
-          requestSwitch={chatSwitch.requestSwitch}
-          onChatContextMenu={onChatContextMenu}
-        />
-
-        <ChatContextMenus
-          controller={controller}
-          loading={!!s.loading}
-          favoriteFolderMenu={favoriteFolderMenu}
-          closeFavoriteFolderMenu={closeFavoriteFolderMenu}
-          openCreateFavoriteFolder={openCreateFavoriteFolder}
-          setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
-          openRenameFavoriteFolder={openRenameFavoriteFolder}
-          setConfirmClearFavoriteFolder={setConfirmClearFavoriteFolder}
-          openDeleteFavoriteFolderConfirm={openDeleteFavoriteFolderConfirm}
-          favoriteChatMenu={favoriteChatMenu}
-          closeFavoriteChatMenu={closeFavoriteChatMenu}
-          openFavoriteDialog={openFavoriteDialog}
-          setEditingChatTitle={setEditingChatTitle}
-          isSendingThisChat={isSendingThisChat}
-          chatMenu={chatMenu}
-          closeChatMenu={closeChatMenu}
-          setConfirmDelChat={setConfirmDelChat}
-        />
-
-      <FavoriteFoldersDialogs
-        loading={!!s.loading}
-        favoriteFolders={favoriteFolders}
-        createFavoriteFolder={createFavoriteFolder}
-        setCreateFavoriteFolder={setCreateFavoriteFolder}
-        closeCreateFavoriteFolder={closeCreateFavoriteFolder}
-        submitCreateFavoriteFolder={submitCreateFavoriteFolder}
-        openCreateFavoriteFolder={openCreateFavoriteFolder}
-        renameFavoriteFolder={renameFavoriteFolder}
-        setRenameFavoriteFolder={setRenameFavoriteFolder}
-        closeRenameFavoriteFolder={closeRenameFavoriteFolder}
-        submitRenameFavoriteFolder={submitRenameFavoriteFolder}
-        confirmDeleteFavoriteFolder={confirmDeleteFavoriteFolder}
-        closeDeleteFavoriteFolderConfirm={closeDeleteFavoriteFolderConfirm}
-        submitDeleteFavoriteFolder={submitDeleteFavoriteFolder}
-        moveFavoriteFolderContents={moveFavoriteFolderContents}
-        setMoveFavoriteFolderContents={setMoveFavoriteFolderContents}
-        closeMoveFavoriteFolderContents={closeMoveFavoriteFolderContents}
-        submitMoveFavoriteFolderContents={submitMoveFavoriteFolderContents}
-        confirmClearFavoriteFolder={confirmClearFavoriteFolder}
-        closeConfirmClearFavoriteFolder={closeConfirmClearFavoriteFolder}
-        submitClearFavoriteFolder={submitClearFavoriteFolder}
-        moveFavoriteFolderDialog={moveFavoriteFolderDialog}
-        setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
-        closeMoveFavoriteFolderDialog={closeMoveFavoriteFolderDialog}
-        submitMoveFavoriteFolder={submitMoveFavoriteFolder}
-        collectFavoriteFolderSubtreeIds={collectFavoriteFolderSubtreeIds}
-        favoriteDialog={favoriteDialog}
-        closeFavoriteDialog={closeFavoriteDialog}
-        saveFavoriteDialog={saveFavoriteDialog}
-        renderFavoriteFolderPicker={renderFavoriteFolderPicker}
-        renderFavoriteFolderSinglePicker={renderFavoriteFolderSinglePicker}
-      />
-
-      <ChatSessionDialogs
-        controller={controller}
-        loading={!!s.loading}
-        editingChatTitle={editingChatTitle}
-        setEditingChatTitle={setEditingChatTitle}
-        closeEditingChatTitle={closeEditingChatTitle}
-        saveEditingChatTitle={saveEditingChatTitle}
-        confirmDelChat={confirmDelChat}
-        setConfirmDelChat={setConfirmDelChat}
-        isSendingThisChat={isSendingThisChat}
-      />
           </Freeze>
+
+          {/* 全局弹层区：刻意放在页面冻结子树之外。
+              弹层是 Portal 浮层、不属于页面内容；一旦被 Freeze 冻结，
+              「关闭弹层 + 切页」同批次的更新会被 Freeze 复用旧元素而吞掉，
+              弹层 open 会卡在 true、遮罩残留并拦截整页交互
+              （典型症状：没有工作区时点「去创建工作区」跳设置页，浮窗不关）。 */}
+          <ComposerImagePickerPopover
+            controller={controller}
+            loading={!!s.loading}
+            activeRole={activeRole}
+            imagePickerEl={imagePickerEl}
+            closeImagePicker={closeImagePicker}
+            onPickDraftImages={onPickDraftImages}
+          />
+
+          <MessageMenusDialogs
+            controller={controller}
+            loading={!!s.loading}
+            uiBusy={uiBusy}
+            msgMenu={msgMenu}
+            closeMsgMenu={closeMsgMenu}
+            msgMenuIsToolResponse={msgMenuIsToolResponse}
+            msgMenuMid={msgMenuMid}
+            msgMenuText={msgMenuText}
+            copyMessageText={copyMessageText}
+            toggleExpandedToolMsg={toggleExpandedToolMsg}
+            expandedToolMsgIds={expandedToolMsgIds}
+            msgMenuCanEdit={msgMenuCanEdit}
+            startEditMessage={startEditMessage}
+            messageMutationBlocked={messageMutationBlocked}
+            msgMenuCanRegen={msgMenuCanRegen}
+            msgMenuRegenMid={msgMenuRegenMid}
+            msgMenuRegenRole={msgMenuRegenRole}
+            setRegen={setRegen}
+            regen={regen}
+            treeNodeMenu={treeNodeMenu}
+            closeTreeNodeMenu={closeTreeNodeMenu}
+            confirmDelMsg={confirmDelMsg}
+            setConfirmDelMsg={setConfirmDelMsg}
+            confirmDelTree={confirmDelTree}
+            setConfirmDelTree={setConfirmDelTree}
+            regenPathParentMid={regenPathParentMid}
+            onRunStarted={(runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))}
+          />
+
+          <ComposerControlsPopovers
+            controller={controller}
+            loading={!!s.loading}
+            providers={providers}
+            roleSessionControlsEnabled={roleSessionControlsEnabled}
+            tempModelPickerEl={tempModelPickerEl}
+            closeTempModelPicker={closeTempModelPicker}
+            tempModelProviderId={tempModelProviderId}
+            onTempProviderChanged={onTempProviderChanged}
+            tempModelPick={tempModelPick}
+            setTempModelPick={setTempModelPick}
+            clearTempModelOverride={clearTempModelOverride}
+            hasChatOverride={hasChatOverride}
+            saveTempModelOverride={saveTempModelOverride}
+            reasoningPickerEl={reasoningPickerEl}
+            closeReasoningPicker={closeReasoningPicker}
+            activeEffectiveReasoningEffort={activeEffectiveReasoningEffort}
+            activeChatReasoningEffort={activeChatReasoningEffort}
+            pickReasoningEffort={pickReasoningEffort}
+            clearReasoningEffort={clearReasoningEffort}
+            hasChatReasoningOverride={hasChatReasoningOverride}
+            asyncToolTasksEl={asyncToolTasksEl}
+            closeAsyncToolTasks={closeAsyncToolTasks}
+            refreshAsyncToolTasks={refreshAsyncToolTasks}
+            asyncToolTasksLoading={asyncToolTasksLoading}
+            asyncToolTasks={asyncToolTasks}
+          />
+
+          <RolePickerPopover
+            controller={controller}
+            rolePickerEl={rolePickerEl}
+            closeRolePicker={closeRolePicker}
+            rolePickerMode={rolePickerMode}
+            rolePickerTab={rolePickerTab}
+            setRolePickerTab={setRolePickerTab}
+            roles={roles}
+            groups={groups}
+            workspaces={workspaces}
+            draftActiveRoleId={String(s.draft?.activeRoleId || '')}
+            activeGroupId={activeGroupId}
+            activeWorkspaceId={activeWorkspaceId}
+            activeTargetKind={activeTargetKind}
+            formatModelRefText={formatModelRefText}
+            openPluginSettings={openPluginSettings}
+          />
+
+          <ChatPickerPopover
+            controller={controller}
+            data={data}
+            chatPickerEl={chatPickerEl}
+            closeChatPicker={closeChatPicker}
+            chatPickerView={chatPickerView}
+            setChatPickerView={setChatPickerView}
+            chatPickerSearchOpen={chatPickerSearchOpen}
+            setChatPickerSearchOpen={setChatPickerSearchOpen}
+            chatPickerSearchText={chatPickerSearchText}
+            setChatPickerSearchText={setChatPickerSearchText}
+            chatPickerSearchInputRef={chatPickerSearchInputRef}
+            chatHistoryScrollRef={chatHistoryScrollRef}
+            onChatHistoryScrollPositionChange={onChatHistoryScrollPositionChange}
+            chatHistoryVisibleCount={chatHistoryVisibleCount}
+            favoriteSearchOpen={favoriteSearchOpen}
+            setFavoriteSearchOpen={setFavoriteSearchOpen}
+            favoriteSearchText={favoriteSearchText}
+            setFavoriteSearchText={setFavoriteSearchText}
+            favoriteSearchInputRef={favoriteSearchInputRef}
+            favoriteFolders={favoriteFolders}
+            renderFavoriteFolderTree={renderFavoriteFolderTree}
+            collapseAllFavoriteFolders={collapseAllFavoriteFolders}
+            openCreateFavoriteFolder={openCreateFavoriteFolder}
+            activeTargetKind={activeTargetKind}
+            activeGroup={activeGroup}
+            activeWorkspace={activeWorkspace}
+            activeRole={activeRole}
+            activeChatTargetId={String(activeChatTargetId || '')}
+            pendingGroupChat={(s as any)?.pendingGroupChat}
+            pendingWorkspaceChat={(s as any)?.pendingWorkspaceChat}
+            pendingRoleChat={(s as any)?.pendingChat}
+            chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
+            clearChatSessionRunNotice={clearChatSessionRunNotice}
+            requestSwitch={chatSwitch.requestSwitch}
+            onChatContextMenu={onChatContextMenu}
+          />
+
+          <ChatContextMenus
+            controller={controller}
+            loading={!!s.loading}
+            favoriteFolderMenu={favoriteFolderMenu}
+            closeFavoriteFolderMenu={closeFavoriteFolderMenu}
+            openCreateFavoriteFolder={openCreateFavoriteFolder}
+            setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
+            openRenameFavoriteFolder={openRenameFavoriteFolder}
+            setConfirmClearFavoriteFolder={setConfirmClearFavoriteFolder}
+            openDeleteFavoriteFolderConfirm={openDeleteFavoriteFolderConfirm}
+            favoriteChatMenu={favoriteChatMenu}
+            closeFavoriteChatMenu={closeFavoriteChatMenu}
+            openFavoriteDialog={openFavoriteDialog}
+            setEditingChatTitle={setEditingChatTitle}
+            isSendingThisChat={isSendingThisChat}
+            chatMenu={chatMenu}
+            closeChatMenu={closeChatMenu}
+            setConfirmDelChat={setConfirmDelChat}
+          />
+
+          <FavoriteFoldersDialogs
+            loading={!!s.loading}
+            favoriteFolders={favoriteFolders}
+            createFavoriteFolder={createFavoriteFolder}
+            setCreateFavoriteFolder={setCreateFavoriteFolder}
+            closeCreateFavoriteFolder={closeCreateFavoriteFolder}
+            submitCreateFavoriteFolder={submitCreateFavoriteFolder}
+            openCreateFavoriteFolder={openCreateFavoriteFolder}
+            renameFavoriteFolder={renameFavoriteFolder}
+            setRenameFavoriteFolder={setRenameFavoriteFolder}
+            closeRenameFavoriteFolder={closeRenameFavoriteFolder}
+            submitRenameFavoriteFolder={submitRenameFavoriteFolder}
+            confirmDeleteFavoriteFolder={confirmDeleteFavoriteFolder}
+            closeDeleteFavoriteFolderConfirm={closeDeleteFavoriteFolderConfirm}
+            submitDeleteFavoriteFolder={submitDeleteFavoriteFolder}
+            moveFavoriteFolderContents={moveFavoriteFolderContents}
+            setMoveFavoriteFolderContents={setMoveFavoriteFolderContents}
+            closeMoveFavoriteFolderContents={closeMoveFavoriteFolderContents}
+            submitMoveFavoriteFolderContents={submitMoveFavoriteFolderContents}
+            confirmClearFavoriteFolder={confirmClearFavoriteFolder}
+            closeConfirmClearFavoriteFolder={closeConfirmClearFavoriteFolder}
+            submitClearFavoriteFolder={submitClearFavoriteFolder}
+            moveFavoriteFolderDialog={moveFavoriteFolderDialog}
+            setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
+            closeMoveFavoriteFolderDialog={closeMoveFavoriteFolderDialog}
+            submitMoveFavoriteFolder={submitMoveFavoriteFolder}
+            collectFavoriteFolderSubtreeIds={collectFavoriteFolderSubtreeIds}
+            favoriteDialog={favoriteDialog}
+            closeFavoriteDialog={closeFavoriteDialog}
+            saveFavoriteDialog={saveFavoriteDialog}
+            renderFavoriteFolderPicker={renderFavoriteFolderPicker}
+            renderFavoriteFolderSinglePicker={renderFavoriteFolderSinglePicker}
+          />
+
+          <ChatSessionDialogs
+            controller={controller}
+            loading={!!s.loading}
+            editingChatTitle={editingChatTitle}
+            setEditingChatTitle={setEditingChatTitle}
+            closeEditingChatTitle={closeEditingChatTitle}
+            saveEditingChatTitle={saveEditingChatTitle}
+            confirmDelChat={confirmDelChat}
+            setConfirmDelChat={setConfirmDelChat}
+            isSendingThisChat={isSendingThisChat}
+          />
+
         </Box>
 
         {settingsMounted ? (
