@@ -14,6 +14,10 @@ export type GlobalGraphNode = {
 export type GlobalGraphEdge = {
   source: string
   target: string
+  /** 是否存在 source → target 的引用：决定在 target 端画箭头。 */
+  sourceToTarget: boolean
+  /** 是否存在 target → source 的引用：决定在 source 端画箭头。 */
+  targetToSource: boolean
 }
 
 export type GlobalRelationGraph = {
@@ -21,13 +25,11 @@ export type GlobalRelationGraph = {
   edges: GlobalGraphEdge[]
 }
 
-const MIN_NODE_RADIUS = 6
-const MAX_NODE_RADIUS = 22
-
 /**
  * 由笔记索引与引用索引推导全局关系图。
  * - 节点：笔记索引中的全部笔记（含没有任何引用的孤立笔记）。
- * - 边：引用索引展开后的无向关系，按笔记对去重；自引用与指向不存在笔记的引用一律忽略。
+ * - 边：引用索引展开后的无向关系，按笔记对去重，并记录两个方向各自是否存在引用；
+ *   自引用与指向不存在笔记的引用一律忽略。
  */
 export function buildGlobalRelationGraph(
   notes: NoteMeta[] | null | undefined,
@@ -46,7 +48,7 @@ export function buildGlobalRelationGraph(
   for (const id of nodeIds) adjacency.set(id, new Set())
 
   const edges: GlobalGraphEdge[] = []
-  const edgeKeys = new Set<string>()
+  const edgeByKey = new Map<string, GlobalGraphEdge>()
   for (const [sourceRaw, faces] of Object.entries(refIndex || {})) {
     const source = String(sourceRaw || '').trim()
     if (!nodeIds.has(source)) continue
@@ -55,11 +57,16 @@ export function buildGlobalRelationGraph(
         const target = String(ref?.noteId || '').trim()
         if (!target || target === source || !nodeIds.has(target)) continue
         const key = source < target ? `${source}\u0000${target}` : `${target}\u0000${source}`
-        if (edgeKeys.has(key)) continue
-        edgeKeys.add(key)
-        edges.push({ source, target })
-        adjacency.get(source)!.add(target)
-        adjacency.get(target)!.add(source)
+        let edge = edgeByKey.get(key)
+        if (!edge) {
+          edge = { source, target, sourceToTarget: false, targetToSource: false }
+          edgeByKey.set(key, edge)
+          edges.push(edge)
+          adjacency.get(source)!.add(target)
+          adjacency.get(target)!.add(source)
+        }
+        if (source === edge.source) edge.sourceToTarget = true
+        else edge.targetToSource = true
       }
     }
   }
@@ -73,9 +80,9 @@ export function maxDegreeOf(graph: GlobalRelationGraph): number {
   return graph.nodes.reduce((max, node) => Math.max(max, node.degree), 0)
 }
 
-/** 连接数映射到节点半径：面积感缩放（开方），孤立笔记保留最小半径。 */
-export function nodeRadiusForDegree(degree: number, maxDegree: number): number {
-  if (maxDegree <= 0) return MIN_NODE_RADIUS
+/** 连接数映射到节点半径：面积感缩放（开方），孤立笔记取最小半径，满连接取最大半径。 */
+export function nodeRadiusForDegree(degree: number, maxDegree: number, minRadius: number, maxRadius: number): number {
+  if (maxDegree <= 0) return minRadius
   const ratio = Math.max(0, Math.min(1, degree / maxDegree))
-  return MIN_NODE_RADIUS + (MAX_NODE_RADIUS - MIN_NODE_RADIUS) * Math.sqrt(ratio)
+  return minRadius + (maxRadius - minRadius) * Math.sqrt(ratio)
 }

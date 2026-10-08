@@ -1,6 +1,7 @@
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
 import type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 import type { PageDisplayModesV1 } from './pageDisplay'
+import type { HyperCortexGraphSettingsV1 } from './graphSettings'
 import type { EntityIcon } from './entityIcon'
 export { ACCEPTED_FILE_EXTENSIONS, extFromMime, kindFromMime, mimeFromExt } from './assetFileTypes'
 export type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
@@ -113,6 +114,8 @@ export type HyperCortexAppSettingsV1 = {
   defaultFaceKinds?: string[]
   colorPresetId?: HyperCortexColorPresetIdV1
   pageDisplayModes?: PageDisplayModesV1
+  // 全局关系图的布局与外观设置（斥力、紧凑度、节点半径上下限、连线粗细、箭头显示）。
+  graphSettings?: HyperCortexGraphSettingsV1
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
   // 上次使用的仓库标识（应用行为状态，不随仓库切换变化）。

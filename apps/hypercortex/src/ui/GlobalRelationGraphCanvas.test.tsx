@@ -24,6 +24,7 @@ function createContextStub() {
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
+    closePath: vi.fn(),
     stroke: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
@@ -68,18 +69,50 @@ describe('GlobalRelationGraphCanvas', () => {
     container.remove()
   })
 
+  function renderCanvas(graph: ReturnType<typeof buildGlobalRelationGraph>, showArrows: boolean) {
+    return act(async () => {
+      root.render(
+        <GlobalRelationGraphCanvas
+          graph={graph}
+          chargeStrength={-120}
+          centerStrength={0.06}
+          minNodeRadius={7}
+          maxNodeRadius={13}
+          linkWidth={1.2}
+          showArrows={showArrows}
+          dimOnHover
+          onOpenNode={() => {}}
+        />,
+      )
+    })
+  }
+
   it('用 canvas 绘制全部节点与引用边，且不依赖每帧重渲染', async () => {
     const graph = buildGlobalRelationGraph([note('a'), note('b'), note('c')], { a: { f1: [{ noteId: 'b' }] } })
 
-    await act(async () => {
-      root.render(<GlobalRelationGraphCanvas graph={graph} chargeStrength={-120} centerStrength={0.06} onOpenNode={() => {}} />)
-    })
+    await renderCanvas(graph, false)
 
     expect(container.querySelector('canvas')).not.toBeNull()
     // 节点数 = arc 调用次数，边数 = moveTo 调用次数（首帧同步绘制）。
     expect(contextStub.arc).toHaveBeenCalledTimes(3)
     expect(contextStub.moveTo).toHaveBeenCalledTimes(1)
     expect(contextStub.clearRect).toHaveBeenCalled()
+  })
+
+  it('单向引用只画一个箭头，双向引用两端都画箭头', async () => {
+    const oneWay = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] } })
+    await renderCanvas(oneWay, true)
+    // 一条连线 + 一个箭头 = 2 次 moveTo。
+    expect(contextStub.moveTo).toHaveBeenCalledTimes(2)
+
+    act(() => root.unmount())
+    contextStub = createContextStub()
+    root = createRoot(container)
+
+    const twoWay = buildGlobalRelationGraph([note('a'), note('b')], { a: { f1: [{ noteId: 'b' }] }, b: { f1: [{ noteId: 'a' }] } })
+    await renderCanvas(twoWay, true)
+    // 一条连线 + 两端箭头 = 3 次 moveTo。
+    expect(contextStub.moveTo).toHaveBeenCalledTimes(3)
   })
 })
 

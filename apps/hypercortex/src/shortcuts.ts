@@ -9,6 +9,7 @@ export type HyperCortexShortcutId =
   | 'goFavoritesPage'
   | 'goAttachmentsPage'
   | 'goAllNotesPage'
+  | 'goGraphPage'
   | 'goSettingsPage'
   | 'closeActiveTab'
   | 'selectPrevTab'
@@ -29,6 +30,7 @@ export type HyperCortexShortcutBindingsV1 = {
   goFavoritesPage: string
   goAttachmentsPage: string
   goAllNotesPage: string
+  goGraphPage: string
   goSettingsPage: string
   closeActiveTab: string
   selectPrevTab: string
@@ -50,6 +52,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   goFavoritesPage: '',
   goAttachmentsPage: '',
   goAllNotesPage: '',
+  goGraphPage: '',
   goSettingsPage: '',
   closeActiveTab: '',
   selectPrevTab: '',
@@ -79,6 +82,7 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     goFavoritesPage: normChord(obj.goFavoritesPage),
     goAttachmentsPage: normChord(obj.goAttachmentsPage),
     goAllNotesPage: normChord(obj.goAllNotesPage),
+    goGraphPage: normChord(obj.goGraphPage),
     goSettingsPage: normChord(obj.goSettingsPage),
     closeActiveTab: normChord(obj.closeActiveTab),
     selectPrevTab: normChord(obj.selectPrevTab),

@@ -1,5 +1,6 @@
 import type { HyperCortexAppSettingsV1, HyperCortexSidebarSortModeV1 } from './core'
 import { normalizeFacePluginSettingsContainer } from './facePlugins/settings'
+import { normalizeGraphSettings } from './graphSettings'
 import { normalizePageDisplayModes } from './pageDisplay'
 import { normalizeRepoCacheLimit } from './repoCacheLimit'
 import { normalizeSidebarExpandedWidth } from './sidebarWidth'
@@ -57,6 +58,7 @@ export function sanitizeAppSettingsForSave(settings: HyperCortexAppSettingsV1): 
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
   next.facePluginSettings = normalizeFacePluginSettingsContainer(next.facePluginSettings)
   next.pageDisplayModes = normalizePageDisplayModes(next.pageDisplayModes)
+  next.graphSettings = normalizeGraphSettings(next.graphSettings)
   next.repoCacheLimit = normalizeRepoCacheLimit(next.repoCacheLimit)
   return next
 }

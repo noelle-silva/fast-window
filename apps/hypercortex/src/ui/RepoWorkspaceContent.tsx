@@ -79,6 +79,8 @@ export function RepoWorkspacePageContent(props: { orchestration: RepoWorkspaceOr
             notes={o.allNotes}
             notesLoading={o.noteIndexLoading}
             refreshSignal={o.externalNotesSignal}
+            settings={o.graphSettings}
+            onSettingsChange={o.handleGraphSettingsChange}
             onOpenNote={note => void o.handleOpenNote(note)}
           />
         ) : null}
@@ -304,6 +306,8 @@ export function RepoWorkspaceModalBody(props: { orchestration: RepoWorkspaceOrch
           notes={o.allNotes}
           notesLoading={o.noteIndexLoading}
           refreshSignal={o.externalNotesSignal}
+          settings={o.graphSettings}
+          onSettingsChange={o.handleGraphSettingsChange}
           onOpenNote={note => void o.handleOpenNote(note)}
         />
       )

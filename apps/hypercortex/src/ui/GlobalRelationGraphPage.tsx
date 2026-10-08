@@ -1,21 +1,17 @@
 import * as React from 'react'
-import { Box, CircularProgress, Slider, Typography } from '@mui/material'
+import { Box, CircularProgress, IconButton, Typography } from '@mui/material'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import type { NoteMeta } from '../core'
 import type { HyperCortexGateway } from '../gateway'
+import type { HyperCortexGraphSettingsV1 } from '../graphSettings'
 import { buildGlobalRelationGraph } from '../globalRelationGraph'
 import { useRefIndex } from './useRefIndex'
 import { GlobalRelationGraphCanvas } from './GlobalRelationGraphCanvas'
+import { GlobalRelationGraphSettingsMenu } from './GlobalRelationGraphSettingsMenu'
 
-// 全局关系图页面：装载笔记索引与引用索引，推导全图，渲染画布并提供布局参数调节。
+// 全局关系图页面：装载笔记索引与引用索引，推导全图，渲染画布。
+// 顶部行只保留标题、计数与设置按钮；斥力、紧凑度等布局与外观参数收进设置浮层。
 // 节点取自笔记索引（全部笔记，含孤立笔记），边取自引用索引；点击节点跳转到对应笔记。
-
-const DEFAULT_REPULSION = 120
-const MIN_REPULSION = 10
-const MAX_REPULSION = 600
-const DEFAULT_CENTER_STRENGTH = 0.06
-const MIN_CENTER_STRENGTH = 0
-const MAX_CENTER_STRENGTH = 0.4
-const CENTER_STRENGTH_STEP = 0.01
 
 export function GlobalRelationGraphPage(props: {
   gateway: HyperCortexGateway
@@ -23,15 +19,17 @@ export function GlobalRelationGraphPage(props: {
   notes: NoteMeta[]
   notesLoading: boolean
   refreshSignal: number
+  settings: HyperCortexGraphSettingsV1
+  onSettingsChange: (next: HyperCortexGraphSettingsV1) => void
   onOpenNote: (note: NoteMeta) => void
 }) {
-  const { gateway, repoId, notes, notesLoading, refreshSignal, onOpenNote } = props
+  const { gateway, repoId, notes, notesLoading, refreshSignal, settings, onSettingsChange, onOpenNote } = props
   const { refIndex, loading: refLoading, error: refError } = useRefIndex(gateway, repoId, refreshSignal)
 
   const graph = React.useMemo(() => buildGlobalRelationGraph(notes, refIndex), [notes, refIndex])
 
-  const [repulsion, setRepulsion] = React.useState(DEFAULT_REPULSION)
-  const [centerStrength, setCenterStrength] = React.useState(DEFAULT_CENTER_STRENGTH)
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const settingsAnchorRef = React.useRef<HTMLButtonElement | null>(null)
 
   const handleOpenNode = React.useCallback(
     (id: string) => {
@@ -45,36 +43,36 @@ export function GlobalRelationGraphPage(props: {
 
   return (
     <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1, p: 2, boxSizing: 'border-box' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 900, color: 'var(--hc-text)' }}>全局关系图</Typography>
         <Typography sx={{ fontSize: 12, color: 'var(--hc-text-subtle)' }}>
           {graph.nodes.length} 个笔记 · {graph.edges.length} 条引用
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'var(--hc-text-muted)', whiteSpace: 'nowrap' }}>斥力</Typography>
-          <Slider
+        <Box sx={{ ml: 'auto' }}>
+          <IconButton
+            ref={settingsAnchorRef}
             size="small"
-            min={MIN_REPULSION}
-            max={MAX_REPULSION}
-            step={10}
-            value={repulsion}
-            onChange={(_event, value) => setRepulsion(value as number)}
-            sx={{ width: 120 }}
-          />
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'var(--hc-text-muted)', whiteSpace: 'nowrap' }}>紧凑度</Typography>
-          <Slider
-            size="small"
-            min={MIN_CENTER_STRENGTH}
-            max={MAX_CENTER_STRENGTH}
-            step={CENTER_STRENGTH_STEP}
-            value={centerStrength}
-            onChange={(_event, value) => setCenterStrength(value as number)}
-            sx={{ width: 120 }}
-          />
+            aria-label="关系图设置"
+            onClick={() => setSettingsOpen(prev => !prev)}
+            sx={{
+              borderRadius: 2,
+              color: settingsOpen ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+              bgcolor: settingsOpen ? 'var(--hc-primary-soft)' : 'transparent',
+              '&:hover': { bgcolor: settingsOpen ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+            }}
+          >
+            <TuneRoundedIcon fontSize="small" />
+          </IconButton>
         </Box>
       </Box>
+
+      <GlobalRelationGraphSettingsMenu
+        open={settingsOpen}
+        anchorEl={settingsAnchorRef.current}
+        settings={settings}
+        onChange={onSettingsChange}
+        onClose={() => setSettingsOpen(false)}
+      />
 
       <Box
         sx={{
@@ -99,8 +97,13 @@ export function GlobalRelationGraphPage(props: {
         ) : graph.nodes.length ? (
           <GlobalRelationGraphCanvas
             graph={graph}
-            chargeStrength={-repulsion}
-            centerStrength={centerStrength}
+            chargeStrength={-settings.repulsion}
+            centerStrength={settings.centerStrength}
+            minNodeRadius={settings.minNodeRadius}
+            maxNodeRadius={settings.maxNodeRadius}
+            linkWidth={settings.linkWidth}
+            showArrows={settings.showArrows}
+            dimOnHover={settings.dimOnHover}
             onOpenNode={handleOpenNode}
           />
         ) : (

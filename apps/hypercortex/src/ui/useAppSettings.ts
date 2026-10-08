@@ -9,6 +9,7 @@ import {
   normalizeTrashAutoDeleteDays,
   normalizeTrashEnabled,
 } from '../appSettingsModel'
+import { normalizeGraphSettings, type HyperCortexGraphSettingsV1 } from '../graphSettings'
 import { normalizeRepoCacheLimit } from '../repoCacheLimit'
 import { normalizeSidebarExpandedWidth } from '../sidebarWidth'
 import { normalizeColorPresetId } from './colorPresets'
@@ -34,6 +35,7 @@ export function useAppSettings(appSettings: HyperCortexAppSettingsV1) {
   )
   const shortcutHintsEnabled = normalizeBoolean(appSettings.shortcutHintsEnabled)
   const pageDisplayModes = React.useMemo(() => normalizePageDisplayModes(appSettings.pageDisplayModes), [appSettings.pageDisplayModes])
+  const graphSettings = React.useMemo(() => normalizeGraphSettings(appSettings.graphSettings), [appSettings.graphSettings])
   const allNotesLayout = normalizeAllNotesLayout(appSettings.allNotesLayout)
   const tabsCollapsed = normalizeBoolean(appSettings.tabsCollapsed)
   const tabsMode = normalizeTabsMode(appSettings.tabsMode)
@@ -78,6 +80,7 @@ export function useAppSettings(appSettings: HyperCortexAppSettingsV1) {
     shortcutBindings,
     shortcutHintsEnabled,
     pageDisplayModes,
+    graphSettings,
     allNotesLayout,
     tabsCollapsed,
     tabsMode,
@@ -164,6 +167,13 @@ export function useAppSettingsWritebacks(opts: {
       }
     },
     [navigatePage, patchAppSettings, syncNavStackCounts],
+  )
+
+  const handleGraphSettingsChange = React.useCallback(
+    (next: HyperCortexGraphSettingsV1) => {
+      patchAppSettings({ graphSettings: normalizeGraphSettings(next) })
+    },
+    [patchAppSettings],
   )
 
   const handleColorPresetChange = React.useCallback(
@@ -271,6 +281,7 @@ export function useAppSettingsWritebacks(opts: {
     handleShortcutBindingsChange,
     handleShortcutHintsEnabledChange,
     handlePageDisplayModeChange,
+    handleGraphSettingsChange,
     handleColorPresetChange,
     handleRepoCacheLimitChange,
     handleSidebarSortModeChange,

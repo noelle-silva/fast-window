@@ -33,6 +33,7 @@ const PAGE_SHORTCUT_TARGETS: { id: HyperCortexShortcutId; target: PageId }[] = [
   { id: 'goFavoritesPage', target: 'index' },
   { id: 'goAttachmentsPage', target: 'attachments' },
   { id: 'goAllNotesPage', target: 'all-notes' },
+  { id: 'goGraphPage', target: 'graph' },
   { id: 'goSettingsPage', target: 'settings' },
 ]
 

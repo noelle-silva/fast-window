@@ -7,6 +7,7 @@ import {
   forceSimulation,
   forceX,
   forceY,
+  type ForceCollide,
   type ForceManyBody,
   type ForceX,
   type ForceY,
@@ -29,7 +30,12 @@ type GraphNode = SimulationNodeDatum & {
   radius: number
 }
 
-type GraphLink = SimulationLinkDatum<GraphNode>
+type GraphLink = SimulationLinkDatum<GraphNode> & {
+  /** 是否存在 source → target 的引用：决定在 target 端画箭头。 */
+  sourceToTarget: boolean
+  /** 是否存在 target → source 的引用：决定在 source 端画箭头。 */
+  targetToSource: boolean
+}
 
 type PointTransform = { k: number; x: number; y: number }
 
@@ -39,6 +45,23 @@ const LINK_DISTANCE = 70
 const LINK_STRENGTH = 0.4
 const DRAG_REHEAT_ALPHA = 0.3
 const HIT_RADIUS_PADDING = 2
+const COLLIDE_RADIUS_PADDING = 4
+const ARROW_HEAD_LENGTH = 14
+const ARROW_HEAD_WIDTH = 10
+
+/** 在 tip 处沿 (dirX, dirY) 方向画一个实心箭头。 */
+function drawArrowHead(ctx: CanvasRenderingContext2D, tipX: number, tipY: number, dirX: number, dirY: number): void {
+  const baseX = tipX - dirX * ARROW_HEAD_LENGTH
+  const baseY = tipY - dirY * ARROW_HEAD_LENGTH
+  const halfX = -dirY * (ARROW_HEAD_WIDTH / 2)
+  const halfY = dirX * (ARROW_HEAD_WIDTH / 2)
+  ctx.beginPath()
+  ctx.moveTo(tipX, tipY)
+  ctx.lineTo(baseX + halfX, baseY + halfY)
+  ctx.lineTo(baseX - halfX, baseY - halfY)
+  ctx.closePath()
+  ctx.fill()
+}
 
 /** 画布命中判定：把屏幕坐标经缩放平移反变换回图坐标，返回命中的节点（后画的在上层，故倒序）。 */
 export function findNodeAtPoint<T extends { x?: number; y?: number; radius: number }>(
@@ -66,9 +89,19 @@ export function GlobalRelationGraphCanvas(props: {
   chargeStrength: number
   /** 往中心收的紧凑度（向心力的强度，越大越紧凑）。 */
   centerStrength: number
+  /** 节点半径最小值：孤立笔记取该值。 */
+  minNodeRadius: number
+  /** 节点半径最大值：连接数最多的笔记取该值。 */
+  maxNodeRadius: number
+  /** 连线粗细（画布线宽）。 */
+  linkWidth: number
+  /** 是否绘制引用方向箭头。 */
+  showArrows: boolean
+  /** 悬停时是否虚化其余节点：开启只保留该节点及其直接邻居，关闭则悬停不虚化。 */
+  dimOnHover: boolean
   onOpenNode: (id: string) => void
 }) {
-  const { graph, chargeStrength, centerStrength, onOpenNode } = props
+  const { graph, chargeStrength, centerStrength, minNodeRadius, maxNodeRadius, linkWidth, showArrows, dimOnHover, onOpenNode } = props
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [size, setSize] = React.useState({ width: 0, height: 0 })
@@ -83,6 +116,7 @@ export function GlobalRelationGraphCanvas(props: {
     charge: ForceManyBody<GraphNode>
     x: ForceX<GraphNode>
     y: ForceY<GraphNode>
+    collide: ForceCollide<GraphNode>
   } | null>(null)
   const nodesRef = React.useRef<GraphNode[]>([])
   const linksRef = React.useRef<GraphLink[]>([])
@@ -91,6 +125,11 @@ export function GlobalRelationGraphCanvas(props: {
   const hoverRef = React.useRef<string | null>(null)
   const colorsRef = React.useRef({ primary: '#4b6fae', surface: '#ffffff', text: '#1d2430', edge: '#8a94a6' })
   const frameRef = React.useRef(0)
+  // 半径区间与画布外观参数经 ref 传递，使参数调整不进入构建依赖（不重建图）。
+  const radiusRef = React.useRef({ min: minNodeRadius, max: maxNodeRadius })
+  const maxDegreeRef = React.useRef(0)
+  const visualRef = React.useRef({ linkWidth, showArrows, dimOnHover })
+  const scheduleDrawRef = React.useRef<() => void>(() => {})
 
   React.useEffect(() => {
     const element = containerRef.current
@@ -128,13 +167,19 @@ export function GlobalRelationGraphCanvas(props: {
     }
 
     const maxDegree = maxDegreeOf(graph)
+    const { min: radiusMin, max: radiusMax } = radiusRef.current
     const nodes: GraphNode[] = graph.nodes.map(node => ({
       id: node.id,
       title: node.title,
       degree: node.degree,
-      radius: nodeRadiusForDegree(node.degree, maxDegree),
+      radius: nodeRadiusForDegree(node.degree, maxDegree, radiusMin, radiusMax),
     }))
-    const links: GraphLink[] = graph.edges.map(edge => ({ source: edge.source, target: edge.target }))
+    const links: GraphLink[] = graph.edges.map(edge => ({
+      source: edge.source,
+      target: edge.target,
+      sourceToTarget: edge.sourceToTarget,
+      targetToSource: edge.targetToSource,
+    }))
     const neighbors = new Map<string, Set<string>>()
     for (const node of nodes) neighbors.set(node.id, new Set())
     for (const edge of graph.edges) {
@@ -144,14 +189,17 @@ export function GlobalRelationGraphCanvas(props: {
     nodesRef.current = nodes
     linksRef.current = links
     neighborsRef.current = neighbors
+    maxDegreeRef.current = maxDegree
     transformRef.current = { k: 1, x: 0, y: 0 }
     hoverRef.current = null
 
     function draw() {
       const { primary, surface, text, edge } = colorsRef.current
+      const { linkWidth, showArrows, dimOnHover } = visualRef.current
       const transform = transformRef.current
-      const hoverId = hoverRef.current
-      const activeNeighbors = hoverId ? neighborsRef.current.get(hoverId) : null
+      // 虚化开关关闭时，悬停不改变任何透明度；开启时只保留悬停节点与其直接邻居。
+      const dimActive = dimOnHover ? hoverRef.current : null
+      const activeNeighbors = dimActive ? neighborsRef.current.get(dimActive) : null
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, width, height)
@@ -159,26 +207,42 @@ export function GlobalRelationGraphCanvas(props: {
       ctx.translate(transform.x, transform.y)
       ctx.scale(transform.k, transform.k)
 
-      ctx.lineWidth = 1.2
+      ctx.lineWidth = linkWidth
       ctx.strokeStyle = edge
+      ctx.fillStyle = edge
       for (const link of linksRef.current) {
         const source = link.source as GraphNode
         const target = link.target as GraphNode
-        const incident = !hoverId || source.id === hoverId || target.id === hoverId
-        ctx.globalAlpha = hoverId ? (incident ? 0.9 : 0.06) : 0.5
+        const incident = !dimActive || source.id === dimActive || target.id === dimActive
+        ctx.globalAlpha = dimActive ? (incident ? 0.9 : 0.06) : 0.5
+        const sx = source.x ?? 0
+        const sy = source.y ?? 0
+        const tx = target.x ?? 0
+        const ty = target.y ?? 0
         ctx.beginPath()
-        ctx.moveTo(source.x ?? 0, source.y ?? 0)
-        ctx.lineTo(target.x ?? 0, target.y ?? 0)
+        ctx.moveTo(sx, sy)
+        ctx.lineTo(tx, ty)
         ctx.stroke()
+
+        if (!showArrows) continue
+        const dx = tx - sx
+        const dy = ty - sy
+        const distance = Math.hypot(dx, dy)
+        if (distance < 1) continue
+        const ux = dx / distance
+        const uy = dy / distance
+        // 单向引用画一个箭头（指向被引用方）；双向引用两端都画箭头。
+        if (link.targetToSource) drawArrowHead(ctx, sx + ux * source.radius, sy + uy * source.radius, -ux, -uy)
+        if (link.sourceToTarget) drawArrowHead(ctx, tx - ux * target.radius, ty - uy * target.radius, ux, uy)
       }
 
       ctx.textBaseline = 'middle'
       ctx.font = '11px Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif'
       for (const node of nodesRef.current) {
-        const active = !hoverId || node.id === hoverId || (activeNeighbors ? activeNeighbors.has(node.id) : false)
+        const active = !dimActive || node.id === dimActive || (activeNeighbors ? activeNeighbors.has(node.id) : false)
         const x = node.x ?? 0
         const y = node.y ?? 0
-        ctx.globalAlpha = hoverId ? (active ? 1 : 0.15) : 1
+        ctx.globalAlpha = dimActive ? (active ? 1 : 0.15) : 1
         ctx.beginPath()
         ctx.arc(x, y, node.radius, 0, Math.PI * 2)
         ctx.fillStyle = primary
@@ -187,7 +251,7 @@ export function GlobalRelationGraphCanvas(props: {
         ctx.strokeStyle = surface
         ctx.stroke()
 
-        ctx.globalAlpha = hoverId ? (active ? 1 : 0.15) : 0.9
+        ctx.globalAlpha = dimActive ? (active ? 1 : 0.15) : 0.9
         ctx.fillStyle = text
         ctx.fillText(node.title, x + node.radius + 4, y)
       }
@@ -203,13 +267,14 @@ export function GlobalRelationGraphCanvas(props: {
         draw()
       })
     }
+    scheduleDrawRef.current = scheduleDraw
 
     const simulation = forceSimulation<GraphNode>(nodes)
       .force('link', forceLink<GraphNode, GraphLink>(links).id(node => node.id).distance(LINK_DISTANCE).strength(LINK_STRENGTH))
       .force('charge', forceManyBody<GraphNode>().strength(chargeStrength))
       .force('x', forceX<GraphNode>(width / 2).strength(centerStrength))
       .force('y', forceY<GraphNode>(height / 2).strength(centerStrength))
-      .force('collide', forceCollide<GraphNode>().radius(node => node.radius + 4))
+      .force('collide', forceCollide<GraphNode>().radius(node => node.radius + COLLIDE_RADIUS_PADDING))
     simulation.on('tick', scheduleDraw)
 
     simulationRef.current = simulation
@@ -217,6 +282,7 @@ export function GlobalRelationGraphCanvas(props: {
       charge: simulation.force('charge') as ForceManyBody<GraphNode>,
       x: simulation.force('x') as ForceX<GraphNode>,
       y: simulation.force('y') as ForceY<GraphNode>,
+      collide: simulation.force('collide') as ForceCollide<GraphNode>,
     }
 
     // 命中判定用画布内坐标；指针坐标相对画布左上角（与缩放平移无关的屏幕像素）。
@@ -323,10 +389,11 @@ export function GlobalRelationGraphCanvas(props: {
       select(canvas).on('.drag', null).on('.zoom', null)
       simulationRef.current = null
       forcesRef.current = null
+      scheduleDrawRef.current = () => {}
     }
   }, [graph, size.height, size.width])
 
-  // 布局参数只调整力强度并重加热，不重建图形，保留缩放与节点位置。
+  // 布局参数只调整力强度与节点半径并重加热，不重建图形，保留缩放与节点位置。
   React.useEffect(() => {
     const forces = forcesRef.current
     const simulation = simulationRef.current
@@ -334,8 +401,20 @@ export function GlobalRelationGraphCanvas(props: {
     forces.charge.strength(chargeStrength)
     forces.x.strength(centerStrength)
     forces.y.strength(centerStrength)
+    radiusRef.current = { min: minNodeRadius, max: maxNodeRadius }
+    const maxDegree = maxDegreeRef.current
+    for (const node of nodesRef.current) {
+      node.radius = nodeRadiusForDegree(node.degree, maxDegree, minNodeRadius, maxNodeRadius)
+    }
+    forces.collide.radius(node => node.radius + COLLIDE_RADIUS_PADDING)
     simulation.alpha(0.5).restart()
-  }, [chargeStrength, centerStrength])
+  }, [chargeStrength, centerStrength, minNodeRadius, maxNodeRadius])
+
+  // 外观参数（连线粗细、箭头显示、悬停虚化）只改绘制，不触发布局、不重建图形。
+  React.useEffect(() => {
+    visualRef.current = { linkWidth, showArrows, dimOnHover }
+    scheduleDrawRef.current()
+  }, [dimOnHover, linkWidth, showArrows])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
