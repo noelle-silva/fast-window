@@ -16,7 +16,6 @@ const sourceManifest = {
   description: '样例应用',
   versionSource: 'release.json',
   package: { windowsExecutable: 'sample-app.exe', icon: 'assets/icon.svg' },
-  displayMode: 'default',
   commands: [{ id: 'open', title: '打开' }],
 }
 
@@ -46,7 +45,6 @@ async function createVerifyFixture(options = {}) {
     description: manifest.description,
     version: '1.2.3',
     package: { ...manifest.package },
-    displayMode: manifest.displayMode,
     commands: manifest.commands,
     ...options.packagedOverrides,
   }

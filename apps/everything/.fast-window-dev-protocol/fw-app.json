@@ -8,7 +8,6 @@
     "windowsExecutable": "everything.exe",
     "icon": "assets/icon.svg"
   },
-  "displayMode": "default",
   "commands": [
     {
       "id": "open-search",

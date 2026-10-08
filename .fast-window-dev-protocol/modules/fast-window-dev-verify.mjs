@@ -47,7 +47,6 @@ function comparePackagedManifest(packaged, manifest, version, sourceService) {
   assertSameJson(packaged?.id, manifest.id, '清单 id')
   assertSameJson(packaged?.name, manifest.name, '清单 name')
   assertSameJson(packaged?.description, manifest.description, '清单 description')
-  assertSameJson(packaged?.displayMode, manifest.displayMode, '清单 displayMode')
   assertSameJson(normalizePackagedCommands(packaged?.commands), manifest.commands, '清单 commands')
   assertSameJson(packaged?.service, sourceService, '清单 service')
   assertSameJson(packaged?.package?.windowsExecutable, manifest.executable, '清单 windowsExecutable')

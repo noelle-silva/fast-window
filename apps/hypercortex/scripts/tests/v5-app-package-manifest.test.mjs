@@ -35,7 +35,6 @@ test('清单拒绝非桌面类型', () => {
         description: '样例',
         versionSource: 'version.json',
         package: { windowsExecutable: 'sample.exe', icon: 'icon.svg' },
-        displayMode: 'default',
         commands: [],
       },
       { appDir: 'C:/sample', expectedId: 'sample', manifestPath: 'fw-app.json' },

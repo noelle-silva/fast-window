@@ -249,7 +249,6 @@ function buildRuntimeManifest(config, version) {
       windowsExecutable: normalizeRel(config.executable, 'executable'),
       icon: normalizeRel(config.icon, 'icon'),
     },
-    displayMode: config.displayMode,
     commands: validateCommands(config.commands || []),
   }
 }
