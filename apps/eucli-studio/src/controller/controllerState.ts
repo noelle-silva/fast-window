@@ -52,6 +52,8 @@ export function createInitialControllerState() {
       roleModelSource: 'provider',
       roleModelGroupId: '',
       roleModelGroupModelId: '',
+      roleTemperature: '1',
+      roleTemperatureEnabled: false,
       roleHookPromptPresetId: '',
       roleToolPolicy: emptyRoleToolPolicy(),
       roleToolAddOpen: false,

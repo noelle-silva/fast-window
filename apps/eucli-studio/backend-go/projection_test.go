@@ -274,7 +274,8 @@ func TestRoleProjectionPreservesHookPromptPresetID(t *testing.T) {
 			"content": "You are a developer.",
 		}},
 		"modelConfig": map[string]any{
-			"coordinate": map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"},
+			"coordinate":  map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"},
+			"temperature": float64(1),
 		},
 	}
 

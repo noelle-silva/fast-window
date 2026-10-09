@@ -182,6 +182,12 @@ func stringField(m map[string]any, key string) string {
 	}
 	return strings.TrimSpace(fmt.Sprint(m[key]))
 }
+func numberField(m map[string]any, key string, fallback float64) float64 {
+	if n, ok := m[key].(float64); ok {
+		return n
+	}
+	return fallback
+}
 func intField(m map[string]any, key string, fallback int) int {
 	switch value := m[key].(type) {
 	case float64:

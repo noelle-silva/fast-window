@@ -47,6 +47,8 @@ export function createModalHelpers(deps: { state: any; render: () => void }) {
       state.draft.roleCustomModelId = ''
       state.draft.roleModelGroupId = ''
       state.draft.roleModelGroupModelId = ''
+      state.draft.roleTemperature = '1'
+      state.draft.roleTemperatureEnabled = false
       state.draft.roleHookPromptPresetId = ''
       state.draft.roleToolPolicy = emptyRoleToolPolicy()
     }

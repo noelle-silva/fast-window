@@ -30,6 +30,12 @@ export function isHttpBaseUrl(s: unknown) {
   return t.startsWith('http://') || t.startsWith('https://')
 }
 
+export function clampTemp(v: unknown) {
+  const n = Number(v)
+  if (!isFinite(n)) return 1
+  return Math.max(0, Math.min(2, n))
+}
+
 export function normImagePaths(v: unknown, maxCount = 8) {
   const list = Array.isArray(v) ? v : []
   const out: string[] = []

@@ -302,6 +302,8 @@ export function normalizeData(raw: any) {
     if (typeof r.avatarImage !== 'string') r.avatarImage = ''
     if (r.avatarImage && !looksLikeImageDataUrl(r.avatarImage)) r.avatarImage = ''
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
+    if (typeof r.temperature !== 'number' || !isFinite(r.temperature)) r.temperature = 1
+    if (typeof r.temperatureEnabled !== 'boolean') r.temperatureEnabled = false
     if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
     if (typeof r.modelRef.kind !== 'string') r.modelRef.kind = String(r.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
     if (typeof r.modelRef.groupId !== 'string') r.modelRef.groupId = ''

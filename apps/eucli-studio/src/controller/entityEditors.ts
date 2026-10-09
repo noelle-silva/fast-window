@@ -1,4 +1,4 @@
-import { now, uid, clamp, normImagePaths } from '../core/utils'
+import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
 import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRoleRunCards, activeEbRoleRunCardsForSession, activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
@@ -210,6 +210,8 @@ export function createEntityEditors(deps: {
     state.draft.roleAvatarImage = ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = ''
+    state.draft.roleTemperature = '1'
+    state.draft.roleTemperatureEnabled = false
     ;(state.draft as any).roleHookPromptPresetId = ''
     state.draft.roleModelSource = 'provider'
     state.draft.roleProviderId = fallbackPid
@@ -271,6 +273,8 @@ export function createEntityEditors(deps: {
     state.draft.roleAvatarImage = looksLikeImageDataUrl(role.avatarImage) ? String(role.avatarImage || '') : ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = String(role.systemPrompt || '')
+    state.draft.roleTemperature = String(role.temperature ?? 1)
+    state.draft.roleTemperatureEnabled = role.temperatureEnabled === true
     ;(state.draft as any).roleHookPromptPresetId = String(role.hookPromptPresetId || '')
     const modelKind = String(role.modelRef?.kind || '').trim() === 'model_group' || String(role.modelRef?.groupId || '').trim() ? 'model_group' : 'provider'
     state.draft.roleModelSource = modelKind
@@ -300,6 +304,8 @@ export function createEntityEditors(deps: {
     const name = String(state.draft.roleName || '').trim() || '未命名角色'
     const avatarImage = looksLikeImageDataUrl(state.draft.roleAvatarImage) ? String(state.draft.roleAvatarImage || '') : ''
     const sys = String(state.draft.roleSystemPrompt || '').trim()
+    const temperature = clampTemp(state.draft.roleTemperature)
+    const temperatureEnabled = state.draft.roleTemperatureEnabled === true
     const hookPromptPresetId = String((state.draft as any).roleHookPromptPresetId || '').trim()
     const modelSource = String(state.draft.roleModelSource || '').trim() === 'model_group' ? 'model_group' : 'provider'
     const providerId = modelSource === 'provider' ? String(state.draft.roleProviderId || '').trim() : ''
@@ -322,6 +328,8 @@ export function createEntityEditors(deps: {
         name,
         avatarImage,
         systemPrompt: sys,
+        temperature,
+        temperatureEnabled,
         hookPromptPresetId,
         modelRef,
         toolPolicy,
@@ -351,6 +359,8 @@ export function createEntityEditors(deps: {
     role.name = name
     role.avatarImage = avatarImage
     role.systemPrompt = sys
+    role.temperature = temperature
+    role.temperatureEnabled = temperatureEnabled
     role.hookPromptPresetId = hookPromptPresetId
     role.modelRef = modelRef
     role.toolPolicy = toolPolicy

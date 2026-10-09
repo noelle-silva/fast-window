@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, Switch, TextField, Typography } from '@mui/material'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { PlaceholderSearchSection } from './PlaceholderSearchSection'
@@ -26,6 +26,8 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
   const providerId = String(draft?.roleProviderId || '')
   const modelSource = String(draft?.roleModelSource || '') === 'model_group' ? 'model_group' : 'provider'
   const modelGroupId = String(draft?.roleModelGroupId || '')
+  const temp = Number(draft?.roleTemperature || 1)
+  const temperatureEnabled = draft?.roleTemperatureEnabled === true
   const roleHookPromptPresetId = String(draft?.roleHookPromptPresetId || '')
   const hookPromptPresets = Array.isArray(hookPrompts?.library?.presets) ? hookPrompts.library.presets : []
   const provider = providers.find((p: any) => String(p?.id || '') === providerId) || null
@@ -158,6 +160,31 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
             })}
           </Select>
         </FormControl>
+      </RoleDialogSection>
+
+      <RoleDialogSection title="温度">
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              启用温度
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              关闭后不发送温度，走模型默认。
+            </Typography>
+          </Box>
+          <Switch checked={temperatureEnabled} onChange={(e) => controller.actions.setDraft('roleTemperatureEnabled', e.target.checked)} />
+        </Stack>
+        <Typography variant="body2" sx={{ fontWeight: 900, opacity: temperatureEnabled ? 1 : 0.4 }}>
+          温度：{Number.isFinite(temp) ? temp.toFixed(2) : '1.00'}
+        </Typography>
+        <Slider
+          disabled={!temperatureEnabled}
+          value={Number.isFinite(temp) ? temp : 1}
+          min={0}
+          max={2}
+          step={0.05}
+          onChange={(_e, v) => controller.actions.setDraft('roleTemperature', String(v))}
+        />
       </RoleDialogSection>
     </Stack>
   )
