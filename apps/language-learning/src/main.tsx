@@ -8,6 +8,7 @@ import { AppTopbar } from './components/AppTopbar'
 import { SettingsPage } from './SettingsPage'
 import type { AppSettings, DataDirStatus, DirectClient, FwLaunchInfo } from './types'
 import { DEFAULT_LAUNCH_INFO } from './types'
+import { installExternalLinkGuard } from './externalLinkGuard'
 import './styles.css'
 
 const appWindow = getCurrentWindow()
@@ -182,4 +183,7 @@ function App() {
 }
 
 const host = document.getElementById('app')
-if (host) createRoot(host).render(<App />)
+if (host) {
+  installExternalLinkGuard()
+  createRoot(host).render(<App />)
+}
