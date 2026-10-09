@@ -53,10 +53,7 @@ import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
-import { pendingChatForTarget } from '../domain/pendingChat'
-import { chatNavigationFromOrderedChats } from '../domain/chatNavigation'
-import { sortChatListItemsForDisplay } from '../domain/chatListOrdering'
-import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
@@ -140,8 +137,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeRole = controller.activeRole()
   const activeGroup = activeTargetKind === 'group' ? (groups.find((g: any) => String(g?.id || '') === activeGroupId) || null) : null
   const activeWorkspace = activeTargetKind === 'workspace' ? (workspaces.find((workspace: any) => String(workspace?.id || '') === activeWorkspaceId) || null) : null
-  const activeWorkspaceChatTargetId = workspaceRoleTargetId(activeWorkspaceId, (activeRole as any)?.id)
-  const activeChatTargetId = activeTargetKind === 'group' ? activeGroupId : activeTargetKind === 'workspace' ? activeWorkspaceChatTargetId : String(activeRole?.id || '')
+  const activeChatTargetId = activeChatTargetKey(activeTargetKind, { groupId: activeGroupId, workspaceId: activeWorkspaceId, roleId: (activeRole as any)?.id })
   const activeChatSelectionBox = activeChatTargetId
     ? activeTargetKind === 'group'
       ? (data as any)?.chatsByGroup?.[activeChatTargetId]
@@ -626,28 +622,18 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
 
   const activeRoleId = String(activeRole?.id || '')
-  const chatNav = (() => {
-    const loading = !!s.loading
-    if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
-    let targetId = ''
-    if (activeTargetKind === 'group') {
-      targetId = String((activeGroup as any)?.id || activeGroupId || '').trim()
-      if (!targetId) return { olderId: '', newerId: '', lockedReason: '请先选择群组' }
-    } else if (activeTargetKind === 'workspace') {
-      targetId = String((activeWorkspace as any)?.id || activeWorkspaceId || '').trim()
-      if (!targetId) return { olderId: '', newerId: '', lockedReason: '请先选择工作区' }
-    } else {
-      targetId = String(activeRoleId || '').trim()
-      if (!targetId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
-    }
-    if (!data) return { olderId: '', newerId: '', lockedReason: '数据未就绪' }
-
-    const box = activeTargetKind === 'group' ? (data as any)?.chatsByGroup?.[targetId] : activeTargetKind === 'workspace' ? (data as any)?.chatsByWorkspace?.[targetId] : data?.chatsByRole?.[targetId]
-    const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
-    const pendingChat = pendingChatForTarget(s, activeTargetKind, targetId)
-    const currentChatId = String(activeChat?.id || box?.activeChatId || String(chats[0]?.id || '') || '')
-    return chatNavigationFromOrderedChats({ orderedChats: chats, activeChatId: currentChatId, pendingChat })
-  })()
+  // 会话导航统一走 domain：工作区会话按「工作区::角色」复合键取箱，
+  // 曾用纯工作区 id 直查取空，导致历史切换按钮恒灰。
+  const chatNav = resolveActiveChatNav({
+    loading: !!s.loading,
+    kind: activeTargetKind,
+    groupId: activeGroupId,
+    workspaceId: activeWorkspaceId,
+    roleId: activeRoleId,
+    data,
+    state: s,
+    activeChat,
+  })
 
   React.useLayoutEffect(() => {
     if (page !== 'chat') return
