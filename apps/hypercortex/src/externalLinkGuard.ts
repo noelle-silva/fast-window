@@ -1,13 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
 
 /**
- * 渲染内容外部链接守卫。
+ * 应用外部链接守卫。
  *
- * 目标状态（约束集 094）：渲染内容里的链接点击不产生应用内导航，
+ * 目标状态（约束集 094）：应用内的链接点击不产生应用内导航，
  * 外部目标改交系统浏览器打开；锚点与同源地址保持原行为。
  */
 
-const RENDER_ROOT_SELECTOR = '.hc-render'
 const GUARD_FLAG = 'data-hc-external-link-guard'
 
 /** 判断链接目标是否应交给系统浏览器（外部 http/https 或 mailto/tel）。 */
@@ -43,7 +42,6 @@ function handleClick(event: MouseEvent): void {
   if (!(target instanceof Element)) return
   const anchor = target.closest('a[href]')
   if (!(anchor instanceof HTMLAnchorElement)) return
-  if (!anchor.closest(RENDER_ROOT_SELECTOR)) return
   const url = resolveExternalTarget(anchor)
   if (!url) return
   event.preventDefault()
