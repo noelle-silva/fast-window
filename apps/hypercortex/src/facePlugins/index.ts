@@ -1,5 +1,6 @@
 import { htmlFaceViewPlugin } from './html'
 import { markdownFaceViewPlugin } from './markdown'
+import { mindmapFaceViewPlugin } from './mindmap'
 import { registerFaceViewPlugin } from './protocol'
 
 /**
@@ -9,6 +10,7 @@ import { registerFaceViewPlugin } from './protocol'
 export function assembleFaceViewPlugins(): void {
   registerFaceViewPlugin(markdownFaceViewPlugin)
   registerFaceViewPlugin(htmlFaceViewPlugin)
+  registerFaceViewPlugin(mindmapFaceViewPlugin)
 }
 
 assembleFaceViewPlugins()

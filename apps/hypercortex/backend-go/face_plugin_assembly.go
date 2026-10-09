@@ -11,12 +11,14 @@ import (
 	"fast-window-hypercortex-backend/faceplugin"
 	htmlplugin "fast-window-hypercortex-backend/faceplugins/html"
 	markdownplugin "fast-window-hypercortex-backend/faceplugins/markdown"
+	mindmapplugin "fast-window-hypercortex-backend/faceplugins/mindmap"
 )
 
 // 官方面插件装配清单：宿主只登记插件包，不包含任何具体面类型的实现。
 func init() {
 	mustRegisterFacePlugin(markdownplugin.Plugin())
 	mustRegisterFacePlugin(htmlplugin.Plugin())
+	mustRegisterFacePlugin(mindmapplugin.Plugin())
 }
 
 func mustRegisterFacePlugin(plugin faceplugin.Plugin) {
