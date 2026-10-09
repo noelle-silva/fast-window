@@ -203,6 +203,7 @@ function ToolSessionCard(props: {
   const result = item.blocks.find((block) => block.kind === 'tool_result')?.part?.result
   const status = result && typeof result === 'object' ? String(result.status || '').trim() : ''
   const summary = [state, status].filter(Boolean).join(' · ')
+  const description = String(part?.input?.description || '').trim()
 
   return (
     <Paper
@@ -244,6 +245,25 @@ function ToolSessionCard(props: {
           </Typography>
         </Stack>
         <Box sx={{ flex: 1, minWidth: 8 }} />
+        {description ? (
+          <Typography
+            variant="caption"
+            title={description}
+            sx={{
+              color: 'var(--studio-text-secondary)',
+              opacity: 0.85,
+              minWidth: 0,
+              maxWidth: '45%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: '0 1 auto',
+            }}
+            noWrap
+          >
+            {description}
+          </Typography>
+        ) : null}
         <ToolDurationText part={part} />
         {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </Stack>
