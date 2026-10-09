@@ -244,7 +244,6 @@ function ToolSessionCard(props: {
             {summary || '工具调用'}
           </Typography>
         </Stack>
-        <Box sx={{ flex: 1, minWidth: 8 }} />
         {description ? (
           <Typography
             variant="caption"
@@ -252,18 +251,19 @@ function ToolSessionCard(props: {
             sx={{
               color: 'var(--studio-text-secondary)',
               opacity: 0.85,
+              alignSelf: 'flex-start',
               minWidth: 0,
               maxWidth: '45%',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              flex: '0 1 auto',
             }}
             noWrap
           >
             {description}
           </Typography>
         ) : null}
+        <Box sx={{ flex: 1, minWidth: 8 }} />
         <ToolDurationText part={part} />
         {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </Stack>
