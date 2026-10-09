@@ -10,6 +10,7 @@ const templateDir = path.join(__dirname, 'face-plugin-template')
 // 类型标识同时作为目录名、Go 包名与面类型值：必须是小写字母开头、仅含小写字母与数字。
 const KIND_PATTERN = /^[a-z][a-z0-9]*$/
 const FACE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+const TOOLBAR_SLOTS = ['left', 'right', 'both']
 
 // 能力画像默认值：可编辑、可预览、可新建、可删除，默认不可搜索（搜索需自行提供搜索文本）。
 const DEFAULT_CAPABILITIES = {
@@ -20,7 +21,15 @@ const DEFAULT_CAPABILITIES = {
   deletable: true,
 }
 
-/** 解析命令行参数为原始入参（含能力开关与 dry-run）。 */
+// 可选骨架件默认全关，指定才生成：引用提取、工具条插槽、只读内容预览、设置项声明。
+const DEFAULT_OPTIONAL = {
+  refs: false,
+  toolbar: '',
+  contentPreview: false,
+  settings: false,
+}
+
+/** 解析命令行参数为原始入参（含能力开关、可选骨架件与 dry-run）。 */
 export function parseFaceArgs(argv) {
   const params = {
     kind: '',
@@ -28,6 +37,7 @@ export function parseFaceArgs(argv) {
     faceId: '',
     fileName: '',
     ...DEFAULT_CAPABILITIES,
+    ...DEFAULT_OPTIONAL,
     dryRun: false,
     help: false,
   }
@@ -40,6 +50,7 @@ export function parseFaceArgs(argv) {
     else if (arg === '--label') params.label = readValue(args, ++index, arg)
     else if (arg === '--face-id') params.faceId = readValue(args, ++index, arg)
     else if (arg === '--file-name') params.fileName = readValue(args, ++index, arg)
+    else if (arg === '--toolbar') params.toolbar = readValue(args, ++index, arg)
     else if (arg === '--editable') params.editable = true
     else if (arg === '--no-editable') params.editable = false
     else if (arg === '--searchable') params.searchable = true
@@ -50,6 +61,12 @@ export function parseFaceArgs(argv) {
     else if (arg === '--no-creatable') params.creatable = false
     else if (arg === '--deletable') params.deletable = true
     else if (arg === '--no-deletable') params.deletable = false
+    else if (arg === '--refs') params.refs = true
+    else if (arg === '--no-refs') params.refs = false
+    else if (arg === '--content-preview') params.contentPreview = true
+    else if (arg === '--no-content-preview') params.contentPreview = false
+    else if (arg === '--settings') params.settings = true
+    else if (arg === '--no-settings') params.settings = false
     else throw new Error(`未知参数：${arg}`)
   }
   return params
@@ -68,6 +85,10 @@ export function normalizeFaceParams(input) {
   if (!FACE_ID_PATTERN.test(faceId)) throw new Error(`默认面标识非法：${JSON.stringify(faceId)}`)
   const fileName = String(input.fileName || '').trim() || `${kind}.txt`
   assertSafeFileName(fileName)
+  const toolbar = String(input.toolbar || '').trim()
+  if (toolbar && !TOOLBAR_SLOTS.includes(toolbar)) {
+    throw new Error(`工具条插槽非法（应为 left/right/both）：${JSON.stringify(input.toolbar)}`)
+  }
   return {
     kind,
     label,
@@ -78,15 +99,38 @@ export function normalizeFaceParams(input) {
     previewable: input.previewable !== false,
     creatable: input.creatable !== false,
     deletable: input.deletable !== false,
+    refs: input.refs === true,
+    toolbar,
+    contentPreview: input.contentPreview === true,
+    settings: input.settings === true,
     dryRun: input.dryRun === true,
     help: input.help === true,
   }
 }
 
-/** 由入参生成待落盘的文件清单（路径 + 内容）；能力决定可选文件与可选代码块。 */
+/** 由入参生成待落盘的文件清单（路径 + 内容）；能力与可选件决定文件集合与可选代码块。 */
 export async function buildFaceFiles(input) {
   const params = normalizeFaceParams(input)
   const pascal = params.kind.charAt(0).toUpperCase() + params.kind.slice(1)
+  const extractRefsFn = `extract${pascal}FaceRefs`
+
+  const localImports = []
+  if (params.contentPreview) localImports.push(`import { ${pascal}ContentPreview } from './contentPreview'\n`)
+  if (params.editable) localImports.push(`import { ${pascal}EditView } from './editView'\n`)
+  if (params.refs) localImports.push(`import { ${extractRefsFn} } from './extractRefs'\n`)
+  localImports.push(`import { ${pascal}ReadView } from './readView'\n`)
+  if (params.toolbar) localImports.push(`import { ${toolbarComponentNames(params.toolbar, pascal).join(', ')} } from './toolbar'\n`)
+
+  const optionalFields = []
+  if (params.toolbar) {
+    const slots = []
+    if (params.toolbar === 'left' || params.toolbar === 'both') slots.push(`left: ${pascal}LeftToolbar`)
+    if (params.toolbar === 'right' || params.toolbar === 'both') slots.push(`right: ${pascal}RightToolbar`)
+    optionalFields.push(`  Toolbars: { ${slots.join(', ')} },\n`)
+  }
+  if (params.contentPreview) optionalFields.push(`  ContentPreview: ${pascal}ContentPreview,\n`)
+  if (params.refs) optionalFields.push(`  extractRefs: ${extractRefsFn},\n`)
+
   const values = {
     KIND: params.kind,
     LABEL: params.label,
@@ -99,19 +143,30 @@ export async function buildFaceFiles(input) {
     CAP_PREVIEWABLE: String(params.previewable),
     CAP_CREATABLE: String(params.creatable),
     CAP_DELETABLE: String(params.deletable),
-    EDIT_VIEW_IMPORT: params.editable ? `import { ${pascal}EditView } from './editView'\n` : '',
+    LOCAL_IMPORTS: localImports.join(''),
     EDIT_VIEW_FIELD: params.editable ? `  EditView: ${pascal}EditView,\n` : '',
+    OPTIONAL_FIELDS: optionalFields.join(''),
+    EXTRACT_REFS_LINE: params.refs ? '\t\tExtractRefs:       ExtractRefs,\n' : '',
     SEARCH_TEXT_LINE: params.searchable ? '\t\tSearchText:        SearchText,\n' : '',
+    SETTINGS_LINES: params.settings
+      ? `\t\tSettingsTitle:     "${params.label}面设置",\n\t\tSettingsIntro:     "${params.label}面的可配置项。",\n\t\tSettings:          settingsDeclaration(),\n`
+      : '',
+    TOOLBAR_BLOCKS: buildToolbarBlocks(params, pascal),
   }
+
   const frontendDir = path.posix.join('src/facePlugins', params.kind)
   const backendDir = path.posix.join('backend-go/faceplugins', params.kind)
   const specs = [
     { target: `${frontendDir}/index.ts`, template: 'frontend/index.ts.tmpl' },
     { target: `${frontendDir}/readView.tsx`, template: 'frontend/readView.tsx.tmpl' },
     ...(params.editable ? [{ target: `${frontendDir}/editView.tsx`, template: 'frontend/editView.tsx.tmpl' }] : []),
+    ...(params.refs ? [{ target: `${frontendDir}/extractRefs.ts`, template: 'frontend/extractRefs.ts.tmpl' }] : []),
+    ...(params.toolbar ? [{ target: `${frontendDir}/toolbar.tsx`, template: 'frontend/toolbar.tsx.tmpl' }] : []),
+    ...(params.contentPreview ? [{ target: `${frontendDir}/contentPreview.tsx`, template: 'frontend/contentPreview.tsx.tmpl' }] : []),
     { target: `${backendDir}/plugin.go`, template: 'backend/plugin.go.tmpl' },
-    { target: `${backendDir}/refs.go`, template: 'backend/refs.go.tmpl' },
+    ...(params.refs ? [{ target: `${backendDir}/refs.go`, template: 'backend/refs.go.tmpl' }] : []),
     ...(params.searchable ? [{ target: `${backendDir}/search_text.go`, template: 'backend/search_text.go.tmpl' }] : []),
+    ...(params.settings ? [{ target: `${backendDir}/settings.go`, template: 'backend/settings.go.tmpl' }] : []),
   ]
   const files = []
   for (const spec of specs) {
@@ -127,6 +182,35 @@ export function renderFaceTemplate(content, values) {
     if (!(token in values)) throw new Error(`模板占位符未知：${token}`)
     return values[token]
   })
+}
+
+function toolbarComponentNames(toolbar, pascal) {
+  const names = []
+  if (toolbar === 'left' || toolbar === 'both') names.push(`${pascal}LeftToolbar`)
+  if (toolbar === 'right' || toolbar === 'both') names.push(`${pascal}RightToolbar`)
+  return names
+}
+
+function buildToolbarBlocks(params, pascal) {
+  const blocks = []
+  if (params.toolbar === 'left' || params.toolbar === 'both') blocks.push(toolbarBlock(`${pascal}LeftToolbar`, params.label, '左'))
+  if (params.toolbar === 'right' || params.toolbar === 'both') blocks.push(toolbarBlock(`${pascal}RightToolbar`, params.label, '右'))
+  return blocks.join('\n\n')
+}
+
+function toolbarBlock(name, label, slotText) {
+  return [
+    `/** ${label}面工具条${slotText}插槽：骨架实现，按真实控件替换。 */`,
+    `export function ${name}({ disabled }: FaceToolbarProps): React.ReactNode {`,
+    '  return (',
+    `    <Tooltip title="${label}面操作" placement="bottom-start">`,
+    `      <IconButton size="small" aria-label="${label}面操作" disabled={disabled} onClick={() => {}}>`,
+    '        <TuneRoundedIcon fontSize="small" />',
+    '      </IconButton>',
+    '    </Tooltip>',
+    '  )',
+    '}',
+  ].join('\n')
 }
 
 async function main() {
@@ -186,7 +270,7 @@ function printUsage() {
   const lines = [
     '用法：node scripts/new-face.mjs --kind <类型标识> --label <展示名> [选项]',
     '',
-    '选项：',
+    '基础选项：',
     '  --face-id <默认面标识>            缺省等于类型标识',
     '  --file-name <默认文件名>          缺省为 <类型标识>.txt',
     '  --editable / --no-editable        是否可编辑，缺省可编辑',
@@ -194,6 +278,14 @@ function printUsage() {
     '  --previewable / --no-previewable  是否可预览，缺省可预览',
     '  --creatable / --no-creatable      是否可新建，缺省可新建',
     '  --deletable / --no-deletable      是否可删除，缺省可删除',
+    '',
+    '可选骨架件（默认全关，指定才生成）：',
+    '  --refs                            引用提取：后端 refs.go + 前端 extractRefs.ts',
+    '  --toolbar left|right|both         工具条插槽：前端 toolbar.tsx + Toolbars',
+    '  --content-preview                 只读内容预览：前端 contentPreview.tsx + ContentPreview',
+    '  --settings                        设置项声明：后端 settings.go + Settings',
+    '',
+    '其他：',
     '  --dry-run                         只打印将生成的文件，不落盘',
     '  --help                            显示本帮助',
     '',

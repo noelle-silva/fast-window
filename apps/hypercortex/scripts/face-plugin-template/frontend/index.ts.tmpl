@@ -1,11 +1,10 @@
 import { createTextContentStore } from '../content'
 import type { FaceViewPlugin } from '../protocol'
-{{EDIT_VIEW_IMPORT}}import { {{PASCAL}}ReadView } from './readView'
-
+{{LOCAL_IMPORTS}}
 /** {{LABEL}}面（{{KIND}}）的界面半包。 */
 export const {{KIND}}FaceViewPlugin: FaceViewPlugin = {
   kind: '{{KIND}}',
   defaultViewState: {},
   ReadView: {{PASCAL}}ReadView,
 {{EDIT_VIEW_FIELD}}  createContentStore: ({ initialContent, savedContent }) => createTextContentStore(initialContent, savedContent ?? initialContent),
-}
+{{OPTIONAL_FIELDS}}}
