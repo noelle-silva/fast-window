@@ -18,6 +18,7 @@
     "apps:bump:dry": "node scripts/bump-app-version.mjs --dry-run",
     "apps:bump": "node scripts/bump-app-version.mjs",
     "dev": "vite --host 127.0.0.1 --port 1432",
+    "face:new": "node scripts/new-face.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:watch": "tsc --noEmit -p tsconfig.json --watch",
     "tauri": "tauri",

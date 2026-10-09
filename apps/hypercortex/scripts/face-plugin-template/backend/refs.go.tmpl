@@ -1,0 +1,8 @@
+package {{PACKAGE}}
+
+import "fast-window-hypercortex-backend/faceplugin"
+
+// ExtractRefs 从面内容提取系统引用占位符（全系统统一语法 [[note_id=...|face=...]]）。
+func ExtractRefs(content string) []faceplugin.Ref {
+	return faceplugin.ExtractPlaceholderRefs(content)
+}

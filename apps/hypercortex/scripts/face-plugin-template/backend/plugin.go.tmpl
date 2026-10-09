@@ -1,0 +1,49 @@
+// Package {{PACKAGE}} 是{{LABEL}}面（{{KIND}}）的数据语义半包。
+// 它只实现协议要求的内容语义，不感知宿主存储、索引与编排结构。
+package {{PACKAGE}}
+
+import (
+	"strings"
+
+	"fast-window-hypercortex-backend/faceplugin"
+)
+
+// Plugin 返回{{LABEL}}面的协议声明与数据语义实现。
+func Plugin() faceplugin.Plugin {
+	return faceplugin.Plugin{
+		ProtocolVersion: faceplugin.ProtocolVersion,
+		Kind:            "{{KIND}}",
+		Label:           "{{LABEL}}",
+		DefaultFaceID:   "{{FACE_ID}}",
+		DefaultFileName: "{{FILE_NAME}}",
+		Capabilities: faceplugin.Capabilities{
+			Editable:    {{CAP_EDITABLE}},
+			Searchable:  {{CAP_SEARCHABLE}},
+			Previewable: {{CAP_PREVIEWABLE}},
+			Creatable:   {{CAP_CREATABLE}},
+			Deletable:   {{CAP_DELETABLE}},
+		},
+		NormalizeContent:  normalizeContent,
+		EmptyContent:      func(noteID string, noteTitle string) string { return "" },
+		NormalizeSettings: normalizeSettings,
+		ExtractRefs:       ExtractRefs,
+{{SEARCH_TEXT_LINE}}	}
+}
+
+func normalizeContent(value string) string {
+	return strings.ReplaceAll(value, "\r\n", "\n")
+}
+
+func normalizeSettings(value map[string]any) map[string]any {
+	out := map[string]any{}
+	if value == nil {
+		return out
+	}
+	for key, item := range value {
+		trimmed := strings.TrimSpace(key)
+		if trimmed != "" {
+			out[trimmed] = item
+		}
+	}
+	return out
+}

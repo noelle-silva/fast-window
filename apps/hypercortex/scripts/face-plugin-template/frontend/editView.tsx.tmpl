@@ -1,0 +1,26 @@
+import * as React from 'react'
+
+import type { FaceEditViewProps } from '../protocol'
+
+/** {{LABEL}}面编辑态视窗：骨架实现，按真实编辑需求替换。 */
+export function {{PASCAL}}EditView({ content, onChange }: FaceEditViewProps): React.ReactNode {
+  return (
+    <textarea
+      value={content}
+      onChange={event => onChange(event.target.value)}
+      spellCheck={false}
+      style={{
+        width: '100%',
+        height: '100%',
+        boxSizing: 'border-box',
+        padding: 16,
+        border: 'none',
+        outline: 'none',
+        resize: 'none',
+        fontFamily: 'monospace',
+        fontSize: 14,
+        lineHeight: 1.6,
+      }}
+    />
+  )
+}
