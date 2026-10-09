@@ -8,6 +8,7 @@ import type { WindowControlActions } from './StandaloneWindowControls'
 import { StartupRecovery, type StartupRecoveryPhase } from './StartupRecovery'
 import { getHyperCortexGateway, resetHyperCortexGateway } from '../gateway'
 import type { DataDirStatus, HyperCortexGateway } from '../gateway'
+import { installExternalLinkGuard } from '../externalLinkGuard'
 
 const host = document.getElementById('app') || document.body
 const TAURI_WINDOW = getCurrentWindow()
@@ -188,6 +189,7 @@ function HyperCortexBootstrap() {
 
 function bootstrap() {
   if (!host) return
+  installExternalLinkGuard()
   const root = createRoot(host)
   root.render(<HyperCortexBootstrap />)
 }

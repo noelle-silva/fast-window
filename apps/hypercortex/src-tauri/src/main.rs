@@ -5,6 +5,7 @@ mod backend_lifecycle;
 mod backend_sidecar;
 mod control_server;
 mod data_dir;
+mod external_link_guard;
 mod fw_window;
 mod native_dialog;
 mod pasted_asset_staging;
@@ -196,6 +197,7 @@ fn main() {
     let shutdown_state_setup = shutdown_state.clone();
 
     tauri::Builder::default()
+        .plugin(external_link_guard::plugin())
         .manage(backend_state)
         .manage(window_state)
         .invoke_handler(tauri::generate_handler![
@@ -209,6 +211,7 @@ fn main() {
             pasted_asset_staging::cleanup_staged_pasted_asset_files,
             hide_to_tray,
             write_clipboard_text,
+            external_link_guard::open_external_url,
             app_ready,
             fw_initial_command,
             fw_launch_info
