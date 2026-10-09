@@ -279,9 +279,9 @@ func (p *projectionService) saveAssistConfigs(ctx context.Context, settings map[
 		groupID := stringField(req.config, "groupId")
 		modelID := stringField(req.config, "modelId")
 		coordinate := assistModelCoordinate(kind, providerID, groupID, modelID)
-		body := map[string]any{"enabled": boolField(req.config, "enabled", false), "modelPick": modelID, "coordinate": coordinate, "systemPrompt": stringField(req.config, "systemPrompt"), "temperature": 0.2}
+		body := map[string]any{"enabled": boolField(req.config, "enabled", false), "modelPick": modelID, "coordinate": coordinate, "systemPrompt": stringField(req.config, "systemPrompt"), "lowTemperature": boolField(req.config, "lowTemperature", true)}
 		if req.path == "/api/assist/context-compression/config" {
-			body = map[string]any{"modelPick": modelID, "coordinate": coordinate, "retainRecentMessages": intField(req.config, "retainRecentMessages", 15), "temperature": 0.2}
+			body = map[string]any{"modelPick": modelID, "coordinate": coordinate, "retainRecentMessages": intField(req.config, "retainRecentMessages", 15), "lowTemperature": boolField(req.config, "lowTemperature", true)}
 		}
 		if _, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: req.path, Body: mustJSON(body)}); err != nil {
 			return err
@@ -362,6 +362,7 @@ func (p *projectionService) loadAssistConfig(ctx context.Context, path string) (
 		"modelId":              modelID,
 		"systemPrompt":         stringField(config, "systemPrompt"),
 		"retainRecentMessages": intField(config, "retainRecentMessages", 15),
+		"lowTemperature":       boolField(config, "lowTemperature", true),
 		"updatedAt":            millisFromAnyOrZero(config["updatedAt"]),
 	}, nil
 }

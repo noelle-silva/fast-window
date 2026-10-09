@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { PlaceholderSearchSection } from './PlaceholderSearchSection'
@@ -26,7 +26,6 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
   const providerId = String(draft?.roleProviderId || '')
   const modelSource = String(draft?.roleModelSource || '') === 'model_group' ? 'model_group' : 'provider'
   const modelGroupId = String(draft?.roleModelGroupId || '')
-  const temp = Number(draft?.roleTemperature || 0.7)
   const roleHookPromptPresetId = String(draft?.roleHookPromptPresetId || '')
   const hookPromptPresets = Array.isArray(hookPrompts?.library?.presets) ? hookPrompts.library.presets : []
   const provider = providers.find((p: any) => String(p?.id || '') === providerId) || null
@@ -159,13 +158,6 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
             })}
           </Select>
         </FormControl>
-      </RoleDialogSection>
-
-      <RoleDialogSection title="温度">
-        <Typography variant="body2" sx={{ fontWeight: 900 }}>
-          温度：{Number.isFinite(temp) ? temp.toFixed(2) : '0.70'}
-        </Typography>
-        <Slider value={Number.isFinite(temp) ? temp : 0.7} min={0} max={2} step={0.05} onChange={(_e, v) => controller.actions.setDraft('roleTemperature', String(v))} />
       </RoleDialogSection>
     </Stack>
   )

@@ -126,6 +126,8 @@ export function AiServicesSettingsPanel(props: AiServicesSettingsPanelProps) {
                   providers={providers}
                   modelGroups={modelGroupList}
                   sourceSelectDisabled={sourceSelectDisabled}
+                  lowTemperature={ccCfg.lowTemperature !== false}
+                  onLowTemperatureToggle={(value) => controller.actions.setContextCompressionLowTemperature?.(value)}
                 />
               ) : null}
               {selectedId === 'mermaidFix' ? (
@@ -135,6 +137,8 @@ export function AiServicesSettingsPanel(props: AiServicesSettingsPanelProps) {
                   idPrefix="mmfix"
                   enabled={!!mmCfg.enabled}
                   onToggle={(value) => controller.actions.setMermaidFixEnabled?.(value)}
+                  lowTemperature={mmCfg.lowTemperature !== false}
+                  onLowTemperatureToggle={(value) => controller.actions.setMermaidFixLowTemperature?.(value)}
                   sourceValue={aiServiceSourceValue(mmSelection.sourceKind, mmSelection.sourceId)}
                   onSourceChange={(value) => controller.actions.setMermaidFixModelSource?.(value)}
                   selection={mmSelection}
@@ -157,6 +161,8 @@ export function AiServicesSettingsPanel(props: AiServicesSettingsPanelProps) {
                   idPrefix="ctn"
                   enabled={!!ctnCfg.enabled}
                   onToggle={(value) => controller.actions.setChatTitleNamingEnabled?.(value)}
+                  lowTemperature={ctnCfg.lowTemperature !== false}
+                  onLowTemperatureToggle={(value) => controller.actions.setChatTitleNamingLowTemperature?.(value)}
                   sourceValue={aiServiceSourceValue(ctnSelection.sourceKind, ctnSelection.sourceId)}
                   onSourceChange={(value) => controller.actions.setChatTitleNamingModelSource?.(value)}
                   selection={ctnSelection}
@@ -179,6 +185,8 @@ export function AiServicesSettingsPanel(props: AiServicesSettingsPanelProps) {
                   idPrefix="sn"
                   enabled={!!snCfg.enabled}
                   onToggle={(value) => controller.actions.setStickerNamingEnabled?.(value)}
+                  lowTemperature={snCfg.lowTemperature !== false}
+                  onLowTemperatureToggle={(value) => controller.actions.setStickerNamingLowTemperature?.(value)}
                   sourceValue={aiServiceSourceValue(snSelection.sourceKind, snSelection.sourceId)}
                   onSourceChange={(value) => controller.actions.setStickerNamingModelSource?.(value)}
                   selection={snSelection}
@@ -296,12 +304,31 @@ function ServicePromptSection(props: {
   )
 }
 
+function LowTemperatureToggle(props: { value: boolean; onChange: (value: boolean) => void }) {
+  const { value, onChange } = props
+  return (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 900 }}>
+          低温度
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          开启后按 0.2 温度调用，输出更稳定；关闭则走模型默认温度。
+        </Typography>
+      </Box>
+      <Switch size="small" checked={value} onChange={(e) => onChange(e.target.checked)} />
+    </Stack>
+  )
+}
+
 function ToggleServiceEditor(props: {
   name: string
   description: string
   idPrefix: string
   enabled: boolean
   onToggle: (value: boolean) => void
+  lowTemperature: boolean
+  onLowTemperatureToggle: (value: boolean) => void
   sourceValue: string
   onSourceChange: (value: string) => void
   selection: any
@@ -316,7 +343,7 @@ function ToggleServiceEditor(props: {
   providers: any[]
   modelGroups: any[]
 }) {
-  const { name, description, idPrefix, enabled, onToggle, sourceValue, onSourceChange, selection, onModelChange, promptValue, onPromptChange, defaultPrompt, onResetPrompt, promptMinRows, loading, sourceSelectDisabled, providers, modelGroups } = props
+  const { name, description, idPrefix, enabled, onToggle, lowTemperature, onLowTemperatureToggle, sourceValue, onSourceChange, selection, onModelChange, promptValue, onPromptChange, defaultPrompt, onResetPrompt, promptMinRows, loading, sourceSelectDisabled, providers, modelGroups } = props
   return (
     <Stack spacing={1.25}>
       <SettingsSection>
@@ -347,6 +374,8 @@ function ToggleServiceEditor(props: {
             providers={providers}
             modelGroups={modelGroups}
           />
+
+          <LowTemperatureToggle value={lowTemperature} onChange={onLowTemperatureToggle} />
         </Stack>
       </SettingsSection>
 
@@ -369,8 +398,10 @@ function ContextCompressionEditor(props: {
   providers: any[]
   modelGroups: any[]
   sourceSelectDisabled: boolean
+  lowTemperature: boolean
+  onLowTemperatureToggle: (value: boolean) => void
 }) {
-  const { controller, loading, config, selection, providers, modelGroups, sourceSelectDisabled } = props
+  const { controller, loading, config, selection, providers, modelGroups, sourceSelectDisabled, lowTemperature, onLowTemperatureToggle } = props
   const retainRecentMessages = Math.round(
     clampNum(
       Number(config.retainRecentMessages ?? DEFAULT_CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES),
@@ -402,6 +433,8 @@ function ContextCompressionEditor(props: {
           providers={providers}
           modelGroups={modelGroups}
         />
+
+        <LowTemperatureToggle value={lowTemperature} onChange={onLowTemperatureToggle} />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>

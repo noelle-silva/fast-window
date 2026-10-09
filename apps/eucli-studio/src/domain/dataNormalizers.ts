@@ -231,18 +231,21 @@ export function normalizeData(raw: any) {
   if (typeof mm.enabled !== 'boolean') mm.enabled = false
   normalizeAiServiceModelSelection(mm, d.settings.providers)
   if (typeof mm.systemPrompt !== 'string') mm.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
+  if (typeof mm.lowTemperature !== 'boolean') mm.lowTemperature = true
 
   if (!as.chatTitleNaming || typeof as.chatTitleNaming !== 'object') as.chatTitleNaming = {}
   const ctn = as.chatTitleNaming as any
   if (typeof ctn.enabled !== 'boolean') ctn.enabled = false
   normalizeAiServiceModelSelection(ctn, d.settings.providers)
   if (typeof ctn.systemPrompt !== 'string') ctn.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
+  if (typeof ctn.lowTemperature !== 'boolean') ctn.lowTemperature = true
 
   if (!as.stickerNaming || typeof as.stickerNaming !== 'object') as.stickerNaming = {}
   const sn = as.stickerNaming as any
   if (typeof sn.enabled !== 'boolean') sn.enabled = false
   normalizeAiServiceModelSelection(sn, d.settings.providers)
   if (typeof sn.systemPrompt !== 'string') sn.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
+  if (typeof sn.lowTemperature !== 'boolean') sn.lowTemperature = true
 
   if (!as.contextCompression || typeof as.contextCompression !== 'object') as.contextCompression = {}
   const cc = as.contextCompression as any
@@ -252,6 +255,7 @@ export function normalizeData(raw: any) {
     CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MIN,
     CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX,
   )
+  if (typeof cc.lowTemperature !== 'boolean') cc.lowTemperature = true
 
   for (const p of d.settings.providers) {
     if (!p || typeof p !== 'object') continue
@@ -298,7 +302,6 @@ export function normalizeData(raw: any) {
     if (typeof r.avatarImage !== 'string') r.avatarImage = ''
     if (r.avatarImage && !looksLikeImageDataUrl(r.avatarImage)) r.avatarImage = ''
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
-    if (typeof r.temperature !== 'number' || !isFinite(r.temperature)) r.temperature = 0.7
     if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
     if (typeof r.modelRef.kind !== 'string') r.modelRef.kind = String(r.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
     if (typeof r.modelRef.groupId !== 'string') r.modelRef.groupId = ''

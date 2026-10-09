@@ -50,6 +50,14 @@ export function createAiServiceActions(deps: {
     emit()
   }
 
+  function setAiServiceLowTemperature(serviceName: string, value: any) {
+    const box = ensureAiServiceConfig(serviceName)
+    if (!box) return
+    box.lowTemperature = !!value
+    saveMeta().catch(() => {})
+    emit()
+  }
+
   return {
     setMermaidFixEnabled: (on: any) => {
       if (!state.data) return
@@ -174,6 +182,18 @@ export function createAiServiceActions(deps: {
       state.data.settings.aiServices.contextCompression.retainRecentMessages = count
       saveMeta().catch(() => {})
       emit()
+    },
+    setContextCompressionLowTemperature: (value: any) => {
+      setAiServiceLowTemperature('contextCompression', value)
+    },
+    setMermaidFixLowTemperature: (value: any) => {
+      setAiServiceLowTemperature('mermaidFix', value)
+    },
+    setChatTitleNamingLowTemperature: (value: any) => {
+      setAiServiceLowTemperature('chatTitleNaming', value)
+    },
+    setStickerNamingLowTemperature: (value: any) => {
+      setAiServiceLowTemperature('stickerNaming', value)
     },
   }
 }
