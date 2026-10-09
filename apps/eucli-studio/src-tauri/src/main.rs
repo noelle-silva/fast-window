@@ -5,6 +5,7 @@ mod backend_lifecycle;
 mod backend_sidecar;
 mod control_server;
 mod data_dir;
+mod external_link_guard;
 mod fw_window;
 mod native_dialog;
 mod shutdown;
@@ -162,6 +163,7 @@ fn main() {
     let shutdown_state_for_run = shutdown_state.clone();
 
     tauri::Builder::default()
+        .plugin(external_link_guard::plugin())
         .manage(backend_state)
         .manage(window_state)
         .manage(shutdown_state)
@@ -173,6 +175,7 @@ fn main() {
             pick_archive_folder,
             restart_backend,
             hide_to_tray,
+            external_link_guard::open_external_url,
             exit_app,
             app_ready,
             fw_initial_command,
