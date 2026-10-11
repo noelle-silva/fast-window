@@ -135,3 +135,56 @@ export function findHtmlBlocks(html: string): HtmlBlock[] {
   }
   return out
 }
+
+// 把一块 HTML 拆成「标签片段」与「文本片段」。
+// 注释、声明、处理指令与标签本身都算标签片段；标签之间的内容才算文本片段。
+// 供内容形态层在块内继续做行内认领：标签原样保留，只对文本片段认领。
+export type HtmlPiece = { kind: 'tag' | 'text'; value: string }
+
+export function splitHtmlTags(raw: string): HtmlPiece[] {
+  const s = String(raw || '')
+  const out: HtmlPiece[] = []
+  let cursor = 0
+  let i = 0
+
+  const flushText = (end: number) => {
+    if (end > cursor) out.push({ kind: 'text', value: s.slice(cursor, end) })
+  }
+
+  const pushTag = (start: number, end: number) => {
+    flushText(start)
+    out.push({ kind: 'tag', value: s.slice(start, end) })
+    cursor = end
+  }
+
+  while (i < s.length) {
+    if (s[i] !== '<') {
+      i++
+      continue
+    }
+    if (s.startsWith('<!--', i)) {
+      const end = s.indexOf('-->', i + 4)
+      const stop = end < 0 ? s.length : end + 3
+      pushTag(i, stop)
+      i = stop
+      continue
+    }
+    if (s.startsWith('<!', i) || s.startsWith('<?', i)) {
+      const end = s.indexOf('>', i)
+      const stop = end < 0 ? s.length : end + 1
+      pushTag(i, stop)
+      i = stop
+      continue
+    }
+    const tag = readTag(s, i)
+    if (!tag) {
+      i++
+      continue
+    }
+    pushTag(i, tag.end)
+    i = tag.end
+  }
+
+  flushText(s.length)
+  return out
+}

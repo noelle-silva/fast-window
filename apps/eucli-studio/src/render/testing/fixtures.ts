@@ -24,6 +24,14 @@ export type Fixture = {
 
 export const MATH_FIXTURES: Fixture[] = [
   {
+    name: 'math.insideHtmlBlock',
+    capability: 'math',
+    complete: true,
+    // 回归：HTML 块内的公式同样要被认领（块内文本继续走行内认领）。
+    text: '<div class="card">\n公式 $a^2+b^2=c^2$ 在这里\n</div>',
+    expect: { 'div.card .math-inline[data-tex]': 1 },
+  },
+  {
     name: 'math.inline',
     capability: 'math',
     complete: true,
@@ -144,6 +152,22 @@ export const STICKER_FIXTURES: Fixture[] = [
     text: '代码 `[[sticker:emoji/hi]]` 保留',
     expect: { 'img.fw-sticker': 0 },
   },
+  {
+    name: 'sticker.insideHtmlBlock',
+    capability: 'sticker',
+    complete: true,
+    // 回归：HTML 块内的令牌同样要被认领（块内文本继续走行内认领）。
+    text: '<div class="card">\n[[sticker:emoji/hi]]\n</div>',
+    expect: { 'div.card img.fw-sticker': 1 },
+  },
+  {
+    name: 'sticker.insideHtmlBlock.streaming',
+    capability: 'sticker',
+    complete: false,
+    // 流式半成品：未闭合 HTML 块内的令牌也应被认领。
+    text: '<div class="card">\n[[sticker:emoji/hi]]',
+    expect: { 'img.fw-sticker': 1 },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -259,6 +283,14 @@ export const MIXED_FIXTURES: Fixture[] = [
       'div.card': 1,
       'img[data-fw-img="1"]': 1,
     },
+  },
+  {
+    name: 'mixed.insideHtmlBlock',
+    capability: 'mixed',
+    complete: true,
+    // 回归：块内的公式与表情包都要被认领。
+    text: ['<div class="card">', '公式 $a^2+b^2=c^2$', '贴纸 [[sticker:emoji/hi]]', '</div>'].join('\n'),
+    expect: { 'div.card': 1, 'div.card .math-inline[data-tex]': 1, 'div.card img.fw-sticker': 1 },
   },
 ]
 

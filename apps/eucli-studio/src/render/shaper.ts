@@ -1,5 +1,5 @@
 import { splitInlineCodeSpans, tokenizeFences } from './fences'
-import { findHtmlBlocks } from './htmlBlocks'
+import { findHtmlBlocks, splitHtmlTags } from './htmlBlocks'
 import type { ClaimSink, RenderCapability, RenderContext } from './contract'
 
 // ============================================================================
@@ -51,18 +51,29 @@ function claimInlineText(text: string, ctx: RenderContext, capabilities: RenderC
 
 // claimText 处理一段普通文本：先切出行内代码（不参与认领），再在非代码区里
 // 优先整块认领 HTML 块（防止 Markdown 破坏），剩余部分交给能力做行内认领。
-function claimText(text: string, ctx: RenderContext, capabilities: RenderCapability[], claims: ShapedClaim[], counts: Map<string, number>): string {
+// allowHtmlBlocks=false 用于块内文本：块内不再寻找嵌套块，避免自嵌套。
+function claimText(text: string, ctx: RenderContext, capabilities: RenderCapability[], claims: ShapedClaim[], counts: Map<string, number>, allowHtmlBlocks = true): string {
   const parts = splitInlineCodeSpans(text)
   return parts
     .map((part) => {
       if (part.kind === 'code') return part.value
+      if (!allowHtmlBlocks) return claimInlineText(part.value, ctx, capabilities, claims, counts)
       return claimHtmlBlocksIn(part.value, ctx, capabilities, claims, counts)
     })
     .join('')
 }
 
+// 块内文本继续参与行内认领：标签片段原样保留，文本片段按普通文本处理
+// （切行内代码 + 行内能力认领）。这样块内的公式 / 表情包等行内对象不再被整块吃掉。
+function claimInsideHtmlBlock(raw: string, ctx: RenderContext, capabilities: RenderCapability[], claims: ShapedClaim[], counts: Map<string, number>): string {
+  return splitHtmlTags(raw)
+    .map((piece) => (piece.kind === 'tag' ? piece.value : claimText(piece.value, ctx, capabilities, claims, counts, false)))
+    .join('')
+}
+
 // 在文本中识别整块 HTML，交给声明了 claimHtmlBlock 的能力认领。
-// 半成品规矩：未闭合的 HTML 块保持原文（草稿态），不进入认领。
+// 块内文本先走一遍行内认领，再整块交给块级能力保护。
+// 半成品规矩：未闭合的 HTML 块不进入块级认领（保持草稿态），块内文本仍按普通文本认领。
 function claimHtmlBlocksIn(text: string, ctx: RenderContext, capabilities: RenderCapability[], claims: ShapedClaim[], counts: Map<string, number>): string {
   const blocks = findHtmlBlocks(text)
   if (!blocks.length) return claimInlineText(text, ctx, capabilities, claims, counts)
@@ -72,18 +83,21 @@ function claimHtmlBlocksIn(text: string, ctx: RenderContext, capabilities: Rende
   for (const block of blocks) {
     if (block.start > cursor) out.push(claimInlineText(text.slice(cursor, block.start), ctx, capabilities, claims, counts))
 
+    // 块内文本先认领：产出的 raw 里可能残留行内占位符，后续由 substituteClaims 统一替换。
+    const claimedRaw = claimInsideHtmlBlock(block.raw, ctx, capabilities, claims, counts)
+
     let replaced: string | null = null
     if (block.closed) {
       for (const capability of capabilities) {
         if (!capability.claimHtmlBlock) continue
-        const result = capability.claimHtmlBlock(block.raw, ctx, createSink(capability.id, claims, counts))
+        const result = capability.claimHtmlBlock(claimedRaw, ctx, createSink(capability.id, claims, counts))
         if (result != null) {
           replaced = result
           break
         }
       }
     }
-    out.push(replaced != null ? replaced : block.raw)
+    out.push(replaced != null ? replaced : claimedRaw)
     cursor = block.end
   }
   if (cursor < text.length) out.push(claimInlineText(text.slice(cursor), ctx, capabilities, claims, counts))
