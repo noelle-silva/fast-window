@@ -155,7 +155,7 @@ func TestSearchQueryFaceKindFilter(t *testing.T) {
 
 func TestSearchKindsListsOnlySearchableFaces(t *testing.T) {
 	kinds := listSearchableFaceKinds()
-	want := []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}}
+	want := []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}, {Kind: "mindmap", Label: "思维导图"}}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("kinds = %#v, want %#v", kinds, want)
 	}
@@ -324,7 +324,7 @@ func TestSearchMethodsDispatch(t *testing.T) {
 	if len(res.Items) != 0 {
 		t.Fatalf("query items = %#v", res.Items)
 	}
-	if !reflect.DeepEqual(res.Kinds, []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}}) {
+	if !reflect.DeepEqual(res.Kinds, []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}, {Kind: "mindmap", Label: "思维导图"}}) {
 		t.Fatalf("kinds = %#v", res.Kinds)
 	}
 }

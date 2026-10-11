@@ -6,7 +6,7 @@ import (
 )
 
 // 声明单源：listFacePlugins 返回全部已注册面插件的声明，网页面设置文案逐字固化。
-func TestListFacePluginsDeclaresMarkdownAndHtml(t *testing.T) {
+func TestListFacePluginsDeclaresMarkdownHtmlAndMindmap(t *testing.T) {
 	svc := newTestService(t)
 
 	result, err := svc.dispatch("hypercortex.notes.listFacePlugins", nil)
@@ -21,7 +21,7 @@ func TestListFacePluginsDeclaresMarkdownAndHtml(t *testing.T) {
 	if err := json.Unmarshal(raw, &declarations); err != nil {
 		t.Fatalf("unmarshal declarations failed: %v", err)
 	}
-	if len(declarations) != 2 {
+	if len(declarations) != 3 {
 		t.Fatalf("declarations = %s", raw)
 	}
 	byKind := map[string]map[string]any{}
@@ -72,6 +72,75 @@ func TestListFacePluginsDeclaresMarkdownAndHtml(t *testing.T) {
 	}
 	assertHtmlDisplayModeSetting(t, htmlSettings[0].(map[string]any))
 	assertHtmlFixedScaleSetting(t, htmlSettings[1].(map[string]any))
+
+	mindmap, ok := byKind["mindmap"]
+	if !ok {
+		t.Fatalf("mindmap declaration missing: %s", raw)
+	}
+	if mindmap["label"] != "思维导图" || mindmap["defaultFaceId"] != "mindmap" || mindmap["defaultFileName"] != "mindmap.json" || mindmap["protocolVersion"] != float64(1) {
+		t.Fatalf("mindmap declaration = %#v", mindmap)
+	}
+	mindmapCapabilities := mindmap["capabilities"].(map[string]any)
+	if mindmapCapabilities["editable"] != true || mindmapCapabilities["searchable"] != true || mindmapCapabilities["previewable"] != true || mindmapCapabilities["creatable"] != true || mindmapCapabilities["deletable"] != true {
+		t.Fatalf("mindmap capabilities = %#v", mindmapCapabilities)
+	}
+	if mindmap["settingsTitle"] != "思维导图面设置" || mindmap["settingsIntro"] != "思维导图面的默认布局、主题与缩放。" {
+		t.Fatalf("mindmap settings texts = %#v", mindmap)
+	}
+	mindmapSettings, ok := mindmap["settings"].([]any)
+	if !ok || len(mindmapSettings) != 3 {
+		t.Fatalf("mindmap settings = %#v, want 3 fields", mindmap["settings"])
+	}
+	assertMindmapLayoutSetting(t, mindmapSettings[0].(map[string]any))
+	assertMindmapThemeSetting(t, mindmapSettings[1].(map[string]any))
+	assertMindmapScaleSetting(t, mindmapSettings[2].(map[string]any))
+}
+
+func assertMindmapLayoutSetting(t *testing.T, field map[string]any) {
+	t.Helper()
+	if field["key"] != "layout" || field["kind"] != "enum" || field["label"] != "布局结构" || field["default"] != "mindMap" {
+		t.Fatalf("layout field = %#v", field)
+	}
+	options, ok := field["options"].([]any)
+	if !ok || len(options) != 5 {
+		t.Fatalf("layout options = %#v", field["options"])
+	}
+	wantValues := []string{"logicalStructure", "mindMap", "organizationStructure", "timeline", "fishbone"}
+	for index, want := range wantValues {
+		if options[index].(map[string]any)["value"] != want {
+			t.Fatalf("layout option %d = %#v, want value %s", index, options[index], want)
+		}
+	}
+}
+
+func assertMindmapThemeSetting(t *testing.T, field map[string]any) {
+	t.Helper()
+	if field["key"] != "theme" || field["kind"] != "enum" || field["label"] != "主题" || field["default"] != "default" {
+		t.Fatalf("theme field = %#v", field)
+	}
+	options, ok := field["options"].([]any)
+	if !ok || len(options) != 2 {
+		t.Fatalf("theme options = %#v", field["options"])
+	}
+	if options[0].(map[string]any)["value"] != "default" || options[1].(map[string]any)["value"] != "dark" {
+		t.Fatalf("theme options = %#v", field["options"])
+	}
+}
+
+func assertMindmapScaleSetting(t *testing.T, field map[string]any) {
+	t.Helper()
+	if field["key"] != "scale" || field["kind"] != "number" || field["label"] != "默认缩放" || field["globalLabel"] != "全局默认缩放" || field["format"] != "percent" {
+		t.Fatalf("scale field = %#v", field)
+	}
+	if field["description"] != "打开该面时的默认缩放，当前 {value}。" || field["noteDescription"] != "打开该面时的默认缩放；全局默认 {global}。" {
+		t.Fatalf("scale description = %#v", field)
+	}
+	if field["default"] != float64(1) || field["min"] != 0.2 || field["max"] != float64(4) || field["step"] != 0.1 {
+		t.Fatalf("scale range = %#v", field)
+	}
+	if _, ok := field["options"]; ok {
+		t.Fatalf("scale must not contain options: %#v", field)
+	}
 }
 
 func assertHtmlDisplayModeSetting(t *testing.T, field map[string]any) {

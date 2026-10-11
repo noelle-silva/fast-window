@@ -30,8 +30,8 @@ func TestSearchCatalogExportsFieldsFacesAndAssetKinds(t *testing.T) {
 		t.Fatalf("assetFields = %#v, want %#v", catalog.AssetFields, wantAssetFields)
 	}
 
-	// 可搜面类型只含声明了搜索文本实现的面（测试装配下仅 markdown）。
-	wantFaces := []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}}
+	// 可搜面类型只含声明了搜索文本实现的面（测试装配下为 markdown 与思维导图）。
+	wantFaces := []noteSearchFaceKindInfo{{Kind: "markdown", Label: "文本"}, {Kind: "mindmap", Label: "思维导图"}}
 	if !reflect.DeepEqual(catalog.NoteFaceKinds, wantFaces) {
 		t.Fatalf("noteFaceKinds = %#v, want %#v", catalog.NoteFaceKinds, wantFaces)
 	}
