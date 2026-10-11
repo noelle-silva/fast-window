@@ -18,9 +18,11 @@ import {
   getFaceDeclaration,
   getFaceViewPlugin,
   resolveFaceCapabilities,
+  resolveFaceStageLayout,
   useFaceContent,
   useFaceDeclarations,
   type FaceContentStore,
+  type FaceStageLayout,
   type FaceViewContext,
 } from '../facePlugins'
 import { resolveFaceSettingValues } from '../facePlugins/settings'
@@ -225,6 +227,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const FaceEditView = faceViewPlugin?.EditView || null
   const FaceToolbarLeft = faceViewPlugin?.Toolbars?.left || null
   const FaceToolbarRight = faceViewPlugin?.Toolbars?.right || null
+  // 面舞台布局：宿主只按协议声明决定舞台形态，不识别具体面类型。
+  const faceStageLayout: FaceStageLayout = resolveFaceStageLayout(faceViewPlugin)
 
   const handleFaceViewStateChange = React.useCallback((patch: Record<string, unknown>) => {
     setFaceViewState(prev => ({ ...prev, ...patch }))
@@ -318,6 +322,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     replaceFaceStores,
     faceDirtyVersion,
     facesDirty,
+    updateFaceSettings,
     buildSessionSnapshot,
     saveSessionToDisk,
     handleSave,
@@ -580,7 +585,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     noteSettingsOpen,
     setNoteSettingsOpen,
     handleRestoreVersion,
-    updateFaceSettings,
     handleCopyNoteRef,
     copyFaceRef,
   } = useNoteDetailToolbar({
@@ -593,7 +597,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     saving,
     deleting,
     setDeleting,
-    face,
     faceManifests,
     editTitle,
     favoritesDoc,
@@ -637,8 +640,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     settings: faceEffectiveSettings,
     noteSettings: faceNoteSettings,
     globalSettings: faceGlobalSettings,
-    updateSettings: String(note.dir || '').trim() ? updateFaceSettings : undefined,
-  }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, note.dir, noteIndexMap, onOpenNote, scope, stableOnPlayingChange, updateFaceSettings, uploadPastedFiles])
+    updateSettings: updateFaceSettings,
+  }), [allNotesById, faceEffectiveSettings, faceGlobalSettings, faceNoteSettings, gateway, handleResourcesAdded, noteIndexMap, onOpenNote, scope, stableOnPlayingChange, updateFaceSettings, uploadPastedFiles])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -853,6 +856,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             onAddFace={handleAddFace}
             FaceReadView={FaceReadView}
             FaceEditView={FaceEditView}
+            faceStageLayout={faceStageLayout}
             faceEditing={faceEditing}
             activeContent={activeContent}
             visible={visible}

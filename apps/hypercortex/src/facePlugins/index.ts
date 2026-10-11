@@ -15,7 +15,7 @@ export function assembleFaceViewPlugins(): void {
 
 assembleFaceViewPlugins()
 
-export { getFaceViewPlugin, listFaceViewPlugins, validateFaceViewPluginsAgainstDeclarations } from './protocol'
+export { getFaceViewPlugin, listFaceViewPlugins, resolveFaceStageLayout, validateFaceViewPluginsAgainstDeclarations } from './protocol'
 export { useFaceContent } from './content'
 export {
   faceManifestFromDeclaration,
@@ -38,6 +38,7 @@ export type {
   FaceReadViewProps,
   FaceSettingField,
   FaceSettingOption,
+  FaceStageLayout,
   FaceToolbarProps,
   FaceToolbarSlot,
   FaceViewContext,

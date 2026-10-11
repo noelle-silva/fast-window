@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, IconButton, InputBase, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 
-import type { FaceDeclaration, FaceEditViewProps, FaceReadViewProps, FaceViewContext } from '../../facePlugins'
+import type { FaceDeclaration, FaceEditViewProps, FaceReadViewProps, FaceStageLayout, FaceViewContext } from '../../facePlugins'
 import type { NoteFaceId } from './noteDetailTools'
 
 /**
@@ -26,6 +26,7 @@ export type NoteDetailContentAreaProps = {
   onAddFace: (kind?: string) => void
   FaceReadView: React.ComponentType<FaceReadViewProps> | null
   FaceEditView: React.ComponentType<FaceEditViewProps> | null
+  faceStageLayout: FaceStageLayout
   faceEditing: boolean
   activeContent: { content: string; setContent: (next: string) => void }
   visible: boolean
@@ -106,6 +107,7 @@ export function NoteDetailContentArea(props: NoteDetailContentAreaProps): React.
     onAddFace,
     FaceReadView,
     FaceEditView,
+    faceStageLayout,
     faceEditing,
     activeContent,
     visible,
@@ -114,9 +116,51 @@ export function NoteDetailContentArea(props: NoteDetailContentAreaProps): React.
     faceViewContext,
   } = props
 
+  // fill 舞台：为画布类面提供确定高度的承载区，面视窗根元素以 height:100% 撑满；
+  // content 舞台：保持内容流，由宿主滚动容器承载（文本类面）。
+  const fill = faceStageLayout === 'fill'
+
+  let faceBody: React.ReactNode
+  if (facesReady && faces.length === 0) {
+    faceBody = <FaceEmptyState declarations={creatableFaceDeclarations} onCreateFace={kind => void onAddFace(kind)} />
+  } else if (FaceReadView) {
+    const view = faceEditing && FaceEditView ? (
+      <FaceEditView
+        content={activeContent.content}
+        visible={visible}
+        onChange={activeContent.setContent}
+        viewState={faceViewState}
+        onViewStateChange={onFaceViewStateChange}
+        context={faceViewContext}
+      />
+    ) : (
+      <FaceReadView content={activeContent.content} visible={visible} viewState={faceViewState} onViewStateChange={onFaceViewStateChange} context={faceViewContext} />
+    )
+    faceBody = fill ? <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>{view}</Box> : view
+  } else {
+    faceBody = (
+      <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
+        <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
+          该面的类型暂不支持显示，内容已原样保留
+        </Typography>
+      </Box>
+    )
+  }
+
   return (
-    <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain', pt: 7 }}>
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box
+      ref={bodyScrollRef}
+      sx={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        overflow: 'auto',
+        overscrollBehavior: 'contain',
+        pt: 7,
+        ...(fill ? { display: 'flex', flexDirection: 'column' } : null),
+      }}
+    >
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: fill ? 0 : undefined, display: 'flex', flexDirection: 'column', gap: 2 }}>
       {editing ? (
         <Box
           sx={{
@@ -257,28 +301,7 @@ export function NoteDetailContentArea(props: NoteDetailContentAreaProps): React.
         )}
       </Box>
 
-      {facesReady && faces.length === 0 ? (
-        <FaceEmptyState declarations={creatableFaceDeclarations} onCreateFace={kind => void onAddFace(kind)} />
-      ) : FaceReadView ? (
-        faceEditing && FaceEditView ? (
-          <FaceEditView
-            content={activeContent.content}
-            visible={visible}
-            onChange={activeContent.setContent}
-            viewState={faceViewState}
-            onViewStateChange={onFaceViewStateChange}
-            context={faceViewContext}
-          />
-        ) : (
-          <FaceReadView content={activeContent.content} visible={visible} viewState={faceViewState} onViewStateChange={onFaceViewStateChange} context={faceViewContext} />
-        )
-      ) : (
-        <Box sx={{ mt: 0.5, px: 2, py: 5, borderRadius: 3, bgcolor: 'rgba(15,23,42,.035)', textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, lineHeight: 1.6, color: 'rgba(0,0,0,.55)' }}>
-            该面的类型暂不支持显示，内容已原样保留
-          </Typography>
-        </Box>
-      )}
+      {faceBody}
 
       </Box>
     </Box>

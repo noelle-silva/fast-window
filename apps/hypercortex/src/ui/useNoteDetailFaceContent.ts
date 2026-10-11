@@ -7,6 +7,7 @@ import type { HyperCortexGateway } from '../gateway'
 import type { SaveNoteFaceContentInput } from '../gateway/types'
 import type { NoteMeta, VaultScope } from '../core'
 import { resolveNoteFaceOrder } from '../facePreferences'
+import { applyFaceSettingsPatch, areFaceSettingsEqual } from './note-detail/faceSettingsPatch'
 import { normalizeTagText, type NoteBaseFields, type NoteFaceId } from './note-detail/noteDetailTools'
 import type { NoteDetailSnapshotV1 } from './NoteDetailSession'
 
@@ -64,6 +65,8 @@ export type NoteDetailFaceContent = {
   replaceFaceStores: (stores: Record<string, FaceContentStore>, savedContents: Record<string, string>) => void
   faceDirtyVersion: number
   facesDirty: boolean
+  /** 面设置补丁：会话态立即生效；已落盘的面立即持久化，本会话新增的面随保存一并落盘。 */
+  updateFaceSettings: (patch: Record<string, unknown | null>) => Promise<void>
   buildSessionSnapshot: (input: {
     baseFields: NoteBaseFields
     manifest: HyperCortexNoteManifestV1
@@ -169,6 +172,29 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
     () => Object.values(faceStoresRef.current).some(store => store.isDirty()),
     [faceDirtyVersion],
   )
+
+  // 面设置编辑与面内容同一草稿模型：会话态立即生效；已落盘的面立即持久化，
+  // 本会话新增（尚未落盘）的面等保存时统一补写——不对不存在的面写入，也不吞掉失败。
+  const updateFaceSettings = React.useCallback(async (patch: Record<string, unknown | null>) => {
+    const faceId = String(face || '').trim()
+    if (!faceId) return
+    const previous = faceManifests[faceId]?.settings
+    setFaceManifests(prev => {
+      const manifest = prev[faceId]
+      if (!manifest) return prev
+      return { ...prev, [faceId]: { ...manifest, settings: applyFaceSettingsPatch(manifest.settings, patch) } }
+    })
+    const dir = String(noteDir || '').trim()
+    if (isDraft || !dir || !savedFaceIdsRef.current.has(faceId)) return
+    try {
+      const result = await gateway.notes.saveFaceSettings(scope, dir, faceId, patch)
+      setNoteTimes(prev => ({ createdAtMs: prev.createdAtMs, updatedAtMs: result.meta.updatedAtMs }))
+    } catch (e: any) {
+      // 持久化失败：回退该面会话态并明确提示，不留下「界面生效、盘上没有」的假象。
+      setFaceManifests(prev => (prev[faceId] ? { ...prev, [faceId]: { ...prev[faceId], settings: { ...(previous || {}) } } } : prev))
+      await gateway.host.toast(String(e?.message || e || '保存面设置失败'))
+    }
+  }, [face, faceManifests, gateway, isDraft, noteDir, savedFaceIdsRef, scope, setFaceManifests, setNoteTimes])
 
   const handleDiscard = React.useCallback(() => {
     if (saving || deleting) return
@@ -284,20 +310,41 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
         if (store) store.reset(payload.content)
         faceSavedContentsRef.current[payload.faceId] = payload.content
       }
-      applyNoteManifest(result.manifest)
+
+      // 面设置会话补差：面已落盘，把与盘上不一致的会话设置补写（本会话新增面与草稿的设置在此落盘）。
+      // 逐面写入且以最后一次响应为权威清单与版本，保证后续保存的版本保险丝对齐。
+      savedFaceIdsRef.current = new Set(Object.keys(result.manifest.faces))
+      let finalManifest = result.manifest
+      let finalMeta = result.meta
+      const settingsFailures: string[] = []
+      for (const [faceId, sessionManifest] of Object.entries(faceManifests)) {
+        const persistedFace = result.manifest.faces[faceId]
+        if (!persistedFace || areFaceSettingsEqual(sessionManifest.settings, persistedFace.settings)) continue
+        try {
+          const flushed = await gateway.notes.saveFaceSettings(scope, result.meta.dir, faceId, sessionManifest.settings || {})
+          finalManifest = flushed.manifest
+          finalMeta = flushed.meta
+        } catch (e: any) {
+          settingsFailures.push(`${faceId}：${String(e?.message || e || '未知错误')}`)
+        }
+      }
+      applyNoteManifest(finalManifest)
 
       const nextBaseFields: NoteBaseFields = { title, description, tags: tags.slice(), resources: editResources }
       setBaseFields(nextBaseFields)
-      const nextUpdatedAtMs = result.meta.updatedAtMs
+      const nextUpdatedAtMs = finalMeta.updatedAtMs
       setNoteTimes(prev => ({ createdAtMs: prev.createdAtMs, updatedAtMs: nextUpdatedAtMs }))
 
-      const didMigrateId = isDraft && result.meta.id !== originalId
+      const didMigrateId = isDraft && finalMeta.id !== originalId
       const snapshotForNewId: NoteDetailSnapshotV1 | undefined = didMigrateId
-        ? buildSessionSnapshot({ baseFields: nextBaseFields, manifest: result.manifest, title, description, tags, updatedAtMs: nextUpdatedAtMs })
+        ? buildSessionSnapshot({ baseFields: nextBaseFields, manifest: finalManifest, title, description, tags, updatedAtMs: nextUpdatedAtMs })
         : undefined
 
-      onSaved({ originalId, meta: result.meta, snapshotForNewId })
+      onSaved({ originalId, meta: finalMeta, snapshotForNewId })
       await gateway.host.toast(mode === 'current' ? '笔记已保存' : '笔记所有面已保存')
+      if (settingsFailures.length > 0) {
+        await gateway.host.toast(`部分面设置保存失败：${settingsFailures[0]}`)
+      }
       return true
     } catch (e: any) {
       // 版本冲突：不当作普通失败提示，交给会话唤出冲突窗。
@@ -330,6 +377,7 @@ export function useNoteDetailFaceContent(input: UseNoteDetailFaceContentInput): 
     replaceFaceStores,
     faceDirtyVersion,
     facesDirty,
+    updateFaceSettings,
     buildSessionSnapshot,
     saveSessionToDisk,
     handleSave,

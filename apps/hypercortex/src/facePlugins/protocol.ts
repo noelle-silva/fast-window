@@ -70,6 +70,14 @@ export type FaceToolbarProps = {
 /** 宿主在工具条两侧预留的插槽位置。 */
 export type FaceToolbarSlot = 'left' | 'right'
 
+/**
+ * 面视窗对宿主舞台的布局诉求：
+ * - `content`（默认）：随内容流自然展开，由宿主滚动容器承载（文本类面）。
+ * - `fill`：请求宿主提供确定高度的舞台，视窗根元素以 height:100% 撑满（画布类面）。
+ * 宿主不识别具体面类型，仅按此声明决定舞台形态。
+ */
+export type FaceStageLayout = 'content' | 'fill'
+
 /** 静态内容预览输入：宿主在版本历史等只读场景按类型挂载。 */
 export type FaceContentPreviewProps = {
   content: string
@@ -94,6 +102,8 @@ export type FaceViewPlugin = {
   kind: string
   /** 视窗即时状态的协议默认值（宿主在重置时使用）。 */
   defaultViewState: Record<string, unknown>
+  /** 宿主舞台的布局诉求；缺省为 content（随内容流展开）。 */
+  stageLayout?: FaceStageLayout
   ReadView: React.ComponentType<FaceReadViewProps>
   EditView?: React.ComponentType<FaceEditViewProps>
   /** 为面创建内容存储（所有面必交）：面视窗渲染与宿主保存共用同一份内容；
@@ -116,6 +126,9 @@ export function registerFaceViewPlugin(plugin: FaceViewPlugin): void {
   if (!kind) throw new Error('面视窗插件缺少类型标识')
   if (!plugin.ReadView) throw new Error(`面视窗插件缺少阅读态视窗：${kind}`)
   if (typeof plugin.createContentStore !== 'function') throw new Error(`面视窗插件缺少内容存储：${kind}`)
+  if (plugin.stageLayout != null && plugin.stageLayout !== 'content' && plugin.stageLayout !== 'fill') {
+    throw new Error(`面视窗插件舞台布局非法：${kind}`)
+  }
   if (registry.has(kind)) throw new Error(`面视窗插件重复注册：${kind}`)
   registry.set(kind, plugin)
 }
@@ -123,6 +136,11 @@ export function registerFaceViewPlugin(plugin: FaceViewPlugin): void {
 /** 按类型标识取视窗插件。 */
 export function getFaceViewPlugin(kind: string): FaceViewPlugin | null {
   return registry.get(String(kind || '').trim()) || null
+}
+
+/** 面视窗的舞台布局诉求（缺省 content；未知插件回退 content）。 */
+export function resolveFaceStageLayout(plugin: FaceViewPlugin | null | undefined): FaceStageLayout {
+  return plugin?.stageLayout === 'fill' ? 'fill' : 'content'
 }
 
 /** 全部已注册视窗插件。 */

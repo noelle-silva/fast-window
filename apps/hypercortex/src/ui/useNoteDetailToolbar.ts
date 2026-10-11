@@ -22,7 +22,6 @@ export type UseNoteDetailToolbarInput = {
   saving: boolean
   deleting: 'note' | 'face' | ''
   setDeleting: React.Dispatch<React.SetStateAction<'note' | 'face' | ''>>
-  face: NoteFaceId
   faceManifests: Record<string, HyperCortexNoteFaceManifestV2>
   editTitle: string
   favoritesDoc?: HyperCortexFavoritesDocV1 | null
@@ -69,7 +68,6 @@ export type NoteDetailToolbar = {
   noteSettingsOpen: boolean
   setNoteSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>
   handleRestoreVersion: (versionId: string) => Promise<void>
-  updateFaceSettings: (patch: Record<string, unknown | null>) => Promise<void>
   handleCopyNoteRef: () => void
   copyFaceRef: (faceId: string) => void
 }
@@ -85,7 +83,6 @@ export function useNoteDetailToolbar(input: UseNoteDetailToolbarInput): NoteDeta
     saving,
     deleting,
     setDeleting,
-    face,
     faceManifests,
     editTitle,
     favoritesDoc,
@@ -198,14 +195,6 @@ export function useNoteDetailToolbar(input: UseNoteDetailToolbarInput): NoteDeta
     }
   }, [applyNoteManifest, deleteFaceTarget, deleting, gateway, note.dir, noteId, onSaved, saving, scope, trashEnabled])
 
-  const updateFaceSettings = React.useCallback(async (patch: Record<string, unknown | null>) => {
-    const dir = String(note.dir || '').trim()
-    const faceId = String(face || '').trim()
-    if (!dir || !faceId) return
-    const result = await gateway.notes.saveFaceSettings(scope, dir, faceId, patch)
-    applyNoteManifest(result.manifest)
-  }, [applyNoteManifest, face, gateway, note.dir, scope])
-
   const handleRestoreVersion = React.useCallback(async (versionId: string) => {
     const dir = String(note.dir || '').trim()
     if (!dir) throw new Error('请先保存笔记，再恢复版本')
@@ -257,7 +246,6 @@ export function useNoteDetailToolbar(input: UseNoteDetailToolbarInput): NoteDeta
     noteSettingsOpen,
     setNoteSettingsOpen,
     handleRestoreVersion,
-    updateFaceSettings,
     handleCopyNoteRef,
     copyFaceRef,
   }
