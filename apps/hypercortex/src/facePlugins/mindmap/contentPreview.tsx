@@ -1,12 +1,9 @@
 import * as React from 'react'
 
 import type { FaceContentPreviewProps } from '../protocol'
+import { MindmapCanvas } from './MindmapCanvas'
 
-/** 思维导图面只读内容预览（版本历史等场景）：骨架实现，按真实渲染替换。 */
+/** 版本历史等只读场景的内容预览：只读导图。 */
 export function MindmapContentPreview({ content }: FaceContentPreviewProps): React.ReactNode {
-  return (
-    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: 16 }}>
-      {content}
-    </div>
-  )
+  return <MindmapCanvas content={content} readonly layout="mindMap" theme="default" scale={1} />
 }

@@ -1,26 +1,26 @@
 import * as React from 'react'
 
 import type { FaceEditViewProps } from '../protocol'
+import { MindmapCanvas } from './MindmapCanvas'
+import { readMindmapSettings } from './mindmapSettings'
 
-/** 思维导图面编辑态视窗：骨架实现，按真实编辑需求替换。 */
-export function MindmapEditView({ content, onChange }: FaceEditViewProps): React.ReactNode {
+/** 思维导图面编辑态视窗：内嵌导图编辑器，工具条在画布内悬浮。 */
+export function MindmapEditView({ content, visible, onChange, context }: FaceEditViewProps): React.ReactNode {
+  const settings = readMindmapSettings(context.settings)
+  const updateSettings = context.updateSettings
+  const onSelectLayout = updateSettings ? (layout: string) => void updateSettings({ layout }) : undefined
+  const onSelectTheme = updateSettings ? (theme: string) => void updateSettings({ theme }) : undefined
   return (
-    <textarea
-      value={content}
-      onChange={event => onChange(event.target.value)}
-      spellCheck={false}
-      style={{
-        width: '100%',
-        height: '100%',
-        boxSizing: 'border-box',
-        padding: 16,
-        border: 'none',
-        outline: 'none',
-        resize: 'none',
-        fontFamily: 'monospace',
-        fontSize: 14,
-        lineHeight: 1.6,
-      }}
+    <MindmapCanvas
+      content={content}
+      readonly={false}
+      layout={settings.layout}
+      theme={settings.theme}
+      scale={settings.scale}
+      visible={visible}
+      onContentChange={onChange}
+      onSelectLayout={onSelectLayout}
+      onSelectTheme={onSelectTheme}
     />
   )
 }

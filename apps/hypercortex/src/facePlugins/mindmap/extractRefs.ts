@@ -1,6 +1,7 @@
-import { extractRefsFromText, type NoteRef } from '../../noteRefs'
+import type { NoteRef } from '../../noteRefs'
+import { extractMindmapRefs } from './mindmapContent'
 
-/** 思维导图面引用提取：骨架实现（不做代码区域遮蔽），按真实语言规则替换。 */
+/** 思维导图面引用提取：遍历节点文本识别统一占位符。 */
 export function extractMindmapFaceRefs(content: string): NoteRef[] {
-  return extractRefsFromText(content)
+  return extractMindmapRefs(content)
 }
