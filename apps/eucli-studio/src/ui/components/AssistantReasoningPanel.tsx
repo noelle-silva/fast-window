@@ -1,10 +1,12 @@
 import * as React from 'react'
-import { Box, Collapse, Paper, Stack, Typography } from '@mui/material'
+import { Box, Collapse, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import { CustomScrollArea } from './CustomScrollArea'
+import { ReasoningCleanDialog } from './ReasoningCleanDialog'
 import { formatDurationMs } from '../utils/time'
 
 const REASONING_MAX_HEIGHT_PX = 320
@@ -28,6 +30,8 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
   const [expanded, setExpanded] = React.useState(() => isActive && displayMode !== 'never-expand')
   // 用户手动开合后，这一段思考的展开状态只跟用户走，自动行为不再覆盖。
   const [manuallyToggled, setManuallyToggled] = React.useState(false)
+  const [cleanOpen, setCleanOpen] = React.useState(false)
+  const [cleaning, setCleaning] = React.useState(false)
   const wasActiveRef = React.useRef(isActive)
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   // 视窗是否吸附在底部；只认真实滚动事件，输出中内容自然增高不算用户上滚。
@@ -77,6 +81,18 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
     setExpanded((value) => !value)
   }
 
+  const confirmClean = async (keywordsText: string) => {
+    const action = controller?.actions?.cleanMessageReasoning
+    if (typeof action !== 'function') return
+    setCleaning(true)
+    try {
+      const ok = await Promise.resolve(action(mid, keywordsText))
+      if (ok === true) setCleanOpen(false)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
   const durationText = formatDurationMs(durationMs)
 
   if (!String(text || '').trim()) return null
@@ -120,6 +136,21 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
             {durationText}
           </Typography>
         ) : null}
+        <Tooltip title="清洗思维链">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="清洗思维链"
+              onClick={(event) => {
+                event.stopPropagation()
+                setCleanOpen(true)
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <CleaningServicesIcon fontSize="inherit" />
+            </IconButton>
+          </span>
+        </Tooltip>
         {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
       </Stack>
       <Collapse in={expanded} timeout={160} unmountOnExit>
@@ -141,6 +172,7 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
           </CustomScrollArea>
         </Box>
       </Collapse>
+      <ReasoningCleanDialog open={cleanOpen} busy={cleaning} onClose={() => setCleanOpen(false)} onConfirm={confirmClean} />
     </Paper>
   )
 }

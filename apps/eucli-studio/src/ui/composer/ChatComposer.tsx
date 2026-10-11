@@ -2,8 +2,11 @@ import * as React from 'react'
 import { Box, Button, CircularProgress, IconButton, Stack, Tooltip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
+import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import CloseIcon from '@mui/icons-material/Close'
 import { HookPromptSelector } from '../components/HookPromptSelector'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { ReasoningCleanDialog } from '../components/ReasoningCleanDialog'
 import { composerSideInsetPercent } from '../../domain/composerAppearance'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
@@ -157,6 +160,21 @@ export function ChatComposer(props: {
   const liveDraft = (controller?.getComposerDraft?.() as any) || draft
   const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
   const sideInset = `${composerSideInsetPercent(composerWidthPercent)}%`
+
+  const [cleanOpen, setCleanOpen] = React.useState(false)
+  const [cleaning, setCleaning] = React.useState(false)
+
+  const confirmClean = async (keywordsText: string) => {
+    const action = controller?.actions?.cleanSessionReasoning
+    if (typeof action !== 'function') return
+    setCleaning(true)
+    try {
+      const ok = await Promise.resolve(action(keywordsText))
+      if (ok === true) setCleanOpen(false)
+    } finally {
+      setCleaning(false)
+    }
+  }
 
   return (
     <Box
@@ -316,6 +334,21 @@ export function ChatComposer(props: {
                   </Button>
                 </span>
               </Tooltip>
+
+              <MoreActionsMenu
+                ariaLabel="更多"
+                tooltip="更多"
+                disabled={loading || !activeChat}
+                items={[
+                  {
+                    key: 'clean-reasoning',
+                    label: '清洗思维链',
+                    icon: <CleaningServicesIcon fontSize="small" />,
+                    disabled: loading || !activeChat,
+                    onSelect: () => setCleanOpen(true),
+                  },
+                ]}
+              />
             </>
           )}
           onSend={onSend}
@@ -323,6 +356,8 @@ export function ChatComposer(props: {
           onPaste={onPaste}
         />
       </Stack>
+
+      <ReasoningCleanDialog open={cleanOpen} busy={cleaning} onClose={() => setCleanOpen(false)} onConfirm={confirmClean} />
     </Box>
   )
 }

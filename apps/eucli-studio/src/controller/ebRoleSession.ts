@@ -58,11 +58,20 @@ function serializeSessionMessagePartsForPatch(partsRaw: unknown) {
     if (!part) continue
     const type = String(part.type || '').trim()
     const id = String(part.id || '').trim()
-    if (!id || (type !== 'text' && type !== 'tool')) continue
+    if (!id || (type !== 'text' && type !== 'reasoning' && type !== 'tool')) continue
     const next: any = { id, type }
     if (type === 'text') {
       next.text = String(part.text ?? '')
       assignDurationForPatch(next, part.durationMs)
+    } else if (type === 'reasoning') {
+      // 思维链必须随消息一起保存：保存时漏掉它等于把整条思维链删掉。
+      next.text = String(part.text ?? '')
+      next.source = String(part.source || '').trim()
+      next.signature = String(part.signature || '').trim()
+      next.data = String(part.data || '').trim()
+      assignDurationForPatch(next, part.durationMs)
+      const display = plainObjectCopy(part.display)
+      if (Object.keys(display).length) next.display = display
     } else {
       next.raw = String(part.raw || '')
       next.callId = String(part.callId || '').trim()

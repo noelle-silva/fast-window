@@ -19,6 +19,8 @@ export function createChatInteractionActions(deps: {
   editMessage: (messageId: string, content: any) => any
   editMessageBlock: (messageId: string, blockRef: any, text: any) => any
   deleteMessageBlock: (messageId: string, blockRef: any) => any
+  cleanMessageReasoning: (messageId: string, keywords: any) => any
+  cleanSessionReasoning: (keywords: any) => any
   captureChatSettingsTarget: () => any
   currentChatForSettingsTarget: (target: any) => any
   isActiveChatSettingsTarget: (target: any) => boolean
@@ -32,7 +34,7 @@ export function createChatInteractionActions(deps: {
   ensureWorkspaceChatLoaded: (workspaceId: string, chatId: string) => Promise<any>
   loadStickersFromSource: () => Promise<any>
 }) {
-  const { state, emit, showToast, sendChat, stopSending, regenerateAssistantMessage, replyFromUserMessage, createParallelBranchFromAssistantMessage, switchBranchByAssistantSibling, setActiveBranch, submitToolConfirmationDecision, deleteMessage, deleteMessageSubtree, editMessage, editMessageBlock, deleteMessageBlock, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, applyChatSettingsAction, isChatModelActionPending, aiGenerateChatTitle, aiGenerateGroupChatTitle, aiGenerateStickerName, reloadRoleSession, reloadWorkspaceSession, ensureWorkspaceChatLoaded, loadStickersFromSource } = deps
+  const { state, emit, showToast, sendChat, stopSending, regenerateAssistantMessage, replyFromUserMessage, createParallelBranchFromAssistantMessage, switchBranchByAssistantSibling, setActiveBranch, submitToolConfirmationDecision, deleteMessage, deleteMessageSubtree, editMessage, editMessageBlock, deleteMessageBlock, cleanMessageReasoning, cleanSessionReasoning, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, applyChatSettingsAction, isChatModelActionPending, aiGenerateChatTitle, aiGenerateGroupChatTitle, aiGenerateStickerName, reloadRoleSession, reloadWorkspaceSession, ensureWorkspaceChatLoaded, loadStickersFromSource } = deps
 
   return {
     send: () => sendChat(),
@@ -127,6 +129,8 @@ export function createChatInteractionActions(deps: {
     editMessage: (messageId: any, content: any) => editMessage(String(messageId || ''), content),
     editMessageBlock: (messageId: any, blockRef: any, text: any) => editMessageBlock(String(messageId || ''), blockRef, text),
     deleteMessageBlock: (messageId: any, blockRef: any) => deleteMessageBlock(String(messageId || ''), blockRef),
+    cleanMessageReasoning: (messageId: any, keywords: any) => cleanMessageReasoning(String(messageId || ''), keywords),
+    cleanSessionReasoning: (keywords: any) => cleanSessionReasoning(keywords),
     aiGenerateChatTitle: (roleId: any, chatId: any) => {
       let t0 = 0
       const cost = () => ((now() - t0) / 1000).toFixed(1)

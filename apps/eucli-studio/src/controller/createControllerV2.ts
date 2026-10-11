@@ -797,6 +797,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     editMessage,
     editMessageBlock,
     deleteMessageBlock,
+    cleanMessageReasoning,
+    cleanSessionReasoning,
   } = chatOps
 
   // ============================================================
@@ -1078,6 +1080,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     editMessage,
     editMessageBlock,
     deleteMessageBlock,
+    cleanMessageReasoning,
+    cleanSessionReasoning,
     captureChatSettingsTarget,
     currentChatForSettingsTarget,
     isActiveChatSettingsTarget,

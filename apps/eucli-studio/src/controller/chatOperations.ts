@@ -3,6 +3,7 @@ import { createChatDraftOperations } from './chatDraftOperations'
 import { createChatRunOperations } from './chatRunOperations'
 import { createChatMessageOperations } from './chatMessageOperations'
 import { createChatBranchOperations } from './chatBranchOperations'
+import { createReasoningCleaningOperations } from './reasoningCleaningOperations'
 
 export function createChatOperations(deps: ChatOperationsDeps) {
   const shared = createChatOperationsShared(deps)
@@ -10,6 +11,7 @@ export function createChatOperations(deps: ChatOperationsDeps) {
   const runOperations = createChatRunOperations(shared, draftOperations)
   const messageOperations = createChatMessageOperations(shared)
   const branchOperations = createChatBranchOperations(shared)
+  const reasoningCleaningOperations = createReasoningCleaningOperations(shared)
 
   return {
     pickDraftImages: draftOperations.pickDraftImages,
@@ -30,5 +32,7 @@ export function createChatOperations(deps: ChatOperationsDeps) {
     editMessage: messageOperations.editMessage,
     editMessageBlock: messageOperations.editMessageBlock,
     deleteMessageBlock: messageOperations.deleteMessageBlock,
+    cleanMessageReasoning: reasoningCleaningOperations.cleanMessageReasoning,
+    cleanSessionReasoning: reasoningCleaningOperations.cleanSessionReasoning,
   }
 }
