@@ -2,7 +2,15 @@ package mindmap
 
 import "fast-window-hypercortex-backend/faceplugin"
 
-// ExtractRefs 从面内容提取系统引用占位符（全系统统一语法 [[note_id=...|face=...]]）。
+// ExtractRefs 遍历导图节点文本，提取系统引用占位符（统一语法 [[note_id=...|face=...]]）。
 func ExtractRefs(content string) []faceplugin.Ref {
-	return faceplugin.ExtractPlaceholderRefs(content)
+	root, ok := parseDocument(content)
+	if !ok {
+		return nil
+	}
+	refs := []faceplugin.Ref{}
+	walkTexts(root, func(text string) {
+		refs = append(refs, faceplugin.ExtractPlaceholderRefs(text)...)
+	})
+	return faceplugin.UniqueRefs(refs)
 }

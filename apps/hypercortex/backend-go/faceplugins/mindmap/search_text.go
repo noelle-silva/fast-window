@@ -2,7 +2,17 @@ package mindmap
 
 import "strings"
 
-// SearchText 把面内容转为可搜文本；骨架实现，按真实语义替换。
+// SearchText 遍历导图节点文本，拼成可搜文本。
 func SearchText(content string) string {
-	return strings.TrimSpace(content)
+	root, ok := parseDocument(content)
+	if !ok {
+		return ""
+	}
+	parts := []string{}
+	walkTexts(root, func(text string) {
+		if trimmed := strings.TrimSpace(text); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	})
+	return strings.Join(parts, "\n")
 }

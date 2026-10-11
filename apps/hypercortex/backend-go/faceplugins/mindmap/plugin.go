@@ -3,6 +3,8 @@
 package mindmap
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 
 	"fast-window-hypercortex-backend/faceplugin"
@@ -24,30 +26,73 @@ func Plugin() faceplugin.Plugin {
 			Deletable:   true,
 		},
 		NormalizeContent:  normalizeContent,
-		EmptyContent:      func(noteID string, noteTitle string) string { return "" },
+		EmptyContent:      func(noteID string, noteTitle string) string { return newDocument(noteTitle) },
 		NormalizeSettings: normalizeSettings,
 		ExtractRefs:       ExtractRefs,
 		SearchText:        SearchText,
 		SettingsTitle:     "思维导图面设置",
-		SettingsIntro:     "思维导图面的可配置项。",
+		SettingsIntro:     "思维导图面的默认布局、主题与缩放。",
 		Settings:          settingsDeclaration(),
 	}
 }
 
+// normalizeContent 归一化内容：统一换行；合法 JSON 收敛为紧凑形态，非法则原样返回。
 func normalizeContent(value string) string {
-	return strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(value)); err == nil {
+		return buf.String()
+	}
+	return value
 }
 
+// normalizeSettings 按设置声明收敛合法值：枚举只接受声明选项，数值只接受声明范围。
 func normalizeSettings(value map[string]any) map[string]any {
 	out := map[string]any{}
 	if value == nil {
 		return out
 	}
-	for key, item := range value {
-		trimmed := strings.TrimSpace(key)
-		if trimmed != "" {
-			out[trimmed] = item
+	for _, field := range settingsDeclaration() {
+		raw, ok := value[field.Key]
+		if !ok {
+			continue
+		}
+		if field.Kind == faceplugin.SettingKindNumber {
+			if n, valid := asNumber(raw); valid && n >= field.Min && n <= field.Max {
+				out[field.Key] = n
+			}
+			continue
+		}
+		text := strings.TrimSpace(asString(raw))
+		for _, option := range field.Options {
+			if option.Value == text {
+				out[field.Key] = text
+				break
+			}
 		}
 	}
 	return out
+}
+
+func asNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func asString(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
 }
