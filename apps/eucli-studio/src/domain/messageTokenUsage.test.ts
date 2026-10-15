@@ -17,9 +17,9 @@ describe('messageTokenUsage', () => {
     expect(tokenUsageTotal({})).toBeNull()
   })
 
-  it('shows unknown instead of a substituted number when there is no truth', () => {
-    expect(formatTokenUsage(null)).toBe('未知')
-    expect(formatTokenUsageShort(undefined)).toBe('未知')
+  it('shows a question mark instead of a substituted number when there is no truth', () => {
+    expect(formatTokenUsage(null)).toBe('?')
+    expect(formatTokenUsageShort(undefined)).toBe('?')
   })
 
   it('formats the truth directly', () => {

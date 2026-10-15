@@ -1,5 +1,5 @@
 // 会话级用量真值：客户端显示的数字只来自会话上的这个字段，直接显示最新真值，
-// 不再对各消息求和或加工；拿不到真值时显示为空或未知，绝不用推算值顶替。
+// 不再对各消息求和或加工；拿不到真值时只显示问号，绝不用推算值顶替。
 export type TokenUsage = {
   inputTokens?: number
   outputTokens?: number
@@ -39,13 +39,13 @@ export function tokenUsageTotal(usage: TokenUsage | null | undefined): number | 
 
 export function formatTokenUsage(usage: TokenUsage | null | undefined) {
   const total = tokenUsageTotal(usage)
-  if (total === null) return '未知'
+  if (total === null) return '?'
   return formatTokenEstimate(total)
 }
 
 export function formatTokenUsageShort(usage: TokenUsage | null | undefined) {
   const total = tokenUsageTotal(usage)
-  if (total === null) return '未知'
+  if (total === null) return '?'
   return formatTokenEstimateShort(total)
 }
 
