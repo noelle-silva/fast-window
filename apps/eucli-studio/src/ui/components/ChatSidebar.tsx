@@ -120,7 +120,10 @@ export function ChatSidebar(props: {
           cursor: 'col-resize',
           ...(side === 'left' ? { right: 0 } : { left: 0 }),
           bgcolor: resizing ? 'primary.main' : 'transparent',
-          '&:hover': { bgcolor: 'primary.main' },
+          // 悬停延迟出现高亮：鼠标快速掠过不闪，真正停住才亮；移开立即消失。
+          transition: 'background-color 120ms ease',
+          transitionDelay: '0ms',
+          '&:hover': { bgcolor: 'primary.main', transitionDelay: '150ms' },
         }}
       />
 
