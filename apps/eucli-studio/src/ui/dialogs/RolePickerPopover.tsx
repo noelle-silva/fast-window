@@ -1,10 +1,9 @@
 import * as React from 'react'
-import { Box, Button, IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Typography } from '@mui/material'
 import { DependablePopover } from '../components/DependableOverlay'
-import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
-import { EntityAvatar } from '../components/avatar/EntityAvatar'
-import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX, SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
+import { RoleList, WorkspaceList } from '../components/EntityLists'
+import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 // 选择器一次只服务一个目标，不再用页签在「角色 / 工作区」之间切换：
@@ -58,54 +57,18 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
       <CustomScrollArea hostSx={{ width: 380, maxHeight: '70vh' }} scrollSx={{ maxHeight: '70vh' }}>
         {showWorkspaces ? (
           workspaces.length ? (
-            <List dense sx={SOFT_POPOVER_LIST_SX}>
-              {workspaces.map((workspace: any) => {
-                const workspaceId = String(workspace?.id || '')
-                const on = workspaceId === String(activeWorkspaceId || '')
-                const directoryCount = Array.isArray(workspace?.directories) ? workspace.directories.length : 0
-                return (
-                  <ListItemButton
-                    key={workspaceId}
-                    selected={on && activeTargetKind === 'workspace'}
-                    onClick={() => {
-                      controller.actions.setActiveWorkspace?.(workspaceId)
-                      closeRolePicker()
-                    }}
-                    sx={SOFT_POPOVER_ITEM_SX}
-                  >
-                    <ListItemAvatar>
-                      <EntityAvatar kind="workspace" size={28} />
-                    </ListItemAvatar>
-                    <ListItemText
-                      sx={{ minWidth: 0 }}
-                      primary={
-                        <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
-                          {String(workspace?.name || '')}
-                        </Typography>
-                      }
-                      secondary={
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {directoryCount ? `${directoryCount} 个目录` : '暂未登记目录'}
-                        </Typography>
-                      }
-                    />
-                    <Tooltip title="设置">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          closeRolePicker()
-                          controller.actions.openWorkspaceEditor?.(workspaceId)
-                        }}
-                      >
-                        <SettingsIcon fontSize="inherit" />
-                      </IconButton>
-                    </Tooltip>
-                  </ListItemButton>
-                )
-              })}
-            </List>
+            <WorkspaceList
+              workspaces={workspaces}
+              isSelected={(id) => id === String(activeWorkspaceId || '') && activeTargetKind === 'workspace'}
+              onSelect={(id) => {
+                controller.actions.setActiveWorkspace?.(id)
+                closeRolePicker()
+              }}
+              onOpenEditor={(id) => {
+                closeRolePicker()
+                controller.actions.openWorkspaceEditor?.(id)
+              }}
+            />
           ) : (
             <Box sx={{ p: 2 }}>
               <Typography variant="body2" color="text.secondary">
@@ -125,55 +88,23 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
             </Box>
           )
         ) : (
-          <List dense sx={SOFT_POPOVER_LIST_SX}>
-            {roles.map((r: any) => {
-              const on = String(r?.id || '') === String(draftActiveRoleId || '')
-              const modelRefText = formatModelRefText(r?.modelRef)
-              const selected = rolePickerView === 'workspaceRole' ? on && activeTargetKind === 'workspace' : on && activeTargetKind === 'role'
-              return (
-                <ListItemButton
-                  key={String(r?.id || '')}
-                  selected={selected}
-                  onClick={() => {
-                    if (rolePickerView === 'workspaceRole' && activeTargetKind === 'workspace') controller.actions.setWorkspaceRole?.(String(r?.id || ''))
-                    else controller.actions.setActiveRole(String(r?.id || ''))
-                    closeRolePicker()
-                  }}
-                  sx={SOFT_POPOVER_ITEM_SX}
-                >
-                  <ListItemAvatar>
-                    <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={28} />
-                  </ListItemAvatar>
-                  <ListItemText
-                    sx={{ minWidth: 0 }}
-                    primary={
-                      <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
-                        {String(r?.name || '')}
-                      </Typography>
-                    }
-                    secondary={
-                      <Typography variant="caption" color="text.secondary" noWrap>
-                        {modelRefText || '未配置模型'}
-                      </Typography>
-                    }
-                  />
-                  <Tooltip title="设置">
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        closeRolePicker()
-                        controller.actions.openRoleEditor(String(r?.id || ''))
-                      }}
-                    >
-                      <SettingsIcon fontSize="inherit" />
-                    </IconButton>
-                  </Tooltip>
-                </ListItemButton>
-              )
-            })}
-          </List>
+          <RoleList
+            roles={roles}
+            isSelected={(id) => {
+              if (id !== String(draftActiveRoleId || '')) return false
+              return rolePickerView === 'workspaceRole' ? activeTargetKind === 'workspace' : activeTargetKind === 'role'
+            }}
+            onSelect={(id) => {
+              if (rolePickerView === 'workspaceRole' && activeTargetKind === 'workspace') controller.actions.setWorkspaceRole?.(id)
+              else controller.actions.setActiveRole(id)
+              closeRolePicker()
+            }}
+            onOpenEditor={(id) => {
+              closeRolePicker()
+              controller.actions.openRoleEditor(id)
+            }}
+            formatModelRefText={formatModelRefText}
+          />
         )}
       </CustomScrollArea>
     </DependablePopover>

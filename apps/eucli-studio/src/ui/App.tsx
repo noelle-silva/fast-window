@@ -25,6 +25,7 @@ import { useChatSessionPickers } from './hooks/useChatSessionPickers'
 import { useSessionRunObservations } from './hooks/useSessionRunObservations'
 import { useChatMessageIndex } from './hooks/useChatMessageIndex'
 import { useChatMessageView } from './hooks/useChatMessageView'
+import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { TOPBAR_H } from './appConstants'
 import { createChatGlobalStyles } from './globalStyles'
@@ -46,6 +47,7 @@ import { ChatPickerPopover } from './dialogs/ChatPickerPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
 import { HookPromptSelector } from './components/HookPromptSelector'
 import { ChatTopBar } from './components/ChatTopBar'
+import { ChatSidebar } from './components/ChatSidebar'
 import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
 import { Freeze } from './components/Freeze'
@@ -67,6 +69,7 @@ import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTh
 import { ThemeColorsProvider } from './hooks/useThemeColors'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
+import { resolveUiModeConfig } from '../domain/uiMode'
 import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
 import { ChatComposer } from './composer/ChatComposer'
 import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
@@ -368,6 +371,17 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const onOpenRoleButton = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (topbarMode === 'workspace') openWorkspaceRolePicker(e)
     else openRolePicker(e)
+  })
+
+  // 界面布局：角色模式 / 工作区模式各自配置「顶栏 / 侧边栏」，以及侧边栏靠左还是靠右。
+  // 侧边栏模式只在聊天页生效；设置页仍用顶栏返回条。
+  const uiModeTarget: 'role' | 'workspace' = activeTargetKind === 'workspace' ? 'workspace' : 'role'
+  const uiModeConfig = resolveUiModeConfig(data?.settings?.uiMode, uiModeTarget)
+  const sidebarMode = page === 'chat' && uiModeConfig.layout === 'sidebar'
+  const sidebarResize = useSidebarResize({
+    side: uiModeConfig.sidebarSide,
+    width: uiModeConfig.sidebarWidth,
+    onCommit: (w) => controller.actions.setSidebarWidth?.(uiModeTarget, w),
   })
 
   const {
@@ -858,6 +872,27 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     treeSuppressClickRef,
   })
 
+  // 顶栏 / 侧边栏共用同一份按钮配置，保证两种布局功能一致。
+  const navControlsProps = {
+    showIdentity: !sidebarMode,
+    loading: !!s.loading,
+    mode: topbarMode,
+    roles,
+    activeRole,
+    activeWorkspace,
+    treeOpen,
+    chatNav,
+    onToggleMode: onToggleTopbarMode,
+    onOpenRolePicker: onOpenRoleButton,
+    onOpenWorkspacePicker: openWorkspacePicker,
+    onOpenChatPicker: openChatPicker,
+    onCreateChat: () => controller.actions.createChat(),
+    onToggleTree: () => setTreeOpen((v) => !v),
+    onOpenProviders: () => controller.actions.openProviders?.(),
+    onOpenSettings: openPluginSettings,
+    onSwitchChat: chatSwitch.requestSwitch,
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <ThemeColorsProvider colors={colorThemeColors}>
@@ -900,31 +935,39 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         ) : null}
         <ChatTopBar
           page={page}
-          loading={!!s.loading}
-          mode={topbarMode}
-          roles={roles}
-          workspaces={workspaces}
-          activeRole={activeRole}
-          activeWorkspace={activeWorkspace}
           topbarOpacity={topbarOpacity}
           topbarBlur={topbarBlur}
-          treeOpen={treeOpen}
-          chatNav={chatNav}
           standaloneWindowControls={standaloneWindowControls}
           onTopbarPointerDown={onTopbarPointerDown}
           onCloseSettings={closePluginSettings}
-          onToggleTree={() => setTreeOpen((v) => !v)}
-          onToggleMode={onToggleTopbarMode}
-          onOpenRolePicker={onOpenRoleButton}
-          onOpenWorkspacePicker={openWorkspacePicker}
-          onOpenChatPicker={openChatPicker}
-          onCreateChat={() => controller.actions.createChat()}
-          onOpenProviders={() => controller.actions.openProviders?.()}
-          onOpenSettings={openPluginSettings}
-          onSwitchChat={chatSwitch.requestSwitch}
+          nav={navControlsProps}
         />
 
-        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'row' }}>
+          {sidebarMode && uiModeConfig.sidebarSide === 'left' ? (
+            <ChatSidebar
+              controller={controller}
+              side="left"
+              mode={uiModeTarget}
+              width={uiModeConfig.sidebarWidth}
+              sidebarRef={sidebarResize.sidebarRef}
+              resizing={sidebarResize.resizing}
+              onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
+              onSplitterPointerMove={sidebarResize.onSplitterPointerMove}
+              endResize={sidebarResize.endResize}
+              topbarOpacity={topbarOpacity}
+              topbarBlur={topbarBlur}
+              roles={roles}
+              workspaces={workspaces}
+              activeRoleId={String((activeRole as any)?.id || '')}
+              activeWorkspaceId={activeWorkspaceId}
+              activeTargetKind={activeTargetKind}
+              formatModelRefText={formatModelRefText}
+              openPluginSettings={openPluginSettings}
+            />
+          ) : null}
+
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
         <Box
           aria-hidden={page === 'chat' ? undefined : true}
           sx={{
@@ -1385,6 +1428,30 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           </Freeze>
         </Box>
         ) : null}
+          </Box>
+
+          {sidebarMode && uiModeConfig.sidebarSide === 'right' ? (
+            <ChatSidebar
+              controller={controller}
+              side="right"
+              mode={uiModeTarget}
+              width={uiModeConfig.sidebarWidth}
+              sidebarRef={sidebarResize.sidebarRef}
+              resizing={sidebarResize.resizing}
+              onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
+              onSplitterPointerMove={sidebarResize.onSplitterPointerMove}
+              endResize={sidebarResize.endResize}
+              topbarOpacity={topbarOpacity}
+              topbarBlur={topbarBlur}
+              roles={roles}
+              workspaces={workspaces}
+              activeRoleId={String((activeRole as any)?.id || '')}
+              activeWorkspaceId={activeWorkspaceId}
+              activeTargetKind={activeTargetKind}
+              formatModelRefText={formatModelRefText}
+              openPluginSettings={openPluginSettings}
+            />
+          ) : null}
         </Box>
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
