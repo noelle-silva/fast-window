@@ -31,6 +31,7 @@ import { normalizeSessionFacts } from './sessionFacts'
 import { normalizeTokenUsage } from './messageTokenUsage'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
+import { UI_MODE_SETTING_KEY, normalizeUiModeSettings } from './uiMode'
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
   const v = String(v0 || '').trim()
@@ -168,6 +169,7 @@ export function normalizeData(raw: any) {
   if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
   if (typeof btree.modalHotkey !== 'string') btree.modalHotkey = ''
   btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
+  ;(d.settings as any)[UI_MODE_SETTING_KEY] = normalizeUiModeSettings((d.settings as any)[UI_MODE_SETTING_KEY])
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
   if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8

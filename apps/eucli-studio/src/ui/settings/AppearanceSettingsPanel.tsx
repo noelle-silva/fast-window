@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, FormControl, InputLabel, MenuItem, Select, Slider, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Box, Button, FormControl, InputLabel, MenuItem, Select, Slider, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
 import {
@@ -30,9 +30,16 @@ import {
   normalizeComposerWidthPercent,
 } from '../../domain/composerAppearance'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
+import { normalizeUiModeSettings, type UiModeTarget } from '../../domain/uiMode'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
+
+// 界面模式：角色模式与工作区模式各自配置，互不影响。
+const UI_MODE_TARGETS: Array<{ target: UiModeTarget; label: string }> = [
+  { target: 'role', label: '角色模式' },
+  { target: 'workspace', label: '工作区模式' },
+]
 
 // useNumberDraft 管理「数字输入框 + 滑杆」组合的输入草稿：输入过程不打断，
 // 提交时归一化并复位显示；与设置值同步，滑杆拖动不会和输入框打架。
@@ -188,11 +195,72 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     const raw = String(((settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
     return normalizeHotkeyString(raw)
   })()
+  const uiModeSettings = normalizeUiModeSettings((settings as any)?.uiMode)
 
   return (
     <SettingsSurface>
       <Stack spacing={1.5}>
         <Typography sx={{ fontWeight: 900 }}>客户端外观</Typography>
+
+        <SettingsSection>
+          <Stack spacing={1.5}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>界面模式</Typography>
+              <Typography variant="caption" color="text.secondary">
+                角色模式与工作区模式各自选择界面布局；侧边栏模式会把「角色 / 工作区」列表摊开在侧边栏里直接点选，顶栏保持不变，侧边栏宽度可拖拽调整。
+              </Typography>
+            </Box>
+
+            {UI_MODE_TARGETS.map(({ target, label }) => {
+              const config = uiModeSettings[target]
+              const sidebar = config.layout === 'sidebar'
+              return (
+                <Box key={target}>
+                  <Typography variant="body2" sx={{ fontWeight: 900, mb: 0.5 }}>
+                    {label}
+                  </Typography>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                        界面布局
+                      </Typography>
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={config.layout}
+                        onChange={(_e, v) => {
+                          if (v) controller.actions.setUiLayout?.(target, v)
+                        }}
+                        disabled={loading}
+                      >
+                        <ToggleButton value="topbar">顶栏模式</ToggleButton>
+                        <ToggleButton value="sidebar">侧边栏模式</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
+
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                        侧边栏位置
+                      </Typography>
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={config.sidebarSide}
+                        onChange={(_e, v) => {
+                          if (v) controller.actions.setSidebarSide?.(target, v)
+                        }}
+                        disabled={loading || !sidebar}
+                      >
+                        <ToggleButton value="left">靠左</ToggleButton>
+                        <ToggleButton value="right">靠右</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
+                  </Stack>
+                </Box>
+              )
+            })}
+          </Stack>
+        </SettingsSection>
 
         <ColorThemeSettingsSection controller={controller} loading={loading} settings={settings} draft={draft} />
 
