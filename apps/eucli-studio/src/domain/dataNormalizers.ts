@@ -28,6 +28,7 @@ import { normalizeWallpaperSettings } from './wallpaper'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
 import { normalizeSessionFacts } from './sessionFacts'
+import { normalizeTokenUsage } from './messageTokenUsage'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
 
@@ -357,6 +358,8 @@ export function normalizeData(raw: any) {
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
+		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
+		if (tokenUsage) out.tokenUsage = tokenUsage
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
@@ -478,6 +481,8 @@ export function normalizeData(raw: any) {
 		}
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
+		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
+		if (tokenUsage) out.tokenUsage = tokenUsage
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
@@ -577,6 +582,8 @@ export function normalizeData(raw: any) {
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
+		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
+		if (tokenUsage) out.tokenUsage = tokenUsage
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()

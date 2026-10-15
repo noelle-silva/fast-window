@@ -206,6 +206,10 @@ func toUIChat(session map[string]any) map[string]any {
 	}
 	branching := deriveUIBranching(messages, createdAt, updatedAt)
 	chat := map[string]any{"id": stringField(session, "id"), "title": fallback(stringField(session, "title"), "新聊天"), "status": stringField(session, "status"), "createdAt": createdAt, "updatedAt": updatedAt, "branching": branching, "messages": anyList(messages)}
+	// 会话级用量真值随会话透出：拿不到就整段缺席，客户端据此显示为空或未知。
+	if tokenUsage := objectMap(session["tokenUsage"]); len(tokenUsage) > 0 {
+		chat["tokenUsage"] = tokenUsage
+	}
 	metadata := objectMap(session["metadata"])
 	if effort := normalizeReasoningEffort(stringField(metadata, "reasoningEffort")); effort != "" {
 		chat["reasoningEffort"] = effort

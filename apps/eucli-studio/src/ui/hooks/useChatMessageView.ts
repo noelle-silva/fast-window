@@ -2,7 +2,7 @@ import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText } from '../../domain/chatMessageDisplay'
-import { formatTokenEstimate, formatTokenEstimateShort, sumMessageTokenEstimate } from '../../domain/messageTokenUsage'
+import { formatTokenUsage, formatTokenUsageShort } from '../../domain/messageTokenUsage'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -150,9 +150,8 @@ export function useChatMessageView(deps: {
     }
   }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind])
   const displayRenderMessages = React.useMemo(() => activeRunTailPendingMessage ? [...renderMessages, activeRunTailPendingMessage] : renderMessages, [activeRunTailPendingMessage, renderMessages])
-  const activeContextTokenUsage = React.useMemo(() => sumMessageTokenEstimate(allMessages), [allMessages])
-  const activeContextTokenUsageText = React.useMemo(() => formatTokenEstimate(activeContextTokenUsage), [activeContextTokenUsage])
-  const activeContextTokenUsageShortText = React.useMemo(() => formatTokenEstimateShort(activeContextTokenUsage), [activeContextTokenUsage])
+  const activeContextTokenUsageText = React.useMemo(() => formatTokenUsage(activeChat?.tokenUsage), [activeChat?.tokenUsage])
+  const activeContextTokenUsageShortText = React.useMemo(() => formatTokenUsageShort(activeChat?.tokenUsage), [activeChat?.tokenUsage])
   const activeAsyncToolTasks = React.useMemo(() => (Array.isArray((activeChat as any)?.asyncToolTasks) ? (activeChat as any).asyncToolTasks : []), [activeChat, Number((activeChat as any)?.updatedAt || 0)])
   const activeAsyncToolTaskRunningCount = activeAsyncToolTasks.filter((task: any) => String(task?.status || '').trim() === 'running').length
 
@@ -175,7 +174,6 @@ export function useChatMessageView(deps: {
     showActiveRunTailPending,
     activeRunTailPendingMessage,
     displayRenderMessages,
-    activeContextTokenUsage,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
     activeAsyncToolTasks,

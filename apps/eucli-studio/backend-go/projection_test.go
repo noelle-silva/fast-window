@@ -53,6 +53,30 @@ func TestChatProjectionPreservesMessageParts(t *testing.T) {
 	}
 }
 
+// TestChatProjectionCarriesSessionTokenUsage 钉住会话级用量真值透出：
+// 有真值时整段带出，无真值时缺席（客户端据此显示为空或未知）。
+func TestChatProjectionCarriesSessionTokenUsage(t *testing.T) {
+	session := map[string]any{
+		"id":         "session-1",
+		"roleId":     "developer",
+		"title":      "Usage",
+		"createdAt":  "2026-06-03T10:00:00Z",
+		"updatedAt":  "2026-06-03T10:00:00Z",
+		"tokenUsage": map[string]any{"inputTokens": float64(30), "outputTokens": float64(12), "totalTokens": float64(42)},
+		"messages":   []any{},
+	}
+	ui := toUIChat(session)
+	usage := objectMap(ui["tokenUsage"])
+	if intField(usage, "totalTokens", 0) != 42 || intField(usage, "inputTokens", 0) != 30 || intField(usage, "outputTokens", 0) != 12 {
+		t.Fatalf("ui token usage = %#v", ui["tokenUsage"])
+	}
+
+	empty := toUIChat(map[string]any{"id": "session-2", "roleId": "developer", "title": "No usage", "createdAt": "2026-06-03T10:00:00Z", "updatedAt": "2026-06-03T10:00:00Z", "messages": []any{}})
+	if _, ok := empty["tokenUsage"]; ok {
+		t.Fatalf("ui token usage should be absent without truth: %#v", empty["tokenUsage"])
+	}
+}
+
 // TestChatProjectionRoutesToolImagesToDedicatedField 钉住工具产物图分流：
 // 助手消息附件进 toolImages，用户消息附件仍进 images。
 func TestChatProjectionRoutesToolImagesToDedicatedField(t *testing.T) {
@@ -106,7 +130,8 @@ func TestChatProjectionRoutesToolImagesToDedicatedField(t *testing.T) {
 	}
 }
 
-func TestChatProjectionPreservesReasoningParts(t *testing.T) {	session := map[string]any{
+func TestChatProjectionPreservesReasoningParts(t *testing.T) {
+	session := map[string]any{
 		"id":        "session-1",
 		"roleId":    "developer",
 		"title":     "Reasoning Parts",
