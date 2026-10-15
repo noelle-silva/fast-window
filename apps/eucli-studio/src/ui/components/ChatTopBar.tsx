@@ -7,17 +7,20 @@ import HistoryIcon from '@mui/icons-material/History'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import { colorMixVar } from '../colorThemeStyles'
 import { EntityAvatar } from './avatar/EntityAvatar'
+
+// 顶栏两种工作模式：角色模式只出角色按钮；工作区模式出工作区按钮 + 角色按钮。
+// 模式按钮是唯一的切换入口，点一下就在两者间来回切。
+export type TopbarMode = 'role' | 'workspace'
 
 export function ChatTopBar(props: {
   page: 'chat' | 'settings'
   loading: boolean
+  mode: TopbarMode
   roles: any[]
-  groups: any[]
   workspaces: any[]
-  activeTargetKind: 'role' | 'group' | 'workspace'
-  activeGroup: any
   activeRole: any
   activeWorkspace: any
   topbarOpacity: number
@@ -28,8 +31,9 @@ export function ChatTopBar(props: {
   onTopbarPointerDown: (e: React.PointerEvent) => void
   onCloseSettings: () => void
   onToggleTree: () => void
+  onToggleMode: () => void
   onOpenRolePicker: (e: React.MouseEvent<HTMLElement>) => void
-  onOpenWorkspaceRolePicker: (e: React.MouseEvent<HTMLElement>) => void
+  onOpenWorkspacePicker: (e: React.MouseEvent<HTMLElement>) => void
   onOpenChatPicker: (e: React.MouseEvent<HTMLElement>) => void
   onCreateChat: () => void
   onOpenProviders: () => void
@@ -39,11 +43,9 @@ export function ChatTopBar(props: {
   const {
     page,
     loading,
+    mode,
     roles,
-    groups,
     workspaces,
-    activeTargetKind,
-    activeGroup,
     activeRole,
     activeWorkspace,
     topbarOpacity,
@@ -54,14 +56,21 @@ export function ChatTopBar(props: {
     onTopbarPointerDown,
     onCloseSettings,
     onToggleTree,
+    onToggleMode,
     onOpenRolePicker,
-    onOpenWorkspaceRolePicker,
+    onOpenWorkspacePicker,
     onOpenChatPicker,
     onCreateChat,
     onOpenProviders,
     onOpenSettings,
     onSwitchChat,
   } = props
+
+  const modeLabel = mode === 'workspace' ? '工作区模式' : '角色模式'
+  const nextModeLabel = mode === 'workspace' ? '角色模式' : '工作区模式'
+  const workspaceName = activeWorkspace ? String((activeWorkspace as any)?.name || '') || '无' : '无'
+  const roleName = activeRole ? String(activeRole?.name || '') : '请选择角色'
+  const createDisabled = mode === 'workspace' ? !activeWorkspace || !activeRole : !activeRole
 
   return (
     <AppBar
@@ -103,47 +112,48 @@ export function ChatTopBar(props: {
           </>
         ) : (
           <>
+            <Tooltip title={`切换到${nextModeLabel}`}>
+              <span>
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={onToggleMode}
+                  disabled={loading}
+                  startIcon={<SwapHorizIcon fontSize="small" />}
+                  sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.5, borderColor: 'divider', fontWeight: 900 }}
+                >
+                  {modeLabel}
+                </Button>
+              </span>
+            </Tooltip>
+
+            {mode === 'workspace' ? (
+              <Button
+                variant="text"
+                size="small"
+                onClick={onOpenWorkspacePicker}
+                disabled={loading}
+                sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
+              >
+                <EntityAvatar kind="workspace" size={22} />
+                <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
+                  {workspaceName}
+                </Typography>
+              </Button>
+            ) : null}
+
             <Button
               variant="text"
               size="small"
               onClick={onOpenRolePicker}
-              disabled={loading || (!roles.length && !groups.length && !workspaces.length)}
+              disabled={loading || !roles.length}
               sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
             >
-              <EntityAvatar
-                kind={activeTargetKind}
-                image={String((activeTargetKind === 'group' ? (activeGroup as any)?.avatarImage : activeTargetKind === 'role' ? activeRole?.avatarImage : '') || '')}
-                size={22}
-              />
+              <EntityAvatar kind="role" image={String(activeRole?.avatarImage || '')} size={22} />
               <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
-                {activeTargetKind === 'group'
-                  ? activeGroup
-                    ? String((activeGroup as any)?.name || '')
-                    : '请选择群组'
-                  : activeTargetKind === 'workspace'
-                    ? activeWorkspace
-                      ? String((activeWorkspace as any)?.name || '')
-                      : '请选择工作区'
-                    : activeRole
-                      ? String(activeRole?.name || '')
-                      : '请选择角色'}
+                {roleName}
               </Typography>
             </Button>
-
-            {activeTargetKind === 'workspace' ? (
-              <Button
-                variant="text"
-                size="small"
-                onClick={onOpenWorkspaceRolePicker}
-                disabled={loading || !roles.length}
-                sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
-              >
-                <EntityAvatar kind="role" image={String(activeRole?.avatarImage || '')} size={22} />
-                <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 160 }} noWrap>
-                  {activeRole ? String(activeRole?.name || '') : '请选择角色'}
-                </Typography>
-              </Button>
-            ) : null}
 
             <Box sx={{ flex: 1 }} />
 
@@ -181,7 +191,7 @@ export function ChatTopBar(props: {
                 <IconButton
                   onClick={onCreateChat}
                   size="small"
-                  disabled={activeTargetKind === 'group' ? !activeGroup : activeTargetKind === 'workspace' ? !activeWorkspace || !activeRole : !activeRole}
+                  disabled={createDisabled}
                   aria-label="新建聊天"
                 >
                   <AddIcon fontSize="small" />

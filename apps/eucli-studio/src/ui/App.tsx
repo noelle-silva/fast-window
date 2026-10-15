@@ -290,9 +290,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const {
     rolePickerEl,
-    rolePickerTab,
-    setRolePickerTab,
-    rolePickerMode,
+    rolePickerView,
     chatPickerEl,
     chatPickerView,
     setChatPickerView,
@@ -314,6 +312,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     closeEditingChatTitle,
     saveEditingChatTitle,
     openRolePicker,
+    openWorkspacePicker,
     openWorkspaceRolePicker,
     closeRolePicker,
     openChatPicker,
@@ -347,6 +346,29 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   })
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
   const roleSessionControlsEnabled = activeTargetKind !== 'group' && !!activeRole
+
+  // 顶栏模式：角色模式 / 工作区模式。由当前目标类型派生，模式按钮点击时切换。
+  // 没有工作区时也允许切到工作区模式（工作区按钮显示「无」），此时底层目标不变。
+  const [topbarMode, setTopbarMode] = React.useState<'role' | 'workspace'>(activeTargetKind === 'workspace' ? 'workspace' : 'role')
+  React.useEffect(() => {
+    setTopbarMode(activeTargetKind === 'workspace' ? 'workspace' : 'role')
+  }, [activeTargetKind])
+  const onToggleTopbarMode = useEvent(() => {
+    if (topbarMode === 'workspace') {
+      const roleId = String((activeRole as any)?.id || roles[0]?.id || '')
+      if (roleId) controller.actions.setActiveRole(roleId)
+      setTopbarMode('role')
+      return
+    }
+    const workspaceId = String(activeWorkspaceId || workspaces[0]?.id || '')
+    if (workspaceId) controller.actions.setActiveWorkspace(workspaceId)
+    setTopbarMode('workspace')
+  })
+  // 角色按钮：工作区模式下选的是「工作区里的角色」，角色模式下选的是当前角色。
+  const onOpenRoleButton = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    if (topbarMode === 'workspace') openWorkspaceRolePicker(e)
+    else openRolePicker(e)
+  })
 
   const {
     imagePickerEl,
@@ -879,11 +901,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         <ChatTopBar
           page={page}
           loading={!!s.loading}
+          mode={topbarMode}
           roles={roles}
-          groups={groups}
           workspaces={workspaces}
-          activeTargetKind={activeTargetKind}
-          activeGroup={activeGroup}
           activeRole={activeRole}
           activeWorkspace={activeWorkspace}
           topbarOpacity={topbarOpacity}
@@ -894,8 +914,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           onTopbarPointerDown={onTopbarPointerDown}
           onCloseSettings={closePluginSettings}
           onToggleTree={() => setTreeOpen((v) => !v)}
-          onOpenRolePicker={openRolePicker}
-          onOpenWorkspaceRolePicker={openWorkspaceRolePicker}
+          onToggleMode={onToggleTopbarMode}
+          onOpenRolePicker={onOpenRoleButton}
+          onOpenWorkspacePicker={openWorkspacePicker}
           onOpenChatPicker={openChatPicker}
           onCreateChat={() => controller.actions.createChat()}
           onOpenProviders={() => controller.actions.openProviders?.()}
@@ -1201,14 +1222,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             controller={controller}
             rolePickerEl={rolePickerEl}
             closeRolePicker={closeRolePicker}
-            rolePickerMode={rolePickerMode}
-            rolePickerTab={rolePickerTab}
-            setRolePickerTab={setRolePickerTab}
+            rolePickerView={rolePickerView}
             roles={roles}
-            groups={groups}
             workspaces={workspaces}
             draftActiveRoleId={String(s.draft?.activeRoleId || '')}
-            activeGroupId={activeGroupId}
             activeWorkspaceId={activeWorkspaceId}
             activeTargetKind={activeTargetKind}
             formatModelRefText={formatModelRefText}

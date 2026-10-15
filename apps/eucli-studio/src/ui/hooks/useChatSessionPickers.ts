@@ -62,8 +62,9 @@ export function useChatSessionPickers(deps: {
   } = deps
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
-  const [rolePickerTab, setRolePickerTab] = React.useState<'roles' | 'groups' | 'workspaces'>('roles')
-  const [rolePickerMode, setRolePickerMode] = React.useState<'global' | 'workspaceRole'>('global')
+  // 选择器只服务一个目标：角色按钮开角色列表，工作区按钮开工作区列表，
+  // 工作区模式下的角色按钮走 workspaceRole（选中写进工作区角色）。
+  const [rolePickerView, setRolePickerView] = React.useState<'role' | 'workspace' | 'workspaceRole'>('role')
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerView, setChatPickerView] = React.useState<'history' | 'favorites'>('history')
   const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
@@ -153,18 +154,20 @@ export function useChatSessionPickers(deps: {
   })
 
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
-    setRolePickerMode('global')
-    setRolePickerTab(activeTargetKind === 'group' ? 'groups' : activeTargetKind === 'workspace' ? 'workspaces' : 'roles')
+    setRolePickerView('role')
+    setRolePickerEl(e.currentTarget)
+  })
+  const openWorkspacePicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    setRolePickerView('workspace')
     setRolePickerEl(e.currentTarget)
   })
   const openWorkspaceRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
-    setRolePickerMode('workspaceRole')
-    setRolePickerTab('roles')
+    setRolePickerView('workspaceRole')
     setRolePickerEl(e.currentTarget)
   })
   const closeRolePicker = useEvent(() => {
     setRolePickerEl(null)
-    setRolePickerMode('global')
+    setRolePickerView('role')
   })
   const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
     setChatPickerView('history')
@@ -218,9 +221,7 @@ export function useChatSessionPickers(deps: {
 
   return {
     rolePickerEl,
-    rolePickerTab,
-    setRolePickerTab,
-    rolePickerMode,
+    rolePickerView,
     chatPickerEl,
     chatPickerView,
     setChatPickerView,
@@ -242,6 +243,7 @@ export function useChatSessionPickers(deps: {
     closeEditingChatTitle,
     saveEditingChatTitle,
     openRolePicker,
+    openWorkspacePicker,
     openWorkspaceRolePicker,
     closeRolePicker,
     openChatPicker,
