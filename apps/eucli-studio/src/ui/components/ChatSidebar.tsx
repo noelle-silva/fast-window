@@ -16,8 +16,6 @@ export function ChatSidebar(props: {
   sidebarRef: React.Ref<HTMLElement>
   resizing: boolean
   onSplitterPointerDown: (e: React.PointerEvent) => void
-  onSplitterPointerMove: (e: React.PointerEvent) => void
-  endResize: (e: React.PointerEvent) => void
   topbarOpacity: number
   topbarBlur: number
   roles: any[]
@@ -36,8 +34,6 @@ export function ChatSidebar(props: {
     sidebarRef,
     resizing,
     onSplitterPointerDown,
-    onSplitterPointerMove,
-    endResize,
     topbarOpacity,
     topbarBlur,
     roles,
@@ -108,9 +104,6 @@ export function ChatSidebar(props: {
         aria-orientation="vertical"
         aria-label="调整侧边栏宽度"
         onPointerDown={onSplitterPointerDown}
-        onPointerMove={onSplitterPointerMove}
-        onPointerUp={endResize}
-        onPointerCancel={endResize}
         sx={{
           position: 'absolute',
           top: 0,

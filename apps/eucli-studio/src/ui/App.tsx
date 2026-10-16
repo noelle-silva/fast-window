@@ -48,6 +48,7 @@ import { StandaloneWindowControls, type WindowControlActions } from './component
 import { HookPromptSelector } from './components/HookPromptSelector'
 import { ChatTopBar } from './components/ChatTopBar'
 import { ChatSidebar } from './components/ChatSidebar'
+import { SidebarResizeLine } from './components/SidebarResizeLine'
 import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
 import { Freeze } from './components/Freeze'
@@ -380,7 +381,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const sidebarMode = page === 'chat' && uiModeConfig.layout === 'sidebar'
   const sidebarResize = useSidebarResize({
     side: uiModeConfig.sidebarSide,
-    width: uiModeConfig.sidebarWidth,
     onCommit: (w) => controller.actions.setSidebarWidth?.(uiModeTarget, w),
   })
 
@@ -953,8 +953,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
               sidebarRef={sidebarResize.sidebarRef}
               resizing={sidebarResize.resizing}
               onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
-              onSplitterPointerMove={sidebarResize.onSplitterPointerMove}
-              endResize={sidebarResize.endResize}
               topbarOpacity={topbarOpacity}
               topbarBlur={topbarBlur}
               roles={roles}
@@ -1439,8 +1437,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
               sidebarRef={sidebarResize.sidebarRef}
               resizing={sidebarResize.resizing}
               onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
-              onSplitterPointerMove={sidebarResize.onSplitterPointerMove}
-              endResize={sidebarResize.endResize}
               topbarOpacity={topbarOpacity}
               topbarBlur={topbarBlur}
               roles={roles}
@@ -1453,6 +1449,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             />
           ) : null}
         </Box>
+
+        <SidebarResizeLine lineRef={sidebarResize.lineRef} active={sidebarResize.resizing} />
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />

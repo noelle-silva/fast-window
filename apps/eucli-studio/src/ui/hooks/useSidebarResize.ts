@@ -1,88 +1,84 @@
 import * as React from 'react'
-import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '../../domain/uiMode'
-import { clampNum } from '../utils/numbers'
+import { type SidebarSide } from '../../domain/uiMode'
+import { resolveSidebarLineX, resolveSidebarWidthFromLine } from '../../domain/sidebarResize'
+import { setSidebarResizeLock } from '../sidebarResizeLock'
 import { useEvent } from './useEvent'
 
-// 侧边栏宽度拖拽：拖动中直接改 DOM 的宽度（不触发 React 重渲染），松手才提交一次。
-// 提交后的宽度成为新的事实源；外部宽度变化（切换模式等）时再同步回内联宽度。
+// 侧边栏宽度拖拽：拖动期间不改任何宽度，只让一条竖线随光标左右移动；
+// 松手时才按竖线位置换算成宽度、提交一次（只重排一次）。
+// 指针事件挂在整窗，指针到哪竖线到哪，快速拖动不丢跟。
 export function useSidebarResize(deps: {
-  side: 'left' | 'right'
-  width: number
+  side: SidebarSide
   onCommit: (width: number) => void
 }) {
-  const { side, width: savedWidth, onCommit } = deps
+  const { side, onCommit } = deps
   const sidebarRef = React.useRef<HTMLElement | null>(null)
+  const lineRef = React.useRef<HTMLDivElement | null>(null)
   const [resizing, setResizing] = React.useState(false)
-  const dragRef = React.useRef<{ pid: number; startX: number; startW: number } | null>(null)
-  const lastXRef = React.useRef(0)
-  const rafRef = React.useRef(0)
-  const widthRef = React.useRef(savedWidth)
-
-  // 外部宽度（含切换模式）变化时同步到内联样式；拖拽期间由拖拽逻辑独占。
-  React.useEffect(() => {
-    widthRef.current = savedWidth
-    const el = sidebarRef.current
-    if (el) el.style.width = `${savedWidth}px`
-  }, [savedWidth])
+  // 拖拽态：锚点（侧边栏贴边的那条外缘的横坐标）与竖线当前横坐标。
+  const dragRef = React.useRef<{ pid: number; anchorX: number; lineX: number } | null>(null)
+  const sideRef = React.useRef(side)
+  sideRef.current = side
+  const commit = useEvent(onCommit)
 
   const onSplitterPointerDown = useEvent((e: React.PointerEvent) => {
     if (e.button !== 0) return
     const el = sidebarRef.current
-    const startW = el ? Number(el.getBoundingClientRect().width || savedWidth) : savedWidth
-    widthRef.current = startW
-    lastXRef.current = Number(e.clientX || 0)
-    dragRef.current = { pid: Number(e.pointerId), startX: Number(e.clientX || 0), startW }
-    setResizing(true)
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const anchorX = sideRef.current === 'left' ? rect.left : rect.right
+    const width = resolveSidebarWidthFromLine(sideRef.current, anchorX, Number(e.clientX || 0))
+    dragRef.current = {
+      pid: Number(e.pointerId),
+      anchorX,
+      lineX: resolveSidebarLineX(sideRef.current, anchorX, width),
+    }
     e.preventDefault()
     e.stopPropagation()
-    try {
-      ;(e.currentTarget as any)?.setPointerCapture?.(e.pointerId)
-    } catch (_) {}
-  })
-
-  const onSplitterPointerMove = useEvent((e: React.PointerEvent) => {
-    const st = dragRef.current
-    if (!st) return
-    if (Number(e.pointerId) !== st.pid) return
-    lastXRef.current = Number(e.clientX || 0)
-    if (rafRef.current) return
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = 0
-      const cur = dragRef.current
-      const el = sidebarRef.current
-      if (!cur || !el) return
-      const dx = lastXRef.current - cur.startX
-      const raw = side === 'right' ? cur.startW - dx : cur.startW + dx
-      const next = clampNum(Math.round(raw), SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
-      widthRef.current = next
-      // 直接写 DOM：绕开 React 渲染，拖拽跟手。
-      el.style.width = `${next}px`
-    })
-  })
-
-  const endResize = useEvent((e?: React.PointerEvent) => {
-    const st = dragRef.current
-    if (!st) return
-    if (e && Number(e.pointerId) !== st.pid) return
-    dragRef.current = null
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = 0
-    }
-    setResizing(false)
-    onCommit(clampNum(Math.round(widthRef.current), SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX))
+    setResizing(true)
   })
 
   React.useEffect(() => {
     if (!resizing) return
-    const onUp = () => endResize()
-    window.addEventListener('mouseup', onUp)
-    window.addEventListener('blur', onUp)
-    return () => {
-      window.removeEventListener('mouseup', onUp)
-      window.removeEventListener('blur', onUp)
-    }
-  }, [resizing, endResize])
 
-  return { sidebarRef, resizing, onSplitterPointerDown, onSplitterPointerMove, endResize }
+    const applyLine = () => {
+      const st = dragRef.current
+      const line = lineRef.current
+      if (!st || !line) return
+      line.style.transform = `translateX(${st.lineX}px)`
+    }
+
+    const onMove = (e: PointerEvent) => {
+      const st = dragRef.current
+      if (!st || e.pointerId !== st.pid) return
+      const s = sideRef.current
+      const width = resolveSidebarWidthFromLine(s, st.anchorX, Number(e.clientX || 0))
+      st.lineX = resolveSidebarLineX(s, st.anchorX, width)
+      applyLine()
+    }
+
+    const onUp = (e: PointerEvent) => {
+      const st = dragRef.current
+      if (!st || e.pointerId !== st.pid) return
+      dragRef.current = null
+      const width = resolveSidebarWidthFromLine(sideRef.current, st.anchorX, st.lineX)
+      setResizing(false)
+      commit(width)
+    }
+
+    // 竖线起始落在光标处。
+    applyLine()
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    setSidebarResizeLock(true)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setSidebarResizeLock(false)
+    }
+  }, [resizing, commit])
+
+  return { sidebarRef, lineRef, resizing, onSplitterPointerDown }
 }
