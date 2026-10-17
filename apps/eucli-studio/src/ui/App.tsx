@@ -944,6 +944,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     roles,
     workspaces,
     activeRoleId: String((activeRole as any)?.id || ''),
+    activeRoleAvatarImage: String((activeRole as any)?.avatarImage || ''),
     activeWorkspaceId,
     activeTargetKind,
     activeChatId: selectedActiveChatId,

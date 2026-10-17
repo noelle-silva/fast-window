@@ -22,6 +22,7 @@ export function ChatSidebar(props: {
   roles: any[]
   workspaces: any[]
   activeRoleId: string
+  activeRoleAvatarImage: string
   activeWorkspaceId: string
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeChatId: string
@@ -56,6 +57,7 @@ export function ChatSidebar(props: {
     roles,
     workspaces,
     activeRoleId,
+    activeRoleAvatarImage,
     activeWorkspaceId,
     activeTargetKind,
     activeChatId,
@@ -214,6 +216,7 @@ export function ChatSidebar(props: {
                   sessions={roleSessions.sessions}
                   pendingChat={rolePendingChat}
                   pendingTitle="新聊天"
+                  roleAvatarImage={activeRoleAvatarImage}
                   targetKind="role"
                   targetId={activeRoleId}
                   activeChatId={activeChatId}
@@ -255,6 +258,7 @@ export function ChatSidebar(props: {
                 sessions={workspaceSessions.sessions}
                 pendingChat={workspacePendingChat}
                 pendingTitle="工作区会话"
+                roleAvatarImage={activeRoleAvatarImage}
                 targetKind="workspace"
                 targetId={workspaceRoleTargetId(activeWorkspaceId, activeRoleId)}
                 activeChatId={activeChatId}
