@@ -543,6 +543,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     lastMsgText,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
+    activeCacheRateText,
     activeAsyncToolTasks,
     activeAsyncToolTaskRunningCount,
     lastMsgId,
@@ -1175,6 +1176,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 hasChatReasoningOverride={hasChatReasoningOverride}
                 activeContextTokenUsageText={activeContextTokenUsageText}
                 activeContextTokenUsageShortText={activeContextTokenUsageShortText}
+                activeCacheRateText={activeCacheRateText}
                 activeAsyncToolTaskRunningCount={activeAsyncToolTaskRunningCount}
                 openAsyncToolTasks={openAsyncToolTasks}
                 activeStreamOn={activeStreamOn}

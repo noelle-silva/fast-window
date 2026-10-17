@@ -90,6 +90,7 @@ export function ChatComposer(props: {
   hasChatReasoningOverride: boolean
   activeContextTokenUsageText: string
   activeContextTokenUsageShortText: string
+  activeCacheRateText: string
   activeAsyncToolTaskRunningCount: number
   openAsyncToolTasks: (e: React.MouseEvent<HTMLElement>) => void
   activeStreamOn: boolean
@@ -145,6 +146,7 @@ export function ChatComposer(props: {
     hasChatReasoningOverride,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
+    activeCacheRateText,
     activeAsyncToolTaskRunningCount,
     openAsyncToolTasks,
     activeStreamOn,
@@ -300,6 +302,14 @@ export function ChatComposer(props: {
                 <span>
                   <Button aria-label={`上下文约 ${activeContextTokenUsageText}`} size="small" variant="text" sx={composerContextButtonSx}>
                     {activeContextTokenUsageShortText}
+                  </Button>
+                </span>
+              </Tooltip>
+
+              <Tooltip title={`缓存率 ${activeCacheRateText}`}>
+                <span>
+                  <Button aria-label={`缓存率 ${activeCacheRateText}`} size="small" variant="text" sx={composerContextButtonSx}>
+                    {activeCacheRateText}
                   </Button>
                 </span>
               </Tooltip>

@@ -3,6 +3,7 @@ import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { formatTokenUsage, formatTokenUsageShort } from '../../domain/messageTokenUsage'
+import { formatCacheRate } from '../../domain/sessionCacheRate'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -152,6 +153,7 @@ export function useChatMessageView(deps: {
   const displayRenderMessages = React.useMemo(() => activeRunTailPendingMessage ? [...renderMessages, activeRunTailPendingMessage] : renderMessages, [activeRunTailPendingMessage, renderMessages])
   const activeContextTokenUsageText = React.useMemo(() => formatTokenUsage(activeChat?.tokenUsage), [activeChat?.tokenUsage])
   const activeContextTokenUsageShortText = React.useMemo(() => formatTokenUsageShort(activeChat?.tokenUsage), [activeChat?.tokenUsage])
+  const activeCacheRateText = React.useMemo(() => formatCacheRate(activeChat?.cacheRate), [activeChat?.cacheRate])
   const activeAsyncToolTasks = React.useMemo(() => (Array.isArray((activeChat as any)?.asyncToolTasks) ? (activeChat as any).asyncToolTasks : []), [activeChat, Number((activeChat as any)?.updatedAt || 0)])
   const activeAsyncToolTaskRunningCount = activeAsyncToolTasks.filter((task: any) => String(task?.status || '').trim() === 'running').length
 
@@ -176,6 +178,7 @@ export function useChatMessageView(deps: {
     displayRenderMessages,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
+    activeCacheRateText,
     activeAsyncToolTasks,
     activeAsyncToolTaskRunningCount,
     lastMsg,

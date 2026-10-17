@@ -29,9 +29,19 @@ import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpac
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
 import { normalizeSessionFacts } from './sessionFacts'
 import { normalizeTokenUsage } from './messageTokenUsage'
+import { normalizeCacheRate } from './sessionCacheRate'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
 import { UI_MODE_SETTING_KEY, normalizeUiModeSettings } from './uiMode'
+
+// applySessionUsage 把会话级用量真值与缓存率真值透传到归一后的会话：
+// 有真值才带上，无真值即缺席（客户端据此显示未知）。
+function applySessionUsage(out: any, source: any) {
+  const tokenUsage = normalizeTokenUsage(source?.tokenUsage)
+  if (tokenUsage) out.tokenUsage = tokenUsage
+  const cacheRate = normalizeCacheRate(source?.cacheRate)
+  if (cacheRate !== null) out.cacheRate = cacheRate
+}
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
   const v = String(v0 || '').trim()
@@ -360,8 +370,7 @@ export function normalizeData(raw: any) {
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
-		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
-		if (tokenUsage) out.tokenUsage = tokenUsage
+		applySessionUsage(out, cc)
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
@@ -483,8 +492,7 @@ export function normalizeData(raw: any) {
 		}
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
-		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
-		if (tokenUsage) out.tokenUsage = tokenUsage
+		applySessionUsage(out, cc)
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()
@@ -584,8 +592,7 @@ export function normalizeData(raw: any) {
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
 		Object.assign(out, normalizeSessionFacts(cc))
-		const tokenUsage = normalizeTokenUsage((cc as any).tokenUsage)
-		if (tokenUsage) out.tokenUsage = tokenUsage
+		applySessionUsage(out, cc)
 
 		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
         const idSet = new Set<string>()

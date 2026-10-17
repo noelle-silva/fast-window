@@ -87,4 +87,12 @@ describe('normalizeStoredChat', () => {
     const withoutUsage = normalizeStoredChat({ ...baseSession, roleId: 'role-1' }, 'role')
     expect(withoutUsage).not.toHaveProperty('tokenUsage')
   })
+
+  it('carries session cache rate truth and drops it when absent', () => {
+    const withCacheRate = normalizeStoredChat({ ...baseSession, roleId: 'role-1', cacheRate: 0.8 }, 'role')
+    expect(withCacheRate).toMatchObject({ cacheRate: 0.8 })
+
+    const withoutCacheRate = normalizeStoredChat({ ...baseSession, roleId: 'role-1' }, 'role')
+    expect(withoutCacheRate).not.toHaveProperty('cacheRate')
+  })
 })
