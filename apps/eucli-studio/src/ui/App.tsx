@@ -71,6 +71,7 @@ import { ThemeColorsProvider } from './hooks/useThemeColors'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveUiModeConfig } from '../domain/uiMode'
+import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
 import { ChatComposer } from './composer/ChatComposer'
 import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
@@ -135,7 +136,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeWallpaperSrc = useWallpaperImage(controller, activeWallpaper?.relPath || '')
 
   const activeTargetKind0 = String((s.draft as any)?.activeTargetKind || (data?.ui as any)?.activeTargetKind || 'role').trim()
-  const activeTargetKind = activeTargetKind0 === 'group' ? 'group' : activeTargetKind0 === 'workspace' ? 'workspace' : 'role'
+  const activeTargetKind: 'role' | 'group' | 'workspace' = activeTargetKind0 === 'group' ? 'group' : activeTargetKind0 === 'workspace' ? 'workspace' : 'role'
   const activeGroupId = String((s.draft as any)?.activeGroupId || (data?.ui as any)?.activeGroupId || '')
   const activeWorkspaceId = String((s.draft as any)?.activeWorkspaceId || (data?.ui as any)?.activeWorkspaceId || '')
   const activeRole = controller.activeRole()
@@ -152,6 +153,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeChat = controller.activeChat()
   const selectedActiveChatId = String(activeChat?.id || activeChatSelectionBox?.activeChatId || '').trim()
   const selectedActiveChatKey = selectedActiveChatId ? `${activeTargetKind}:${activeChatTargetId}:${selectedActiveChatId}` : ''
+  const pendingRoleChat = (s as any)?.pendingChat
+  const pendingWorkspaceChat = (s as any)?.pendingWorkspaceChat
   const chatSwitch = useDeferredChatSwitch(controller, activeChat, selectedActiveChatId, selectedActiveChatKey)
   const renderChat = chatSwitch.renderChat
   const renderChatId = chatSwitch.renderChatId
@@ -351,6 +354,45 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
   const roleSessionControlsEnabled = activeTargetKind !== 'group' && !!activeRole
 
+  // 界面布局：角色模式 / 工作区模式各自配置「顶栏 / 侧边栏」，以及侧边栏靠左还是靠右。
+  // 侧边栏模式只在聊天页生效；设置页仍用顶栏返回条。
+  const uiModeTarget: 'role' | 'workspace' = activeTargetKind === 'workspace' ? 'workspace' : 'role'
+  const uiModeConfig = resolveUiModeConfig(data?.settings?.uiMode, uiModeTarget)
+  const sidebarLayout = uiModeConfig.layout === 'sidebar'
+  const sidebarMode = page === 'chat' && sidebarLayout
+  const sidebarResize = useSidebarResize({
+    side: uiModeConfig.sidebarSide,
+    onCommit: (w) => controller.actions.setSidebarWidth?.(uiModeTarget, w),
+  })
+
+  const sidebarNavigation = useSidebarNavigation({
+    controller,
+    data,
+    sidebarLayout,
+    sidebarVisible: sidebarMode,
+    activeTargetKind,
+    activeRole,
+    activeWorkspaceId,
+    roles,
+    workspaces,
+    selectedActiveChatId,
+    activeChatTargetId,
+    pendingRoleChat,
+    pendingWorkspaceChat,
+    requestSwitch: chatSwitch.requestSwitch,
+    clearChatSessionRunNotice,
+  })
+  const {
+    switchSession,
+    restoreRoleMode,
+    restoreWorkspaceMode,
+    selectRole: onSelectRoleInSidebar,
+    selectWorkspace: onSelectWorkspaceInSidebar,
+    selectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
+    selectSession: onSelectSidebarSession,
+    changeTab: onChangeSidebarTab,
+  } = sidebarNavigation
+
   // 顶栏模式：角色模式 / 工作区模式。由当前目标类型派生，模式按钮点击时切换。
   // 没有工作区时也允许切到工作区模式（工作区按钮显示「无」），此时底层目标不变。
   const [topbarMode, setTopbarMode] = React.useState<'role' | 'workspace'>(activeTargetKind === 'workspace' ? 'workspace' : 'role')
@@ -359,29 +401,25 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   }, [activeTargetKind])
   const onToggleTopbarMode = useEvent(() => {
     if (topbarMode === 'workspace') {
-      const roleId = String((activeRole as any)?.id || roles[0]?.id || '')
-      if (roleId) controller.actions.setActiveRole(roleId)
+      if (sidebarMode) restoreRoleMode()
+      else {
+        const roleId = String((activeRole as any)?.id || roles[0]?.id || '')
+        if (roleId) controller.actions.setActiveRole(roleId)
+      }
       setTopbarMode('role')
       return
     }
-    const workspaceId = String(activeWorkspaceId || workspaces[0]?.id || '')
-    if (workspaceId) controller.actions.setActiveWorkspace(workspaceId)
+    if (sidebarMode) restoreWorkspaceMode()
+    else {
+      const workspaceId = String(activeWorkspaceId || workspaces[0]?.id || '')
+      if (workspaceId) controller.actions.setActiveWorkspace(workspaceId)
+    }
     setTopbarMode('workspace')
   })
   // 角色按钮：工作区模式下选的是「工作区里的角色」，角色模式下选的是当前角色。
   const onOpenRoleButton = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (topbarMode === 'workspace') openWorkspaceRolePicker(e)
     else openRolePicker(e)
-  })
-
-  // 界面布局：角色模式 / 工作区模式各自配置「顶栏 / 侧边栏」，以及侧边栏靠左还是靠右。
-  // 侧边栏模式只在聊天页生效；设置页仍用顶栏返回条。
-  const uiModeTarget: 'role' | 'workspace' = activeTargetKind === 'workspace' ? 'workspace' : 'role'
-  const uiModeConfig = resolveUiModeConfig(data?.settings?.uiMode, uiModeTarget)
-  const sidebarMode = page === 'chat' && uiModeConfig.layout === 'sidebar'
-  const sidebarResize = useSidebarResize({
-    side: uiModeConfig.sidebarSide,
-    onCommit: (w) => controller.actions.setSidebarWidth?.(uiModeTarget, w),
   })
 
   const {
@@ -891,7 +929,36 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onToggleTree: () => setTreeOpen((v) => !v),
     onOpenProviders: () => controller.actions.openProviders?.(),
     onOpenSettings: openPluginSettings,
-    onSwitchChat: chatSwitch.requestSwitch,
+    onSwitchChat: switchSession,
+  }
+
+  const sidebarProps = {
+    controller,
+    mode: uiModeTarget,
+    width: uiModeConfig.sidebarWidth,
+    sidebarRef: sidebarResize.sidebarRef,
+    resizing: sidebarResize.resizing,
+    onSplitterPointerDown: sidebarResize.onSplitterPointerDown,
+    topbarOpacity,
+    topbarBlur,
+    roles,
+    workspaces,
+    activeRoleId: String((activeRole as any)?.id || ''),
+    activeWorkspaceId,
+    activeTargetKind,
+    activeChatId: selectedActiveChatId,
+    data,
+    pendingRoleChat,
+    pendingWorkspaceChat,
+    formatModelRefText,
+    openPluginSettings,
+    fmtTime: controller.fmtTime,
+    chatSessionRunIndicatorKind,
+    onSelectRole: onSelectRoleInSidebar,
+    onSelectWorkspace: onSelectWorkspaceInSidebar,
+    onSelectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
+    onSelectSession: onSelectSidebarSession,
+    onTabChange: onChangeSidebarTab,
   }
 
   return (
@@ -946,24 +1013,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
         <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'row' }}>
           {sidebarMode && uiModeConfig.sidebarSide === 'left' ? (
-            <ChatSidebar
-              controller={controller}
-              side="left"
-              mode={uiModeTarget}
-              width={uiModeConfig.sidebarWidth}
-              sidebarRef={sidebarResize.sidebarRef}
-              resizing={sidebarResize.resizing}
-              onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
-              topbarOpacity={topbarOpacity}
-              topbarBlur={topbarBlur}
-              roles={roles}
-              workspaces={workspaces}
-              activeRoleId={String((activeRole as any)?.id || '')}
-              activeWorkspaceId={activeWorkspaceId}
-              activeTargetKind={activeTargetKind}
-              formatModelRefText={formatModelRefText}
-              openPluginSettings={openPluginSettings}
-            />
+            <ChatSidebar {...sidebarProps} side="left" />
           ) : null}
 
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -1309,7 +1359,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             pendingRoleChat={(s as any)?.pendingChat}
             chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
             clearChatSessionRunNotice={clearChatSessionRunNotice}
-            requestSwitch={chatSwitch.requestSwitch}
+            requestSwitch={switchSession}
             onChatContextMenu={onChatContextMenu}
           />
 
@@ -1431,24 +1481,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           </Box>
 
           {sidebarMode && uiModeConfig.sidebarSide === 'right' ? (
-            <ChatSidebar
-              controller={controller}
-              side="right"
-              mode={uiModeTarget}
-              width={uiModeConfig.sidebarWidth}
-              sidebarRef={sidebarResize.sidebarRef}
-              resizing={sidebarResize.resizing}
-              onSplitterPointerDown={sidebarResize.onSplitterPointerDown}
-              topbarOpacity={topbarOpacity}
-              topbarBlur={topbarBlur}
-              roles={roles}
-              workspaces={workspaces}
-              activeRoleId={String((activeRole as any)?.id || '')}
-              activeWorkspaceId={activeWorkspaceId}
-              activeTargetKind={activeTargetKind}
-              formatModelRefText={formatModelRefText}
-              openPluginSettings={openPluginSettings}
-            />
+            <ChatSidebar {...sidebarProps} side="right" />
           ) : null}
         </Box>
 

@@ -1,13 +1,14 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import { Box, Button, Tab, Tabs, Typography } from '@mui/material'
 import { colorMixVar } from '../colorThemeStyles'
 import { TOPBAR_H } from '../appConstants'
 import { RoleList, WorkspaceList } from './EntityLists'
+import { SidebarSessionList } from './SidebarSessionList'
+import { getSidebarNavigationMemory } from '../../domain/sidebarNavigationMemory'
+import { roleSidebarSessions, workspaceSidebarSessions } from '../../domain/sidebarSessions'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 
-// 侧边栏模式：把「角色列表 / 工作区列表」摊开直接点选，替代顶栏里的两个选择按钮。
-// - 角色模式：一级直接是角色列表，点角色即选中。
-// - 工作区模式：一级是工作区列表，点工作区进入第二层级（该工作区的角色列表），再点角色即选中。
 export function ChatSidebar(props: {
   controller: any
   side: 'left' | 'right'
@@ -23,8 +24,24 @@ export function ChatSidebar(props: {
   activeRoleId: string
   activeWorkspaceId: string
   activeTargetKind: 'role' | 'group' | 'workspace'
+  activeChatId: string
+  data: any
+  pendingRoleChat: any
+  pendingWorkspaceChat: any
   formatModelRefText: (modelRef: any) => string
   openPluginSettings: (tab: any) => void
+  fmtTime: (value: number) => string
+  chatSessionRunIndicatorKind: (
+    targetKind: 'role' | 'group' | 'workspace',
+    targetId: string,
+    chat: any,
+    selected: boolean,
+  ) => ChatSessionRunIndicatorKind | ''
+  onSelectRole: (roleId: string) => void
+  onSelectWorkspace: (workspaceId: string) => void
+  onSelectWorkspaceRole: (roleId: string) => void
+  onSelectSession: (chatId: string) => void
+  onTabChange: (mode: 'role' | 'workspace', tab: string) => void
 }) {
   const {
     controller,
@@ -41,17 +58,38 @@ export function ChatSidebar(props: {
     activeRoleId,
     activeWorkspaceId,
     activeTargetKind,
+    activeChatId,
+    data,
+    pendingRoleChat,
+    pendingWorkspaceChat,
     formatModelRefText,
     openPluginSettings,
+    fmtTime,
+    chatSessionRunIndicatorKind,
+    onSelectRole,
+    onSelectWorkspace,
+    onSelectWorkspaceRole,
+    onSelectSession,
+    onTabChange,
   } = props
 
-  // 工作区模式的第二层级开关；切换模式时回到一级。
-  const [workspaceRoleLevel, setWorkspaceRoleLevel] = React.useState(false)
-  React.useEffect(() => {
-    setWorkspaceRoleLevel(false)
-  }, [mode])
-
-  const showWorkspaceRoles = mode === 'workspace' && workspaceRoleLevel
+  const memory = getSidebarNavigationMemory()
+  const activeTab = mode === 'role' ? memory.role.tab : memory.workspace.tab
+  const roleSessions = React.useMemo(() => roleSidebarSessions(data, activeRoleId), [data, activeRoleId])
+  const workspaceSessions = React.useMemo(
+    () => workspaceSidebarSessions(data, activeWorkspaceId, activeRoleId),
+    [data, activeWorkspaceId, activeRoleId],
+  )
+  const rolePendingChat =
+    pendingRoleChat && String(pendingRoleChat?.roleId || '') === activeRoleId
+      ? pendingRoleChat.chat
+      : null
+  const workspacePendingChat =
+    pendingWorkspaceChat &&
+    workspaceRoleTargetId(pendingWorkspaceChat?.workspaceId, pendingWorkspaceChat?.roleId) ===
+      workspaceRoleTargetId(activeWorkspaceId, activeRoleId)
+      ? pendingWorkspaceChat.chat
+      : null
 
   const sectionTitle = (text: string) => (
     <Typography variant="caption" sx={{ fontWeight: 900, px: 1.5, color: 'text.secondary' }}>
@@ -59,11 +97,19 @@ export function ChatSidebar(props: {
     </Typography>
   )
 
-  const roleList = (onSelect: (id: string) => void) => (
+  const emptyHint = (text: string) => (
+    <Box sx={{ px: 1.5, py: 1 }}>
+      <Typography variant="body2" color="text.secondary">
+        {text}
+      </Typography>
+    </Box>
+  )
+
+  const roleList = (isSelected: (roleId: string) => boolean, onSelect: (roleId: string) => void) => (
     roles.length ? (
       <RoleList
         roles={roles}
-        isSelected={(id) => id === activeRoleId && activeTargetKind === (mode === 'workspace' ? 'workspace' : 'role')}
+        isSelected={isSelected}
         onSelect={onSelect}
         onOpenEditor={(id) => controller.actions.openRoleEditor?.(id)}
         formatModelRefText={formatModelRefText}
@@ -80,6 +126,30 @@ export function ChatSidebar(props: {
     )
   )
 
+  const workspaceList = () => (
+    workspaces.length ? (
+      <WorkspaceList
+        workspaces={workspaces}
+        isSelected={(id) => id === activeWorkspaceId && activeTargetKind === 'workspace'}
+        onSelect={onSelectWorkspace}
+        onOpenEditor={(id) => controller.actions.openWorkspaceEditor?.(id)}
+      />
+    ) : (
+      <Box sx={{ px: 1.5, py: 1 }}>
+        <Typography variant="body2" color="text.secondary">
+          还没有工作区。
+        </Typography>
+        <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
+          去创建工作区
+        </Button>
+      </Box>
+    )
+  )
+
+  const tabs = mode === 'role'
+    ? [{ value: 'roles', label: '角色' }, { value: 'history', label: '历史会话' }]
+    : [{ value: 'workspaces', label: '工作区' }, { value: 'roles', label: '角色' }, { value: 'session', label: '会话' }]
+
   return (
     <Box
       component="nav"
@@ -92,7 +162,6 @@ export function ChatSidebar(props: {
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
-        // 顶栏是绝对定位、覆盖在最上层，这里留出顶栏高度，让内容从顶栏下方开始。
         pt: `${TOPBAR_H}px`,
         bgcolor: colorMixVar('--studio-topbar', topbarOpacity),
         backdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
@@ -113,55 +182,88 @@ export function ChatSidebar(props: {
           cursor: 'col-resize',
           ...(side === 'left' ? { right: 0 } : { left: 0 }),
           bgcolor: resizing ? 'primary.main' : 'transparent',
-          // 悬停延迟出现高亮：鼠标快速掠过不闪，真正停住才亮；移开立即消失。
           transition: 'background-color 120ms ease',
           transitionDelay: '0ms',
           '&:hover': { bgcolor: 'primary.main', transitionDelay: '150ms' },
         }}
       />
 
+      <Tabs
+        value={activeTab}
+        onChange={(_, next) => onTabChange(mode, String(next))}
+        variant="fullWidth"
+        sx={{ minHeight: 34, flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider' }}
+      >
+        {tabs.map((item) => (
+          <Tab
+            key={item.value}
+            value={item.value}
+            label={item.label}
+            sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
+          />
+        ))}
+      </Tabs>
+
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
         {mode === 'role' ? (
+          activeTab === 'history' ? (
+            <>
+              {sectionTitle('历史会话')}
+              {activeTargetKind === 'role' ? (
+                <SidebarSessionList
+                  sessions={roleSessions.sessions}
+                  pendingChat={rolePendingChat}
+                  pendingTitle="新聊天"
+                  targetKind="role"
+                  targetId={activeRoleId}
+                  activeChatId={activeChatId}
+                  fmtTime={fmtTime}
+                  onSelect={onSelectSession}
+                  chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
+                />
+              ) : (
+                emptyHint('先选择角色。')
+              )}
+            </>
+          ) : (
+            <>
+              {sectionTitle('角色')}
+              {roleList(
+                (id) => id === activeRoleId && activeTargetKind === 'role',
+                onSelectRole,
+              )}
+            </>
+          )
+        ) : activeTab === 'workspaces' ? (
+          <>
+            {sectionTitle('工作区')}
+            {workspaceList()}
+          </>
+        ) : activeTab === 'roles' ? (
           <>
             {sectionTitle('角色')}
-            {roleList((id) => controller.actions.setActiveRole(id))}
-          </>
-        ) : showWorkspaceRoles ? (
-          <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, pb: 0.5 }}>
-              <Tooltip title="返回工作区列表">
-                <IconButton size="small" aria-label="返回工作区列表" onClick={() => setWorkspaceRoleLevel(false)}>
-                  <ArrowBackIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Typography variant="caption" sx={{ fontWeight: 900, color: 'text.secondary' }}>
-                角色
-              </Typography>
-            </Box>
-            {roleList((id) => controller.actions.setWorkspaceRole?.(id))}
+            {roleList(
+              (id) => id === activeRoleId && activeTargetKind === 'workspace',
+              onSelectWorkspaceRole,
+            )}
           </>
         ) : (
           <>
-            {sectionTitle('工作区')}
-            {workspaces.length ? (
-              <WorkspaceList
-                workspaces={workspaces}
-                isSelected={(id) => id === activeWorkspaceId && activeTargetKind === 'workspace'}
-                onSelect={(id) => {
-                  controller.actions.setActiveWorkspace?.(id)
-                  setWorkspaceRoleLevel(true)
-                }}
-                onOpenEditor={(id) => controller.actions.openWorkspaceEditor?.(id)}
+            {sectionTitle('会话')}
+            {activeTargetKind === 'workspace' ? (
+              <SidebarSessionList
+                sessions={workspaceSessions.sessions}
+                pendingChat={workspacePendingChat}
+                pendingTitle="工作区会话"
+                targetKind="workspace"
+                targetId={workspaceRoleTargetId(activeWorkspaceId, activeRoleId)}
+                activeChatId={activeChatId}
+                fmtTime={fmtTime}
+                onSelect={onSelectSession}
+                chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
               />
             ) : (
-              <Box sx={{ px: 1.5, py: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  还没有工作区。
-                </Typography>
-                <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
-                  去创建工作区
-                </Button>
-              </Box>
+              emptyHint('先选择工作区。')
             )}
           </>
         )}
