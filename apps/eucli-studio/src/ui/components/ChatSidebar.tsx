@@ -1,5 +1,7 @@
 import * as React from 'react'
-import { Box, Button, Tab, Tabs, Typography } from '@mui/material'
+import { Box, Button, IconButton, InputAdornment, Tab, Tabs, TextField, Typography } from '@mui/material'
+import CloseIcon from '@mui/icons-material/Close'
+import SearchIcon from '@mui/icons-material/Search'
 import { colorMixVar } from '../colorThemeStyles'
 import { TOPBAR_H } from '../appConstants'
 import { RoleList, WorkspaceList } from './EntityLists'
@@ -92,6 +94,12 @@ export function ChatSidebar(props: {
       workspaceRoleTargetId(activeWorkspaceId, activeRoleId)
       ? pendingWorkspaceChat.chat
       : null
+
+  const [sessionSearchText, setSessionSearchText] = React.useState('')
+  React.useEffect(() => {
+    setSessionSearchText('')
+  }, [mode, activeRoleId, activeWorkspaceId])
+  const showSessionSearch = mode === 'role' ? activeTab === 'history' : activeTab === 'session'
 
   const sectionTitle = (text: string) => (
     <Typography variant="caption" sx={{ fontWeight: 900, px: 1.5, color: 'text.secondary' }}>
@@ -206,6 +214,39 @@ export function ChatSidebar(props: {
         ))}
       </Tabs>
 
+      {showSessionSearch ? (
+        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1, pb: 0.5 }}>
+          <TextField
+            fullWidth
+            size="small"
+            variant="standard"
+            placeholder="搜索会话…"
+            value={sessionSearchText}
+            onChange={(event) => setSessionSearchText(event.target.value)}
+            InputProps={{
+              disableUnderline: true,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: sessionSearchText ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    aria-label="清空搜索"
+                    onClick={() => setSessionSearchText('')}
+                  >
+                    <CloseIcon fontSize="inherit" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+          />
+        </Box>
+      ) : null}
+
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
         {mode === 'role' ? (
           activeTab === 'history' ? (
@@ -217,6 +258,7 @@ export function ChatSidebar(props: {
                   pendingChat={rolePendingChat}
                   pendingTitle="新聊天"
                   roleAvatarImage={activeRoleAvatarImage}
+                  searchText={sessionSearchText}
                   targetKind="role"
                   targetId={activeRoleId}
                   activeChatId={activeChatId}
@@ -259,6 +301,7 @@ export function ChatSidebar(props: {
                 pendingChat={workspacePendingChat}
                 pendingTitle="工作区会话"
                 roleAvatarImage={activeRoleAvatarImage}
+                searchText={sessionSearchText}
                 targetKind="workspace"
                 targetId={workspaceRoleTargetId(activeWorkspaceId, activeRoleId)}
                 activeChatId={activeChatId}

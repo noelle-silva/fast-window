@@ -2,6 +2,7 @@ import { Box, List, ListItemAvatar, ListItemButton, ListItemText, Stack, Typogra
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { EntityAvatar } from './avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
+import { chatHistoryMatchesSearch } from '../utils/text'
 
 export type SidebarSessionTargetKind = 'role' | 'workspace'
 
@@ -10,6 +11,7 @@ export function SidebarSessionList(props: {
   pendingChat: any
   pendingTitle: string
   roleAvatarImage: string
+  searchText: string
   targetKind: SidebarSessionTargetKind
   targetId: string
   activeChatId: string
@@ -27,6 +29,7 @@ export function SidebarSessionList(props: {
     pendingChat,
     pendingTitle,
     roleAvatarImage,
+    searchText,
     targetKind,
     targetId,
     activeChatId,
@@ -35,14 +38,21 @@ export function SidebarSessionList(props: {
     chatSessionRunIndicatorKind,
   } = props
 
-  const pendingId = String(pendingChat?.id || '')
+  const query = String(searchText || '').trim()
+  const visiblePending = pendingChat && chatHistoryMatchesSearch(pendingChat, pendingTitle, query)
+    ? pendingChat
+    : null
+  const visibleSessions = query
+    ? sessions.filter((chat: any) => chatHistoryMatchesSearch(chat, pendingTitle, query))
+    : sessions
+  const pendingId = String(visiblePending?.id || '')
   const hasPending = !!pendingId
 
-  if (!hasPending && !sessions.length) {
+  if (!hasPending && !visibleSessions.length) {
     return (
       <Box sx={{ px: 1.5, py: 1 }}>
         <Typography variant="body2" color="text.secondary">
-          还没有会话。
+          {query ? '没有匹配的会话。' : '还没有会话。'}
         </Typography>
       </Box>
     )
@@ -80,13 +90,13 @@ export function SidebarSessionList(props: {
             <EntityAvatar kind="role" image={roleAvatarImage} size={42} />
           </ListItemAvatar>
           {sessionText(
-            `${String(pendingChat?.title || pendingTitle)}（未发送）`,
+            `${String(visiblePending?.title || pendingTitle)}（未发送）`,
             '（草稿）',
-            fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0)),
+            fmtTime(Number(visiblePending?.updatedAt || visiblePending?.createdAt || 0)),
           )}
         </ListItemButton>
       ) : null}
-      {sessions.map((chat: any) => {
+      {visibleSessions.map((chat: any) => {
         const chatId = String(chat?.id || '')
         const selected = !hasPending && chatId === activeChatId
         const raw = String(chat?.lastMessagePreview || '').replace(/\s+/g, ' ').trim()
