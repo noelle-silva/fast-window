@@ -76,7 +76,7 @@ export function SidebarSessionList(props: {
     <List dense sx={SOFT_POPOVER_LIST_SX}>
       {hasPending ? (
         <ListItemButton selected sx={SOFT_POPOVER_ITEM_TOP_SX}>
-          <ListItemAvatar>
+          <ListItemAvatar sx={{ alignSelf: 'center' }}>
             <EntityAvatar kind="role" image={roleAvatarImage} size={42} />
           </ListItemAvatar>
           {sessionText(
@@ -100,7 +100,7 @@ export function SidebarSessionList(props: {
             onClick={() => onSelect(chatId)}
             sx={SOFT_POPOVER_ITEM_TOP_SX}
           >
-            <ListItemAvatar>
+            <ListItemAvatar sx={{ alignSelf: 'center' }}>
               <EntityAvatar kind="role" image={roleAvatarImage} size={42} />
             </ListItemAvatar>
             {sessionText(
