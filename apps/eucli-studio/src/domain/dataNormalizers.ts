@@ -123,7 +123,6 @@ export function normalizeSplitMeta(raw: any) {
   const groupFolders = (raw as any).groupFolders && typeof (raw as any).groupFolders === 'object' ? (raw as any).groupFolders : {}
   const chatIndexByGroup =
     (raw as any).chatIndexByGroup && typeof (raw as any).chatIndexByGroup === 'object' ? (raw as any).chatIndexByGroup : {}
-  const workspaceOrder = Array.isArray((raw as any).workspaceOrder) ? (raw as any).workspaceOrder.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
   const workspaceFolders = (raw as any).workspaceFolders && typeof (raw as any).workspaceFolders === 'object' ? (raw as any).workspaceFolders : {}
   const chatIndexByWorkspace =
     (raw as any).chatIndexByWorkspace && typeof (raw as any).chatIndexByWorkspace === 'object' ? (raw as any).chatIndexByWorkspace : {}
@@ -140,7 +139,6 @@ export function normalizeSplitMeta(raw: any) {
     groupOrder,
     groupFolders,
     chatIndexByGroup,
-    workspaceOrder,
     workspaceFolders,
     chatIndexByWorkspace,
   }

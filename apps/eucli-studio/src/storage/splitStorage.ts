@@ -7,7 +7,6 @@ import {
   splitChatKey,
   splitGroupKey,
   splitGroupChatKey,
-  splitChatsIndexKey,
   splitRoleChatIndexKey,
   splitGroupsIndexKey,
   splitGroupChatIndexKey,
@@ -267,9 +266,6 @@ export function createSplitStorage(deps: {
       const meta = (await loadSplitMeta()) || splitMetaCache
       if (!meta) throw new Error('存储未初始化')
 
-      const roleOrder = stringList(meta.roleOrder)
-      if (!roleOrder.includes(roleId)) roleOrder.unshift(roleId)
-
       const roleFolders = stringMap(meta.roleFolders)
       if (!roleFolders[roleId]) {
         roleFolders[roleId] = uniqueFolder(roleFolderName(role), new Set(Object.values(roleFolders)), roleId, 'role')
@@ -278,9 +274,8 @@ export function createSplitStorage(deps: {
 
       await writeRequired(storage, splitRoleKey(folder), role)
       await _syncRoleAvatarFile(folder, role)
-      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
 
-      splitMetaCache = { ...meta, roleOrder, roleFolders }
+      splitMetaCache = { ...meta, roleFolders }
     })
   }
 
@@ -292,7 +287,6 @@ export function createSplitStorage(deps: {
       const meta = (await loadSplitMeta()) || splitMetaCache
       if (!meta) throw new Error('存储未初始化')
 
-      const roleOrder = stringList(meta.roleOrder).filter((id) => id !== roleId)
       const roleFolders = stringMap(meta.roleFolders)
       const folder = roleFolders[roleId]
       if (!folder) throw new Error('角色不存在')
@@ -305,9 +299,8 @@ export function createSplitStorage(deps: {
       await removeRequired(storage, splitRoleKey(folder))
       await storage.remove(splitRoleChatIndexKey(folder)).catch(() => {})
       for (const chatId of stringList(oldIndex.chatIds)) await storage.remove(splitChatKey(folder, chatId)).catch(() => {})
-      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
 
-      splitMetaCache = { ...meta, roleOrder, roleFolders, chatIndexByRole }
+      splitMetaCache = { ...meta, roleFolders, chatIndexByRole }
     })
   }
 
@@ -352,21 +345,6 @@ export function createSplitStorage(deps: {
       await writeRequired(storage, splitProvidersIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), providerOrder, providerFolders })
 
       splitMetaCache = { ...meta, providerOrder, providerFolders }
-    })
-  }
-
-  async function saveRoleOrder(roleIdsRaw: any) {
-    const roleIds = stringList(roleIdsRaw)
-    await withSplitMetaWrite(async () => {
-      const meta = (await loadSplitMeta()) || splitMetaCache
-      if (!meta) throw new Error('存储未初始化')
-      const roleFolders = stringMap(meta.roleFolders)
-      const known = new Set(Object.keys(roleFolders))
-      const filtered = roleIds.filter((id) => known.has(id))
-      const remaining = stringList(meta.roleOrder).filter((id) => !filtered.includes(id) && known.has(id))
-      const roleOrder = filtered.concat(remaining)
-      await writeRequired(storage, splitChatsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), roleOrder, roleFolders })
-      splitMetaCache = { ...meta, roleOrder, roleFolders }
     })
   }
 
@@ -468,12 +446,6 @@ export function createSplitStorage(deps: {
     const updatedAt = now()
     await initializeStickerSettingsStorage(storage)
     await storage.set(SESSION_FAVORITES_KEY, { folders: [], chatRefsByFolderId: {} })
-    await writeRequired(storage, splitChatsIndexKey(), {
-      schemaVersion: SPLIT_SCHEMA_VERSION,
-      updatedAt,
-      roleOrder: [],
-      roleFolders: {},
-    })
     await writeRequired(storage, splitGroupsIndexKey(), {
       schemaVersion: SPLIT_SCHEMA_VERSION,
       updatedAt,
@@ -601,7 +573,6 @@ export function createSplitStorage(deps: {
     removeRoleChatEntry,
     setActiveGroupChatSelection,
     removeGroupChatEntry,
-    saveRoleOrder,
     touchGroupChatUpdatedAt,
     saveMetaOnly,
     saveFavoritesOnly,

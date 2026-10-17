@@ -54,7 +54,7 @@ function createNetRequestStub(sessionsByCombination: Record<string, WorkspaceSes
   })
 }
 
-function createHarness(sessionsByCombination: Record<string, WorkspaceSession[]>) {
+function createHarness(sessionsByCombination: Record<string, WorkspaceSession[]>, netRequest = createNetRequestStub(sessionsByCombination)) {
   const state: any = {
     loading: false,
     draft: { activeTargetKind: 'workspace', activeRoleId: 'role-a', activeGroupId: '', activeWorkspaceId: 'ws-1' },
@@ -74,7 +74,7 @@ function createHarness(sessionsByCombination: Record<string, WorkspaceSession[]>
   let emitCount = 0
   const manager = createWorkspaceManager({
     getState: () => state,
-    netRequest: createNetRequestStub(sessionsByCombination),
+    netRequest,
     emit: () => { emitCount += 1 },
     render: () => {},
     closeModal: () => {},
@@ -145,5 +145,46 @@ describe('工作区角色组合会话加载', () => {
     expect(boxC.activeChatId).toBe('')
     expect(harness.state.pendingWorkspaceChat ?? null).toBeNull()
     expect(harness.state.draft.activeRoleId).toBe('role-c')
+  })
+})
+
+describe('工作区手动排序', () => {
+  it('整行拖拽后立即更新视窗顺序，并把完整顺序写入业务端', async () => {
+    const requests: any[] = []
+    const netRequest = vi.fn(async (req: any) => {
+      requests.push(req)
+      return { body: {} }
+    })
+    const harness = createHarness({}, netRequest)
+    harness.state.data.workspaces = [
+      { id: 'ws-1', name: '一', directories: [], prompt: '', createdAt: 1, updatedAt: 1 },
+      { id: 'ws-2', name: '二', directories: [], prompt: '', createdAt: 2, updatedAt: 2 },
+      { id: 'ws-3', name: '三', directories: [], prompt: '', createdAt: 3, updatedAt: 3 },
+    ]
+
+    await harness.manager.moveWorkspace('ws-1', 'ws-3', 'after')
+
+    expect(harness.state.data.workspaces.map((workspace: any) => workspace.id)).toEqual(['ws-2', 'ws-3', 'ws-1'])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      method: 'PUT',
+      path: '/api/workspaces/order',
+      body: { ids: ['ws-2', 'ws-3', 'ws-1'] },
+    })
+  })
+
+  it('业务端拒绝排序时回滚视窗顺序', async () => {
+    const netRequest = vi.fn(async () => {
+      throw new Error('排序失败')
+    })
+    const harness = createHarness({}, netRequest)
+    harness.state.data.workspaces = [
+      { id: 'ws-1', name: '一', directories: [], prompt: '', createdAt: 1, updatedAt: 1 },
+      { id: 'ws-2', name: '二', directories: [], prompt: '', createdAt: 2, updatedAt: 2 },
+    ]
+
+    await harness.manager.moveWorkspace('ws-1', 'ws-2', 'after')
+
+    expect(harness.state.data.workspaces.map((workspace: any) => workspace.id)).toEqual(['ws-1', 'ws-2'])
   })
 })

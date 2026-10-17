@@ -27,7 +27,6 @@ type projectionConfig struct {
 	UpdatedAt         int64             `json:"updatedAt,omitempty"`
 	UI                map[string]any    `json:"ui,omitempty"`
 	Settings          map[string]any    `json:"settings,omitempty"`
-	RoleOrder         []string          `json:"roleOrder,omitempty"`
 	GroupOrder        []string          `json:"groupOrder,omitempty"`
 	RoleFolders       map[string]string `json:"roleFolders,omitempty"`
 	GroupFolders      map[string]string `json:"groupFolders,omitempty"`
@@ -133,9 +132,6 @@ func normalizeProjection(value projectionConfig) projectionConfig {
 	}
 	if value.Settings == nil {
 		value.Settings = map[string]any{}
-	}
-	if value.RoleOrder == nil {
-		value.RoleOrder = []string{}
 	}
 	if value.GroupOrder == nil {
 		value.GroupOrder = []string{}

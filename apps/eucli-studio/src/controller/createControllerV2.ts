@@ -46,6 +46,7 @@ import { createEntityEditors } from './entityEditors'
 import { createChatOperations } from './chatOperations'
 import { createPersistence } from './persistence'
 import { createWorkspaceManager } from './workspaceManager'
+import { saveEntityOrder } from './entityOrderBridge'
 import { createAccessSettingsController } from './accessSettingsController'
 import { updateGroupSessionTitle, updateRoleSessionTitle } from './ebRoleSession'
 import { createEbRunEventConsumer } from './ebRunEvents'
@@ -196,7 +197,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ensureSplitStoreReady,
     setActiveRoleChatSelection,
     removeRoleChatEntry,
-    saveRoleOrder,
     setActiveGroupChatSelection,
     removeGroupChatEntry,
     saveMetaOnly,
@@ -385,6 +385,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     upsertWorkspaceChat,
     setActiveWorkspace,
     setWorkspaceRole,
+    moveWorkspace,
     openNewWorkspaceEditor,
     openNewWorkspaceEditorInPlace,
     openWorkspaceEditor,
@@ -924,6 +925,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     deleteImage: api.files?.images?.delete as any,
   })
   const favoriteActions = createFavoriteActions({ favOps })
+  async function reorderRoles(roleIds: string[]) {
+    const request = capabilities.net?.request
+    if (typeof request !== 'function') throw new Error('业务请求通道不可用')
+    await saveEntityOrder(request, 'roles', roleIds)
+  }
   const entityActions = createEntityActions({
     state,
     emit,
@@ -931,7 +937,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     showToast: api.ui?.showToast,
     getProvider,
     closeModal,
-    saveRoleOrder,
+    reorderRoles,
+    moveWorkspace,
     openProvidersEditor,
     openProviderInlineEditor,
     saveProviderInlineEditor,

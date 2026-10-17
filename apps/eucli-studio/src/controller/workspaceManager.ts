@@ -3,10 +3,12 @@ import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chat
 import { mergeChatFromStorage } from '../domain/chatStorageSync'
 import { NEW_WORKSPACE_ID } from '../domain/constants'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
+import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { clearPendingChatForTarget, createPendingChatEntry, pendingChatForTarget } from '../domain/pendingChat'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import type { AiChatShowToast } from '../gateway/capabilities'
+import { saveEntityOrder } from './entityOrderBridge'
 import {
   createWorkspaceSession,
   deleteWorkspace,
@@ -88,7 +90,6 @@ function boxHasChatRef(box: any, chatIdRaw: unknown) {
 function normalizeWorkspaceList(workspacesRaw: UiWorkspace[]) {
   return (Array.isArray(workspacesRaw) ? workspacesRaw : [])
     .filter((workspace) => workspace && typeof workspace === 'object' && text(workspace.id))
-    .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
 }
 
 function workspaceDraft(state: any): UiWorkspace {
@@ -121,6 +122,7 @@ export function createWorkspaceManager(deps: {
   removeLoadedChat?: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => void
 }) {
   const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat } = deps
+  let workspaceMoveSeq = 0
 
   function requireNetRequest() {
     if (typeof netRequest !== 'function') throw new Error('工作区请求通道不可用')
@@ -322,6 +324,31 @@ export function createWorkspaceManager(deps: {
     if (workspaceId) loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
     emit()
+  }
+
+  async function moveWorkspace(workspaceIdRaw: unknown, targetWorkspaceIdRaw: unknown, positionRaw: unknown) {
+    const state = getState()
+    if (!state?.data) return
+    const workspaces = Array.isArray((state.data as any).workspaces) ? ((state.data as any).workspaces as any[]) : []
+    const workspaceId = text(workspaceIdRaw)
+    const targetWorkspaceId = text(targetWorkspaceIdRaw)
+    if (!workspaceId || !targetWorkspaceId || workspaceId === targetWorkspaceId) return
+    const position: ListMovePosition = text(positionRaw) === 'after' ? 'after' : 'before'
+    const next = moveListItemById(workspaces, (workspace) => text(workspace?.id), workspaceId, targetWorkspaceId, position)
+    if (next === workspaces) return
+
+    const seq = ++workspaceMoveSeq
+    ;(state.data as any).workspaces = next
+    emit()
+    try {
+      await saveEntityOrder(requireNetRequest(), 'workspaces', next.map((workspace) => text(workspace?.id)))
+    } catch (e: any) {
+      // 快速连续拖拽时，旧请求失败不能覆盖更新的本地顺序。
+      if (seq !== workspaceMoveSeq) return
+      ;(state.data as any).workspaces = workspaces
+      emit()
+      showToast?.(String(e?.message || e || '工作区排序保存失败'), { kind: 'error' })
+    }
   }
 
   function populateNewWorkspaceDraft() {
@@ -593,6 +620,7 @@ export function createWorkspaceManager(deps: {
     upsertWorkspaceChat,
     setActiveWorkspace,
     setWorkspaceRole,
+    moveWorkspace,
     openNewWorkspaceEditor,
     openNewWorkspaceEditorInPlace,
     openWorkspaceEditor,

@@ -4,15 +4,6 @@ import (
 	"context"
 )
 
-func (p *projectionService) saveChatsIndex(value any) error {
-	index := objectMap(value)
-	roleOrder := stringSlice(index["roleOrder"])
-	_, err := p.config.updateProjection(func(projection *projectionConfig) {
-		projection.RoleOrder = roleOrder
-	})
-	return err
-}
-
 func (p *projectionService) chatsIndex(ctx context.Context) (any, error) {
 	meta, err := p.meta(ctx)
 	if err != nil {

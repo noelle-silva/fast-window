@@ -32,6 +32,8 @@ export type SortableItemRenderArgs = {
 type SortableRootProps = {
   children: React.ReactNode
   onMove: (activeId: string, overId: string) => void
+  onDragStart?: () => void
+  onDragStop?: () => void
   collisionDetection?: CollisionDetection
 }
 
@@ -55,7 +57,7 @@ export function resolveSortMovePosition(items: string[], activeId: string, overI
 }
 
 export function SortableRoot(props: SortableRootProps) {
-  const { children, onMove, collisionDetection = closestCenter } = props
+  const { children, onMove, onDragStart, onDragStop, collisionDetection = closestCenter } = props
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -65,14 +67,20 @@ export function SortableRoot(props: SortableRootProps) {
     (event: DragEndEvent) => {
       const activeId = String(event.active.id || '').trim()
       const overId = String(event.over?.id || '').trim()
-      if (!activeId || !overId || activeId === overId) return
-      onMove(activeId, overId)
+      if (activeId && overId && activeId !== overId) onMove(activeId, overId)
+      onDragStop?.()
     },
-    [onMove],
+    [onMove, onDragStop],
   )
 
   return (
-    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={() => onDragStart?.()}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => onDragStop?.()}
+    >
       {children}
     </DndContext>
   )

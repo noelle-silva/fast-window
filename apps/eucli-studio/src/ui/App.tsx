@@ -48,6 +48,7 @@ import { StandaloneWindowControls, type WindowControlActions } from './component
 import { HookPromptSelector } from './components/HookPromptSelector'
 import { ChatTopBar } from './components/ChatTopBar'
 import { ChatSidebar } from './components/ChatSidebar'
+import { resolveSortMovePosition } from './components/SortableDnd'
 import { SidebarResizeLine } from './components/SidebarResizeLine'
 import { ChatMessageList } from './components/ChatMessageList'
 import { CustomScrollArea } from './components/CustomScrollArea'
@@ -932,6 +933,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSwitchChat: switchSession,
   }
 
+  const sidebarMovePosition = (items: any[], activeId: string, overId: string) =>
+    resolveSortMovePosition(items.map((item: any) => String(item?.id || '')), activeId, overId) || 'before'
+
   const sidebarProps = {
     controller,
     mode: uiModeTarget,
@@ -958,6 +962,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSelectRole: onSelectRoleInSidebar,
     onSelectWorkspace: onSelectWorkspaceInSidebar,
     onSelectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
+    onMoveRole: (activeId: string, overId: string) => controller.actions.moveRole?.(activeId, overId, sidebarMovePosition(roles, activeId, overId)),
+    onMoveWorkspace: (activeId: string, overId: string) => controller.actions.moveWorkspace?.(activeId, overId, sidebarMovePosition(workspaces, activeId, overId)),
     onSelectSession: onSelectSidebarSession,
     onTabChange: onChangeSidebarTab,
   }

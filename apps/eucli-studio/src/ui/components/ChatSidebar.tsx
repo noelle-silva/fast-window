@@ -43,6 +43,8 @@ export function ChatSidebar(props: {
   onSelectRole: (roleId: string) => void
   onSelectWorkspace: (workspaceId: string) => void
   onSelectWorkspaceRole: (roleId: string) => void
+  onMoveRole: (activeId: string, overId: string) => void
+  onMoveWorkspace: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
   onTabChange: (mode: 'role' | 'workspace', tab: string) => void
 }) {
@@ -73,6 +75,8 @@ export function ChatSidebar(props: {
     onSelectRole,
     onSelectWorkspace,
     onSelectWorkspaceRole,
+    onMoveRole,
+    onMoveWorkspace,
     onSelectSession,
     onTabChange,
   } = props
@@ -123,6 +127,7 @@ export function ChatSidebar(props: {
         onSelect={onSelect}
         onOpenEditor={(id) => controller.actions.openRoleEditor?.(id)}
         formatModelRefText={formatModelRefText}
+        sortable={{ onMove: onMoveRole }}
       />
     ) : (
       <Box sx={{ px: 1.5, py: 1 }}>
@@ -143,6 +148,7 @@ export function ChatSidebar(props: {
         isSelected={(id) => id === activeWorkspaceId && activeTargetKind === 'workspace'}
         onSelect={onSelectWorkspace}
         onOpenEditor={(id) => controller.actions.openWorkspaceEditor?.(id)}
+        sortable={{ onMove: onMoveWorkspace }}
       />
     ) : (
       <Box sx={{ px: 1.5, py: 1 }}>

@@ -9,7 +9,8 @@ export function createEntityActions(deps: {
   showToast?: AiChatShowToast
   getProvider: (providerId: string) => any
   closeModal: () => void
-  saveRoleOrder: (roleIds: string[]) => Promise<any>
+  reorderRoles: (roleIds: string[]) => Promise<void>
+  moveWorkspace: (workspaceId: string, targetWorkspaceId: string, position: ListMovePosition) => Promise<void>
   openProvidersEditor: () => any
   openProviderInlineEditor: (providerId: string) => any
   saveProviderInlineEditor: () => any
@@ -48,7 +49,8 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, chatId: string) => any
 }) {
-  const { state, emit, saveMeta, showToast, getProvider, closeModal, saveRoleOrder, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emit, saveMeta, showToast, getProvider, closeModal, reorderRoles, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  let roleMoveSeq = 0
 
   return {
     closeModal: () => closeModal(),
@@ -60,20 +62,32 @@ export function createEntityActions(deps: {
       emit()
     },
     saveProvider: () => saveProviderInlineEditor(),
-    moveRole: (roleId: any, targetRoleId: any, position: any) => {
+    moveRole: async (roleId: any, targetRoleId: any, position: any) => {
       if (!state.data || !Array.isArray(state.data.roles)) return
       const rid = String(roleId || '').trim()
       const targetRid = String(targetRoleId || '').trim()
       const pos: ListMovePosition = String(position || '').trim() === 'after' ? 'after' : 'before'
       if (!rid || !targetRid || rid === targetRid) return
 
-      const nextRoles = moveListItemById(state.data.roles, (role: any) => String(role?.id || ''), rid, targetRid, pos)
-      if (nextRoles === state.data.roles) return
+      const previousRoles = state.data.roles
+      const nextRoles = moveListItemById(previousRoles, (role: any) => String(role?.id || ''), rid, targetRid, pos)
+      if (nextRoles === previousRoles) return
 
+      const seq = ++roleMoveSeq
       state.data.roles = nextRoles
-      saveRoleOrder(state.data.roles.map((role: any) => String(role?.id || ''))).catch(() => {})
       emit()
+      try {
+        await reorderRoles(nextRoles.map((role: any) => String(role?.id || '')))
+      } catch (e: any) {
+        // 快速连续拖拽时，旧请求失败不能覆盖更新的本地顺序。
+        if (seq !== roleMoveSeq) return
+        state.data.roles = previousRoles
+        emit()
+        showToast?.(String(e?.message || e || '角色排序保存失败'), { kind: 'error' })
+      }
     },
+    moveWorkspace: (workspaceId: any, targetWorkspaceId: any, position: any) =>
+      moveWorkspace(String(workspaceId || ''), String(targetWorkspaceId || ''), String(position || '').trim() === 'after' ? 'after' : 'before'),
     askDeleteProvider: (providerId: any) => {
       state.draft.deleteProviderId = String(providerId || '')
       state.draft.deleteRoleId = ''

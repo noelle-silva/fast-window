@@ -6,8 +6,8 @@ import SaveIcon from '@mui/icons-material/Save'
 import type { AiChatController } from '../../controller/types'
 import { NEW_ROLE_ID } from '../../domain/constants'
 import { formatModelRefDisplayText } from '../../domain/modelRefUtils'
-import { SortHandleButton, SortModeButton } from '../components/SortControls'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
+import { useSortableClickGuard } from '../components/useSortableClickGuard'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -31,7 +31,7 @@ type RolesSettingsPanelProps = {
 
 export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
   const { controller, loading, roles, providers, modelGroups, models, tools, hookPrompts, placeholders, draft, activeRoleId } = props
-  const [sortMode, setSortMode] = React.useState(false)
+  const clickGuard = useSortableClickGuard()
 
   const roleIds = React.useMemo(() => roles.map((role: any) => String(role?.id || '').trim()).filter(Boolean), [roles])
   const editingRoleId = String(draft?.editRoleId || '')
@@ -56,7 +56,6 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <SettingsHeading title="角色管理" description="编辑角色信息、系统提示词、模型与工具白名单。" />
-          <SortModeButton enabled={sortMode} onClick={() => setSortMode((value) => !value)} disabled={loading || roles.length <= 1} />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createRoleInPlace?.()} disabled={loading}>
             新建角色
           </Button>
@@ -70,7 +69,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
             <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
               <Typography variant="body2" sx={{ fontWeight: 900 }}>角色列表</Typography>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
-                <SortableRoot onMove={handleRoleMove}>
+                <SortableRoot onMove={handleRoleMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
                   <SortableSection items={roleIds}>
                     <Stack spacing={1}>
                       {roles.length ? roles.map((role: any) => {
@@ -79,21 +78,28 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                         const isActive = !!roleId && roleId === activeRoleId
                         const modelRefText = formatModelRefDisplayText(role?.modelRef, providers, modelGroups)
                         return (
-                          <SortableItem key={roleId} id={roleId} disabled={!sortMode}>
-                            {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
-                              <Box ref={setNodeRef} style={style} sx={{ display: 'flex', alignItems: 'center', gap: 0.25, opacity: isDragging ? 0.5 : 1 }}>
-                                <SortHandleButton
-                                  enabled={sortMode}
-                                  label={`拖拽排序 ${String(role?.name || '角色')}`}
-                                  handleRef={setHandleRef}
-                                  handleProps={handleProps}
-                                  isDragging={isDragging}
-                                  sx={{ ml: -0.5 }}
-                                />
+                          <SortableItem key={roleId} id={roleId}>
+                            {({ setNodeRef, handleProps, isDragging, style }) => (
+                              <Box
+                                ref={setNodeRef}
+                                style={style}
+                                {...handleProps}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.25,
+                                  cursor: isDragging ? 'grabbing' : 'grab',
+                                  opacity: isDragging ? 0.5 : 1,
+                                  touchAction: 'pan-y',
+                                }}
+                              >
                                 <Button
                                   variant={selected ? 'contained' : 'text'}
                                   color={selected ? 'primary' : 'inherit'}
-                                  onClick={() => controller.actions.openRoleEditorInPlace?.(roleId)}
+                                  onClick={() => {
+                                    if (clickGuard.shouldIgnoreClick()) return
+                                    controller.actions.openRoleEditorInPlace?.(roleId)
+                                  }}
                                   disabled={!roleId}
                                   sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, px: 1, textTransform: 'none', textAlign: 'left' }}
                                 >

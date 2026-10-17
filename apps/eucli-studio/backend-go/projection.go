@@ -106,9 +106,6 @@ func (p *projectionService) set(ctx context.Context, key string, value any) erro
 	if key == sessionFavoritesKey {
 		return p.saveFavorites(ctx, objectMap(value))
 	}
-	if key == "chats/index" {
-		return p.saveChatsIndex(value)
-	}
 	if key == "providers/index" {
 		return nil
 	}
@@ -400,24 +397,18 @@ func (p *projectionService) meta(ctx context.Context) (any, error) {
 	roleOrder := []string{}
 	roleFolders := map[string]string{}
 	chatIndexByRole := map[string]any{}
-	roleByID := map[string]map[string]any{}
 	updatedAt := stableUpdatedAt(projection.UpdatedAt)
+	// 角色顺序是业务端集合事实：这里只按 /api/roles 返回顺序投影，不再做客户端排序。
 	for _, role := range roles {
 		id := stringField(role, "id")
 		if id == "" {
 			continue
 		}
-		roleByID[id] = role
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(role["updatedAt"]), millisFromAnyOrZero(role["createdAt"]))
-	}
-	for _, id := range orderedIDs(projection.RoleOrder, mapKeys(roleByID)) {
-		role := roleByID[id]
-		folder := folderFor(projection.RoleFolders, id, stringField(role, "name"), "角色")
 		roleOrder = append(roleOrder, id)
-		roleFolders[id] = folder
+		roleFolders[id] = folderFor(projection.RoleFolders, id, stringField(role, "name"), "角色")
 		index, _ := p.sessionsIndexForRole(ctx, id)
 		chatIndexByRole[id] = index
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(objectMap(index)["updatedAt"]))
+		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(role["updatedAt"]), millisFromAnyOrZero(role["createdAt"]), millisFromAnyOrZero(objectMap(index)["updatedAt"]))
 	}
 	providerOrder := []string{}
 	providerFolders := map[string]string{}
