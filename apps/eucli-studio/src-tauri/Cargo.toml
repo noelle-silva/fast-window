@@ -1,6 +1,6 @@
 [package]
 name = "eucli-studio-app"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 
 [build-dependencies]
