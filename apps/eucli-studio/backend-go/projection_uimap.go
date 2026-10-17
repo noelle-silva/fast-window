@@ -210,6 +210,10 @@ func toUIChat(session map[string]any) map[string]any {
 	if tokenUsage := objectMap(session["tokenUsage"]); len(tokenUsage) > 0 {
 		chat["tokenUsage"] = tokenUsage
 	}
+	// 会话级缓存率真值随会话透出：拿不到就整段缺席，客户端据此显示为空或未知。
+	if cacheRate, ok := session["cacheRate"]; ok && cacheRate != nil {
+		chat["cacheRate"] = cacheRate
+	}
 	metadata := objectMap(session["metadata"])
 	if effort := normalizeReasoningEffort(stringField(metadata, "reasoningEffort")); effort != "" {
 		chat["reasoningEffort"] = effort

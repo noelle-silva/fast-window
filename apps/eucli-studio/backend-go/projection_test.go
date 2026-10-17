@@ -77,6 +77,29 @@ func TestChatProjectionCarriesSessionTokenUsage(t *testing.T) {
 	}
 }
 
+// TestChatProjectionCarriesSessionCacheRate 钉住会话级缓存率真值透出：
+// 有真值时整段带出，无真值时缺席（客户端据此显示为空或未知）。
+func TestChatProjectionCarriesSessionCacheRate(t *testing.T) {
+	session := map[string]any{
+		"id":        "session-1",
+		"roleId":    "developer",
+		"title":     "Cache Rate",
+		"createdAt": "2026-06-03T10:00:00Z",
+		"updatedAt": "2026-06-03T10:00:00Z",
+		"cacheRate": 0.8,
+		"messages":  []any{},
+	}
+	ui := toUIChat(session)
+	if numberField(ui, "cacheRate", -1) != 0.8 {
+		t.Fatalf("ui cache rate = %#v", ui["cacheRate"])
+	}
+
+	empty := toUIChat(map[string]any{"id": "session-2", "roleId": "developer", "title": "No cache rate", "createdAt": "2026-06-03T10:00:00Z", "updatedAt": "2026-06-03T10:00:00Z", "messages": []any{}})
+	if _, ok := empty["cacheRate"]; ok {
+		t.Fatalf("ui cache rate should be absent without truth: %#v", empty["cacheRate"])
+	}
+}
+
 // TestChatProjectionRoutesToolImagesToDedicatedField 钉住工具产物图分流：
 // 助手消息附件进 toolImages，用户消息附件仍进 images。
 func TestChatProjectionRoutesToolImagesToDedicatedField(t *testing.T) {
