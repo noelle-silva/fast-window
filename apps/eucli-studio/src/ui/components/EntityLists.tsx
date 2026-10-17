@@ -28,7 +28,7 @@ export function RoleList(props: {
             sx={SOFT_POPOVER_ITEM_SX}
           >
             <ListItemAvatar>
-              <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={28} />
+              <EntityAvatar kind="role" image={String(r?.avatarImage || '')} size={42} />
             </ListItemAvatar>
             <ListItemText
               sx={{ minWidth: 0 }}
