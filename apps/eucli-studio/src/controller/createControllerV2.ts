@@ -177,6 +177,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     deleteStickerCategoryInternal,
     deleteStickerInternal,
     renameStickerInternal,
+    reorderStickerCategoriesInternal,
+    reorderStickersInternal,
     loadStickersFromSource,
     setStickersEnabled,
     syncRoleAvatarFile,
@@ -422,7 +424,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshHookPromptLibrary, persistHookPromptLibrary } = hookPromptLibraryController
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, reorderHookPromptPresetOrder } = hookPromptLibraryController
 
   const placeholderLibraryController = createPlaceholderLibraryController({
     getState: () => state,
@@ -430,7 +432,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree } = placeholderLibraryController
+  const { refreshPlaceholderLibrary, persistPlaceholderLibrary, reorderPlaceholders, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree } = placeholderLibraryController
 
   const systemPluginController = createSystemPluginController({
     getState: () => state,
@@ -444,6 +446,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const {
     refreshSystemPlugins,
+    moveSystemPlugin,
     openSystemPlugin,
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,
@@ -536,6 +539,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const {
     refreshModelGroups,
     saveModelGroups,
+    moveModelGroup,
     createModelGroup,
     deleteModelGroup,
     setModelGroupField,
@@ -556,7 +560,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
   })
-  const { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
+  const { refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
 
   const installSourceClient = createInstallSourceClient({
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -915,7 +919,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const appearanceActions = createAppearanceActions({ state, emit, saveMeta, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
   const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta })
   const aiServiceActionSet = createAiServiceActions({ state, emit, saveMeta, showToast: api.ui?.showToast })
-  const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, loadStickersFromSource, setStickersEnabled })
+  const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, reorderStickerCategoriesInternal, reorderStickersInternal, loadStickersFromSource, setStickersEnabled })
   const wallpaperActions = createWallpaperActions({
     state,
     emit,
@@ -931,6 +935,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (typeof request !== 'function') throw new Error('业务请求通道不可用')
     await saveEntityOrder(request, 'roles', roleIds)
   }
+  async function reorderProviders(providerIds: string[]) {
+    const request = capabilities.net?.request
+    if (typeof request !== 'function') throw new Error('业务请求通道不可用')
+    await saveEntityOrder(request, 'providers', providerIds)
+  }
   const entityActions = createEntityActions({
     state,
     emit,
@@ -939,6 +948,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getProvider,
     closeModal,
     reorderRoles,
+    reorderProviders,
     moveWorkspace,
     openProvidersEditor,
     openProviderInlineEditor,
@@ -984,6 +994,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     showToast: api.ui?.showToast,
     refreshTools,
+    moveTool,
     openToolConfig,
     closeToolConfig,
     showToolWorkDirectoryView,
@@ -1022,6 +1033,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveConversationImageConfig,
     refreshModelGroups,
     saveModelGroups,
+    moveModelGroup,
     createModelGroup,
     deleteModelGroup,
     setModelGroupField,
@@ -1037,12 +1049,15 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const libraryActions = createLibraryActions({
     refreshHookPromptLibrary,
     persistHookPromptLibrary,
+    reorderHookPromptPresetOrder,
     refreshPlaceholderLibrary,
     persistPlaceholderLibrary,
+    reorderPlaceholders,
     refreshPlaceholderPreview,
     refreshPlaceholderDependencyTree,
     loadRolePlaceholderDependencyTree,
     refreshSystemPlugins,
+    moveSystemPlugin,
     openSystemPlugin,
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,

@@ -1,5 +1,6 @@
 import { loadPlaceholderDependencies, loadPlaceholderLibrary, loadPlaceholderProblems, previewPlaceholders, savePlaceholderLibrary } from './placeholderClient'
-import { normalizePlaceholderLibrary, placeholderNamesInText, type PlaceholderDependencyNode } from '../domain/placeholder'
+import { normalizePlaceholderLibrary, placeholderNamesInText, type PlaceholderDependencyNode, type PlaceholderLibrary } from '../domain/placeholder'
+import { saveEntityOrder } from './entityOrderBridge'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createPlaceholderLibraryController(deps: {
@@ -87,5 +88,31 @@ export function createPlaceholderLibraryController(deps: {
     return { name: String(rootName ?? '').trim(), children }
   }
 
-  return { refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree }
+  async function reorderPlaceholders(namesRaw: string[]) {
+    const state = getState()
+    const netRequest = getNetRequest()
+    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    const names = namesRaw.map((name) => String(name || '').trim()).filter(Boolean)
+    if (!names.length) return state.placeholders.library
+    await saveEntityOrder(netRequest, 'placeholders', names)
+    const current = normalizePlaceholderLibrary(state.placeholders.library)
+    const byName = new Map(current.placeholders.map((item) => [item.name, item]))
+    const seen = new Set<string>()
+    const placeholders: PlaceholderLibrary['placeholders'] = []
+    for (const name of names) {
+      const item = byName.get(name)
+      if (!item || seen.has(name)) continue
+      seen.add(name)
+      placeholders.push(item)
+    }
+    for (const item of current.placeholders) {
+      if (!seen.has(item.name)) placeholders.push(item)
+    }
+    const library: PlaceholderLibrary = { ...current, placeholders }
+    state.placeholders = { ...state.placeholders, library }
+    emit()
+    return library
+  }
+
+  return { refreshPlaceholderLibrary, persistPlaceholderLibrary, reorderPlaceholders, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree }
 }

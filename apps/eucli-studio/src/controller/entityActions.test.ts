@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createEntityActions } from './actions/entityActions'
 
-function createHarness(reorderRoles = vi.fn(async () => {})) {
+function createHarness(reorderRoles = vi.fn(async () => {}), reorderProviders = vi.fn(async () => {})) {
   const state: any = {
     data: {
       roles: [
@@ -9,6 +9,12 @@ function createHarness(reorderRoles = vi.fn(async () => {})) {
         { id: 'role-b', name: 'B' },
         { id: 'role-c', name: 'C' },
       ],
+      settings: {
+        providers: [
+          { id: 'provider-a', name: 'A' },
+          { id: 'provider-b', name: 'B' },
+        ],
+      },
     },
     draft: {},
   }
@@ -19,9 +25,10 @@ function createHarness(reorderRoles = vi.fn(async () => {})) {
     emit,
     showToast,
     reorderRoles,
+    reorderProviders,
     moveWorkspace: async () => {},
   } as any)
-  return { state, emit, showToast, actions, reorderRoles }
+  return { state, emit, showToast, actions, reorderRoles, reorderProviders }
 }
 
 describe('角色手动排序', () => {
@@ -45,5 +52,16 @@ describe('角色手动排序', () => {
 
     expect(harness.state.data.roles.map((role: any) => role.id)).toEqual(['role-a', 'role-b', 'role-c'])
     expect(harness.showToast).toHaveBeenCalled()
+  })
+})
+
+describe('供应商手动排序', () => {
+  it('拖拽后立即更新视窗顺序，并把完整顺序写入业务端', async () => {
+    const harness = createHarness()
+
+    await harness.actions.moveProvider('provider-a', 'provider-b', 'after')
+
+    expect(harness.state.data.settings.providers.map((provider: any) => provider.id)).toEqual(['provider-b', 'provider-a'])
+    expect(harness.reorderProviders).toHaveBeenCalledWith(['provider-b', 'provider-a'])
   })
 })

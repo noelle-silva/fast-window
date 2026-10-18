@@ -73,6 +73,16 @@ export function createStickerStorage(deps: {
     return loadStickersFromSource()
   }
 
+  async function reorderStickerCategoriesInternal(names: any) {
+    await ebRequest({ method: 'PUT', path: '/api/stickers/categories/order', body: { ids: names } })
+    return loadStickersFromSource()
+  }
+
+  async function reorderStickersInternal(categoryName: any, names: any) {
+    await ebRequest({ method: 'PUT', path: '/api/stickers/items/order', body: { categoryName, names } })
+    return loadStickersFromSource()
+  }
+
   async function syncRoleAvatarFile(folder: any, role: any) {
     const f = String(folder || '').trim()
     if (!f) return
@@ -125,6 +135,8 @@ export function createStickerStorage(deps: {
     deleteStickerCategoryInternal,
     deleteStickerInternal,
     renameStickerInternal,
+    reorderStickerCategoriesInternal,
+    reorderStickersInternal,
     loadStickersFromSource,
     setStickersEnabled,
     syncRoleAvatarFile,

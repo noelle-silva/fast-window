@@ -71,7 +71,6 @@ export function normalizePlaceholderLibrary(raw: unknown): PlaceholderLibrary {
     const source = item.source && typeof item.source === 'object' ? { kind: text(item.source.kind), pluginId: text(item.source.pluginId), interfaceId: text(item.source.interfaceId) } : undefined
     placeholders.push({ name, value: String(item.value ?? ''), description: text(item.description), source, createdAt: text(item.createdAt) || new Date().toISOString() })
   }
-  placeholders.sort((left, right) => left.name.localeCompare(right.name))
 
   const foldersRaw = Array.isArray(box.folders) ? box.folders : []
   const folders: PlaceholderFolder[] = []

@@ -6,6 +6,7 @@ export function createToolActions(deps: {
   emit: () => void
   showToast?: AiChatShowToast
   refreshTools: (force: boolean) => any
+  moveTool: (activeId: any, overId: any, position: any) => any
   openToolConfig: (toolId: any) => any
   closeToolConfig: () => any
   showToolWorkDirectoryView: () => any
@@ -33,10 +34,11 @@ export function createToolActions(deps: {
   updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => any
   removeShelf: (kind: any, name: any) => any
 }) {
-  const { state, emit, refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
+  const { state, emit, refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
+    moveTool: (activeId: any, overId: any, position: any) => moveTool(activeId, overId, position),
     openToolConfig: (toolId: any) => openToolConfig(toolId),
     closeToolConfig: () => closeToolConfig(),
     showToolWorkDirectoryView: () => showToolWorkDirectoryView(),

@@ -10,6 +10,7 @@ export function createEntityActions(deps: {
   getProvider: (providerId: string) => any
   closeModal: () => void
   reorderRoles: (roleIds: string[]) => Promise<void>
+  reorderProviders: (providerIds: string[]) => Promise<void>
   moveWorkspace: (workspaceId: string, targetWorkspaceId: string, position: ListMovePosition) => Promise<void>
   openProvidersEditor: () => any
   openProviderInlineEditor: (providerId: string) => any
@@ -50,8 +51,9 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, chatId: string) => any
 }) {
-  const { state, emit, saveMeta, showToast, getProvider, closeModal, reorderRoles, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emit, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
   let roleMoveSeq = 0
+  let providerMoveSeq = 0
 
   return {
     closeModal: () => closeModal(),
@@ -89,6 +91,30 @@ export function createEntityActions(deps: {
     },
     moveWorkspace: (workspaceId: any, targetWorkspaceId: any, position: any) =>
       moveWorkspace(String(workspaceId || ''), String(targetWorkspaceId || ''), String(position || '').trim() === 'after' ? 'after' : 'before'),
+    moveProvider: async (providerId: any, targetProviderId: any, position: any) => {
+      const providers = state.data?.settings?.providers
+      if (!Array.isArray(providers)) return
+      const pid = String(providerId || '').trim()
+      const targetPid = String(targetProviderId || '').trim()
+      const pos: ListMovePosition = String(position || '').trim() === 'after' ? 'after' : 'before'
+      if (!pid || !targetPid || pid === targetPid) return
+
+      const previous = providers
+      const next = moveListItemById(previous, (provider: any) => String(provider?.id || ''), pid, targetPid, pos)
+      if (next === previous) return
+
+      const seq = ++providerMoveSeq
+      state.data.settings.providers = next
+      emit()
+      try {
+        await reorderProviders(next.map((provider: any) => String(provider?.id || '')))
+      } catch (e: any) {
+        if (seq !== providerMoveSeq) return
+        state.data.settings.providers = previous
+        emit()
+        showToast?.(String(e?.message || e || '供应商排序保存失败'), { kind: 'error' })
+      }
+    },
     askDeleteProvider: (providerId: any) => {
       state.draft.deleteProviderId = String(providerId || '')
       state.draft.deleteRoleId = ''

@@ -1,5 +1,7 @@
 import { now } from '../core/utils'
+import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { removeConfigValueAtPath, setConfigValueAtPath } from '../domain/toolConfigDraft'
+import { saveEntityOrder } from './entityOrderBridge'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
 import { createArtifactInstallTracker, type ArtifactInstallStateMap } from './artifactInstallTracker'
@@ -17,6 +19,7 @@ export function createToolCatalog(deps: {
   showToast?: AiChatShowToast
 }) {
   let installTerminalListener: InstallTerminalListener | null = null
+  let toolMoveSeq = 0
 
   function currentCatalog() {
     const state = deps.getState()
@@ -388,11 +391,33 @@ export function createToolCatalog(deps: {
     }
   }
 
+  async function moveTool(toolIdRaw: any, targetToolIdRaw: any, positionRaw: any) {
+    const { catalog } = currentCatalog()
+    const items = Array.isArray(catalog.items) ? catalog.items : []
+    const toolId = String(toolIdRaw || '').trim()
+    const targetToolId = String(targetToolIdRaw || '').trim()
+    const position: ListMovePosition = String(positionRaw || '').trim() === 'after' ? 'after' : 'before'
+    if (!toolId || !targetToolId || toolId === targetToolId) return
+    const next = moveListItemById(items, (item: any) => String(item?.id || ''), toolId, targetToolId, position)
+    if (next === items) return
+    const seq = ++toolMoveSeq
+    patchCatalog({ items: next })
+    deps.emit()
+    try {
+      await saveEntityOrder(deps.netRequest, 'tools', next.map((item: any) => String(item?.id || '')))
+    } catch (e: any) {
+      if (seq !== toolMoveSeq) return
+      patchCatalog({ items })
+      deps.emit()
+      deps.showToast?.(String(e?.message || e || '工具排序保存失败'), { kind: 'error' })
+    }
+  }
+
   function dispose() {
     installTracker.dispose()
   }
 
-  return { refreshTools, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
+  return { refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener, stopTool, confirmStopAndContinue, dismissBusyPrompt, dispose }
 }
 
 function defaultToolCatalogState() {

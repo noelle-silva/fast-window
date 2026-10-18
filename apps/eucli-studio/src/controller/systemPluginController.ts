@@ -1,6 +1,8 @@
 import { cancelSystemPlugin, createPlaceholderFromSystemPluginInterface, disableSystemPlugin as disableSystemPluginClient, enableSystemPlugin as enableSystemPluginClient, installSystemPlugin as installSystemPluginClient, loadAvailableSystemPluginPlaceholderInterfaces, loadSystemPlugin, loadSystemPlugins, saveSystemPluginUserConfig, updateSystemPlugin as updateSystemPluginClient } from './systemPluginClient'
 import { loadPlaceholderProblems } from './placeholderClient'
 import { systemPluginLocatorId } from '../domain/systemPlugin'
+import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
+import { saveEntityOrder } from './entityOrderBridge'
 import { isArtifactBusy, normalizeArtifactInstallState, normalizeArtifactInstallStateList, type ArtifactInstallState } from '../domain/release'
 import { createArtifactInstallTracker, type ArtifactInstallStateMap } from './artifactInstallTracker'
 import type { AiChatShowToast } from '../gateway/capabilities'
@@ -19,6 +21,7 @@ export function createSystemPluginController(deps: {
 }) {
   const { getState, getNetRequest, emit, showToast, refreshPlaceholderLibrary } = deps
   let installTerminalListener: InstallTerminalListener | null = null
+  let pluginMoveSeq = 0
 
   function requireNetRequest() {
     const netRequest = getNetRequest()
@@ -297,12 +300,35 @@ export function createSystemPluginController(deps: {
     return library
   }
 
+  async function moveSystemPlugin(pluginIdRaw: any, targetPluginIdRaw: any, positionRaw: any) {
+    const state = getState()
+    const items = Array.isArray(state.systemPlugins?.items) ? state.systemPlugins.items : []
+    const pluginId = String(pluginIdRaw || '').trim()
+    const targetPluginId = String(targetPluginIdRaw || '').trim()
+    const position: ListMovePosition = String(positionRaw || '').trim() === 'after' ? 'after' : 'before'
+    if (!pluginId || !targetPluginId || pluginId === targetPluginId) return
+    const next = moveListItemById(items, (item: any) => systemPluginLocatorId(item), pluginId, targetPluginId, position)
+    if (next === items) return
+    const seq = ++pluginMoveSeq
+    state.systemPlugins = { ...state.systemPlugins, items: next }
+    emit()
+    try {
+      await saveEntityOrder(requireNetRequest(), 'system-plugins', next.map((item: any) => systemPluginLocatorId(item)))
+    } catch (e: any) {
+      if (seq !== pluginMoveSeq) return
+      state.systemPlugins = { ...state.systemPlugins, items }
+      emit()
+      showToast?.(String(e?.message || e || '系统插件排序保存失败'), { kind: 'error' })
+    }
+  }
+
   function dispose() {
     installTracker.dispose()
   }
 
   return {
     refreshSystemPlugins,
+    moveSystemPlugin,
     openSystemPlugin,
     saveSystemPluginConfig,
     refreshAvailableSystemPluginPlaceholderInterfaces,

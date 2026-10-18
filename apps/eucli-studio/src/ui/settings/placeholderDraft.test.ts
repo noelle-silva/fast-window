@@ -4,6 +4,7 @@ import {
   computeDirtyNames,
   createPlaceholderDraft,
   markDraftPlaceholderSaved,
+  moveDraftPlaceholder,
   planPlaceholderSave,
   removeDraftPlaceholder,
   renameDraftPlaceholder,
@@ -103,5 +104,23 @@ describe('placeholderDraft', () => {
     const plan = planPlaceholderSave(base, draft, 'x')
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.error).toContain('唯一')
+  })
+
+  it('拖拽排序后保存单项，仍保持草稿顺序', () => {
+    const base: PlaceholderLibrary = {
+      placeholders: [
+        { name: 'Z', value: 'z', description: '', createdAt: '2024-01-01T00:00:00.000Z' },
+        { name: 'A', value: 'a', description: '', createdAt: '2024-01-01T00:00:00.000Z' },
+        { name: 'M', value: 'm', description: '', createdAt: '2024-01-01T00:00:00.000Z' },
+      ],
+      folders: [],
+    }
+    const moved = moveDraftPlaceholder(createPlaceholderDraft(base), 'Z', 'A')
+    const edited = updateDraftPlaceholder(moved, 1, { value: 'z2' })
+    const plan = planPlaceholderSave(base, edited, 'Z')
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.library.placeholders.map((item) => item.name)).toEqual(['A', 'Z', 'M'])
+    expect(plan.library.placeholders[1].value).toBe('z2')
   })
 })

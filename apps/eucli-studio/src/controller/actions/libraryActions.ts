@@ -1,12 +1,15 @@
 export function createLibraryActions(deps: {
   refreshHookPromptLibrary: (force?: boolean) => Promise<any>
   persistHookPromptLibrary: (library: any) => Promise<any>
+  reorderHookPromptPresetOrder: (presetIds: string[]) => Promise<any>
   refreshPlaceholderLibrary: (force?: boolean) => Promise<any>
   persistPlaceholderLibrary: (library: any) => Promise<any>
+  reorderPlaceholders: (names: string[]) => Promise<any>
   refreshPlaceholderPreview: (value: any) => Promise<any>
   refreshPlaceholderDependencyTree: (name: any) => Promise<any>
   loadRolePlaceholderDependencyTree: (rootName: any, text: any) => Promise<any>
   refreshSystemPlugins: (force?: boolean) => Promise<any>
+  moveSystemPlugin: (activeId: string, overId: string, position: string) => Promise<any>
   openSystemPlugin: (pluginId: any) => Promise<any>
   saveSystemPluginConfig: (pluginId: any, config: any) => Promise<any>
   refreshAvailableSystemPluginPlaceholderInterfaces: () => Promise<any>
@@ -21,17 +24,20 @@ export function createLibraryActions(deps: {
   setSystemPluginInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => void
   selectHookPromptForActiveChat: (mode: any, presetId: any) => Promise<any>
 }) {
-  const { refreshHookPromptLibrary, persistHookPromptLibrary, refreshPlaceholderLibrary, persistPlaceholderLibrary, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree, refreshSystemPlugins, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, importSystemPluginPackage, importSystemPluginFolder, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
+  const { refreshHookPromptLibrary, persistHookPromptLibrary, reorderHookPromptPresetOrder, refreshPlaceholderLibrary, persistPlaceholderLibrary, reorderPlaceholders, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree, refreshSystemPlugins, moveSystemPlugin, openSystemPlugin, saveSystemPluginConfig, refreshAvailableSystemPluginPlaceholderInterfaces, createPlaceholderFromSystemPlugin, setSystemPluginEnabled, installSystemPluginAction, updateSystemPluginAction, importSystemPluginPackage, importSystemPluginFolder, cancelSystemPluginInstall, syncSystemPluginInstallStates, setSystemPluginInstallTerminalListener, selectHookPromptForActiveChat } = deps
 
   return {
     refreshHookPromptLibrary: (force: any) => refreshHookPromptLibrary(!!force),
     saveHookPromptLibrary: (library: any) => persistHookPromptLibrary(library),
+    reorderHookPromptPresets: (presetIds: string[]) => reorderHookPromptPresetOrder(presetIds),
     refreshPlaceholderLibrary: (force: any) => refreshPlaceholderLibrary(!!force),
     savePlaceholderLibrary: (library: any) => persistPlaceholderLibrary(library),
+    reorderPlaceholders: (names: string[]) => reorderPlaceholders(names),
     previewPlaceholders: (value: any) => refreshPlaceholderPreview(value),
     loadPlaceholderDependencies: (name: any) => refreshPlaceholderDependencyTree(name),
     loadRolePlaceholderDependencyTree: (rootName: any, text: any) => loadRolePlaceholderDependencyTree(rootName, text),
     refreshSystemPlugins: (force: any) => refreshSystemPlugins(!!force),
+    moveSystemPlugin: (activeId: string, overId: string, position: string) => moveSystemPlugin(activeId, overId, position),
     openSystemPlugin: (pluginId: any) => openSystemPlugin(pluginId),
     saveSystemPluginConfig: (pluginId: any, config: any) => saveSystemPluginConfig(pluginId, config),
     refreshAvailableSystemPluginPlaceholderInterfaces: () => refreshAvailableSystemPluginPlaceholderInterfaces(),

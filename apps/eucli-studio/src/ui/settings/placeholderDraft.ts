@@ -41,6 +41,18 @@ export function updateDraftPlaceholder(draft: PlaceholderDraft, index: number, p
   }))
 }
 
+export function moveDraftPlaceholder(draft: PlaceholderDraft, activeNameRaw: string, overNameRaw: string): PlaceholderDraft {
+  const activeName = text(activeNameRaw)
+  const overName = text(overNameRaw)
+  const from = draft.library.placeholders.findIndex((item) => text(item.name) === activeName)
+  const to = draft.library.placeholders.findIndex((item) => text(item.name) === overName)
+  if (from < 0 || to < 0 || from === to) return draft
+  const placeholders = draft.library.placeholders.slice()
+  const [item] = placeholders.splice(from, 1)
+  placeholders.splice(to, 0, item)
+  return { ...draft, library: { ...draft.library, placeholders } }
+}
+
 export function renameDraftPlaceholder(draft: PlaceholderDraft, index: number, nextNameRaw: string): PlaceholderDraft {
   const item = draft.library.placeholders[index]
   if (!item) return draft
@@ -128,7 +140,9 @@ export function planPlaceholderCreate(baseLibrary: unknown, item: PlaceholderIte
   const folderId = text(folderIdRaw)
   const updatedAt = new Date().toISOString()
   const library = normalizePlaceholderLibrary(baseLibrary)
-  library.placeholders = library.placeholders.filter((entry) => text(entry.name) !== name).concat({ ...item })
+  const existingIndex = library.placeholders.findIndex((entry) => text(entry.name) === name)
+  if (existingIndex >= 0) library.placeholders[existingIndex] = { ...item }
+  else library.placeholders = library.placeholders.concat({ ...item })
   if (folderId && name) {
     library.folders = library.folders.map((folder) => folder.id === folderId
       ? { ...folder, placeholderNames: sortedNames([...(folder.placeholderNames || []), name]), updatedAt }
@@ -164,11 +178,33 @@ export function planPlaceholderSave(
 
   const identity = serverIdentityOf(draft, name)
   const next = normalizePlaceholderLibrary(baseLibrary)
-  next.placeholders = next.placeholders.filter((entry) => {
+  const nextItem = { ...item }
+  const replaceIndex = next.placeholders.findIndex((entry) => {
     const entryName = text(entry.name)
-    return entryName !== identity && entryName !== name
+    return entryName === identity || entryName === name
   })
-  next.placeholders.push({ ...item })
+  if (replaceIndex >= 0) next.placeholders[replaceIndex] = nextItem
+  else next.placeholders.push(nextItem)
+  // 保存单项时也按草稿顺序落库，避免拖拽排序被旧基准顺序覆盖。
+  const byIdentity = new Map<string, PlaceholderItem>()
+  for (const entry of next.placeholders) byIdentity.set(text(entry.name), entry)
+  byIdentity.set(identity, nextItem)
+  byIdentity.set(name, nextItem)
+  const ordered: PlaceholderItem[] = []
+  const seen = new Set<string>()
+  for (const entry of draft.library.placeholders) {
+    const entryIdentity = serverIdentityOf(draft, entry.name)
+    const target = byIdentity.get(entryIdentity) || byIdentity.get(text(entry.name))
+    if (!target) continue
+    const key = text(target.name)
+    if (seen.has(key)) continue
+    seen.add(key)
+    ordered.push(target)
+  }
+  for (const entry of next.placeholders) {
+    if (!seen.has(text(entry.name))) ordered.push(entry)
+  }
+  next.placeholders = ordered
   next.folders = next.folders.map((folder) => {
     const names = new Set((folder.placeholderNames || []).filter((entry) => entry !== identity && entry !== name))
     const include = membershipOverride

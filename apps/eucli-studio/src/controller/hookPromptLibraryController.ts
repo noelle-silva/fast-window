@@ -1,4 +1,4 @@
-import { loadHookPromptLibrary, saveHookPromptLibrary } from './hookPromptClient'
+import { loadHookPromptLibrary, reorderHookPromptPresets, saveHookPromptLibrary } from './hookPromptClient'
 import { normalizeHookPromptLibrary } from '../domain/hookPrompt'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
@@ -56,5 +56,16 @@ export function createHookPromptLibraryController(deps: {
     }
   }
 
-  return { refreshHookPromptLibrary, persistHookPromptLibrary }
+  async function reorderHookPromptPresetOrder(presetIds: string[]) {
+    const state = getState()
+    const netRequest = getNetRequest()
+    if (typeof netRequest !== 'function') throw new Error('业务端请求通道不可用')
+    const ids = presetIds.map((id) => String(id || '').trim()).filter(Boolean)
+    if (!ids.length) return state.hookPrompts.library
+    await reorderHookPromptPresets(netRequest, ids)
+    // 顺序由面板草稿持有；这里不回写 state.library，避免触发草稿重置吞掉未保存内容。
+    return state.hookPrompts.library
+  }
+
+  return { refreshHookPromptLibrary, persistHookPromptLibrary, reorderHookPromptPresetOrder }
 }

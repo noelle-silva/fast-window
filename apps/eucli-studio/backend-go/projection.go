@@ -321,7 +321,7 @@ func (p *projectionService) stickers(ctx context.Context) (any, error) {
 	itemsByCategory := objectMap(libraryMap["map"])
 	for _, category := range categories {
 		box := map[string]any{}
-		for _, item := range objectList(itemsByCategory[category]) {
+		for index, item := range objectList(itemsByCategory[category]) {
 			name := stringField(item, "name")
 			relPath := stringField(item, "relPath")
 			if name == "" || relPath == "" {
@@ -332,7 +332,7 @@ func (p *projectionService) stickers(ctx context.Context) (any, error) {
 			if updatedAt == 0 {
 				updatedAt = createdAt
 			}
-			box[name] = map[string]any{"relPath": relPath, "createdAt": createdAt, "updatedAt": updatedAt}
+			box[name] = map[string]any{"relPath": relPath, "createdAt": createdAt, "updatedAt": updatedAt, "order": index}
 		}
 		stickerMap[category] = box
 	}

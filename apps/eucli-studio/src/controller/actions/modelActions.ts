@@ -9,6 +9,7 @@ export function createModelActions(deps: {
   saveConversationImageConfig: () => any
   refreshModelGroups: (force: boolean) => any
   saveModelGroups: () => any
+  moveModelGroup: (activeId: any, overId: any, position: any) => any
   createModelGroup: () => any
   deleteModelGroup: (groupId: any) => any
   setModelGroupField: (groupId: any, field: any, value: any) => any
@@ -20,7 +21,7 @@ export function createModelActions(deps: {
   setModelGroupMemberField: (groupId: any, modelIndex: any, memberIndex: any, field: any, value: any) => any
   refreshModels: (providerId: string, force: boolean) => any
 }) {
-  const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig, refreshConversationImageConfig, setConversationImageConfigDraft, resetConversationImageConfigDraftToDefaults, saveConversationImageConfig, refreshModelGroups, saveModelGroups, createModelGroup, deleteModelGroup, setModelGroupField, createModelGroupModel, deleteModelGroupModel, setModelGroupModelField, createModelGroupMember, deleteModelGroupMember, setModelGroupMemberField, refreshModels } = deps
+  const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig, refreshConversationImageConfig, setConversationImageConfigDraft, resetConversationImageConfigDraftToDefaults, saveConversationImageConfig, refreshModelGroups, saveModelGroups, moveModelGroup, createModelGroup, deleteModelGroup, setModelGroupField, createModelGroupModel, deleteModelGroupModel, setModelGroupModelField, createModelGroupMember, deleteModelGroupMember, setModelGroupMemberField, refreshModels } = deps
 
   return {
     refreshModelRequestConfig: (force: any) => refreshModelRequestConfig(!!force),
@@ -33,6 +34,7 @@ export function createModelActions(deps: {
     saveConversationImageConfig: () => saveConversationImageConfig(),
     refreshModelGroups: (force: any) => refreshModelGroups(!!force),
     saveModelGroups: () => saveModelGroups(),
+    moveModelGroup: (activeId: any, overId: any, position: any) => moveModelGroup(activeId, overId, position),
     createModelGroup: () => createModelGroup(),
     deleteModelGroup: (groupId: any) => deleteModelGroup(groupId),
     setModelGroupField: (groupId: any, field: any, value: any) => setModelGroupField(groupId, field, value),

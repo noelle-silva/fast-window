@@ -32,6 +32,11 @@ export async function saveHookPromptLibrary(netRequest: EbNetRequest, library: H
   return normalizeHookPromptLibrary(response?.body)
 }
 
+export async function reorderHookPromptPresets(netRequest: EbNetRequest, presetIds: string[]): Promise<HookPromptLibrary> {
+  const response = await netRequest({ method: 'PUT', path: '/api/hook-prompts/order', body: { ids: presetIds }, timeoutMs: 15000 })
+  return normalizeHookPromptLibrary(response?.body)
+}
+
 export async function updateRoleSessionHookPrompt(netRequest: EbNetRequest, input: RoleSessionInput & { mode: string; presetId: string }) {
   const roleId = text(input.roleId)
   const sessionId = text(input.sessionId)

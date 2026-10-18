@@ -1,4 +1,5 @@
 import { now } from '../core/utils'
+import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
 
 type ModelGroupsDraftMutator = (items: any[]) => any[]
@@ -194,9 +195,35 @@ export function createModelGroupsController(deps: {
     }))
   }
 
+  async function moveModelGroup(groupIdRaw: any, targetGroupIdRaw: any, positionRaw: any) {
+    const { box } = currentBox()
+    const items = normalizeModelGroups(box.items)
+    const groupId = String(groupIdRaw || '').trim()
+    const targetGroupId = String(targetGroupIdRaw || '').trim()
+    const position: ListMovePosition = String(positionRaw || '').trim() === 'after' ? 'after' : 'before'
+    if (!groupId || !targetGroupId || groupId === targetGroupId) return
+    const next = moveListItemById(items, (group: any) => String(group?.id || ''), groupId, targetGroupId, position)
+    if (next === items) return
+    patchBox({ items: next, saveError: '' })
+    deps.emit()
+    try {
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/model-groups', body: next, timeoutMs: 15_000 })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      patchBox({ items: normalizeModelGroups(response?.body), saveError: '', fetchedAt: now() })
+      deps.emit()
+    } catch (e: any) {
+      const error = String(e?.message || e || '模型组排序保存失败')
+      patchBox({ items, saveError: error })
+      deps.emit()
+      deps.showToast?.(error, { kind: 'error' })
+    }
+  }
+
   return {
     refreshModelGroups,
     saveModelGroups,
+    moveModelGroup,
     createModelGroup,
     deleteModelGroup,
     setModelGroupField,
