@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, CircularProgress, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
 import { useDeferredChatSwitch } from './hooks/useDeferredChatSwitch'
 import { useEvent } from './hooks/useEvent'
@@ -58,6 +58,7 @@ import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
+import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
@@ -143,6 +144,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeRole = controller.activeRole()
   const activeGroup = activeTargetKind === 'group' ? (groups.find((g: any) => String(g?.id || '') === activeGroupId) || null) : null
   const activeWorkspace = activeTargetKind === 'workspace' ? (workspaces.find((workspace: any) => String(workspace?.id || '') === activeWorkspaceId) || null) : null
+  const visibleRoles = React.useMemo(
+    () => (activeTargetKind === 'workspace' ? workspaceRolesInScope(activeWorkspace, roles) : roles),
+    [activeTargetKind, activeWorkspace, roles],
+  )
   const activeChatTargetId = activeChatTargetKey(activeTargetKind, { groupId: activeGroupId, workspaceId: activeWorkspaceId, roleId: (activeRole as any)?.id })
   const activeChatSelectionBox = activeChatTargetId
     ? activeTargetKind === 'group'
@@ -917,7 +922,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     showIdentity: !sidebarMode,
     loading: !!s.loading,
     mode: topbarMode,
-    roles,
+    roles: visibleRoles,
     activeRole,
     activeWorkspace,
     treeOpen,
@@ -945,7 +950,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSplitterPointerDown: sidebarResize.onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
-    roles,
+    roles: visibleRoles,
     workspaces,
     activeRoleId: String((activeRole as any)?.id || ''),
     activeRoleAvatarImage: String((activeRole as any)?.avatarImage || ''),
@@ -1077,6 +1082,15 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                   <Typography variant="body2" color="text.secondary">
                     请选择工作区
                   </Typography>
+                ) : activeTargetKind === 'workspace' && !visibleRoles.length ? (
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">
+                      当前工作区还没有注册角色。
+                    </Typography>
+                    <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
+                      去注册角色
+                    </Button>
+                  </Box>
                 ) : activeTargetKind === 'workspace' && !activeRole ? (
                   <Typography variant="body2" color="text.secondary">
                     请选择角色
@@ -1323,7 +1337,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             rolePickerEl={rolePickerEl}
             closeRolePicker={closeRolePicker}
             rolePickerView={rolePickerView}
-            roles={roles}
+            roles={visibleRoles}
             workspaces={workspaces}
             draftActiveRoleId={String(s.draft?.activeRoleId || '')}
             activeWorkspaceId={activeWorkspaceId}
@@ -1497,7 +1511,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
         <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
-        <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} />
+        <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} roles={roles} />
         <ToolWorkDirectoryPromptDialog controller={controller} state={(s as any).toolWorkDirectory} />
         <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} workspaces={workspaces} />
         <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />

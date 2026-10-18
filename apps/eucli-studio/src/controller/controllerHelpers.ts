@@ -70,6 +70,7 @@ export function createModalHelpers(deps: { state: any; render: () => void }) {
       ;(state.draft as any).workspaceName = ''
       ;(state.draft as any).workspacePrompt = ''
       ;(state.draft as any).workspaceDirectories = []
+      ;(state.draft as any).workspaceRegisteredRoleIds = []
     }
     render()
   }

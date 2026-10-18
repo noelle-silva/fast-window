@@ -119,8 +119,12 @@ export function ChatSidebar(props: {
     </Box>
   )
 
-  const roleList = (isSelected: (roleId: string) => boolean, onSelect: (roleId: string) => void) => (
-    roles.length ? (
+  const roleList = (isSelected: (roleId: string) => boolean, onSelect: (roleId: string) => void, scope: 'role' | 'workspace') => {
+    if (scope === 'workspace' && !activeWorkspaceId) return emptyHint('先选择工作区。')
+    const emptyTitle = scope === 'workspace' ? '当前工作区还没有注册角色。' : '还没有角色。'
+    const actionLabel = scope === 'workspace' ? '去注册角色' : '去创建角色'
+    const settingsTab = scope === 'workspace' ? 'workspaces' : 'roles'
+    return roles.length ? (
       <RoleList
         roles={roles}
         isSelected={isSelected}
@@ -132,14 +136,14 @@ export function ChatSidebar(props: {
     ) : (
       <Box sx={{ px: 1.5, py: 1 }}>
         <Typography variant="body2" color="text.secondary">
-          还没有角色。
+          {emptyTitle}
         </Typography>
-        <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('roles')}>
-          去创建角色
+        <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings(settingsTab)}>
+          {actionLabel}
         </Button>
       </Box>
     )
-  )
+  }
 
   const workspaceList = () => (
     workspaces.length ? (
@@ -282,6 +286,7 @@ export function ChatSidebar(props: {
               {roleList(
                 (id) => id === activeRoleId && activeTargetKind === 'role',
                 onSelectRole,
+                'role',
               )}
             </>
           )
@@ -296,6 +301,7 @@ export function ChatSidebar(props: {
             {roleList(
               (id) => id === activeRoleId && activeTargetKind === 'workspace',
               onSelectWorkspaceRole,
+              'workspace',
             )}
           </>
         ) : (

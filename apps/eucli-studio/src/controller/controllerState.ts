@@ -76,6 +76,7 @@ export function createInitialControllerState() {
       workspaceName: '',
       workspacePrompt: '',
       workspaceDirectories: [] as Array<{ path: string; alias: string; description: string }>,
+      workspaceRegisteredRoleIds: [] as string[],
 
       editProviderId: '',
       providerName: '',

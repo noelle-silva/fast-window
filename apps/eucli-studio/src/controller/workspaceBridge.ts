@@ -14,6 +14,7 @@ export type UiWorkspace = {
   name: string
   directories: UiWorkspaceDirectory[]
   prompt: string
+  registeredRoleIds: string[]
   actualPrompt: string
   createdAt: number
   updatedAt: number
@@ -29,6 +30,10 @@ function object(value: unknown): Record<string, any> {
 
 function list(value: unknown): any[] {
   return Array.isArray(value) ? value : []
+}
+
+function textList(value: unknown) {
+  return list(value).map((item) => text(item)).filter(Boolean)
 }
 
 function timeMs(value: unknown, fallback = Date.now()) {
@@ -73,6 +78,7 @@ export function normalizeWorkspace(raw: unknown): UiWorkspace | null {
       .map(normalizeWorkspaceDirectory)
       .filter(Boolean) as UiWorkspaceDirectory[],
     prompt: text(box.prompt),
+    registeredRoleIds: textList(box.registeredRoleIds),
     actualPrompt: String(box.actualPrompt ?? ''),
     createdAt,
     updatedAt,
@@ -136,6 +142,7 @@ function workspaceToWire(workspace: UiWorkspace) {
       description: text(directory.description),
     })),
     prompt: text(workspace.prompt),
+    registeredRoleIds: workspace.registeredRoleIds.map(text),
     createdAt: timeIso(createdAt),
     updatedAt: timeIso(updatedAt),
   }

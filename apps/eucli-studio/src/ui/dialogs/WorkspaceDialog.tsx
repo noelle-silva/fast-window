@@ -6,8 +6,8 @@ import { NEW_WORKSPACE_ID } from '../../domain/constants'
 import { ScrollableDialogContent } from '../components/ScrollableDialogContent'
 import { WorkspaceEditorForm } from './WorkspaceEditorForm'
 
-export function WorkspaceDialog(props: { open: boolean; controller: any; draft: any }) {
-  const { open, controller, draft } = props
+export function WorkspaceDialog(props: { open: boolean; controller: any; draft: any; roles: any[] }) {
+  const { open, controller, draft, roles } = props
   const editWorkspaceId = String((draft as any)?.editWorkspaceId || '')
   const isNew = editWorkspaceId === NEW_WORKSPACE_ID
 
@@ -22,7 +22,7 @@ export function WorkspaceDialog(props: { open: boolean; controller: any; draft: 
         </IconButton>
       </DialogTitle>
       <ScrollableDialogContent>
-        <WorkspaceEditorForm controller={controller} draft={draft} />
+        <WorkspaceEditorForm controller={controller} draft={draft} roles={roles} />
       </ScrollableDialogContent>
       <DialogActions>
         <Button onClick={() => controller.actions.closeModal?.()}>取消</Button>

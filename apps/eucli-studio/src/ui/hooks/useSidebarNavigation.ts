@@ -15,6 +15,7 @@ import {
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
 import { roleSidebarSessions, workspaceSidebarSessions } from '../../domain/sidebarSessions'
+import { isWorkspaceRoleRegistered } from '../../domain/workspaceRoleScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useEvent } from './useEvent'
 
@@ -28,6 +29,10 @@ function resolveWorkspaceId(workspaces: any[], remembered: string) {
   return workspaces.some((workspace: any) => String(workspace?.id || '') === remembered)
     ? remembered
     : String(workspaces[0]?.id || '')
+}
+
+function findWorkspace(workspaces: any[], workspaceId: string) {
+  return workspaces.find((workspace: any) => String(workspace?.id || '') === workspaceId) || null
 }
 
 export function useSidebarNavigation(input: {
@@ -247,6 +252,8 @@ export function useSidebarNavigation(input: {
   const selectWorkspaceRole = useEvent((roleIdRaw: string) => {
     const roleId = String(roleIdRaw || '').trim()
     if (!roleId || !activeWorkspaceId) return
+    const workspace = findWorkspace(workspaces, activeWorkspaceId)
+    if (!workspace || !isWorkspaceRoleRegistered(workspace, roleId)) return
     rememberWorkspaceRole(activeWorkspaceId, roleId)
     if (roleId !== activeRoleId) controller.actions.setWorkspaceRole(roleId)
     if (!pendingWorkspaceMatches(activeWorkspaceId, roleId)) {

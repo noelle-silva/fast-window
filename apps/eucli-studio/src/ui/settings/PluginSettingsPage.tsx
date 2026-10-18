@@ -96,6 +96,7 @@ export function PluginSettingsPage(props: {
         controller={controller}
         loading={loading}
         workspaces={workspaces}
+        roles={roles}
         draft={draft}
         activeWorkspaceId={activeWorkspaceId}
         activeTargetKind={activeTargetKind}

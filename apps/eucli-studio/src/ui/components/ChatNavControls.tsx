@@ -62,6 +62,7 @@ export function ChatNavControls(props: ChatNavControlsProps) {
   const nextModeLabel = mode === 'workspace' ? '角色模式' : '工作区模式'
   const workspaceName = activeWorkspace ? String((activeWorkspace as any)?.name || '') || '无' : '无'
   const roleName = activeRole ? String(activeRole?.name || '') : '请选择角色'
+  const roleButtonDisabled = loading || (!roles.length && mode !== 'workspace')
   const createDisabled = mode === 'workspace' ? !activeWorkspace || !activeRole : !activeRole
 
   const pillSx = { borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' } as const
@@ -160,7 +161,7 @@ export function ChatNavControls(props: ChatNavControlsProps) {
             </Button>
           ) : null}
 
-          <Button variant="text" size="small" onClick={onOpenRolePicker} disabled={loading || !roles.length} sx={pillSx}>
+          <Button variant="text" size="small" onClick={onOpenRolePicker} disabled={roleButtonDisabled} sx={pillSx}>
             <EntityAvatar kind="role" image={String(activeRole?.avatarImage || '')} size={22} />
             <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
               {roleName}

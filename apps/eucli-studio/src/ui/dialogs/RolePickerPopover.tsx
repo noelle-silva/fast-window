@@ -44,6 +44,7 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   useUiDataVersion(controller)
 
   const showWorkspaces = rolePickerView === 'workspace'
+  const showWorkspaceRoleEmpty = rolePickerView === 'workspaceRole' && !roles.length
 
   return (
     <DependablePopover
@@ -87,6 +88,25 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
               </Button>
             </Box>
           )
+        ) : showWorkspaceRoleEmpty ? (
+          <Box sx={{ p: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              {activeWorkspaceId ? '当前工作区还没有注册角色。' : '请先选择工作区。'}
+            </Typography>
+            {activeWorkspaceId ? (
+              <Button
+                size="small"
+                variant="contained"
+                sx={{ mt: 1 }}
+                onClick={() => {
+                  closeRolePicker()
+                  openPluginSettings('workspaces')
+                }}
+              >
+                去注册角色
+              </Button>
+            ) : null}
+          </Box>
         ) : (
           <RoleList
             roles={roles}

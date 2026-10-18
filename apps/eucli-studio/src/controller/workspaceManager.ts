@@ -6,6 +6,7 @@ import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { clearPendingChatForTarget, createPendingChatEntry, pendingChatForTarget } from '../domain/pendingChat'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
+import { workspaceRegisteredRoleIds, workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { saveEntityOrder } from './entityOrderBridge'
@@ -25,6 +26,10 @@ import {
 
 function text(value: unknown) {
   return String(value || '').trim()
+}
+
+function normalizeWorkspaceRoleIds(raw: unknown) {
+  return (Array.isArray(raw) ? raw : []).map((roleId) => text(roleId)).filter(Boolean)
 }
 
 function workspaceDraftDirectories(raw: unknown) {
@@ -100,6 +105,7 @@ function workspaceDraft(state: any): UiWorkspace {
     name: text((state.draft as any)?.workspaceName) || '未命名工作区',
     directories: workspaceDraftDirectories((state.draft as any)?.workspaceDirectories).filter((directory) => directory.path || directory.alias || directory.description),
     prompt: String((state.draft as any)?.workspacePrompt ?? ''),
+    registeredRoleIds: normalizeWorkspaceRoleIds((state.draft as any)?.workspaceRegisteredRoleIds),
     actualPrompt: '',
     createdAt: Number(existing?.createdAt || now()),
     updatedAt: now(),
@@ -358,6 +364,7 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceName = '新工作区'
     ;(state.draft as any).workspacePrompt = ''
     ;(state.draft as any).workspaceDirectories = [{ path: '', alias: '', description: '' }]
+    ;(state.draft as any).workspaceRegisteredRoleIds = []
     ;(state.draft as any).workspaceActualPrompt = ''
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = true
@@ -405,6 +412,7 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceDirectories = workspace.directories?.length
       ? workspace.directories.map((directory: any) => ({ path: text(directory?.path), alias: text(directory?.alias), description: text(directory?.description) }))
       : [{ path: '', alias: '', description: '' }]
+    ;(state.draft as any).workspaceRegisteredRoleIds = workspaceRegisteredRoleIds(workspace)
     ;(state.draft as any).workspaceActualPrompt = String(workspace.actualPrompt ?? '')
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = false
@@ -443,6 +451,20 @@ export function createWorkspaceManager(deps: {
     emit()
   }
 
+  function setWorkspaceRoleRegistered(roleIdRaw: unknown, registeredRaw: unknown) {
+    const state = getState()
+    if (!state?.draft) return
+    const roleId = text(roleIdRaw)
+    if (!roleId) return
+    const current = normalizeWorkspaceRoleIds((state.draft as any)?.workspaceRegisteredRoleIds)
+    const registered = Boolean(registeredRaw)
+    const next = registered
+      ? (current.includes(roleId) ? current : current.concat(roleId))
+      : current.filter((currentRoleId) => currentRoleId !== roleId)
+    ;(state.draft as any).workspaceRegisteredRoleIds = next
+    emit()
+  }
+
   async function saveWorkspaceEditor() {
     const state = getState()
     if (!state?.data) return
@@ -461,6 +483,7 @@ export function createWorkspaceManager(deps: {
       id: workspaceId,
       name,
       prompt,
+      registeredRoleIds: normalizeWorkspaceRoleIds((state.draft as any)?.workspaceRegisteredRoleIds),
       actualPrompt: '',
       directories,
       createdAt: Number(existing?.createdAt || now()),
@@ -508,7 +531,10 @@ export function createWorkspaceManager(deps: {
     const workspace = activeWorkspace()
     const role = activeRole()
     if (!workspace) return showToast?.('请先选择工作区', { kind: 'error' })
-    if (!role) return showToast?.('请先选择角色', { kind: 'error' })
+    if (!role) {
+      const hasRegisteredRoles = workspaceRolesInScope(workspace, state?.data?.roles).length > 0
+      return showToast?.(hasRegisteredRoles ? '请先选择角色' : '当前工作区还没有注册角色，请先注册角色', { kind: 'error' })
+    }
     const pending = createPendingChatEntry('workspace', text((workspace as any).id), '工作区会话', text((role as any).id))
     if (!pending) return
     saveActiveComposerDraftMirror(state)
@@ -628,6 +654,7 @@ export function createWorkspaceManager(deps: {
     addWorkspaceDirectory,
     removeWorkspaceDirectory,
     setWorkspaceDirectoryField,
+    setWorkspaceRoleRegistered,
     refreshWorkspacePromptPreview,
     saveWorkspaceEditor,
     deleteWorkspaceEditor,

@@ -18,13 +18,14 @@ type WorkspacesSettingsPanelProps = {
   controller: any
   loading: boolean
   workspaces: any[]
+  roles: any[]
   draft: any
   activeWorkspaceId: string
   activeTargetKind: string
 }
 
 export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
-  const { controller, loading, workspaces, draft, activeWorkspaceId, activeTargetKind } = props
+  const { controller, loading, workspaces, roles, draft, activeWorkspaceId, activeTargetKind } = props
   const clickGuard = useSortableClickGuard()
   const workspaceIds = React.useMemo(
     () => workspaces.map((workspace: any) => String(workspace?.id || '').trim()).filter(Boolean),
@@ -51,7 +52,7 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
     <SettingsSurface sx={{ height: '100%' }}>
       <Stack spacing={1.5} sx={{ height: '100%', minHeight: 0 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <SettingsHeading title="工作区管理" description="维护工作区提示词与目录清单。" />
+          <SettingsHeading title="工作区管理" description="维护工作区提示词、角色注册与目录清单。" />
           <Button startIcon={<AddIcon />} variant="text" onClick={() => controller.actions.createWorkspaceInPlace?.()} disabled={loading}>
             新建工作区
           </Button>
@@ -148,7 +149,7 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                     </Stack>
                   </SettingsSection>
 
-                  <WorkspaceEditorForm controller={controller} draft={draft} />
+                  <WorkspaceEditorForm controller={controller} draft={draft} roles={roles} />
                 </Stack>
               ) : (
                 <SettingsSection sx={{ p: 2 }}>
