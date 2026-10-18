@@ -12,6 +12,8 @@ import { cloneConfigObject, removeConfigValueAtPath, setConfigValueAtPath } from
 import { ArtifactStoreDialog } from './ArtifactStoreDialog'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { SortableList } from '../components/SortableList'
+import { resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
 
@@ -90,6 +92,13 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
   const visiblePlugins = pluginQueryText
     ? pluginItems.filter((plugin: any) => systemPluginLocatorId(plugin).toLowerCase().includes(pluginQueryText))
     : pluginItems
+  const visiblePluginIds = visiblePlugins.map((plugin: any) => systemPluginLocatorId(plugin)).filter(Boolean)
+  const allPluginIds = pluginItems.map((plugin: any) => systemPluginLocatorId(plugin)).filter(Boolean)
+  const handlePluginMove = (activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(allPluginIds, activeId, overId)
+    if (!position) return
+    controller.actions.moveSystemPlugin?.(activeId, overId, position as SortMovePosition)
+  }
 
   return (
     <SettingsSurface sx={{ height: '100%' }}>
@@ -119,26 +128,49 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
               />
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {visiblePlugins.length ? visiblePlugins.map((plugin: any) => {
-                    const locatorId = systemPluginLocatorId(plugin)
-                    const selected = locatorId === text(systemPlugins?.selectedPluginId)
-                    const pluginUnavailable = text(plugin.status) !== 'active'
-                    const toggling = text(systemPlugins?.togglingId) === locatorId
-                    return (
-                      <Stack key={locatorId} direction="row" spacing={0.5} alignItems="center">
-                        <Button variant={selected ? 'contained' : 'text'} color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'} onClick={() => controller.actions.openSystemPlugin?.(locatorId)} sx={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', textTransform: 'none' }}>
-                          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
-                        </Button>
-                        <Switch
-                          size="small"
-                          checked={plugin.enabled !== false}
-                          disabled={toggling || !locatorId}
-                          onChange={(event) => controller.actions.setSystemPluginEnabled?.(locatorId, event.target.checked)}
-                          inputProps={{ 'aria-label': `${String(plugin.name || locatorId)} 启用开关` }}
-                        />
-                      </Stack>
-                    )
-                  }) : <Typography variant="body2" color="text.secondary">{pluginQueryText ? '没有匹配的插件。' : '暂无已加载插件。'}</Typography>}
+                  {visiblePlugins.length ? (
+                    <SortableList ids={visiblePluginIds} onMove={handlePluginMove} disabled={busy}>
+                      {({ id: locatorId, drag, shouldIgnoreClick }) => {
+                        const plugin = visiblePlugins.find((item: any) => systemPluginLocatorId(item) === locatorId) || null
+                        if (!plugin) return null
+                        const selected = locatorId === text(systemPlugins?.selectedPluginId)
+                        const pluginUnavailable = text(plugin.status) !== 'active'
+                        const toggling = text(systemPlugins?.togglingId) === locatorId
+                        return (
+                          <Stack
+                            key={locatorId}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            direction="row"
+                            spacing={0.5}
+                            alignItems="center"
+                            sx={{ cursor: drag.isDragging ? 'grabbing' : 'grab', opacity: drag.isDragging ? 0.6 : 1, touchAction: 'pan-y' }}
+                          >
+                            <Button
+                              variant={selected ? 'contained' : 'text'}
+                              color={pluginUnavailable ? 'error' : selected ? 'primary' : 'inherit'}
+                              onClick={() => {
+                                if (shouldIgnoreClick()) return
+                                controller.actions.openSystemPlugin?.(locatorId)
+                              }}
+                              sx={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', textTransform: 'none' }}
+                            >
+                              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(plugin.name || locatorId)} · v{String(plugin.version || '无效')} · {pluginStatusLabel(plugin.status)}</Box>
+                            </Button>
+                            <Switch
+                              size="small"
+                              checked={plugin.enabled !== false}
+                              disabled={toggling || !locatorId}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onChange={(event) => controller.actions.setSystemPluginEnabled?.(locatorId, event.target.checked)}
+                              inputProps={{ 'aria-label': `${String(plugin.name || locatorId)} 启用开关` }}
+                            />
+                          </Stack>
+                        )
+                      }}
+                    </SortableList>
+                  ) : <Typography variant="body2" color="text.secondary">{pluginQueryText ? '没有匹配的插件。' : '暂无已加载插件。'}</Typography>}
                 </Stack>
               </Box>
             </Stack>

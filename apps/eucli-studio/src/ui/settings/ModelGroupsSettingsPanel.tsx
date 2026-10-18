@@ -7,6 +7,8 @@ import SaveIcon from '@mui/icons-material/Save'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { SortableList } from '../components/SortableList'
+import { resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -29,6 +31,11 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
   }, [controller])
 
   const groupIds = React.useMemo(() => items.map((group: any) => String(group?.id || '')).filter(Boolean), [items])
+  const handleGroupMove = (activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(groupIds, activeId, overId)
+    if (!position) return
+    controller.actions.moveModelGroup?.(activeId, overId, position as SortMovePosition)
+  }
 
   React.useEffect(() => {
     setSelectedGroupId((current) => (current && groupIds.includes(current) ? current : groupIds[0] || ''))
@@ -59,23 +66,42 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
               <Typography variant="body2" sx={{ fontWeight: 900 }}>模型组列表</Typography>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {items.length ? items.map((group: any) => {
-                    const groupId = String(group?.id || '')
-                    const selected = groupId === selectedGroupId
-                    const modelCount = Array.isArray(group?.models) ? group.models.length : 0
-                    return (
-                      <Button
-                        key={groupId}
-                        variant={selected ? 'contained' : 'text'}
-                        color={selected ? 'primary' : 'inherit'}
-                        onClick={() => setSelectedGroupId(groupId)}
-                        disabled={!groupId}
-                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
-                      >
-                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(group?.name || '未命名模型组')} · {modelCount} 个对外模型</Box>
-                      </Button>
-                    )
-                  }) : <Typography variant="body2" color="text.secondary">暂无模型组。</Typography>}
+                  {items.length ? (
+                    <SortableList ids={groupIds} onMove={handleGroupMove} disabled={busy}>
+                      {({ id: groupId, drag, shouldIgnoreClick }) => {
+                        const group = items.find((item: any) => String(item?.id || '') === groupId) || null
+                        if (!group) return null
+                        const selected = groupId === selectedGroupId
+                        const modelCount = Array.isArray(group?.models) ? group.models.length : 0
+                        return (
+                          <Button
+                            key={groupId}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            variant={selected ? 'contained' : 'text'}
+                            color={selected ? 'primary' : 'inherit'}
+                            onClick={() => {
+                              if (shouldIgnoreClick()) return
+                              setSelectedGroupId(groupId)
+                            }}
+                            disabled={!groupId}
+                            sx={{
+                              justifyContent: 'flex-start',
+                              minWidth: 0,
+                              width: '100%',
+                              textTransform: 'none',
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(group?.name || '未命名模型组')} · {modelCount} 个对外模型</Box>
+                          </Button>
+                        )
+                      }}
+                    </SortableList>
+                  ) : <Typography variant="body2" color="text.secondary">暂无模型组。</Typography>}
                 </Stack>
               </Box>
             </Stack>

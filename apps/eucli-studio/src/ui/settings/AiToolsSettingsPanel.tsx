@@ -17,6 +17,8 @@ import SaveIcon from '@mui/icons-material/Save'
 import StorefrontIcon from '@mui/icons-material/Storefront'
 import { DependableDialog } from '../components/DependableOverlay'
 import { CustomScrollArea } from '../components/CustomScrollArea'
+import { SortableList } from '../components/SortableList'
+import { resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { useEvent } from '../hooks/useEvent'
 import { ConfigFieldsForm } from './ConfigFieldsForm'
@@ -93,6 +95,13 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
   const filtered = query
     ? items.filter((tool) => [toolName(tool), toolDescription(tool), String(tool.type || '')].some((value) => value.toLowerCase().includes(query)))
     : items
+  const filteredIds = filtered.map((tool) => toolId(tool)).filter(Boolean)
+  const allIds = items.map((tool) => toolId(tool)).filter(Boolean)
+  const handleToolMove = (activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(allIds, activeId, overId)
+    if (!position) return
+    controller.actions.moveTool?.(activeId, overId, position as SortMovePosition)
+  }
 
   const selectedTool = tools?.selectedTool && typeof tools.selectedTool === 'object' ? tools.selectedTool : null
   const selectedToolUnavailable = String(selectedTool?.status || '').trim() !== 'active'
@@ -153,23 +162,42 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
               />
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {filtered.length ? filtered.map((tool) => {
-                    const id = toolId(tool)
-                    const selected = !!id && id === String(tools?.selectedToolId || '')
-                    const unavailable = String(tool.status || '').trim() !== 'active'
-                    return (
-                      <Button
-                        key={id}
-                        variant={selected ? 'contained' : 'text'}
-                        color={unavailable ? 'error' : selected ? 'primary' : 'inherit'}
-                        onClick={() => controller.actions.openToolConfig?.(id)}
-                        disabled={!id}
-                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
-                      >
-                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toolName(tool)} · v{String(tool.version || '无效')} · {unavailable ? '不可用' : '可用'}</Box>
-                      </Button>
-                    )
-                  }) : (
+                  {filtered.length ? (
+                    <SortableList ids={filteredIds} onMove={handleToolMove} disabled={loading || !!tools?.loading}>
+                      {({ id, drag, shouldIgnoreClick }) => {
+                        const tool = filtered.find((item) => toolId(item) === id) || null
+                        if (!tool) return null
+                        const selected = !!id && id === String(tools?.selectedToolId || '')
+                        const unavailable = String(tool.status || '').trim() !== 'active'
+                        return (
+                          <Button
+                            key={id}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            variant={selected ? 'contained' : 'text'}
+                            color={unavailable ? 'error' : selected ? 'primary' : 'inherit'}
+                            onClick={() => {
+                              if (shouldIgnoreClick()) return
+                              controller.actions.openToolConfig?.(id)
+                            }}
+                            disabled={!id}
+                            sx={{
+                              justifyContent: 'flex-start',
+                              minWidth: 0,
+                              width: '100%',
+                              textTransform: 'none',
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toolName(tool)} · v{String(tool.version || '无效')} · {unavailable ? '不可用' : '可用'}</Box>
+                          </Button>
+                        )
+                      }}
+                    </SortableList>
+                  ) : (
                     <Typography variant="body2" color="text.secondary">
                       {tools?.loading ? '工具列表加载中…' : query ? '当前搜索没有匹配结果。' : '暂无可显示工具'}
                     </Typography>

@@ -18,6 +18,8 @@ import ImageIcon from '@mui/icons-material/Image'
 import { useEvent } from '../hooks/useEvent'
 import { DependableDialog } from '../components/DependableOverlay'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { SortableList } from '../components/SortableList'
+import { resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { SettingsHeading, SettingsListItem, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -60,14 +62,32 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
   }, [categories, cat])
 
   // 注意：stickerMap 内部会“就地修改”，object 引用可能不变；这里不要 useMemo，否则 UI 会卡在旧列表。
-  const names = (() => {
+  const allNames = (() => {
     const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[String(cat || '')] : null
     const list = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
-    const q = String(filter || '').trim().toLowerCase()
-    const filtered = q ? list.filter((n) => n.toLowerCase().includes(q)) : list
-    filtered.sort((a, b) => a.localeCompare(b))
-    return filtered
+    list.sort((left, right) => {
+      const leftOrder = Number((box as any)?.[left]?.order || 0)
+      const rightOrder = Number((box as any)?.[right]?.order || 0)
+      return leftOrder - rightOrder || left.localeCompare(right)
+    })
+    return list
   })()
+  const names = (() => {
+    const q = String(filter || '').trim().toLowerCase()
+    return q ? allNames.filter((n) => n.toLowerCase().includes(q)) : allNames
+  })()
+
+  const handleCategoryMove = (activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(categories, activeId, overId)
+    if (!position) return
+    controller.actions.moveStickerCategory?.(activeId, overId, position as SortMovePosition)
+  }
+
+  const handleStickerMove = (activeName: string, overName: string) => {
+    const position = resolveSortMovePosition(allNames, activeName, overName)
+    if (!position) return
+    controller.actions.moveSticker?.(cat, activeName, overName, position as SortMovePosition)
+  }
 
   const tokenFor = (category: string, name: string) => `[[sticker:${String(category || '')}/${String(name || '')}]]`
 
@@ -77,7 +97,11 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
 
     const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[catName] : null
     const all = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
-    all.sort((a, b) => a.localeCompare(b))
+    all.sort((left, right) => {
+      const leftOrder = Number((box as any)?.[left]?.order || 0)
+      const rightOrder = Number((box as any)?.[right]?.order || 0)
+      return leftOrder - rightOrder || left.localeCompare(right)
+    })
 
     const LIMIT = 120
     const shown = all.slice(0, LIMIT)
@@ -186,17 +210,35 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
                 </Stack>
                 <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                   <Stack spacing={1}>
-                    {categories.length ? categories.map((categoryName) => (
-                      <Button
-                        key={categoryName}
-                        variant={categoryName === cat ? 'contained' : 'text'}
-                        color={categoryName === cat ? 'primary' : 'inherit'}
-                        onClick={() => setCat(categoryName)}
-                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}
-                      >
-                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{categoryName}</Box>
-                      </Button>
-                    )) : <Typography variant="body2" color="text.secondary">暂无分类。</Typography>}
+                    {categories.length ? (
+                      <SortableList ids={categories} onMove={handleCategoryMove} disabled={loading}>
+                        {({ id: categoryName, drag, shouldIgnoreClick }) => (
+                          <Button
+                            key={categoryName}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            variant={categoryName === cat ? 'contained' : 'text'}
+                            color={categoryName === cat ? 'primary' : 'inherit'}
+                            onClick={() => {
+                              if (shouldIgnoreClick()) return
+                              setCat(categoryName)
+                            }}
+                            sx={{
+                              justifyContent: 'flex-start',
+                              minWidth: 0,
+                              width: '100%',
+                              textTransform: 'none',
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{categoryName}</Box>
+                          </Button>
+                        )}
+                      </SortableList>
+                    ) : <Typography variant="body2" color="text.secondary">暂无分类。</Typography>}
                   </Stack>
                 </Box>
               </Stack>
@@ -231,12 +273,19 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
                       <Typography variant="body2" color="text.secondary">这个分类还没有表情包。</Typography>
                     ) : (
                       <Stack spacing={1}>
-                        {names.slice(0, 300).map((name) => {
-                          const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
-                          const token = tokenFor(cat, name)
-                          return (
-                            <SettingsListItem key={name}>
-                              <Stack direction="row" spacing={1.25} alignItems="center">
+                        <SortableList ids={names.slice(0, 300)} onMove={handleStickerMove} disabled={loading}>
+                          {({ id: name, drag }) => {
+                            const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
+                            const token = tokenFor(cat, name)
+                            return (
+                              <SettingsListItem
+                                key={name}
+                                ref={drag.setNodeRef as any}
+                                style={drag.style}
+                                {...drag.handleProps}
+                                sx={{ cursor: drag.isDragging ? 'grabbing' : 'grab', opacity: drag.isDragging ? 0.6 : 1, touchAction: 'pan-y' }}
+                              >
+                                <Stack direction="row" spacing={1.25} alignItems="center">
                                 {relPath ? <StickerInlineImage controller={controller} path={relPath} label={token} size={64} /> : null}
                                 <Box sx={{ minWidth: 0, flex: 1 }}>
                                   <Typography sx={{ fontWeight: 900 }} noWrap>
@@ -288,9 +337,10 @@ export function StickersSettingsPanel(props: { controller: any; loading: boolean
                                   }]}
                                 />
                               </Stack>
-                            </SettingsListItem>
-                          )
-                        })}
+                              </SettingsListItem>
+                            )
+                          }}
+                        </SortableList>
                       </Stack>
                     )}
                   </Stack>

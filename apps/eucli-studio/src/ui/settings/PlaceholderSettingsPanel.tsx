@@ -21,6 +21,7 @@ import {
 import { systemPluginEnabledById } from '../../domain/systemPlugin'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { SortableList } from '../components/SortableList'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { PlaceholderDependencyTreePanel } from './PlaceholderDependencyTreePanel'
 import { PlaceholderEditor } from './PlaceholderEditor'
@@ -29,6 +30,7 @@ import {
   computeDirtyNames,
   createPlaceholderDraft,
   markDraftPlaceholderSaved,
+  moveDraftPlaceholder,
   planPlaceholderCreate,
   planPlaceholderDelete,
   planPlaceholderSave,
@@ -258,6 +260,23 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
     setDraftState((current) => renameDraftPlaceholder(current, index, nextName))
   }
 
+  const movePlaceholder = async (activeName: string, overName: string) => {
+    const previous = draftState
+    const next = moveDraftPlaceholder(previous, activeName, overName)
+    if (next === previous) return
+    setDraftState(next)
+    const nextIndex = next.library.placeholders.findIndex((item) => text(item.name) === activeName)
+    if (nextIndex >= 0) setSelectedIndex(nextIndex)
+    skipNextSyncRef.current = true
+    try {
+      await controller.actions.reorderPlaceholders?.(next.library.placeholders.map((item) => text(item.name)))
+    } catch (e: any) {
+      skipNextSyncRef.current = false
+      setDraftState(previous)
+      setSaveError(String(e?.message || e || '占位符排序保存失败'))
+    }
+  }
+
   const createFolder = async (nameRaw: string) => {
     const name = text(nameRaw)
     if (!name) return false
@@ -381,35 +400,73 @@ export function PlaceholderSettingsPanel(props: PlaceholderSettingsPanelProps) {
               </Button>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {filteredPlaceholders.length ? filteredPlaceholders.map(({ item, index }) => {
-                    const selected = index === selectedIndex
-                    const label = text(item.name) || `未命名占位符 ${index + 1}`
-                    const disabledByPlugin = sourcePluginDisabled(item)
-                    return (
-                      <Box key={`${item.name}:${index}`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                        <Button variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'} onClick={() => setSelectedIndex(index)} sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, textTransform: 'none' }}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box></Button>
-                        <Tooltip title={`复制 {{${text(item.name) || '名字'}}}`}>
-                          <span>
-                            <IconButton size="small" aria-label={`复制占位符 ${label}`} onClick={() => copyPlaceholderToken(item.name)} disabled={!text(item.name)}>
-                              <ContentCopyIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title="收藏到收藏夹">
-                          <span>
-                            <IconButton size="small" aria-label={`收藏 ${label}`} onClick={() => openFavoriteDialog(item.name)} disabled={!text(item.name)}>
-                              <BookmarkBorderOutlinedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        {dirtyNames.has(text(item.name)) ? (
-                          <Tooltip title="有未保存的修改">
-                            <Box sx={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main', boxShadow: '0 0 0 2px var(--studio-field)', pointerEvents: 'none' }} />
-                          </Tooltip>
-                        ) : null}
-                      </Box>
-                    )
-                  }) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
+                  {filteredPlaceholders.length ? (
+                    <SortableList
+                      ids={filteredPlaceholders.map(({ item, index }) => text(item.name) || `__placeholder-${index}`)}
+                      onMove={(activeId, overId) => {
+                        if (activeId.startsWith('__placeholder-') || overId.startsWith('__placeholder-')) return
+                        void movePlaceholder(activeId, overId)
+                      }}
+                      disabled={busy || saving}
+                    >
+                      {({ id, drag, shouldIgnoreClick }) => {
+                        const entry = filteredPlaceholders.find(({ item, index }) => (text(item.name) || `__placeholder-${index}`) === id)
+                        if (!entry) return null
+                        const { item, index } = entry
+                        const selected = index === selectedIndex
+                        const label = text(item.name) || `未命名占位符 ${index + 1}`
+                        const disabledByPlugin = sourcePluginDisabled(item)
+                        return (
+                          <Box
+                            key={`${item.name}:${index}`}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            sx={{
+                              position: 'relative',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.25,
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Button
+                              variant={selected ? 'contained' : 'text'}
+                              color={selected ? 'primary' : disabledByPlugin ? 'error' : 'inherit'}
+                              onClick={() => {
+                                if (shouldIgnoreClick()) return
+                                setSelectedIndex(index)
+                              }}
+                              sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, textTransform: 'none' }}
+                            >
+                              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disabledByPlugin ? `${label}（插件已停用）` : label}</Box>
+                            </Button>
+                            <Tooltip title={`复制 {{${text(item.name) || '名字'}}}`}>
+                              <span>
+                                <IconButton size="small" aria-label={`复制占位符 ${label}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => copyPlaceholderToken(item.name)} disabled={!text(item.name)}>
+                                  <ContentCopyIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="收藏到收藏夹">
+                              <span>
+                                <IconButton size="small" aria-label={`收藏 ${label}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => openFavoriteDialog(item.name)} disabled={!text(item.name)}>
+                                  <BookmarkBorderOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            {dirtyNames.has(text(item.name)) ? (
+                              <Tooltip title="有未保存的修改">
+                                <Box sx={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main', boxShadow: '0 0 0 2px var(--studio-field)', pointerEvents: 'none' }} />
+                              </Tooltip>
+                            ) : null}
+                          </Box>
+                        )
+                      }}
+                    </SortableList>
+                  ) : <Typography variant="body2" color="text.secondary">暂无占位符。</Typography>}
                 </Stack>
               </Box>
             </Stack>

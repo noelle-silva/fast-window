@@ -2,9 +2,12 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
+import * as React from 'react'
 import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { SortableList } from '../components/SortableList'
+import { resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 import { providerProtocolLabel } from './modelItemSelectors'
@@ -21,6 +24,18 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
   const { controller, loading, providers, draft, models } = props
   const editingId = String(draft?.editProviderId || '')
   const selectedProvider = providers.find((provider: any) => String(provider?.id || '') === editingId) || null
+  const providerIds = React.useMemo(
+    () => providers.map((provider: any) => String(provider?.id || '').trim()).filter(Boolean),
+    [providers],
+  )
+  const handleMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      const position = resolveSortMovePosition(providerIds, activeId, overId)
+      if (!position) return
+      controller.actions.moveProvider?.(activeId, overId, position as SortMovePosition)
+    },
+    [controller, providerIds],
+  )
 
   return (
     <SettingsSurface sx={{ height: '100%' }}>
@@ -47,27 +62,47 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
               <Typography variant="body2" sx={{ fontWeight: 900 }}>供应商列表</Typography>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {providers.length ? providers.map((provider: any) => {
-                    const pid = String(provider?.id || '')
-                    const selected = !!pid && pid === editingId
-                    return (
-                      <Button
-                        key={pid}
-                        variant={selected ? 'contained' : 'text'}
-                        color={selected ? 'primary' : 'inherit'}
-                        onClick={() => controller.actions.openProviderEditor?.(pid)}
-                        disabled={!pid}
-                        sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none', textAlign: 'left' }}
-                      >
-                        <Box sx={{ minWidth: 0, width: '100%' }}>
-                          <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>{String(provider?.name || '')}</Box>
-                          <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'text.secondary' }}>
-                            {providerProtocolLabel(provider?.protocol)} · {String(provider?.baseUrl || '')}
-                          </Box>
-                        </Box>
-                      </Button>
-                    )
-                  }) : <Typography variant="body2" color="text.secondary">暂无供应商。</Typography>}
+                  {providers.length ? (
+                    <SortableList ids={providerIds} onMove={handleMove} disabled={loading}>
+                      {({ id: pid, drag, shouldIgnoreClick }) => {
+                        const provider = providers.find((item: any) => String(item?.id || '') === pid) || null
+                        if (!provider) return null
+                        const selected = pid === editingId
+                        return (
+                          <Button
+                            key={pid}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            variant={selected ? 'contained' : 'text'}
+                            color={selected ? 'primary' : 'inherit'}
+                            onClick={() => {
+                              if (shouldIgnoreClick()) return
+                              controller.actions.openProviderEditor?.(pid)
+                            }}
+                            disabled={!pid}
+                            sx={{
+                              justifyContent: 'flex-start',
+                              minWidth: 0,
+                              width: '100%',
+                              textTransform: 'none',
+                              textAlign: 'left',
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Box sx={{ minWidth: 0, width: '100%' }}>
+                              <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>{String(provider?.name || '')}</Box>
+                              <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'text.secondary' }}>
+                                {providerProtocolLabel(provider?.protocol)} · {String(provider?.baseUrl || '')}
+                              </Box>
+                            </Box>
+                          </Button>
+                        )
+                      }}
+                    </SortableList>
+                  ) : <Typography variant="body2" color="text.secondary">暂无供应商。</Typography>}
                 </Stack>
               </Box>
             </Stack>

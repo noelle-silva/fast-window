@@ -4,7 +4,6 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import {
   HOOK_PROMPT_POSITION_LABELS,
   HOOK_PROMPT_POSITIONS,
@@ -21,6 +20,8 @@ import {
   type HookPromptRole,
 } from '../../domain/hookPrompt'
 import { SortableItem, SortableRoot, SortableSection, verticalListSortingStrategy } from '../components/SortableDnd'
+import { SortableList } from '../components/SortableList'
+import { moveListItemById } from '../../domain/listOrdering'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -49,6 +50,13 @@ function moveMessage(messages: HookPromptMessage[], activeId: string, overId: st
   const [item] = next.splice(from, 1)
   next.splice(to, 0, item)
   return reindexHookPromptMessages(next)
+}
+
+function movePreset(presets: HookPromptPreset[], activeId: string, overId: string) {
+  const from = presets.findIndex((preset) => preset.id === activeId)
+  const to = presets.findIndex((preset) => preset.id === overId)
+  if (from < 0 || to < 0 || from === to) return presets
+  return moveListItemById(presets, (preset) => preset.id, activeId, overId, from < to ? 'after' : 'before')
 }
 
 function messagesForPosition(preset: HookPromptPreset | null, position: HookPromptPosition) {
@@ -138,6 +146,20 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
     }))
   }
 
+  const movePresetWithinLibrary = async (activeId: string, overId: string) => {
+    const previous = draft
+    const presets = movePreset(previous.presets, activeId, overId)
+    if (presets === previous.presets) return
+    const next = { ...previous, presets }
+    setDraft(next)
+    try {
+      await controller.actions.reorderHookPromptPresets?.(presets.map((preset) => preset.id))
+    } catch (e: any) {
+      setDraft(previous)
+      setSaveError(String(e?.message || e || 'hook 预设排序保存失败'))
+    }
+  }
+
   const saveDraft = async () => {
     if (invalidPresetName) {
       setSaveError('预设名称不能为空')
@@ -177,14 +199,40 @@ export function HookPromptsSettingsPanel(props: HookPromptsSettingsPanelProps) {
               <Typography variant="body2" sx={{ fontWeight: 900 }}>预设列表</Typography>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {draft.presets.length ? draft.presets.map((preset) => {
-                    const selected = preset.id === selectedPresetId
-                    return (
-                      <Button key={preset.id} variant={selected ? 'contained' : 'text'} color={selected ? 'primary' : 'inherit'} onClick={() => setSelectedPresetId(preset.id)} sx={{ justifyContent: 'flex-start', minWidth: 0, width: '100%', textTransform: 'none' }}>
-                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preset.name || '未命名预设'}</Box>
-                      </Button>
-                    )
-                  }) : <Typography variant="body2" color="text.secondary">暂无预设。</Typography>}
+                  {draft.presets.length ? (
+                    <SortableList ids={draft.presets.map((preset) => preset.id)} onMove={movePresetWithinLibrary} disabled={busy || saving}>
+                      {({ id, drag, shouldIgnoreClick }) => {
+                        const preset = draft.presets.find((item) => item.id === id) || null
+                        if (!preset) return null
+                        const selected = preset.id === selectedPresetId
+                        return (
+                          <Button
+                            key={preset.id}
+                            ref={drag.setNodeRef as any}
+                            style={drag.style}
+                            {...drag.handleProps}
+                            variant={selected ? 'contained' : 'text'}
+                            color={selected ? 'primary' : 'inherit'}
+                            onClick={() => {
+                              if (shouldIgnoreClick()) return
+                              setSelectedPresetId(preset.id)
+                            }}
+                            sx={{
+                              justifyContent: 'flex-start',
+                              minWidth: 0,
+                              width: '100%',
+                              textTransform: 'none',
+                              cursor: drag.isDragging ? 'grabbing' : 'grab',
+                              opacity: drag.isDragging ? 0.6 : 1,
+                              touchAction: 'pan-y',
+                            }}
+                          >
+                            <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preset.name || '未命名预设'}</Box>
+                          </Button>
+                        )
+                      }}
+                    </SortableList>
+                  ) : <Typography variant="body2" color="text.secondary">暂无预设。</Typography>}
                 </Stack>
               </Box>
             </Stack>
@@ -294,19 +342,26 @@ function HookPromptMessageEditor(props: {
   const role = hookPromptRoleForPosition(message.position, message.role)
   return (
     <SortableItem id={message.id} disabled={disabled}>
-      {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
-        <SettingsListItem ref={setNodeRef} sx={{ opacity: isDragging ? 0.72 : 1, bgcolor: 'background.paper' }} style={style as any}>
+      {({ setNodeRef, handleProps, isDragging, style }) => (
+        <SettingsListItem
+          ref={setNodeRef}
+          {...handleProps}
+          sx={{
+            opacity: isDragging ? 0.72 : 1,
+            bgcolor: 'background.paper',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            touchAction: 'pan-y',
+          }}
+          style={style as any}
+        >
           <Stack spacing={1}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              <IconButton ref={setHandleRef as any} size="small" disabled={disabled} {...handleProps} sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>
-                <DragIndicatorIcon fontSize="small" />
-              </IconButton>
               {fixedUserRole ? (
                 <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 900, minWidth: 130 }}>
                   固定为用户消息
                 </Typography>
               ) : (
-                <FormControl size="small" sx={{ minWidth: 130 }}>
+                <FormControl size="small" sx={{ minWidth: 130 }} onPointerDown={(event) => event.stopPropagation()}>
                   <InputLabel>身份</InputLabel>
                   <Select label="身份" value={role} onChange={(e) => onUpdate(message.id, { role: String(e.target.value || 'user') as HookPromptRole })} disabled={disabled}>
                     {(['system', 'user', 'assistant'] as HookPromptRole[]).map((item) => <MenuItem key={item} value={item}>{HOOK_PROMPT_ROLE_LABELS[item]}</MenuItem>)}
@@ -314,20 +369,22 @@ function HookPromptMessageEditor(props: {
                 </FormControl>
               )}
               <Box sx={{ flex: 1 }} />
-              <MoreActionsMenu
-                disabled={disabled}
-                items={[{
-                  key: 'delete',
-                  label: '删除这条提示内容',
-                  icon: <DeleteOutlineIcon fontSize="small" />,
-                  danger: true,
-                  confirm: {
-                    title: '确认删除提示内容？',
-                    description: '将删除这条提示内容，保存后生效。',
-                  },
-                  onSelect: () => onDelete(message.id),
-                }]}
-              />
+              <span onPointerDown={(event) => event.stopPropagation()}>
+                <MoreActionsMenu
+                  disabled={disabled}
+                  items={[{
+                    key: 'delete',
+                    label: '删除这条提示内容',
+                    icon: <DeleteOutlineIcon fontSize="small" />,
+                    danger: true,
+                    confirm: {
+                      title: '确认删除提示内容？',
+                      description: '将删除这条提示内容，保存后生效。',
+                    },
+                    onSelect: () => onDelete(message.id),
+                  }]}
+                />
+              </span>
             </Stack>
             <TextField
               size="small"
@@ -336,6 +393,7 @@ function HookPromptMessageEditor(props: {
               label="提示内容"
               value={message.content}
               onChange={(e) => onUpdate(message.id, { content: e.target.value })}
+              onPointerDown={(event) => event.stopPropagation()}
               disabled={disabled}
               fullWidth
             />
