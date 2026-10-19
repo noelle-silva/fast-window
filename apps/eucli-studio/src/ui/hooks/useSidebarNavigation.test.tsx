@@ -74,7 +74,6 @@ describe('工作区导航记忆还原', () => {
     renderHook({
       controller,
       data: { roles, workspaces },
-      sidebarLayout: true,
       sidebarVisible: false,
       activeTargetKind: 'workspace',
       activeRole: { id: 'role-a' },
@@ -105,7 +104,6 @@ describe('工作区导航记忆还原', () => {
     renderHook({
       controller,
       data: { roles, workspaces },
-      sidebarLayout: true,
       sidebarVisible: false,
       activeTargetKind: 'workspace',
       activeRole: { id: 'role-a' },

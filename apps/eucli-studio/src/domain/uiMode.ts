@@ -1,12 +1,10 @@
-// UI 模式：聊天界面用「顶栏模式」还是「侧边栏模式」，以及侧边栏靠左还是靠右、多宽。
+// UI 模式：聊天界面固定使用侧边栏，以及侧边栏靠左还是靠右、多宽。
 // 角色模式与工作区模式各自独立保存一份配置，互不影响。
 
-export type UiLayout = 'topbar' | 'sidebar'
 export type SidebarSide = 'left' | 'right'
 export type UiModeTarget = 'role' | 'workspace'
 
 export type UiModeConfig = {
-  layout: UiLayout
   sidebarSide: SidebarSide
   sidebarWidth: number
 }
@@ -18,11 +16,6 @@ export const UI_MODE_SETTING_KEY = 'uiMode'
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 560
 export const SIDEBAR_WIDTH_DEFAULT = 260
-
-export function normalizeUiLayout(raw: unknown): UiLayout {
-  // 缺省即侧边栏模式；只有显式存成 topbar 才用顶栏。
-  return String(raw ?? '').trim() === 'topbar' ? 'topbar' : 'sidebar'
-}
 
 export function normalizeSidebarSide(raw: unknown): SidebarSide {
   return String(raw ?? '').trim() === 'right' ? 'right' : 'left'
@@ -37,7 +30,6 @@ export function normalizeSidebarWidth(raw: unknown): number {
 export function normalizeUiModeConfig(raw: any): UiModeConfig {
   const box = raw && typeof raw === 'object' ? raw : {}
   return {
-    layout: normalizeUiLayout(box.layout),
     sidebarSide: normalizeSidebarSide(box.sidebarSide),
     sidebarWidth: normalizeSidebarWidth(box.sidebarWidth),
   }
@@ -51,7 +43,7 @@ export function normalizeUiModeSettings(raw: any): UiModeSettings {
   }
 }
 
-// 读取某个聊天模式的 UI 配置；数据缺失时回落到默认（侧边栏 + 左侧 + 默认宽度）。
+// 读取某个聊天模式的 UI 配置；数据缺失时回落到默认（左侧 + 默认宽度）。
 export function resolveUiModeConfig(raw: any, target: UiModeTarget): UiModeConfig {
   return normalizeUiModeSettings(raw)[target === 'workspace' ? 'workspace' : 'role']
 }

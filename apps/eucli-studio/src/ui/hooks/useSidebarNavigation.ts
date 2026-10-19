@@ -38,7 +38,6 @@ function findWorkspace(workspaces: any[], workspaceId: string) {
 export function useSidebarNavigation(input: {
   controller: any
   data: any
-  sidebarLayout: boolean
   sidebarVisible: boolean
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeRole: any
@@ -55,7 +54,6 @@ export function useSidebarNavigation(input: {
   const {
     controller,
     data,
-    sidebarLayout,
     sidebarVisible,
     activeTargetKind,
     activeRole,
@@ -86,17 +84,15 @@ export function useSidebarNavigation(input: {
   const switchSession = useEvent((chatId: any, options?: { force?: boolean }) => {
     const nextChatId = String(chatId || '').trim()
     if (!nextChatId) return
-    if (sidebarLayout) {
-      if (activeTargetKind === 'role') {
-        if (activeRoleId) {
-          rememberRoleSession(activeRoleId, nextChatId)
-          bumpMemory()
-        }
-      } else if (activeTargetKind === 'workspace') {
-        if (activeWorkspaceId && activeRoleId) {
-          rememberWorkspaceSession(activeWorkspaceId, activeRoleId, nextChatId)
-          bumpMemory()
-        }
+    if (activeTargetKind === 'role') {
+      if (activeRoleId) {
+        rememberRoleSession(activeRoleId, nextChatId)
+        bumpMemory()
+      }
+    } else if (activeTargetKind === 'workspace') {
+      if (activeWorkspaceId && activeRoleId) {
+        rememberWorkspaceSession(activeWorkspaceId, activeRoleId, nextChatId)
+        bumpMemory()
       }
     }
     requestSwitch(nextChatId, options)
@@ -138,10 +134,6 @@ export function useSidebarNavigation(input: {
   })
 
   React.useEffect(() => {
-    if (!sidebarLayout) {
-      initRef.current = false
-      return
-    }
     if (initRef.current) return
     if (!sidebarVisible) return
     if (!data) return
@@ -153,7 +145,7 @@ export function useSidebarNavigation(input: {
       if (!workspaces.length || !roles.length) return
       restoreWorkspaceMode()
     }
-  }, [sidebarLayout, sidebarVisible, data, activeTargetKind, roles, workspaces, restoreRoleMode, restoreWorkspaceMode])
+  }, [sidebarVisible, data, activeTargetKind, roles, workspaces, restoreRoleMode, restoreWorkspaceMode])
 
   React.useEffect(() => {
     if (!sidebarVisible || !data || !initRef.current) return

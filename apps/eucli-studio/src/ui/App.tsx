@@ -324,9 +324,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setEditingChatTitle,
     closeEditingChatTitle,
     saveEditingChatTitle,
-    openRolePicker,
-    openWorkspacePicker,
-    openWorkspaceRolePicker,
     closeRolePicker,
     openChatPicker,
     closeChatPicker,
@@ -360,12 +357,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
   const roleSessionControlsEnabled = activeTargetKind !== 'group' && !!activeRole
 
-  // 界面布局：角色模式 / 工作区模式各自配置「顶栏 / 侧边栏」，以及侧边栏靠左还是靠右。
-  // 侧边栏模式只在聊天页生效；设置页仍用顶栏返回条。
+  // 界面布局：聊天页固定使用侧边栏；角色模式 / 工作区模式各自配置侧边栏靠左还是靠右。
+  // 设置页仍用顶栏返回条。
   const uiModeTarget: 'role' | 'workspace' = activeTargetKind === 'workspace' ? 'workspace' : 'role'
   const uiModeConfig = resolveUiModeConfig(data?.settings?.uiMode, uiModeTarget)
-  const sidebarLayout = uiModeConfig.layout === 'sidebar'
-  const sidebarMode = page === 'chat' && sidebarLayout
+  const sidebarMode = page === 'chat'
   const sidebarResize = useSidebarResize({
     side: uiModeConfig.sidebarSide,
     onCommit: (w) => controller.actions.setSidebarWidth?.(uiModeTarget, w),
@@ -374,7 +370,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const sidebarNavigation = useSidebarNavigation({
     controller,
     data,
-    sidebarLayout,
     sidebarVisible: sidebarMode,
     activeTargetKind,
     activeRole,
@@ -400,32 +395,18 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   } = sidebarNavigation
 
   // 顶栏模式：角色模式 / 工作区模式。由当前目标类型派生，模式按钮点击时切换。
-  // 没有工作区时也允许切到工作区模式（工作区按钮显示「无」），此时底层目标不变。
   const [topbarMode, setTopbarMode] = React.useState<'role' | 'workspace'>(activeTargetKind === 'workspace' ? 'workspace' : 'role')
   React.useEffect(() => {
     setTopbarMode(activeTargetKind === 'workspace' ? 'workspace' : 'role')
   }, [activeTargetKind])
   const onToggleTopbarMode = useEvent(() => {
     if (topbarMode === 'workspace') {
-      if (sidebarMode) restoreRoleMode()
-      else {
-        const roleId = String((activeRole as any)?.id || roles[0]?.id || '')
-        if (roleId) controller.actions.setActiveRole(roleId)
-      }
+      restoreRoleMode()
       setTopbarMode('role')
       return
     }
-    if (sidebarMode) restoreWorkspaceMode()
-    else {
-      const workspaceId = String(activeWorkspaceId || workspaces[0]?.id || '')
-      if (workspaceId) controller.actions.setActiveWorkspace(workspaceId)
-    }
+    restoreWorkspaceMode()
     setTopbarMode('workspace')
-  })
-  // 角色按钮：工作区模式下选的是「工作区里的角色」，角色模式下选的是当前角色。
-  const onOpenRoleButton = useEvent((e: React.MouseEvent<HTMLElement>) => {
-    if (topbarMode === 'workspace') openWorkspaceRolePicker(e)
-    else openRolePicker(e)
   })
 
   const {
@@ -917,19 +898,15 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     treeSuppressClickRef,
   })
 
-  // 顶栏 / 侧边栏共用同一份按钮配置，保证两种布局功能一致。
+  // 顶栏按钮配置：侧边栏负责角色 / 工作区选择，顶栏保留共用操作与模式切换。
   const navControlsProps = {
-    showIdentity: !sidebarMode,
     loading: !!s.loading,
     mode: topbarMode,
-    roles: visibleRoles,
     activeRole,
     activeWorkspace,
     treeOpen,
     chatNav,
     onToggleMode: onToggleTopbarMode,
-    onOpenRolePicker: onOpenRoleButton,
-    onOpenWorkspacePicker: openWorkspacePicker,
     onOpenChatPicker: openChatPicker,
     onCreateChat: () => controller.actions.createChat(),
     onToggleTree: () => setTreeOpen((v) => !v),

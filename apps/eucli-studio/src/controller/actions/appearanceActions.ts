@@ -17,7 +17,6 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import {
   normalizeSidebarSide,
   normalizeSidebarWidth,
-  normalizeUiLayout,
   normalizeUiModeSettings,
   type UiModeTarget,
 } from '../../domain/uiMode'
@@ -319,16 +318,7 @@ export function createAppearanceActions(deps: {
       saveMeta().catch(() => {})
       emit()
     },
-    // 界面模式：角色模式 / 工作区模式各自一份（顶栏或侧边栏、侧边栏左或右）。
-    setUiLayout: (target: any, layout: any) => {
-      if (!state.data) return
-      const t: UiModeTarget = String(target || '').trim() === 'workspace' ? 'workspace' : 'role'
-      const next = normalizeUiModeSettings((state.data.settings as any).uiMode)
-      next[t].layout = normalizeUiLayout(layout)
-      ;(state.data.settings as any).uiMode = next
-      saveMeta().catch(() => {})
-      emit()
-    },
+    // 界面模式：角色模式 / 工作区模式各自一份侧边栏配置。
     setSidebarSide: (target: any, side: any) => {
       if (!state.data) return
       const t: UiModeTarget = String(target || '').trim() === 'workspace' ? 'workspace' : 'role'

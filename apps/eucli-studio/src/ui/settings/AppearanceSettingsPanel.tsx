@@ -207,54 +207,33 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
             <Box>
               <Typography sx={{ fontWeight: 900 }}>界面模式</Typography>
               <Typography variant="caption" color="text.secondary">
-                角色模式与工作区模式各自选择界面布局；侧边栏模式会把「角色 / 工作区」列表摊开在侧边栏里直接点选，顶栏保持不变，侧边栏宽度可拖拽调整。
+                角色模式与工作区模式各自保存侧边栏设置；侧边栏会把「角色 / 工作区」列表摊开直接点选，顶栏保持不变，侧边栏宽度可拖拽调整。
               </Typography>
             </Box>
 
             {UI_MODE_TARGETS.map(({ target, label }) => {
               const config = uiModeSettings[target]
-              const sidebar = config.layout === 'sidebar'
               return (
                 <Box key={target}>
                   <Typography variant="body2" sx={{ fontWeight: 900, mb: 0.5 }}>
                     {label}
                   </Typography>
-                  <Stack spacing={1}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
-                        界面布局
-                      </Typography>
-                      <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        value={config.layout}
-                        onChange={(_e, v) => {
-                          if (v) controller.actions.setUiLayout?.(target, v)
-                        }}
-                        disabled={loading}
-                      >
-                        <ToggleButton value="topbar">顶栏模式</ToggleButton>
-                        <ToggleButton value="sidebar">侧边栏模式</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
-                        侧边栏位置
-                      </Typography>
-                      <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        value={config.sidebarSide}
-                        onChange={(_e, v) => {
-                          if (v) controller.actions.setSidebarSide?.(target, v)
-                        }}
-                        disabled={loading || !sidebar}
-                      >
-                        <ToggleButton value="left">靠左</ToggleButton>
-                        <ToggleButton value="right">靠右</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                      侧边栏位置
+                    </Typography>
+                    <ToggleButtonGroup
+                      size="small"
+                      exclusive
+                      value={config.sidebarSide}
+                      onChange={(_e, v) => {
+                        if (v) controller.actions.setSidebarSide?.(target, v)
+                      }}
+                      disabled={loading}
+                    >
+                      <ToggleButton value="left">靠左</ToggleButton>
+                      <ToggleButton value="right">靠右</ToggleButton>
+                    </ToggleButtonGroup>
                   </Stack>
                 </Box>
               )
