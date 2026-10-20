@@ -1,20 +1,11 @@
 // @vitest-environment happy-dom
 //
-// 逐步骤内存归属：把引擎路径拆成 markdown / sanitize / commit / decorate 四步，
-// 各自在复用同一输入、每轮强制 GC 下长跑，定位堆增长的准确环节。
+// 引擎内存长跑：同一输入反复渲染，每 50 轮强制 GC 后记录堆占用，
+// 用于区分「真泄漏」与「GC 尚未回收」。
 import { beforeAll, describe, it } from 'vitest'
 import { installRenderGlobals, createBenchCapabilities } from './benchmark'
 import { buildFormulaHeavyFixture } from './streamFixture'
-import { createDefaultAssistantRenderEngine } from '../assistantEngineDefault'
-import { createMarkdownRenderer } from '../markdown'
-import { createHtmlSanitizer } from '../sanitize'
-import { commitHtml } from '../domCommit'
-import { shapeContent, substituteClaims } from '../shaper'
-import { createMathCapability } from '../capabilities/math'
-import { createMathRenderer } from '../mathRender'
-import type { BoolRef } from '../types'
-import type { RenderContext } from '../contract'
-import type { AiChatCapabilities } from '../../gateway/capabilities'
+import { createUnifiedAssistantRenderEngine } from '../unified/engine'
 
 const PROFILE = String(process.env.PERF_PROFILE || 'smoke').trim() || 'smoke'
 const PROFILES = {
@@ -38,46 +29,27 @@ function series(gc: undefined | (() => void), rounds: number, fn: () => void) {
   return out.map(mb).join(' -> ')
 }
 
-describe('逐步骤内存归属', () => {
+describe('引擎内存长跑', () => {
   beforeAll(async () => {
     await installRenderGlobals()
   }, 120000)
 
-  it('markdown / sanitize / commit / decorate', { timeout: 600000 }, async () => {
+  it('同输入反复渲染的堆占用走势', { timeout: 600000 }, async () => {
     const gc = (globalThis as any).gc as undefined | (() => void)
     const profile = PROFILES[(PROFILE in PROFILES ? PROFILE : 'smoke') as keyof typeof PROFILES]
     const text = buildFormulaHeavyFixture({ formulaCount: profile.formulaCount, prosePerFormula: profile.prosePerFormula, seed: 20261002 })
     const ROUNDS = 150
 
-    const markdownRenderer = createMarkdownRenderer({ value: true } as BoolRef)
-    const sanitizer = createHtmlSanitizer({ value: false } as BoolRef)
-    const mathCapability = createMathCapability({ mathRenderer: createMathRenderer() })
-    const ctx: RenderContext = {
-      host: {} as HTMLElement,
-      version: 1,
-      isCurrent: () => true,
-      policy: 'original',
-      stickersEnabled: false,
-      getStickerPath: null,
-      capabilities: {} as AiChatCapabilities,
-    }
-    const shaped = shapeContent(text, ctx, [mathCapability])
-    const md = markdownRenderer.renderMarkdownSource(shaped.text)
-    const safe = substituteClaims(sanitizer.sanitizeHtml(md, 'original'), shaped.claims, ctx, [mathCapability])
-
-    const engine = createDefaultAssistantRenderEngine(createBenchCapabilities())
+    const engine = createUnifiedAssistantRenderEngine(createBenchCapabilities())
     const host = document.createElement('div')
     document.body.appendChild(host)
     engine.renderAssistantInto(host, text)
 
-    const results: Record<string, string> = {}
-    results['markdown'] = series(gc, ROUNDS, () => markdownRenderer.renderMarkdownSource(shaped.text))
-    results['sanitize'] = series(gc, ROUNDS, () => sanitizer.sanitizeHtml(md, 'original'))
-    results['commit'] = series(gc, ROUNDS, () => commitHtml(host, safe))
-    results['engine'] = series(gc, ROUNDS, () => engine.renderAssistantInto(host, text))
+    const engineSeries = series(gc, ROUNDS, () => engine.renderAssistantInto(host, text))
 
     // eslint-disable-next-line no-console
-    console.log(`\n[leak-steps:${PROFILE}] text=${text.length} rounds=${ROUNDS} gc=${!!gc}\n` +
-      Object.entries(results).map(([k, v]) => `  ${k.padEnd(10)}: ${v}`).join('\n'))
+    console.log(`\n[leak-engine:${PROFILE}] text=${text.length} rounds=${ROUNDS} gc=${!!gc}\n  engine    : ${engineSeries}`)
+
+    host.remove()
   })
 })

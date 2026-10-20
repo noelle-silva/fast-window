@@ -12,7 +12,7 @@ import { installRenderGlobals } from './globals'
 import { createRenderTestCapabilities } from './capabilities'
 import { serializeChildren, waitForAsyncSettle, renderInto } from './dom'
 import { ALL_FIXTURES, buildCumulativePrefixes, type Fixture } from './fixtures'
-import { createDefaultAssistantRenderEngine } from '../assistantEngineDefault'
+import { createUnifiedAssistantRenderEngine } from '../unified/engine'
 
 // 测试基准：unsafe（裸奔模式，与应用实际使用 HTML/SVG 富渲染的环境一致），
 // 以此隔离「内容形态保护是否正确」与「安全清理策略」，让本套件专注渲染本身。
@@ -23,7 +23,7 @@ const RENDER_OPTIONS = {
 }
 
 function makeEngine() {
-  return createDefaultAssistantRenderEngine(createRenderTestCapabilities())
+  return createUnifiedAssistantRenderEngine(createRenderTestCapabilities())
 }
 
 describe('渲染体系：能力正确性', () => {

@@ -8,7 +8,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { installRenderGlobals, createBenchCapabilities } from './benchmark'
 import { buildFormulaHeavyFixture, buildCumulativePrefixes } from './streamFixture'
-import { createDefaultAssistantRenderEngine } from '../assistantEngineDefault'
+import { createUnifiedAssistantRenderEngine } from '../unified/engine'
 
 // 图表能力每次渲染会生成唯一 id（uid('mm')），它派生出的所有内部节点 id 与
 // 引用都含这个易变令牌。它是非视觉差异，守护必须归一化后才能比较真正的画面。
@@ -71,7 +71,7 @@ describe('视觉等价性（增量提交 == 完整渲染，覆盖全部能力）
 
   for (const [name, text] of Object.entries(FIXTURES)) {
     it(`${name}：流式增量结果与完整渲染一致`, { timeout: 120000 }, async () => {
-      const engine = createDefaultAssistantRenderEngine(createBenchCapabilities())
+      const engine = createUnifiedAssistantRenderEngine(createBenchCapabilities())
 
       // A：流式逐步增量提交
       const streamHost = document.createElement('div')

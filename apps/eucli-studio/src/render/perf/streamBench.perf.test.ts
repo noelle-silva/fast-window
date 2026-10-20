@@ -6,7 +6,7 @@
 // 注意：本基准跑在 happy-dom（纯 JS DOM）上，DOMPurify 在此环境比真实浏览器
 // （原生 DOM）慢且堆内存增长，属于测试环境的保守估计，非源码问题。
 import { beforeAll, describe, expect, it } from 'vitest'
-import { createDefaultAssistantRenderEngine } from '../assistantEngineDefault'
+import { createUnifiedAssistantRenderEngine } from '../unified/engine'
 import { installRenderGlobals, createBenchCapabilities, runStreamBench, checkPerfBudget, topSlowSamples, type StreamBenchResult, type PerfBudget } from './benchmark'
 import { buildFormulaHeavyFixture, buildCumulativePrefixes, countFormulas } from './streamFixture'
 
@@ -48,7 +48,7 @@ describe('公式流式渲染压力基准', () => {
 
   beforeAll(async () => {
     await installRenderGlobals()
-    engine = createDefaultAssistantRenderEngine(createBenchCapabilities())
+    engine = createUnifiedAssistantRenderEngine(createBenchCapabilities())
   }, 120000)
 
   it('流式前缀渲染：增长曲线 + 预算达标', { timeout: 600000 }, async () => {

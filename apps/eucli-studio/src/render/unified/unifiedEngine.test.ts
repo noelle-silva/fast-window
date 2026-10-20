@@ -235,10 +235,11 @@ describe('unified 引擎：Markdown 基础语法（GFM）', () => {
     host.remove()
   })
 
-  it('块内表格', () => {
+  it('块内 Markdown 表格不解析（HTML 块内不解析 Markdown，与旧引擎一致）', () => {
     const text = ['<div class="card">', '', '| A | B |', '|---|---|', '| 1 | 2 |', '', '</div>'].join('\n')
     const host = renderInto(makeEngine(), text, OPTIONS)
-    expect(host.querySelectorAll('div.card table').length).toBe(1)
+    expect(host.querySelectorAll('div.card').length).toBe(1)
+    expect(host.querySelectorAll('div.card table').length).toBe(0)
     host.remove()
   })
 
