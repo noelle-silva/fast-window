@@ -13,13 +13,13 @@ import { createRefImageHydrator } from '../refImages'
 import { createMathRenderer } from '../mathRender'
 import { commitHtml } from '../domCommit'
 import { createRenderCapabilities } from '../capabilities'
-import { findHtmlBlocks } from '../htmlBlocks'
 import { preprocessHtmlIndentation } from '../markdown'
 import type { BoolRef, RenderSafetyPolicy } from '../types'
 import type { RenderContext } from '../contract'
 import type { AiChatCapabilities } from '../../gateway/capabilities'
-import { rehypeSticker, rehypeMathPlaceholder, rehypeFence, rehypeMermaid, rehypeEscapeCode } from './plugins'
+import { rehypeSticker, rehypeMathPlaceholder, rehypeRestoreHtmlBlock, rehypeFence, rehypeMermaid, rehypeEscapeCode } from './plugins'
 import { protectMath, type MathClaim } from './mathProtect'
+import { protectHtmlBlocks, demoteOpenFences } from './htmlProtect'
 
 // ============================================================================
 // unified 渲染引擎：以「解析成树 → 插件处理 → 序列化」为底座。
@@ -79,6 +79,7 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
     stickersEnabled: false,
     getStickerPath: null as ((category: string, name: string) => string) | null,
     mathClaims: [] as MathClaim[],
+    htmlBlocks: [] as string[],
   }
 
   // 两条管线：只有内容里真的含 HTML 块时，才启用 rehype-raw。
@@ -93,6 +94,8 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
       // 单换行即换行（旧引擎 marked 配置了 breaks: true，这里对齐）
       .use(remarkBreaks)
       .use(remarkRehype, { allowDangerousHtml: true })
+      // HTML 块占位还原必须排在 rehype-raw 之前，才能被重新解析成真节点。
+      .use(rehypeRestoreHtmlBlock, { getBlocks: () => pluginCtx.htmlBlocks })
     if (withRaw) p = p.use(rehypeRaw)
     return p
       // 块内围栏：HTML 块里的 ```mermaid / ```js 不会被 Markdown 解析，这里还原成 pre > code。
@@ -157,13 +160,18 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
     // HTML 缩进去缩进：AI 输出的缩进 HTML 若保留 4 空格，会被 Markdown 当成代码块。
     const noIndent = preprocessHtmlIndentation(source)
     // 公式必须在 Markdown 解析前保护：否则 TeX 里的反斜杠命令（\, \\ \| 等）会被当成 Markdown 转义吃掉。
-    const protectedSource = protectMath(noIndent)
-    pluginCtx.mathClaims = protectedSource.claims
-    // 按需启用 rehype-raw：内容里没有 HTML 块，就不必付 parse5 的解析成本。
-    const processor = findHtmlBlocks(protectedSource.text).length ? processorWithRaw : processorNoRaw
+    const mathProtected = protectMath(noIndent)
+    pluginCtx.mathClaims = mathProtected.claims
+    // HTML 块必须在 Markdown 解析前整块保护：块内空行会让 Markdown 提前结束该块，把 SVG 后半截拆出去。
+    const htmlProtected = protectHtmlBlocks(mathProtected.text)
+    pluginCtx.htmlBlocks = htmlProtected.blocks
+    // 未闭合围栏去掉语言标记，保持草稿态（不进入专用渲染）。
+    const finalSource = demoteOpenFences(htmlProtected.text)
+    // 有 HTML 块才启用 rehype-raw（parse5 重解析是解析阶段最大的单点开销）。
+    const processor = pluginCtx.htmlBlocks.length ? processorWithRaw : processorNoRaw
     let html = ''
     try {
-      html = String(processor.processSync(protectedSource.text))
+      html = String(processor.processSync(finalSource))
     } catch (_) {
       // 失败隔离：解析整体失败时降级为纯文本，不影响其余消息。
       html = `<pre>${esc(source)}</pre>`

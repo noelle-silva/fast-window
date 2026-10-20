@@ -1,5 +1,6 @@
 export { rehypeSticker, type StickerPluginCtx } from './rehypeSticker'
 export { rehypeMathPlaceholder } from './rehypeMathPlaceholder'
+export { rehypeRestoreHtmlBlock } from './rehypeRestoreHtmlBlock'
 export { rehypeFence } from './rehypeFence'
 export { rehypeMermaid } from './rehypeMermaid'
 export { rehypeEscapeCode } from './rehypeEscapeCode'
