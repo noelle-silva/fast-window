@@ -1,5 +1,5 @@
 // eucli-studio V2 controller: DI assembled from extracted modules.
-import { createDefaultAssistantRenderEngine } from '../render/assistantEngineDefault'
+import { createAssistantRenderEngine } from '../render/selectEngine'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 import type { AiChatController } from './types'
 
@@ -112,7 +112,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 4. ASSISTANT RENDERER
   // ============================================================
-  const assistantRenderer = createDefaultAssistantRenderEngine(capabilities)
+  const assistantRenderer = createAssistantRenderEngine(capabilities)
   const { ensureRenderer, renderAssistantInto: renderAssistantIntoRaw, sanitizeSvg } = assistantRenderer
 
   // ============================================================
