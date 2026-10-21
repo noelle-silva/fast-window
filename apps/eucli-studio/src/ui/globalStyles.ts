@@ -134,7 +134,10 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
     '.prose .fw-sticker-miss': { color: 'var(--studio-text-secondary)' },
     '.prose .fw-table-wrap': {
       position: 'relative',
-      margin: '12px 0',
+      // 宽度贴合表格本身：工具条 right:0 才会落在表格右上角，而不是整行最右。
+      width: 'fit-content',
+      maxWidth: '100%',
+      margin: '12px auto',
       overflowX: 'auto',
     },
     '.prose table': {
