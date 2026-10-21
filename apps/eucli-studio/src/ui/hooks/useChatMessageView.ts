@@ -150,7 +150,6 @@ export function useChatMessageView(deps: {
       },
     }
   }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind])
-  const displayRenderMessages = React.useMemo(() => activeRunTailPendingMessage ? [...renderMessages, activeRunTailPendingMessage] : renderMessages, [activeRunTailPendingMessage, renderMessages])
   const activeContextTokenUsageText = React.useMemo(() => formatTokenUsage(activeChat?.tokenUsage), [activeChat?.tokenUsage])
   const activeContextTokenUsageShortText = React.useMemo(() => formatTokenUsageShort(activeChat?.tokenUsage), [activeChat?.tokenUsage])
   const activeCacheRateText = React.useMemo(() => formatCacheRate(activeChat?.cacheRate), [activeChat?.cacheRate])
@@ -175,7 +174,6 @@ export function useChatMessageView(deps: {
     renderMessages,
     showActiveRunTailPending,
     activeRunTailPendingMessage,
-    displayRenderMessages,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
     activeCacheRateText,

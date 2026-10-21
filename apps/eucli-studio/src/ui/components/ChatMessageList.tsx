@@ -14,6 +14,7 @@ import { isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import { resolveReplyDurationMs } from '../../domain/messageTiming'
+import type { MessageBatchGroup } from '../../domain/messageBatchMount'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
@@ -23,8 +24,20 @@ import { formatDurationMs } from '../utils/time'
 
 type MessageRole = 'user' | 'assistant'
 
+const STAGING_MESSAGE_BATCH_SX = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 0,
+  overflow: 'hidden',
+  visibility: 'hidden',
+  pointerEvents: 'none',
+} as const
+
 type ChatMessageListProps = {
   controller: any
+  messageBatchGroups?: MessageBatchGroup[]
   messages: any[]
   roles: any[]
   activeRole: any
@@ -87,6 +100,7 @@ function runRetryFailure(retry: any) {
 export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMessageListProps) {
   const {
     controller,
+    messageBatchGroups = [],
     messages,
     roles,
     activeRole,
@@ -123,9 +137,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     onDeleteMessage,
   } = props
 
-  return (
-    <Stack spacing={1.25}>
-      {messages.map((m: any) => {
+  const renderMessage = (m: any) => {
         const content = messageVisibleText(m)
         const isAsyncToolResult = isAsyncToolResultMessage(m)
         const isToolResponse = isAsyncToolResult || content.startsWith('<<<[TOOL_RESPONSE]>>>')
@@ -652,7 +664,21 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             </Paper>
           </Stack>
         )
-      })}
+  }
+
+  return (
+    <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>
+      {messageBatchGroups.map((batch) => (
+        <Box
+          key={batch.key}
+          data-fw-message-batch={batch.revealed ? 'revealed' : 'staging'}
+          aria-hidden={batch.revealed ? undefined : true}
+          sx={batch.revealed ? undefined : STAGING_MESSAGE_BATCH_SX}
+        >
+          <Stack spacing={1.25} useFlexGap>{batch.messages.map(renderMessage)}</Stack>
+        </Box>
+      ))}
+      {messages.map(renderMessage)}
     </Stack>
   )
 })

@@ -138,4 +138,38 @@ describe('ChatMessageList streaming body mounting', () => {
     expect(host.querySelector('[role="status"][aria-label="AI 回复加载中"]')).toBeNull()
     expect(host.querySelector('[data-testid="assistant-message-blocks"]')?.getAttribute('data-text')).toBe('后续正文')
   })
+
+  it('renders old batches above the visible tail and hides the staging batch', () => {
+    const controller = {
+      getScopeVer: () => 0,
+      subscribeScope: () => () => {},
+      getMessageById: () => null,
+      renderAssistantInto: vi.fn(),
+      fmtTime: () => '',
+    }
+    const makeMessage = (id: string) => ({ id, role: 'user', type: 'user', content: id, createdAt: 1, updatedAt: 1 })
+    const tail = makeMessage('m-3')
+    const props: any = createProps(controller, tail)
+    props.messages = [tail]
+    props.messageBatchGroups = [
+      { key: 'batch-1', messages: [makeMessage('m-0'), makeMessage('m-1')], revealed: true },
+      { key: 'batch-2', messages: [makeMessage('m-2')], revealed: false },
+    ]
+
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+    act(() => {
+      root.render(<ChatMessageList {...props} />)
+    })
+
+    expect(Array.from(host.querySelectorAll('[data-mid]')).map((node) => node.getAttribute('data-mid'))).toEqual([
+      'm-0',
+      'm-1',
+      'm-2',
+      'm-3',
+    ])
+    expect(host.querySelector('[data-fw-message-batch="staging"]')?.getAttribute('aria-hidden')).toBe('true')
+    expect(host.querySelector('[data-fw-message-batch="revealed"]')?.hasAttribute('aria-hidden')).toBe(false)
+  })
 })

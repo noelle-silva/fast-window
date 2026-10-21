@@ -26,6 +26,7 @@ import { useSessionRunObservations } from './hooks/useSessionRunObservations'
 import { useRunningSessionNavigation } from './hooks/useRunningSessionNavigation'
 import { useChatMessageIndex } from './hooks/useChatMessageIndex'
 import { useChatMessageView } from './hooks/useChatMessageView'
+import { useMessageBatchMount } from './hooks/useMessageBatchMount'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
@@ -554,7 +555,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeVisibleRunCards,
     activeStopRunId,
     assistantSiblingsByPrevAiMid,
-    displayRenderMessages,
+    renderMessages,
+    activeRunTailPendingMessage,
     lastMsgText,
     activeContextTokenUsageText,
     activeContextTokenUsageShortText,
@@ -577,6 +579,15 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     branchDraft,
     branchDraftKey,
   })
+  const { batchGroups: messageBatchGroups, visibleMessages: batchedVisibleMessages } = useMessageBatchMount({
+    sessionKey: renderChatId,
+    messages: renderMessages,
+    scrollRef: chatRootRef,
+  })
+  const displayRenderMessages = React.useMemo(
+    () => (activeRunTailPendingMessage ? [...batchedVisibleMessages, activeRunTailPendingMessage] : batchedVisibleMessages),
+    [activeRunTailPendingMessage, batchedVisibleMessages],
+  )
   const treeHighlightEdgeKeys = React.useMemo(() => {
     const tr: any = treeRender
     const target = String(lastMsgId || '').trim()
@@ -1032,6 +1043,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 scrollSx={{
                   height: '100%',
                   overflowX: 'hidden',
+                  overflowAnchor: 'none',
                   pl: 2,
                   pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
                   pt: `calc(${TOPBAR_H}px + 16px)`,
@@ -1095,6 +1107,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
               ) : (
                 <ChatMessageList
                   controller={controller}
+                  messageBatchGroups={messageBatchGroups}
                   messages={displayRenderMessages}
                   roles={roles}
                   activeRole={activeRole}
