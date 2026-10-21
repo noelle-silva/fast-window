@@ -3,6 +3,14 @@ import { now } from '../core/utils'
 export const REQUEST_RECORD_LIMIT_MIN = 1
 export const REQUEST_RECORD_LIMIT_MAX = 1000
 export const REQUEST_RECORD_LIMIT_DEFAULT = 100
+export const REQUEST_RECORD_AUTO_REFRESH_MS = 5000
+
+const REQUEST_RECORD_CACHE_MS = 60 * 1000
+
+type RefreshRequestRecordsOptions = {
+  force?: boolean
+  silent?: boolean
+}
 
 export function defaultRequestRecordsState() {
   return {
@@ -30,6 +38,9 @@ export function createRequestRecordsController(deps: {
   emit: () => void
   showToast?: (msg: string, options?: any) => void
 }) {
+  let listRefreshInFlight: Promise<any[] | null> | null = null
+  let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
   function currentBox() {
     const state = deps.getState()
     if (!state.requestRecords || typeof state.requestRecords !== 'object') state.requestRecords = defaultRequestRecordsState()
@@ -42,13 +53,11 @@ export function createRequestRecordsController(deps: {
     state.requestRecords = { ...defaultRequestRecordsState(), ...box, ...patch }
   }
 
-  async function refreshRequestRecords(force = false) {
-    const { box } = currentBox()
-    const age = now() - Number(box.fetchedAt || 0)
-    if (!force && Array.isArray(box.items) && box.items.length && age < 60 * 1000) return box.items
-
-    patchBox({ loading: true, error: '' })
-    deps.emit()
+  async function loadRequestRecords(silent: boolean) {
+    if (!silent) {
+      patchBox({ loading: true, error: '' })
+      deps.emit()
+    }
     try {
       const response = await deps.netRequest({ method: 'GET', path: '/api/request-records', timeoutMs: 15_000 })
       const status = Number(response?.status || 0)
@@ -59,11 +68,47 @@ export function createRequestRecordsController(deps: {
     } catch (e: any) {
       const error = String(e?.message || e || '请求记录加载失败')
       patchBox({ loading: false, error })
-      deps.showToast?.(error, { kind: 'error' })
+      if (!silent) deps.showToast?.(error, { kind: 'error' })
       return null
     } finally {
       deps.emit()
     }
+  }
+
+  function refreshRequestRecords(options: RefreshRequestRecordsOptions = {}) {
+    const { box } = currentBox()
+
+    if (listRefreshInFlight) {
+      if (options.silent === false) {
+        patchBox({ loading: true, error: '' })
+        deps.emit()
+      }
+      return listRefreshInFlight
+    }
+
+    const items = Array.isArray(box.items) ? box.items : []
+    const age = now() - Number(box.fetchedAt || 0)
+    if (!options.force && items.length && age < REQUEST_RECORD_CACHE_MS) return Promise.resolve(items)
+
+    const silent = options.silent ?? items.length > 0
+    listRefreshInFlight = loadRequestRecords(silent).finally(() => {
+      listRefreshInFlight = null
+    })
+    return listRefreshInFlight
+  }
+
+  function startRequestRecordsAutoRefresh() {
+    if (autoRefreshTimer !== null) return
+    void refreshRequestRecords({ force: true })
+    autoRefreshTimer = setInterval(() => {
+      void refreshRequestRecords({ force: true, silent: true })
+    }, REQUEST_RECORD_AUTO_REFRESH_MS)
+  }
+
+  function stopRequestRecordsAutoRefresh() {
+    if (autoRefreshTimer === null) return
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
   }
 
   async function refreshRequestRecordConfig(force = false) {
@@ -167,6 +212,8 @@ export function createRequestRecordsController(deps: {
 
   return {
     refreshRequestRecords,
+    startRequestRecordsAutoRefresh,
+    stopRequestRecordsAutoRefresh,
     refreshRequestRecordConfig,
     openRequestRecord,
     setRequestRecordLimitDraft,

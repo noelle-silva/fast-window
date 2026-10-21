@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, DialogActions, DialogContent, DialogTitle, Stack, Switch, TextField, Typography } from '@mui/material'
 import { DependableDialog } from '../components/DependableOverlay'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
@@ -15,13 +16,14 @@ type HeaderEntry = { key: string; value: string }
 
 type RequestRecordsSettingsPanelProps = {
   controller: any
+  active: boolean
   loading: boolean
   requestRecords: any
   requestRecordViewOptions?: any
 }
 
 export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelProps) {
-  const { controller, loading, requestRecords, requestRecordViewOptions } = props
+  const { controller, active, loading, requestRecords, requestRecordViewOptions } = props
   const box = requestRecords || {}
   const config = box.config || {}
   const items = Array.isArray(box.items) ? box.items : []
@@ -31,9 +33,12 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
   const [optionsOpen, setOptionsOpen] = React.useState(false)
 
   React.useEffect(() => {
-    controller.actions.refreshRequestRecordConfig?.(false)
-    controller.actions.refreshRequestRecords?.(true)
-  }, [controller])
+    if (!active) return
+    const actions = controller.actions
+    actions.refreshRequestRecordConfig?.(false)
+    actions.startRequestRecordsAutoRefresh?.()
+    return () => actions.stopRequestRecordsAutoRefresh?.()
+  }, [active, controller])
 
   return (
     <SettingsSurface sx={{ height: '100%' }}>
@@ -61,6 +66,14 @@ export function RequestRecordsSettingsPanel(props: RequestRecordsSettingsPanelPr
             sx={{ width: 120 }}
           />
           {box.configError ? <Typography variant="body2" color="error">{String(box.configError)}</Typography> : null}
+          <Button
+            startIcon={<RefreshIcon fontSize="small" />}
+            variant="text"
+            onClick={() => controller.actions.refreshRequestRecords?.({ force: true, silent: false })}
+            disabled={loading || !!box.loading}
+          >
+            {box.loading ? '刷新中…' : '刷新'}
+          </Button>
           <Button startIcon={<SettingsIcon fontSize="small" />} variant="text" onClick={() => setOptionsOpen(true)} disabled={loading}>
             视图配置
           </Button>

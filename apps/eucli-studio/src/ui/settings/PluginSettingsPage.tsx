@@ -111,7 +111,7 @@ export function PluginSettingsPage(props: {
     if (value === 'commandSystem') return null
     if (value === 'eb') return <EbSettingsPanel bootstrap={bootstrap} connection={eucliBoxConnection} />
     if (value === 'access') return <AccessSettingsPanel controller={controller} section={accessSettings} />
-    if (value === 'requestRecords') return <RequestRecordsSettingsPanel controller={controller} loading={loading} requestRecords={requestRecords} requestRecordViewOptions={requestRecordViewOptions} />
+    if (value === 'requestRecords') return <RequestRecordsSettingsPanel controller={controller} active={activeTab === 'requestRecords'} loading={loading} requestRecords={requestRecords} requestRecordViewOptions={requestRecordViewOptions} />
     if (value === 'stickers') return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
     if (value === 'services') return <AiServicesSettingsPanel controller={controller} loading={loading} data={data} providers={providers} modelGroups={modelGroups} />
     return <ProvidersSettingsPanel controller={controller} loading={loading} providers={providers} draft={draft} models={models} />
