@@ -1,20 +1,28 @@
 import * as React from 'react'
-import { Box, Button, IconButton, InputAdornment, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Box, IconButton, InputAdornment, Tab, Tabs, TextField, Tooltip } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import SearchIcon from '@mui/icons-material/Search'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import { colorMixVar } from '../colorThemeStyles'
 import { TOPBAR_H } from '../appConstants'
-import { RoleList, WorkspaceList } from './EntityLists'
-import { SidebarSessionList } from './SidebarSessionList'
-import { getSidebarNavigationMemory } from '../../domain/sidebarNavigationMemory'
-import { roleSidebarSessions, workspaceSidebarSessions } from '../../domain/sidebarSessions'
+import {
+  getSidebarNavigationMemory,
+  type RoleSidebarTab,
+  type WorkspaceSidebarTab,
+} from '../../domain/sidebarNavigationMemory'
+import type { SidebarView } from '../../domain/sidebarView'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
+import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
+import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
 
+// 侧边栏外壳：位置、宽度、视图切换、页签与搜索。
+// 角色 / 工作区两个面板只负责各自的内容，不再各自维护一套外壳。
 export function ChatSidebar(props: {
   controller: any
   side: 'left' | 'right'
-  mode: 'role' | 'workspace'
+  view: SidebarView
+  onToggleView: () => void
   width: number
   sidebarRef: React.Ref<HTMLElement>
   resizing: boolean
@@ -46,12 +54,13 @@ export function ChatSidebar(props: {
   onMoveRole: (activeId: string, overId: string) => void
   onMoveWorkspace: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
-  onTabChange: (mode: 'role' | 'workspace', tab: string) => void
+  onTabChange: (view: SidebarView, tab: string) => void
 }) {
   const {
     controller,
     side,
-    mode,
+    view,
+    onToggleView,
     width,
     sidebarRef,
     resizing,
@@ -82,12 +91,8 @@ export function ChatSidebar(props: {
   } = props
 
   const memory = getSidebarNavigationMemory()
-  const activeTab = mode === 'role' ? memory.role.tab : memory.workspace.tab
-  const roleSessions = React.useMemo(() => roleSidebarSessions(data, activeRoleId), [data, activeRoleId])
-  const workspaceSessions = React.useMemo(
-    () => workspaceSidebarSessions(data, activeWorkspaceId, activeRoleId),
-    [data, activeWorkspaceId, activeRoleId],
-  )
+  const activeTab: RoleSidebarTab | WorkspaceSidebarTab = view === 'role' ? memory.role.tab : memory.workspace.tab
+
   const rolePendingChat =
     pendingRoleChat && String(pendingRoleChat?.roleId || '') === activeRoleId
       ? pendingRoleChat.chat
@@ -102,73 +107,13 @@ export function ChatSidebar(props: {
   const [sessionSearchText, setSessionSearchText] = React.useState('')
   React.useEffect(() => {
     setSessionSearchText('')
-  }, [mode, activeRoleId, activeWorkspaceId])
-  const showSessionSearch = mode === 'role' ? activeTab === 'history' : activeTab === 'session'
+  }, [view, activeRoleId, activeWorkspaceId])
 
-  const sectionTitle = (text: string) => (
-    <Typography variant="caption" sx={{ fontWeight: 900, px: 1.5, color: 'text.secondary' }}>
-      {text}
-    </Typography>
-  )
-
-  const emptyHint = (text: string) => (
-    <Box sx={{ px: 1.5, py: 1 }}>
-      <Typography variant="body2" color="text.secondary">
-        {text}
-      </Typography>
-    </Box>
-  )
-
-  const roleList = (isSelected: (roleId: string) => boolean, onSelect: (roleId: string) => void, scope: 'role' | 'workspace') => {
-    if (scope === 'workspace' && !activeWorkspaceId) return emptyHint('先选择工作区。')
-    const emptyTitle = scope === 'workspace' ? '当前工作区还没有注册角色。' : '还没有角色。'
-    const actionLabel = scope === 'workspace' ? '去注册角色' : '去创建角色'
-    const settingsTab = scope === 'workspace' ? 'workspaces' : 'roles'
-    return roles.length ? (
-      <RoleList
-        roles={roles}
-        isSelected={isSelected}
-        onSelect={onSelect}
-        onOpenEditor={(id) => controller.actions.openRoleEditor?.(id)}
-        formatModelRefText={formatModelRefText}
-        sortable={{ onMove: onMoveRole }}
-      />
-    ) : (
-      <Box sx={{ px: 1.5, py: 1 }}>
-        <Typography variant="body2" color="text.secondary">
-          {emptyTitle}
-        </Typography>
-        <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings(settingsTab)}>
-          {actionLabel}
-        </Button>
-      </Box>
-    )
-  }
-
-  const workspaceList = () => (
-    workspaces.length ? (
-      <WorkspaceList
-        workspaces={workspaces}
-        isSelected={(id) => id === activeWorkspaceId && activeTargetKind === 'workspace'}
-        onSelect={onSelectWorkspace}
-        onOpenEditor={(id) => controller.actions.openWorkspaceEditor?.(id)}
-        sortable={{ onMove: onMoveWorkspace }}
-      />
-    ) : (
-      <Box sx={{ px: 1.5, py: 1 }}>
-        <Typography variant="body2" color="text.secondary">
-          还没有工作区。
-        </Typography>
-        <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
-          去创建工作区
-        </Button>
-      </Box>
-    )
-  )
-
-  const tabs = mode === 'role'
+  const showSessionSearch = view === 'role' ? activeTab === 'history' : activeTab === 'session'
+  const tabs = view === 'role'
     ? [{ value: 'roles', label: '角色' }, { value: 'history', label: '历史会话' }]
     : [{ value: 'workspaces', label: '工作区' }, { value: 'roles', label: '角色' }, { value: 'session', label: '会话' }]
+  const toggleLabel = view === 'role' ? '切换到工作区面板' : '切换到角色面板'
 
   return (
     <Box
@@ -208,21 +153,36 @@ export function ChatSidebar(props: {
         }}
       />
 
-      <Tabs
-        value={activeTab}
-        onChange={(_, next) => onTabChange(mode, String(next))}
-        variant="fullWidth"
-        sx={{ minHeight: 34, flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider' }}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+        }}
       >
-        {tabs.map((item) => (
-          <Tab
-            key={item.value}
-            value={item.value}
-            label={item.label}
-            sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
-          />
-        ))}
-      </Tabs>
+        <Tooltip title={toggleLabel}>
+          <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
+            <SwapHorizIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tabs
+          value={activeTab}
+          onChange={(_, next) => onTabChange(view, String(next))}
+          variant="fullWidth"
+          sx={{ minHeight: 34, flex: 1, minWidth: 0 }}
+        >
+          {tabs.map((item) => (
+            <Tab
+              key={item.value}
+              value={item.value}
+              label={item.label}
+              sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
+            />
+          ))}
+        </Tabs>
+      </Box>
 
       {showSessionSearch ? (
         <Box sx={{ flexShrink: 0, px: 1.5, pt: 1, pb: 0.5 }}>
@@ -258,73 +218,51 @@ export function ChatSidebar(props: {
       ) : null}
 
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
-        {mode === 'role' ? (
-          activeTab === 'history' ? (
-            <>
-              {sectionTitle('历史会话')}
-              {activeTargetKind === 'role' ? (
-                <SidebarSessionList
-                  sessions={roleSessions.sessions}
-                  pendingChat={rolePendingChat}
-                  pendingTitle="新聊天"
-                  roleAvatarImage={activeRoleAvatarImage}
-                  searchText={sessionSearchText}
-                  targetKind="role"
-                  targetId={activeRoleId}
-                  activeChatId={activeChatId}
-                  fmtTime={fmtTime}
-                  onSelect={onSelectSession}
-                  chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
-                />
-              ) : (
-                emptyHint('先选择角色。')
-              )}
-            </>
-          ) : (
-            <>
-              {sectionTitle('角色')}
-              {roleList(
-                (id) => id === activeRoleId && activeTargetKind === 'role',
-                onSelectRole,
-                'role',
-              )}
-            </>
-          )
-        ) : activeTab === 'workspaces' ? (
-          <>
-            {sectionTitle('工作区')}
-            {workspaceList()}
-          </>
-        ) : activeTab === 'roles' ? (
-          <>
-            {sectionTitle('角色')}
-            {roleList(
-              (id) => id === activeRoleId && activeTargetKind === 'workspace',
-              onSelectWorkspaceRole,
-              'workspace',
-            )}
-          </>
+        {view === 'role' ? (
+          <RoleSidebarPanel
+            tab={memory.role.tab}
+            roles={roles}
+            activeRoleId={activeRoleId}
+            activeTargetKind={activeTargetKind}
+            activeChatId={activeChatId}
+            data={data}
+            pendingChat={rolePendingChat}
+            roleAvatarImage={activeRoleAvatarImage}
+            searchText={sessionSearchText}
+            formatModelRefText={formatModelRefText}
+            openPluginSettings={openPluginSettings}
+            fmtTime={fmtTime}
+            chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
+            onSelectRole={onSelectRole}
+            onOpenRoleEditor={(roleId) => controller.actions.openRoleEditor?.(roleId)}
+            onMoveRole={onMoveRole}
+            onSelectSession={onSelectSession}
+          />
         ) : (
-          <>
-            {sectionTitle('会话')}
-            {activeTargetKind === 'workspace' ? (
-              <SidebarSessionList
-                sessions={workspaceSessions.sessions}
-                pendingChat={workspacePendingChat}
-                pendingTitle="工作区会话"
-                roleAvatarImage={activeRoleAvatarImage}
-                searchText={sessionSearchText}
-                targetKind="workspace"
-                targetId={workspaceRoleTargetId(activeWorkspaceId, activeRoleId)}
-                activeChatId={activeChatId}
-                fmtTime={fmtTime}
-                onSelect={onSelectSession}
-                chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
-              />
-            ) : (
-              emptyHint('先选择工作区。')
-            )}
-          </>
+          <WorkspaceSidebarPanel
+            tab={memory.workspace.tab}
+            roles={roles}
+            workspaces={workspaces}
+            activeRoleId={activeRoleId}
+            activeWorkspaceId={activeWorkspaceId}
+            activeTargetKind={activeTargetKind}
+            activeChatId={activeChatId}
+            data={data}
+            pendingChat={workspacePendingChat}
+            roleAvatarImage={activeRoleAvatarImage}
+            searchText={sessionSearchText}
+            formatModelRefText={formatModelRefText}
+            openPluginSettings={openPluginSettings}
+            fmtTime={fmtTime}
+            chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
+            onSelectWorkspace={onSelectWorkspace}
+            onSelectWorkspaceRole={onSelectWorkspaceRole}
+            onOpenWorkspaceEditor={(workspaceId) => controller.actions.openWorkspaceEditor?.(workspaceId)}
+            onOpenRoleEditor={(roleId) => controller.actions.openRoleEditor?.(roleId)}
+            onMoveWorkspace={onMoveWorkspace}
+            onMoveRole={onMoveRole}
+            onSelectSession={onSelectSession}
+          />
         )}
       </Box>
     </Box>

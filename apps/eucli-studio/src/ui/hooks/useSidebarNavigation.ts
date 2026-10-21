@@ -15,6 +15,7 @@ import {
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
 import { roleSidebarSessions, workspaceSidebarSessions } from '../../domain/sidebarSessions'
+import { sidebarViewForTarget, type SidebarView } from '../../domain/sidebarView'
 import { isWorkspaceRoleRegistered } from '../../domain/workspaceRoleScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useEvent } from './useEvent'
@@ -45,7 +46,6 @@ export function useSidebarNavigation(input: {
   roles: any[]
   workspaces: any[]
   selectedActiveChatId: string
-  activeChatTargetId: string
   pendingRoleChat: any
   pendingWorkspaceChat: any
   requestSwitch: (chatId: any, options?: { force?: boolean }) => void
@@ -61,7 +61,6 @@ export function useSidebarNavigation(input: {
     roles,
     workspaces,
     selectedActiveChatId,
-    activeChatTargetId,
     pendingRoleChat,
     pendingWorkspaceChat,
     requestSwitch,
@@ -72,6 +71,23 @@ export function useSidebarNavigation(input: {
   const [, setMemoryVersion] = React.useState(0)
   const bumpMemory = React.useCallback(() => setMemoryVersion((value) => value + 1), [])
   const initRef = React.useRef(false)
+
+  // 侧边栏显示视图独立于聊天目标：只有点击侧边栏里的条目才切换目标。
+  // 外部目标变化（如聊天选择器）时让视图跟随，避免侧边栏与当前会话完全错位。
+  const [view, setView] = React.useState<SidebarView>(() => sidebarViewForTarget(activeTargetKind))
+  const viewRef = React.useRef(view)
+  viewRef.current = view
+  const lastTargetKindRef = React.useRef(activeTargetKind)
+  React.useEffect(() => {
+    const previous = lastTargetKindRef.current
+    lastTargetKindRef.current = activeTargetKind
+    if (activeTargetKind === previous || activeTargetKind === 'group') return
+    setView(activeTargetKind)
+  }, [activeTargetKind])
+
+  const toggleView = useEvent(() => {
+    setView((current) => (current === 'role' ? 'workspace' : 'role'))
+  })
 
   const pendingRoleMatches = (roleId: string) =>
     !!pendingRoleChat && String(pendingRoleChat?.roleId || '') === roleId
@@ -98,7 +114,7 @@ export function useSidebarNavigation(input: {
     requestSwitch(nextChatId, options)
   })
 
-  const restoreRoleMode = useEvent(() => {
+  const restoreRoleNavigation = useEvent(() => {
     const memory = getSidebarNavigationMemory()
     const roleId = resolveRoleId(roles, String(memory.role.roleId || ''))
     if (!roleId) return
@@ -112,7 +128,7 @@ export function useSidebarNavigation(input: {
     bumpMemory()
   })
 
-  const restoreWorkspaceMode = useEvent(() => {
+  const restoreWorkspaceNavigation = useEvent(() => {
     const memory = getSidebarNavigationMemory()
     const workspaceId = resolveWorkspaceId(workspaces, String(memory.workspace.workspaceId || ''))
     if (!workspaceId) return
@@ -140,12 +156,12 @@ export function useSidebarNavigation(input: {
     if (activeTargetKind !== 'role' && activeTargetKind !== 'workspace') return
     if (activeTargetKind === 'role') {
       if (!roles.length) return
-      restoreRoleMode()
+      restoreRoleNavigation()
     } else {
       if (!workspaces.length || !roles.length) return
-      restoreWorkspaceMode()
+      restoreWorkspaceNavigation()
     }
-  }, [sidebarVisible, data, activeTargetKind, roles, workspaces, restoreRoleMode, restoreWorkspaceMode])
+  }, [sidebarVisible, data, activeTargetKind, roles, workspaces, restoreRoleNavigation, restoreWorkspaceNavigation])
 
   React.useEffect(() => {
     if (!sidebarVisible || !data || !initRef.current) return
@@ -261,20 +277,33 @@ export function useSidebarNavigation(input: {
   const selectSession = useEvent((chatIdRaw: string) => {
     const chatId = String(chatIdRaw || '').trim()
     if (!chatId) return
-    clearChatSessionRunNotice(activeTargetKind, activeChatTargetId, chatId)
-    switchSession(chatId)
+    const currentView = viewRef.current
+    if (currentView === 'role') {
+      if (!activeRoleId) return
+      clearChatSessionRunNotice('role', activeRoleId, chatId)
+      rememberRoleSession(activeRoleId, chatId)
+      if (activeTargetKind !== 'role') controller.actions.setActiveRole(activeRoleId)
+    } else {
+      if (!activeWorkspaceId || !activeRoleId) return
+      clearChatSessionRunNotice('workspace', workspaceRoleTargetId(activeWorkspaceId, activeRoleId), chatId)
+      rememberWorkspaceSession(activeWorkspaceId, activeRoleId, chatId)
+      if (activeTargetKind !== 'workspace') controller.actions.setActiveWorkspace(activeWorkspaceId)
+    }
+    requestSwitch(chatId, { force: true })
+    initRef.current = true
+    bumpMemory()
   })
 
-  const changeTab = useEvent((mode: 'role' | 'workspace', tab: string) => {
-    if (mode === 'role') setRoleSidebarTab(tab as RoleSidebarTab)
+  const changeTab = useEvent((targetView: SidebarView, tab: string) => {
+    if (targetView === 'role') setRoleSidebarTab(tab as RoleSidebarTab)
     else setWorkspaceSidebarTab(tab as WorkspaceSidebarTab)
     bumpMemory()
   })
 
   return {
     switchSession,
-    restoreRoleMode,
-    restoreWorkspaceMode,
+    view,
+    toggleView,
     selectRole,
     selectWorkspace,
     selectWorkspaceRole,

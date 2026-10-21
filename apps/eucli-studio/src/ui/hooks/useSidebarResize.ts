@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { type SidebarSide } from '../../domain/uiMode'
+import { type SidebarSide } from '../../domain/sidebarLayout'
 import { resolveSidebarLineX, resolveSidebarWidthFromLine } from '../../domain/sidebarResize'
 import { setSidebarResizeLock } from '../sidebarResizeLock'
 import { useEvent } from './useEvent'

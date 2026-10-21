@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveSidebarLineX, resolveSidebarWidthFromLine } from './sidebarResize'
-import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from './uiMode'
+import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from './sidebarLayout'
 
 describe('侧边栏宽度拖拽几何：竖线位置 ↔ 宽度', () => {
   it('左侧栏：宽度 = 竖线到左锚点的距离', () => {

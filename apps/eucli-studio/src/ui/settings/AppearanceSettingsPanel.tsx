@@ -30,16 +30,10 @@ import {
   normalizeComposerWidthPercent,
 } from '../../domain/composerAppearance'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
-import { normalizeUiModeSettings, type UiModeTarget } from '../../domain/uiMode'
+import { resolveSidebarLayout } from '../../domain/sidebarLayout'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
-
-// 界面模式：角色模式与工作区模式各自配置，互不影响。
-const UI_MODE_TARGETS: Array<{ target: UiModeTarget; label: string }> = [
-  { target: 'role', label: '角色模式' },
-  { target: 'workspace', label: '工作区模式' },
-]
 
 // useNumberDraft 管理「数字输入框 + 滑杆」组合的输入草稿：输入过程不打断，
 // 提交时归一化并复位显示；与设置值同步，滑杆拖动不会和输入框打架。
@@ -195,7 +189,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     const raw = String(((settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
     return normalizeHotkeyString(raw)
   })()
-  const uiModeSettings = normalizeUiModeSettings((settings as any)?.uiMode)
+  const sidebarLayout = resolveSidebarLayout(settings)
 
   return (
     <SettingsSurface>
@@ -205,39 +199,29 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
         <SettingsSection>
           <Stack spacing={1.5}>
             <Box>
-              <Typography sx={{ fontWeight: 900 }}>界面模式</Typography>
+              <Typography sx={{ fontWeight: 900 }}>侧边栏</Typography>
               <Typography variant="caption" color="text.secondary">
-                角色模式与工作区模式各自保存侧边栏设置；侧边栏会把「角色 / 工作区」列表摊开直接点选，顶栏保持不变，侧边栏宽度可拖拽调整。
+                角色与工作区共用同一个侧边栏；侧边栏顶部可切换显示角色或工作区，宽度可拖拽调整。
               </Typography>
             </Box>
 
-            {UI_MODE_TARGETS.map(({ target, label }) => {
-              const config = uiModeSettings[target]
-              return (
-                <Box key={target}>
-                  <Typography variant="body2" sx={{ fontWeight: 900, mb: 0.5 }}>
-                    {label}
-                  </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
-                      侧边栏位置
-                    </Typography>
-                    <ToggleButtonGroup
-                      size="small"
-                      exclusive
-                      value={config.sidebarSide}
-                      onChange={(_e, v) => {
-                        if (v) controller.actions.setSidebarSide?.(target, v)
-                      }}
-                      disabled={loading}
-                    >
-                      <ToggleButton value="left">靠左</ToggleButton>
-                      <ToggleButton value="right">靠右</ToggleButton>
-                    </ToggleButtonGroup>
-                  </Stack>
-                </Box>
-              )
-            })}
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                侧边栏位置
+              </Typography>
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={sidebarLayout.side}
+                onChange={(_e, v) => {
+                  if (v) controller.actions.setSidebarSide?.(v)
+                }}
+                disabled={loading}
+              >
+                <ToggleButton value="left">靠左</ToggleButton>
+                <ToggleButton value="right">靠右</ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
           </Stack>
         </SettingsSection>
 

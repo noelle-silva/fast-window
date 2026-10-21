@@ -17,9 +17,9 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import {
   normalizeSidebarSide,
   normalizeSidebarWidth,
-  normalizeUiModeSettings,
-  type UiModeTarget,
-} from '../../domain/uiMode'
+  resolveSidebarLayout,
+  SIDEBAR_LAYOUT_SETTING_KEY,
+} from '../../domain/sidebarLayout'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createAppearanceActions(deps: {
@@ -318,22 +318,20 @@ export function createAppearanceActions(deps: {
       saveMeta().catch(() => {})
       emit()
     },
-    // 界面模式：角色模式 / 工作区模式各自一份侧边栏配置。
-    setSidebarSide: (target: any, side: any) => {
+    // 侧边栏布局只有一份：位置与宽度不再按角色 / 工作区各存一套。
+    setSidebarSide: (side: any) => {
       if (!state.data) return
-      const t: UiModeTarget = String(target || '').trim() === 'workspace' ? 'workspace' : 'role'
-      const next = normalizeUiModeSettings((state.data.settings as any).uiMode)
-      next[t].sidebarSide = normalizeSidebarSide(side)
-      ;(state.data.settings as any).uiMode = next
+      const next = resolveSidebarLayout(state.data.settings as any)
+      next.side = normalizeSidebarSide(side)
+      ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
       saveMeta().catch(() => {})
       emit()
     },
-    setSidebarWidth: (target: any, width: any) => {
+    setSidebarWidth: (width: any) => {
       if (!state.data) return
-      const t: UiModeTarget = String(target || '').trim() === 'workspace' ? 'workspace' : 'role'
-      const next = normalizeUiModeSettings((state.data.settings as any).uiMode)
-      next[t].sidebarWidth = normalizeSidebarWidth(width)
-      ;(state.data.settings as any).uiMode = next
+      const next = resolveSidebarLayout(state.data.settings as any)
+      next.width = normalizeSidebarWidth(width)
+      ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
       saveMeta().catch(() => {})
       emit()
     },
