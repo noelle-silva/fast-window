@@ -938,6 +938,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onMoveRole: (activeId: string, overId: string) => controller.actions.moveRole?.(activeId, overId, sidebarMovePosition(roles, activeId, overId)),
     onMoveWorkspace: (activeId: string, overId: string) => controller.actions.moveWorkspace?.(activeId, overId, sidebarMovePosition(workspaces, activeId, overId)),
     onSelectSession: onSelectSidebarSession,
+    onChatContextMenu,
     onTabChange: onChangeSidebarTab,
   }
 

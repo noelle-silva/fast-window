@@ -5,12 +5,14 @@ import { workspaceSidebarSessions } from '../../../domain/sidebarSessions'
 import { workspaceRoleTargetId } from '../../../domain/workspaceRoleTarget'
 import type { ChatSessionRunIndicatorKind } from '../ChatSessionRunIndicator'
 import { WorkspaceList } from '../EntityLists'
-import { SidebarSessionList } from '../SidebarSessionList'
+import { SidebarSessionList, type SidebarSessionTargetKind } from '../SidebarSessionList'
 import { SidebarRoleList } from './SidebarRoleList'
+import { SidebarScrollArea } from './SidebarScrollArea'
 import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
 
 export function WorkspaceSidebarPanel(props: {
   tab: WorkspaceSidebarTab
+  dataVersion: number
   roles: any[]
   workspaces: any[]
   activeRoleId: string
@@ -37,15 +39,22 @@ export function WorkspaceSidebarPanel(props: {
   onMoveWorkspace: (activeId: string, overId: string) => void
   onMoveRole: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
+  onChatContextMenu: (
+    event: React.MouseEvent,
+    targetKind: SidebarSessionTargetKind,
+    targetId: string,
+    chatId: string,
+    title: string,
+  ) => void
 }) {
   const sessions = React.useMemo(
     () => workspaceSidebarSessions(props.data, props.activeWorkspaceId, props.activeRoleId),
-    [props.data, props.activeWorkspaceId, props.activeRoleId],
+    [props.dataVersion, props.data, props.activeWorkspaceId, props.activeRoleId],
   )
 
   if (props.tab === 'workspaces') {
     return (
-      <>
+      <SidebarScrollArea>
         <SidebarSectionTitle>工作区</SidebarSectionTitle>
         {props.workspaces.length ? (
           <WorkspaceList
@@ -65,13 +74,13 @@ export function WorkspaceSidebarPanel(props: {
             </Button>
           </Box>
         )}
-      </>
+      </SidebarScrollArea>
     )
   }
 
   if (props.tab === 'roles') {
     return (
-      <>
+      <SidebarScrollArea>
         <SidebarSectionTitle>角色</SidebarSectionTitle>
         <SidebarRoleList
           roles={props.roles}
@@ -85,32 +94,36 @@ export function WorkspaceSidebarPanel(props: {
           onOpenEditor={props.onOpenRoleEditor}
           onMove={props.onMoveRole}
         />
-      </>
+      </SidebarScrollArea>
+    )
+  }
+
+  if (!props.activeWorkspaceId || !props.activeRoleId) {
+    return (
+      <SidebarScrollArea>
+        <SidebarSectionTitle>会话</SidebarSectionTitle>
+        <SidebarEmptyHint>
+          {!props.activeWorkspaceId ? '先选择工作区。' : '先选择角色。'}
+        </SidebarEmptyHint>
+      </SidebarScrollArea>
     )
   }
 
   return (
-    <>
-      <SidebarSectionTitle>会话</SidebarSectionTitle>
-      {!props.activeWorkspaceId ? (
-        <SidebarEmptyHint>先选择工作区。</SidebarEmptyHint>
-      ) : !props.activeRoleId ? (
-        <SidebarEmptyHint>先选择角色。</SidebarEmptyHint>
-      ) : (
-        <SidebarSessionList
-          sessions={sessions.sessions}
-          pendingChat={props.pendingChat}
-          pendingTitle="工作区会话"
-          roleAvatarImage={props.roleAvatarImage}
-          searchText={props.searchText}
-          targetKind="workspace"
-          targetId={workspaceRoleTargetId(props.activeWorkspaceId, props.activeRoleId)}
-          activeChatId={props.activeChatId}
-          fmtTime={props.fmtTime}
-          onSelect={props.onSelectSession}
-          chatSessionRunIndicatorKind={props.chatSessionRunIndicatorKind}
-        />
-      )}
-    </>
+    <SidebarSessionList
+      title="会话"
+      sessions={sessions.sessions}
+      pendingChat={props.pendingChat}
+      pendingTitle="工作区会话"
+      roleAvatarImage={props.roleAvatarImage}
+      searchText={props.searchText}
+      targetKind="workspace"
+      targetId={workspaceRoleTargetId(props.activeWorkspaceId, props.activeRoleId)}
+      activeChatId={props.activeChatId}
+      fmtTime={props.fmtTime}
+      onSelect={props.onSelectSession}
+      onContextMenu={props.onChatContextMenu}
+      chatSessionRunIndicatorKind={props.chatSessionRunIndicatorKind}
+    />
   )
 }

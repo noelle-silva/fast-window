@@ -12,6 +12,7 @@ import {
 } from '../../domain/sidebarNavigationMemory'
 import type { SidebarView } from '../../domain/sidebarView'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
@@ -54,6 +55,13 @@ export function ChatSidebar(props: {
   onMoveRole: (activeId: string, overId: string) => void
   onMoveWorkspace: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
+  onChatContextMenu: (
+    event: React.MouseEvent,
+    targetKind: 'role' | 'workspace',
+    targetId: string,
+    chatId: string,
+    title: string,
+  ) => void
   onTabChange: (view: SidebarView, tab: string) => void
 }) {
   const {
@@ -87,9 +95,11 @@ export function ChatSidebar(props: {
     onMoveRole,
     onMoveWorkspace,
     onSelectSession,
+    onChatContextMenu,
     onTabChange,
   } = props
 
+  const dataVersion = useUiDataVersion(controller)
   const memory = getSidebarNavigationMemory()
   const activeTab: RoleSidebarTab | WorkspaceSidebarTab = view === 'role' ? memory.role.tab : memory.workspace.tab
 
@@ -217,10 +227,11 @@ export function ChatSidebar(props: {
         </Box>
       ) : null}
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {view === 'role' ? (
           <RoleSidebarPanel
             tab={memory.role.tab}
+            dataVersion={dataVersion}
             roles={roles}
             activeRoleId={activeRoleId}
             activeTargetKind={activeTargetKind}
@@ -237,10 +248,12 @@ export function ChatSidebar(props: {
             onOpenRoleEditor={(roleId) => controller.actions.openRoleEditor?.(roleId)}
             onMoveRole={onMoveRole}
             onSelectSession={onSelectSession}
+            onChatContextMenu={onChatContextMenu}
           />
         ) : (
           <WorkspaceSidebarPanel
             tab={memory.workspace.tab}
+            dataVersion={dataVersion}
             roles={roles}
             workspaces={workspaces}
             activeRoleId={activeRoleId}
@@ -262,6 +275,7 @@ export function ChatSidebar(props: {
             onMoveWorkspace={onMoveWorkspace}
             onMoveRole={onMoveRole}
             onSelectSession={onSelectSession}
+            onChatContextMenu={onChatContextMenu}
           />
         )}
       </Box>
