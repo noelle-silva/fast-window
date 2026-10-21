@@ -134,10 +134,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
     '.prose .fw-sticker-miss': { color: 'var(--studio-text-secondary)' },
     '.prose .fw-table-wrap': {
       position: 'relative',
-      // 宽度贴合表格本身：工具条 right:0 才会落在表格右上角，而不是整行最右。
-      width: 'fit-content',
-      maxWidth: '100%',
-      margin: '12px auto',
+      margin: '12px 0',
       overflowX: 'auto',
     },
     '.prose table': {
@@ -162,7 +159,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
     },
     '.prose .fw-table-toolbar': {
       position: 'absolute',
-      top: -10,
+      top: 4,
       right: 0,
       display: 'flex',
       gap: 6,
