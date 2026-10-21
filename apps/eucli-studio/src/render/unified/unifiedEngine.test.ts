@@ -258,8 +258,7 @@ describe('unified 引擎：Markdown 基础语法（GFM）', () => {
     host.remove()
   })
 
-  it('基础语法全覆盖：标题/列表/引用/链接/图片/水平线/粗斜体', () => {
-    const text = [
+  it('基础语法全覆盖：标题/列表/引用/链接/图片/水平线/粗斜体', () => {    const text = [
       '# 标题一',
       '',
       '## 标题二',
@@ -293,6 +292,18 @@ describe('unified 引擎：Markdown 基础语法（GFM）', () => {
     expect(host.querySelectorAll('a[href]').length).toBe(1)
     expect(host.querySelectorAll('img[src]').length).toBe(1)
     expect(host.querySelectorAll('hr').length).toBe(1)
+    host.remove()
+  })
+
+  it('表格挂载复制工具条（两个图标按钮）', () => {
+    const text = ['| A | B |', '|---|---|', '| 1 | 2 |'].join('\n')
+    const host = renderInto(makeEngine(), text, OPTIONS)
+
+    const wrap = host.querySelector('.fw-table-wrap')
+    expect(wrap).toBeTruthy()
+    expect(wrap?.querySelector('table')).toBeTruthy()
+    expect(wrap?.querySelectorAll('button.fw-table-action').length).toBe(2)
+
     host.remove()
   })
 })

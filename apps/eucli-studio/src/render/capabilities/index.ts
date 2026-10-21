@@ -7,6 +7,7 @@ import { createMathCapability } from './math'
 import { createMermaidCapability } from './mermaid'
 import { createStickerCapability } from './sticker'
 import { createImageCapability } from './image'
+import { createTableCapability } from './table'
 import { createHtmlCapability } from './html'
 
 // 能力装配入口：把全部渲染能力按契约组装成能力集合。
@@ -27,6 +28,7 @@ export function createRenderCapabilities(deps: RenderCapabilityDeps): RenderCapa
     createMermaidCapability({ mermaidInited: deps.mermaidInited, mermaidSvgCache: deps.mermaidSvgCache, capabilities: deps.capabilities }),
     createStickerCapability(),
     createImageCapability({ refImages: deps.refImages }),
+    createTableCapability(),
     createHtmlCapability(),
   ]
 }
