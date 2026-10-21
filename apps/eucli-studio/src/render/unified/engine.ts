@@ -17,7 +17,7 @@ import { preprocessHtmlIndentation } from '../markdown'
 import type { BoolRef, RenderSafetyPolicy } from '../types'
 import type { RenderContext } from '../contract'
 import type { AiChatCapabilities } from '../../gateway/capabilities'
-import { rehypeSticker, rehypeMathPlaceholder, rehypeRestoreHtmlBlock, rehypeFence, rehypeMermaid, rehypeEscapeCode } from './plugins'
+import { RENDER_PLUGINS } from './plugins/registry'
 import { protectMath, type MathClaim } from './mathProtect'
 import { protectHtmlBlocks, demoteOpenFences } from './htmlProtect'
 
@@ -86,25 +86,31 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
   //
   // rehype-raw 会用 parse5 把整棵树重新解析一遍，是解析阶段最大的单点开销；
   // 而绝大多数消息里根本没有 HTML 块。按需启用可在不损失能力的前提下省掉这笔钱。
+  // 主流程只负责「搭底座 + 按注册表跑插件」，不认识任何具体插件；
+  // 插件之间也互不认识——顺序由注册表数组决定，参数由上下文按需提供。
+  function applyPlugins(processor: any, phase: 'before-raw' | 'after-raw', withRaw: boolean) {
+    let p = processor
+    for (const entry of RENDER_PLUGINS) {
+      if (entry.phase !== phase) continue
+      if (entry.requiresRaw && !withRaw) continue
+      p = entry.options ? p.use(entry.plugin, entry.options(pluginCtx)) : p.use(entry.plugin)
+    }
+    return p
+  }
+
   function createProcessor(withRaw: boolean) {
+    // 解析底座（固定）：Markdown 语法 + GFM 扩展 + 单换行语义。
     let p = unified()
       .use(remarkParse)
-      // GFM：表格、删除线、任务列表、自动链接等（旧引擎的 marked 默认开启，这里对齐）
       .use(remarkGfm)
-      // 单换行即换行（旧引擎 marked 配置了 breaks: true，这里对齐）
       .use(remarkBreaks)
       .use(remarkRehype, { allowDangerousHtml: true })
-      // HTML 块占位还原必须排在 rehype-raw 之前，才能被重新解析成真节点。
-      .use(rehypeRestoreHtmlBlock, { getBlocks: () => pluginCtx.htmlBlocks })
+
+    p = applyPlugins(p, 'before-raw', withRaw)
     if (withRaw) p = p.use(rehypeRaw)
-    return p
-      // 块内围栏：HTML 块里的 ```mermaid / ```js 不会被 Markdown 解析，这里还原成 pre > code。
-      .use(rehypeFence)
-      .use(rehypeSticker, { getCtx: () => pluginCtx })
-      .use(rehypeMathPlaceholder, { getClaims: () => pluginCtx.mathClaims })
-      .use(rehypeMermaid)
-      .use(rehypeEscapeCode)
-      .use(rehypeStringify, { allowDangerousHtml: true })
+    p = applyPlugins(p, 'after-raw', withRaw)
+
+    return p.use(rehypeStringify, { allowDangerousHtml: true })
   }
 
   const processorWithRaw = createProcessor(true)
