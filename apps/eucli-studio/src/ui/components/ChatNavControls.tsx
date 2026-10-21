@@ -5,6 +5,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import HistoryIcon from '@mui/icons-material/History'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
 
@@ -14,6 +15,7 @@ export type ChatNavControlsProps = {
   treeOpen: boolean
   chatNav: { olderId: any; newerId: any; lockedReason: any }
   onOpenChatPicker: (e: React.MouseEvent<HTMLElement>) => void
+  onOpenRunningSessions: () => void
   onCreateChat: () => void
   onToggleTree: () => void
   onOpenProviders: () => void
@@ -27,6 +29,7 @@ export function ChatNavControls(props: ChatNavControlsProps) {
     treeOpen,
     chatNav,
     onOpenChatPicker,
+    onOpenRunningSessions,
     onCreateChat,
     onToggleTree,
     onOpenProviders,
@@ -57,6 +60,14 @@ export function ChatNavControls(props: ChatNavControlsProps) {
       aria: '切换到较新会话',
       disabled: !!chatNav.lockedReason || !chatNav.newerId,
       onClick: () => onSwitchChat(chatNav.newerId),
+    },
+    {
+      key: 'running',
+      icon: <PlayCircleOutlineIcon fontSize="small" />,
+      tooltip: '正在运行的会话',
+      aria: '正在运行的会话',
+      disabled: false,
+      onClick: () => onOpenRunningSessions(),
     },
     {
       key: 'history',

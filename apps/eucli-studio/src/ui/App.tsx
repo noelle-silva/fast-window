@@ -23,11 +23,12 @@ import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
 import { useSessionRunObservations } from './hooks/useSessionRunObservations'
+import { useRunningSessionNavigation } from './hooks/useRunningSessionNavigation'
 import { useChatMessageIndex } from './hooks/useChatMessageIndex'
 import { useChatMessageView } from './hooks/useChatMessageView'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
-import { TOPBAR_H } from './appConstants'
+import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
 import { createChatGlobalStyles } from './globalStyles'
 import { messageRefreshScope } from '../domain/uiRefreshScope'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
@@ -40,6 +41,7 @@ import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { FavoriteFoldersDialogs } from './dialogs/FavoriteFoldersDialogs'
 import { ChatSessionDialogs } from './dialogs/ChatSessionDialogs'
+import { RunningSessionsDialog } from './dialogs/RunningSessionsDialog'
 import { ChatContextMenus } from './dialogs/ChatContextMenus'
 import { MessageMenusDialogs } from './dialogs/MessageMenusDialogs'
 import { RolePickerPopover } from './dialogs/RolePickerPopover'
@@ -58,6 +60,7 @@ import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
+import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
@@ -165,6 +168,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const renderChat = chatSwitch.renderChat
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
+  const [runningSessionsOpen, setRunningSessionsOpen] = React.useState(false)
+  const jumpToRunningSession = useRunningSessionNavigation({ controller, requestSwitch: chatSwitch.requestSwitch })
+  const openRunningSession = useEvent((entry: RunningSessionEntry) => {
+    jumpToRunningSession(entry)
+    setRunningSessionsOpen(false)
+  })
   const chatSettingsSavingByTarget = (s as any)?.chatSettings?.savingByTarget
   const activeChatSettingsTargetKey = activeChatTargetId && activeChatId
     ? chatSettingsTargetKey({ kind: activeTargetKind, targetId: activeChatTargetId, sessionId: activeChatId })
@@ -881,11 +890,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   // 顶栏按钮配置：侧边栏负责角色 / 工作区导航，顶栏只保留会话操作与全局入口。
   const canCreateChat = activeTargetKind === 'workspace' ? !!(activeWorkspace && activeRole) : !!activeRole
+  const runningSessions = collectRunningSessions({ state: s, data, includeGroups: GROUP_ENTRY_VISIBLE })
+  const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
   const navControlsProps = {
     canCreateChat,
     treeOpen,
     chatNav,
     onOpenChatPicker: openChatPicker,
+    onOpenRunningSessions: () => setRunningSessionsOpen(true),
     onCreateChat: () => controller.actions.createChat(),
     onToggleTree: () => setTreeOpen((v) => !v),
     onOpenProviders: () => controller.actions.openProviders?.(),
@@ -1404,6 +1416,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             confirmDelChat={confirmDelChat}
             setConfirmDelChat={setConfirmDelChat}
             isSendingThisChat={isSendingThisChat}
+          />
+
+          <RunningSessionsDialog
+            open={runningSessionsOpen}
+            entries={runningSessions}
+            activeKey={activeRunningSessionKey}
+            onClose={() => setRunningSessionsOpen(false)}
+            onOpen={openRunningSession}
           />
 
         </Box>
