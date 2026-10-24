@@ -26,7 +26,7 @@ import { useSessionRunObservations } from './hooks/useSessionRunObservations'
 import { useRunningSessionNavigation } from './hooks/useRunningSessionNavigation'
 import { useChatMessageIndex } from './hooks/useChatMessageIndex'
 import { useChatMessageView } from './hooks/useChatMessageView'
-import { useMessageBatchMount } from './hooks/useMessageBatchMount'
+import { useSessionKeepAlive } from './hooks/useSessionKeepAlive'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
@@ -53,8 +53,8 @@ import { ChatTopBar } from './components/ChatTopBar'
 import { ChatSidebar } from './components/ChatSidebar'
 import { resolveSortMovePosition } from './components/SortableDnd'
 import { SidebarResizeLine } from './components/SidebarResizeLine'
-import { ChatMessageList } from './components/ChatMessageList'
-import { CustomScrollArea } from './components/CustomScrollArea'
+import { SessionMessagePage } from './components/SessionMessagePage'
+import { SessionPageStack } from './components/SessionPageStack'
 import { Freeze } from './components/Freeze'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
@@ -579,15 +579,15 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     branchDraft,
     branchDraftKey,
   })
-  const { batchGroups: messageBatchGroups, visibleMessages: batchedVisibleMessages } = useMessageBatchMount({
-    sessionKey: renderChatId,
-    messages: renderMessages,
-    scrollRef: chatRootRef,
-  })
-  const displayRenderMessages = React.useMemo(
-    () => (activeRunTailPendingMessage ? [...batchedVisibleMessages, activeRunTailPendingMessage] : batchedVisibleMessages),
-    [activeRunTailPendingMessage, batchedVisibleMessages],
-  )
+  const sessionPageBlocked =
+    !!s.loading ||
+    (activeTargetKind === 'group' && !activeGroup) ||
+    (activeTargetKind === 'workspace' && !activeWorkspace) ||
+    (activeTargetKind === 'workspace' && !visibleRoles.length) ||
+    (activeTargetKind !== 'group' && !activeRole) ||
+    chatSwitch.switching
+  const sessionPageKey = !sessionPageBlocked && renderChat && Array.isArray(renderChat.messages) ? renderChatId : ''
+  const sessionKeepAliveKeys = useSessionKeepAlive(sessionPageKey)
   const treeHighlightEdgeKeys = React.useMemo(() => {
     const tr: any = treeRender
     const target = String(lastMsgId || '').trim()
@@ -739,7 +739,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
+  }, [page, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -753,7 +753,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
+  }, [page, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -766,7 +766,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+  }, [page, sessionPageKey, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
 
   // 流式推进走范围刷新，不再触发整页渲染；这里单独订阅最后一条消息的范围，
   // 只做“跟随到底部”的滚动副作用，不引起 React 重渲染。
@@ -785,7 +785,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         } catch (_) {}
       })
     })
-  }, [page, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
+  }, [page, sessionPageKey, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -827,7 +827,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     return () => {
       canceled = true
     }
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
+  }, [page, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
 
   const {
     sendFromComposer,
@@ -1033,118 +1033,146 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-canvas)',
               }}
             >
-             <CustomScrollArea
-                ref={chatRootRef}
-                onClick={onClickOpenImageViewer}
-                hostSx={{
-                  flex: 1,
-                  minHeight: 0,
-                }}
-                scrollSx={{
-                  height: '100%',
-                  overflowX: 'hidden',
-                  overflowAnchor: 'none',
-                  pl: 2,
-                  pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
-                  pt: `calc(${TOPBAR_H}px + 16px)`,
-                  bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
-                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
-               }}
-              >
-                {s.loading ? (
-                  <Typography variant="body2" color="text.secondary">
-                    加载中…
-                  </Typography>
-                ) : activeTargetKind === 'group' && !activeGroup ? (
-                  <Typography variant="body2" color="text.secondary">
-                    请选择群组
-                  </Typography>
-                ) : activeTargetKind === 'workspace' && !activeWorkspace ? (
-                  <Typography variant="body2" color="text.secondary">
-                    请选择工作区
-                  </Typography>
-                ) : activeTargetKind === 'workspace' && !visibleRoles.length ? (
-                  <Box>
+             <SessionPageStack
+                activeKey={sessionPageKey}
+                keys={sessionKeepAliveKeys}
+                activeScrollRef={chatRootRef}
+                activePage={
+                  sessionPageKey ? (
+                    <SessionMessagePage
+                      sessionKey={sessionPageKey}
+                      messages={renderMessages}
+                      hasMessages={!!renderChat && Array.isArray(renderChat.messages) && renderChat.messages.length > 0}
+                      activeRunTailPendingMessage={activeRunTailPendingMessage}
+                      emptyContent={
+                        <Typography variant="body2" color="text.secondary">
+                          还没有消息。输入内容并发送。
+                        </Typography>
+                      }
+                      messageListProps={{
+                        controller,
+                        roles,
+                        activeRole,
+                        activeTargetKind,
+                        activeVisibleRunCards,
+                        prevAiMidByAssistantId,
+                        assistantSiblingsByPrevAiMid,
+                        chatAllMessagesRaw,
+                        expandedToolMsgIds,
+                        expandedUserMsgIds,
+                        editingMsg,
+                        loading: s.loading,
+                        uiBusy,
+                        userMessageCollapseEnabled,
+                        userMessageCollapseLines,
+                        reasoningDisplayMode,
+                        reasoningRenderEnabled,
+                        stickersEnabled,
+                        stickerMap,
+                        renderSafetyPolicyKey: renderSafetyPolicy,
+                        formatModelRefText,
+                        messageMutationBlocked,
+                        onMessageContextMenu,
+                        onToggleToolMessage: toggleExpandedToolMsg,
+                        onToggleUserMessage: toggleExpandedUserMsg,
+                        onEditTextChange: setEditingMsgText,
+                        onCancelEditMessage: cancelEditMessage,
+                        onSaveEditMessage: saveEditMessage,
+                        onStartEditMessage: startEditMessage,
+                        onCopyMessageText: copyMessageText,
+                        onSwitchBranchSibling: switchBranchSibling,
+                        onRegenerate: openRegenConfirm,
+                        onDeleteMessage: openDeleteMessageConfirm,
+                      }}
+                      scrollHostSx={{
+                        flex: 1,
+                        minHeight: 0,
+                      }}
+                      scrollSx={{
+                        height: '100%',
+                        overflowX: 'hidden',
+                        overflowAnchor: 'none',
+                        pl: 2,
+                        pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+                        pt: `calc(${TOPBAR_H}px + 16px)`,
+                        bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
+                        paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+                      }}
+                      onClick={onClickOpenImageViewer}
+                    />
+                  ) : null
+                }
+              />
+
+              {!sessionPageKey ? (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    overflowY: 'auto',
+                    pl: 2,
+                    pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+                    pt: `calc(${TOPBAR_H}px + 16px)`,
+                    bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
+                    paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+                  }}
+                >
+                  {s.loading ? (
                     <Typography variant="body2" color="text.secondary">
-                      当前工作区还没有注册角色。
+                      加载中…
                     </Typography>
-                    <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
-                      去注册角色
-                    </Button>
-                  </Box>
-                ) : activeTargetKind === 'workspace' && !activeRole ? (
-                  <Typography variant="body2" color="text.secondary">
-                    请选择角色
-                  </Typography>
-                ) : activeTargetKind !== 'group' && !activeRole ? (
-                  <Typography variant="body2" color="text.secondary">
-                    请选择角色
-                  </Typography>
-                ) : chatSwitch.switching ? (
-                  <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                    <CircularProgress size={18} thickness={4.4} color="inherit" />
+                  ) : activeTargetKind === 'group' && !activeGroup ? (
                     <Typography variant="body2" color="text.secondary">
-                      正在切换会话…
+                      请选择群组
                     </Typography>
-                  </Box>
-                ) : !renderChat ? (
-                  openingChatMeta ? (
+                  ) : activeTargetKind === 'workspace' && !activeWorkspace ? (
+                    <Typography variant="body2" color="text.secondary">
+                      请选择工作区
+                    </Typography>
+                  ) : activeTargetKind === 'workspace' && !visibleRoles.length ? (
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        当前工作区还没有注册角色。
+                      </Typography>
+                      <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
+                        去注册角色
+                      </Button>
+                    </Box>
+                  ) : activeTargetKind === 'workspace' && !activeRole ? (
+                    <Typography variant="body2" color="text.secondary">
+                      请选择角色
+                    </Typography>
+                  ) : activeTargetKind !== 'group' && !activeRole ? (
+                    <Typography variant="body2" color="text.secondary">
+                      请选择角色
+                    </Typography>
+                  ) : chatSwitch.switching ? (
                     <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
                       <CircularProgress size={18} thickness={4.4} color="inherit" />
                       <Typography variant="body2" color="text.secondary">
-                        正在打开「{String((openingChatMeta as any)?.title || '会话')}」…
+                        正在切换会话…
                       </Typography>
                     </Box>
+                  ) : !renderChat ? (
+                    openingChatMeta ? (
+                      <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                        <CircularProgress size={18} thickness={4.4} color="inherit" />
+                        <Typography variant="body2" color="text.secondary">
+                          正在打开「{String((openingChatMeta as any)?.title || '会话')}」…
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        还没有消息。输入内容并发送。
+                      </Typography>
+                    )
                   ) : (
                     <Typography variant="body2" color="text.secondary">
                       还没有消息。输入内容并发送。
                     </Typography>
-                  )
-              ) : !Array.isArray(renderChat.messages) || renderChat.messages.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  还没有消息。输入内容并发送。
-                </Typography>
-              ) : (
-                <ChatMessageList
-                  controller={controller}
-                  messageBatchGroups={messageBatchGroups}
-                  messages={displayRenderMessages}
-                  roles={roles}
-                  activeRole={activeRole}
-                  activeTargetKind={activeTargetKind}
-                  activeVisibleRunCards={activeVisibleRunCards}
-                  prevAiMidByAssistantId={prevAiMidByAssistantId}
-                  assistantSiblingsByPrevAiMid={assistantSiblingsByPrevAiMid}
-                  chatAllMessagesRaw={chatAllMessagesRaw}
-                  expandedToolMsgIds={expandedToolMsgIds}
-                  expandedUserMsgIds={expandedUserMsgIds}
-                  editingMsg={editingMsg}
-                  loading={s.loading}
-                  uiBusy={uiBusy}
-                  userMessageCollapseEnabled={userMessageCollapseEnabled}
-                  userMessageCollapseLines={userMessageCollapseLines}
-                  reasoningDisplayMode={reasoningDisplayMode}
-                  reasoningRenderEnabled={reasoningRenderEnabled}
-                  stickersEnabled={stickersEnabled}
-                  stickerMap={stickerMap}
-                  renderSafetyPolicyKey={renderSafetyPolicy}
-                  chatRootRef={chatRootRef}
-                  formatModelRefText={formatModelRefText}
-                  messageMutationBlocked={messageMutationBlocked}
-                  onMessageContextMenu={onMessageContextMenu}
-                  onToggleToolMessage={toggleExpandedToolMsg}
-                  onToggleUserMessage={toggleExpandedUserMsg}
-                  onEditTextChange={setEditingMsgText}
-                  onCancelEditMessage={cancelEditMessage}
-                  onSaveEditMessage={saveEditMessage}
-                  onStartEditMessage={startEditMessage}
-                  onCopyMessageText={copyMessageText}
-                  onSwitchBranchSibling={switchBranchSibling}
-                  onRegenerate={openRegenConfirm}
-                  onDeleteMessage={openDeleteMessageConfirm}
-                />
-              )}
-             </CustomScrollArea>
+                  )}
+                </Box>
+              ) : null}
 
               <ChatTreeModal
                 treeOpen={treeOpen}
