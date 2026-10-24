@@ -46,10 +46,10 @@ export function createEntityActions(deps: {
   clearGroupAvatarImage: () => any
   renameChatTitle: (roleId: string, chatId: string, title: string) => any
   renameGroupChatTitle: (groupId: string, chatId: string, title: string) => any
-  renameWorkspaceChatTitle: (workspaceId: string, chatId: string, title: string) => any
+  renameWorkspaceChatTitle: (workspaceId: string, roleId: string, chatId: string, title: string) => any
   deleteChatForRole: (roleId: string, chatId: string) => any
   deleteChatForGroup: (groupId: string, chatId: string) => any
-  deleteChatForWorkspace: (workspaceId: string, chatId: string) => any
+  deleteChatForWorkspace: (workspaceId: string, roleId: string, chatId: string) => any
 }) {
   const { state, emit, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
   let roleMoveSeq = 0
@@ -195,10 +195,10 @@ export function createEntityActions(deps: {
     },
     renameChat: (roleId: any, chatId: any, title: any) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
     renameGroupChat: (groupId: any, chatId: any, title: any) => renameGroupChatTitle(String(groupId || ''), String(chatId || ''), String(title ?? '')),
-    renameWorkspaceChat: (workspaceId: any, chatId: any, title: any) => renameWorkspaceChatTitle(String(workspaceId || ''), String(chatId || ''), String(title ?? '')),
+    renameWorkspaceChat: (workspaceId: any, roleId: any, chatId: any, title: any) => renameWorkspaceChatTitle(String(workspaceId || ''), String(roleId || ''), String(chatId || ''), String(title ?? '')),
     deleteChat: (roleId: any, chatId: any) => deleteChatForRole(String(roleId || ''), String(chatId || '')),
     deleteGroupChat: (groupId: any, chatId: any) => deleteChatForGroup(String(groupId || ''), String(chatId || '')),
-    deleteWorkspaceChat: (workspaceId: any, chatId: any) => deleteChatForWorkspace(String(workspaceId || ''), String(chatId || '')),
+    deleteWorkspaceChat: (workspaceId: any, roleId: any, chatId: any) => deleteChatForWorkspace(String(workspaceId || ''), String(roleId || ''), String(chatId || '')),
     roleProviderChanged: (providerId: any) => {
       state.draft.roleProviderId = String(providerId || '')
       const p = getProvider(state.draft.roleProviderId)

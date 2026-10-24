@@ -41,10 +41,11 @@ export type ChatOperationsDeps = {
   showToast?: AiChatShowToast
   save: () => Promise<void>
   ensureActiveChatLoaded?: () => Promise<any>
-  ensureChatLoaded?: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => Promise<any>
+  ensureChatLoaded?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<any>
+  ensureWorkspaceChatLoaded?: (workspaceId: string, roleId: string, chatId: string) => Promise<any>
   reloadRoleSession?: (roleId: string, sessionId: string) => Promise<any>
   reloadGroupSession?: (groupId: string, sessionId: string) => Promise<any>
-  reloadWorkspaceSession?: (workspaceId: string, sessionId: string) => Promise<any>
+  reloadWorkspaceSession?: (workspaceId: string, roleId: string, sessionId: string) => Promise<any>
   waitForChatSettingsSave?: () => Promise<void>
   emit: () => void
   render: () => void
@@ -55,16 +56,14 @@ export type ChatOperationsDeps = {
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {
-  const { getState, showToast, ensureChatLoaded, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession, ensureActiveChatLoaded, emit } = deps
+  const { getState, showToast, ensureChatLoaded, ensureWorkspaceChatLoaded, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession, ensureActiveChatLoaded, emit } = deps
 
   const sa = createStateAccessors({ getState })
   const cancelledRunIds = new Set<string>()
   const startingRoleRunKeys = new Set<string>()
 
   function splitWorkspaceTargetId(targetIdRaw: unknown) {
-    const parsed = parseWorkspaceRoleTargetId(targetIdRaw)
-    if (parsed.workspaceId && parsed.roleId) return parsed
-    return { workspaceId: String(targetIdRaw || '').trim(), roleId: String(sa.activeRole()?.id || '').trim() }
+    return parseWorkspaceRoleTargetId(targetIdRaw)
   }
 
   async function refreshRoleSession(roleId: string, sessionId: string, onLoaded?: (chat: any) => void, options?: { activate?: boolean }) {
@@ -75,8 +74,9 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     const state = getState()
     const tid = String(targetId || '').trim()
     const sid = String(sessionId || '').trim()
-    if (!state.data || !tid || !sid || typeof ensureChatLoaded !== 'function') return null
+    if (!state.data || !tid || !sid) return null
     const workspaceTarget = targetKind === 'workspace' ? splitWorkspaceTargetId(tid) : { workspaceId: '', roleId: '' }
+    if (targetKind === 'workspace' && (!workspaceTarget.workspaceId || !workspaceTarget.roleId)) return null
     if (targetKind === 'group') {
       if (!state.data.chatsByGroup || typeof state.data.chatsByGroup !== 'object') state.data.chatsByGroup = {}
       if (!state.data.chatsByGroup[tid] || typeof state.data.chatsByGroup[tid] !== 'object') state.data.chatsByGroup[tid] = { activeChatId: '', chatMetas: [], chats: [] }
@@ -90,14 +90,20 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     const chat = targetKind === 'group'
       ? typeof reloadGroupSession === 'function'
         ? await reloadGroupSession(tid, sid)
-        : await ensureChatLoaded('group', tid, sid)
+        : typeof ensureChatLoaded === 'function'
+          ? await ensureChatLoaded('group', tid, sid)
+          : null
       : targetKind === 'workspace'
         ? typeof reloadWorkspaceSession === 'function'
-          ? await reloadWorkspaceSession(workspaceTarget.workspaceId, sid)
-          : await ensureChatLoaded('workspace', workspaceTarget.workspaceId, sid)
+          ? await reloadWorkspaceSession(workspaceTarget.workspaceId, workspaceTarget.roleId, sid)
+          : typeof ensureWorkspaceChatLoaded === 'function'
+            ? await ensureWorkspaceChatLoaded(workspaceTarget.workspaceId, workspaceTarget.roleId, sid)
+            : null
       : typeof reloadRoleSession === 'function'
         ? await reloadRoleSession(tid, sid)
-        : await ensureChatLoaded('role', tid, sid)
+        : typeof ensureChatLoaded === 'function'
+          ? await ensureChatLoaded('role', tid, sid)
+          : null
     if (chat) {
       if (options?.activate !== false) {
         if (targetKind === 'group') state.data.chatsByGroup[tid].activeChatId = sid
@@ -123,7 +129,9 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     const chat = await ensureActiveChatLoaded?.().catch(() => null) || sa.activeChatFromData()
     const workspaceId = targetKind === 'workspace' ? String(target?.id || '').trim() : ''
     const sessionId = String(chat?.id || '').trim()
-    const roleId = String(sa.activeRole()?.id || '').trim()
+    const roleId = targetKind === 'workspace'
+      ? String(chat?.roleId || sa.activeRole()?.id || '').trim()
+      : String(sa.activeRole()?.id || '').trim()
     const targetId = targetKind === 'workspace' ? workspaceRoleTargetId(workspaceId, roleId) : String(target?.id || '').trim()
     if (!targetId || !sessionId || !chat) return null
     return {

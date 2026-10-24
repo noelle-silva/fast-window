@@ -61,10 +61,6 @@ function currentWorkspaceRoleId(state: any, activeRole: () => any) {
   return text(activeRole()?.id || state?.draft?.activeRoleId || state?.data?.ui?.activeRoleId)
 }
 
-function workspaceBoxTargetId(state: any, activeRole: () => any, workspaceIdRaw: unknown, roleIdRaw?: unknown) {
-  return workspaceRoleTargetId(workspaceIdRaw, text(roleIdRaw) || currentWorkspaceRoleId(state, activeRole))
-}
-
 function ensureWorkspaceBox(state: any, activeRole: () => any, workspaceIdRaw: unknown, roleIdRaw?: unknown) {
   const data = ensureWorkspaceRoots(state)
   if (!data) return null
@@ -126,8 +122,10 @@ export function createWorkspaceManager(deps: {
   activeWorkspace: () => any
   clearPendingWorkspaceChat: () => void
   removeLoadedChat?: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => void
+  cleanupFavoriteRefsForChat?: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
+  cleanupFavoriteRefsForTarget?: (targetKind: string, targetId: string) => void
 }) {
-  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat } = deps
+  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
   let workspaceMoveSeq = 0
 
   function requireNetRequest() {
@@ -202,9 +200,10 @@ export function createWorkspaceManager(deps: {
     const state = getState()
     if (!state?.data || !chatRaw || typeof chatRaw !== 'object') return null
     const workspaceId = text(workspaceIdRaw)
+    const roleId = text(chatRaw?.roleId)
     const chatId = text(chatRaw?.id)
-    if (!workspaceId || !chatId) return null
-    const box = ensureWorkspaceBox(state, activeRole, workspaceId, chatRaw?.roleId)
+    if (!workspaceId || !roleId || !chatId) return null
+    const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return null
     const index = (Array.isArray(box.chats) ? box.chats : []).findIndex((chat: any) => text(chat?.id) === chatId)
     const nextChat = mergeChatFromStorage(chatRaw, index >= 0 ? box.chats[index] : null)
@@ -245,25 +244,21 @@ export function createWorkspaceManager(deps: {
     return next
   }
 
-  async function ensureWorkspaceChatLoaded(workspaceIdRaw: unknown, chatIdRaw: unknown) {
+  async function ensureWorkspaceChatLoaded(workspaceIdRaw: unknown, roleIdRaw: unknown, chatIdRaw: unknown) {
     const state = getState()
     if (!state?.data) return null
     const workspaceId = text(workspaceIdRaw)
+    const roleId = text(roleIdRaw)
     const chatId = text(chatIdRaw)
-    if (!workspaceId || !chatId) return null
-    const roleId = currentWorkspaceRoleId(state, activeRole)
+    if (!workspaceId || !roleId || !chatId) return null
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return null
     const existing = (Array.isArray(box.chats) ? box.chats : []).find((chat: any) => text(chat?.id) === chatId && !chat?.runtimePartial) || null
-    if (existing) {
-      if (text(existing.roleId)) state.draft.activeRoleId = text(existing.roleId)
-      return existing
-    }
+    if (existing) return existing
     const request = requireNetRequest()
     const chat = await loadWorkspaceSession(request, workspaceId, roleId, chatId)
     if (!chat) return null
     upsertWorkspaceChat(workspaceId, chat)
-    if (text(chat.roleId)) state.draft.activeRoleId = text(chat.roleId)
     return chat
   }
 
@@ -272,7 +267,8 @@ export function createWorkspaceManager(deps: {
     if (!state?.data || activeTargetKind() !== 'workspace') return null
     const workspaceId = text(activeWorkspace()?.id || (state.draft as any)?.activeWorkspaceId || (state.data.ui as any)?.activeWorkspaceId)
     if (!workspaceId) return null
-    const pendingChat = pendingChatForTarget(state, 'workspace', workspaceRoleTargetId(workspaceId, currentWorkspaceRoleId(state, activeRole)))
+    const roleId = currentWorkspaceRoleId(state, activeRole)
+    const pendingChat = pendingChatForTarget(state, 'workspace', workspaceRoleTargetId(workspaceId, roleId))
     if (pendingChat) return pendingChat
     const box = ensureWorkspaceBox(state, activeRole, workspaceId)
     if (!box) return null
@@ -281,7 +277,7 @@ export function createWorkspaceManager(deps: {
       .filter((id, index, list) => !!id && list.indexOf(id) === index)
     for (const chatId of ids) {
       box.activeChatId = chatId
-      const chat = await ensureWorkspaceChatLoaded(workspaceId, chatId)
+      const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId)
       if (chat) return chat
     }
     box.activeChatId = ''
@@ -512,6 +508,7 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId) return false
     try {
       await deleteWorkspace(requireNetRequest(), workspaceId)
+      cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
       await refreshWorkspaces()
       if (text((state.draft as any)?.activeWorkspaceId) === workspaceId) {
         ;(state.draft as any).activeWorkspaceId = text((state.data as any)?.workspaces?.[0]?.id)
@@ -568,7 +565,7 @@ export function createWorkspaceManager(deps: {
       if (!box || !boxHasChatRef(box, chatId)) return
     }
     box.activeChatId = chatId
-    const chat = await ensureWorkspaceChatLoaded(workspaceId, chatId).catch(() => null)
+    const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId).catch(() => null)
     if (text(chat?.roleId)) state.draft.activeRoleId = text(chat?.roleId)
     activateComposerDraftForCurrentSession(state)
     saveMeta().catch(() => {})
@@ -576,18 +573,18 @@ export function createWorkspaceManager(deps: {
     scrollToBottomSoon()
   }
 
-  async function renameWorkspaceChatTitle(workspaceIdRaw: unknown, chatIdRaw: unknown, title: unknown) {
+  async function renameWorkspaceChatTitle(workspaceIdRaw: unknown, roleIdRaw: unknown, chatIdRaw: unknown, title: unknown) {
     const state = getState()
     if (!state?.data) return false
     const workspaceId = text(workspaceIdRaw)
+    const roleId = text(roleIdRaw)
     const chatId = text(chatIdRaw)
-    if (!workspaceId || !chatId) return false
+    if (!workspaceId || !roleId || !chatId) return false
     let nextTitle = text(title).replace(/\s+/g, ' ').trim()
     if (nextTitle.length > 80) nextTitle = nextTitle.slice(0, 80).trim()
     nextTitle = nextTitle || '工作区会话'
     try {
-      await updateWorkspaceSessionTitle(requireNetRequest(), { workspaceId, roleId: currentWorkspaceRoleId(state, activeRole), sessionId: chatId, title: nextTitle })
-      const roleId = currentWorkspaceRoleId(state, activeRole)
+      await updateWorkspaceSessionTitle(requireNetRequest(), { workspaceId, roleId, sessionId: chatId, title: nextTitle })
       const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
       if (!box) return false
       const chat = (Array.isArray(box.chats) ? box.chats : []).find((item: any) => text(item?.id) === chatId) || null
@@ -608,14 +605,14 @@ export function createWorkspaceManager(deps: {
     }
   }
 
-  async function deleteChatForWorkspace(workspaceIdRaw: unknown, chatIdRaw: unknown) {
+  async function deleteChatForWorkspace(workspaceIdRaw: unknown, roleIdRaw: unknown, chatIdRaw: unknown) {
     const state = getState()
     if (!state?.data) return false
     const workspaceId = text(workspaceIdRaw)
+    const roleId = text(roleIdRaw)
     const chatId = text(chatIdRaw)
-    if (!workspaceId || !chatId) return false
-    const roleId = currentWorkspaceRoleId(state, activeRole)
-    const targetId = workspaceBoxTargetId(state, activeRole, workspaceId, roleId)
+    if (!workspaceId || !roleId || !chatId) return false
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
     if (activeEbRunCardsForTarget(state, 'workspace', targetId, chatId).length > 0) {
       showToast?.('该工作区会话有真实运行中的任务，不能删除', { kind: 'error' })
       return false
@@ -628,6 +625,7 @@ export function createWorkspaceManager(deps: {
     removeLoadedChat?.('workspace', targetId, chatId)
     try {
       await deleteWorkspaceSession(requireNetRequest(), workspaceId, roleId, chatId)
+      cleanupFavoriteRefsForChat?.('workspace', workspaceId, roleId, chatId)
       saveMeta().catch(() => {})
       render()
       return true

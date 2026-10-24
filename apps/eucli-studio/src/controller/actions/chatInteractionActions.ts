@@ -26,12 +26,12 @@ export function createChatInteractionActions(deps: {
   isActiveChatSettingsTarget: (target: any) => boolean
   applyChatSettingsAction: (target: any, action: any, patch: any, applyLocal: (chat: any) => void, failText: string) => Promise<any>
   isChatModelActionPending: (target: any) => boolean
-  aiGenerateChatTitle: (roleId: string, chatId: string) => Promise<any>
+  aiGenerateChatTitle: (roleId: string, chatId: string, workspaceId?: string) => Promise<any>
   aiGenerateGroupChatTitle: (groupId: string, chatId: string) => Promise<any>
   aiGenerateStickerName: (categoryName: string, stickerName: string) => Promise<any>
   reloadRoleSession: (roleId: string, chatId: string) => Promise<any>
-  reloadWorkspaceSession: (workspaceId: string, chatId: string, roleId?: string) => Promise<any>
-  ensureWorkspaceChatLoaded: (workspaceId: string, chatId: string) => Promise<any>
+  reloadWorkspaceSession: (workspaceId: string, roleId: string, chatId: string) => Promise<any>
+  ensureWorkspaceChatLoaded: (workspaceId: string, roleId: string, chatId: string) => Promise<any>
   loadStickersFromSource: () => Promise<any>
 }) {
   const { state, emit, showToast, sendChat, stopSending, regenerateAssistantMessage, replyFromUserMessage, createParallelBranchFromAssistantMessage, switchBranchByAssistantSibling, setActiveBranch, submitToolConfirmationDecision, deleteMessage, deleteMessageSubtree, editMessage, editMessageBlock, deleteMessageBlock, cleanMessageReasoning, cleanSessionReasoning, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, applyChatSettingsAction, isChatModelActionPending, aiGenerateChatTitle, aiGenerateGroupChatTitle, aiGenerateStickerName, reloadRoleSession, reloadWorkspaceSession, ensureWorkspaceChatLoaded, loadStickersFromSource } = deps
@@ -174,21 +174,25 @@ export function createChatInteractionActions(deps: {
           throw e
         })
     },
-    aiGenerateWorkspaceChatTitle: (workspaceId: any, chatId: any) => {
+    aiGenerateWorkspaceChatTitle: (workspaceId: any, roleId: any, chatId: any) => {
       let t0 = 0
       const cost = () => ((now() - t0) / 1000).toFixed(1)
-      let roleId = ''
+      const wid = String(workspaceId || '').trim()
+      const rid = String(roleId || '').trim()
+      const cid = String(chatId || '').trim()
+      let sessionRoleId = rid
       return Promise.resolve()
         .then(async () => {
-          const workspaceChat = await ensureWorkspaceChatLoaded(String(workspaceId || ''), String(chatId || ''))
-          roleId = String((workspaceChat as any)?.roleId || '').trim()
-          if (!roleId) throw new Error('工作区会话缺少角色，暂时无法生成标题')
+          if (!wid || !rid || !cid) throw new Error('工作区会话标识不完整，暂时无法生成标题')
+          const workspaceChat = await ensureWorkspaceChatLoaded(wid, rid, cid)
+          sessionRoleId = String((workspaceChat as any)?.roleId || rid).trim()
+          if (!sessionRoleId) throw new Error('工作区会话缺少角色，暂时无法生成标题')
           t0 = now()
           showToast?.('AI 生成标题中…')
-          return { roleId, title: await aiGenerateChatTitle(roleId, globalThis.String(chatId || '')) }
+          return { roleId: sessionRoleId, title: await aiGenerateChatTitle(sessionRoleId, cid, wid) }
         })
         .then(async ({ title }: any) => {
-          await reloadWorkspaceSession(String(workspaceId || ''), String(chatId || ''), roleId)
+          await reloadWorkspaceSession(wid, sessionRoleId, cid)
           const nextTitle = String((title as any)?.title || title || '').trim()
           emit()
           showToast?.(`已更新标题（${cost()}s）：${nextTitle || '（空）'}`, { kind: 'success' })

@@ -22,7 +22,7 @@ import {
   readComposerDraftByKey,
 } from '../domain/sessionComposerDrafts'
 import { buildGroupSpeakerPlan } from '../domain/groupSpeakerPlan'
-import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { cancelRoleRun, pollRunUntilTerminal, runStateFailureError, startRoleRun } from './ebRoleRun'
 import type { EbRunState } from './ebRoleRun'
 import type { ChatTargetKind, ExistingMessageRunOptions, RoleRunInput, SendChatOptions } from './chatOperationsShared'
@@ -385,7 +385,8 @@ export function createChatRunOperations(
     const sid = String(sessionId || '').trim()
     if (!tid) return null
     if (sid) return latestEbRunCardForTarget(getState(), targetKind, tid, sid)
-    const cards = activeEbRoleRunCards(getState()).filter((card) => card.sessionId && card.sessionId.trim() && ((targetKind === 'group' && card.groupId === tid) || (targetKind === 'workspace' && card.workspaceId === tid) || (targetKind === 'role' && !card.groupId && !card.workspaceId && card.roleId === tid)))
+    const workspaceTarget = targetKind === 'workspace' ? parseWorkspaceRoleTargetId(tid) : { workspaceId: '', roleId: '' }
+    const cards = activeEbRoleRunCards(getState()).filter((card) => card.sessionId && card.sessionId.trim() && ((targetKind === 'group' && card.groupId === tid) || (targetKind === 'workspace' && (workspaceTarget.workspaceId ? card.workspaceId === workspaceTarget.workspaceId && card.roleId === workspaceTarget.roleId : card.workspaceId === tid)) || (targetKind === 'role' && !card.groupId && !card.workspaceId && card.roleId === tid)))
     return cards.length ? cards[cards.length - 1] : null
   }
 

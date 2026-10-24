@@ -10,9 +10,9 @@ export function createViewerActions(deps: {
   sanitizeSvg: (svg: any, renderSafetyPolicy?: any) => string
   currentRenderSafetyPolicy: () => string
   locateMessageInActiveChat: (messageId: any) => any
-  aiFixMermaidInMessage: (roleId: string, sessionId: string, messageId: string, mermaidSrc: string, renderError: string) => Promise<any>
+  aiFixMermaidInMessage: (roleId: string, sessionId: string, messageId: string, mermaidSrc: string, renderError: string, workspaceId?: string) => Promise<any>
   reloadRoleSession: (roleId: string, sessionId: string) => Promise<any>
-  reloadWorkspaceSession: (workspaceId: string, sessionId: string, roleId?: string) => Promise<any>
+  reloadWorkspaceSession: (workspaceId: string, roleId: string, sessionId: string) => Promise<any>
 }) {
   const { state, emit, showToast, activeChatFromData, sanitizeSvg, currentRenderSafetyPolicy, locateMessageInActiveChat, aiFixMermaidInMessage, reloadRoleSession, reloadWorkspaceSession } = deps
 
@@ -36,11 +36,11 @@ export function createViewerActions(deps: {
           if (!roleId || !sessionId || !mid) throw new Error('Mermaid 修复上下文不完整')
           t0 = now()
           showToast?.('AI 修复 Mermaid 中…')
-          return aiFixMermaidInMessage(roleId, sessionId, mid, String(mermaidSrc || ''), String(renderErrorMsg || ''))
+          return aiFixMermaidInMessage(roleId, sessionId, mid, String(mermaidSrc || ''), String(renderErrorMsg || ''), workspaceId || undefined)
         })
         .then((fixed: any) => {
           const nextMermaid = String((fixed as any)?.mermaidSource || '').trim()
-          const reload = workspaceId ? reloadWorkspaceSession(workspaceId, sessionId, roleId) : reloadRoleSession(roleId, sessionId)
+          const reload = workspaceId ? reloadWorkspaceSession(workspaceId, roleId, sessionId) : reloadRoleSession(roleId, sessionId)
           return reload.then(() => {
             if (!activeChatFromData()) throw new Error('Mermaid 修复已完成，但刷新最新会话失败')
             emit()

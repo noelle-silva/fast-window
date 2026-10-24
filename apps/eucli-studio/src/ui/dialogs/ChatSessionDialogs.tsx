@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Button, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
+import { parseWorkspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { DependableDialog } from '../components/DependableOverlay'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
@@ -92,8 +93,10 @@ export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: 
               setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
               if (!targetId || !chatId) return
               if (targetKind === 'group') controller.actions.deleteGroupChat?.(targetId, chatId)
-              else if (targetKind === 'workspace') controller.actions.deleteWorkspaceChat?.(targetId, chatId)
-              else controller.actions.deleteChat?.(targetId, chatId)
+              else if (targetKind === 'workspace') {
+                const target = parseWorkspaceRoleTargetId(targetId)
+                if (target.workspaceId && target.roleId) controller.actions.deleteWorkspaceChat?.(target.workspaceId, target.roleId, chatId)
+              } else controller.actions.deleteChat?.(targetId, chatId)
             }}
             disabled={
               !confirmDelChat.targetId ||

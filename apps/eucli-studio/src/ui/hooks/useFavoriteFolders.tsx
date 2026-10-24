@@ -6,12 +6,15 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../components/ChatSessionRunIndicator'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
 import { useEvent } from './useEvent'
 import { useUiDataVersion } from './useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
+
+type FavoriteDialogState = { open: boolean; targetKind: TargetKind; targetId: string; roleId: string; chatId: string; title: string }
 
 export function useFavoriteFolders(deps: {
   controller: any
@@ -51,10 +54,11 @@ export function useFavoriteFolders(deps: {
   const [favoriteSearchText, setFavoriteSearchText] = React.useState('')
   const favoriteSearchInputRef = React.useRef<HTMLInputElement | null>(null)
   const [favoriteFolderExpanded, setFavoriteFolderExpanded] = React.useState<Record<string, boolean>>({})
-  const [favoriteDialog, setFavoriteDialog] = React.useState<{ open: boolean; targetKind: TargetKind; targetId: string; chatId: string; title: string }>({
+  const [favoriteDialog, setFavoriteDialog] = React.useState<FavoriteDialogState>({
     open: false,
     targetKind: 'role',
     targetId: '',
+    roleId: '',
     chatId: '',
     title: '',
   })
@@ -86,6 +90,7 @@ export function useFavoriteFolders(deps: {
     folderId: string
     targetKind: TargetKind
     targetId: string
+    roleId: string
     chatId: string
     title: string
     x: number
@@ -94,6 +99,7 @@ export function useFavoriteFolders(deps: {
     folderId: '',
     targetKind: 'role',
     targetId: '',
+    roleId: '',
     chatId: '',
     title: '',
     x: 0,
@@ -138,10 +144,11 @@ export function useFavoriteFolders(deps: {
   )
 
   const getChatByFavoriteRef = React.useCallback(
-    (targetKind: TargetKind, targetId: string, chatId: string) => {
+    (targetKind: TargetKind, targetId: string, roleId: string, chatId: string) => {
       const tid = String(targetId || '')
+      const rid = targetKind === 'workspace' ? String(roleId || '') : ''
       const cid = String(chatId || '')
-      if (!tid || !cid) return null
+      if (!tid || !cid || (targetKind === 'workspace' && !rid)) return null
       if (targetKind === 'group') {
         const box = (data as any)?.chatsByGroup?.[tid]
         const chats = Array.isArray(box?.chats) ? box.chats : []
@@ -150,7 +157,7 @@ export function useFavoriteFolders(deps: {
         return chat && meta ? { ...chat, ...meta } : chat || meta || null
       }
       if (targetKind === 'workspace') {
-        const box = (data as any)?.chatsByWorkspace?.[tid]
+        const box = (data as any)?.chatsByWorkspace?.[workspaceRoleTargetId(tid, rid)]
         const chats = Array.isArray(box?.chats) ? box.chats : []
         const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
         const meta = Array.isArray(box?.chatMetas) ? box.chatMetas.find((c: any) => String(c?.id || '') === cid) : null
@@ -289,24 +296,25 @@ export function useFavoriteFolders(deps: {
     if (!fid) return
     setFavoriteCheckedFolderIds((p) => (p.includes(fid) ? p.filter((x) => x !== fid) : p.concat(fid)))
   })
-  const openFavoriteDialog = useEvent((targetKind: TargetKind, targetId: string, chatId: string, title: string) => {
+  const openFavoriteDialog = useEvent((targetKind: TargetKind, targetId: string, roleId: string, chatId: string, title: string) => {
     const tid = String(targetId || '')
+    const rid = targetKind === 'workspace' ? String(roleId || '') : ''
     const cid = String(chatId || '')
-    if (!tid || !cid) return
-    const ids = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, tid, cid))
-      ? controller.actions.getChatFavoriteFolderIds(targetKind, tid, cid)
+    if (!tid || !cid || (targetKind === 'workspace' && !rid)) return
+    const folderIds = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, tid, rid, cid))
+      ? controller.actions.getChatFavoriteFolderIds(targetKind, tid, rid, cid)
       : []
-    setFavoriteCheckedFolderIds(ids.map((x: any) => String(x || '')).filter(Boolean))
-    setFavoriteDialog({ open: true, targetKind, targetId: tid, chatId: cid, title: String(title || '') })
+    setFavoriteCheckedFolderIds(folderIds.map((x: any) => String(x || '')).filter(Boolean))
+    setFavoriteDialog({ open: true, targetKind, targetId: tid, roleId: rid, chatId: cid, title: String(title || '') })
   })
   const closeFavoriteDialog = useEvent(() => {
-    setFavoriteDialog({ open: false, targetKind: 'role', targetId: '', chatId: '', title: '' })
+    setFavoriteDialog({ open: false, targetKind: 'role', targetId: '', roleId: '', chatId: '', title: '' })
     setFavoriteCheckedFolderIds([])
   })
   const saveFavoriteDialog = useEvent(() => {
-    const { targetKind, targetId, chatId } = favoriteDialog
-    if (!targetId || !chatId) return
-    controller.actions.setChatFavoriteFolders?.(targetKind, targetId, chatId, favoriteCheckedFolderIds)
+    const { targetKind, targetId, roleId, chatId } = favoriteDialog
+    if (!targetId || !chatId || (targetKind === 'workspace' && !roleId)) return
+    controller.actions.setChatFavoriteFolders?.(targetKind, targetId, roleId, chatId, favoriteCheckedFolderIds)
     closeFavoriteDialog()
   })
   const submitCreateFavoriteFolder = useEvent(() => {
@@ -323,28 +331,33 @@ export function useFavoriteFolders(deps: {
       closeCreateFavoriteFolder()
     }
   })
-  const openFavoritedChat = useEvent((targetKind: TargetKind, targetId: string, chatId: string) => {
+  const openFavoritedChat = useEvent((targetKind: TargetKind, targetId: string, roleId: string, chatId: string) => {
     const tid = String(targetId || '')
+    const rid = targetKind === 'workspace' ? String(roleId || '') : ''
     const cid = String(chatId || '')
-    if (!tid || !cid) return
-    clearChatSessionRunNotice(targetKind, tid, cid)
+    if (!tid || !cid || (targetKind === 'workspace' && !rid)) return
+    const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(tid, rid) : tid
+    clearChatSessionRunNotice(targetKind, targetKey, cid)
     if (targetKind === 'group') controller.actions.setActiveGroup?.(tid)
-    else if (targetKind === 'workspace') controller.actions.setActiveWorkspace?.(tid)
-    else controller.actions.setActiveRole?.(tid)
+    else if (targetKind === 'workspace') {
+      controller.actions.setWorkspaceRole?.(rid)
+      controller.actions.setActiveWorkspace?.(tid)
+    } else controller.actions.setActiveRole?.(tid)
     requestSwitch(cid, { force: true })
     closeChatPicker()
   })
-  const closeFavoriteChatMenu = useEvent(() => setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const closeFavoriteChatMenu = useEvent(() => setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', roleId: '', chatId: '', title: '', x: 0, y: 0 }))
   const onFavoriteChatContextMenu = useEvent(
-    (e: React.MouseEvent, folderId: string, targetKind: TargetKind, targetId: string, chatId: string, title: string) => {
+    (e: React.MouseEvent, folderId: string, targetKind: TargetKind, targetId: string, roleId: string, chatId: string, title: string) => {
       const fid = String(folderId || '')
       const kind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
       const tid = String(targetId || '')
+      const rid = kind === 'workspace' ? String(roleId || '') : ''
       const cid = String(chatId || '')
-      if (!fid || !tid || !cid) return
+      if (!fid || !tid || !cid || (kind === 'workspace' && !rid)) return
       e.preventDefault()
       e.stopPropagation()
-      setFavoriteChatMenu({ folderId: fid, targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
+      setFavoriteChatMenu({ folderId: fid, targetKind: kind, targetId: tid, roleId: rid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
     },
   )
 
@@ -479,8 +492,9 @@ export function useFavoriteFolders(deps: {
           const targetKindText = String(ref?.targetKind || '').trim()
           const targetKind = targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role'
           const targetId = String(ref?.targetId || '')
+          const roleId = String(ref?.roleId || '')
           const chatId = String(ref?.chatId || '')
-          const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+          const chat = getChatByFavoriteRef(targetKind as any, targetId, roleId, chatId)
           const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
           const hay = [
             String((chat as any)?.title || ''),
@@ -505,25 +519,28 @@ export function useFavoriteFolders(deps: {
             const targetKindText = String(ref?.targetKind || '').trim()
             const targetKind = targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role'
             const targetId = String(ref?.targetId || '')
+            const roleId = String(ref?.roleId || '')
             const chatId = String(ref?.chatId || '')
-            const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+            const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
+            if (!targetKey) return null
+            const chat = getChatByFavoriteRef(targetKind as any, targetId, roleId, chatId)
             if (!chat) return null
             const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
             const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区' : '角色'))
             const snippet = snippetText((chat as any)?.lastMessagePreview || (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
-            const selected = targetKind === activeTargetKind && String(targetId || '') === activeChatTargetId && String(chatId || '') === activeChatId
-            const indicatorKind = chatSessionRunIndicatorKind(targetKind as any, targetId, chat, selected)
+            const selected = targetKind === activeTargetKind && targetKey === activeChatTargetId && String(chatId || '') === activeChatId
+            const indicatorKind = chatSessionRunIndicatorKind(targetKind as any, targetKey, chat, selected)
             if (q) {
               const hay = [String((chat as any)?.title || ''), snippet, targetName].join('\n').toLowerCase()
               if (!hay.includes(q)) return null
             }
             return (
               <ListItemButton
-                key={`${fid}:${targetKind}:${targetId}:${chatId}`}
+                key={`${fid}:${targetKind}:${targetKey}:${chatId}`}
                 selected={selected}
                 sx={{ ...SOFT_POPOVER_ITEM_TOP_SX, pl: 3 + depth2 * 2, pr: 1, gap: 1 }}
-                onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
-                onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
+                onClick={() => openFavoritedChat(targetKind as any, targetId, roleId, chatId)}
+                onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, roleId, chatId, String((chat as any)?.title || ''))}
               >
                 <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
                   <EntityAvatar kind={targetKind} image={String(targetMeta?.image || '')} size={28} />

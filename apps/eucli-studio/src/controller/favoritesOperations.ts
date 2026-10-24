@@ -14,6 +14,20 @@ export function createFavoritesOperations(deps: {
 }) {
   const { getState, save, emit, showToast } = deps
 
+  function normalizeTargetKind(targetKind: any) {
+    const kindText = String(targetKind || '').trim()
+    return kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
+  }
+
+  function favoriteRefTarget(targetKind: any, targetId: any, roleId: any) {
+    const kind = normalizeTargetKind(targetKind)
+    const tid = String(targetId || '').trim()
+    if (!tid) return null
+    const rid = kind === 'workspace' ? String(roleId || '').trim() : ''
+    if (kind === 'workspace' && !rid) return null
+    return { kind, targetId: tid, roleId: rid }
+  }
+
   function persistFavorites() {
     save().catch((e: any) => showToast?.(String(e?.message || e || '保存收藏失败'), { kind: 'error' }))
   }
@@ -28,46 +42,52 @@ export function createFavoritesOperations(deps: {
     return fav
   }
 
-  function getFavoriteFolderIdsForChat(targetKind: any, targetId: any, chatId: any) {
+  function getFavoriteFolderIdsForChat(targetKind: any, targetId: any, roleId: any, chatId: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return []
-    const key = favoriteChatRefKey(targetKind, targetId, chatId)
+    const target = favoriteRefTarget(targetKind, targetId, roleId)
+    if (!target) return []
+    const key = favoriteChatRefKey(target.kind, target.targetId, target.roleId, chatId)
     if (!key) return []
     const out: string[] = []
     for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
       const fid = String((f as any)?.id || '').trim()
       if (!fid) continue
       const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
-      if (refs.some((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) === key)) out.push(fid)
+      if (refs.some((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId) === key)) out.push(fid)
     }
     return out
   }
 
-  function cleanupFavoriteRefsForChat(targetKind: any, targetId: any, chatId: any) {
+  function cleanupFavoriteRefsForChat(targetKind: any, targetId: any, roleId: any, chatId: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
-    const key = favoriteChatRefKey(targetKind, targetId, chatId)
+    const target = favoriteRefTarget(targetKind, targetId, roleId)
+    if (!target) return
+    const key = favoriteChatRefKey(target.kind, target.targetId, target.roleId, chatId)
     if (!key) return
     for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
       const fid = String((f as any)?.id || '').trim()
       if (!fid) continue
       const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
-      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) !== key)
+      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId) !== key)
     }
   }
 
   function cleanupFavoriteRefsForTarget(targetKind: any, targetId: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
-    const kindText = String(targetKind || '').trim()
-    const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
+    const kind = normalizeTargetKind(targetKind)
     const tid = String(targetId || '').trim()
     if (!tid) return
     for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
       const fid = String((f as any)?.id || '').trim()
       if (!fid) continue
       const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
-      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => !(String(ref?.targetKind || '').trim() === kind && String(ref?.targetId || '').trim() === tid))
+      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => {
+        if (String(ref?.targetKind || '').trim() !== kind) return true
+        return String(ref?.targetId || '').trim() !== tid
+      })
     }
   }
 
@@ -142,7 +162,7 @@ export function createFavoritesOperations(deps: {
       const merged = prev.concat(ownRefs)
       const seen = new Set<string>()
       nextRefs[moveTargetId] = merged.filter((ref: any) => {
-        const key = favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId)
+        const key = favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId)
         if (!key || seen.has(key)) return false
         seen.add(key)
         return true
@@ -209,14 +229,16 @@ export function createFavoritesOperations(deps: {
     emit()
   }
 
-  function setChatFavoriteFolders(targetKind: any, targetId: any, chatId: any, folderIds: any) {
+  function setChatFavoriteFolders(targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
-    const kindText = String(targetKind || '').trim()
-    const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
-    const tid = String(targetId || '').trim()
+    const target = favoriteRefTarget(targetKind, targetId, roleId)
+    if (!target) return
+    const kind = target.kind
+    const tid = target.targetId
+    const rid = target.roleId
     const cid = String(chatId || '').trim()
-    const key = favoriteChatRefKey(kind, tid, cid)
+    const key = favoriteChatRefKey(kind, tid, rid, cid)
     if (!key) return
     const validFolderIds = new Set(
       (Array.isArray(folderIds) ? folderIds : [])
@@ -228,8 +250,8 @@ export function createFavoritesOperations(deps: {
       const fid = String((f as any)?.id || '').trim()
       if (!fid) continue
       const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
-      const next = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) !== key)
-      if (validFolderIds.has(fid)) next.push({ targetKind: kind, targetId: tid, chatId: cid, addedAt })
+      const next = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId) !== key)
+      if (validFolderIds.has(fid)) next.push({ targetKind: kind, targetId: tid, roleId: rid, chatId: cid, addedAt })
       fav.chatRefsByFolderId[fid] = next
     }
     persistFavorites()

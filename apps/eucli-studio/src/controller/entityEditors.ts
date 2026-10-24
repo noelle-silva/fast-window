@@ -106,7 +106,7 @@ export function createEntityEditors(deps: {
   setGroupActiveChatSelection?: (groupId: string, chatId: string) => Promise<void>
   removeLoadedChat?: (kind: 'role' | 'group', targetId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
-  cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, chatId: string) => void
+  cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
   const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
@@ -1013,7 +1013,7 @@ export function createEntityEditors(deps: {
 
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
     box.chatMetas = removeChatMeta(box.chatMetas, cid, '新聊天')
-    cleanupFavoriteRefsForChat('role', rid, cid)
+    cleanupFavoriteRefsForChat('role', rid, '', cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
 
     removeLoadedChat?.('role', rid, cid)
@@ -1036,7 +1036,7 @@ export function createEntityEditors(deps: {
 
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
     box.chatMetas = removeChatMeta(box.chatMetas, cid, '群聊')
-    cleanupFavoriteRefsForChat('group', gid, cid)
+    cleanupFavoriteRefsForChat('group', gid, '', cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
 
     removeLoadedChat?.('group', gid, cid)

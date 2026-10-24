@@ -10,7 +10,7 @@ export function createFavoriteActions(deps: {
     deleteFavoriteFolderTree: (folderId: any) => favOps.deleteFavoriteFolderTree(folderId),
     clearFavoriteFolderRefs: (folderId: any) => favOps.clearFavoriteFolderRefs(folderId),
     moveFavoriteFolder: (folderId: any, nextParentId: any) => favOps.moveFavoriteFolder(folderId, nextParentId),
-    setChatFavoriteFolders: (targetKind: any, targetId: any, chatId: any, folderIds: any) => favOps.setChatFavoriteFolders(targetKind, targetId, chatId, folderIds),
-    getChatFavoriteFolderIds: (targetKind: any, targetId: any, chatId: any) => favOps.getFavoriteFolderIdsForChat(targetKind, targetId, chatId),
+    setChatFavoriteFolders: (targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) => favOps.setChatFavoriteFolders(targetKind, targetId, roleId, chatId, folderIds),
+    getChatFavoriteFolderIds: (targetKind: any, targetId: any, roleId: any, chatId: any) => favOps.getFavoriteFolderIdsForChat(targetKind, targetId, roleId, chatId),
   }
 }

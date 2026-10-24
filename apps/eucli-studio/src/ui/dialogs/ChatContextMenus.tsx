@@ -7,9 +7,16 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
+
+function sessionOperationIds(targetKind: TargetKind, targetId: string) {
+  if (targetKind !== 'workspace') return { workspaceId: targetId, roleId: '' }
+  const target = parseWorkspaceRoleTargetId(targetId)
+  return { workspaceId: target.workspaceId, roleId: target.roleId }
+}
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
@@ -22,9 +29,9 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
   openRenameFavoriteFolder: (folderId: string) => void
   setConfirmClearFavoriteFolder: React.Dispatch<React.SetStateAction<{ open: boolean; folderId: string }>>
   openDeleteFavoriteFolderConfirm: (folderId: string, mode: 'keep' | 'tree') => void
-  favoriteChatMenu: { folderId: string; targetKind: TargetKind; targetId: string; chatId: string; title: string; x: number; y: number }
+  favoriteChatMenu: { folderId: string; targetKind: TargetKind; targetId: string; roleId: string; chatId: string; title: string; x: number; y: number }
   closeFavoriteChatMenu: () => void
-  openFavoriteDialog: (targetKind: TargetKind, targetId: string, chatId: string, title: string) => void
+  openFavoriteDialog: (targetKind: TargetKind, targetId: string, roleId: string, chatId: string, title: string) => void
   setEditingChatTitle: React.Dispatch<React.SetStateAction<{ targetKind: TargetKind; targetId: string; chatId: string; text: string }>>
   isSendingThisChat: (targetKind: TargetKind, targetId: string, chatId: string) => boolean
   chatMenu: { targetKind: TargetKind; targetId: string; chatId: string; title: string; x: number; y: number }
@@ -53,6 +60,10 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
 
   // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
   useUiDataVersion(controller)
+
+  const favoriteChatTargetKey = favoriteChatMenu.targetKind === 'workspace'
+    ? workspaceRoleTargetId(favoriteChatMenu.targetId, favoriteChatMenu.roleId)
+    : favoriteChatMenu.targetId
 
   return (
     <>
@@ -134,9 +145,9 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
           <MenuItem
             disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || loading}
             onClick={() => {
-              const { targetKind, targetId, chatId, title } = favoriteChatMenu
+              const { targetKind, targetId, roleId, chatId, title } = favoriteChatMenu
               closeFavoriteChatMenu()
-              openFavoriteDialog(targetKind, targetId, chatId, title)
+              openFavoriteDialog(targetKind, targetId, roleId, chatId, title)
             }}
             sx={{ gap: 1 }}
           >
@@ -146,14 +157,16 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
           <MenuItem
             disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || !favoriteChatMenu.folderId || loading}
             onClick={() => {
-              const { folderId, targetKind, targetId, chatId } = favoriteChatMenu
-              const currentIds = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, targetId, chatId))
-                ? controller.actions.getChatFavoriteFolderIds(targetKind, targetId, chatId)
+              const { folderId, targetKind, targetId, roleId, chatId } = favoriteChatMenu
+              if (!targetId || (targetKind === 'workspace' && !roleId)) return
+              const currentIds = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, targetId, roleId, chatId))
+                ? controller.actions.getChatFavoriteFolderIds(targetKind, targetId, roleId, chatId)
                 : []
               closeFavoriteChatMenu()
               controller.actions.setChatFavoriteFolders?.(
                 targetKind,
                 targetId,
+                roleId,
                 chatId,
                 currentIds.filter((id: any) => String(id || '') !== String(folderId || '')),
               )
@@ -166,9 +179,11 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
           <MenuItem
             disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || loading}
             onClick={() => {
-              const { targetKind, targetId, chatId, title } = favoriteChatMenu
+              const { targetKind, targetId, roleId, chatId, title } = favoriteChatMenu
+              const editTargetId = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
+              if (!editTargetId) return
               closeFavoriteChatMenu()
-              setEditingChatTitle({ targetKind, targetId, chatId, text: String(title ?? '') })
+              setEditingChatTitle({ targetKind, targetId: editTargetId, chatId, text: String(title ?? '') })
             }}
             sx={{ gap: 1 }}
           >
@@ -180,15 +195,16 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
               !favoriteChatMenu.chatId ||
               !favoriteChatMenu.targetId ||
               loading ||
-              isSendingThisChat(favoriteChatMenu.targetKind, favoriteChatMenu.targetId, favoriteChatMenu.chatId)
+              isSendingThisChat(favoriteChatMenu.targetKind, favoriteChatTargetKey, favoriteChatMenu.chatId)
             }
             onClick={() => {
-              const { targetKind, targetId, chatId } = favoriteChatMenu
+              const { targetKind, targetId, roleId, chatId } = favoriteChatMenu
+              if (!targetId || (targetKind === 'workspace' && !roleId)) return
               closeFavoriteChatMenu()
               Promise.resolve()
                 .then(() => {
                   if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
-                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(targetId, chatId)
+                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(targetId, roleId, chatId)
                   return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
                 })
                 .catch(() => {})
@@ -225,11 +241,13 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
             onClick={() => {
               const { targetKind, targetId, chatId } = chatMenu
+              const ids = sessionOperationIds(targetKind, targetId)
+              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
               closeChatMenu()
               Promise.resolve()
                 .then(() => {
                   if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
-                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(targetId, chatId)
+                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(ids.workspaceId, ids.roleId, chatId)
                   return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
                 })
                 .catch(() => {})
@@ -243,8 +261,10 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading}
             onClick={() => {
               const { targetKind, targetId, chatId, title } = chatMenu
+              const ids = sessionOperationIds(targetKind, targetId)
+              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
               closeChatMenu()
-              openFavoriteDialog(targetKind, targetId, chatId, title)
+              openFavoriteDialog(targetKind, ids.workspaceId, ids.roleId, chatId, title)
             }}
             sx={{ gap: 1 }}
           >

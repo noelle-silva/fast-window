@@ -5,19 +5,22 @@ export interface AiServicesDeps {
 const EB_SERVICE_UNAVAILABLE = 'AI 微服务尚未接入 e-b 真实根动作，已阻止旧 provider 直连链'
 
 export function createAiServices(deps: AiServicesDeps) {
-  async function aiFixMermaidInMessage(roleId: any, sessionId: any, messageId: any, mermaidSrc: any, renderErrorMsg: any) {
+  async function aiFixMermaidInMessage(roleId: any, sessionId: any, messageId: any, mermaidSrc: any, renderErrorMsg: any, workspaceId?: any) {
     const netRequest = deps.netRequest
     if (typeof netRequest !== 'function') throw new Error(EB_SERVICE_UNAVAILABLE)
+    const body: Record<string, string> = {
+      roleId: String(roleId || '').trim(),
+      sessionId: String(sessionId || '').trim(),
+      messageId: String(messageId || '').trim(),
+      mermaidSource: String(mermaidSrc || ''),
+      renderErrorMsg: String(renderErrorMsg || ''),
+    }
+    const wid = String(workspaceId || '').trim()
+    if (wid) body.workspaceId = wid
     const r = await netRequest({
       method: 'POST',
       path: '/api/assist/mermaid-fix',
-      body: {
-        roleId: String(roleId || '').trim(),
-        sessionId: String(sessionId || '').trim(),
-        messageId: String(messageId || '').trim(),
-        mermaidSource: String(mermaidSrc || ''),
-        renderErrorMsg: String(renderErrorMsg || ''),
-      },
+      body,
       timeoutMs: 90000,
     })
     const status = Number(r?.status || 200)
@@ -25,16 +28,19 @@ export function createAiServices(deps: AiServicesDeps) {
     return r?.body
   }
 
-  async function aiGenerateChatTitle(roleId: any, chatId: any) {
+  async function aiGenerateChatTitle(roleId: any, chatId: any, workspaceId?: any) {
     const netRequest = deps.netRequest
     if (typeof netRequest !== 'function') throw new Error(EB_SERVICE_UNAVAILABLE)
+    const body: Record<string, string> = {
+      roleId: String(roleId || '').trim(),
+      sessionId: String(chatId || '').trim(),
+    }
+    const wid = String(workspaceId || '').trim()
+    if (wid) body.workspaceId = wid
     const r = await netRequest({
       method: 'POST',
       path: '/api/assist/chat-title',
-      body: {
-        roleId: String(roleId || '').trim(),
-        sessionId: String(chatId || '').trim(),
-      },
+      body,
       timeoutMs: 90000,
     })
     const status = Number(r?.status || 200)

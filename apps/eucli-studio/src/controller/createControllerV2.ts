@@ -56,7 +56,7 @@ import { createInstallSourceClient } from './installSourceClient'
 import { createModelRequestConfigController } from './modelRequestConfig'
 import { createConversationImageConfigController } from './conversationImageConfig'
 import { createRequestRecordsController } from './requestRecords'
-import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { readActiveEbRunCardsForTarget } from '../domain/activeRunCards'
 import { loadWorkspaceSession } from './workspaceBridge'
 import { createChatSessionTarget, chatSettingsTargetKey, type ChatSettingsTarget } from './chatSessionTarget'
@@ -266,17 +266,17 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return loaded
   }
 
-  async function reloadWorkspaceSession(workspaceIdRaw: any, sessionIdRaw: any, roleIdRaw?: any) {
+  async function reloadWorkspaceSession(workspaceIdRaw: any, roleIdRaw: any, sessionIdRaw: any) {
     const workspaceId = String(workspaceIdRaw || '').trim()
+    const roleId = String(roleIdRaw || '').trim()
     const sessionId = String(sessionIdRaw || '').trim()
-    const roleId = String(roleIdRaw || state.draft?.activeRoleId || state.data?.ui?.activeRoleId || '').trim()
-    if (!workspaceId || !sessionId) return null
+    if (!workspaceId || !roleId || !sessionId) return null
     const request = capabilities.net?.request
     if (typeof request !== 'function') return null
     const chat = await loadWorkspaceSession(request, workspaceId, roleId, sessionId)
     if (!chat) return null
     const loaded = upsertWorkspaceChat(workspaceId, chat)
-    ebRunEvents.flushSession('workspace', workspaceId, sessionId)
+    ebRunEvents.flushSession('workspace', workspaceRoleTargetId(workspaceId, roleId), sessionId)
     return loaded
   }
 
@@ -379,6 +379,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       }
       removeLoadedChat(kind as any, targetId, chatId)
     },
+    cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) =>
+      favOps.cleanupFavoriteRefsForChat(targetKind, targetId, roleId, chatId),
+    cleanupFavoriteRefsForTarget: (targetKind: string, targetId: string) => favOps.cleanupFavoriteRefsForTarget(targetKind, targetId),
   })
   const {
     refreshWorkspaces,
@@ -406,7 +409,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   } = workspaceManager
 
   async function ensureChatLoaded(kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) {
-    if (kind === 'workspace') return ensureWorkspaceChatLoaded(targetId, chatId)
+    if (kind === 'workspace') {
+      const target = parseWorkspaceRoleTargetId(targetId)
+      if (!target.workspaceId || !target.roleId) return null
+      return ensureWorkspaceChatLoaded(target.workspaceId, target.roleId, chatId)
+    }
     return ensureStoredChatLoaded(kind, targetId, chatId)
   }
 
@@ -775,7 +782,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     showToast: api.ui?.showToast,
     save,
     ensureActiveChatLoaded,
-    ensureChatLoaded: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => ensureChatLoaded(kind as any, targetId, chatId),
+    ensureChatLoaded: (kind: 'role' | 'group', targetId: string, chatId: string) => ensureChatLoaded(kind, targetId, chatId),
+    ensureWorkspaceChatLoaded: (workspaceId: string, roleId: string, chatId: string) => ensureWorkspaceChatLoaded(workspaceId, roleId, chatId),
     reloadRoleSession,
     reloadGroupSession,
     reloadWorkspaceSession,

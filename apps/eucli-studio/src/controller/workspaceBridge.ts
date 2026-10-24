@@ -1,5 +1,4 @@
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
-import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 
 type EbNetRequest = (req: any) => Promise<any>
 
@@ -124,10 +123,6 @@ export function workspaceSessionSummaryToMeta(raw: unknown) {
     runStatus: status === 'running' || status === 'waiting_confirmation' ? 'running' : 'idle',
     runStatusChangedAt: updatedAt,
   }
-}
-
-export function workspaceSessionTargetId(workspaceIdRaw: unknown, roleIdRaw: unknown) {
-  return workspaceRoleTargetId(workspaceIdRaw, roleIdRaw)
 }
 
 function workspaceToWire(workspace: UiWorkspace) {

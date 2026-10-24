@@ -54,7 +54,11 @@ function createNetRequestStub(sessionsByCombination: Record<string, WorkspaceSes
   })
 }
 
-function createHarness(sessionsByCombination: Record<string, WorkspaceSession[]>, netRequest = createNetRequestStub(sessionsByCombination)) {
+function createHarness(
+  sessionsByCombination: Record<string, WorkspaceSession[]>,
+  netRequest: any = createNetRequestStub(sessionsByCombination),
+  extraDeps: Record<string, any> = {},
+) {
   const state: any = {
     loading: false,
     draft: { activeTargetKind: 'workspace', activeRoleId: 'role-a', activeGroupId: '', activeWorkspaceId: 'ws-1' },
@@ -84,6 +88,7 @@ function createHarness(sessionsByCombination: Record<string, WorkspaceSession[]>
     activeRole: () => state.data.roles.find((role: any) => String(role.id) === String(state.draft.activeRoleId || state.data.ui.activeRoleId)) || null,
     activeWorkspace: () => state.data.workspaces.find((workspace: any) => String(workspace.id) === String(state.draft.activeWorkspaceId || state.data.ui.activeWorkspaceId)) || null,
     clearPendingWorkspaceChat: () => { state.pendingWorkspaceChat = null },
+    ...extraDeps,
   })
   return { state, manager, emits: () => emitCount }
 }
@@ -507,5 +512,107 @@ describe('取消注册与重新注册保留会话', () => {
     expect(reselectRequests.some((request) => String(request.path || '').includes('/roles/role-b/'))).toBe(false)
     expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))).toBeUndefined()
     expect(harness.state.draft.activeRoleId).toBe('role-a')
+  })
+})
+
+function createSessionOpsNetRequest() {
+  const requests: any[] = []
+  const netRequest = vi.fn(async (req: any) => {
+    requests.push(req)
+    const method = String(req?.method || '')
+    const path = String(req?.path || '')
+    const detailMatch = path.match(/^\/api\/workspaces\/([^/]+)\/roles\/([^/]+)\/sessions\/([^/]+)$/)
+    if (method === 'GET' && detailMatch) {
+      return {
+        body: {
+          id: decodeURIComponent(detailMatch[3]),
+          roleId: decodeURIComponent(detailMatch[2]),
+          workspaceId: decodeURIComponent(detailMatch[1]),
+          title: '旧标题',
+          createdAt: 1000,
+          updatedAt: 1000,
+          messages: [],
+        },
+      }
+    }
+    if (method === 'PATCH' && /^\/api\/workspaces\/[^/]+\/roles\/[^/]+\/sessions\/[^/]+\/title$/.test(path)) {
+      return { body: {} }
+    }
+    if (method === 'DELETE' && detailMatch) return { body: {} }
+    throw new Error(`未预期的请求：${method} ${path}`)
+  })
+  return { netRequest, requests }
+}
+
+function seedWorkspaceChat(state: any, workspaceId: string, roleId: string, chatId: string) {
+  const targetId = workspaceRoleTargetId(workspaceId, roleId)
+  state.data.chatsByWorkspace[targetId] = {
+    activeChatId: chatId,
+    chatMetas: [{ id: chatId, title: '旧标题', createdAt: 1, updatedAt: 1 }],
+    chats: [{ id: chatId, roleId, workspaceId, title: '旧标题', messages: [] }],
+  }
+}
+
+describe('工作区会话身份：独立参数与自身角色', () => {
+  it('重命名使用会话自身的角色，不受全局当前角色影响', async () => {
+    const { netRequest, requests } = createSessionOpsNetRequest()
+    const harness = createHarness({}, netRequest)
+    seedWorkspaceChat(harness.state, 'ws-1', 'role-b', 'session-b1')
+
+    const ok = await harness.manager.renameWorkspaceChatTitle('ws-1', 'role-b', 'session-b1', '新标题')
+
+    expect(ok).toBe(true)
+    expect(requests[0]).toMatchObject({
+      method: 'PATCH',
+      path: '/api/workspaces/ws-1/roles/role-b/sessions/session-b1/title',
+    })
+    expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))?.chats?.[0]?.title).toBe('新标题')
+    expect(harness.state.draft.activeRoleId).toBe('role-a')
+  })
+
+  it('删除使用会话自身的角色并清理该会话收藏', async () => {
+    const { netRequest, requests } = createSessionOpsNetRequest()
+    const cleanupFavoriteRefsForChat = vi.fn()
+    const harness = createHarness({}, netRequest, { cleanupFavoriteRefsForChat })
+    seedWorkspaceChat(harness.state, 'ws-1', 'role-b', 'session-b1')
+
+    const ok = await harness.manager.deleteChatForWorkspace('ws-1', 'role-b', 'session-b1')
+
+    expect(ok).toBe(true)
+    expect(requests[0]).toMatchObject({
+      method: 'DELETE',
+      path: '/api/workspaces/ws-1/roles/role-b/sessions/session-b1',
+    })
+    expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))?.chats).toEqual([])
+    expect(cleanupFavoriteRefsForChat).toHaveBeenCalledWith('workspace', 'ws-1', 'role-b', 'session-b1')
+    expect(harness.state.draft.activeRoleId).toBe('role-a')
+  })
+
+  it('加载会话使用显式角色，不退回全局当前角色', async () => {
+    const { netRequest, requests } = createSessionOpsNetRequest()
+    const harness = createHarness({}, netRequest)
+
+    const chat = await harness.manager.ensureWorkspaceChatLoaded('ws-1', 'role-b', 'session-b1')
+
+    expect(chat?.roleId).toBe('role-b')
+    expect(requests.some((request) => String(request.path || '') === '/api/workspaces/ws-1/roles/role-b/sessions/session-b1')).toBe(true)
+    expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))?.chats?.[0]?.id).toBe('session-b1')
+    expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-a'))).toBeUndefined()
+    expect(harness.state.draft.activeRoleId).toBe('role-a')
+  })
+
+  it('工作区、角色与会话编号各自编码进独立路径段', async () => {
+    const { netRequest, requests } = createSessionOpsNetRequest()
+    const harness = createHarness({}, netRequest)
+
+    await harness.manager.ensureWorkspaceChatLoaded('ws/1', 'role/1', 'session 1')
+    await harness.manager.renameWorkspaceChatTitle('ws/1', 'role/1', 'session 1', '新标题')
+    await harness.manager.deleteChatForWorkspace('ws/1', 'role/1', 'session 1')
+
+    const paths = requests.map((request) => String(request.path || ''))
+    expect(paths).toContain('/api/workspaces/ws%2F1/roles/role%2F1/sessions/session%201')
+    expect(paths).toContain('/api/workspaces/ws%2F1/roles/role%2F1/sessions/session%201/title')
+    expect(paths).toContain('/api/workspaces/ws%2F1/roles/role%2F1/sessions/session%201')
+    expect(boxOf(harness.state, workspaceRoleTargetId('ws/1', 'role/1'))).toBeTruthy()
   })
 })

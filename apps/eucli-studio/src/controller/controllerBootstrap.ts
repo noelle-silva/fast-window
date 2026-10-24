@@ -17,7 +17,7 @@ export function createControllerBootstrap(deps: {
   refreshPlaceholderLibrary: (force?: boolean) => Promise<any>
   reloadRoleSession: (roleId: any, sessionId: any) => Promise<any>
   reloadGroupSession: (groupId: any, sessionId: any) => Promise<any>
-  reloadWorkspaceSession: (workspaceId: any, sessionId: any, roleId?: any) => Promise<any>
+  reloadWorkspaceSession: (workspaceId: any, roleId: any, sessionId: any) => Promise<any>
 }) {
   const { state, render, showToast, getNetRequest, isDisposed, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
   const restoringRunIds = new Set<string>()
@@ -101,7 +101,7 @@ export function createControllerBootstrap(deps: {
           const workspaceId = String((latest as any)?.workspaceId || '').trim()
           const sessionId = String(latest?.sessionId || '').trim()
           if (workspaceId && sessionId && typeof reloadWorkspaceSession === 'function') {
-            await reloadWorkspaceSession(workspaceId, sessionId, latest.roleId).catch(() => null)
+            await reloadWorkspaceSession(workspaceId, latest.roleId, sessionId).catch(() => null)
           } else if (groupId && sessionId && typeof reloadGroupSession === 'function') {
             await reloadGroupSession(groupId, sessionId).catch(() => null)
           } else if (roleId && sessionId && typeof reloadRoleSession === 'function') {

@@ -1,12 +1,14 @@
 import { now, uid } from '../core/utils'
 
-export function favoriteChatRefKey(targetKind: any, targetId: any, chatId: any) {
+export function favoriteChatRefKey(targetKind: any, targetId: any, roleId: any, chatId: any) {
   const kindText = String(targetKind || '').trim()
   const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
   const tid = String(targetId || '').trim()
+  const rid = kind === 'workspace' ? String(roleId || '').trim() : ''
   const cid = String(chatId || '').trim()
   if (!tid || !cid) return ''
-  return `${kind}::${tid}::${cid}`
+  if (kind === 'workspace' && !rid) return ''
+  return `${kind}::${tid}::${rid}::${cid}`
 }
 
 export function normalizeFavoriteFolder(input: any) {
@@ -33,11 +35,14 @@ export function normalizeFavoriteChatRef(input: any) {
   const kindText = String((raw as any).targetKind || '').trim()
   const targetKind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
   const targetId = String((raw as any).targetId || '').trim()
+  const roleId = targetKind === 'workspace' ? String((raw as any).roleId || '').trim() : ''
   const chatId = String((raw as any).chatId || '').trim()
   if (!targetId || !chatId) return null
+  if (targetKind === 'workspace' && !roleId) return null
   return {
     targetKind,
     targetId,
+    roleId,
     chatId,
     addedAt: Number((raw as any).addedAt || now()),
   }
@@ -88,7 +93,7 @@ export function normalizeFavorites(raw: any) {
     for (const it of list0) {
       const ref = normalizeFavoriteChatRef(it)
       if (!ref) continue
-      const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.chatId)
+      const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
       if (!key || seen.has(key)) continue
       seen.add(key)
       list.push(ref)

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
+import { parseWorkspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { chatHistoryMatchesSearch } from '../utils/text'
 import { useEvent } from './useEvent'
 import { useLazyListWindow } from './useLazyListWindow'
@@ -22,7 +23,7 @@ export function useChatSessionPickers(deps: {
   activeWorkspace: any
   activeRole: any
   activeChatTargetId: any
-  setFavoriteChatMenu: React.Dispatch<React.SetStateAction<{ folderId: string; targetKind: TargetKind; targetId: string; chatId: string; title: string; x: number; y: number }>>
+  setFavoriteChatMenu: React.Dispatch<React.SetStateAction<{ folderId: string; targetKind: TargetKind; targetId: string; roleId: string; chatId: string; title: string; x: number; y: number }>>
   closeFavoriteChatMenu: () => void
   closeFavoriteFolderMenu: () => void
   closeFavoriteDialog: () => void
@@ -130,14 +131,22 @@ export function useChatSessionPickers(deps: {
   const saveEditingChatTitle = useEvent(async () => {
     const { targetKind, targetId, chatId, text } = editingChatTitle
     if (!targetId || !chatId || loading) return
-    const action = targetKind === 'group' ? controller.actions.renameGroupChat : targetKind === 'workspace' ? controller.actions.renameWorkspaceChat : controller.actions.renameChat
-    const ok = await Promise.resolve(action?.(targetId, chatId, String(text ?? '')))
+    const nextText = String(text ?? '')
+    let ok: any
+    if (targetKind === 'workspace') {
+      const target = parseWorkspaceRoleTargetId(targetId)
+      if (!target.workspaceId || !target.roleId) return
+      ok = await Promise.resolve(controller.actions.renameWorkspaceChat?.(target.workspaceId, target.roleId, chatId, nextText))
+    } else {
+      const action = targetKind === 'group' ? controller.actions.renameGroupChat : controller.actions.renameChat
+      ok = await Promise.resolve(action?.(targetId, chatId, nextText))
+    }
     if (ok === true) closeEditingChatTitle()
   })
 
   React.useEffect(() => {
     setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
-    setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
+    setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', roleId: '', chatId: '', title: '', x: 0, y: 0 })
     setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
     setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
   }, [page, activeRole?.id, (activeGroup as any)?.id, activeTargetKind, setFavoriteChatMenu, setEditingChatTitle])
