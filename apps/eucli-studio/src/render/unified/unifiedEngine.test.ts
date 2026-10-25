@@ -172,6 +172,79 @@ describe('unified 引擎：网页代码块', () => {
   })
 })
 
+describe('unified 引擎：HTML 块内的 Markdown', () => {
+  beforeAll(async () => {
+    await installRenderGlobals()
+  }, 120000)
+
+  it('块内加粗与行内代码生效', () => {
+    const host = renderInto(makeEngine(), '<div class="card">**重点** 与 `code`</div>', OPTIONS)
+    expect(host.querySelectorAll('div.card strong').length).toBe(1)
+    expect(host.querySelectorAll('div.card code').length).toBe(1)
+    host.remove()
+  })
+
+  it('块内列表生成结构', () => {
+    const text = ['<div class="card">', '- 列表一', '- 列表二', '</div>'].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    expect(host.querySelectorAll('div.card ul li').length).toBe(2)
+    host.remove()
+  })
+
+  it('块内纯文本不被套上段落外壳', () => {
+    const host = renderInto(makeEngine(), '<div class="card">普通说明文字</div>', OPTIONS)
+    expect(host.querySelectorAll('div.card').length).toBe(1)
+    expect(host.querySelectorAll('div.card > p').length).toBe(0)
+    host.remove()
+  })
+
+  it('代码容器内的记号保持原样', () => {
+    const text = ['<div class="card">', '<pre><code>**不解析**</code></pre>', '</div>'].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    expect(host.querySelectorAll('div.card strong').length).toBe(0)
+    expect(host.querySelector('div.card pre code')?.textContent).toContain('**不解析**')
+    host.remove()
+  })
+
+  it('块内表格单元格含行内标签时整表完整渲染', () => {
+    const text = [
+      '<div style="padding: 12px">',
+      '| 内容类型 | 源 | 差 |',
+      '|---|---:|---:|',
+      '| 记录数 | 116,953 | <span style="color:#0f766e">0</span> |',
+      '| 例句 | 188,859 | <span style="color:#0f766e">0</span> |',
+      '| 短语 | 679,229 | <span style="color:#0f766e">0</span> |',
+      '',
+      '</div>',
+    ].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    expect(host.querySelectorAll('div table').length).toBe(1)
+    expect(host.querySelectorAll('div thead th').length).toBe(3)
+    expect(host.querySelectorAll('div tbody tr').length).toBe(3)
+    expect(host.querySelectorAll('div td span').length).toBe(3)
+    host.remove()
+  })
+
+  it('未闭合卡片：块内粗体生效，后续正文照常排版', () => {
+    const text = [
+      '<div class="card">',
+      '**重点提示**',
+      '',
+      '## 后文标题',
+      '',
+      '正文段落',
+    ].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    expect(host.querySelectorAll('div.card strong').length).toBe(1)
+    expect(host.querySelectorAll('h2').length).toBe(1)
+    host.remove()
+  })
+})
+
 describe('unified 引擎：流式等价', () => {
   beforeAll(async () => {
     await installRenderGlobals()
@@ -235,11 +308,11 @@ describe('unified 引擎：Markdown 基础语法（GFM）', () => {
     host.remove()
   })
 
-  it('块内 Markdown 表格不解析（HTML 块内不解析 Markdown，与旧引擎一致）', () => {
+  it('块内 Markdown 表格解析（HTML 块内子排版）', () => {
     const text = ['<div class="card">', '', '| A | B |', '|---|---|', '| 1 | 2 |', '', '</div>'].join('\n')
     const host = renderInto(makeEngine(), text, OPTIONS)
     expect(host.querySelectorAll('div.card').length).toBe(1)
-    expect(host.querySelectorAll('div.card table').length).toBe(0)
+    expect(host.querySelectorAll('div.card table').length).toBe(1)
     host.remove()
   })
 

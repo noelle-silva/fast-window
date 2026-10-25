@@ -150,52 +150,129 @@ export function findHtmlBlocks(html: string): HtmlBlock[] {
   return out
 }
 
-// 把一块 HTML 拆成「标签片段」与「文本片段」。
-// 注释、声明、处理指令与标签本身都算标签片段；标签之间的内容才算文本片段。
-// 供内容形态层在块内继续做行内认领：标签原样保留，只对文本片段认领。
-export type HtmlPiece = { kind: 'tag' | 'text'; value: string }
+// 把一块 HTML 拆成「结构标签」与「文本域」。
+//
+// 结构标签：位于行首的块级标签，与 CommonMark 的 HTML block 起始条件一致。
+// 文本域：两个结构标签之间的连续内容，其中的行内标签（span、b、img…）留在
+//   文本里一起交给解析器。按标签边界逐个切开会把表格、列表这类跨行结构
+//   切成半截，切点必须落在结构层，不能落在行内成员上。
+export type HtmlPiece = {
+  kind: 'tag' | 'text'
+  value: string
+  // 文本域所在的原样容器（pre / code / script / style / textarea），否则为 null。
+  container: string | null
+  // 文本域内出现过原样容器：整域不参与子排版，避免把代码内容当排版语法。
+  opaque: boolean
+}
 
-export function splitHtmlTags(raw: string): HtmlPiece[] {
+// 原样文本容器：这些标签内部的内容不参与子排版。
+const RAW_TEXT_CONTAINERS = new Set(['pre', 'code', 'script', 'style', 'textarea'])
+
+// 结构标签：可在行首独立成段的块级元素。段落与标题同样会中断行内 Markdown，
+// 与扫描用的块级集合一起参与结构切分。
+const STRUCTURE_TAGS = new Set([
+  ...BLOCK_TAGS,
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+])
+
+export function splitHtmlStructure(raw: string): HtmlPiece[] {
   const s = String(raw || '')
   const out: HtmlPiece[] = []
+  const stack: string[] = []
   let cursor = 0
   let i = 0
+  let lineStart = 0
+  let sawOpaque = false
 
-  const flushText = (end: number) => {
-    if (end > cursor) out.push({ kind: 'text', value: s.slice(cursor, end) })
+  const currentContainer = (): string | null => {
+    for (let k = stack.length - 1; k >= 0; k--) {
+      if (RAW_TEXT_CONTAINERS.has(stack[k])) return stack[k]
+    }
+    return null
   }
 
-  const pushTag = (start: number, end: number) => {
+  const flushText = (end: number) => {
+    if (end <= cursor) return
+    const container = currentContainer()
+    out.push({
+      kind: 'text',
+      value: s.slice(cursor, end),
+      container,
+      opaque: sawOpaque || container !== null,
+    })
+    sawOpaque = false
+  }
+
+  const trackTag = (tagText: string) => {
+    const m = /^<(\/?)([A-Za-z][A-Za-z0-9-]*)/.exec(tagText)
+    if (!m) return
+    const name = m[2].toLowerCase()
+    if (m[1] === '/') {
+      const at = stack.lastIndexOf(name)
+      if (at >= 0) stack.length = at
+      return
+    }
+    if (/\/\s*>$/.test(tagText) || VOID_TAGS.has(name)) return
+    stack.push(name)
+  }
+
+  const atLineStart = (pos: number) => {
+    for (let k = lineStart; k < pos; k++) {
+      const c = s[k]
+      if (c !== ' ' && c !== '\t') return false
+    }
+    return true
+  }
+
+  const pushStructure = (start: number, end: number) => {
     flushText(start)
-    out.push({ kind: 'tag', value: s.slice(start, end) })
+    const tagText = s.slice(start, end)
+    trackTag(tagText)
+    out.push({ kind: 'tag', value: tagText, container: null, opaque: false })
     cursor = end
   }
 
   while (i < s.length) {
-    if (s[i] !== '<') {
+    const c = s[i]
+    if (c === '\n') {
+      lineStart = i + 1
+      i++
+      continue
+    }
+    if (c !== '<') {
       i++
       continue
     }
     if (s.startsWith('<!--', i)) {
       const end = s.indexOf('-->', i + 4)
       const stop = end < 0 ? s.length : end + 3
-      pushTag(i, stop)
+      pushStructure(i, stop)
       i = stop
       continue
     }
     if (s.startsWith('<!', i) || s.startsWith('<?', i)) {
       const end = s.indexOf('>', i)
       const stop = end < 0 ? s.length : end + 1
-      pushTag(i, stop)
+      pushStructure(i, stop)
       i = stop
       continue
     }
+
     const tag = readTag(s, i)
     if (!tag) {
       i++
       continue
     }
-    pushTag(i, tag.end)
+
+    // 行首的块级标签才算结构；其余标签属于文本域内的行内成员。
+    if (!(STRUCTURE_TAGS.has(tag.name) && atLineStart(i))) {
+      if (!tag.closing && !tag.selfClosing && RAW_TEXT_CONTAINERS.has(tag.name)) sawOpaque = true
+      trackTag(s.slice(i, tag.end))
+      i = tag.end
+      continue
+    }
+
+    pushStructure(i, tag.end)
     i = tag.end
   }
 

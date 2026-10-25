@@ -2,6 +2,7 @@ import type { MathClaim } from '../mathProtect'
 import { rehypeSticker } from './rehypeSticker'
 import { rehypeMathPlaceholder } from './rehypeMathPlaceholder'
 import { rehypeRestoreHtmlBlock } from './rehypeRestoreHtmlBlock'
+import { rehypeHtmlBlockMarkdown } from './rehypeHtmlBlockMarkdown'
 import { rehypeFence } from './rehypeFence'
 import { rehypeMermaid } from './rehypeMermaid'
 import { rehypeEscapeCode } from './rehypeEscapeCode'
@@ -47,6 +48,13 @@ export const RENDER_PLUGINS: RenderPluginEntry[] = [
     requiresRaw: true,
     plugin: rehypeRestoreHtmlBlock,
     options: (ctx) => ({ getBlocks: () => ctx.htmlBlocks }),
+  },
+  {
+    // 必须紧跟还原之后：块内容此时仍是 raw 字符串，尚未被 rehype-raw 展开。
+    id: 'html-block-markdown',
+    phase: 'before-raw',
+    requiresRaw: true,
+    plugin: rehypeHtmlBlockMarkdown,
   },
   {
     id: 'fence',
