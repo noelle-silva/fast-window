@@ -14,6 +14,7 @@ import {
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
+import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
   normalizeSidebarSide,
   normalizeSidebarWidth,
@@ -315,6 +316,12 @@ export function createAppearanceActions(deps: {
     setReasoningRenderEnabled: (enabled: any) => {
       if (!state.data) return
       state.data.settings.reasoningRenderEnabled = normalizeReasoningRenderEnabled(enabled)
+      saveMeta().catch(() => {})
+      emit()
+    },
+    setMessageOffscreenSkipEnabled: (enabled: any) => {
+      if (!state.data) return
+      state.data.settings.messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(enabled)
       saveMeta().catch(() => {})
       emit()
     },

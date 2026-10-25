@@ -18,6 +18,7 @@ import {
   normalizeChatLineHeight,
 } from '../../domain/chatFont'
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
+import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
   COMPOSER_MIN_ROWS_MAX,
   COMPOSER_MIN_ROWS_MIN,
@@ -177,6 +178,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const userMessageCollapseLines = clampNum(Number(settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(settings?.reasoningDisplayMode)
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
+  const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const branchTreeView = (() => {
     const raw = String(((settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? raw : 'right'
@@ -551,6 +553,25 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 用户消息超过该行数时默认折叠，可在消息中展开/收起。
               </Typography>
             </Box>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>消息屏外跳过</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  开启时屏外消息保留占位并记忆高度；关闭后所有消息始终正常排版绘制。
+                </Typography>
+              </Box>
+              <Switch
+                size="small"
+                checked={messageOffscreenSkipEnabled}
+                onChange={(e) => controller.actions.setMessageOffscreenSkipEnabled?.(!!e.target.checked)}
+                disabled={loading}
+              />
+            </Stack>
           </Stack>
         </SettingsSection>
 

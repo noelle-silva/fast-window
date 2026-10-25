@@ -15,10 +15,13 @@ import { activeRunCardForAssistantMessage, messageVisibleText } from '../../doma
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import { resolveReplyDurationMs } from '../../domain/messageTiming'
 import type { MessageBatchGroup } from '../../domain/messageBatchMount'
+import { messageOffscreenContentKey } from '../../domain/messageOffscreen'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
+import type { MessageOffscreenHandle } from '../hooks/useMessageOffscreen'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { LiveAssistantBody } from './LiveAssistantBody'
+import { MessageOffscreenSlot } from './MessageOffscreenSlot'
 import { RefImageThumb, StickerText } from './MessageMedia'
 import { formatDurationMs } from '../utils/time'
 
@@ -38,6 +41,7 @@ const STAGING_MESSAGE_BATCH_SX = {
 type ChatMessageListProps = {
   controller: any
   messageBatchGroups?: MessageBatchGroup[]
+  messageOffscreen?: MessageOffscreenHandle | null
   messages: any[]
   roles: any[]
   activeRole: any
@@ -101,6 +105,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
   const {
     controller,
     messageBatchGroups = [],
+    messageOffscreen = null,
     messages,
     roles,
     activeRole,
@@ -137,7 +142,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     onDeleteMessage,
   } = props
 
-  const renderMessage = (m: any) => {
+  const renderMessageBody = (m: any) => {
         const content = messageVisibleText(m)
         const isAsyncToolResult = isAsyncToolResultMessage(m)
         const isToolResponse = isAsyncToolResult || content.startsWith('<<<[TOOL_RESPONSE]>>>')
@@ -664,6 +669,33 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             </Paper>
           </Stack>
         )
+  }
+
+  const renderMessage = (m: any) => {
+    const body = renderMessageBody(m)
+    if (!messageOffscreen) return body
+    const mid = String(m?.id || '')
+    if (!mid) return body
+    const activeRunCard = activeRunCardForAssistantMessage(activeVisibleRunCards, m)
+    const pinned = !!m?.displayOnlyPendingRunTail || (!!activeRunCard && isAssistantGenerating(m))
+    const contentKey = messageOffscreenContentKey(m, {
+      editing: editingMsg.mid === mid,
+      editingLength: editingMsg.mid === mid ? editingMsg.text.length : 0,
+      userExpanded: expandedUserMsgIds.has(mid),
+      toolExpanded: expandedToolMsgIds.has(mid),
+    })
+    return (
+      <MessageOffscreenSlot
+        key={mid}
+        controller={messageOffscreen}
+        mid={mid}
+        pinned={pinned}
+        contentKey={contentKey}
+        message={m}
+      >
+        {body}
+      </MessageOffscreenSlot>
+    )
   }
 
   return (

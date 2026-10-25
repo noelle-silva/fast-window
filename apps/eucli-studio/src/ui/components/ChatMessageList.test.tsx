@@ -172,4 +172,79 @@ describe('ChatMessageList streaming body mounting', () => {
     expect(host.querySelector('[data-fw-message-batch="staging"]')?.getAttribute('aria-hidden')).toBe('true')
     expect(host.querySelector('[data-fw-message-batch="revealed"]')?.hasAttribute('aria-hidden')).toBe(false)
   })
+
+  it('pins generating messages and the pending run tail against offscreen skipping', () => {
+    const controller = {
+      getScopeVer: () => 0,
+      subscribeScope: () => () => {},
+      getMessageById: () => null,
+      renderAssistantInto: vi.fn(),
+      fmtTime: () => '',
+    }
+    const generating: any = {
+      id: 'message-1',
+      role: 'assistant',
+      type: 'assistant',
+      content: '生成中',
+      createdAt: 1,
+      updatedAt: 1,
+      pending: true,
+      streaming: true,
+      assistantRun: {
+        generationId: 'run-1',
+        status: 'running',
+        mode: 'new',
+        stream: true,
+        startedAt: 1,
+        updatedAt: 1,
+      },
+    }
+    const offscreen = {
+      attach: vi.fn(),
+      update: vi.fn(),
+      detach: vi.fn(),
+      revealAround: vi.fn(),
+    }
+    const props: any = createProps(controller, generating)
+    props.messageOffscreen = offscreen
+    props.messages = [generating]
+
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+    act(() => {
+      root.render(<ChatMessageList {...props} />)
+    })
+
+    expect(host.querySelector('[data-fw-message-slot="message-1"]')).not.toBeNull()
+    expect(offscreen.attach.mock.calls[0]?.[0]).toBe('message-1')
+    expect(offscreen.attach.mock.calls[0]?.[2]?.pinned).toBe(true)
+
+    const tail: any = {
+      id: '__ui_active_run_tail_pending:run-1',
+      role: 'assistant',
+      type: 'assistant',
+      content: '生成中',
+      createdAt: 1,
+      updatedAt: 1,
+      pending: true,
+      displayOnlyPendingRunTail: true,
+      assistantRun: {
+        generationId: 'run-1',
+        status: 'running',
+        mode: 'new',
+        stream: true,
+        startedAt: 1,
+        updatedAt: 1,
+      },
+    }
+    props.messages = [tail]
+    props.activeVisibleRunCards = []
+    act(() => {
+      root.render(<ChatMessageList {...props} />)
+    })
+
+    expect(offscreen.attach.mock.calls.at(-1)?.[0]).toBe('__ui_active_run_tail_pending:run-1')
+    expect(offscreen.attach.mock.calls.at(-1)?.[2]?.pinned).toBe(true)
+  })
 })

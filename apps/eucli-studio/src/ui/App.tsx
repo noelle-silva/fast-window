@@ -66,6 +66,7 @@ import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
+import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
 import { chatStreamEnabled } from '../domain/chatStream'
@@ -133,6 +134,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(data?.settings?.reasoningRenderEnabled)
+  const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(data?.settings?.messageOffscreenSkipEnabled)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
@@ -296,6 +298,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   })
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
+  const revealMessageRef = React.useRef<((mid: string) => void) | null>(null)
   const stickToBottomRef = React.useRef(true)
   const autoScrollBlockUntilRef = React.useRef(0)
   const composerRef = React.useRef<HTMLDivElement | null>(null)
@@ -588,6 +591,19 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     chatSwitch.switching
   const sessionPageKey = !sessionPageBlocked && renderChat && Array.isArray(renderChat.messages) ? renderChatId : ''
   const sessionKeepAliveKeys = useSessionKeepAlive(sessionPageKey)
+  // 屏外跳过的高度记忆按布局条件失效：这里汇总会影响消息高度的全局设置、字体与右侧树面板占位。
+  const messageLayoutSignature = [
+    chatFontSize,
+    chatFontFamily,
+    chatLetterSpacing,
+    chatLineHeight,
+    userMessageCollapseEnabled ? userMessageCollapseLines : 0,
+    reasoningDisplayMode,
+    reasoningRenderEnabled ? 1 : 0,
+    renderSafetyPolicy,
+    stickersEnabled ? `stickers:${Object.keys(stickerMap || {}).length}` : 'stickers:off',
+    treeOpen && effectiveTreeView === 'right' ? `tree:${Math.round(treePanelW)}` : 'tree:off',
+  ].join('|')
   const treeHighlightEdgeKeys = React.useMemo(() => {
     const tr: any = treeRender
     const target = String(lastMsgId || '').trim()
@@ -803,6 +819,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     const tick = () => {
       if (canceled) return
       tries++
+      // 目标可能在屏外占位中：先恢复它附近的排版，再读取位置完成定位。
+      revealMessageRef.current?.(mid)
       const esc = typeof CSS !== 'undefined' && typeof (CSS as any).escape === 'function' ? (CSS as any).escape(mid) : mid.replace(/"/g, '\\"')
       const node = root.querySelector(`[data-mid="${esc}"]`) as HTMLElement | null
       if (node) {
@@ -1044,6 +1062,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                       messages={renderMessages}
                       hasMessages={!!renderChat && Array.isArray(renderChat.messages) && renderChat.messages.length > 0}
                       activeRunTailPendingMessage={activeRunTailPendingMessage}
+                      layoutSignature={messageLayoutSignature}
+                      messageOffscreenEnabled={messageOffscreenSkipEnabled}
+                      revealMessageRef={revealMessageRef}
                       emptyContent={
                         <Typography variant="body2" color="text.secondary">
                           还没有消息。输入内容并发送。

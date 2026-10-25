@@ -17,6 +17,12 @@ const CACHED_PAGE_SX = {
   pointerEvents: 'none',
 } as const
 
+const SessionPageActiveKeyContext = React.createContext<string | null>(null)
+
+export function useSessionPageActiveKey(): string | null {
+  return React.useContext(SessionPageActiveKeyContext)
+}
+
 // 会话页面栈：当前页面每次拿到新元素，缓存页面复用最后一次激活时的元素。
 // 元素引用不变，React 会跳过该子树的调和，节点和内部状态（滚动、分批进度）原样保留；
 // keys 之外的页面从栈中移除时才会真正卸载。
@@ -70,21 +76,23 @@ export function SessionPageStack(props: {
 
   return (
     <SessionPageScrollContext.Provider value={registry}>
-      <Box sx={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0 }}>
-        {slots.map((key) => {
-          const active = key === activeKey
-          return (
-            <Box
-              key={key}
-              data-fw-session-page={active ? 'active' : 'cached'}
-              aria-hidden={active ? undefined : true}
-              sx={active ? PAGE_SX : CACHED_PAGE_SX}
-            >
-              {pages.get(key)}
-            </Box>
-          )
-        })}
-      </Box>
+      <SessionPageActiveKeyContext.Provider value={activeKey}>
+        <Box sx={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0 }}>
+          {slots.map((key) => {
+            const active = key === activeKey
+            return (
+              <Box
+                key={key}
+                data-fw-session-page={active ? 'active' : 'cached'}
+                aria-hidden={active ? undefined : true}
+                sx={active ? PAGE_SX : CACHED_PAGE_SX}
+              >
+                {pages.get(key)}
+              </Box>
+            )
+          })}
+        </Box>
+      </SessionPageActiveKeyContext.Provider>
     </SessionPageScrollContext.Provider>
   )
 }

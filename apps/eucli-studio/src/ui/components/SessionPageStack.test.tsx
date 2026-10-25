@@ -3,7 +3,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionPageStack } from './SessionPageStack'
+import { SessionPageStack, useSessionPageActiveKey } from './SessionPageStack'
 import { useSessionPageScrollRegistry } from './sessionPageScrollRegistry'
 import { useSessionKeepAlive } from '../hooks/useSessionKeepAlive'
 
@@ -56,6 +56,20 @@ function ScrollHarness(props: { sessionKey: string; activeScrollRef: React.Mutab
       activePage={<ScrollPage id={props.sessionKey} />}
     />
   )
+}
+
+function ActiveAwarePage(props: { id: string }) {
+  const activeKey = useSessionPageActiveKey()
+  return (
+    <div data-page-id={props.id} data-active-key={activeKey ?? ''}>
+      {props.id}
+    </div>
+  )
+}
+
+function ActiveAwareHarness(props: { sessionKey: string }) {
+  const keys = useSessionKeepAlive(props.sessionKey)
+  return <SessionPageStack activeKey={props.sessionKey} keys={keys} activePage={<ActiveAwarePage id={props.sessionKey} />} />
 }
 
 describe('session page stack', () => {
@@ -151,5 +165,23 @@ describe('session page stack', () => {
       scrollRerenders.get('a')?.()
     })
     expect(activeScrollRef.current?.getAttribute('data-scroll-page')).toBe('b')
+  })
+
+  it('tells cached pages which session is currently displayed', async () => {
+    const renderActive = async (sessionKey: string) => {
+      await act(async () => {
+        root.render(<ActiveAwareHarness sessionKey={sessionKey} />)
+      })
+    }
+
+    await renderActive('a')
+    await renderActive('b')
+
+    expect(pageNode('a')?.getAttribute('data-active-key')).toBe('b')
+    expect(pageNode('b')?.getAttribute('data-active-key')).toBe('b')
+
+    await renderActive('a')
+    expect(pageNode('a')?.getAttribute('data-active-key')).toBe('a')
+    expect(pageNode('b')?.getAttribute('data-active-key')).toBe('a')
   })
 })

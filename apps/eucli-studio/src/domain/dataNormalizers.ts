@@ -24,6 +24,7 @@ import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeRoleToolPolicy } from './toolPolicy'
 import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
+import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeWallpaperSettings } from './wallpaper'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
@@ -183,6 +184,7 @@ export function normalizeData(raw: any) {
   if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
   ;(d.settings as any).reasoningDisplayMode = normalizeReasoningDisplayMode((d.settings as any).reasoningDisplayMode)
   ;(d.settings as any).reasoningRenderEnabled = normalizeReasoningRenderEnabled((d.settings as any).reasoningRenderEnabled)
+  ;(d.settings as any).messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled((d.settings as any).messageOffscreenSkipEnabled)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)
   if ((d.settings as any).wallpaper.enabled) d.settings.transparentChatBg = true
   d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
