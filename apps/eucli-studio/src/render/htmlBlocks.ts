@@ -14,7 +14,7 @@ export type HtmlBlock = {
   start: number
   // 结束位置（不含）。
   end: number
-  // 是否已闭合。未闭合的块是流式半成品，由调用方决定是否认领。
+  // 是否已闭合。未闭合的块范围按空行边界截止（见 scanHtmlBlock）。
   closed: boolean
 }
 
@@ -65,8 +65,20 @@ function readTag(html: string, i: number): { name: string; end: number; closing:
   return { name, end: j + 1, closing: false, selfClosing }
 }
 
+// 空行边界（不含空行本身）。
+// CommonMark 的 type-6 HTML block 以空行结束；未闭合的块无法确定自身终点，
+// 只能交出这条标准边界，否则会在模型漏写闭合标签时把后续正文一并吞进块内。
+const BLANK_LINE_RE = /\r?\n[ \t]*\r?\n/g
+
+function findBlankLineBoundary(html: string, from: number): number {
+  BLANK_LINE_RE.lastIndex = from
+  const m = BLANK_LINE_RE.exec(html)
+  return m ? m.index : html.length
+}
+
 // 从 offset 起寻找一个完整 HTML 块。若 offset 处不是块级起始标签，返回 null。
-// 返回的 closed=false 表示扫到文本末尾仍未闭合（流式半成品）。
+// 返回的 closed=false 表示块未闭合：范围截止到第一个空行（标准边界），
+// 其后的内容仍按普通文本参与 Markdown 解析。
 export function scanHtmlBlock(html: string, offset: number): HtmlBlock | null {
   const s = String(html || '')
   if (s[offset] !== '<') return null
@@ -111,8 +123,10 @@ export function scanHtmlBlock(html: string, offset: number): HtmlBlock | null {
     i = tag.end
   }
 
-  // 未闭合：整段剩余内容视为一个未完成块。
-  return { raw: s.slice(offset), start: offset, end: s.length, closed: false }
+  // 未闭合：范围截止到第一个空行。不取到文末，避免漏写闭合标签时把后续
+  // 标题、表格、围栏一并当成 HTML 原文，令整篇 Markdown 失去解析机会。
+  const until = findBlankLineBoundary(s, first.end)
+  return { raw: s.slice(offset, until), start: offset, end: until, closed: false }
 }
 
 // 在文本中找出所有顶层 HTML 块（按出现顺序，互不重叠）。

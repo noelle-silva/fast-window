@@ -243,6 +243,43 @@ describe('unified 引擎：Markdown 基础语法（GFM）', () => {
     host.remove()
   })
 
+  it('未闭合的 HTML 块遇到空行即截止，后续 Markdown 照常解析', () => {
+    const text = [
+      '<div class="card">',
+      '<div class="inner">内容</div>',
+      '</div>',
+      '',
+      '## 标题',
+      '',
+      '| A | B |',
+      '|---|---|',
+      '| 1 | 2 |',
+      '',
+      '```js',
+      'const a = 1',
+      '```',
+    ].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    expect(host.querySelectorAll('div.card').length).toBe(1)
+    expect(host.querySelectorAll('div.card div.inner').length).toBe(1)
+    expect(host.querySelectorAll('h2').length).toBe(1)
+    expect(host.querySelectorAll('table').length).toBe(1)
+    expect(host.querySelectorAll('pre code.language-js').length).toBe(1)
+    host.remove()
+  })
+
+  it('已闭合的 HTML 块内空行不拆块（保护语义不变）', () => {
+    const text = ['<div class="card">', '', '第一段内容', '', '第二段内容', '</div>'].join('\n')
+
+    const host = renderInto(makeEngine(), text, OPTIONS)
+    const card = host.querySelector('div.card')
+    expect(card).toBeTruthy()
+    expect(card?.textContent || '').toContain('第一段内容')
+    expect(card?.textContent || '').toContain('第二段内容')
+    host.remove()
+  })
+
   it('单换行即换行（breaks 对齐旧引擎）', () => {
     const host = renderInto(makeEngine(), '第一行\n第二行\n第三行', OPTIONS)
     expect(host.querySelectorAll('br').length).toBeGreaterThanOrEqual(2)
