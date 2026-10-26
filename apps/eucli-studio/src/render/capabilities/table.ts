@@ -1,16 +1,64 @@
 import { ICON_COPY, ICON_FAIL, ICON_IMAGE, ICON_OK } from '../icons'
 import type { RenderCapability } from '../contract'
+import { mountHorizontalScrollbar } from '../scrollbar'
 
 // ============================================================================
-// 表格能力：给 Markdown / HTML 表格挂上「复制图像 / 复制源码」工具条。
+// 表格能力：给 Markdown / HTML 表格挂上「复制图像 / 复制源码」工具条与横向滑块。
 //
 // 与图表、公式一致：只在新增片段上装饰，事件在根节点委托一次。
-// 表格外层包一层 .fw-table-wrap，用于定位工具条（表格自身不适合做定位容器）。
+// DOM 结构固定为三层，每层只承担一个职责：
+//   .fw-table-wrap    定位容器：工具条与滑块都挂在这里，不参与滚动
+//   .fw-table-scroll  滚动层：唯一产生横向滚动的元素，原生滚动条被隐藏
+//   table             内容：宽度策略由样式决定，内联尺寸在装饰时归一
 // ============================================================================
 
 const WRAP_CLASS = 'fw-table-wrap'
+const SCROLL_CLASS = 'fw-table-scroll'
 const TOOLBAR_CLASS = 'fw-table-toolbar'
 const ACTION_CLASS = 'fw-table-action'
+
+// 表格尺寸归一：模型直出的 HTML 表格常带 width / min-width 内联声明，
+// 会把表格钳到容器宽——列被摊平变宽，同时又不留下任何可滚动距离。
+// 宽度策略只由 .prose table 的样式决定，这里把内联尺寸全部剥掉。
+const SIZE_STYLE_KEYS = new Set([
+  'width',
+  'min-width',
+  'max-width',
+  'table-layout',
+  'display',
+  'float',
+  'margin',
+  'margin-left',
+  'margin-right',
+  'box-sizing',
+])
+
+const SIZE_ATTRIBUTES = ['width', 'align']
+
+function stripSizeDeclarations(el: Element) {
+  for (const attr of SIZE_ATTRIBUTES) el.removeAttribute(attr)
+
+  const raw = el.getAttribute('style')
+  if (!raw) return
+
+  const kept: string[] = []
+  for (const part of raw.split(';')) {
+    const decl = part.trim()
+    if (!decl) continue
+    const idx = decl.indexOf(':')
+    if (idx <= 0) continue
+    if (SIZE_STYLE_KEYS.has(decl.slice(0, idx).trim().toLowerCase())) continue
+    kept.push(decl)
+  }
+
+  if (kept.length) el.setAttribute('style', kept.join('; '))
+  else el.removeAttribute('style')
+}
+
+function normalizeTableSizing(table: HTMLTableElement) {
+  stripSizeDeclarations(table)
+  for (const el of Array.from(table.querySelectorAll('col, colgroup, th, td'))) stripSizeDeclarations(el)
+}
 
 function setActionState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail', act: 'image' | 'source') {
   if (state === 'ok') {
@@ -215,9 +263,16 @@ export function createTableCapability(): RenderCapability {
 
         const wrap = document.createElement('div')
         wrap.className = WRAP_CLASS
+
+        const scroller = document.createElement('div')
+        scroller.className = SCROLL_CLASS
+
+        normalizeTableSizing(table)
         table.replaceWith(wrap)
-        wrap.appendChild(table)
+        scroller.appendChild(table)
+        wrap.appendChild(scroller)
         wrap.appendChild(buildToolbar())
+        mountHorizontalScrollbar({ hostEl: wrap, scrollEl: scroller })
       }
     },
     bind(host) {

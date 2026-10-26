@@ -2,6 +2,8 @@ import { colorMixVar, colorThemeCssVariables } from './colorThemeStyles'
 import { EUCLI_STUDIO_CHAT_ROOT_ID } from '../runtime/eucliStudioGlobals'
 import { chatFontFamilyStack, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import type { ColorThemeColors } from '../domain/colorTheme'
+import { CUSTOM_SCROLL_THUMB_THICKNESS } from '../core/scrollMetrics'
+import { customScrollbarHiddenSx } from './scroll/customScrollbars'
 
 export type ChatGlobalStylesParams = {
   colorThemeColors: ColorThemeColors
@@ -132,16 +134,52 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
     '.prose img': { maxWidth: '100%', height: 'auto' },
     '.prose img.fw-sticker': { maxWidth: 160, maxHeight: 160, width: 'auto', height: 'auto', display: 'inline-block', verticalAlign: 'middle', borderRadius: 12 },
     '.prose .fw-sticker-miss': { color: 'var(--studio-text-secondary)' },
+    // 定位容器：工具条与滑块都挂这一层，自身不滚动。
     '.prose .fw-table-wrap': {
       position: 'relative',
       margin: '12px 0',
-      overflowX: 'auto',
     },
+    // 滚动层：唯一产生横向滚动的元素；原生滚动条隐藏，改用自绘滑块。
+    '.prose .fw-table-scroll': {
+      overflowX: 'auto',
+      ...customScrollbarHiddenSx,
+    },
+    // 有横向溢出时给底部滑块留出空间，避免压住最后一行。
+    '.prose .fw-table-wrap[data-fw-scrollable] .fw-table-scroll': {
+      paddingBottom: 12,
+    },
+    // 宽度按内容走：字少就窄、字多就宽，超出容器时滚动层才有可滚动距离。
     '.prose table': {
       borderCollapse: 'collapse',
       fontSize: 13.5,
-      maxWidth: '100%',
+      width: 'max-content',
+      maxWidth: 'none',
       margin: '0 auto',
+    },
+    // 表格横向滑块：与 React 侧滚动条同一套视觉常量。
+    '.prose .fw-dom-scroll-thumb': {
+      display: 'none',
+      position: 'absolute',
+      left: 0,
+      bottom: 3,
+      height: CUSTOM_SCROLL_THUMB_THICKNESS,
+      borderRadius: 999,
+      background: 'var(--studio-scrollbar-thumb)',
+      cursor: 'grab',
+      touchAction: 'none',
+      opacity: 0.68,
+      transition: 'opacity 120ms ease',
+      zIndex: 3,
+    },
+    '.prose .fw-dom-scroll-thumb[data-visible]': {
+      display: 'block',
+    },
+    '.prose .fw-table-wrap:hover .fw-dom-scroll-thumb[data-visible]': {
+      opacity: 1,
+    },
+    '.prose .fw-dom-scroll-thumb[data-dragging]': {
+      cursor: 'grabbing',
+      opacity: 1,
     },
     '.prose th, .prose td': {
       padding: '10px 16px',
