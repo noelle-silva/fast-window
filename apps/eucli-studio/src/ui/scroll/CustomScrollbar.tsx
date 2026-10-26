@@ -1,13 +1,14 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
 import {
-  CUSTOM_SCROLL_EDGE_INSET,
   CUSTOM_SCROLL_THUMB_THICKNESS,
+  computeThumbDragScroll,
   measureCustomScrollArea,
   sameCustomScrollMetrics,
+  thumbTravelSize,
   type CustomScrollAxis,
   type CustomScrollMetrics,
-} from './customScrollbars'
+} from '../../core/scrollMetrics'
 
 type DragState = {
   axis: CustomScrollAxis
@@ -97,7 +98,12 @@ export function useCustomScrollbar(options: {
     event.stopPropagation()
     const pointer = drag.axis === 'y' ? event.clientY : event.clientX
     const delta = pointer - drag.startPointer
-    const next = drag.maxThumbTravel > 0 ? drag.startScroll + delta * (drag.maxScroll / drag.maxThumbTravel) : drag.startScroll
+    const next = computeThumbDragScroll({
+      startScroll: drag.startScroll,
+      pointerDelta: delta,
+      maxScroll: drag.maxScroll,
+      maxThumbTravel: drag.maxThumbTravel,
+    })
     if (drag.axis === 'y') el.scrollTop = next
     else el.scrollLeft = next
     updateMetrics()
@@ -121,16 +127,17 @@ export function useCustomScrollbar(options: {
     event.preventDefault()
     event.stopPropagation()
     const maxScroll = dragAxis === 'y' ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth
-    const maxThumbTravel = dragAxis === 'y'
-      ? el.clientHeight - CUSTOM_SCROLL_EDGE_INSET * 2 - metrics.yHeight
-      : el.clientWidth - CUSTOM_SCROLL_EDGE_INSET * 2 - metrics.xWidth
+    const maxThumbTravel = thumbTravelSize({
+      viewportSize: dragAxis === 'y' ? el.clientHeight : el.clientWidth,
+      thumbSize: dragAxis === 'y' ? metrics.yHeight : metrics.xWidth,
+    })
     dragRef.current = {
       axis: dragAxis,
       pointerId: event.pointerId,
       startPointer: dragAxis === 'y' ? event.clientY : event.clientX,
       startScroll: dragAxis === 'y' ? el.scrollTop : el.scrollLeft,
       maxScroll: Math.max(0, maxScroll),
-      maxThumbTravel: Math.max(1, maxThumbTravel),
+      maxThumbTravel,
     }
     setDragging(true)
     window.addEventListener('pointermove', onPointerMove)
