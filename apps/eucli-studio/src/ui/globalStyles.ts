@@ -181,8 +181,11 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
       cursor: 'grabbing',
       opacity: 1,
     },
+    // 横向留白是列与列之间的呼吸；minWidth 保证短列不被内容压到贴边，
+    // 否则表格会严丝合缝地卡在文字上，相邻两列看起来黏在一起。
     '.prose th, .prose td': {
-      padding: '10px 16px',
+      padding: '10px 22px',
+      minWidth: 88,
       textAlign: 'center',
       verticalAlign: 'middle',
     },
