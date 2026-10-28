@@ -175,4 +175,19 @@ describe('侧边栏导航', () => {
     expect(requestSwitch).toHaveBeenCalledWith('session-r1', { force: true })
     expect(getSidebarNavigationMemory().role.sessionByRole['role-a']).toBe('session-r1')
   })
+
+  it('角色视图点击与当前同名的角色时仍进入工作区目标', () => {
+    const controller = createController()
+    renderHook(baseInput({
+      controller,
+      activeTargetKind: 'role',
+      activeRole: { id: 'role-a' },
+      activeWorkspaceId: 'ws-1',
+      workspaces: [{ id: 'ws-1', name: '工作区一', registeredRoleIds: ['role-a'] }],
+    }))
+
+    act(() => apiRef.current.selectWorkspaceRole('role-a'))
+
+    expect(controller.actions.setWorkspaceRole).toHaveBeenCalledWith('role-a')
+  })
 })

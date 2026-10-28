@@ -263,7 +263,7 @@ export function useSidebarNavigation(input: {
     const workspace = findWorkspace(workspaces, activeWorkspaceId)
     if (!workspace || !isWorkspaceRoleRegistered(workspace, roleId)) return
     rememberWorkspaceRole(activeWorkspaceId, roleId)
-    if (roleId !== activeRoleId) controller.actions.setWorkspaceRole(roleId)
+    if (roleId !== activeRoleId || activeTargetKind !== 'workspace') controller.actions.setWorkspaceRole(roleId)
     if (!pendingWorkspaceMatches(activeWorkspaceId, roleId)) {
       const sessionId = String(
         getSidebarNavigationMemory().workspace.sessionByWorkspaceRole[workspaceSessionKey(activeWorkspaceId, roleId)] || '',

@@ -297,6 +297,15 @@ export function createWorkspaceManager(deps: {
     })
   }
 
+  // 工作区目标激活的唯一写入点：目标身份三要素（模式、工作区、角色）始终一起落状态。
+  function activateWorkspaceTarget(state: any, workspaceIdRaw: unknown, roleIdRaw?: unknown) {
+    const workspaceId = text(workspaceIdRaw)
+    state.draft.activeRoleId = text(roleIdRaw) || text(state.draft.activeRoleId) || firstRoleId(state)
+    if (!workspaceId) return
+    ;(state.draft as any).activeTargetKind = 'workspace'
+    ;(state.draft as any).activeWorkspaceId = workspaceId
+  }
+
   function setActiveWorkspace(workspaceIdRaw: unknown) {
     const state = getState()
     if (!state?.data) return
@@ -304,9 +313,7 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId) return
     saveActiveComposerDraftMirror(state)
     state.branchDraft = null
-    ;(state.draft as any).activeTargetKind = 'workspace'
-    ;(state.draft as any).activeWorkspaceId = workspaceId
-    if (!text(state.draft.activeRoleId)) state.draft.activeRoleId = firstRoleId(state)
+    activateWorkspaceTarget(state, workspaceId)
     activateComposerDraftForCurrentSession(state)
     loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
@@ -320,8 +327,8 @@ export function createWorkspaceManager(deps: {
     if (!roleId) return
     saveActiveComposerDraftMirror(state)
     state.branchDraft = null
-    state.draft.activeRoleId = roleId
     const workspaceId = text(activeWorkspace()?.id || (state.draft as any)?.activeWorkspaceId || (state.data.ui as any)?.activeWorkspaceId)
+    activateWorkspaceTarget(state, workspaceId, roleId)
     activateComposerDraftForCurrentSession(state)
     if (workspaceId) loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
@@ -488,9 +495,7 @@ export function createWorkspaceManager(deps: {
     try {
       await saveWorkspace(requireNetRequest(), nextWorkspace)
       await refreshWorkspaces(workspaceId)
-      ;(state.draft as any).activeTargetKind = 'workspace'
-      ;(state.draft as any).activeWorkspaceId = workspaceId
-      if (!text(state.draft.activeRoleId)) state.draft.activeRoleId = firstRoleId(state)
+      activateWorkspaceTarget(state, workspaceId)
       saveMeta().catch(() => {})
       showToast?.(isNew ? '工作区已创建' : '工作区已保存', { kind: 'success' })
       closeModal()

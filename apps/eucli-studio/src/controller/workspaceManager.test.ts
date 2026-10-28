@@ -3,6 +3,7 @@
 // 落到该组合自己的数据盒；目标组合没有会话时呈现空态，不伪造草稿会话。
 import { describe, expect, it, vi } from 'vitest'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { createStateAccessors } from '../state/stateAccessors'
 import { createWorkspaceManager } from './workspaceManager'
 
 type WorkspaceSession = {
@@ -376,6 +377,34 @@ describe('工作区角色范围', () => {
       expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))?.chatMetas?.map((meta: any) => meta.id)).toEqual(['session-b1'])
     })
     expect(boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-a'))).toBeUndefined()
+  })
+
+  it('从角色模式直接切换工作区角色时补全工作区目标身份，activeChat 命中工作区会话盒', async () => {
+    const harness = createHarness({
+      [workspaceRoleTargetId('ws-1', 'role-b')]: [{ id: 'session-b1', roleId: 'role-b', workspaceId: 'ws-1', title: 'B 的会话', messages: [] }],
+    })
+    harness.state.draft.activeTargetKind = 'role'
+    harness.state.draft.activeWorkspaceId = ''
+    harness.state.data.ui.activeWorkspaceId = 'ws-1'
+    harness.state.draft.activeRoleId = 'role-a'
+    harness.state.data.ui.activeRoleId = 'role-a'
+    harness.state.data.chatsByRole['role-a'] = {
+      activeChatId: 'role-chat',
+      chatMetas: [{ id: 'role-chat', title: '角色会话', createdAt: 1, updatedAt: 1 }],
+      chats: [{ id: 'role-chat', title: '角色会话', messages: [] }],
+    }
+    const accessors = createStateAccessors({ getState: () => harness.state })
+
+    expect(accessors.activeChat()?.id).toBe('role-chat')
+
+    harness.manager.setWorkspaceRole('role-b')
+
+    expect(harness.state.draft.activeTargetKind).toBe('workspace')
+    expect(harness.state.draft.activeWorkspaceId).toBe('ws-1')
+    expect(harness.state.draft.activeRoleId).toBe('role-b')
+    await vi.waitFor(() => {
+      expect(accessors.activeChat()?.id).toBe('session-b1')
+    })
   })
 
   it('没有已注册角色的工作区仍可进入，并按原行为加载第一个角色组合', async () => {

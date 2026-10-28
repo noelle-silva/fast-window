@@ -340,8 +340,8 @@ export function useFavoriteFolders(deps: {
     clearChatSessionRunNotice(targetKind, targetKey, cid)
     if (targetKind === 'group') controller.actions.setActiveGroup?.(tid)
     else if (targetKind === 'workspace') {
-      controller.actions.setWorkspaceRole?.(rid)
       controller.actions.setActiveWorkspace?.(tid)
+      controller.actions.setWorkspaceRole?.(rid)
     } else controller.actions.setActiveRole?.(tid)
     requestSwitch(cid, { force: true })
     closeChatPicker()
