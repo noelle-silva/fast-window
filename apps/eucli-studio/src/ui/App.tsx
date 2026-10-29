@@ -149,11 +149,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeWorkspaceId = String((s.draft as any)?.activeWorkspaceId || (data?.ui as any)?.activeWorkspaceId || '')
   const activeRole = controller.activeRole()
   const activeGroup = activeTargetKind === 'group' ? (groups.find((g: any) => String(g?.id || '') === activeGroupId) || null) : null
-  const activeWorkspace = activeTargetKind === 'workspace' ? (workspaces.find((workspace: any) => String(workspace?.id || '') === activeWorkspaceId) || null) : null
-  const visibleRoles = React.useMemo(
-    () => (activeTargetKind === 'workspace' ? workspaceRolesInScope(activeWorkspace, roles) : roles),
-    [activeTargetKind, activeWorkspace, roles],
+  const activeWorkspace = React.useMemo(
+    () => workspaces.find((workspace: any) => String(workspace?.id || '') === activeWorkspaceId) || null,
+    [workspaces, activeWorkspaceId],
   )
+  const activeWorkspaceRoles = React.useMemo(() => workspaceRolesInScope(activeWorkspace, roles), [activeWorkspace, roles])
   const activeChatTargetId = activeChatTargetKey(activeTargetKind, { groupId: activeGroupId, workspaceId: activeWorkspaceId, roleId: (activeRole as any)?.id })
   const activeChatSelectionBox = activeChatTargetId
     ? activeTargetKind === 'group'
@@ -586,7 +586,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     !!s.loading ||
     (activeTargetKind === 'group' && !activeGroup) ||
     (activeTargetKind === 'workspace' && !activeWorkspace) ||
-    (activeTargetKind === 'workspace' && !visibleRoles.length) ||
+    (activeTargetKind === 'workspace' && !activeWorkspaceRoles.length) ||
     (activeTargetKind !== 'group' && !activeRole) ||
     chatSwitch.switching
   const sessionPageKey = !sessionPageBlocked && renderChat && Array.isArray(renderChat.messages) ? renderChatId : ''
@@ -947,7 +947,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSplitterPointerDown: sidebarResize.onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
-    roles: visibleRoles,
+    roles,
+    workspaceRoles: activeWorkspaceRoles,
     workspaces,
     activeRoleId: String((activeRole as any)?.id || ''),
     activeRoleAvatarImage: String((activeRole as any)?.avatarImage || ''),
@@ -1150,7 +1151,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                     <Typography variant="body2" color="text.secondary">
                       请选择工作区
                     </Typography>
-                  ) : activeTargetKind === 'workspace' && !visibleRoles.length ? (
+                  ) : activeTargetKind === 'workspace' && !activeWorkspaceRoles.length ? (
                     <Box>
                       <Typography variant="body2" color="text.secondary">
                         当前工作区还没有注册角色。
@@ -1368,7 +1369,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             rolePickerEl={rolePickerEl}
             closeRolePicker={closeRolePicker}
             rolePickerView={rolePickerView}
-            roles={visibleRoles}
+            roles={roles}
+            workspaceRoles={activeWorkspaceRoles}
             workspaces={workspaces}
             draftActiveRoleId={String(s.draft?.activeRoleId || '')}
             activeWorkspaceId={activeWorkspaceId}

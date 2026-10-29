@@ -19,6 +19,7 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   closeRolePicker: () => void
   rolePickerView: RolePickerView
   roles: any[]
+  workspaceRoles: any[]
   workspaces: any[]
   draftActiveRoleId: string
   activeWorkspaceId: string
@@ -32,6 +33,7 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
     closeRolePicker,
     rolePickerView,
     roles,
+    workspaceRoles,
     workspaces,
     draftActiveRoleId,
     activeWorkspaceId,
@@ -44,7 +46,8 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
   useUiDataVersion(controller)
 
   const showWorkspaces = rolePickerView === 'workspace'
-  const showWorkspaceRoleEmpty = rolePickerView === 'workspaceRole' && !roles.length
+  const pickerRoles = rolePickerView === 'workspaceRole' ? workspaceRoles : roles
+  const showWorkspaceRoleEmpty = rolePickerView === 'workspaceRole' && !pickerRoles.length
 
   return (
     <DependablePopover
@@ -109,7 +112,7 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
           </Box>
         ) : (
           <RoleList
-            roles={roles}
+            roles={pickerRoles}
             isSelected={(id) => {
               if (id !== String(draftActiveRoleId || '')) return false
               return rolePickerView === 'workspaceRole' ? activeTargetKind === 'workspace' : activeTargetKind === 'role'

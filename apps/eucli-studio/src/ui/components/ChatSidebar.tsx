@@ -31,6 +31,7 @@ export function ChatSidebar(props: {
   topbarOpacity: number
   topbarBlur: number
   roles: any[]
+  workspaceRoles: any[]
   workspaces: any[]
   activeRoleId: string
   activeRoleAvatarImage: string
@@ -76,6 +77,7 @@ export function ChatSidebar(props: {
     topbarOpacity,
     topbarBlur,
     roles,
+    workspaceRoles,
     workspaces,
     activeRoleId,
     activeRoleAvatarImage,
@@ -254,7 +256,7 @@ export function ChatSidebar(props: {
           <WorkspaceSidebarPanel
             tab={memory.workspace.tab}
             dataVersion={dataVersion}
-            roles={roles}
+            roles={workspaceRoles}
             workspaces={workspaces}
             activeRoleId={activeRoleId}
             activeWorkspaceId={activeWorkspaceId}
