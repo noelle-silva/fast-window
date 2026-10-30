@@ -1,5 +1,6 @@
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { normalizeChatModelOverride } from '../domain/modelRefUtils'
+import { normalizeRoleModelConfig, roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 
@@ -179,15 +180,8 @@ export function createStateAccessors(deps: {
   }
 
   function ensureRoleDefaults(role: any) {
-    const s = getState()
-    if (!s.data) return
-    const fallbackPid = String(s.data.settings.providers?.[0]?.id || '')
-    if (!role.modelRef || typeof role.modelRef !== 'object') role.modelRef = { providerId: fallbackPid, modelId: '' }
-    if (typeof role.modelRef.kind !== 'string') role.modelRef.kind = String(role.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
-    if (typeof role.modelRef.groupId !== 'string') role.modelRef.groupId = ''
-    if (String(role.modelRef.kind || '').trim() === 'model_group') role.modelRef.providerId = ''
-    else if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
-    if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
+    if (!role || typeof role !== 'object') return
+    normalizeRoleModelConfig(role)
     role.toolPolicy = normalizeRoleToolPolicy(role.toolPolicy)
   }
 
@@ -293,11 +287,12 @@ export function createStateAccessors(deps: {
       if (provider) return { kind: 'provider', groupId: '', providerId: override.providerId, modelId: override.modelId, overridden: true }
     }
 
+    const ref = roleDefaultModelRef(role)
     return {
-      kind: String(role?.modelRef?.kind || '').trim() === 'model_group' || String(role?.modelRef?.groupId || '').trim() ? 'model_group' : 'provider',
-      groupId: String(role?.modelRef?.groupId || '').trim(),
-      providerId: String(role?.modelRef?.providerId || '').trim(),
-      modelId: String(role?.modelRef?.modelId || '').trim(),
+      kind: ref?.kind || 'provider',
+      groupId: ref?.groupId || '',
+      providerId: ref?.providerId || '',
+      modelId: ref?.modelId || '',
       overridden: false,
     }
   }

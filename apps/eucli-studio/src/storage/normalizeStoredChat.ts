@@ -11,7 +11,7 @@ export function normalizeStoredChat(chat: any, kind: StoredChatKind) {
     version: VERSION,
     settings: { providers: [{ id: '__lazy__', name: '__lazy__', baseUrl: 'http://', apiKey: '' }] },
     favorites: { folders: [], chatRefsByFolderId: {} },
-    roles: [{ id: '__lazy_role__', name: '__lazy__', createdAt: 1, updatedAt: 1, modelRef: { providerId: '__lazy__', modelId: '' } }],
+    roles: [{ id: '__lazy_role__', name: '__lazy__', createdAt: 1, updatedAt: 1, modelCandidates: [], defaultModelCandidateId: '' }],
     chatsByRole: {
       __lazy_role__: {
         activeChatId: id,

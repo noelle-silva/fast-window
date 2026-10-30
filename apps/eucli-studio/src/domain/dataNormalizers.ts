@@ -22,6 +22,7 @@ import { normalizeFavorites } from './favorites'
 import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeRoleToolPolicy } from './toolPolicy'
+import { normalizeRoleModelConfig } from './roleModelCandidates'
 import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
@@ -317,20 +318,7 @@ export function normalizeData(raw: any) {
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
     if (typeof r.temperature !== 'number' || !isFinite(r.temperature)) r.temperature = 1
     if (typeof r.temperatureEnabled !== 'boolean') r.temperatureEnabled = false
-    if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
-    if (typeof r.modelRef.kind !== 'string') r.modelRef.kind = String(r.modelRef.groupId || '').trim() ? 'model_group' : 'provider'
-    if (typeof r.modelRef.groupId !== 'string') r.modelRef.groupId = ''
-    if (typeof r.modelRef.providerId !== 'string') r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
-    if (typeof r.modelRef.modelId !== 'string') r.modelRef.modelId = ''
-    const modelKind = String(r.modelRef.kind || '').trim() === 'model_group' ? 'model_group' : 'provider'
-    r.modelRef.kind = modelKind
-    if (modelKind === 'provider') {
-      const pid = String(r.modelRef.providerId || '')
-      if (!d.settings.providers.some((p: any) => String(p?.id || '') === pid)) r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
-      r.modelRef.groupId = ''
-    } else {
-      r.modelRef.providerId = ''
-    }
+    normalizeRoleModelConfig(r)
     r.toolPolicy = normalizeRoleToolPolicy((r as any).toolPolicy)
     r.createdAt = Number(r.createdAt || now())
     r.updatedAt = Number(r.updatedAt || now())
