@@ -4,6 +4,7 @@ import { activeEbRoleRunCards, activeEbRoleRunCardsForSession, activeEbRunCardsF
 import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
 import { NEW_GROUP_ID, NEW_ROLE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy, normalizeRoleToolPolicy } from '../domain/toolPolicy'
+import { modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates } from '../domain/roleModelCandidates'
 import { clearPendingChatForTarget, createPendingChatEntry } from '../domain/pendingChat'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
@@ -213,6 +214,8 @@ export function createEntityEditors(deps: {
     state.draft.roleTemperature = '1'
     state.draft.roleTemperatureEnabled = false
     ;(state.draft as any).roleHookPromptPresetId = ''
+    state.draft.roleModelCandidates = []
+    state.draft.roleDefaultModelCandidateId = ''
     state.draft.roleModelSource = 'provider'
     state.draft.roleProviderId = fallbackPid
     state.draft.roleModelGroupId = ''
@@ -226,7 +229,6 @@ export function createEntityEditors(deps: {
     const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
     state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
     state.draft.roleModelId = ''
-    state.draft.roleCustomModelId = ''
     return true
   }
 
@@ -276,15 +278,20 @@ export function createEntityEditors(deps: {
     state.draft.roleTemperature = String(role.temperature ?? 1)
     state.draft.roleTemperatureEnabled = role.temperatureEnabled === true
     ;(state.draft as any).roleHookPromptPresetId = String(role.hookPromptPresetId || '')
-    const modelKind = String(role.modelRef?.kind || '').trim() === 'model_group' || String(role.modelRef?.groupId || '').trim() ? 'model_group' : 'provider'
+    const candidates = normalizeRoleModelCandidates(role.modelCandidates)
+    const defaultId = normalizeDefaultCandidateId(role.defaultModelCandidateId, candidates)
+    state.draft.roleModelCandidates = candidates
+    state.draft.roleDefaultModelCandidateId = defaultId
+    const defaultRef = candidates.find((candidate) => modelCandidateKey(candidate) === defaultId) || null
+    const modelKind = defaultRef?.kind === 'model_group' ? 'model_group' : 'provider'
     state.draft.roleModelSource = modelKind
-    state.draft.roleProviderId = modelKind === 'provider' ? String(role.modelRef?.providerId || '') : ''
-    state.draft.roleModelGroupId = modelKind === 'model_group' ? String(role.modelRef?.groupId || '') : ''
+    state.draft.roleProviderId = defaultRef?.providerId || ''
+    state.draft.roleModelGroupId = defaultRef?.groupId || ''
     state.draft.roleToolPolicy = normalizeRoleToolPolicy(role.toolPolicy)
     state.draft.roleToolAddOpen = false
     state.draft.roleToolSearch = ''
     state.draft.roleToolAddSelected = []
-    const curModelId = String(role.modelRef?.modelId || '').trim()
+    const curModelId = defaultRef?.modelId || ''
 
     const p = sa.getProvider(state.draft.roleProviderId)
     const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
@@ -292,7 +299,6 @@ export function createEntityEditors(deps: {
 
     state.draft.roleModelId = modelKind === 'provider' ? curModelId : ''
     state.draft.roleModelGroupModelId = modelKind === 'model_group' ? curModelId : ''
-    state.draft.roleCustomModelId = ''
     return true
   }
 
@@ -307,19 +313,13 @@ export function createEntityEditors(deps: {
     const temperature = clampTemp(state.draft.roleTemperature)
     const temperatureEnabled = state.draft.roleTemperatureEnabled === true
     const hookPromptPresetId = String((state.draft as any).roleHookPromptPresetId || '').trim()
-    const modelSource = String(state.draft.roleModelSource || '').trim() === 'model_group' ? 'model_group' : 'provider'
-    const providerId = modelSource === 'provider' ? String(state.draft.roleProviderId || '').trim() : ''
-    const groupId = modelSource === 'model_group' ? String(state.draft.roleModelGroupId || '').trim() : ''
-    const modelId = modelSource === 'model_group' ? String(state.draft.roleModelGroupModelId || '').trim() : String(state.draft.roleModelId || '').trim()
+    const candidates = normalizeRoleModelCandidates(state.draft.roleModelCandidates)
+    const defaultCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, candidates)
 
     if (!sys) return showToast?.('请填写角色系统提示词', { kind: 'error' })
-    if (modelSource === 'provider' && !providerId) return showToast?.('请选择角色供应商', { kind: 'error' })
-    if (modelSource === 'model_group' && !groupId) return showToast?.('请选择模型组', { kind: 'error' })
-    if (!modelId) return showToast?.('请选择角色模型', { kind: 'error' })
+    if (!candidates.length) return showToast?.('请至少添加一个候选模型', { kind: 'error' })
+    if (!defaultCandidateId) return showToast?.('请选择一个默认模型', { kind: 'error' })
     const toolPolicy = normalizeRoleToolPolicy(state.draft.roleToolPolicy)
-    const modelRef = modelSource === 'model_group'
-      ? { kind: 'model_group', groupId, providerId: '', modelId }
-      : { kind: 'provider', providerId, modelId }
 
     if (rid === NEW_ROLE_ID) {
       const newRid = uid('r')
@@ -331,7 +331,8 @@ export function createEntityEditors(deps: {
         temperature,
         temperatureEnabled,
         hookPromptPresetId,
-        modelRef,
+        modelCandidates: candidates,
+        defaultModelCandidateId: defaultCandidateId,
         toolPolicy,
         createdAt: now(),
         updatedAt: now(),
@@ -354,7 +355,11 @@ export function createEntityEditors(deps: {
 
     const role = state.data.roles.find((r: any) => String(r?.id) === rid)
     if (!role) return
-    const previous = { ...role, modelRef: role.modelRef && typeof role.modelRef === 'object' ? { ...role.modelRef } : role.modelRef }
+    const previous = {
+      ...role,
+      modelCandidates: Array.isArray(role.modelCandidates) ? role.modelCandidates.slice() : role.modelCandidates,
+      toolPolicy: normalizeRoleToolPolicy(role.toolPolicy),
+    }
 
     role.name = name
     role.avatarImage = avatarImage
@@ -362,7 +367,8 @@ export function createEntityEditors(deps: {
     role.temperature = temperature
     role.temperatureEnabled = temperatureEnabled
     role.hookPromptPresetId = hookPromptPresetId
-    role.modelRef = modelRef
+    role.modelCandidates = candidates
+    role.defaultModelCandidateId = defaultCandidateId
     role.toolPolicy = toolPolicy
     role.updatedAt = now()
 

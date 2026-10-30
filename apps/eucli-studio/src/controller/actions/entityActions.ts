@@ -1,5 +1,7 @@
 import { NEW_ROLE_ID, NEW_GROUP_ID, NEW_WORKSPACE_ID } from '../../domain/constants'
 import { moveListItemById, type ListMovePosition } from '../../domain/listOrdering'
+import { normalizeModelRef } from '../../domain/modelRefUtils'
+import { addRoleModelCandidate, modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates, removeRoleModelCandidate } from '../../domain/roleModelCandidates'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createEntityActions(deps: {
@@ -222,6 +224,33 @@ export function createEntityActions(deps: {
       const mid = String(modelId || '')
       if (String(state.draft.roleModelSource || '') === 'model_group') state.draft.roleModelGroupModelId = mid
       else state.draft.roleModelId = mid
+      emit()
+    },
+    // 把当前选择（来源 + 供应商/模型组 + 模型）作为一个候选加入角色候选池。
+    addRoleModelCandidate: () => {
+      const modelSource = String(state.draft.roleModelSource || '') === 'model_group' ? 'model_group' : 'provider'
+      const ref = modelSource === 'model_group'
+        ? { kind: 'model_group', providerId: '', groupId: String(state.draft.roleModelGroupId || '').trim(), modelId: String(state.draft.roleModelGroupModelId || '').trim() }
+        : { kind: 'provider', providerId: String(state.draft.roleProviderId || '').trim(), groupId: '', modelId: String(state.draft.roleModelId || '').trim() }
+      const normalized = normalizeModelRef(ref)
+      if (!normalized) return showToast?.('请先选择要加入的模型', { kind: 'error' })
+      const next = addRoleModelCandidate(state.draft.roleModelCandidates, normalized)
+      if (next.length === normalizeRoleModelCandidates(state.draft.roleModelCandidates).length) return showToast?.('该模型已在候选池中', { kind: 'error' })
+      state.draft.roleModelCandidates = next
+      state.draft.roleDefaultModelCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, next)
+      emit()
+    },
+    removeRoleModelCandidate: (id: any) => {
+      const next = removeRoleModelCandidate(state.draft.roleModelCandidates, id)
+      state.draft.roleModelCandidates = next
+      state.draft.roleDefaultModelCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, next)
+      emit()
+    },
+    setDefaultRoleModelCandidate: (id: any) => {
+      const next = normalizeRoleModelCandidates(state.draft.roleModelCandidates)
+      const target = String(id || '').trim()
+      if (!next.some((candidate) => modelCandidateKey(candidate) === target)) return
+      state.draft.roleDefaultModelCandidateId = target
       emit()
     },
     pickRoleAvatarImage: () => pickRoleAvatarImage(),

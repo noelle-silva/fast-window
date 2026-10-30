@@ -3,6 +3,7 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Slider, 
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { RoleAvatarCropper } from '../components/avatar/RoleAvatarCropper'
 import { PlaceholderSearchSection } from './PlaceholderSearchSection'
+import { RoleModelSection } from './RoleModelSection'
 import { RoleSystemPromptSection } from './RoleSystemPromptSection'
 import { RoleToolsSection } from './RoleToolsSection'
 
@@ -23,22 +24,10 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
   const avatarImage = String(draft?.roleAvatarImage || '').trim()
   const avatarCropSrc = String(draft?.roleAvatarImageCropSrc || '').trim()
 
-  const providerId = String(draft?.roleProviderId || '')
-  const modelSource = String(draft?.roleModelSource || '') === 'model_group' ? 'model_group' : 'provider'
-  const modelGroupId = String(draft?.roleModelGroupId || '')
   const temp = Number(draft?.roleTemperature || 1)
   const temperatureEnabled = draft?.roleTemperatureEnabled === true
   const roleHookPromptPresetId = String(draft?.roleHookPromptPresetId || '')
   const hookPromptPresets = Array.isArray(hookPrompts?.library?.presets) ? hookPrompts.library.presets : []
-  const provider = providers.find((p: any) => String(p?.id || '') === providerId) || null
-  const providerModels = Array.isArray(provider?.registeredModels) ? provider.registeredModels : []
-  const modelGroup = modelGroups.find((group: any) => String(group?.id || '') === modelGroupId) || null
-  const groupModels = Array.isArray(modelGroup?.models) ? modelGroup.models : []
-  const providerModelItems = providerModels.map((model: any) => ({ id: String(model?.id || ''), label: String(model?.name || model?.id || ''), hint: String(model?.sourceModelId || '') })).filter((model: any) => model.id)
-  const groupModelItems = groupModels.map((model: any) => ({ id: String(model?.id || ''), label: String(model?.name || model?.id || '') })).filter((model: any) => model.id)
-  const modelItems = modelSource === 'model_group' ? groupModelItems : providerModelItems
-  const modelPick = modelSource === 'model_group' ? String(draft?.roleModelGroupModelId || '') : String(draft?.roleModelId || '')
-  const hasPickInList = !!modelPick && modelItems.some((x: any) => x.id === modelPick)
 
   return (
     <Stack spacing={2}>
@@ -82,66 +71,7 @@ export function RoleEditorForm(props: { controller: any; providers: any[]; model
       </RoleDialogSection>
 
       <RoleDialogSection title="模型">
-        <FormControl fullWidth>
-          <InputLabel>模型来源</InputLabel>
-          <Select label="模型来源" value={modelSource} onChange={(e) => controller.actions.roleModelSourceChanged?.(e.target.value)}>
-            <MenuItem value="provider">供应商模型</MenuItem>
-            <MenuItem value="model_group">模型组</MenuItem>
-          </Select>
-        </FormControl>
-
-        <Stack spacing={1.5}>
-          {modelSource === 'provider' ? (
-            <FormControl fullWidth>
-              <InputLabel>供应商</InputLabel>
-              <Select label="供应商" value={providerId} onChange={(e) => controller.actions.roleProviderChanged(e.target.value)}>
-                {providers.map((p: any) => (
-                  <MenuItem key={String(p?.id || '')} value={String(p?.id || '')}>
-                    {String(p?.name || '')}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          ) : (
-            <FormControl fullWidth>
-              <InputLabel>模型组</InputLabel>
-              <Select label="模型组" value={modelGroupId} onChange={(e) => controller.actions.roleModelGroupChanged?.(e.target.value)}>
-                {modelGroups.map((group: any) => (
-                  <MenuItem key={String(group?.id || '')} value={String(group?.id || '')}>
-                    {String(group?.name || '')}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          <FormControl fullWidth>
-            <InputLabel>模型</InputLabel>
-            <Select label="模型" value={modelPick} onChange={(e) => controller.actions.roleModelChanged(e.target.value)}>
-              <MenuItem value="">请选择模型</MenuItem>
-              {!hasPickInList && modelPick ? (
-                <MenuItem value={modelPick}>{modelPick}</MenuItem>
-              ) : null}
-              {modelItems.map((item: any) => (
-                <MenuItem key={item.id} value={item.id}>
-                  {item.hint ? `${item.label} / ${item.hint}` : item.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Stack>
-
-        {modelSource === 'provider' ? (
-          <Typography variant="caption" color="text.secondary">
-            仅显示供应商设置中已登记的模型；原始模型列表请到供应商设置中刷新并登记。
-          </Typography>
-        ) : null}
-
-        {models?.error ? (
-          <Typography variant="body2" color="error">
-            {String(models.error || '')}
-          </Typography>
-        ) : null}
+        <RoleModelSection controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} />
       </RoleDialogSection>
 
       <RoleDialogSection title="工具">
