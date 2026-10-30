@@ -32,6 +32,9 @@ export function createInitialControllerState() {
     pendingChat: null as any,
     pendingGroupChat: null as any,
     pendingWorkspaceChat: null as any,
+    // 正文加载失败的唯一状态格：UI 据此进入 FAILED 终态（错误占位 + 重试），
+    // 而不是永远停在「正在打开…」。任何一次成功加载都会清空它。
+    chatLoadError: { kind: 'role' as const, targetId: '', chatId: '', reason: '' },
     branchDraft: null as any,
     draft: {
       input: '',

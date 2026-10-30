@@ -221,9 +221,11 @@ describe('useSessionSwitch', () => {
       api.notifyPainted('a')
     })
 
-    // 用户点 b：控制器偏好已切到 b，正文仍是 a。
+    // 用户点 b：切换请求立刻成为目标，正文仍是 a。
+    // （真实链路里目标只能由 requestSwitch 产生：App 传入的偏好本身就是
+    //  activeChat.id 优先，正文没换时它不会先变。）
     await act(async () => {
-      root.render(<Harness controller={controller} activeChat={chatA} selectedChatId="b" onApi={(v) => { api = v }} />)
+      api.requestSwitch('b')
     })
     expect(api.selectedChatId).toBe('b')
     expect(api.loadedChatId).toBe('a')
@@ -236,6 +238,76 @@ describe('useSessionSwitch', () => {
       root.render(<Harness controller={controller} activeChat={chatB} selectedChatId="b" onApi={(v) => { api = v }} />)
     })
     expect(api.renderChat).toBe(chatB)
+    await act(async () => {
+      api.notifyPainted('b')
+    })
+    expect(api.visibleKey).toBe('b')
+    expect(api.switching).toBe(false)
+  })
+
+  // 失败终态：正文永远等不到时必须收敛到可重试状态，而不是一直「正在打开…」。
+  it('正文加载失败后进入失败终态，并可重试', async () => {
+    const controller = makeController()
+    let api: any = null
+    const chatA = { id: 'a', messages: [] }
+
+    await act(async () => {
+      root.render(<Harness controller={controller} activeChat={chatA} selectedChatId="a" onApi={(v) => { api = v }} />)
+    })
+    await act(async () => {
+      api.notifyPainted('a')
+    })
+    expect(api.switching).toBe(false)
+
+    // 切到 b 后加载失败。
+    await act(async () => {
+      api.requestSwitch('b')
+    })
+    expect(api.switching).toBe(true)
+
+    await act(async () => {
+      api.notifyLoadFailed(new Error('网络错误'))
+    })
+    // 失败是终态：不再是「切换中」，并带上真实原因。
+    expect(api.switching).toBe(false)
+    expect(api.failed).toBe(true)
+    expect(api.failedReason).toBe('网络错误')
+    // 旧页仍然可见（失败不该把用户已看到的内容顶掉）。
+    expect(api.visibleKey).toBe('a')
+
+    // 重试：清掉失败态并重新发起同一目标。
+    await act(async () => {
+      api.retryLoad()
+    })
+    expect(api.failed).toBe(false)
+    expect(controller.actions.setActiveChat).toHaveBeenCalledWith('b')
+  })
+
+  // 失败态不能吞掉后续成功：正文到达即恢复。
+  it('失败之后正文到达，失败态自动清除', async () => {
+    const controller = makeController()
+    let api: any = null
+    const chatA = { id: 'a', messages: [] }
+    const chatB = { id: 'b', messages: [] }
+
+    await act(async () => {
+      root.render(<Harness controller={controller} activeChat={chatA} selectedChatId="a" onApi={(v) => { api = v }} />)
+    })
+    await act(async () => {
+      api.notifyPainted('a')
+    })
+    await act(async () => {
+      api.requestSwitch('b')
+    })
+    await act(async () => {
+      api.notifyLoadFailed('数据损坏')
+    })
+    expect(api.failed).toBe(true)
+
+    await act(async () => {
+      root.render(<Harness controller={controller} activeChat={chatB} selectedChatId="b" onApi={(v) => { api = v }} />)
+    })
+    expect(api.failed).toBe(false)
     await act(async () => {
       api.notifyPainted('b')
     })

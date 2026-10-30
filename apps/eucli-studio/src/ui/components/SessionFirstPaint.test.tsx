@@ -141,4 +141,31 @@ describe('冷启动首屏 PAINTED 链路', () => {
     expect(api.visibleKey).toBe('a')
     expect(api.switching).toBe(false)
   })
+
+  // 失败终态的端到端回归：正文永远等不到（网络错误 / 数据损坏 / 能力不支持 /
+  // 会话不存在）时，状态机必须收敛到 FAILED，进度条停、错误占位出现、可重试。
+  it('正文永久加载失败时必须收敛到 FAILED 终态（不再无限 loading）', async () => {
+    const controller = makeController()
+
+    // 冷启动：有目标、无正文。
+    await act(async () => {
+      root.render(<AppLike controller={controller} activeChat={null} selectedChatId="a" onApi={(v) => { api = v }} />)
+    })
+    expect(api.switching).toBe(true)
+
+    // 加载失败。
+    await act(async () => {
+      api.notifyLoadFailed('网络错误：连接已断开')
+    })
+    expect(api.switching).toBe(false)
+    expect(api.failed).toBe(true)
+    expect(api.failedReason).toBe('网络错误：连接已断开')
+
+    // 重试入口可用：清掉失败态并重新发起同一目标。
+    await act(async () => {
+      api.retryLoad()
+    })
+    expect(api.failed).toBe(false)
+    expect(controller.actions.setActiveChat).toHaveBeenCalledWith('a')
+  })
 })

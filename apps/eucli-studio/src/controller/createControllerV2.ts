@@ -56,6 +56,7 @@ import { createAccessSettingsController } from './accessSettingsController'
 import { updateGroupSessionTitle, updateRoleSessionTitle } from './ebRoleSession'
 import { createEbRunEventConsumer } from './ebRunEvents'
 import { createRunProbe } from './runProbe'
+import { createChatLoadFailureTracker } from './chatLoadFailure'
 import { createToolCatalog } from './toolCatalog'
 import { createToolWorkDirectoryController } from './toolWorkDirectory'
 import { createInstallSourceClient } from './installSourceClient'
@@ -505,9 +506,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (kind === 'workspace') {
       const target = parseWorkspaceRoleTargetId(targetId)
       if (!target.workspaceId || !target.roleId) return null
-      return ensureWorkspaceChatLoaded(target.workspaceId, target.roleId, chatId)
+      return chatLoadFailure.track(kind, targetId, chatId, () =>
+        ensureWorkspaceChatLoaded(target.workspaceId, target.roleId, chatId),
+      )
     }
-    return ensureStoredChatLoaded(kind, targetId, chatId)
+    return chatLoadFailure.track(kind, targetId, chatId, () => ensureStoredChatLoaded(kind, targetId, chatId))
   }
 
   // 往上翻一窗：返回 true 表示确实加载了新消息，false 表示已经到顶。
@@ -558,8 +561,18 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   }
 
   async function ensureActiveChatLoaded() {
-    if (activeTargetKind() === 'workspace') return ensureActiveWorkspaceChatLoaded()
-    return ensureStoredActiveChatLoaded()
+    const kind = activeTargetKind()
+    if (kind === 'workspace') {
+      const workspace = activeWorkspace()
+      const workspaceId = String((workspace as any)?.id || '').trim()
+      const roleId = String((activeRole() as any)?.id || '').trim()
+      const chatId = String((activeChatFromData() as any)?.id || '').trim()
+      return chatLoadFailure.track('workspace', workspaceId, chatId, () => ensureActiveWorkspaceChatLoaded())
+    }
+    const target = kind === 'group' ? activeGroup() : activeRole()
+    const targetId = String((target as any)?.id || '').trim()
+    const chatId = String((activeChatFromData() as any)?.id || '').trim()
+    return chatLoadFailure.track(kind, targetId, chatId, () => ensureStoredActiveChatLoaded())
   }
 
   // ============================================================
@@ -622,6 +635,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     upsertLoadedChat,
   })
   const { applyChatSettingsAction, selectHookPromptForActiveChat } = chatSessionSettingsBridge
+
+  // 正文加载失败的唯一记录点：任何一次正文加载都必须经过它，
+  // 失败才会被 UI 看见并收敛成可重试的终态。
+  const chatLoadFailure = createChatLoadFailureTracker({ getState: () => state, emit })
 
   // RunProbe：run 终态对账的唯一入口。
   // 事件是正常路径；探针只在「静默 / 重连 / 页面可见」时补一次权威快照。

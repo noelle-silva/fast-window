@@ -167,13 +167,26 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         : data?.chatsByRole?.[activeChatTargetId]
     : null
   const activeChat = controller.activeChat()
-  const selectedActiveChatId = String(activeChat?.id || activeChatSelectionBox?.activeChatId || '').trim()
+  // 目标解析只有一个来源：domain/sessionSwitchTarget。
+  // App 这里只提供「控制器偏好」这一格，selectedId 的合成由 hook 内部统一完成。
+  const preferredActiveChatId = String(activeChatSelectionBox?.activeChatId || '').trim()
   const pendingRoleChat = (s as any)?.pendingChat
   const pendingWorkspaceChat = (s as any)?.pendingWorkspaceChat
-  const chatSwitch = useSessionSwitch(controller, activeChat, selectedActiveChatId)
+  const chatSwitch = useSessionSwitch(controller, activeChat, preferredActiveChatId)
   const renderChat = chatSwitch.renderChat
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
+
+  // 正文加载失败的唯一事实源是 controller 的 chatLoadError（由加载路径写入）。
+  // 这里只做「事实 → 状态机」的单向转发：失败必须进入 FAILED 终态，
+  // 否则目标会话永远等不到正文，界面就停在「正在打开…」。
+  const chatLoadError = (s as any)?.chatLoadError
+  const chatLoadErrorReason = String(chatLoadError?.reason || '').trim()
+  const notifyLoadFailed = chatSwitch.notifyLoadFailed
+  React.useLayoutEffect(() => {
+    if (!chatLoadErrorReason) return
+    notifyLoadFailed(chatLoadErrorReason)
+  }, [chatLoadErrorReason, notifyLoadFailed])
   const [runningSessionsOpen, setRunningSessionsOpen] = React.useState(false)
   const jumpToRunningSession = useRunningSessionNavigation({ controller, requestSwitch: chatSwitch.requestSwitch })
   const openRunningSession = useEvent((entry: RunningSessionEntry) => {
@@ -391,7 +404,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeWorkspaceId,
     roles,
     workspaces,
-    selectedActiveChatId,
+    selectedActiveChatId: chatSwitch.selectedChatId,
     pendingRoleChat,
     pendingWorkspaceChat,
     requestSwitch: chatSwitch.requestSwitch,
@@ -593,7 +606,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     (activeTargetKind === 'workspace' && !activeWorkspace) ||
     (activeTargetKind === 'workspace' && !activeWorkspaceRoles.length) ||
     (activeTargetKind !== 'group' && !activeRole)
-  const sessionPageKey = !sessionPageBlocked && renderChat && Array.isArray(renderChat.messages) ? renderChatId : ''
+  // 页面 key 的唯一来源是「已加载正文所属会话」（chatSwitch.renderChatId），
+  // 不再自己判一次 renderChat.messages：那是对同一事实的第三次判断。
+  // 消息数组的归一化由 useChatMessageView / normalizeStoredChat 负责。
+  const sessionPageKey = !sessionPageBlocked && renderChatId ? renderChatId : ''
   // 可见页只由 PAINTED 推进；切换期间旧页保持可见，直到新页真正画出来。
   const sessionVisibleKey = chatSwitch.visibleKey
   const sessionKeepAliveKeys = useSessionKeepAlive(sessionPageKey, {
@@ -984,7 +1000,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeRoleAvatarImage: String((activeRole as any)?.avatarImage || ''),
     activeWorkspaceId,
     activeTargetKind,
-    activeChatId: selectedActiveChatId,
+    activeChatId: chatSwitch.selectedChatId,
     data,
     pendingRoleChat,
     pendingWorkspaceChat,
@@ -1233,7 +1249,20 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                       请选择角色
                     </Typography>
                   ) : !renderChat ? (
-                    openingChatMeta ? (
+                    chatSwitch.failed ? (
+                      // 加载失败是终态：必须给出错误占位 + 重试入口，
+                      // 绝不允许继续显示「正在打开…」让用户无限等待。
+                      <Box role="alert" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                        <Typography variant="body2" color="error">
+                          会话加载失败：{chatSwitch.failedReason || '未知错误'}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button size="small" variant="contained" onClick={() => chatSwitch.retryLoad()}>
+                            重试
+                          </Button>
+                        </Box>
+                      </Box>
+                    ) : openingChatMeta ? (
                       // 无旧页可垫底时才用骨架；骨架复用消息区精确几何，promote 时不跳动。
                       <Box role="status" aria-live="polite" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
                         {[0, 1, 2].map((i) => (

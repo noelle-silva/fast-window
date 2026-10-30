@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createSessionSwitchState,
   reduceSessionSwitch,
+  sessionSwitchFailed,
   sessionSwitchNeedsSkeleton,
   sessionSwitchPending,
 } from './sessionSwitch'
@@ -18,6 +19,10 @@ function bodyReady(state: any, key: string) {
   return reduceSessionSwitch(state, { type: 'BODY_READY', key, seq: state.seq })
 }
 
+function failed(state: any, key: string, reason = '网络错误') {
+  return reduceSessionSwitch(state, { type: 'FAILED', key, seq: state.seq, reason })
+}
+
 describe('session switch state machine', () => {
   it('keeps the old visible page until the new page is painted', () => {
     let state = createSessionSwitchState()
@@ -26,7 +31,6 @@ describe('session switch state machine', () => {
     expect(sessionSwitchNeedsSkeleton(state)).toBe(true)
 
     state = bodyReady(state, 'a')
-    expect(state.bodyReadyKey).toBe('a')
     // BODY_READY 永不推进可见页。
     expect(state.visibleKey).toBe('')
 
@@ -91,9 +95,7 @@ describe('session switch state machine', () => {
     state = select(state, 'a')
     state = painted(state, 'a')
     expect(painted(state, 'a')).toBe(state)
-    expect(bodyReady(state, 'a')).not.toBe(state)
-    const ready = bodyReady(state, 'a')
-    expect(bodyReady(ready, 'a')).toBe(ready)
+    expect(bodyReady(state, 'a')).toBe(state)
   })
 
   it('resets to a blank state', () => {
@@ -102,5 +104,68 @@ describe('session switch state machine', () => {
     state = painted(state, 'a')
     const reset = reduceSessionSwitch(state, { type: 'RESET' })
     expect(reset).toEqual(createSessionSwitchState())
+  })
+
+  // FAILED 是终态：正文永远等不到时，必须让 UI 收敛到可重试的可见状态，
+  // 而不是一直显示「正在打开…」+ 进度条。
+  describe('加载失败终态', () => {
+    it('进入失败终态后不再是「切换中」', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      expect(sessionSwitchPending(state)).toBe(true)
+
+      state = failed(state, 'a', '网络错误')
+      expect(sessionSwitchFailed(state)).toBe(true)
+      expect(state.failedReason).toBe('网络错误')
+      // 失败不是「还在努力」：进度条必须停。
+      expect(sessionSwitchPending(state)).toBe(false)
+      expect(sessionSwitchNeedsSkeleton(state)).toBe(false)
+    })
+
+    it('失败后换目标会清空失败标记', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      state = failed(state, 'a', '数据损坏')
+      expect(sessionSwitchFailed(state)).toBe(true)
+
+      state = select(state, 'b')
+      expect(sessionSwitchFailed(state)).toBe(false)
+      expect(state.failedReason).toBe('')
+      expect(sessionSwitchPending(state)).toBe(true)
+    })
+
+    it('失败后正文到达（重试成功）会清空失败标记', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      state = failed(state, 'a', '网络错误')
+      state = bodyReady(state, 'a')
+      expect(sessionSwitchFailed(state)).toBe(false)
+    })
+
+    it('失败后画出页面（迟到的成功）会清空失败标记', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      state = failed(state, 'a', '网络错误')
+      state = painted(state, 'a')
+      expect(sessionSwitchFailed(state)).toBe(false)
+      expect(state.visibleKey).toBe('a')
+    })
+
+    it('迟到的 FAILED 不影响新目标', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      state = select(state, 'b')
+      const staleSeq = state.seq - 1
+      const after = reduceSessionSwitch(state, { type: 'FAILED', key: 'a', seq: staleSeq, reason: '旧失败' })
+      expect(after).toBe(state)
+      expect(sessionSwitchFailed(after)).toBe(false)
+    })
+
+    it('失败态不重复记录同一原因（幂等）', () => {
+      let state = createSessionSwitchState()
+      state = select(state, 'a')
+      state = failed(state, 'a', '网络错误')
+      expect(failed(state, 'a', '网络错误')).toBe(state)
+    })
   })
 })
