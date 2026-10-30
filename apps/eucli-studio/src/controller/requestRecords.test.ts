@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  REQUEST_RECORD_AUTO_REFRESH_MS,
-  createRequestRecordsController,
-} from './requestRecords'
+import { createRequestRecordsController } from './requestRecords'
 
 function recordSummary(id: string) {
   return {
@@ -139,7 +136,7 @@ describe('request records controller', () => {
     expect(harness.state.requestRecords.items).toHaveLength(1)
   })
 
-  it('refreshes immediately and on the configured cadence until stopped', async () => {
+  it('打开面板只拉一次，不保留后台定时器', async () => {
     vi.useFakeTimers()
     const harness = createHarness(() => ({ status: 200, body: { data: [recordSummary('record-1')] } }))
 
@@ -148,11 +145,12 @@ describe('request records controller', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(harness.requests).toHaveLength(1)
 
-    await vi.advanceTimersByTimeAsync(REQUEST_RECORD_AUTO_REFRESH_MS)
-    expect(harness.requests).toHaveLength(2)
+    // 没有任何周期请求：后台定时器已退役。
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(harness.requests).toHaveLength(1)
 
     harness.controller.stopRequestRecordsAutoRefresh()
-    await vi.advanceTimersByTimeAsync(REQUEST_RECORD_AUTO_REFRESH_MS * 2)
-    expect(harness.requests).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(harness.requests).toHaveLength(1)
   })
 })

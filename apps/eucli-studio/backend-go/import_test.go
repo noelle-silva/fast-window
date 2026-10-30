@@ -185,3 +185,4 @@ func TestImportArtifactRejectsUnknownKind(t *testing.T) {
 		t.Fatal("dispatch() error = nil")
 	}
 }
+

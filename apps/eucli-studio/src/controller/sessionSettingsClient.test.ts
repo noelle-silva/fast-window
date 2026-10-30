@@ -23,11 +23,12 @@ describe('session settings client', () => {
     })
 
     expect(body).toEqual(session)
+    // 新契约：请求不再自带 timeoutMs —— 超时预算统一由传输层按方法类推导
+    // （写请求 = 后台档），避免出现「前端 15s < studio 40s」的倒挂。
     expect(requests).toEqual([{
       method: 'PATCH',
       path,
       body: { streamEnabled: false, reasoningEffort: 'high', modelOverride: { kind: '', providerId: '', groupId: '', modelId: '' } },
-      timeoutMs: 15000,
     }])
   })
 
