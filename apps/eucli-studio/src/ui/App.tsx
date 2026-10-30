@@ -1284,7 +1284,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 chatSettingsHookSaving={chatSettingsHookSaving}
                 hookPromptSelectorDisabledReason={hookPromptSelectorDisabledReason}
                 roleSessionControlsEnabled={roleSessionControlsEnabled}
-                chatSettingsModelSaving={chatSettingsModelSaving}
                 hasChatOverride={hasChatOverride}
                 effectiveModelId={effectiveModelId}
                 openTempModelPicker={openTempModelPicker}

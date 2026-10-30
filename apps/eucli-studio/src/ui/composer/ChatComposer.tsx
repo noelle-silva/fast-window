@@ -118,7 +118,6 @@ export function ChatComposer(props: {
   chatSettingsHookSaving: boolean
   hookPromptSelectorDisabledReason: string
   roleSessionControlsEnabled: boolean
-  chatSettingsModelSaving: boolean
   hasChatOverride: boolean
   effectiveModelId: string
   openTempModelPicker: (e: React.MouseEvent<HTMLElement>) => void
@@ -176,7 +175,6 @@ export function ChatComposer(props: {
     chatSettingsHookSaving,
     hookPromptSelectorDisabledReason,
     roleSessionControlsEnabled,
-    chatSettingsModelSaving,
     hasChatOverride,
     effectiveModelId,
     openTempModelPicker,
@@ -308,13 +306,13 @@ export function ChatComposer(props: {
 
               {roleSessionControlsEnabled ? (
                 // 模型切换组：一个整体按钮，内部左中右三段各自可点。
-                // 三段都不做悬停提示，避免遮挡输入区。
+                // 三段都不做悬停提示，避免遮挡输入区；保存中也不禁用，避免出现灰色过渡。
                 <Box sx={composerModelGroupSx}>
                   <Box component="span">
                     <Button
                       aria-label="上一个候选模型"
                       onClick={() => stepRoleModelCandidate(-1)}
-                      disabled={loading || chatSettingsModelSaving || !roleModelStepPrevEnabled}
+                      disabled={loading || !roleModelStepPrevEnabled}
                       size="small"
                       variant="text"
                       sx={composerModelStepButtonSx}
@@ -327,7 +325,7 @@ export function ChatComposer(props: {
                     <Button
                       aria-label="临时切换模型"
                       onClick={openTempModelPicker}
-                      disabled={loading || chatSettingsModelSaving || !activeRole || !providers.length}
+                      disabled={loading || !activeRole || !providers.length}
                       size="small"
                       variant="text"
                       sx={{ ...composerModelLabelButtonSx, flex: 1, minWidth: 0, color: hasChatOverride ? 'primary.main' : 'text.secondary' }}
@@ -344,7 +342,7 @@ export function ChatComposer(props: {
                     <Button
                       aria-label="下一个候选模型"
                       onClick={() => stepRoleModelCandidate(1)}
-                      disabled={loading || chatSettingsModelSaving || !roleModelStepNextEnabled}
+                      disabled={loading || !roleModelStepNextEnabled}
                       size="small"
                       variant="text"
                       sx={composerModelStepButtonSx}
