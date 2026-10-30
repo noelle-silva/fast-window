@@ -660,6 +660,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     roleModelCandidates,
     tempModelHighlightKey,
     onPickRoleModelCandidate,
+    roleModelStepPrevEnabled,
+    roleModelStepNextEnabled,
+    stepRoleModelCandidate,
     reasoningPickerEl,
     asyncToolTasksEl,
     asyncToolTasks,
@@ -1283,9 +1286,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 roleSessionControlsEnabled={roleSessionControlsEnabled}
                 chatSettingsModelSaving={chatSettingsModelSaving}
                 hasChatOverride={hasChatOverride}
-                chatOverride={chatOverride}
                 effectiveModelId={effectiveModelId}
                 openTempModelPicker={openTempModelPicker}
+                roleModelStepPrevEnabled={roleModelStepPrevEnabled}
+                roleModelStepNextEnabled={roleModelStepNextEnabled}
+                stepRoleModelCandidate={stepRoleModelCandidate}
                 providers={providers}
                 reasoningProfile={reasoningProfile}
                 activeReasoningLabel={activeReasoningLabel}

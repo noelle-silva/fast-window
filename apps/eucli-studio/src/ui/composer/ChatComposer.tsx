@@ -1,10 +1,13 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, IconButton, Stack, Tooltip } from '@mui/material'
+import { Box, Button, IconButton, Stack, Tooltip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import CloseIcon from '@mui/icons-material/Close'
 import { HookPromptSelector } from '../components/HookPromptSelector'
+import { FitTextLabel } from '../components/FitTextLabel'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { ReasoningCleanDialog } from '../components/ReasoningCleanDialog'
 import { composerSideInsetPercent } from '../../domain/composerAppearance'
@@ -36,6 +39,44 @@ const composerToolTextButtonSx = {
   fontSize: 12,
   '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
   '&.Mui-disabled': { bgcolor: 'transparent', border: 0 },
+}
+
+// 模型切换组：一个固定宽度的整体按钮，内部按左中右三段划分。
+// 宽度固定，不随模型标识长短伸缩；三段各自承担自己的悬停反馈。
+const composerModelGroupSx = {
+  display: 'flex',
+  alignItems: 'stretch',
+  width: 220,
+  flexShrink: 0,
+  height: 34,
+  borderRadius: '999px',
+  overflow: 'hidden',
+  bgcolor: 'transparent',
+  '& > span': { display: 'flex', alignItems: 'stretch' },
+}
+
+// 组内单块：没有自己的圆角，悬停只作用于自己这一段。
+const composerModelStepButtonSx = {
+  minWidth: 24,
+  width: 24,
+  height: 34,
+  px: 0,
+  borderRadius: 0,
+  bgcolor: 'transparent',
+  color: 'text.secondary',
+  border: 0,
+  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
+  '&.Mui-disabled': { bgcolor: 'transparent', border: 0 },
+}
+
+// 中间段承载模型标识，占据剩余宽度。
+const composerModelLabelButtonSx = {
+  ...composerToolTextButtonSx,
+  borderRadius: 0,
+  height: 34,
+  maxWidth: 'none',
+  justifyContent: 'center',
+  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
 }
 
 const composerContextButtonSx = {
@@ -79,9 +120,11 @@ export function ChatComposer(props: {
   roleSessionControlsEnabled: boolean
   chatSettingsModelSaving: boolean
   hasChatOverride: boolean
-  chatOverride: any
   effectiveModelId: string
   openTempModelPicker: (e: React.MouseEvent<HTMLElement>) => void
+  roleModelStepPrevEnabled: boolean
+  roleModelStepNextEnabled: boolean
+  stepRoleModelCandidate: (delta: number) => void
   providers: any[]
   reasoningProfile: any
   activeReasoningLabel: string
@@ -135,9 +178,11 @@ export function ChatComposer(props: {
     roleSessionControlsEnabled,
     chatSettingsModelSaving,
     hasChatOverride,
-    chatOverride,
     effectiveModelId,
     openTempModelPicker,
+    roleModelStepPrevEnabled,
+    roleModelStepNextEnabled,
+    stepRoleModelCandidate,
     providers,
     reasoningProfile,
     activeReasoningLabel,
@@ -262,23 +307,52 @@ export function ChatComposer(props: {
               />
 
               {roleSessionControlsEnabled ? (
-                <Tooltip title={chatSettingsModelSaving ? '临时模型保存中…' : hasChatOverride ? `临时模型：${formatModelRefText(chatOverride)}` : `角色模型：${effectiveModelId || '未配置模型'}`}>
-                  <span>
+                // 模型切换组：一个整体按钮，内部左中右三段各自可点。
+                // 三段都不做悬停提示，避免遮挡输入区。
+                <Box sx={composerModelGroupSx}>
+                  <Box component="span">
+                    <Button
+                      aria-label="上一个候选模型"
+                      onClick={() => stepRoleModelCandidate(-1)}
+                      disabled={loading || chatSettingsModelSaving || !roleModelStepPrevEnabled}
+                      size="small"
+                      variant="text"
+                      sx={composerModelStepButtonSx}
+                    >
+                      <ChevronLeftIcon fontSize="small" />
+                    </Button>
+                  </Box>
+
+                  <Box component="span" sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' }}>
                     <Button
                       aria-label="临时切换模型"
                       onClick={openTempModelPicker}
                       disabled={loading || chatSettingsModelSaving || !activeRole || !providers.length}
                       size="small"
                       variant="text"
-                      sx={{ ...composerToolTextButtonSx, color: hasChatOverride ? 'primary.main' : 'text.secondary' }}
+                      sx={{ ...composerModelLabelButtonSx, flex: 1, minWidth: 0, color: hasChatOverride ? 'primary.main' : 'text.secondary' }}
                     >
-                      {chatSettingsModelSaving ? <CircularProgress size={14} thickness={5} color="inherit" sx={{ mr: 0.5 }} /> : null}
-                      <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {chatSettingsModelSaving ? '保存中…' : effectiveModelId || '未配置模型'}
-                      </Box>
+                      <FitTextLabel
+                        text={effectiveModelId || '未配置模型'}
+                        maxFontSize={12}
+                        minFontSize={8}
+                      />
                     </Button>
-                  </span>
-                </Tooltip>
+                  </Box>
+
+                  <Box component="span">
+                    <Button
+                      aria-label="下一个候选模型"
+                      onClick={() => stepRoleModelCandidate(1)}
+                      disabled={loading || chatSettingsModelSaving || !roleModelStepNextEnabled}
+                      size="small"
+                      variant="text"
+                      sx={composerModelStepButtonSx}
+                    >
+                      <ChevronRightIcon fontSize="small" />
+                    </Button>
+                  </Box>
+                </Box>
               ) : null}
 
               {roleSessionControlsEnabled && reasoningProfile.supportsReasoning ? (

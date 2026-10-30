@@ -146,6 +146,25 @@ export function useComposerTools(deps: {
     closeTempModelPicker()
   })
 
+  // 候选模型前后切换：只在角色候选池内移动，到头即停，不循环。
+  const effectiveCandidateRef = normalizeModelRef(effectiveModelRef)
+  const effectiveCandidateKey = effectiveCandidateRef ? modelCandidateKey(effectiveCandidateRef) : ''
+  const effectiveCandidateIndex = effectiveCandidateKey
+    ? roleModelCandidates.findIndex((candidate) => modelCandidateKey(candidate) === effectiveCandidateKey)
+    : -1
+  const roleModelStepPrevEnabled = effectiveCandidateIndex > 0
+  const roleModelStepNextEnabled = effectiveCandidateIndex >= 0 && effectiveCandidateIndex < roleModelCandidates.length - 1
+
+  const stepRoleModelCandidate = useEvent((delta: number) => {
+    if (!roleSessionControlsEnabled) return
+    if (effectiveCandidateIndex < 0) return
+    const nextIndex = effectiveCandidateIndex + (Number(delta) < 0 ? -1 : 1)
+    if (nextIndex < 0 || nextIndex >= roleModelCandidates.length) return
+    const ref = normalizeModelRef(roleModelCandidates[nextIndex])
+    if (!ref) return
+    controller.actions.setChatModelOverride?.(ref)
+  })
+
   const clearTempModelOverride = useEvent(() => {
     controller.actions.clearChatModelOverride?.()
     closeTempModelPicker()
@@ -176,6 +195,9 @@ export function useComposerTools(deps: {
     roleModelCandidates,
     tempModelHighlightKey,
     onPickRoleModelCandidate,
+    roleModelStepPrevEnabled,
+    roleModelStepNextEnabled,
+    stepRoleModelCandidate,
     reasoningPickerEl,
     asyncToolTasksEl,
     asyncToolTasks,
