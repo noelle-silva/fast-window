@@ -48,8 +48,19 @@ class FakeWebSocket {
     this.emit('message', { data: JSON.stringify({ id, type: 'response', ok: true, result }) })
   }
 
-  respondError(id: string, code: string, message: string) {
-    this.emit('message', { data: JSON.stringify({ id, type: 'response', ok: false, error: { code, message } }) })
+  respondError(id: string, code: string, message: string, options?: { retryable?: boolean; retryAfterMs?: number }) {
+    this.emit('message', {
+      data: JSON.stringify({
+        id,
+        type: 'response',
+        ok: false,
+        error: {
+          code,
+          message,
+          ...(options?.retryable ? { retryable: true, retryAfterMs: options.retryAfterMs ?? 120 } : {}),
+        },
+      }),
+    })
   }
 
   requestsFor(method: string) {
@@ -297,14 +308,47 @@ describe('断线重连的 pending 处置', () => {
   })
 })
 
-describe('SERVER_BUSY 的有界重试', () => {
+describe('协议级 retryable 的有界重试', () => {
+  // 分层边界：是否重试只由错误帧的 retryable 决定，与 code 具体取值无关。
+  // 这样传输层永远不需要认识 SERVER_BUSY 这类业务错误码。
+  it('未声明 retryable 的错误不重试（即使 code 是 SERVER_BUSY）', async () => {
+    const { client, socket } = await connectClient({ interactionMs: 5_000 })
+    const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
+    const outcome: Promise<{ value?: unknown; error?: unknown }> = promise.then((value) => ({ value }), (error) => ({ error }))
+    await vi.advanceTimersByTimeAsync(0)
+
+    const first = socket.requestsFor('aiChat.storageGet')[0]
+    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(socket.requestsFor('aiChat.storageGet')).toHaveLength(1)
+    const settled = await outcome
+    expect(settled.error).toMatchObject({ code: 'SERVER_BUSY' })
+  })
+
+  it('任意 code 只要声明 retryable 就重试（协议字段驱动，不看业务码）', async () => {
+    const { client, socket } = await connectClient({ interactionMs: 5_000 })
+    const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const first = socket.requestsFor('aiChat.storageGet')[0]
+    socket.respondError(first.id, 'SOME_OTHER_CODE', '稍后重试', { retryable: true, retryAfterMs: 50 })
+
+    await vi.advanceTimersByTimeAsync(100)
+    const retried = socket.requestsFor('aiChat.storageGet')
+    expect(retried).toHaveLength(2)
+    expect(retried[1].id).toBe(first.id)
+    socket.respond(first.id, { ok: true })
+    await expect(promise).resolves.toEqual({ ok: true })
+  })
+
   it('被拒后按退避重试同一帧，最终成功（不留下永久 pending）', async () => {
     const { client, socket } = await connectClient({ interactionMs: 5_000 })
     const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
     await vi.advanceTimersByTimeAsync(0)
 
     const first = socket.requestsFor('aiChat.storageGet')[0]
-    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试', { retryable: true })
 
     // 退避窗口内不立即重发。
     await vi.advanceTimersByTimeAsync(0)
@@ -328,7 +372,7 @@ describe('SERVER_BUSY 的有界重试', () => {
     // 每次都回 SERVER_BUSY：必须有限次后收敛，绝不无限重试。
     for (let i = 0; i < 10; i++) {
       const sent = socket.requestsFor('aiChat.storageGet')
-      socket.respondError(sent[sent.length - 1].id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+      socket.respondError(sent[sent.length - 1].id, 'SERVER_BUSY', '服务端繁忙，请稍后重试', { retryable: true })
       await vi.advanceTimersByTimeAsync(2_000)
     }
 
@@ -343,7 +387,7 @@ describe('SERVER_BUSY 的有界重试', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     const first = socket.requestsFor('aiChat.storageGet')[0]
-    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试', { retryable: true })
 
     // 越过交互预算：读请求保留 promise 但不再无限重试，最终由上层取消收尾。
     await vi.advanceTimersByTimeAsync(2_000)
@@ -352,3 +396,4 @@ describe('SERVER_BUSY 的有界重试', () => {
     await expect(promise).rejects.toMatchObject({ kind: 'transport' })
   })
 })
+

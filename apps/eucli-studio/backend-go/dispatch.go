@@ -41,17 +41,28 @@ const (
 	laneRetryMax     = 100 * time.Millisecond
 )
 
-// laneAcquireBudget 是「名额已满时最多等多久」的确定性上界。
-// 它是变量而非常量，仅为测试可注入更短预算；生产值固定且远小于交互预算。
-var laneAcquireBudget = 2 * time.Second
+// laneBusyRetryAfter 是 SERVER_BUSY 帧声明的建议重试间隔。
+// 它是协议字段 retryAfterMs 的唯一来源：前端只按这个值退避，不自己编数字。
+const laneBusyRetryAfter = 120 * time.Millisecond
+
+// laneAcquireBudgetDefault 是「名额已满时最多等多久」的默认确定性上界。
+// 实际值由 laneGate 构造时注入（dispatcher 持有），不存在可被随意改写的包级状态。
+const laneAcquireBudgetDefault = 2 * time.Second
 
 // laneGate 是「道」的并发名额：tryAcquire 永不阻塞 reader。
+//
+// budget 是 acquire 的等待上界，构造时注入：它属于「这条道的策略」，
+// 与 gate 的生命周期一致，而不是一个全局可变变量。
 type laneGate struct {
 	tokens chan struct{}
+	budget time.Duration
 }
 
-func newLaneGate(limit int) *laneGate {
-	return &laneGate{tokens: make(chan struct{}, limit)}
+func newLaneGate(limit int, budget time.Duration) *laneGate {
+	if budget <= 0 {
+		budget = laneAcquireBudgetDefault
+	}
+	return &laneGate{tokens: make(chan struct{}, limit), budget: budget}
 }
 
 func (g *laneGate) tryAcquire() bool {
@@ -64,13 +75,13 @@ func (g *laneGate) tryAcquire() bool {
 }
 
 // acquire 是 tryAcquire 的有界版本：名额满时按退避节奏重试，
-// 直到拿到名额、ctx 取消、或预算耗尽。它只在 worker goroutine 里调用，
+// 直到拿到名额、ctx 取消、或 gate 自身的预算耗尽。它只在 worker goroutine 里调用，
 // 因此不会阻塞 reader（cancel 帧与 healthCheck 永远读得到）。
-func (g *laneGate) acquire(ctx context.Context, budget time.Duration) bool {
+func (g *laneGate) acquire(ctx context.Context) bool {
 	if g.tryAcquire() {
 		return true
 	}
-	deadline := time.Now().Add(budget)
+	deadline := time.Now().Add(g.budget)
 	delay := laneRetryInitial
 	for {
 		timer := time.NewTimer(delay)

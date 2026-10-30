@@ -48,16 +48,20 @@ const RECONNECT_MAX_DELAY_MS = 10_000
 const RESUME_GAP_MS = 45_000
 const RESUME_CHECK_INTERVAL_MS = 10_000
 
-// SERVER_BUSY 是有界重试的唯一触发码：
-// studio 在 dispatch 入道前就拒绝了这一帧，请求从未被执行，因此重试对所有类别都安全
-// （不存在重复副作用）。重试次数与退避都有确定上界，绝不无界重试。
-const SERVER_BUSY_CODE = 'SERVER_BUSY'
-const SERVER_BUSY_MAX_ATTEMPTS = 4
-const SERVER_BUSY_RETRY_INITIAL_DELAY_MS = 120
-const SERVER_BUSY_RETRY_MAX_DELAY_MS = 1_200
+// SERVER_BUSY 类失败的重试策略：是否重试只由协议字段 retryable 决定，
+// 传输层不认识任何具体业务错误码（分层不泄漏）。
+const RETRYABLE_MAX_ATTEMPTS = 4
+const RETRYABLE_FALLBACK_DELAY_MS = 120
+const RETRYABLE_MAX_DELAY_MS = 1_200
 
-function isServerBusy(error: unknown) {
-  return String((error as any)?.code || '') === SERVER_BUSY_CODE
+function retryHintOf(error: unknown): { retryable: boolean; retryAfterMs: number } | null {
+  const raw = error as any
+  if (!raw || raw.retryable !== true) return null
+  const retryAfterMs = Number(raw.retryAfterMs)
+  return {
+    retryable: true,
+    retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : RETRYABLE_FALLBACK_DELAY_MS,
+  }
 }
 
 function getBackgroundEndpoint(baseApi: unknown) {
@@ -296,20 +300,25 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
     })
   }
 
-  // retryAfterServerBusy 是 SERVER_BUSY 的唯一处置点：
-  // 这一帧在入道前就被拒绝、从未执行，因此重试对任何类别都安全（无重复副作用）。
+  // retryIfRetryable 是协议级重试的唯一处置点。
+  //
+  // 触发条件只有「服务端在错误帧里声明 retryable」这一条：传输层不认识任何
+  // 具体业务错误码，因此分层不泄漏。服务端只在「保证未被执行」的失败上声明它
+  // （例如入道前的并发拒绝），所以对任何类别重试都不会产生重复副作用。
+  //
   // 上界由「次数」与「原始预算截止时刻」双重约束：绝不无界重试，也绝不越过预算。
-  private retryAfterServerBusy(item: PendingRequest): boolean {
-    if (item.attempts >= SERVER_BUSY_MAX_ATTEMPTS) return false
+  private retryIfRetryable(item: PendingRequest, hint: { retryAfterMs: number }): boolean {
+    if (item.attempts >= RETRYABLE_MAX_ATTEMPTS) return false
     const remaining = item.deadline - Date.now()
     if (remaining <= 0) return false
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) return false
 
     item.attempts += 1
+    // 服务端给出的建议间隔是指数退避的起点，后续尝试继续指数增长。
     const backoff = Math.min(
-      SERVER_BUSY_RETRY_INITIAL_DELAY_MS * 2 ** (item.attempts - 2),
-      SERVER_BUSY_RETRY_MAX_DELAY_MS,
+      hint.retryAfterMs * 2 ** (item.attempts - 2),
+      RETRYABLE_MAX_DELAY_MS,
     )
     const delay = Math.min(backoff, Math.max(0, remaining - 1))
     if (item.timer) clearTimeout(item.timer)
@@ -389,16 +398,25 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
       const response = frame as AiChatDirectResponse
       const item = this.pending.get(response.id)
       if (!item) return
-      if (!response.ok && isServerBusy(response.error)) {
-        // 请求在入道前被拒、从未执行：有界重试；上界耗尽才把错误交回上层。
-        if (this.retryAfterServerBusy(item)) return
-      }
+      const retryHint = response.ok ? null : retryHintOf(response.error)
+      if (retryHint && this.retryIfRetryable(item, retryHint)) return
       this.pending.delete(response.id)
       if (item.timer) clearTimeout(item.timer)
       item.timer = null
       if (response.ok) item.resolve(response.result)
-      else if (response.error) item.reject(new AiChatDirectError(response.error.code, response.error.message || '请求失败', response.error.details, response.error.system, response.error.cause, response.error.causes))
-      else item.reject(new AiChatDirectError('DIRECT_ERROR', '请求失败'))
+      else if (response.error) {
+        item.reject(
+          new AiChatDirectError(
+            response.error.code,
+            response.error.message || '请求失败',
+            response.error.details,
+            response.error.system,
+            response.error.cause,
+            response.error.causes,
+            retryHint ? { retryable: true, retryAfterMs: retryHint.retryAfterMs } : undefined,
+          ),
+        )
+      } else item.reject(new AiChatDirectError('DIRECT_ERROR', '请求失败'))
       return
     }
 

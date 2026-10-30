@@ -102,13 +102,6 @@ func TestEventPayloadIsTerminalScansOnlyTopLevelType(t *testing.T) {
 
 // keyGate：同一 key 严格 FIFO，不同 key 完全并行。
 
-// setLaneAcquireBudgetForTests 注入更短的名额等待上界，返回恢复函数。
-func setLaneAcquireBudgetForTests(budget time.Duration) func() {
-	previous := laneAcquireBudget
-	laneAcquireBudget = budget
-	return func() { laneAcquireBudget = previous }
-}
-
 func TestKeyGateSerializesSameKey(t *testing.T) {
 	gate := newKeyGate()
 	ctx := context.Background()
@@ -198,12 +191,9 @@ func TestKeyGateCancelHandsTokenToNextWaiter(t *testing.T) {
 
 func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
 	// 名额等待预算压到最短：这里验证的是「上界耗尽后的拒绝」，不是退避节奏。
-	restore := setLaneAcquireBudgetForTests(20 * time.Millisecond)
-	defer restore()
-
 	box := newBlockingRunBox(t)
 	svc := newBusinessReadyTestService(configuredTestStore(t, box.server.URL), newEventHub())
-	server := newDirectServer("token", svc, newEventHub())
+	server := newDirectServerWithLaneBudget("token", svc, newEventHub(), 20*time.Millisecond)
 
 	client := dialTestServer(t, server)
 	defer client.Close()
@@ -226,6 +216,18 @@ func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
 	if busy.Error == nil || busy.Error.Code != "SERVER_BUSY" {
 		t.Fatalf("等待上界耗尽后必须返回 SERVER_BUSY：%#v", busy.Error)
 	}
+	// 协议级可重试声明：前端据此重试，不需要认识 SERVER_BUSY 这个业务码。
+	if !busy.Error.Retryable {
+		t.Fatalf("SERVER_BUSY 必须声明 retryable：%#v", busy.Error)
+	}
+	if busy.Error.RetryAfterMs <= 0 {
+		t.Fatalf("SERVER_BUSY 必须给出 retryAfterMs：%#v", busy.Error)
+	}
+	// 「拒绝先于执行」的显式契约：被拒的这一帧绝不能到达业务端。
+	// 若它进入了 service.dispatch，就会打到 /api/slow 并让 slowCount 增加。
+	if got := box.slowCountSnapshot(); got != remoteLaneConcurrency {
+		t.Fatalf("被拒的请求不得执行：业务端收到 %d 条慢请求，期望 %d", got, remoteLaneConcurrency)
+	}
 
 	// 关键：runtime 读走 local 道，必须仍然立刻返回。
 	writeRequest(t, client, "rt", "aiChat.storageGet", map[string]any{"key": "runtime/lock.chat.role.r.c"})
@@ -247,12 +249,9 @@ func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
 // TestDispatcherRetriesWhenLaneFreesUpWithinBudget 钉住启动洪峰的正确行为：
 // 名额瞬时占满时不能一次拒绝，而要在预算内等到名额并成功执行。
 func TestDispatcherRetriesWhenLaneFreesUpWithinBudget(t *testing.T) {
-	restore := setLaneAcquireBudgetForTests(2 * time.Second)
-	defer restore()
-
 	box := newBlockingRunBox(t)
 	svc := newBusinessReadyTestService(configuredTestStore(t, box.server.URL), newEventHub())
-	server := newDirectServer("token", svc, newEventHub())
+	server := newDirectServerWithLaneBudget("token", svc, newEventHub(), 2*time.Second)
 
 	client := dialTestServer(t, server)
 	defer client.Close()
@@ -352,6 +351,13 @@ func newBlockingRunBox(t *testing.T) *blockingRunBox {
 	}))
 	t.Cleanup(box.server.Close)
 	return box
+}
+
+// slowCountSnapshot 返回业务端已接收的慢请求条数（拒绝路径不得让它增长）。
+func (b *blockingRunBox) slowCountSnapshot() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.slowCount
 }
 
 func (b *blockingRunBox) waitForSlowRequests(t *testing.T, count int) {

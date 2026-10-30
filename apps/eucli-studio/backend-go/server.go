@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -19,10 +20,20 @@ type directServer struct {
 	token   string
 	service *service
 	hub     *eventHub
+	// laneBudget 是每条道「名额已满时最多等多久」的上界。
+	// 它属于服务端配置，构造时注入（测试可传更短值），不是包级可变状态。
+	laneBudget time.Duration
 }
 
 func newDirectServer(token string, service *service, hub *eventHub) *directServer {
-	return &directServer{token: token, service: service, hub: hub}
+	return newDirectServerWithLaneBudget(token, service, hub, laneAcquireBudgetDefault)
+}
+
+func newDirectServerWithLaneBudget(token string, service *service, hub *eventHub, laneBudget time.Duration) *directServer {
+	if laneBudget <= 0 {
+		laneBudget = laneAcquireBudgetDefault
+	}
+	return &directServer{token: token, service: service, hub: hub, laneBudget: laneBudget}
 }
 
 func (s *directServer) listenAndServe(ctx context.Context) error {
@@ -84,8 +95,8 @@ func (s *directServer) handleConnection(conn *directConnection) {
 	dispatcher := &connectionDispatcher{
 		server: s,
 		conn:   conn,
-		local:  newLaneGate(localLaneConcurrency),
-		remote: newLaneGate(remoteLaneConcurrency),
+		local:  newLaneGate(localLaneConcurrency, s.laneBudget),
+		remote: newLaneGate(remoteLaneConcurrency, s.laneBudget),
 		keys:   newKeyGate(),
 	}
 
@@ -156,13 +167,19 @@ func (d *connectionDispatcher) run(ctx context.Context, cancel context.CancelFun
 	// 名额在有界等待之后才判定：启动洪峰只是瞬时超额，退避即可排空，
 	// 不该让首屏关键请求被一次拒绝就永久失败。等待发生在 worker 里，reader 不受影响。
 	if gate != nil {
-		if !gate.acquire(ctx, laneAcquireBudget) {
+		if !gate.acquire(ctx) {
 			if ctx.Err() != nil {
 				_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newError("REQUEST_CANCELLED", "请求已取消"))))
 				return
 			}
-			// 上界耗尽才拒绝该帧，且不中断连接（design-5 契约：SERVER_BUSY）。
-			_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newError("SERVER_BUSY", "服务端繁忙，请稍后重试"))))
+			// 上界耗尽才拒绝该帧，且不中断连接。
+			// 这一帧在入道前就被拒、从未进入 service.dispatch，因此可以安全重试：
+			// 用协议级 retryable 声明表达，而不是让前端去认 SERVER_BUSY 这个业务码。
+			_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newRetryableError(
+				"SERVER_BUSY",
+				"服务端繁忙，请稍后重试",
+				int(laneBusyRetryAfter/time.Millisecond),
+			))))
 			return
 		}
 		defer gate.release()

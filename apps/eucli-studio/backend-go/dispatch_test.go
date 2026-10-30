@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 分道分类是并发治理的唯一判定点，必须逐条钉死。
@@ -107,7 +108,7 @@ func TestClassifyRequestDefaultsUnknownMethodsToRemote(t *testing.T) {
 }
 
 func TestLaneGateRejectsInsteadOfBlocking(t *testing.T) {
-	gate := newLaneGate(2)
+	gate := newLaneGate(2, time.Second)
 	if !gate.tryAcquire() || !gate.tryAcquire() {
 		t.Fatal("前两个名额必须拿到")
 	}

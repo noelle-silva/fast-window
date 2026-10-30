@@ -7,8 +7,19 @@ export class AiChatDirectError extends Error {
   details?: unknown
   cause?: unknown
   causes?: unknown[]
+  // 协议级「这次失败可以安全重试」声明：来自服务端错误帧，不是客户端猜的。
+  retryable: boolean
+  retryAfterMs: number
 
-  constructor(code: string | undefined, message: string, details?: unknown, system?: string, cause?: unknown, causes?: unknown[]) {
+  constructor(
+    code: string | undefined,
+    message: string,
+    details?: unknown,
+    system?: string,
+    cause?: unknown,
+    causes?: unknown[],
+    retry?: { retryable?: boolean; retryAfterMs?: number },
+  ) {
     super(message)
     this.name = 'AiChatDirectError'
     this.code = code
@@ -16,13 +27,23 @@ export class AiChatDirectError extends Error {
     this.details = details
     this.cause = cause
     this.causes = causes
+    this.retryable = retry?.retryable === true
+    this.retryAfterMs = this.retryable ? Math.max(0, Number(retry?.retryAfterMs) || 0) : 0
   }
 }
 
 export function toDirectErrorPayload(error: unknown) {
 	if (error instanceof AiChatDirectError) {
 		const causes = normalizeErrorPayloads(error.causes)
-		return { code: error.code, message: error.message, system: error.system, details: error.details, cause: normalizeErrorPayload(error.cause) || undefined, causes: causes.length ? causes : undefined }
+		return {
+			code: error.code,
+			message: error.message,
+			system: error.system,
+			details: error.details,
+			cause: normalizeErrorPayload(error.cause) || undefined,
+			causes: causes.length ? causes : undefined,
+			...(error.retryable ? { retryable: true, retryAfterMs: error.retryAfterMs } : {}),
+		}
 	}
 	const raw = error && typeof error === 'object' ? (error as any) : null
 	if (isStructuredErrorPayload(raw)) {

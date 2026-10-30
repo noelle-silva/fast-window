@@ -5,6 +5,10 @@ export type ErrorPayload = {
   details?: unknown
   cause?: ErrorPayload
   causes?: ErrorPayload[]
+  // 协议级「这次失败可以安全重试」声明（由服务端给出）。
+  // 传输层只读这两个字段，不需要认识任何具体业务错误码。
+  retryable?: boolean
+  retryAfterMs?: number
 }
 
 export function normalizeErrorPayload(input: unknown): ErrorPayload | null {
@@ -18,6 +22,11 @@ export function normalizeErrorPayload(input: unknown): ErrorPayload | null {
   if (code) out.code = code
   if (system) out.system = system
   if (Object.prototype.hasOwnProperty.call(raw, 'details')) out.details = raw.details
+  const retryAfterMs = Number(raw.retryAfterMs)
+  if (raw.retryable === true) {
+    out.retryable = true
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) out.retryAfterMs = retryAfterMs
+  }
   const cause = normalizeErrorPayload(raw.cause)
   if (cause) out.cause = cause
   const causes = normalizeErrorPayloads(raw.causes)
