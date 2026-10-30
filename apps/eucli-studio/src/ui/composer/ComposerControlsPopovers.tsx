@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { Box, Button, Chip, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, CircularProgress, Paper, Stack, Typography } from '@mui/material'
 import { DependablePopover } from '../components/DependableOverlay'
 import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { numericTimeValue } from '../utils/time'
-import { providerSelectItems, registeredModelItems } from '../settings/modelItemSelectors'
+import { ModelSourcePicker } from '../components/ModelSourcePicker'
+import { RoleModelCandidateList } from '../components/RoleModelCandidateList'
 import { useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
@@ -12,13 +13,22 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
   controller: any
   loading: boolean
   providers: any[]
+  modelGroups: any[]
   roleSessionControlsEnabled: boolean
   tempModelPickerEl: HTMLElement | null
   closeTempModelPicker: () => void
+  tempModelSource: 'provider' | 'model_group'
+  onTempModelSourceChanged: (kind: 'provider' | 'model_group') => void
   tempModelProviderId: string
   onTempProviderChanged: (providerId: string) => void
+  tempModelGroupId: string
+  onTempModelGroupChanged: (groupId: string) => void
   tempModelPick: string
   setTempModelPick: React.Dispatch<React.SetStateAction<string>>
+  tempModelReady: boolean
+  roleModelCandidates: any[]
+  tempModelHighlightKey: string
+  onPickRoleModelCandidate: (candidate: any) => void
   clearTempModelOverride: () => void
   hasChatOverride: boolean
   saveTempModelOverride: () => void
@@ -39,13 +49,22 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
     controller,
     loading,
     providers,
+    modelGroups,
     roleSessionControlsEnabled,
     tempModelPickerEl,
     closeTempModelPicker,
+    tempModelSource,
+    onTempModelSourceChanged,
     tempModelProviderId,
     onTempProviderChanged,
+    tempModelGroupId,
+    onTempModelGroupChanged,
     tempModelPick,
     setTempModelPick,
+    tempModelReady,
+    roleModelCandidates,
+    tempModelHighlightKey,
+    onPickRoleModelCandidate,
     clearTempModelOverride,
     hasChatOverride,
     saveTempModelOverride,
@@ -140,58 +159,36 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
               仅影响当前会话；不修改角色设置。
             </Typography>
 
-            <FormControl size="small" fullWidth>
-              <InputLabel id="chat-override-provider">供应商</InputLabel>
-              <Select
-                labelId="chat-override-provider"
-                label="供应商"
-                value={String(tempModelProviderId || '')}
-                onChange={(e) => onTempProviderChanged(String(e.target.value || ''))}
-                disabled={loading || !providers.length}
-              >
-                {providerSelectItems(providers)}
-              </Select>
-            </FormControl>
+            <ModelSourcePicker
+              value={{ kind: tempModelSource, providerId: tempModelProviderId, groupId: tempModelGroupId, modelId: tempModelPick }}
+              providers={providers}
+              modelGroups={modelGroups}
+              disabled={loading}
+              onSourceChanged={onTempModelSourceChanged}
+              onProviderChanged={onTempProviderChanged}
+              onModelGroupChanged={onTempModelGroupChanged}
+              onModelChanged={setTempModelPick}
+            />
 
-            {(() => {
-              const pid = String(tempModelProviderId || '')
-              const p = providers.find((x: any) => String(x?.id || '') === pid) || null
-              const items = registeredModelItems(p)
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              角色候选模型（{roleModelCandidates.length}）
+            </Typography>
 
-              return (
-                <Stack spacing={1}>
-                  <FormControl size="small" fullWidth>
-                    <InputLabel id="chat-override-model">登记模型</InputLabel>
-                    <Select
-                      labelId="chat-override-model"
-                      label="登记模型"
-                      value={String(tempModelPick || '')}
-                      onChange={(e) => setTempModelPick(String(e.target.value || ''))}
-                      disabled={loading || !pid}
-                    >
-                      <MenuItem value="">
-                        <em>请选择…</em>
-                      </MenuItem>
-                      {items.map((item: any) => (
-                        <MenuItem key={item.id} value={item.id}>
-                          {item.hint ? `${item.label} / ${item.hint}` : item.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+            <RoleModelCandidateList
+              candidates={roleModelCandidates}
+              providers={providers}
+              modelGroups={modelGroups}
+              highlightedKey={tempModelHighlightKey}
+              highlightLabel="临时模型"
+              emptyHint="这个角色还没有候选模型，可到角色设置里添加。"
+              onSelect={onPickRoleModelCandidate}
+            />
 
-                  <Typography variant="caption" color="text.secondary">
-                    这里仅显示供应商设置中已登记的模型；原始模型列表请到供应商设置中刷新并登记。
-                  </Typography>
-                </Stack>
-              )
-            })()}
-
-            <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
+            <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ pt: 0.5 }}>
               <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || loading}>
                 清除临时模型（跟随角色）
               </Button>
-              <Button variant="contained" onClick={saveTempModelOverride} disabled={loading || !tempModelProviderId}>
+              <Button variant="contained" onClick={saveTempModelOverride} disabled={loading || !tempModelReady}>
                 保存
               </Button>
             </Stack>

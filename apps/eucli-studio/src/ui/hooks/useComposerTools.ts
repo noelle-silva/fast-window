@@ -1,5 +1,8 @@
 import * as React from 'react'
-import { registeredModelItems } from '../settings/modelItemSelectors'
+import { modelCandidateKey, normalizeRoleModelCandidates, type RoleModelCandidate } from '../../domain/roleModelCandidates'
+import { normalizeModelRef } from '../../domain/modelRefUtils'
+import type { ModelSourceKind } from '../components/ModelSourcePicker'
+import { registeredModelItems, modelGroupModelItems } from '../settings/modelItemSelectors'
 import { useEvent } from './useEvent'
 
 export function useComposerTools(deps: {
@@ -7,8 +10,8 @@ export function useComposerTools(deps: {
   roleSessionControlsEnabled: boolean
   activeRole: any
   providers: any[]
-  effectiveProviderId: string
-  effectiveModelId: string
+  modelGroups: any[]
+  effectiveModelRef: any
   reasoningProfile: any
   activeTargetKind: 'role' | 'group' | 'workspace'
   activeGroupId: string
@@ -21,8 +24,8 @@ export function useComposerTools(deps: {
     roleSessionControlsEnabled,
     activeRole,
     providers,
-    effectiveProviderId,
-    effectiveModelId,
+    modelGroups,
+    effectiveModelRef,
     reasoningProfile,
     activeTargetKind,
     activeGroupId,
@@ -32,7 +35,9 @@ export function useComposerTools(deps: {
   } = deps
 
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
+  const [tempModelSource, setTempModelSource] = React.useState<ModelSourceKind>('provider')
   const [tempModelProviderId, setTempModelProviderId] = React.useState('')
+  const [tempModelGroupId, setTempModelGroupId] = React.useState('')
   const [tempModelPick, setTempModelPick] = React.useState('')
   const [reasoningPickerEl, setReasoningPickerEl] = React.useState<HTMLElement | null>(null)
   const [asyncToolTasksEl, setAsyncToolTasksEl] = React.useState<HTMLElement | null>(null)
@@ -45,26 +50,37 @@ export function useComposerTools(deps: {
     setReasoningPickerEl(null)
   }, [roleSessionControlsEnabled])
 
+  // 角色候选池是临时模型弹窗底部的可选项来源；角色设置变化时随数据一起刷新。
+  const roleModelCandidates = React.useMemo<RoleModelCandidate[]>(
+    () => normalizeRoleModelCandidates(activeRole?.modelCandidates),
+    [activeRole?.modelCandidates],
+  )
+
   const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
   const closeAsyncToolTasks = useEvent(() => setAsyncToolTasksEl(null))
+
   const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (!roleSessionControlsEnabled) return
     if (!activeRole) return
-    if (!providers.length) return controller?.capabilities?.ui?.showToast?.('暂无供应商', { kind: 'error' })
+    if (!providers.length && !modelGroups.length) return controller?.capabilities?.ui?.showToast?.('暂无供应商', { kind: 'error' })
 
-    const pid0 = effectiveProviderId || String((providers[0] as any)?.id || '')
-    const mid0 = effectiveModelId || ''
-
-    const pid = String(pid0 || '').trim()
-    const mid = String(mid0 || '').trim()
-
-    setTempModelProviderId(pid)
-
-    const p = providers.find((x: any) => String(x?.id || '') === pid) || null
-    const items = registeredModelItems(p)
-    const inList = !!mid && items.some((x: any) => x.id === mid)
-
-    setTempModelPick(inList ? mid : '')
+    // 用当前生效模型预填，保证打开弹窗时选择器与输入栏显示一致。
+    const current = normalizeModelRef(effectiveModelRef)
+    if (current?.kind === 'model_group') {
+      setTempModelSource('model_group')
+      setTempModelProviderId('')
+      setTempModelGroupId(current.groupId)
+      setTempModelPick(current.modelId)
+    } else {
+      const pid = String(current?.providerId || '').trim() || String((providers[0] as any)?.id || '')
+      setTempModelSource('provider')
+      setTempModelProviderId(pid)
+      setTempModelGroupId('')
+      const p = providers.find((x: any) => String(x?.id || '') === pid) || null
+      const items = registeredModelItems(p)
+      const mid = String(current?.modelId || '').trim()
+      setTempModelPick(mid && items.some((x: any) => x.id === mid) ? mid : '')
+    }
     setTempModelPickerEl(e.currentTarget)
   })
 
@@ -94,20 +110,39 @@ export function useComposerTools(deps: {
     refreshAsyncToolTasks()
   })
 
-  const onTempProviderChanged = useEvent((nextProviderId: string) => {
-    const pid = String(nextProviderId || '').trim()
-    setTempModelProviderId(pid)
+  const onTempModelSourceChanged = useEvent((kind: ModelSourceKind) => {
+    setTempModelSource(kind === 'model_group' ? 'model_group' : 'provider')
     setTempModelPick('')
   })
 
+  const onTempProviderChanged = useEvent((nextProviderId: string) => {
+    setTempModelProviderId(String(nextProviderId || '').trim())
+    setTempModelPick('')
+  })
+
+  const onTempModelGroupChanged = useEvent((nextGroupId: string) => {
+    setTempModelGroupId(String(nextGroupId || '').trim())
+    setTempModelPick('')
+  })
+
+  const tempModelRef = normalizeModelRef(tempModelSource === 'model_group'
+    ? { kind: 'model_group', providerId: '', groupId: tempModelGroupId, modelId: tempModelPick }
+    : { kind: 'provider', providerId: tempModelProviderId, groupId: '', modelId: tempModelPick })
+  const tempModelReady = !!tempModelRef
+  const tempModelHighlightKey = tempModelRef ? modelCandidateKey(tempModelRef) : ''
+
+  // 点击角色候选模型：直接把它作为临时模型保存，省掉「先选中再保存」。
+  const onPickRoleModelCandidate = useEvent((candidate: RoleModelCandidate) => {
+    const ref = normalizeModelRef(candidate)
+    if (!ref) return
+    controller.actions.setChatModelOverride?.(ref)
+    closeTempModelPicker()
+  })
+
   const saveTempModelOverride = useEvent(() => {
-    const pid = String(tempModelProviderId || '').trim()
-    const mid = String(tempModelPick || '').trim()
-
-    if (!pid) return controller?.capabilities?.ui?.showToast?.('请选择供应商', { kind: 'error' })
-    if (!mid) return controller?.capabilities?.ui?.showToast?.('请选择模型', { kind: 'error' })
-
-    controller.actions.setChatModelOverride?.(pid, mid)
+    const ref = tempModelRef
+    if (!ref) return controller?.capabilities?.ui?.showToast?.('请选择模型', { kind: 'error' })
+    controller.actions.setChatModelOverride?.(ref)
     closeTempModelPicker()
   })
 
@@ -132,16 +167,24 @@ export function useComposerTools(deps: {
 
   return {
     tempModelPickerEl,
+    tempModelSource,
     tempModelProviderId,
+    tempModelGroupId,
     tempModelPick,
     setTempModelPick,
+    tempModelReady,
+    roleModelCandidates,
+    tempModelHighlightKey,
+    onPickRoleModelCandidate,
     reasoningPickerEl,
     asyncToolTasksEl,
     asyncToolTasks,
     asyncToolTasksLoading,
     closeTempModelPicker,
     openTempModelPicker,
+    onTempModelSourceChanged,
     onTempProviderChanged,
+    onTempModelGroupChanged,
     saveTempModelOverride,
     clearTempModelOverride,
     openReasoningPicker,

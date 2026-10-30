@@ -59,7 +59,7 @@ import { Freeze } from './components/Freeze'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
-import { formatModelRefDisplayText } from '../domain/modelRefUtils'
+import { formatModelRefDisplayText, normalizeModelRef } from '../domain/modelRefUtils'
 import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
@@ -629,9 +629,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     return out
   }, [treeRender, lastMsgId])
   const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
-  const overrideProviderId = String(chatOverride?.providerId || '').trim()
-  const overrideModelId = String(chatOverride?.modelId || '').trim()
-  const hasChatOverride = !!overrideProviderId && !!overrideModelId
+  const chatOverrideRef = normalizeModelRef(chatOverride)
+  const hasChatOverride = !!chatOverrideRef
+  const overrideProviderId = String(chatOverrideRef?.providerId || '').trim()
+  const overrideModelId = String(chatOverrideRef?.modelId || '').trim()
 
   const roleModelRef = roleDefaultModelRef(activeRole)
   const roleProviderId = String(roleModelRef?.providerId || '').trim()
@@ -639,9 +640,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const effectiveProviderId = hasChatOverride ? overrideProviderId : roleProviderId
   const effectiveModelId = hasChatOverride ? overrideModelId : roleModelId
-  const effectiveModelRef = hasChatOverride
-    ? { kind: 'provider', providerId: overrideProviderId, modelId: overrideModelId }
-    : roleModelRef
+  const effectiveModelRef = hasChatOverride ? chatOverrideRef : roleModelRef
   const reasoningProfile = activeTargetKind !== 'group'
     ? modelReasoningProfileFromModelRef(effectiveModelRef, providers, modelGroups)
     : { supportsReasoning: false, defaultReasoningEffort: '' as const }
@@ -652,16 +651,24 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const {
     tempModelPickerEl,
+    tempModelSource,
     tempModelProviderId,
+    tempModelGroupId,
     tempModelPick,
     setTempModelPick,
+    tempModelReady,
+    roleModelCandidates,
+    tempModelHighlightKey,
+    onPickRoleModelCandidate,
     reasoningPickerEl,
     asyncToolTasksEl,
     asyncToolTasks,
     asyncToolTasksLoading,
     closeTempModelPicker,
     openTempModelPicker,
+    onTempModelSourceChanged,
     onTempProviderChanged,
+    onTempModelGroupChanged,
     saveTempModelOverride,
     clearTempModelOverride,
     openReasoningPicker,
@@ -676,8 +683,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     roleSessionControlsEnabled,
     activeRole,
     providers,
-    effectiveProviderId,
-    effectiveModelId,
+    modelGroups,
+    effectiveModelRef,
     reasoningProfile,
     activeTargetKind,
     activeGroupId,
@@ -1341,13 +1348,22 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             controller={controller}
             loading={!!s.loading}
             providers={providers}
+            modelGroups={modelGroups}
             roleSessionControlsEnabled={roleSessionControlsEnabled}
             tempModelPickerEl={tempModelPickerEl}
             closeTempModelPicker={closeTempModelPicker}
+            tempModelSource={tempModelSource}
+            onTempModelSourceChanged={onTempModelSourceChanged}
             tempModelProviderId={tempModelProviderId}
             onTempProviderChanged={onTempProviderChanged}
+            tempModelGroupId={tempModelGroupId}
+            onTempModelGroupChanged={onTempModelGroupChanged}
             tempModelPick={tempModelPick}
             setTempModelPick={setTempModelPick}
+            tempModelReady={tempModelReady}
+            roleModelCandidates={roleModelCandidates}
+            tempModelHighlightKey={tempModelHighlightKey}
+            onPickRoleModelCandidate={onPickRoleModelCandidate}
             clearTempModelOverride={clearTempModelOverride}
             hasChatOverride={hasChatOverride}
             saveTempModelOverride={saveTempModelOverride}

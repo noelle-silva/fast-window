@@ -1,4 +1,5 @@
 import { now } from '../../core/utils'
+import { normalizeModelRef } from '../../domain/modelRefUtils'
 import { normalizeReasoningEffort } from '../../domain/reasoning'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
@@ -48,15 +49,13 @@ export function createChatInteractionActions(deps: {
     switchBranchSibling: (assistantMid: any, delta: any) => switchBranchByAssistantSibling(String(assistantMid || ''), Number(delta || 0)).catch(() => {}),
     setActiveBranch: (branchId: any) => setActiveBranch(String(branchId || '')).catch(() => {}),
     submitToolConfirmation: (input: any) => submitToolConfirmationDecision(input),
-    setChatModelOverride: async (providerId: any, modelId: any) => {
+    setChatModelOverride: async (ref: any) => {
       if (!state.data) return
-      const pid = String(providerId || '').trim()
-      const mid = String(modelId || '').trim()
-      if (!pid || !mid) return showToast?.('供应商/模型 不能为空', { kind: 'error' })
+      const normalized = normalizeModelRef(ref)
+      if (!normalized) return showToast?.('请选择模型', { kind: 'error' })
       const target = captureChatSettingsTarget()
       if (!target) return showToast?.('请先创建或选择会话', { kind: 'error' })
-      const chat = target.chat
-      const nextOverride = { kind: 'provider', providerId: pid, groupId: '', modelId: mid }
+      const nextOverride = normalized
       const ok = await applyChatSettingsAction(
         target,
         'model',
