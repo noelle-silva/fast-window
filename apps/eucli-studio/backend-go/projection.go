@@ -31,16 +31,20 @@ var (
 type projectionService struct {
 	config *configStore
 	eb     *ebClient
+	model  *readModel
 }
 
 func newProjectionService(config *configStore, eb *ebClient) *projectionService {
-	return &projectionService{config: config, eb: eb}
+	return &projectionService{config: config, eb: eb, model: newReadModel()}
 }
 
 func (p *projectionService) get(ctx context.Context, key string) (any, error) {
 	switch key {
 	case "meta/index":
-		return p.meta(ctx)
+		if err := p.ensureMetaInputs(ctx); err != nil {
+			return nil, err
+		}
+		return p.meta()
 	case "stickers/index":
 		return p.stickers(ctx)
 	case "chats/index":
@@ -136,6 +140,8 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 		if _, err := p.eb.request(ctx, ebRequest{Method: "DELETE", Path: fmt.Sprintf("/api/roles/%s", roleID)}); err != nil {
 			return err
 		}
+		p.model.catalog.roles.invalidate()
+		p.model.sessions.invalidate(roleScope(roleID))
 		_, err = p.config.updateProjection(func(projection *projectionConfig) {
 			delete(projection.RoleFolders, roleID)
 			delete(projection.ActiveChatByRole, roleID)
@@ -153,6 +159,8 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 		if _, err := p.eb.request(ctx, ebRequest{Method: "DELETE", Path: fmt.Sprintf("/api/groups/%s", groupID)}); err != nil {
 			return err
 		}
+		p.model.catalog.groups.invalidate()
+		p.model.sessions.invalidate(groupScope(groupID))
 		_, err = p.config.updateProjection(func(projection *projectionConfig) {
 			delete(projection.GroupFolders, groupID)
 			delete(projection.ActiveChatByGroup, groupID)
@@ -167,6 +175,7 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 		if _, err := p.eb.request(ctx, ebRequest{Method: "DELETE", Path: fmt.Sprintf("/api/providers/%s", providerID)}); err != nil {
 			return err
 		}
+		p.model.catalog.providers.invalidate()
 		_, err = p.config.updateProjection(func(projection *projectionConfig) {
 			delete(projection.ProviderFolders, providerID)
 		})
@@ -190,6 +199,7 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 		if _, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: "/api/model-groups", Body: mustJSON(next)}); err != nil {
 			return err
 		}
+		p.model.catalog.modelGroups.invalidate()
 		_, err = p.config.updateProjection(func(projection *projectionConfig) {
 			delete(projection.ModelGroupFolders, groupID)
 		})
@@ -201,6 +211,9 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 			return err
 		}
 		_, err = p.eb.request(ctx, ebRequest{Method: "DELETE", Path: fmt.Sprintf("/api/roles/%s/sessions/%s", roleID, match[2])})
+		if err == nil {
+			p.model.sessions.invalidate(roleScope(roleID))
+		}
 		return err
 	}
 	if match := groupChatIndexPattern.FindStringSubmatch(key); match != nil {
@@ -212,6 +225,9 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 			return err
 		}
 		_, err = p.eb.request(ctx, ebRequest{Method: "DELETE", Path: fmt.Sprintf("/api/groups/%s/sessions/%s", groupID, match[2])})
+		if err == nil {
+			p.model.sessions.invalidate(groupScope(groupID))
+		}
 		return err
 	}
 	if key == sessionFavoritesKey {
@@ -226,11 +242,30 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 	return newError("NOT_IMPLEMENTED", "未知 storage key："+key)
 }
 
+func roleScope(roleID string) sessionScope {
+	return sessionScope{Kind: sessionScopeKindRole, TargetID: roleID}
+}
+
+func groupScope(groupID string) sessionScope {
+	return sessionScope{Kind: sessionScopeKindGroup, TargetID: groupID}
+}
+
+// resetReadModel 是「连接换代 / 索引重建」语义：
+// 清空实体与会话快照、推进 epoch，让前端按 epoch 变化整份重拉。
+func (p *projectionService) resetReadModel() {
+	p.model.catalog.invalidateAll()
+	p.model.assist.invalidate()
+	p.model.sessions.invalidateAll()
+}
+
 func (p *projectionService) saveMeta(ctx context.Context, value any) error {
 	meta := objectMap(value)
 	settings := objectMap(meta["settings"])
 	if err := p.saveAssistConfigs(ctx, settings); err != nil {
 		return err
+	}
+	if len(settings) > 0 {
+		p.model.assist.invalidate()
 	}
 	_, err := p.config.updateProjection(func(projection *projectionConfig) {
 		projection.UI = objectMap(meta["ui"])
@@ -364,41 +399,165 @@ func (p *projectionService) loadAssistConfig(ctx context.Context, path string) (
 	}, nil
 }
 
-func (p *projectionService) meta(ctx context.Context) (any, error) {
-	roles, err := p.listRoles(ctx)
+// ensureMetaInputs 为旧 storage key 路径（meta/index）预热读模型。
+//
+// 旧 meta 形状仍携带 chatIndexByRole / chatIndexByGroup（形状不变），
+// 所以这条旧路径需要把每个 scope 的索引预热出来，与旧实现等价——
+// 这是「前端不改也不会坏」的前提。
+//
+// 新接口（sessionIndex.get / sessionSummary.list / session.get）各自按需预热，
+// 绝不经过这里——这才是「切换热路径不再装配全站」的结构保证。
+// meta() 本身仍然是纯组装，零 I/O。
+func (p *projectionService) ensureMetaInputs(ctx context.Context) error {
+	if err := p.ensureCatalog(ctx); err != nil {
+		return err
+	}
+	if _, err := p.ensureAssistConfigs(ctx); err != nil {
+		return err
+	}
+	// 单个 scope 失败不阻断 meta：旧实现同样对 sessionsIndexForRole 的错误取空值。
+	for _, role := range p.model.catalog.roles.items() {
+		if id := stringField(role, "id"); id != "" {
+			_, _ = p.ensureSessionIndex(ctx, roleScope(id))
+		}
+	}
+	for _, group := range p.model.catalog.groups.items() {
+		if id := stringField(group, "id"); id != "" {
+			_, _ = p.ensureSessionIndex(ctx, groupScope(id))
+		}
+	}
+	return nil
+}
+
+func (p *projectionService) ensureCatalog(ctx context.Context) error {
+	if err := p.ensureRoles(ctx); err != nil {
+		return err
+	}
+	if err := p.ensureProviders(ctx); err != nil {
+		return err
+	}
+	if err := p.ensureModelGroups(ctx); err != nil {
+		return err
+	}
+	return p.ensureGroups(ctx)
+}
+
+func (p *projectionService) ensureRoles(ctx context.Context) error {
+	_, err := p.model.catalog.roles.load(ctx, "roles", p.listRoles)
+	return err
+}
+
+func (p *projectionService) ensureProviders(ctx context.Context) error {
+	_, err := p.model.catalog.providers.load(ctx, "providers", p.listProviders)
+	return err
+}
+
+func (p *projectionService) ensureGroups(ctx context.Context) error {
+	_, err := p.model.catalog.groups.load(ctx, "groups", p.listGroups)
+	return err
+}
+
+func (p *projectionService) ensureModelGroups(ctx context.Context) error {
+	_, err := p.model.catalog.modelGroups.load(ctx, "model-groups", p.listModelGroups)
+	return err
+}
+
+func (p *projectionService) ensureAssistConfigs(ctx context.Context) (map[string]any, error) {
+	snapshot, err := p.model.assist.load(ctx, "assist", p.fetchAssistConfigs)
 	if err != nil {
 		return nil, err
 	}
-	providers, err := p.listProviders(ctx)
+	return snapshot.value, nil
+}
+
+func (p *projectionService) fetchAssistConfigs(ctx context.Context) (map[string]any, error) {
+	out := map[string]any{}
+	for _, item := range []struct {
+		key  string
+		path string
+	}{
+		{key: "mermaidFix", path: "/api/assist/mermaid-fix/config"},
+		{key: "chatTitleNaming", path: "/api/assist/chat-title/config"},
+		{key: "stickerNaming", path: "/api/assist/stickers/name/config"},
+		{key: "contextCompression", path: "/api/assist/context-compression/config"},
+	} {
+		config, err := p.loadAssistConfig(ctx, item.path)
+		if err != nil {
+			return nil, err
+		}
+		out[item.key] = config
+	}
+	return out, nil
+}
+
+// ensureSessionIndex 保证某个 scope 的索引快照存在（缺失时单飞加载）。
+func (p *projectionService) ensureSessionIndex(ctx context.Context, scope sessionScope) (*sessionIndexSnapshot, error) {
+	if !scope.valid() {
+		return nil, newError("BAD_REQUEST", "会话 scope 无效")
+	}
+	cfg, err := p.config.snapshot()
 	if err != nil {
 		return nil, err
 	}
-	mermaidFix, err := p.loadAssistConfig(ctx, "/api/assist/mermaid-fix/config")
+	projection := normalizeProjection(cfg.Projection)
+	if scope.Kind == sessionScopeKindRole {
+		return p.model.sessions.load(ctx, scope, func(loadCtx context.Context) (map[string]any, error) {
+			sessions, err := p.listSessions(loadCtx, scope.TargetID)
+			if err != nil {
+				return nil, err
+			}
+			return buildSessionIndex(sessions, "新聊天", projection.UpdatedAt), nil
+		})
+	}
+	return p.model.sessions.load(ctx, scope, func(loadCtx context.Context) (map[string]any, error) {
+		sessions, err := p.listGroupSessions(loadCtx, scope.TargetID)
+		if err != nil {
+			return nil, err
+		}
+		return buildSessionIndex(sessions, "群聊", projection.UpdatedAt), nil
+	})
+}
+
+// buildSessionIndex 只装数据事实：activeChatId 是 UI 偏好，由读取方现场组装。
+func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpdatedAt int64) map[string]any {
+	indexUpdatedAt := stableUpdatedAt(baseUpdatedAt)
+	chatIDs := []string{}
+	chatUpdatedAt := map[string]any{}
+	chatMetas := []any{}
+	for _, session := range sessions {
+		id := stringField(session, "id")
+		if id == "" {
+			continue
+		}
+		updatedAt := stableUpdatedAt(millisFromAnyOrZero(session["lastActive"]), millisFromAnyOrZero(session["updatedAt"]), millisFromAnyOrZero(session["createdAt"]))
+		chatIDs = append(chatIDs, id)
+		chatUpdatedAt[id] = updatedAt
+		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), fallbackTitle), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": updatedAt})
+		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
+	}
+	return map[string]any{"chatIds": chatIDs, "chatUpdatedAt": chatUpdatedAt, "chatMetas": chatMetas, "updatedAt": indexUpdatedAt}
+}
+
+// meta 是纯组装：不读盘、不发请求、不写状态。
+// 调用前必须由 ensureMetaInputs 预热（storageGet / 新接口都这样做）。
+func (p *projectionService) meta() (any, error) {
+	cfg, err := p.config.snapshot()
 	if err != nil {
 		return nil, err
 	}
-	chatTitleNaming, err := p.loadAssistConfig(ctx, "/api/assist/chat-title/config")
-	if err != nil {
-		return nil, err
+	projection := normalizeProjection(cfg.Projection)
+	assist := map[string]any{}
+	if snapshot := p.model.assist.peek(); snapshot != nil {
+		assist = snapshot.value
 	}
-	stickerNaming, err := p.loadAssistConfig(ctx, "/api/assist/stickers/name/config")
-	if err != nil {
-		return nil, err
-	}
-	contextCompression, err := p.loadAssistConfig(ctx, "/api/assist/context-compression/config")
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := p.config.load()
-	if err != nil {
-		return nil, err
-	}
-	projection := cfg.Projection
+	roles := p.model.catalog.roles.items()
+	providers := p.model.catalog.providers.items()
+	groups := p.model.catalog.groups.items()
+	modelGroups := p.model.catalog.modelGroups.items()
+
 	roleOrder := []string{}
 	roleFolders := map[string]string{}
 	chatIndexByRole := map[string]any{}
-	updatedAt := stableUpdatedAt(projection.UpdatedAt)
-	// 角色顺序是业务端集合事实：这里只按 /api/roles 返回顺序投影，不再做客户端排序。
 	for _, role := range roles {
 		id := stringField(role, "id")
 		if id == "" {
@@ -406,9 +565,7 @@ func (p *projectionService) meta(ctx context.Context) (any, error) {
 		}
 		roleOrder = append(roleOrder, id)
 		roleFolders[id] = folderFor(projection.RoleFolders, id, stringField(role, "name"), "角色")
-		index, _ := p.sessionsIndexForRole(ctx, id)
-		chatIndexByRole[id] = index
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(role["updatedAt"]), millisFromAnyOrZero(role["createdAt"]), millisFromAnyOrZero(objectMap(index)["updatedAt"]))
+		chatIndexByRole[id] = p.composeSessionIndex(roleScope(id), projection.ActiveChatByRole[id])
 	}
 	providerOrder := []string{}
 	providerFolders := map[string]string{}
@@ -419,11 +576,6 @@ func (p *projectionService) meta(ctx context.Context) (any, error) {
 		}
 		providerOrder = append(providerOrder, id)
 		providerFolders[id] = folderFor(projection.ProviderFolders, id, stringField(provider, "name"), "供应商")
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(provider["updatedAt"]), millisFromAnyOrZero(provider["createdAt"]))
-	}
-	modelGroups, err := p.listModelGroups(ctx)
-	if err != nil {
-		return nil, err
 	}
 	modelGroupOrder := []string{}
 	modelGroupFolders := map[string]string{}
@@ -434,15 +586,7 @@ func (p *projectionService) meta(ctx context.Context) (any, error) {
 		}
 		modelGroupOrder = append(modelGroupOrder, id)
 		modelGroupFolders[id] = folderFor(projection.ModelGroupFolders, id, stringField(group, "name"), "模型组")
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(group["updatedAt"]), millisFromAnyOrZero(group["createdAt"]))
 	}
-	groups, err := p.listGroups(ctx)
-	if err != nil {
-		return nil, err
-	}
-	groupOrder := []string{}
-	groupFolders := map[string]string{}
-	chatIndexByGroup := map[string]any{}
 	groupByID := map[string]map[string]any{}
 	for _, group := range groups {
 		id := stringField(group, "id")
@@ -450,33 +594,93 @@ func (p *projectionService) meta(ctx context.Context) (any, error) {
 			continue
 		}
 		groupByID[id] = group
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(group["updatedAt"]), millisFromAnyOrZero(group["createdAt"]))
 	}
+	groupOrder := []string{}
+	groupFolders := map[string]string{}
+	chatIndexByGroup := map[string]any{}
 	for _, id := range orderedIDs(projection.GroupOrder, mapKeys(groupByID)) {
 		group := groupByID[id]
-		folder := folderFor(projection.GroupFolders, id, stringField(group, "name"), "群组")
 		groupOrder = append(groupOrder, id)
-		groupFolders[id] = folder
-		index, _ := p.sessionsIndexForGroup(ctx, id)
-		chatIndexByGroup[id] = index
-		updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(objectMap(index)["updatedAt"]))
+		groupFolders[id] = folderFor(projection.GroupFolders, id, stringField(group, "name"), "群组")
+		chatIndexByGroup[id] = p.composeSessionIndex(groupScope(id), projection.ActiveChatByGroup[id])
 	}
-	updatedAt = stableUpdatedAt(updatedAt, millisFromAnyOrZero(mermaidFix["updatedAt"]), millisFromAnyOrZero(chatTitleNaming["updatedAt"]), millisFromAnyOrZero(stickerNaming["updatedAt"]), millisFromAnyOrZero(contextCompression["updatedAt"]))
+
+	mermaidFix := objectMap(assist["mermaidFix"])
+	chatTitleNaming := objectMap(assist["chatTitleNaming"])
+	stickerNaming := objectMap(assist["stickerNaming"])
+	contextCompression := objectMap(assist["contextCompression"])
+
 	return map[string]any{
-		"schemaVersion":     splitSchemaVersion,
-		"dataVersion":       uiVersion,
-		"updatedAt":         updatedAt,
-		"ui":                projection.UI,
-		"settings":          mergeSettings(projection.Settings, providers, mermaidFix, chatTitleNaming, stickerNaming, contextCompression),
-		"roleOrder":         roleOrder,
-		"roleFolders":       roleFolders,
-		"chatIndexByRole":   chatIndexByRole,
-		"groupOrder":        groupOrder,
-		"groupFolders":      groupFolders,
-		"chatIndexByGroup":  chatIndexByGroup,
-		"providerOrder":     providerOrder,
-		"providerFolders":   providerFolders,
-		"modelGroupOrder":   modelGroupOrder,
-		"modelGroupFolders": modelGroupFolders,
+		"schemaVersion": splitSchemaVersion,
+		"dataVersion":   uiVersion,
+		// updatedAt 只是展示排序字段：禁止任何新鲜度判定依赖它。
+		"updatedAt": projection.UpdatedAt,
+		// 三层版本各司其职：数据（box）、偏好（studio）、重建纪元（box 进程/索引重建）。
+		"dataRevision":       p.model.dataRevision(),
+		"preferenceRevision": projection.Revision,
+		"epoch":              p.model.epoch(),
+		"ui":                 projection.UI,
+		"settings":           mergeSettings(projection.Settings, providers, mermaidFix, chatTitleNaming, stickerNaming, contextCompression),
+		"roleOrder":          roleOrder,
+		"roleFolders":        roleFolders,
+		"chatIndexByRole":    chatIndexByRole,
+		"groupOrder":         groupOrder,
+		"groupFolders":       groupFolders,
+		"chatIndexByGroup":   chatIndexByGroup,
+		"providerOrder":      providerOrder,
+		"providerFolders":    providerFolders,
+		"modelGroupOrder":    modelGroupOrder,
+		"modelGroupFolders":  modelGroupFolders,
 	}, nil
+}
+
+// composeSessionIndex 把「数据快照」与「UI 偏好」组装成旧 storage key 的对外形状。
+// 快照缺席时返回空索引：meta() 绝不为了补一个 scope 去发请求。
+// 返回形状与旧实现逐字段一致，不夹带版本字段。
+func (p *projectionService) composeSessionIndex(scope sessionScope, preferredActive string) map[string]any {
+	return p.sessionIndexView(scope, p.model.sessions.peek(scope), preferredActive)
+}
+
+// composeSessionIndexWithSnapshot 是新接口（sessionIndex.get）的封装：
+// 在同样的视图上附带 revision 与 scope，供前端按版本对账。
+func (p *projectionService) composeSessionIndexWithSnapshot(scope sessionScope, snapshot *sessionIndexSnapshot, preferredActive string) map[string]any {
+	view := p.sessionIndexView(scope, snapshot, preferredActive)
+	if snapshot != nil {
+		view["revision"] = snapshot.revision
+	} else {
+		view["revision"] = int64(0)
+	}
+	view["scope"] = scope.key()
+	return view
+}
+
+func (p *projectionService) sessionIndexView(scope sessionScope, snapshot *sessionIndexSnapshot, preferredActive string) map[string]any {
+	if snapshot == nil {
+		return map[string]any{"activeChatId": "", "chatIds": []any{}, "chatUpdatedAt": map[string]any{}, "chatMetas": []any{}, "updatedAt": 1}
+	}
+	index := snapshot.index
+	chatIDs := stringSlice(index["chatIds"])
+	active := strings.TrimSpace(preferredActive)
+	if active != "" && !containsString(chatIDs, active) {
+		active = ""
+	}
+	if active == "" && len(chatIDs) > 0 {
+		active = chatIDs[0]
+	}
+	return map[string]any{
+		"activeChatId":  active,
+		"chatIds":       chatIDs,
+		"chatUpdatedAt": index["chatUpdatedAt"],
+		"chatMetas":     index["chatMetas"],
+		"updatedAt":     index["updatedAt"],
+	}
+}
+
+func containsString(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

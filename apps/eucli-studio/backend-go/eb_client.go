@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// traceHeaderName 是前端 → studio → box 三跳共用的关联头（design-5 §十二 P0）。
+const traceHeaderName = "X-Eucli-Trace"
+
 type ebClient struct {
 	config             *configStore
 	release            clientRelease
@@ -21,7 +24,9 @@ type ebClient struct {
 }
 
 func newEBClient(config *configStore, release clientRelease) *ebClient {
-	return &ebClient{config: config, release: release, http: &http.Client{Timeout: 120 * time.Second}}
+	// http.Client.Timeout 只是绝对上限：真正的预算由每跳的 context 决定，
+	// 绝不允许任何漏配路径重新跑回 120s。
+	return &ebClient{config: config, release: release, http: &http.Client{Timeout: httpClientAbsoluteTimeout}}
 }
 
 func (c *ebClient) setConnectionProvider(provider func() (*boxConnection, error)) {
@@ -36,7 +41,19 @@ type ebRequest struct {
 	Timeout int             `json:"timeoutMs,omitempty"`
 }
 
+// request 是结构化路径的唯一入口：它把 data 字节解码成通用对象。
+// 会话载荷不走这里——那条路径用 requestRaw 做纯字节中继。
 func (c *ebClient) request(ctx context.Context, req ebRequest) (any, error) {
+	raw, err := c.requestRaw(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSONValue[any](raw)
+}
+
+// requestRaw 只解信封、只回传 data 的字节区间：
+// studio 侧对业务载荷的遍历次数 = 0（编码/解码都交给真正消费它的那一端）。
+func (c *ebClient) requestRaw(ctx context.Context, req ebRequest) (json.RawMessage, error) {
 	connection, err := c.connection()
 	if err != nil {
 		return nil, err
@@ -76,11 +93,18 @@ func (c *ebClient) request(ctx context.Context, req ebRequest) (any, error) {
 	if len(req.Body) > 0 && string(req.Body) != "null" {
 		body = bytes.NewReader(req.Body)
 	}
+	// 三层预算的内层：box 一跳必须短于 studio 一跳。
+	timeout := boxTimeoutForClass(ebTimeoutClass(req))
 	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Millisecond)
-		defer cancel()
+		explicit := time.Duration(req.Timeout) * time.Millisecond
+		if explicit < timeout {
+			timeout = explicit
+		}
 	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, timeout)
+	defer cancel()
+	started := time.Now()
 	httpReq, err := http.NewRequestWithContext(ctx, method, target.String(), body)
 	if err != nil {
 		return nil, err
@@ -92,8 +116,28 @@ func (c *ebClient) request(ctx context.Context, req ebRequest) (any, error) {
 		httpReq.Header.Set("Authorization", "Bearer "+connection.Credential)
 	}
 	c.release.applyHeaders(httpReq.Header)
+	// 三跳贯穿：请求带 switchId 时，X-Eucli-Trace 与它逐字相同（前端 → studio → box）；
+	// 没有 switchId 时仍注入一个本跳 trace 供 box 侧关联，但不产生任何观测日志
+	// （观测开销只在真的开启 trace 时产生，避免每请求两条日志撑破 1% 预算）。
+	traceID := traceIDFromContext(ctx)
+	traced := traceID != ""
+	if !traced {
+		traceID = nextTraceID()
+	}
+	httpReq.Header.Set(traceHeaderName, traceID)
+	if traced {
+		traceSwitch(switchMark{SwitchID: traceID, Boundary: "studio.box.request", Method: method, Scope: path})
+	}
 
-	return c.do(httpReq)
+	raw, err := c.doRaw(httpReq)
+	if traced {
+		status := "ok"
+		if err != nil {
+			status = "error"
+		}
+		traceSwitch(switchMark{SwitchID: traceID, Boundary: "studio.box.response", Method: method, Scope: path, Elapsed: switchElapsedSince(started), Status: status})
+	}
+	return raw, err
 }
 
 // upload 把本机文件作为原始字节直传业务端；用于安装包导入。
@@ -115,7 +159,11 @@ func (c *ebClient) upload(ctx context.Context, path string, filePath string) (an
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), file)
+	// 上传是后台动作：必须套上 box 后台内层预算（30s），
+	// 否则 studio 会带着「没有 deadline」的请求等业务端，三层预算在这里断掉。
+	uploadCtx, cancel := context.WithTimeout(ctx, boxTimeoutForClass(timeoutClassBackground))
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(uploadCtx, http.MethodPost, target.String(), file)
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +172,39 @@ func (c *ebClient) upload(ctx context.Context, path string, filePath string) (an
 		httpReq.Header.Set("Authorization", "Bearer "+connection.Credential)
 	}
 	c.release.applyHeaders(httpReq.Header)
+	// 上传同样贯穿 trace：三跳关联不能因为载荷形态不同而断掉。
+	traceID := traceIDFromContext(ctx)
+	traced := traceID != ""
+	if !traced {
+		traceID = nextTraceID()
+	}
+	httpReq.Header.Set(traceHeaderName, traceID)
+	if traced {
+		traceSwitch(switchMark{SwitchID: traceID, Boundary: "studio.box.request", Method: http.MethodPost, Scope: path})
+	}
 
-	return c.do(httpReq)
+	started := time.Now()
+	data, err := c.do(httpReq)
+	if traced {
+		status := "ok"
+		if err != nil {
+			status = "error"
+		}
+		traceSwitch(switchMark{SwitchID: traceID, Boundary: "studio.box.response", Method: http.MethodPost, Scope: path, Elapsed: switchElapsedSince(started), Status: status})
+	}
+	return data, err
 }
 
 func (c *ebClient) do(httpReq *http.Request) (any, error) {
+	raw, err := c.doRaw(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSONValue[any](raw)
+}
+
+// doRaw 是唯一的响应出口：成功时只返回 data 的字节区间，失败时只构造一次错误体。
+func (c *ebClient) doRaw(httpReq *http.Request) (json.RawMessage, error) {
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -139,22 +215,9 @@ func (c *ebClient) do(httpReq *http.Request) (any, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		details := responseDetails(resp, payload)
-		return nil, newErrorWithDetails("EB_REQUEST_FAILED", responseMessage(payload, resp.Status), details)
+		return nil, ebResponseError(resp, payload)
 	}
-	if len(bytes.TrimSpace(payload)) == 0 {
-		return map[string]any{}, nil
-	}
-	var decoded any
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return nil, err
-	}
-	if envelope, ok := decoded.(map[string]any); ok {
-		if data, exists := envelope["data"]; exists {
-			return data, nil
-		}
-	}
-	return decoded, nil
+	return extractEnvelopeData(payload)
 }
 
 func (c *ebClient) connection() (*boxConnection, error) {
@@ -168,37 +231,40 @@ func (c *ebClient) connection() (*boxConnection, error) {
 	return &boxConnection{Source: boxConnectionSourceManual, BaseURL: cfg.EucliBoxURL, Credential: cfg.EucliBoxKey}, nil
 }
 
-func responseDetails(resp *http.Response, payload []byte) map[string]any {
+// ebErrorBodyLimit 是错误体的固定上限：一次 4MB 的错误响应不允许变成 10MB 的帧。
+const ebErrorBodyLimit = 4096
+
+// ebResponseError 只解析一次错误响应：可解码为 JSON 时只带 json，
+// 否则只带截断后的原始文本。两条互斥分支，永不重复携带同一份内容。
+func ebResponseError(resp *http.Response, payload []byte) error {
 	details := map[string]any{
 		"statusCode": resp.StatusCode,
 		"status":     resp.Status,
 		"headers":    resp.Header,
-		"body":       string(payload),
 	}
-	var decoded any
-	if err := json.Unmarshal(payload, &decoded); err == nil {
+	message := ""
+	if decoded, err := decodeJSONValue[any](payload); err == nil && len(bytes.TrimSpace(payload)) > 0 {
 		details["json"] = decoded
-		if envelope, ok := decoded.(map[string]any); ok {
-			if errBox, ok := envelope["error"].(map[string]any); ok {
-				details["error"] = errBox
-			}
-		}
+		message = errorMessageFromPayload(decoded)
+	} else {
+		details["body"] = truncateText(payload, ebErrorBodyLimit)
+		message = strings.TrimSpace(string(details["body"].(string)))
 	}
-	return details
+	if message == "" {
+		message = resp.Status
+	}
+	return newErrorWithDetails("EB_REQUEST_FAILED", message, details)
 }
 
-func responseMessage(payload []byte, status string) string {
-	var decoded map[string]any
-	if err := json.Unmarshal(payload, &decoded); err == nil {
-		if errBox, ok := decoded["error"].(map[string]any); ok {
-			if msg := strings.TrimSpace(fmt.Sprint(errBox["message"])); msg != "" {
-				return msg
-			}
-		}
+// errorMessageFromPayload 从业务端错误信封里取人类可读消息。
+func errorMessageFromPayload(decoded any) string {
+	envelope, ok := decoded.(map[string]any)
+	if !ok {
+		return ""
 	}
-	text := strings.TrimSpace(string(payload))
-	if text != "" {
-		return text
+	errBox, ok := envelope["error"].(map[string]any)
+	if !ok {
+		return ""
 	}
-	return status
+	return strings.TrimSpace(fmt.Sprint(errBox["message"]))
 }

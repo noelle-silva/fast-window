@@ -24,7 +24,11 @@ type clientConfig struct {
 }
 
 type projectionConfig struct {
-	UpdatedAt         int64             `json:"updatedAt,omitempty"`
+	// UpdatedAt 只是展示用时间戳（最近一次投影写入时刻），禁止参与新鲜度判定。
+	UpdatedAt int64 `json:"updatedAt,omitempty"`
+	// Revision 是客户端偏好版本：只在 UI / settings / folder 映射 / activeChatId
+	// 这类偏好事实变化时单调推进，与业务数据写入（会话内容）完全解耦。
+	Revision          int64             `json:"revision,omitempty"`
 	UI                map[string]any    `json:"ui,omitempty"`
 	Settings          map[string]any    `json:"settings,omitempty"`
 	GroupOrder        []string          `json:"groupOrder,omitempty"`
@@ -61,6 +65,11 @@ func (s *configStore) load() (clientConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loadLocked()
+}
+
+// snapshot 是纯读取：不产生任何写盘副作用，供读模型装配与版本判定使用。
+func (s *configStore) snapshot() (clientConfig, error) {
+	return s.load()
 }
 
 func (s *configStore) loadLocked() (clientConfig, error) {
@@ -104,6 +113,10 @@ func (s *configStore) saveConnection(url string, key string, disconnected bool) 
 	return cfg, nil
 }
 
+// updateProjection 是所有「客户端偏好」写入的唯一入口：
+// UI / settings / folder 映射 / activeChatId 都属于偏好，不属于业务数据。
+// 因此这里只推进 preferenceRevision（以及展示用的 updatedAt），
+// 业务数据版本由 eucli-box 的 dataRevision 表达，两者绝不混用。
 func (s *configStore) updateProjection(fn func(*projectionConfig)) (projectionConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,6 +128,7 @@ func (s *configStore) updateProjection(fn func(*projectionConfig)) (projectionCo
 	fn(&projection)
 	projection = normalizeProjection(projection)
 	projection.UpdatedAt = nowMillis()
+	projection.Revision = nextRevision(projection.Revision, projection.UpdatedAt)
 	cfg.Projection = projection
 	payload, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -124,6 +138,18 @@ func (s *configStore) updateProjection(fn func(*projectionConfig)) (projectionCo
 		return projectionConfig{}, err
 	}
 	return cfg.Projection, nil
+}
+
+// nextRevision 保证偏好版本严格单调，即使同毫秒内多次写入也不会停在同一值。
+func nextRevision(current int64, at int64) int64 {
+	next := at
+	if next <= current {
+		next = current + 1
+	}
+	if next <= 0 {
+		next = 1
+	}
+	return next
 }
 
 func normalizeProjection(value projectionConfig) projectionConfig {

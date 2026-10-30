@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -8,6 +9,7 @@ import (
 const directProtocolVersion = 2
 
 const directEventChatUpdated = "aiChat.chat.updated"
+const directEventEucliBoxRun = "eucliBox.run.event"
 
 type requestFrame struct {
 	ID     string          `json:"id"`
@@ -33,10 +35,17 @@ type responseError struct {
 	Causes  []*responseError `json:"causes,omitempty"`
 }
 
-type eventFrame struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Payload any    `json:"payload,omitempty"`
+// rawResult 标记「这个结果已经是业务端的原始字节」：
+// 写帧时直接拼进 result 字段，绝不再经过一次对象图编码。
+type rawResult struct {
+	payload json.RawMessage
+}
+
+func newRawResult(payload json.RawMessage) rawResult {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return rawResult{payload: json.RawMessage("{}")}
+	}
+	return rawResult{payload: payload}
 }
 
 type readyFrame struct {

@@ -2,17 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
 
 func (p *projectionService) roleByFolder(ctx context.Context, folder string) (any, error) {
-	roles, err := p.listRoles(ctx)
-	if err != nil {
+	if err := p.ensureRoles(ctx); err != nil {
 		return nil, err
 	}
 	cfg, _ := p.config.load()
-	for _, role := range roles {
+	for _, role := range p.model.catalog.roles.items() {
 		id := stringField(role, "id")
 		if folderFor(cfg.Projection.RoleFolders, id, stringField(role, "name"), "角色") == folder {
 			uiRole := toUIRole(role)
@@ -26,12 +26,11 @@ func (p *projectionService) roleByFolder(ctx context.Context, folder string) (an
 }
 
 func (p *projectionService) groupByFolder(ctx context.Context, folder string) (any, error) {
-	groups, err := p.listGroups(ctx)
-	if err != nil {
+	if err := p.ensureGroups(ctx); err != nil {
 		return nil, err
 	}
 	cfg, _ := p.config.load()
-	for _, group := range groups {
+	for _, group := range p.model.catalog.groups.items() {
 		id := stringField(group, "id")
 		if folderFor(cfg.Projection.GroupFolders, id, stringField(group, "name"), "群组") == folder {
 			uiGroup := toUIGroup(group)
@@ -61,12 +60,11 @@ func (p *projectionService) groupIDByAvatarPath(ctx context.Context, path string
 }
 
 func (p *projectionService) providerByFolder(ctx context.Context, folder string) (any, error) {
-	providers, err := p.listProviders(ctx)
-	if err != nil {
+	if err := p.ensureProviders(ctx); err != nil {
 		return nil, err
 	}
 	cfg, _ := p.config.load()
-	for _, provider := range providers {
+	for _, provider := range p.model.catalog.providers.items() {
 		id := stringField(provider, "id")
 		if folderFor(cfg.Projection.ProviderFolders, id, stringField(provider, "name"), "供应商") == folder {
 			return toUIProvider(provider), nil
@@ -76,12 +74,11 @@ func (p *projectionService) providerByFolder(ctx context.Context, folder string)
 }
 
 func (p *projectionService) modelGroupByFolder(ctx context.Context, folder string) (any, error) {
-	groups, err := p.listModelGroups(ctx)
-	if err != nil {
+	if err := p.ensureModelGroups(ctx); err != nil {
 		return nil, err
 	}
 	cfg, _ := p.config.load()
-	for _, group := range groups {
+	for _, group := range p.model.catalog.modelGroups.items() {
 		id := stringField(group, "id")
 		if folderFor(cfg.Projection.ModelGroupFolders, id, stringField(group, "name"), "模型组") == folder {
 			return group, nil
@@ -90,16 +87,14 @@ func (p *projectionService) modelGroupByFolder(ctx context.Context, folder strin
 	return nil, newError("NOT_FOUND", "模型组不存在")
 }
 
+// chatByFolder / groupChatByFolder 是旧 storage key 详情路径：
+// 只做寻址（folder → 业务 id），会话载荷按字节原样返回。
 func (p *projectionService) chatByFolder(ctx context.Context, folder string, chatID string) (any, error) {
 	roleID, err := p.roleIDByFolder(ctx, folder)
 	if err != nil {
 		return nil, err
 	}
-	session, err := p.loadSession(ctx, roleID, chatID)
-	if err != nil {
-		return nil, err
-	}
-	return toUIChat(session), nil
+	return p.sessionRaw(ctx, roleScope(roleID), chatID)
 }
 
 func (p *projectionService) groupChatByFolder(ctx context.Context, folder string, chatID string) (any, error) {
@@ -107,11 +102,38 @@ func (p *projectionService) groupChatByFolder(ctx context.Context, folder string
 	if err != nil {
 		return nil, err
 	}
-	session, err := p.loadGroupSession(ctx, groupID, chatID)
+	return p.sessionRaw(ctx, groupScope(groupID), chatID)
+}
+
+// sessionRaw 是会话正文的唯一读取点：单飞合流 + 字节透传。
+//
+// 这里刻意不做 toUIChat 之类的投影：投影会在 studio 侧重建一份会话模型，
+// 既丢掉 box 独有字段（asyncToolTasks / roleId / groupId），
+// 又与前端自己的分支推导语义冲突。客户端才是唯一真解析方。
+func (p *projectionService) sessionRaw(ctx context.Context, scope sessionScope, chatID string) (rawResult, error) {
+	return p.sessionRawWithProfile(ctx, scope, chatID, sessionProfileView)
+}
+
+// sessionRawWithProfile 把 profile 作为查询参数转发给业务端：
+// view 是 UI 渲染够用的最小形状，edit 是 PATCH 前取快照，full 是导出/调试。
+// 字段裁剪属于业务端的领域职责，studio 不做第二次取舍。
+func (p *projectionService) sessionRawWithProfile(ctx context.Context, scope sessionScope, chatID string, profile string) (rawResult, error) {
+	base, err := sessionRoutePath(scope, chatID)
 	if err != nil {
-		return nil, err
+		return rawResult{}, err
 	}
-	return toUIChat(session), nil
+	key := scope.key() + ":" + chatID + ":" + profile
+	payload, err := p.model.bodies.read(ctx, key, func(readCtx context.Context) (json.RawMessage, error) {
+		return p.eb.requestRaw(readCtx, ebRequest{
+			Method: "GET",
+			Path:   base,
+			Query:  mustJSON(map[string]any{"profile": profile}),
+		})
+	})
+	if err != nil {
+		return rawResult{}, err
+	}
+	return newRawResult(payload), nil
 }
 
 func (p *projectionService) saveRole(ctx context.Context, folder string, value any) error {
@@ -123,6 +145,7 @@ func (p *projectionService) saveRole(ctx context.Context, folder string, value a
 	if _, err := p.eb.request(ctx, ebRequest{Method: "POST", Path: "/api/roles", Body: mustJSON(role)}); err != nil {
 		return err
 	}
+	p.model.catalog.roles.invalidate()
 	_, err := p.config.updateProjection(func(projection *projectionConfig) {
 		projection.RoleFolders[roleID] = folder
 	})
@@ -138,6 +161,7 @@ func (p *projectionService) saveGroup(ctx context.Context, folder string, value 
 	if _, err := p.eb.request(ctx, ebRequest{Method: "POST", Path: "/api/groups", Body: mustJSON(group)}); err != nil {
 		return err
 	}
+	p.model.catalog.groups.invalidate()
 	_, err := p.config.updateProjection(func(projection *projectionConfig) {
 		projection.GroupFolders[groupID] = folder
 	})
@@ -153,6 +177,7 @@ func (p *projectionService) saveProvider(ctx context.Context, folder string, val
 	if _, err := p.eb.request(ctx, ebRequest{Method: "POST", Path: "/api/providers", Body: mustJSON(provider)}); err != nil {
 		return err
 	}
+	p.model.catalog.providers.invalidate()
 	_, err := p.config.updateProjection(func(projection *projectionConfig) {
 		projection.ProviderFolders[providerID] = folder
 	})
@@ -185,6 +210,7 @@ func (p *projectionService) saveModelGroup(ctx context.Context, folder string, v
 	if _, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: "/api/model-groups", Body: mustJSON(next)}); err != nil {
 		return err
 	}
+	p.model.catalog.modelGroups.invalidate()
 	_, err = p.config.updateProjection(func(projection *projectionConfig) {
 		projection.ModelGroupFolders[groupID] = folder
 	})
@@ -260,29 +286,19 @@ func (p *projectionService) listGroups(ctx context.Context) ([]map[string]any, e
 }
 
 func (p *projectionService) listSessions(ctx context.Context, roleID string) ([]map[string]any, error) {
-	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/roles/%s/sessions", roleID)})
-	return objectList(data), err
+	payload, err := p.eb.requestRaw(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/roles/%s/sessions", roleID)})
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSONObjectList(payload)
 }
 
 func (p *projectionService) listGroupSessions(ctx context.Context, groupID string) ([]map[string]any, error) {
-	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/groups/%s/sessions", groupID)})
-	return objectList(data), err
-}
-
-func (p *projectionService) loadSession(ctx context.Context, roleID string, sessionID string) (map[string]any, error) {
-	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/roles/%s/sessions/%s", roleID, sessionID)})
+	payload, err := p.eb.requestRaw(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/groups/%s/sessions", groupID)})
 	if err != nil {
 		return nil, err
 	}
-	return objectMap(data), nil
-}
-
-func (p *projectionService) loadGroupSession(ctx context.Context, groupID string, sessionID string) (map[string]any, error) {
-	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/groups/%s/sessions/%s", groupID, sessionID)})
-	if err != nil {
-		return nil, err
-	}
-	return objectMap(data), nil
+	return decodeJSONObjectList(payload)
 }
 
 func (p *projectionService) loadRoleAvatar(ctx context.Context, roleID string) (string, error) {
@@ -302,12 +318,11 @@ func (p *projectionService) loadGroupAvatar(ctx context.Context, groupID string)
 }
 
 func (p *projectionService) roleIDByFolder(ctx context.Context, folder string) (string, error) {
-	roles, err := p.listRoles(ctx)
-	if err != nil {
+	if err := p.ensureRoles(ctx); err != nil {
 		return "", err
 	}
 	cfg, _ := p.config.load()
-	for _, role := range roles {
+	for _, role := range p.model.catalog.roles.items() {
 		id := stringField(role, "id")
 		if folderFor(cfg.Projection.RoleFolders, id, stringField(role, "name"), "角色") == folder {
 			return id, nil
@@ -317,12 +332,11 @@ func (p *projectionService) roleIDByFolder(ctx context.Context, folder string) (
 }
 
 func (p *projectionService) groupIDByFolder(ctx context.Context, folder string) (string, error) {
-	groups, err := p.listGroups(ctx)
-	if err != nil {
+	if err := p.ensureGroups(ctx); err != nil {
 		return "", err
 	}
 	cfg, _ := p.config.load()
-	for _, group := range groups {
+	for _, group := range p.model.catalog.groups.items() {
 		id := stringField(group, "id")
 		if folderFor(cfg.Projection.GroupFolders, id, stringField(group, "name"), "群组") == folder {
 			return id, nil
@@ -332,12 +346,11 @@ func (p *projectionService) groupIDByFolder(ctx context.Context, folder string) 
 }
 
 func (p *projectionService) providerIDByFolder(ctx context.Context, folder string) (string, error) {
-	providers, err := p.listProviders(ctx)
-	if err != nil {
+	if err := p.ensureProviders(ctx); err != nil {
 		return "", err
 	}
 	cfg, _ := p.config.load()
-	for _, provider := range providers {
+	for _, provider := range p.model.catalog.providers.items() {
 		id := stringField(provider, "id")
 		if folderFor(cfg.Projection.ProviderFolders, id, stringField(provider, "name"), "供应商") == folder {
 			return id, nil
@@ -347,12 +360,11 @@ func (p *projectionService) providerIDByFolder(ctx context.Context, folder strin
 }
 
 func (p *projectionService) modelGroupIDByFolder(ctx context.Context, folder string) (string, error) {
-	groups, err := p.listModelGroups(ctx)
-	if err != nil {
+	if err := p.ensureModelGroups(ctx); err != nil {
 		return "", err
 	}
 	cfg, _ := p.config.load()
-	for _, group := range groups {
+	for _, group := range p.model.catalog.modelGroups.items() {
 		id := stringField(group, "id")
 		if folderFor(cfg.Projection.ModelGroupFolders, id, stringField(group, "name"), "模型组") == folder {
 			return id, nil

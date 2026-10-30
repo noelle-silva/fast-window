@@ -4,21 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"eucli-studio-backend/internal/ebcontract"
 )
 
 type runtimeBootstrap struct {
-	ClientVersion               string                      `json:"clientVersion"`
+	ClientVersion               string                           `json:"clientVersion"`
 	ClientEucliBoxCompatibility ebcontract.EucliBoxCompatibility `json:"clientEucliBoxCompatibility"`
-	EucliBoxConfigured          bool                        `json:"eucliBoxConfigured"`
-	EucliBoxReachable           bool                        `json:"eucliBoxReachable"`
-	EucliBoxURL                 string                      `json:"eucliBoxUrl"`
-	EucliBoxVersion             string                      `json:"eucliBoxVersion,omitempty"`
+	EucliBoxConfigured          bool                             `json:"eucliBoxConfigured"`
+	EucliBoxReachable           bool                             `json:"eucliBoxReachable"`
+	EucliBoxURL                 string                           `json:"eucliBoxUrl"`
+	EucliBoxVersion             string                           `json:"eucliBoxVersion,omitempty"`
 	EucliBoxCompatibility       *ebcontract.CompatibilityStatus  `json:"eucliBoxCompatibility,omitempty"`
-	BusinessAvailable           bool                        `json:"businessAvailable"`
-	EucliBoxIssue               string                      `json:"eucliBoxIssue,omitempty"`
+	BusinessAvailable           bool                             `json:"businessAvailable"`
+	EucliBoxIssue               string                           `json:"eucliBoxIssue,omitempty"`
 }
 
 func (s *service) bootstrap(ctx context.Context) (runtimeBootstrap, error) {
@@ -77,6 +78,11 @@ func (s *service) bootstrapConnected(ctx context.Context, info runtimeBootstrap)
 	} else {
 		info.BusinessAvailable = true
 	}
+	// 能力探测必须发生在 setConnectionState 之前：
+	// healthCheck.features 依赖「当前连接身份 → box 声明了什么」，
+	// 先探测再落状态，前端第一次 healthCheck 就能拿到正确的灰度集合。
+	// 旧版 box 不返回 features → 集合为空 → 所有依赖 box 的能力保持关闭。
+	s.probeBoxCapabilities(ctx, connectionIdentity(&info), raw)
 	s.setConnectionState(info)
 	return info, nil
 }
@@ -117,18 +123,47 @@ func (s *service) requireBusinessConnection() error {
 	return nil
 }
 
+// setConnectionState 只在「连接身份」真正变化时才重置读模型：
+// bootstrap 会被反复调用，若无条件清空快照，读模型就退化成每次都重算。
 func (s *service) setConnectionState(state runtimeBootstrap) {
 	s.connectionMu.Lock()
+	previous := s.connectionState
 	s.connectionState = &state
 	s.connectionMu.Unlock()
+	if connectionIdentityChanged(previous, &state) {
+		// 连接身份变化意味着读模型的「业务端事实」整体换代：
+		// 清空所有快照并推进 epoch，避免旧连接的数据被当成新连接的事实。
+		s.projection.resetReadModel()
+	}
 	s.signalConnectionChanged()
 }
 
 func (s *service) clearConnectionState() {
 	s.connectionMu.Lock()
+	previous := s.connectionState
 	s.connectionState = nil
 	s.connectionMu.Unlock()
+	if previous != nil {
+		s.projection.resetReadModel()
+	}
 	s.signalConnectionChanged()
+}
+
+// connectionIdentity 只取「事实来源」的标识：地址 + 业务可用性 + 业务端版本。
+// 版本号变化意味着 box 换代，缓存的实体与会话快照必须作废。
+func connectionIdentity(state *runtimeBootstrap) string {
+	if state == nil {
+		return ""
+	}
+	return strings.Join([]string{
+		state.EucliBoxURL,
+		state.EucliBoxVersion,
+		strconv.FormatBool(state.BusinessAvailable),
+	}, "\x00")
+}
+
+func connectionIdentityChanged(previous *runtimeBootstrap, next *runtimeBootstrap) bool {
+	return connectionIdentity(previous) != connectionIdentity(next)
 }
 
 func (s *service) connectionSnapshot() *runtimeBootstrap {

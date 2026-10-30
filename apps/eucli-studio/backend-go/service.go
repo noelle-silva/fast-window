@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"eucli-studio-backend/internal/ebcontract"
 )
@@ -20,6 +22,7 @@ type service struct {
 	projection        *projectionService
 	runtime           *runtimeStore
 	hub               *eventHub
+	capabilities      *boxCapabilityProbe
 	connectionMu      sync.RWMutex
 	connectionState   *runtimeBootstrap
 	connectionChanged chan struct{}
@@ -34,6 +37,7 @@ func newService(config *configStore, release clientRelease, hub *eventHub) (*ser
 	eb := newEBClient(config, release)
 	service := &service{
 		config: config, release: release, eb: eb, projection: newProjectionService(config, eb), runtime: newRuntimeStore(), hub: hub,
+		capabilities:      newBoxCapabilityProbe(),
 		connectionChanged: make(chan struct{}, 1),
 	}
 	eb.setConnectionProvider(service.currentBoxConnection)
@@ -41,6 +45,25 @@ func newService(config *configStore, release clientRelease, hub *eventHub) (*ser
 }
 
 func (s *service) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	// 一次解析同时供观测与超时分类使用：reader 已经解析过时直接复用，
+	// 同一个 params 在一条请求链路上只被反序列化一次。
+	peek, ok := requestPeekFromContext(ctx)
+	if !ok {
+		peek = peekRequestParams(method, params)
+	}
+	// 三跳贯穿：把本次请求的 trace 注入 context，所有出站 HTTP 自动继承。
+	// 有 switchId 时三跳同源；没有时不生成、不打日志（观测开销只在真的开启时产生）。
+	if peek.SwitchID != "" {
+		ctx = withTraceID(ctx, peek.SwitchID)
+	}
+	// 切换观测：只有真的带 switchId 时才产生 dispatch 边界（零成本旁路）。
+	if peek.SwitchID != "" {
+		started := time.Now()
+		traceSwitch(switchMark{SwitchID: peek.SwitchID, Boundary: "studio.dispatch", Method: method, Scope: peek.Scope})
+		defer func() {
+			traceSwitch(switchMark{SwitchID: peek.SwitchID, Boundary: "studio.dispatch.done", Method: method, Scope: peek.Scope, Elapsed: switchElapsedSince(started)})
+		}()
+	}
 	// 客户端状态读写只依赖本地数据，先于业务连接检查处理。
 	if handled, result, err := s.handleClientStateStorage(method, params); handled {
 		return result, err
@@ -48,7 +71,17 @@ func (s *service) dispatch(ctx context.Context, method string, params json.RawMe
 	switch method {
 	case "aiChat.healthCheck":
 		cfg, _ := s.config.load()
-		return map[string]any{"protocolVersion": directProtocolVersion, "clientVersion": s.release.Version, "status": "ok", "configured": cfg.EucliBoxURL != ""}, nil
+		return map[string]any{
+			"protocolVersion": directProtocolVersion,
+			"clientVersion":   s.release.Version,
+			"status":          "ok",
+			"configured":      cfg.EucliBoxURL != "",
+			// 能力协商：不升协议主版本（严格相等校验会让新旧前端互斥），
+			// 用 feature 列表表达灰度。
+			"features": s.healthCheckFeatures(),
+			// 超时预算由 studio 统一签发：前端只消费这里的数字，不另写常量。
+			"timeoutBudget": frontendTimeoutBudget(),
+		}, nil
 	case "studio.bootstrap":
 		return s.bootstrap(ctx)
 	case "releaseCandidates.list":
@@ -146,6 +179,22 @@ func (s *service) dispatch(ctx context.Context, method string, params json.RawMe
 		return s.handleImageDelete(ctx, params)
 	case "aiChat.imagePick":
 		return nil, newError("NOT_IMPLEMENTED", fmt.Sprintf("%s 必须由宿主 UI 处理", method))
+	case "aiChat.sessionIndex.get":
+		return s.handleSessionIndexGet(ctx, params)
+	case "aiChat.sessionSummary.list":
+		return s.handleSessionSummaryList(ctx, params)
+	case "aiChat.session.get":
+		return s.handleSessionGet(ctx, params)
+	case "aiChat.session.window":
+		return s.handleSessionWindow(ctx, params)
+	case "aiChat.session.view":
+		return s.handleSessionView(ctx, params)
+	case "aiChat.session.graph":
+		return s.handleSessionGraph(ctx, params)
+	case "aiChat.setActiveChat":
+		return s.handleSetActiveChat(ctx, params)
+	case "aiChat.storageGetMany":
+		return s.handleStorageGetMany(ctx, params)
 	default:
 		return nil, newError("METHOD_NOT_FOUND", "未知请求："+method)
 	}
@@ -284,6 +333,14 @@ func isBusinessMethod(method string) bool {
 		"aiChat.storageGet",
 		"aiChat.storageSet",
 		"aiChat.storageRemove",
+		"aiChat.storageGetMany",
+		"aiChat.sessionIndex.get",
+		"aiChat.sessionSummary.list",
+		"aiChat.session.get",
+		"aiChat.session.window",
+		"aiChat.session.view",
+		"aiChat.session.graph",
+		"aiChat.setActiveChat",
 		"aiChat.imageRead",
 		"aiChat.imageWrite",
 		"aiChat.imageDelete",
@@ -305,7 +362,23 @@ func (s *service) broadcastRuntimeStorageSet(logicalKey string, value any) {
 	// through projection/e-b storage: the notice is a runtime coordination fact,
 	// not business data, and using it as the primary signal keeps the UI from
 	// falling back to high-frequency polling for normal updates.
-	s.hub.broadcast(eventFrame{Type: "event", Name: directEventChatUpdated, Payload: value})
+	//
+	// 切换观测的「事件投递」边界：notice 携带 switchId 时记一次 mark，
+	// 不携带时整条路径都不启动。
+	if notice := objectMap(value); stringField(notice, "switchId") != "" {
+		traceSwitch(switchMark{
+			SwitchID: stringField(notice, "switchId"),
+			Boundary: "studio.event",
+			Method:   directEventChatUpdated,
+			Scope:    stringField(notice, "scope"),
+		})
+	}
+	// 事件载荷在这里编码一次，hub 只做字节分发。
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return
+	}
+	s.hub.broadcastRaw(directEventChatUpdated, payload)
 }
 
 func (s *service) handleImageRead(ctx context.Context, params json.RawMessage) (any, error) {
@@ -459,29 +532,81 @@ func storageSetPayload(params json.RawMessage) (string, any, error) {
 }
 
 func (s *service) handleNetRequest(ctx context.Context, params json.RawMessage) (any, error) {
-	var raw map[string]any
-	if err := json.Unmarshal(paramsOrEmpty(params), &raw); err != nil {
-		return nil, err
-	}
-	path, _ := raw["path"].(string)
+	// 只解一次：path / method 复用 reader 的预览，body / query 直接取原始字节。
+	// 大 body 不再经过 map[string]any 重建（少一次全量扫描与对象图分配）。
+	peek, _ := requestPeekFromContext(ctx)
+	path := strings.TrimSpace(peek.Envelope.Path)
 	if path == "" {
-		urlValue, _ := raw["url"].(string)
-		path = urlValue
+		var head struct {
+			Path string `json:"path"`
+			URL  string `json:"url"`
+		}
+		if err := json.Unmarshal(paramsOrEmpty(params), &head); err != nil {
+			return nil, err
+		}
+		path = strings.TrimSpace(head.Path)
+		if path == "" {
+			path = strings.TrimSpace(head.URL)
+		}
 	}
 	if path == "" {
 		return nil, errors.New("aiChat.netRequest requires path")
 	}
-	body, _ := json.Marshal(raw["body"])
-	query, _ := json.Marshal(raw["query"])
-	req := ebRequest{Method: fmt.Sprint(raw["method"]), Path: path, Query: query, Body: body}
-	if timeout, ok := raw["timeoutMs"].(float64); ok {
-		req.Timeout = int(timeout)
+	var envelope struct {
+		Method  string          `json:"method"`
+		Body    json.RawMessage `json:"body"`
+		Query   json.RawMessage `json:"query"`
+		Timeout float64         `json:"timeoutMs"`
+	}
+	if err := json.Unmarshal(paramsOrEmpty(params), &envelope); err != nil {
+		return nil, err
+	}
+	req := ebRequest{Method: fmt.Sprint(envelope.Method), Path: path, Query: envelope.Query, Body: envelope.Body}
+	if envelope.Timeout > 0 {
+		req.Timeout = int(envelope.Timeout)
 	}
 	data, err := s.eb.request(ctx, req)
 	if err != nil {
+		// 取消是幂等命令：对已终态的 run 重复调用必须是成功（204 语义），
+		// 而不是把 runtimeStateInvalid 抛回前端（「用户连点两次停止」报错的来源）。
+		if isRunCancelPath(path) && isInvalidRuntimeStateError(err) {
+			return map[string]any{"status": http.StatusNoContent, "body": nil}, nil
+		}
 		return nil, err
 	}
-	return map[string]any{"status": 200, "body": data}, nil
+	return map[string]any{"status": http.StatusOK, "body": data}, nil
+}
+
+// isRunCancelPath 只匹配 `/api/runs/{id}/cancel`，不误伤其他运行命令。
+func isRunCancelPath(path string) bool {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	return len(segments) == 4 && segments[0] == "api" && segments[1] == "runs" && segments[3] == "cancel"
+}
+
+// isInvalidRuntimeStateError 只识别业务端的「运行已不在可取消状态」这一个错误码：
+// 这是定点语义收敛，不是把任意失败当成功。
+func isInvalidRuntimeStateError(err error) bool {
+	coded, ok := err.(codedError)
+	if ok && coded.Code() == "runtimeStateInvalid" {
+		return true
+	}
+	detailed, ok := err.(detailedError)
+	if !ok {
+		return false
+	}
+	details, ok := detailed.Details().(map[string]any)
+	if !ok {
+		return false
+	}
+	jsonBody, ok := details["json"].(map[string]any)
+	if !ok {
+		return false
+	}
+	errorBox, ok := jsonBody["error"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return stringValue(errorBox, "code") == "runtimeStateInvalid"
 }
 
 func paramsOrEmpty(params json.RawMessage) json.RawMessage {

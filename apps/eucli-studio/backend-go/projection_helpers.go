@@ -206,14 +206,6 @@ func boolField(m map[string]any, key string, fallback bool) bool {
 	}
 	return fallback
 }
-func normalizeReasoningEffort(value string) string {
-	switch strings.TrimSpace(value) {
-	case "very_low", "low", "medium", "high", "very_high":
-		return strings.TrimSpace(value)
-	default:
-		return ""
-	}
-}
 func fallback(value string, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -288,29 +280,6 @@ func promptText(prompts []map[string]any) string {
 		}
 	}
 	return ""
-}
-
-func messageRole(message map[string]any) string {
-	switch messageStorageType(message) {
-	case "system_control":
-		return "system"
-	case "assistant", "tool", "tool_request", "tool_confirmation", "async_tool_result":
-		return "assistant"
-	}
-	return "user"
-}
-
-func messageStorageType(message map[string]any) string {
-	messageType := stringField(message, "type")
-	if messageType == "" {
-		messageType = stringField(message, "role")
-	}
-	switch messageType {
-	case "assistant", "tool", "tool_request", "tool_confirmation", "failure", "system_control", "async_tool_result":
-		return messageType
-	default:
-		return "user"
-	}
 }
 
 func isNotFoundError(err error) bool { return err != nil && strings.Contains(err.Error(), "不存在") }
