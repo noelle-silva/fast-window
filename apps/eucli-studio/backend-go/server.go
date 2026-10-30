@@ -116,11 +116,6 @@ func (d *connectionDispatcher) handle(frame requestFrame) {
 	peek := peekRequestParams(frame.Method, frame.Params)
 	intent := classifyRequest(frame.Method, peek)
 	gate := d.gateFor(intent.lane)
-	if gate != nil && !gate.tryAcquire() {
-		// 满载时只拒绝该帧，不中断连接（design-5 契约：SERVER_BUSY）。
-		_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newError("SERVER_BUSY", "服务端繁忙，请稍后重试"))))
-		return
-	}
 
 	// 一次解析：分道 / 超时 / 观测共用同一份预览，dispatch 从 context 复用。
 	timeout := studioTimeoutForClass(methodTimeoutClass(frame.Method, peek.Envelope))
@@ -158,7 +153,18 @@ func (d *connectionDispatcher) gateFor(lane requestLane) *laneGate {
 func (d *connectionDispatcher) run(ctx context.Context, cancel context.CancelFunc, gate *laneGate, intent dispatchIntent, frame requestFrame) {
 	defer cancel()
 	defer d.conn.unregisterCancel(frame.ID)
+	// 名额在有界等待之后才判定：启动洪峰只是瞬时超额，退避即可排空，
+	// 不该让首屏关键请求被一次拒绝就永久失败。等待发生在 worker 里，reader 不受影响。
 	if gate != nil {
+		if !gate.acquire(ctx, laneAcquireBudget) {
+			if ctx.Err() != nil {
+				_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newError("REQUEST_CANCELLED", "请求已取消"))))
+				return
+			}
+			// 上界耗尽才拒绝该帧，且不中断连接（design-5 契约：SERVER_BUSY）。
+			_ = d.conn.enqueueResponse(marshalResponse(errorResponseFor(frame.ID, newError("SERVER_BUSY", "服务端繁忙，请稍后重试"))))
+			return
+		}
 		defer gate.release()
 	}
 	if intent.sequenceKey != "" {

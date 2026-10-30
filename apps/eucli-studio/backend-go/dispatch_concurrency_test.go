@@ -102,6 +102,13 @@ func TestEventPayloadIsTerminalScansOnlyTopLevelType(t *testing.T) {
 
 // keyGate：同一 key 严格 FIFO，不同 key 完全并行。
 
+// setLaneAcquireBudgetForTests 注入更短的名额等待上界，返回恢复函数。
+func setLaneAcquireBudgetForTests(budget time.Duration) func() {
+	previous := laneAcquireBudget
+	laneAcquireBudget = budget
+	return func() { laneAcquireBudget = previous }
+}
+
 func TestKeyGateSerializesSameKey(t *testing.T) {
 	gate := newKeyGate()
 	ctx := context.Background()
@@ -190,6 +197,10 @@ func TestKeyGateCancelHandsTokenToNextWaiter(t *testing.T) {
 // 并发 dispatch 的端到端验收：长请求期间 runtime 读仍然可用。
 
 func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
+	// 名额等待预算压到最短：这里验证的是「上界耗尽后的拒绝」，不是退避节奏。
+	restore := setLaneAcquireBudgetForTests(20 * time.Millisecond)
+	defer restore()
+
 	box := newBlockingRunBox(t)
 	svc := newBusinessReadyTestService(configuredTestStore(t, box.server.URL), newEventHub())
 	server := newDirectServer("token", svc, newEventHub())
@@ -209,11 +220,11 @@ func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
 	// 等它们真正进入 handler。
 	box.waitForSlowRequests(t, remoteLaneConcurrency)
 
-	// 满载时：只拒绝该帧（SERVER_BUSY），不中断连接。
+	// 有界等待耗尽后：只拒绝该帧（SERVER_BUSY），不中断连接。
 	writeRequest(t, client, "busy", "aiChat.netRequest", map[string]any{"method": "GET", "path": "/api/slow"})
 	busy := readResponse(t, client, "busy")
 	if busy.Error == nil || busy.Error.Code != "SERVER_BUSY" {
-		t.Fatalf("满载必须返回 SERVER_BUSY：%#v", busy.Error)
+		t.Fatalf("等待上界耗尽后必须返回 SERVER_BUSY：%#v", busy.Error)
 	}
 
 	// 关键：runtime 读走 local 道，必须仍然立刻返回。
@@ -231,6 +242,42 @@ func TestDispatcherServesRuntimeReadWhileRemoteLaneSaturated(t *testing.T) {
 	}
 
 	box.releaseSlowRequests()
+}
+
+// TestDispatcherRetriesWhenLaneFreesUpWithinBudget 钉住启动洪峰的正确行为：
+// 名额瞬时占满时不能一次拒绝，而要在预算内等到名额并成功执行。
+func TestDispatcherRetriesWhenLaneFreesUpWithinBudget(t *testing.T) {
+	restore := setLaneAcquireBudgetForTests(2 * time.Second)
+	defer restore()
+
+	box := newBlockingRunBox(t)
+	svc := newBusinessReadyTestService(configuredTestStore(t, box.server.URL), newEventHub())
+	server := newDirectServer("token", svc, newEventHub())
+
+	client := dialTestServer(t, server)
+	defer client.Close()
+	writeRequest(t, client, "hc", "aiChat.healthCheck", map[string]any{})
+	readResponse(t, client, "hc")
+
+	// 占满 remote 道。
+	for i := 0; i < remoteLaneConcurrency; i++ {
+		writeRequest(t, client, "slow-"+string(rune('a'+i)), "aiChat.netRequest", map[string]any{
+			"method": "GET",
+			"path":   "/api/slow",
+		})
+	}
+	box.waitForSlowRequests(t, remoteLaneConcurrency)
+
+	// 第 N+1 条：应进入有界等待，而不是立刻被拒。
+	writeRequest(t, client, "queued", "aiChat.netRequest", map[string]any{"method": "GET", "path": "/api/fast"})
+
+	// 释放一条慢请求：排队者必须被放行并成功。
+	box.releaseSlowRequests()
+
+	queued := readResponse(t, client, "queued")
+	if !queued.OK {
+		t.Fatalf("名额释放后排队请求必须成功：%#v", queued.Error)
+	}
 }
 
 func TestDispatcherCancelFrameStopsWaitingWithoutClosingConnection(t *testing.T) {

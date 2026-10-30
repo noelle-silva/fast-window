@@ -31,6 +31,10 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout> | null
   // orphaned：连接已经断开，但请求语义仍可能完成。不 reject，等重连后按类别处理。
   orphaned: boolean
+  // 已发出的尝试次数（含首次）。SERVER_BUSY 重试的唯一计数来源。
+  attempts: number
+  // 本次请求的绝对截止时刻：重试与超时共用同一个上界，绝不因为重试而无限延长。
+  deadline: number
 }
 
 export type DirectTimeoutBudget = TimeoutBudget
@@ -43,6 +47,18 @@ const RECONNECT_INITIAL_DELAY_MS = 300
 const RECONNECT_MAX_DELAY_MS = 10_000
 const RESUME_GAP_MS = 45_000
 const RESUME_CHECK_INTERVAL_MS = 10_000
+
+// SERVER_BUSY 是有界重试的唯一触发码：
+// studio 在 dispatch 入道前就拒绝了这一帧，请求从未被执行，因此重试对所有类别都安全
+// （不存在重复副作用）。重试次数与退避都有确定上界，绝不无界重试。
+const SERVER_BUSY_CODE = 'SERVER_BUSY'
+const SERVER_BUSY_MAX_ATTEMPTS = 4
+const SERVER_BUSY_RETRY_INITIAL_DELAY_MS = 120
+const SERVER_BUSY_RETRY_MAX_DELAY_MS = 1_200
+
+function isServerBusy(error: unknown) {
+  return String((error as any)?.code || '') === SERVER_BUSY_CODE
+}
 
 function getBackgroundEndpoint(baseApi: unknown) {
   const background = (baseApi as any)?.background
@@ -264,6 +280,8 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
         reject,
         timer: null,
         orphaned: false,
+        attempts: 1,
+        deadline: Date.now() + timeoutMs,
       }
       item.timer = setTimeout(() => this.onInteractionTimeout(item, timeoutMs), timeoutMs)
       this.pending.set(id, item)
@@ -276,6 +294,54 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
         reject(new DirectFailure('transport', method, replay))
       }
     })
+  }
+
+  // retryAfterServerBusy 是 SERVER_BUSY 的唯一处置点：
+  // 这一帧在入道前就被拒绝、从未执行，因此重试对任何类别都安全（无重复副作用）。
+  // 上界由「次数」与「原始预算截止时刻」双重约束：绝不无界重试，也绝不越过预算。
+  private retryAfterServerBusy(item: PendingRequest): boolean {
+    if (item.attempts >= SERVER_BUSY_MAX_ATTEMPTS) return false
+    const remaining = item.deadline - Date.now()
+    if (remaining <= 0) return false
+    const ws = this.ws
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+
+    item.attempts += 1
+    const backoff = Math.min(
+      SERVER_BUSY_RETRY_INITIAL_DELAY_MS * 2 ** (item.attempts - 2),
+      SERVER_BUSY_RETRY_MAX_DELAY_MS,
+    )
+    const delay = Math.min(backoff, Math.max(0, remaining - 1))
+    if (item.timer) clearTimeout(item.timer)
+    item.timer = setTimeout(() => {
+      item.timer = null
+      if (this.pending.get(item.id) !== item) return
+      const active = this.ws
+      if (!active || active.readyState !== WebSocket.OPEN) {
+        this.pending.delete(item.id)
+        item.reject(new DirectFailure('transport', item.method, item.replay))
+        return
+      }
+      // 重试沿用同一 id：服务端已拒绝过该帧，不存在 id 冲突；
+      // 预算上界沿用原始截止时刻（这里重新计算剩余量），重试绝不把等待延长。
+      const left = item.deadline - Date.now()
+      if (left <= 0) {
+        this.pending.delete(item.id)
+        item.reject(new DirectFailure('timeout', item.method, item.replay, `请求超时：${item.method}`))
+        return
+      }
+      item.timer = setTimeout(() => this.onInteractionTimeout(item, left), left)
+      try {
+        active.send(JSON.stringify({ id: item.id, type: 'request', method: item.method, params: item.params ?? {} }))
+      } catch {
+        this.pending.delete(item.id)
+        if (item.timer) clearTimeout(item.timer)
+        item.timer = null
+        this.markDisconnected(active, '连接已断开')
+        item.reject(new DirectFailure('transport', item.method, item.replay))
+      }
+    }, delay)
+    return true
   }
 
   // 超时语义按请求类别分三档（design-5 P5）：
@@ -323,8 +389,13 @@ class AiChatReconnectableDirectClient implements AiChatDirectClient {
       const response = frame as AiChatDirectResponse
       const item = this.pending.get(response.id)
       if (!item) return
+      if (!response.ok && isServerBusy(response.error)) {
+        // 请求在入道前被拒、从未执行：有界重试；上界耗尽才把错误交回上层。
+        if (this.retryAfterServerBusy(item)) return
+      }
       this.pending.delete(response.id)
       if (item.timer) clearTimeout(item.timer)
+      item.timer = null
       if (response.ok) item.resolve(response.result)
       else if (response.error) item.reject(new AiChatDirectError(response.error.code, response.error.message || '请求失败', response.error.details, response.error.system, response.error.cause, response.error.causes))
       else item.reject(new AiChatDirectError('DIRECT_ERROR', '请求失败'))

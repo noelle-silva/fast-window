@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 )
 
 // 分道并发（design-5 决策 2）：
@@ -18,8 +19,9 @@ import (
 // 一起饿死，而前端切换正依赖这类轻请求。
 //
 // 为什么不用固定 worker 池：慢请求会长期占住 worker，退化成更粗的队头阻塞。
-// 这里用「信号量 + 每请求 goroutine」：名额满时只拒绝该帧（SERVER_BUSY），
-// 不排队、不中断连接。
+// 这里用「信号量 + 每请求 goroutine」：名额满时先做有界等待（退避重试），
+// 上界耗尽才拒绝该帧（SERVER_BUSY）。等待发生在 worker goroutine 里，
+// reader 仍然永不阻塞。
 
 type requestLane int
 
@@ -32,9 +34,18 @@ const (
 const (
 	localLaneConcurrency  = 4
 	remoteLaneConcurrency = 6
+
+	// laneRetryInitial / laneRetryMax 是名额等待的退避节奏：
+	// 启动洪峰只是「瞬时超额」，退避几个毫秒就能排空，不该直接失败。
+	laneRetryInitial = 5 * time.Millisecond
+	laneRetryMax     = 100 * time.Millisecond
 )
 
-// laneGate 是「道」的并发名额：TryAcquire 永不阻塞 reader。
+// laneAcquireBudget 是「名额已满时最多等多久」的确定性上界。
+// 它是变量而非常量，仅为测试可注入更短预算；生产值固定且远小于交互预算。
+var laneAcquireBudget = 2 * time.Second
+
+// laneGate 是「道」的并发名额：tryAcquire 永不阻塞 reader。
 type laneGate struct {
 	tokens chan struct{}
 }
@@ -49,6 +60,38 @@ func (g *laneGate) tryAcquire() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// acquire 是 tryAcquire 的有界版本：名额满时按退避节奏重试，
+// 直到拿到名额、ctx 取消、或预算耗尽。它只在 worker goroutine 里调用，
+// 因此不会阻塞 reader（cancel 帧与 healthCheck 永远读得到）。
+func (g *laneGate) acquire(ctx context.Context, budget time.Duration) bool {
+	if g.tryAcquire() {
+		return true
+	}
+	deadline := time.Now().Add(budget)
+	delay := laneRetryInitial
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
+		if g.tryAcquire() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		if delay < laneRetryMax {
+			delay *= 2
+			if delay > laneRetryMax {
+				delay = laneRetryMax
+			}
+		}
 	}
 }
 

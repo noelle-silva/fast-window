@@ -296,3 +296,59 @@ describe('断线重连的 pending 处置', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('SERVER_BUSY 的有界重试', () => {
+  it('被拒后按退避重试同一帧，最终成功（不留下永久 pending）', async () => {
+    const { client, socket } = await connectClient({ interactionMs: 5_000 })
+    const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const first = socket.requestsFor('aiChat.storageGet')[0]
+    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+
+    // 退避窗口内不立即重发。
+    await vi.advanceTimersByTimeAsync(0)
+    expect(socket.requestsFor('aiChat.storageGet')).toHaveLength(1)
+
+    // 退避后重发同一 id，并最终成功。
+    await vi.advanceTimersByTimeAsync(200)
+    const retried = socket.requestsFor('aiChat.storageGet')
+    expect(retried).toHaveLength(2)
+    expect(retried[1].id).toBe(first.id)
+    socket.respond(first.id, { ok: true })
+    await expect(promise).resolves.toEqual({ ok: true })
+  })
+
+  it('重试次数有确定上界：耗尽后把 SERVER_BUSY 交回上层', async () => {
+    const { client, socket } = await connectClient({ interactionMs: 30_000 })
+    const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
+    const outcome: Promise<{ value?: unknown; error?: unknown }> = promise.then((value) => ({ value }), (error) => ({ error }))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // 每次都回 SERVER_BUSY：必须有限次后收敛，绝不无限重试。
+    for (let i = 0; i < 10; i++) {
+      const sent = socket.requestsFor('aiChat.storageGet')
+      socket.respondError(sent[sent.length - 1].id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+      await vi.advanceTimersByTimeAsync(2_000)
+    }
+
+    const settled = await outcome
+    expect(settled.error).toMatchObject({ code: 'SERVER_BUSY' })
+    expect(socket.requestsFor('aiChat.storageGet').length).toBeLessThanOrEqual(4)
+  })
+
+  it('重试不越过原始预算：预算耗尽后按 timeout 语义收尾', async () => {
+    const { client, socket } = await connectClient({ interactionMs: 1_000 })
+    const promise = client.invoke('aiChat.storageGet', { key: 'roles/a/role' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const first = socket.requestsFor('aiChat.storageGet')[0]
+    socket.respondError(first.id, 'SERVER_BUSY', '服务端繁忙，请稍后重试')
+
+    // 越过交互预算：读请求保留 promise 但不再无限重试，最终由上层取消收尾。
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(socket.requestsFor('aiChat.storageGet').length).toBeLessThanOrEqual(2)
+    client.close()
+    await expect(promise).rejects.toMatchObject({ kind: 'transport' })
+  })
+})
