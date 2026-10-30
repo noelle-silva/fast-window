@@ -9,28 +9,24 @@ import (
 
 func toUIRole(role map[string]any) map[string]any {
 	modelConfig := objectMap(role["modelConfig"])
-	coordinate := objectMap(modelConfig["coordinate"])
-	modelRef := map[string]any{"kind": stringField(coordinate, "kind"), "groupId": stringField(coordinate, "groupId"), "providerId": stringField(coordinate, "providerId"), "modelId": stringField(coordinate, "modelId")}
-	if stringField(modelRef, "kind") == "" {
-		modelRef["kind"] = "provider"
-	}
+	candidates := uiModelCandidates(modelConfig)
 	return map[string]any{
-		"id":                 stringField(role, "id"),
-		"name":               fallback(stringField(role, "name"), "未命名角色"),
-		"hookPromptPresetId": stringField(role, "hookPromptPresetId"),
-		"systemPrompt":       promptText(objectList(role["prompts"])),
-		"temperature":        numberField(modelConfig, "temperature", 1),
-		"temperatureEnabled": boolField(modelConfig, "temperatureEnabled", false),
-		"modelRef":           modelRef,
-		"toolPolicy":         normalizeUIToolPolicy(role["toolPolicy"]),
-		"createdAt":          millisFromAny(role["createdAt"]),
-		"updatedAt":          millisFromAny(role["updatedAt"]),
+		"id":                      stringField(role, "id"),
+		"name":                    fallback(stringField(role, "name"), "未命名角色"),
+		"hookPromptPresetId":      stringField(role, "hookPromptPresetId"),
+		"systemPrompt":            promptText(objectList(role["prompts"])),
+		"temperature":             numberField(modelConfig, "temperature", 1),
+		"temperatureEnabled":      boolField(modelConfig, "temperatureEnabled", false),
+		"modelCandidates":         candidates,
+		"defaultModelCandidateId": uiDefaultCandidateID(modelConfig, candidates),
+		"toolPolicy":              normalizeUIToolPolicy(role["toolPolicy"]),
+		"createdAt":               millisFromAny(role["createdAt"]),
+		"updatedAt":               millisFromAny(role["updatedAt"]),
 	}
 }
 
 func fromUIRole(value any) map[string]any {
 	role := objectMap(value)
-	modelRef := objectMap(role["modelRef"])
 	now := time.Now().UTC().Format(time.RFC3339)
 	return map[string]any{
 		"id":                 stringField(role, "id"),
@@ -38,7 +34,7 @@ func fromUIRole(value any) map[string]any {
 		"description":        stringField(role, "description"),
 		"hookPromptPresetId": stringField(role, "hookPromptPresetId"),
 		"prompts":            []any{map[string]any{"id": "system", "role": "system", "content": stringField(role, "systemPrompt"), "order": 0, "createdAt": now, "updatedAt": now}},
-		"modelConfig":        map[string]any{"coordinate": map[string]any{"kind": fallback(stringField(modelRef, "kind"), "provider"), "groupId": stringField(modelRef, "groupId"), "providerId": stringField(modelRef, "providerId"), "modelId": stringField(modelRef, "modelId")}, "temperature": numberField(role, "temperature", 1), "temperatureEnabled": boolField(role, "temperatureEnabled", false)},
+		"modelConfig":        boxModelConfigFromUI(role),
 		"toolPolicy":         normalizeUIToolPolicy(role["toolPolicy"]),
 		"createdAt":          timeFromMillis(role["createdAt"]),
 		"updatedAt":          time.Now().UTC().Format(time.RFC3339),

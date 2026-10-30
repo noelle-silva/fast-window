@@ -322,8 +322,12 @@ func TestRoleProjectionPreservesHookPromptPresetID(t *testing.T) {
 			"content": "You are a developer.",
 		}},
 		"modelConfig": map[string]any{
-			"coordinate":  map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"},
-			"temperature": float64(1),
+			"candidates": []any{map[string]any{
+				"id":         "cand-primary",
+				"coordinate": map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"},
+			}},
+			"defaultCandidateId": "cand-primary",
+			"temperature":        float64(1),
 		},
 	}
 
@@ -334,6 +338,69 @@ func TestRoleProjectionPreservesHookPromptPresetID(t *testing.T) {
 	back := fromUIRole(ui)
 	if back["hookPromptPresetId"] != "preset-review" {
 		t.Fatalf("saved hook prompt preset id = %#v", back["hookPromptPresetId"])
+	}
+}
+
+// TestRoleProjectionKeepsCandidatePool 钉住候选池与默认选择的投影往返：
+// 默认选择只保存引用标识，候选坐标只保存在池里。
+func TestRoleProjectionKeepsCandidatePool(t *testing.T) {
+	role := map[string]any{
+		"id":      "developer",
+		"name":    "Developer",
+		"prompts": []any{map[string]any{"role": "system", "content": "You are a developer."}},
+		"modelConfig": map[string]any{
+			"candidates": []any{
+				map[string]any{"id": "cand-primary", "coordinate": map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"}},
+				map[string]any{"id": "cand-backup", "coordinate": map[string]any{"kind": "model_group", "groupId": "main-group", "modelId": "balanced"}},
+			},
+			"defaultCandidateId": "cand-backup",
+			"temperature":        float64(0.5),
+		},
+	}
+
+	ui := toUIRole(role)
+	candidates := objectList(ui["modelCandidates"])
+	if len(candidates) != 2 {
+		t.Fatalf("ui candidates = %#v", candidates)
+	}
+	if ui["defaultModelCandidateId"] != "model_group:main-group:balanced" {
+		t.Fatalf("ui default candidate id = %#v", ui["defaultModelCandidateId"])
+	}
+
+	back := fromUIRole(ui)
+	backConfig := objectMap(back["modelConfig"])
+	backCandidates := objectList(backConfig["candidates"])
+	if len(backCandidates) != 2 {
+		t.Fatalf("saved candidates = %#v", backCandidates)
+	}
+	if backConfig["defaultCandidateId"] != "model_group:main-group:balanced" {
+		t.Fatalf("saved default candidate id = %#v", backConfig["defaultCandidateId"])
+	}
+	if coordinate := objectMap(objectMap(backCandidates[1])["coordinate"]); stringField(coordinate, "groupId") != "main-group" {
+		t.Fatalf("saved second candidate coordinate = %#v", coordinate)
+	}
+}
+
+// TestRoleProjectionTranslatesLegacyCoordinate 钉住旧单一坐标形态的读取：
+// 坐标直接翻译为「一个候选 + 它即默认」，不需要迁移动作。
+func TestRoleProjectionTranslatesLegacyCoordinate(t *testing.T) {
+	role := map[string]any{
+		"id":      "developer",
+		"name":    "Developer",
+		"prompts": []any{map[string]any{"role": "system", "content": "You are a developer."}},
+		"modelConfig": map[string]any{
+			"coordinate":  map[string]any{"kind": "provider", "providerId": "openai-main", "modelId": "gpt-4.1"},
+			"temperature": float64(1),
+		},
+	}
+
+	ui := toUIRole(role)
+	candidates := objectList(ui["modelCandidates"])
+	if len(candidates) != 1 {
+		t.Fatalf("ui candidates = %#v", candidates)
+	}
+	if ui["defaultModelCandidateId"] != "provider:openai-main:gpt-4.1" {
+		t.Fatalf("ui default candidate id = %#v", ui["defaultModelCandidateId"])
 	}
 }
 
