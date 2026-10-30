@@ -260,27 +260,11 @@ export function createEventHandlers(deps: {
     if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)) return
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
-    const state = deps.getState()
     if (bind === 'input') {
       deps.actions.setDraft?.('input', t.value)
       return
     }
-    state.draft[bind] = t.value
-
-    if (bind === 'roleProviderId') {
-      const p = deps.actions.getProvider(String(state.draft.roleProviderId || ''))
-      const cachedItems = Array.isArray(p?.registeredModels) ? p.registeredModels.map((model: any) => String(model?.id || '')).filter(Boolean) : []
-      state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
-      state.draft.roleModelId = ''
-      state.draft.roleCustomModelId = ''
-      deps.render()
-      return
-    }
-
-    if (bind === 'roleModelId') {
-      deps.render()
-      return
-    }
+    deps.getState().draft[bind] = t.value
   }
 
   function onKeyDown(e: KeyboardEvent) {
