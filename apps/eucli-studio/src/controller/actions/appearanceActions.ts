@@ -15,6 +15,7 @@ import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpac
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
+import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
 import {
   normalizeSidebarSide,
   normalizeSidebarWidth,
@@ -328,6 +329,13 @@ export function createAppearanceActions(deps: {
     setMessageOffscreenSkipEnabled: (enabled: any) => {
       if (!state.data) return
       state.data.settings.messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(enabled)
+      saveMeta().catch(() => {})
+      emit()
+    },
+    // 会话页面保活上限：虚拟化后单页成本下降，允许用户把常驻页数调大。
+    setSessionKeepAliveLimit: (limit: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit(limit)
       saveMeta().catch(() => {})
       emit()
     },

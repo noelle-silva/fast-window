@@ -1,7 +1,7 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
+import { Box, Button, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
-import { useDeferredChatSwitch } from './hooks/useDeferredChatSwitch'
+import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
 import { useMessageActions } from './hooks/useMessageActions'
@@ -68,6 +68,7 @@ import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
+import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
 import { chatStreamEnabled } from '../domain/chatStream'
@@ -137,6 +138,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const reasoningDisplayMode = normalizeReasoningDisplayMode(data?.settings?.reasoningDisplayMode)
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(data?.settings?.reasoningRenderEnabled)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(data?.settings?.messageOffscreenSkipEnabled)
+  const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((data?.settings as any)?.sessionKeepAliveLimit)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
@@ -166,10 +168,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     : null
   const activeChat = controller.activeChat()
   const selectedActiveChatId = String(activeChat?.id || activeChatSelectionBox?.activeChatId || '').trim()
-  const selectedActiveChatKey = selectedActiveChatId ? `${activeTargetKind}:${activeChatTargetId}:${selectedActiveChatId}` : ''
   const pendingRoleChat = (s as any)?.pendingChat
   const pendingWorkspaceChat = (s as any)?.pendingWorkspaceChat
-  const chatSwitch = useDeferredChatSwitch(controller, activeChat, selectedActiveChatId, selectedActiveChatKey)
+  const chatSwitch = useSessionSwitch(controller, activeChat, selectedActiveChatId)
   const renderChat = chatSwitch.renderChat
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
@@ -584,15 +585,21 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     branchDraft,
     branchDraftKey,
   })
+  // 会话页面是否可装：只由「目标实体与数据」决定。
+  // 切换中（switching）不是阻塞项——旧页会继续垫底，新页在下面完成绘制。
   const sessionPageBlocked =
     !!s.loading ||
     (activeTargetKind === 'group' && !activeGroup) ||
     (activeTargetKind === 'workspace' && !activeWorkspace) ||
     (activeTargetKind === 'workspace' && !activeWorkspaceRoles.length) ||
-    (activeTargetKind !== 'group' && !activeRole) ||
-    chatSwitch.switching
+    (activeTargetKind !== 'group' && !activeRole)
   const sessionPageKey = !sessionPageBlocked && renderChat && Array.isArray(renderChat.messages) ? renderChatId : ''
-  const sessionKeepAliveKeys = useSessionKeepAlive(sessionPageKey)
+  // 可见页只由 PAINTED 推进；切换期间旧页保持可见，直到新页真正画出来。
+  const sessionVisibleKey = chatSwitch.visibleKey
+  const sessionKeepAliveKeys = useSessionKeepAlive(sessionPageKey, {
+    limit: sessionKeepAliveLimit,
+    pinnedKey: sessionVisibleKey,
+  })
   // 屏外跳过的高度记忆按布局条件失效：这里汇总会影响消息高度的全局设置、字体与右侧树面板占位。
   const messageLayoutSignature = [
     chatFontSize,
@@ -764,8 +771,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     void controller.actions.checkToolWorkDirectoryPrompt?.()
   }, [controller])
 
+  // 滚动跟随只对「当前可见页」生效：隐藏的保活页不参与任何 scrollTop 写入。
+  const pageVisible = sessionVisibleKey === sessionPageKey && !!sessionPageKey
+
   React.useEffect(() => {
-    if (page !== 'chat') return
+    if (page !== 'chat' || !pageVisible) return
     const el = chatRootRef.current
     if (!el) return
     const onScroll = () => {
@@ -774,10 +784,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
-  }, [page, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
+  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
-    if (page !== 'chat') return
+    if (page !== 'chat' || !pageVisible) return
     const el = chatRootRef.current
     if (!el) return
     if (Date.now() < autoScrollBlockUntilRef.current) return
@@ -788,10 +798,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
+  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
 
   React.useEffect(() => {
-    if (page !== 'chat') return
+    if (page !== 'chat' || !pageVisible) return
     const el = chatRootRef.current
     if (!el) return
     if (Date.now() < autoScrollBlockUntilRef.current) return
@@ -801,12 +811,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, sessionPageKey, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+  }, [page, pageVisible, sessionPageKey, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
 
   // 流式推进走范围刷新，不再触发整页渲染；这里单独订阅最后一条消息的范围，
   // 只做“跟随到底部”的滚动副作用，不引起 React 重渲染。
+  // 页面不可见时不订阅：后台页面不该为流式推进继续写 scrollTop。
   React.useEffect(() => {
-    if (page !== 'chat') return
+    if (page !== 'chat' || !pageVisible) return
     const mid = String(lastMsgId || '').trim()
     if (!mid || typeof controller?.subscribeScope !== 'function') return
     return controller.subscribeScope(messageRefreshScope(mid), () => {
@@ -820,7 +831,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         } catch (_) {}
       })
     })
-  }, [page, sessionPageKey, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
+  }, [page, pageVisible, sessionPageKey, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -1071,10 +1082,42 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-canvas)',
               }}
             >
+              {/* 切换进度只做「细进度条」：不遮挡内容区，旧页继续垫底。 */}
+              {chatSwitch.switching ? (
+                <Box
+                  role="progressbar"
+                  aria-label="正在切换会话"
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    zIndex: 3,
+                    overflow: 'hidden',
+                    pointerEvents: 'none',
+                    bgcolor: 'var(--studio-border)',
+                    '&::after': {
+                      content: '""',
+                      position: 'absolute',
+                      inset: 0,
+                      width: '35%',
+                      bgcolor: 'var(--studio-secondary)',
+                      animation: 'fw-switch-progress 900ms ease-in-out infinite',
+                    },
+                    '@keyframes fw-switch-progress': {
+                      '0%': { transform: 'translateX(-100%)' },
+                      '100%': { transform: 'translateX(320%)' },
+                    },
+                  }}
+                />
+              ) : null}
              <SessionPageStack
                 activeKey={sessionPageKey}
+                visibleKey={sessionVisibleKey}
                 keys={sessionKeepAliveKeys}
                 activeScrollRef={chatRootRef}
+                onPainted={chatSwitch.notifyPainted}
                 activePage={
                   sessionPageKey ? (
                     <SessionMessagePage
@@ -1145,7 +1188,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 }
               />
 
-              {!sessionPageKey ? (
+              {/* 只有「没有旧页可垫底」时才允许占位内容：冷启动首次、上次失败、上次 empty。
+                  切换期间旧页保持可见，这里不能抢画面。 */}
+              {!sessionPageKey && !sessionVisibleKey ? (
                 <Box
                   sx={{
                     position: 'absolute',
@@ -1187,18 +1232,23 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                     <Typography variant="body2" color="text.secondary">
                       请选择角色
                     </Typography>
-                  ) : chatSwitch.switching ? (
-                    <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                      <CircularProgress size={18} thickness={4.4} color="inherit" />
-                      <Typography variant="body2" color="text.secondary">
-                        正在切换会话…
-                      </Typography>
-                    </Box>
                   ) : !renderChat ? (
                     openingChatMeta ? (
-                      <Box role="status" aria-live="polite" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                        <CircularProgress size={18} thickness={4.4} color="inherit" />
-                        <Typography variant="body2" color="text.secondary">
+                      // 无旧页可垫底时才用骨架；骨架复用消息区精确几何，promote 时不跳动。
+                      <Box role="status" aria-live="polite" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                        {[0, 1, 2].map((i) => (
+                          <Box
+                            key={i}
+                            sx={{
+                              height: i === 0 ? 56 : 96,
+                              borderRadius: 3,
+                              bgcolor: 'var(--studio-paper)',
+                              border: '1px solid var(--studio-border)',
+                              opacity: 0.6,
+                            }}
+                          />
+                        ))}
+                        <Typography variant="caption" color="text.secondary">
                           正在打开「{String((openingChatMeta as any)?.title || '会话')}」…
                         </Typography>
                       </Box>

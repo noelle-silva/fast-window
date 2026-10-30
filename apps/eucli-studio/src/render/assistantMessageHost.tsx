@@ -13,14 +13,19 @@ export function AssistantMessageHost(props: {
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
   streaming?: boolean
+  // 消息级缓存代际：同一会话共享一代，切会话即整代降级。
+  cacheScope?: string
 }) {
-  const { controller, className, text, mid, renderSafetyPolicyKey, chatRootRef, streaming } = props
+  const { controller, className, text, mid, renderSafetyPolicyKey, chatRootRef, streaming, cacheScope } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
   const lastRenderAtRef = React.useRef(0)
   const lastTextRef = React.useRef<string | null>(null)
   const lastPolicyRef = React.useRef(renderSafetyPolicyKey)
   const pendingTextRef = React.useRef(text)
   const timerRef = React.useRef(0)
+  // 渲染回调里读取最新 streaming，避免把 streaming 变化放大成整段重渲染依赖。
+  const streamingRef = React.useRef(!!streaming)
+  streamingRef.current = !!streaming
 
   const renderNow = React.useCallback(
     (value: string) => {
@@ -28,12 +33,17 @@ export function AssistantMessageHost(props: {
       if (lastTextRef.current === value && lastPolicyRef.current === renderSafetyPolicyKey) return
       lastTextRef.current = value
       lastPolicyRef.current = renderSafetyPolicyKey
-      controller.renderAssistantInto(ref.current, value)
+      // streaming 决定是否允许走消息级缓存：流式中态永远不缓存。
+      // cacheScope 是缓存代际（会话身份）：切会话即整代降级。
+      controller.renderAssistantInto(ref.current, value, {
+        streaming: streamingRef.current,
+        cacheScope: String(cacheScope || ''),
+      })
       // 冷却从“渲染结束”起算：单次全量重渲染再慢，下一次增量也会因冷却未满而排队，
       // 频率被钉死在安全上限内，不会退化为“每个字都全量重渲染”。
       lastRenderAtRef.current = performance.now()
     },
-    [controller, renderSafetyPolicyKey],
+    [controller, renderSafetyPolicyKey, cacheScope],
   )
 
   React.useLayoutEffect(() => {

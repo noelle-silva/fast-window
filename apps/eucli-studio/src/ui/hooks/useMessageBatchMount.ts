@@ -63,11 +63,15 @@ export function useMessageBatchMount(options: {
   sessionKey: string
   messages: any[]
   scrollRef: React.RefObject<HTMLElement | null>
+  // pageActive：只有可见页允许推进分批上屏。
+  // 保活页（隐藏）不排队、不触发 setTimeout，切回时从原进度继续。
+  active?: boolean
   initialSize?: number
   batchSize?: number
   yieldMs?: number
 }): { batchGroups: MessageBatchGroup[]; visibleMessages: any[] } {
   const { sessionKey, messages, scrollRef } = options
+  const active = options.active !== false
   const initialSize = Math.max(1, Math.floor(Number(options.initialSize ?? MESSAGE_BATCH_INITIAL_SIZE) || 1))
   const batchSize = Math.max(1, Math.floor(Number(options.batchSize ?? MESSAGE_BATCH_SIZE) || 1))
   const yieldMs = Math.max(0, Math.floor(Number(options.yieldMs ?? MESSAGE_BATCH_YIELD_MS) || 0))
@@ -139,6 +143,7 @@ export function useMessageBatchMount(options: {
   }, [scrollRef])
 
   React.useEffect(() => {
+    if (!active) return
     if (readyKey !== sessionKey) return
     if (state.sessionKey !== sessionKey || !state.initialized) return
 
@@ -167,7 +172,7 @@ export function useMessageBatchMount(options: {
       setState((prev) => stageNextBatch(prev, sessionKey))
     }, yieldMs)
     return () => clearTimeout(timer)
-  }, [readyKey, sessionKey, state, yieldMs, captureScrollAnchor])
+  }, [active, readyKey, sessionKey, state, yieldMs, captureScrollAnchor])
 
   React.useLayoutEffect(() => {
     const anchor = scrollAnchorRef.current

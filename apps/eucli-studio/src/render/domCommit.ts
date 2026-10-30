@@ -25,6 +25,11 @@ const blockCache = new WeakMap<HTMLElement, BlockCacheEntry>()
 export type CommitResult = {
   changedFrom: number
   addedCount: number
+  // 本次新挂载的顶层节点：收尾阶段（enhance）只需处理这些节点，
+  // 不再对整块地盘重新扫描。
+  addedNodes: Element[]
+  // 本次提交的顶层块序列：可直接作为消息级缓存的值。
+  blocks: string[]
 }
 
 // parseBlockInto 把一个顶层块字符串解析后追加到 fragment，返回产生的顶层节点数。
@@ -39,20 +44,17 @@ function parseBlockInto(block: string, fragment: DocumentFragment): number {
   return count
 }
 
-// commitHtml 用新 HTML 增量更新 el。
-// decorate 只在「新增的尾部片段」挂载前调用，避免每帧全树扫描。
-export function commitHtml(el: HTMLElement, nextHtml: string, decorate?: (fragment: DocumentFragment) => void): CommitResult {
-  const html = String(nextHtml || '')
+// commitBlocks 用「已消毒的顶层块数组」直接增量更新 el。
+// 供消息级缓存命中时使用：跳过解析与消毒，只做块前缀复用与 DOM 提交。
+export function commitBlocks(el: HTMLElement, blocksRaw: string[], decorate?: (fragment: DocumentFragment) => void): CommitResult {
+  const nextBlocks = Array.isArray(blocksRaw) ? blocksRaw.slice() : []
   const prev = blockCache.get(el) || { blocks: [], nodeCounts: [] }
-  const nextBlocks = splitTopLevelBlocks(html)
   const keep = commonBlockPrefix(prev.blocks, nextBlocks)
 
-  // 保留前 keep 个块对应的节点，丢弃其余。
   let nodesToKeep = 0
   for (let i = 0; i < keep; i++) nodesToKeep += prev.nodeCounts[i] || 0
   while (el.childNodes.length > nodesToKeep) el.removeChild(el.lastChild as Node)
 
-  // 尾部块逐块解析、按序追加，并记录每块产生的节点数。
   const fragment = document.createDocumentFragment()
   const nextCounts = prev.nodeCounts.slice(0, keep)
   for (let i = keep; i < nextBlocks.length; i++) {
@@ -66,8 +68,18 @@ export function commitHtml(el: HTMLElement, nextHtml: string, decorate?: (fragme
 
   const addedCount = fragment.childNodes.length
   if (decorate && addedCount) decorate(fragment)
+  const addedNodes: Element[] = []
+  for (const node of Array.from(fragment.childNodes)) {
+    if (node.nodeType === 1) addedNodes.push(node as Element)
+  }
   el.appendChild(fragment)
 
   blockCache.set(el, { blocks: nextBlocks, nodeCounts: nextCounts })
-  return { changedFrom: keep, addedCount }
+  return { changedFrom: keep, addedCount, addedNodes, blocks: nextBlocks }
+}
+
+// commitHtml 用新 HTML 增量更新 el。
+// decorate 只在「新增的尾部片段」挂载前调用，避免每帧全树扫描。
+export function commitHtml(el: HTMLElement, nextHtml: string, decorate?: (fragment: DocumentFragment) => void): CommitResult {
+  return commitBlocks(el, splitTopLevelBlocks(String(nextHtml || '')), decorate)
 }

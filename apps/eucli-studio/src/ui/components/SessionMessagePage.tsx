@@ -3,7 +3,7 @@ import type { SxProps, Theme } from '@mui/material'
 import { ChatMessageList } from './ChatMessageList'
 import { CustomScrollArea } from './CustomScrollArea'
 import { useSessionPageScrollRegistry } from './sessionPageScrollRegistry'
-import { useSessionPageActiveKey } from './SessionPageStack'
+import { useSessionPageVisible } from './SessionPageStack'
 import { useMessageBatchMount } from '../hooks/useMessageBatchMount'
 import { useMessageOffscreen } from '../hooks/useMessageOffscreen'
 
@@ -44,8 +44,9 @@ export function SessionMessagePage(props: {
   } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const scrollRegistry = useSessionPageScrollRegistry()
-  const activeSessionKey = useSessionPageActiveKey()
-  const pageActive = activeSessionKey === null || activeSessionKey === sessionKey
+  // pageActive 是页面内所有调度的统一开关：分批上屏、屏外观察都只在
+  // 「本页正在屏幕或正在完成首次绘制」时推进。缓存页不排队、不触发 setTimeout。
+  const pageActive = useSessionPageVisible()
   const { handle: messageOffscreen, attachScrollElement } = useMessageOffscreen({
     enabled: messageOffscreenEnabled && pageActive,
     layoutSignature,
@@ -60,7 +61,7 @@ export function SessionMessagePage(props: {
     [scrollRegistry, sessionKey, attachScrollElement],
   )
 
-  const { batchGroups, visibleMessages } = useMessageBatchMount({ sessionKey, messages, scrollRef })
+  const { batchGroups, visibleMessages } = useMessageBatchMount({ sessionKey, messages, scrollRef, active: pageActive })
   const displayMessages = React.useMemo(
     () => (activeRunTailPendingMessage ? [...visibleMessages, activeRunTailPendingMessage] : visibleMessages),
     [activeRunTailPendingMessage, visibleMessages],
@@ -71,6 +72,7 @@ export function SessionMessagePage(props: {
       {hasMessages ? (
         <ChatMessageList
           {...messageListProps}
+          cacheScope={sessionKey}
           messageBatchGroups={batchGroups}
           messageOffscreen={messageOffscreenEnabled ? messageOffscreen : null}
           messages={displayMessages}

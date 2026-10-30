@@ -293,17 +293,24 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
     } catch (_) {}
   }
 
-  async function renderMermaidInto(el: unknown, policy?: RenderSafetyPolicy) {
+  // roots 是本次提交新增的顶层节点。传入时只在这些节点内找图表占位，
+  // 不再对整块地盘重新全量扫描（已渲染过的图不再被重复认领）。
+  async function renderMermaidInto(el: unknown, policy?: RenderSafetyPolicy, roots?: Element[] | null) {
     if (!(el instanceof HTMLElement)) return
     const renderSafetyPolicy: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
     const m = (window as any).mermaid
     if (!m || !m.render) return
 
-    const codes = Array.from(el.querySelectorAll?.('pre[data-fw-mermaid-complete="1"]>code') || []).filter((c) => {
-      if (!(c instanceof HTMLElement)) return false
-      const cls = String(c.className || '')
-      return cls.includes('language-mermaid') || cls.includes('lang-mermaid') || cls.includes('mermaid')
-    })
+    const scopes: ParentNode[] = Array.isArray(roots) && roots.length
+      ? roots.filter((root) => root instanceof HTMLElement)
+      : [el]
+    const codes = scopes.flatMap((scope) =>
+      Array.from(scope.querySelectorAll?.('pre[data-fw-mermaid-complete="1"]>code') || []).filter((c) => {
+        if (!(c instanceof HTMLElement)) return false
+        const cls = String(c.className || '')
+        return cls.includes('language-mermaid') || cls.includes('lang-mermaid') || cls.includes('mermaid')
+      }),
+    )
     if (!codes.length) return
 
     initMermaidOnce()

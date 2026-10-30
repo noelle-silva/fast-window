@@ -32,6 +32,8 @@ type AssistantMessageBlocksProps = {
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
   disabled?: boolean
+  // 消息级缓存代际：同一会话共享一代，切会话即整代降级。
+  cacheScope?: string
 }
 
 type EditingBlock = { id: string; text: string }
@@ -329,7 +331,7 @@ function ToolSessionCard(props: {
 }
 
 export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
-  const { controller, mid, isGenerating, text, parts, reasoningDisplayMode, reasoningRenderEnabled, renderSafetyPolicyKey, chatRootRef, disabled } = props
+  const { controller, mid, isGenerating, text, parts, reasoningDisplayMode, reasoningRenderEnabled, renderSafetyPolicyKey, chatRootRef, disabled, cacheScope } = props
   const blocks = React.useMemo(() => planAssistantMessageBlocks(text, parts), [text, parts])
   const displayItems = React.useMemo(() => buildDisplayItems(blocks), [blocks])
   // 最后一枚部分就是当前仍在输出的那一段；正文一旦出现，前面的思考都已输出完成。
@@ -413,7 +415,7 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
         if (block.kind === 'text') {
           return (
             <Box key={block.id} data-mid={mid} data-assistant-block-kind={block.kind} sx={{ minWidth: 0 }}>
-              <AssistantMessageHost controller={controller} className="prose" text={block.text} mid={mid} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isGenerating} />
+              <AssistantMessageHost controller={controller} className="prose" text={block.text} mid={mid} renderSafetyPolicyKey={renderSafetyPolicyKey} chatRootRef={chatRootRef} streaming={isGenerating} cacheScope={cacheScope} />
             </Box>
           )
         }

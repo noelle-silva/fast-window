@@ -1,5 +1,6 @@
 import type { AiChatCapabilities } from '../gateway/capabilities'
 import type { RenderSafetyPolicy } from './types'
+import type { CommitResult } from './domCommit'
 
 // ============================================================================
 // eucli-studio 客户端渲染契约（唯一事实源）
@@ -36,6 +37,9 @@ export type RenderContext = {
   getStickerPath: ((category: string, name: string) => string) | null
   // 宿主能力，供声明了 permissions 的能力取用。
   capabilities: AiChatCapabilities
+  // 本次提交结果：只包含本次新挂载的顶层节点。
+  // 收尾阶段必须据此只处理新增内容，禁止对整块地盘重新全量扫描。
+  commit: CommitResult | null
 }
 
 // ClaimSink 交给能力的认领出口：能力把认领到的内容交给它，换回占位符。

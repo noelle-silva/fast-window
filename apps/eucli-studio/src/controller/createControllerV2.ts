@@ -101,7 +101,22 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 2. UI CORE
   // ============================================================
   const uiCore = createUiCore()
-  const { emit, emitScope, subscribe, subscribeScope, getVer, getScopeVer } = uiCore
+  const {
+    emit: emitRaw,
+    emitScope,
+    subscribe,
+    subscribeScope,
+    getVer,
+    getScopeVer,
+  } = uiCore
+
+  // 草稿镜像在「变更边界」同步，而不是在快照读取时同步。
+  // 快照读取器必须纯：useSyncExternalStore 会在渲染期反复调用它，
+  // 任何读时写入都会让选择器化踩坑（读到一半 state 被改）。
+  function emit() {
+    activateComposerDraftForCurrentSession(state)
+    emitRaw()
+  }
 
   // ============================================================
   // 3. SPLIT META CACHE (shared across modules)
@@ -122,7 +137,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   function renderComposer() { emit() }
 
   function getControllerState() {
-    activateComposerDraftForCurrentSession(state)
+    // 纯读取：快照读取器不得修改 state（草稿镜像已在 emit 边界同步）。
     return state
   }
 

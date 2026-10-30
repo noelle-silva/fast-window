@@ -20,6 +20,11 @@ import {
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
+  SESSION_KEEP_ALIVE_MAX_LIMIT,
+  SESSION_KEEP_ALIVE_MIN_LIMIT,
+  normalizeSessionKeepAliveLimit,
+} from '../../domain/sessionKeepAlive'
+import {
   COMPOSER_MIN_ROWS_MAX,
   COMPOSER_MIN_ROWS_MIN,
   COMPOSER_RADIUS_MAX,
@@ -181,6 +186,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const reasoningDisplayMode = normalizeReasoningDisplayMode(settings?.reasoningDisplayMode)
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
+  const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
   const branchTreeView = (() => {
     const raw = String(((settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? raw : 'right'
@@ -587,6 +593,23 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 size="small"
                 checked={messageOffscreenSkipEnabled}
                 onChange={(e) => controller.actions.setMessageOffscreenSkipEnabled?.(!!e.target.checked)}
+                disabled={loading}
+              />
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>会话页面常驻上限</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  最近打开的会话页面保留在内存中的数量；超出时淘汰最久未用的页面。
+                </Typography>
+              </Box>
+              <TextField
+                size="small"
+                type="number"
+                value={sessionKeepAliveLimit}
+                onChange={(e) => controller.actions.setSessionKeepAliveLimit?.(e.target.value)}
+                inputProps={{ min: SESSION_KEEP_ALIVE_MIN_LIMIT, max: SESSION_KEEP_ALIVE_MAX_LIMIT, step: 1 }}
+                sx={{ width: 96 }}
                 disabled={loading}
               />
             </Stack>

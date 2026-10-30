@@ -8,10 +8,12 @@ import rehypeRaw from 'rehype-raw'
 import rehypeStringify from 'rehype-stringify'
 
 import { esc } from '../../core/utils'
+import { markSwitchBoundary } from '../../domain/switchTrace'
 import { createHtmlSanitizer, sanitizeSvg } from '../sanitize'
 import { createRefImageHydrator } from '../refImages'
 import { createMathRenderer } from '../mathRender'
-import { commitHtml } from '../domCommit'
+import { commitBlocks, commitHtml } from '../domCommit'
+import { messageCacheKey, messageHtmlCache } from '../messageCache'
 import { createRenderCapabilities } from '../capabilities'
 import { preprocessHtmlIndentation } from '../markdown'
 import type { BoolRef, RenderSafetyPolicy } from '../types'
@@ -35,6 +37,10 @@ export type UnifiedRenderOptions = {
   stickersEnabled?: boolean
   getStickerPath?: (category: string, name: string) => string
   renderSafetyPolicy?: RenderSafetyPolicy
+  // streaming=true 时禁用消息级缓存：流式中态永远不缓存。
+  streaming?: boolean
+  // cacheScope 是缓存代际（会话身份）：切会话即整代降级。
+  cacheScope?: string
 }
 
 export type UnifiedRenderEngine = {
@@ -153,6 +159,7 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
       stickersEnabled: !!options?.stickersEnabled,
       getStickerPath,
       capabilities,
+      commit: null,
     }
 
     // 交互接线只需在根上绑定一次；能力自身保证幂等。
@@ -163,6 +170,43 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
     }
 
     const source = String(text || '')
+    const streaming = !!options?.streaming
+    const cacheScope = String(options?.cacheScope || '')
+
+    // 消息级缓存：只缓存「已消毒的顶层块」。
+    // 明确不缓存：流式中态、失败降级结果（下面 fail 分支直接跳过写入）。
+    const cacheKey = streaming || !cacheScope
+      ? ''
+      : messageCacheKey({
+          source,
+          policy: renderSafetyPolicy,
+          capsSignature: `${options?.stickersEnabled ? 1 : 0}:${getStickerPath ? 1 : 0}`,
+          scope: cacheScope,
+        })
+
+    markSwitchBoundary('frontend.enhanceStart')
+
+    if (cacheKey) {
+      const cached = messageHtmlCache.get(cacheKey)
+      if (cached) {
+        const hitCommit = commitBlocks(host, cached, (fragment) => {
+          for (const capability of capabilityList) {
+            try {
+              capability.decorate?.(fragment, ctx)
+            } catch (_) {}
+          }
+        })
+        markSwitchBoundary('frontend.enhanceEnd')
+        ctx.commit = hitCommit
+        for (const capability of capabilityList) {
+          try {
+            Promise.resolve(capability.enhance?.(ctx)).catch(() => {})
+          } catch (_) {}
+        }
+        return
+      }
+    }
+
     // HTML 缩进去缩进：AI 输出的缩进 HTML 若保留 4 空格，会被 Markdown 当成代码块。
     const noIndent = preprocessHtmlIndentation(source)
     // 公式必须在 Markdown 解析前保护：否则 TeX 里的反斜杠命令（\, \\ \| 等）会被当成 Markdown 转义吃掉。
@@ -176,23 +220,30 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
     // 有 HTML 块才启用 rehype-raw（parse5 重解析是解析阶段最大的单点开销）。
     const processor = pluginCtx.htmlBlocks.length ? processorWithRaw : processorNoRaw
     let html = ''
+    let degraded = false
     try {
       html = String(processor.processSync(finalSource))
     } catch (_) {
       // 失败隔离：解析整体失败时降级为纯文本，不影响其余消息。
+      // 降级结果不进入缓存：它代表失败，不应被当成正常成品复用。
+      degraded = true
       html = `<pre>${esc(source)}</pre>`
     }
 
     let safe = htmlSanitizer.sanitizeHtml(html, renderSafetyPolicy)
 
     // 增量提交：只对新增尾部片段做装饰。
-    commitHtml(host, safe, (fragment) => {
+    const commit = commitHtml(host, safe, (fragment) => {
       for (const capability of capabilityList) {
         try {
           capability.decorate?.(fragment, ctx)
         } catch (_) {}
       }
     })
+    markSwitchBoundary('frontend.enhanceEnd')
+    if (cacheKey && !degraded) messageHtmlCache.put(cacheKey, commit.blocks, cacheScope)
+    // 收尾阶段只认本次新增节点：能力据此避免整块地盘重扫。
+    ctx.commit = commit
 
     // 收尾：异步产出与临时资源清理（能力内部保证成功与失败都收尾）。
     for (const capability of capabilityList) {

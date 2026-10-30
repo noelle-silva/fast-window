@@ -34,7 +34,8 @@ export function createMermaidCapability(deps: {
       support.ensureMermaidErrorAiFixHandlerOnce(host)
     },
     enhance(ctx) {
-      return support.renderMermaidInto(ctx.host, ctx.policy)
+      // 只处理本次新增节点：收尾阶段不再全宿主扫描。
+      return support.renderMermaidInto(ctx.host, ctx.policy, ctx.commit?.addedNodes || null)
     },
     permissions: ['clipboard.writeImage', 'clipboard.writeText', 'ui.showToast'],
   }
