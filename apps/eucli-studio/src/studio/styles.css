@@ -249,7 +249,8 @@ textarea {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  /* 通知浮在输入区之上：底部偏移由 App 按输入区实测高度写入 --studio-toast-bottom；无输入区时回到默认位置。 */
+  bottom: var(--studio-toast-bottom, 24px);
   transform: translateX(-50%);
   z-index: 10000;
   max-width: min(520px, calc(100vw - 36px));
@@ -287,7 +288,7 @@ textarea {
   }
 
   .toast {
-    bottom: 16px;
+    bottom: var(--studio-toast-bottom, 16px);
   }
 
   .releaseFacts {

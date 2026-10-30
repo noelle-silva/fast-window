@@ -723,13 +723,20 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   })
 
   React.useLayoutEffect(() => {
-    if (page !== 'chat') return
+    // 只有聊天页有输入区；离开聊天页时清掉偏移，让通知回到默认位置。
+    if (page !== 'chat') {
+      document.documentElement.style.removeProperty('--studio-toast-bottom')
+      return
+    }
     const el = composerRef.current
     if (!el) return
 
     const measure = () => {
       try {
-        setComposerHeight(Math.ceil(el.getBoundingClientRect().height || 0))
+        const height = Math.ceil(el.getBoundingClientRect().height || 0)
+        setComposerHeight(height)
+        // 通知浮层要浮在输入区之上：把实测高度交给样式，避免写死偏移。
+        document.documentElement.style.setProperty('--studio-toast-bottom', `${height + 32}px`)
       } catch (_) {}
     }
 
