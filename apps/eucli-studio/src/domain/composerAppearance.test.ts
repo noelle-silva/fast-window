@@ -11,6 +11,7 @@ import {
   COMPOSER_WIDTH_PERCENT_MIN,
   composerSideInsetPercent,
   normalizeComposerMinRows,
+  normalizeComposerModelShowProvider,
   normalizeComposerRadius,
   normalizeComposerWidthPercent,
 } from './composerAppearance'
@@ -79,5 +80,18 @@ describe('composerSideInsetPercent', () => {
   it('normalizes the input before computing the inset', () => {
     expect(composerSideInsetPercent(undefined)).toBe((100 - COMPOSER_WIDTH_PERCENT_DEFAULT) / 2)
     expect(composerSideInsetPercent(999)).toBe(0)
+  })
+})
+
+describe('normalizeComposerModelShowProvider', () => {
+  it('defaults to off when unset', () => {
+    expect(normalizeComposerModelShowProvider(undefined)).toBe(false)
+    expect(normalizeComposerModelShowProvider(null)).toBe(false)
+    expect(normalizeComposerModelShowProvider('true')).toBe(false)
+  })
+
+  it('keeps explicit booleans', () => {
+    expect(normalizeComposerModelShowProvider(true)).toBe(true)
+    expect(normalizeComposerModelShowProvider(false)).toBe(false)
   })
 })

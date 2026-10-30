@@ -33,7 +33,14 @@ export function normalizeComposerRadius(value: unknown): number {
   return clampWithPrecision(raw, COMPOSER_RADIUS_MIN, COMPOSER_RADIUS_MAX, 0)
 }
 
-// 宽度以「两侧留白占比」表达：左右各留白 (100 - 宽度) / 2，外框与输入框同源消费。
+// 宽度以「两侧留白占比」表达：左右各留白 (100 - widthPercent) / 2，外框与输入框同源消费。
 export function composerSideInsetPercent(widthPercent: unknown): number {
   return (100 - normalizeComposerWidthPercent(widthPercent)) / 2
+}
+
+// 模型按钮是否带供应商前缀：默认只显示模型标识，开启后显示「供应商 / 模型标识」。
+export const COMPOSER_MODEL_SHOW_PROVIDER_DEFAULT = false
+
+export function normalizeComposerModelShowProvider(raw: unknown): boolean {
+  return typeof raw === 'boolean' ? raw : COMPOSER_MODEL_SHOW_PROVIDER_DEFAULT
 }

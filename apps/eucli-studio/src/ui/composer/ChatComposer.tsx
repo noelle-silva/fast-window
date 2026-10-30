@@ -98,6 +98,7 @@ export function ChatComposer(props: {
   composerWidthPercent: number
   composerMinRows: number
   composerRadius: number
+  composerModelShowProvider: boolean
   draft: any
   activeSessionComposerDraftKey: string
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
@@ -120,11 +121,13 @@ export function ChatComposer(props: {
   roleSessionControlsEnabled: boolean
   hasChatOverride: boolean
   effectiveModelId: string
+  effectiveModelRef: any
   openTempModelPicker: (e: React.MouseEvent<HTMLElement>) => void
   roleModelStepPrevEnabled: boolean
   roleModelStepNextEnabled: boolean
   stepRoleModelCandidate: (delta: number) => void
   providers: any[]
+  modelGroups: any[]
   reasoningProfile: any
   activeReasoningLabel: string
   chatSettingsReasoningSaving: boolean
@@ -155,6 +158,7 @@ export function ChatComposer(props: {
     composerWidthPercent,
     composerMinRows,
     composerRadius,
+    composerModelShowProvider,
     draft,
     activeSessionComposerDraftKey,
     composerInputRef,
@@ -177,11 +181,13 @@ export function ChatComposer(props: {
     roleSessionControlsEnabled,
     hasChatOverride,
     effectiveModelId,
+    effectiveModelRef,
     openTempModelPicker,
     roleModelStepPrevEnabled,
     roleModelStepNextEnabled,
     stepRoleModelCandidate,
     providers,
+    modelGroups,
     reasoningProfile,
     activeReasoningLabel,
     chatSettingsReasoningSaving,
@@ -205,6 +211,19 @@ export function ChatComposer(props: {
   const liveDraft = (controller?.getComposerDraft?.() as any) || draft
   const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
   const sideInset = `${composerSideInsetPercent(composerWidthPercent)}%`
+
+  // 模型按钮文案：只显示模型标识；开关开启时带上供应商（模型组则带模型组名）。
+  const effectiveModelLabel = (() => {
+    const modelId = String(effectiveModelId || '').trim()
+    if (!modelId) return ''
+    if (!composerModelShowProvider) return modelId
+    const ref = effectiveModelRef && typeof effectiveModelRef === 'object' ? effectiveModelRef : null
+    if (!ref) return modelId
+    const sourceName = ref.kind === 'model_group'
+      ? String((Array.isArray(modelGroups) ? modelGroups : []).find((item: any) => String(item?.id || '') === String(ref.groupId || ''))?.name || '').trim()
+      : String((providers.find((item: any) => String(item?.id || '') === String(ref.providerId || ''))?.name) || '').trim()
+    return sourceName ? `${sourceName} / ${modelId}` : modelId
+  })()
 
   const [cleanOpen, setCleanOpen] = React.useState(false)
   const [cleaning, setCleaning] = React.useState(false)
@@ -331,7 +350,7 @@ export function ChatComposer(props: {
                       sx={{ ...composerModelLabelButtonSx, flex: 1, minWidth: 0, color: hasChatOverride ? 'primary.main' : 'text.secondary' }}
                     >
                       <FitTextLabel
-                        text={effectiveModelId || '未配置模型'}
+                        text={effectiveModelLabel || '未配置模型'}
                         maxFontSize={12}
                         minFontSize={8}
                       />

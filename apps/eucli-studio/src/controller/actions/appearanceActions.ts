@@ -12,7 +12,7 @@ import {
   type ColorThemePreset,
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
-import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
+import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
@@ -98,6 +98,12 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       state.data.settings.composerRadius = normalizeComposerRadius(radius)
       if (commit) saveMeta().catch(() => {})
+      emit()
+    },
+    setComposerModelShowProvider: (enabled: any) => {
+      if (!state.data) return
+      state.data.settings.composerModelShowProvider = normalizeComposerModelShowProvider(enabled)
+      saveMeta().catch(() => {})
       emit()
     },
     setChatFontSize: (size: any, commit: any) => {

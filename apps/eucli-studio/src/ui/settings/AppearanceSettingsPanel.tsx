@@ -27,6 +27,7 @@ import {
   COMPOSER_WIDTH_PERCENT_MAX,
   COMPOSER_WIDTH_PERCENT_MIN,
   normalizeComposerMinRows,
+  normalizeComposerModelShowProvider,
   normalizeComposerRadius,
   normalizeComposerWidthPercent,
 } from '../../domain/composerAppearance'
@@ -167,6 +168,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const composerWidthPercent = normalizeComposerWidthPercent(settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(settings?.composerRadius)
+  const composerModelShowProvider = normalizeComposerModelShowProvider(settings?.composerModelShowProvider)
   const composerWidthDraft = useNumberDraft(composerWidthPercent, normalizeComposerWidthPercent, (next) => controller.actions.setComposerWidthPercent?.(next, true))
   const composerMinRowsDraft = useNumberDraft(composerMinRows, normalizeComposerMinRows, (next) => controller.actions.setComposerMinRows?.(next, true))
   const composerRadiusDraft = useNumberDraft(composerRadius, normalizeComposerRadius, (next) => controller.actions.setComposerRadius?.(next, true))
@@ -321,11 +323,27 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
         <SettingsSection>
           <Stack spacing={1.25}>
             <Box>
-              <Typography sx={{ fontWeight: 900 }}>输入区尺寸</Typography>
+              <Typography sx={{ fontWeight: 900 }}>输入区组件设置</Typography>
               <Typography variant="caption" color="text.secondary">
-                调整底部输入栏的宽度、输入框高度与圆角；外框与输入框共用同一圆角。
+                调整底部输入栏的宽度、输入框高度与圆角；外框与输入框共用同一圆角。模型按钮的显示内容也在这里设置。
               </Typography>
             </Box>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  模型按钮显示供应商
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  开启后显示「供应商 / 模型标识」，关闭时只显示模型标识。
+                </Typography>
+              </Box>
+              <Switch
+                checked={composerModelShowProvider}
+                onChange={(e) => controller.actions.setComposerModelShowProvider?.(e.target.checked)}
+                disabled={loading}
+              />
+            </Stack>
 
             <ChatTextMetricRow
               label="输入栏宽度"

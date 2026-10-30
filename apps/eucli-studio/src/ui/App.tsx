@@ -69,7 +69,7 @@ import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFro
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
-import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
+import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
@@ -123,6 +123,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerWidthPercent = normalizeComposerWidthPercent(data?.settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(data?.settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(data?.settings?.composerRadius)
+  const composerModelShowProvider = normalizeComposerModelShowProvider(data?.settings?.composerModelShowProvider)
   const chatFontSize = normalizeChatFontSize(data?.settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(data?.settings?.chatFontFamily)
   const chatLetterSpacing = normalizeChatLetterSpacing(data?.settings?.chatLetterSpacing)
@@ -1264,6 +1265,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 composerWidthPercent={composerWidthPercent}
                 composerMinRows={composerMinRows}
                 composerRadius={composerRadius}
+                composerModelShowProvider={composerModelShowProvider}
                 draft={s.draft}
                 activeSessionComposerDraftKey={String((s as any).activeSessionComposerDraftKey || '')}
                 composerInputRef={composerInputRef}
@@ -1286,11 +1288,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
                 roleSessionControlsEnabled={roleSessionControlsEnabled}
                 hasChatOverride={hasChatOverride}
                 effectiveModelId={effectiveModelId}
+                effectiveModelRef={effectiveModelRef}
                 openTempModelPicker={openTempModelPicker}
                 roleModelStepPrevEnabled={roleModelStepPrevEnabled}
                 roleModelStepNextEnabled={roleModelStepNextEnabled}
                 stepRoleModelCandidate={stepRoleModelCandidate}
                 providers={providers}
+                modelGroups={modelGroups}
                 reasoningProfile={reasoningProfile}
                 activeReasoningLabel={activeReasoningLabel}
                 chatSettingsReasoningSaving={chatSettingsReasoningSaving}
