@@ -5,6 +5,7 @@ import { EntityAvatar } from './avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { useSortableClickGuard } from './useSortableClickGuard'
+import { roleDefaultModelRef } from '../../domain/roleModelCandidates'
 
 // 角色 / 工作区列表项：选择器浮层与侧边栏共用同一份渲染，
 // 差异只在「哪些算选中」「点选后做什么」以及是否启用整行拖拽排序。
@@ -46,7 +47,7 @@ export function RoleList(props: {
 
   const renderRole = (role: any, dragArgs: SortableItemRenderArgs | null) => {
     const roleId = String(role?.id || '')
-    const modelRefText = formatModelRefText(role?.modelRef)
+    const modelRefText = formatModelRefText(roleDefaultModelRef(role))
     return (
       <ListItemButton
         key={roleId}

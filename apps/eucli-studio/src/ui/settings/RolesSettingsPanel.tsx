@@ -6,6 +6,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import type { AiChatController } from '../../controller/types'
 import { NEW_ROLE_ID } from '../../domain/constants'
 import { formatModelRefDisplayText } from '../../domain/modelRefUtils'
+import { roleDefaultModelRef } from '../../domain/roleModelCandidates'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { useSortableClickGuard } from '../components/useSortableClickGuard'
 import { CustomScrollArea } from '../components/CustomScrollArea'
@@ -76,7 +77,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                         const roleId = String(role?.id || '')
                         const selected = !!roleId && roleId === editingRoleId && editorInPlace
                         const isActive = !!roleId && roleId === activeRoleId
-                        const modelRefText = formatModelRefDisplayText(role?.modelRef, providers, modelGroups)
+                        const modelRefText = formatModelRefDisplayText(roleDefaultModelRef(role), providers, modelGroups)
                         return (
                           <SortableItem key={roleId} id={roleId}>
                             {({ setNodeRef, handleProps, isDragging, style }) => (

@@ -18,6 +18,7 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { CustomScrollbarThumbs, useCustomScrollbar } from '../scroll/CustomScrollbar'
 import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../scroll/customScrollbars'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
+import { roleDefaultModelRef } from '../../domain/roleModelCandidates'
 import { clampNum } from '../utils/numbers'
 import { COMPOSER_SLASH_COMMANDS, findSlashCommandTrigger } from './composerSlashCommands'
 
@@ -409,7 +410,7 @@ export function ComposerInputControls(props: {
                 const id = String(r?.id || '')
                 const name = String(r?.name || '')
                 const avatarImage = String(r?.avatarImage || '')
-                const modelRefText = formatModelRefText(r?.modelRef)
+                const modelRefText = formatModelRefText(roleDefaultModelRef(r))
                 return (
                   <ListItemButton
                     key={id || name}

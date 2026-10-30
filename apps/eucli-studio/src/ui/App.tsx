@@ -60,6 +60,7 @@ import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
 import { formatModelRefDisplayText } from '../domain/modelRefUtils'
+import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
@@ -632,9 +633,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const overrideModelId = String(chatOverride?.modelId || '').trim()
   const hasChatOverride = !!overrideProviderId && !!overrideModelId
 
-  const roleProviderId = String((activeRole as any)?.modelRef?.providerId || '').trim()
-  const roleModelId = String((activeRole as any)?.modelRef?.modelId || '').trim()
-  const roleModelRef = (activeRole as any)?.modelRef || null
+  const roleModelRef = roleDefaultModelRef(activeRole)
+  const roleProviderId = String(roleModelRef?.providerId || '').trim()
+  const roleModelId = String(roleModelRef?.modelId || '').trim()
 
   const effectiveProviderId = hasChatOverride ? overrideProviderId : roleProviderId
   const effectiveModelId = hasChatOverride ? overrideModelId : roleModelId
