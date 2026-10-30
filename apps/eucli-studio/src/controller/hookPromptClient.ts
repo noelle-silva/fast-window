@@ -23,17 +23,17 @@ function text(value: unknown) {
 }
 
 export async function loadHookPromptLibrary(netRequest: EbNetRequest): Promise<HookPromptLibrary> {
-  const response = await netRequest({ method: 'GET', path: '/api/hook-prompts', timeoutMs: 15000 })
+  const response = await netRequest({ method: 'GET', path: '/api/hook-prompts' })
   return normalizeHookPromptLibrary(response?.body)
 }
 
 export async function saveHookPromptLibrary(netRequest: EbNetRequest, library: HookPromptLibrary): Promise<HookPromptLibrary> {
-  const response = await netRequest({ method: 'PUT', path: '/api/hook-prompts', body: normalizeHookPromptLibrary(library), timeoutMs: 15000 })
+  const response = await netRequest({ method: 'PUT', path: '/api/hook-prompts', body: normalizeHookPromptLibrary(library) })
   return normalizeHookPromptLibrary(response?.body)
 }
 
 export async function reorderHookPromptPresets(netRequest: EbNetRequest, presetIds: string[]): Promise<HookPromptLibrary> {
-  const response = await netRequest({ method: 'PUT', path: '/api/hook-prompts/order', body: { ids: presetIds }, timeoutMs: 15000 })
+  const response = await netRequest({ method: 'PUT', path: '/api/hook-prompts/order', body: { ids: presetIds } })
   return normalizeHookPromptLibrary(response?.body)
 }
 
@@ -45,7 +45,6 @@ export async function updateRoleSessionHookPrompt(netRequest: EbNetRequest, inpu
     method: 'PATCH',
     path: `/api/roles/${encodeURIComponent(roleId)}/sessions/${encodeURIComponent(sessionId)}/hook-prompt`,
     body: { mode: text(input.mode), presetId: text(input.presetId) },
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -58,7 +57,6 @@ export async function updateGroupSessionHookPrompt(netRequest: EbNetRequest, inp
     method: 'PATCH',
     path: `/api/groups/${encodeURIComponent(groupId)}/sessions/${encodeURIComponent(sessionId)}/hook-prompt`,
     body: { mode: text(input.mode), presetId: text(input.presetId) },
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -72,7 +70,6 @@ export async function updateWorkspaceSessionHookPrompt(netRequest: EbNetRequest,
     method: 'PATCH',
     path: `/api/workspaces/${encodeURIComponent(workspaceId)}/roles/${encodeURIComponent(roleId)}/sessions/${encodeURIComponent(sessionId)}/hook-prompt`,
     body: { mode: text(input.mode), presetId: text(input.presetId) },
-    timeoutMs: 15000,
   })
   return response?.body
 }

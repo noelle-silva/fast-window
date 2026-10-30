@@ -5,6 +5,7 @@ import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/wor
 import type { AiChatShowToast } from '../gateway/capabilities'
 import type { ModelRef } from '../domain/modelRefUtils'
 import type { EbRunState } from './ebRoleRun'
+import type { RunProbe } from './runProbe'
 
 export type ChatTargetKind = 'role' | 'group' | 'workspace'
 
@@ -46,13 +47,23 @@ export type ChatOperationsDeps = {
   reloadRoleSession?: (roleId: string, sessionId: string) => Promise<any>
   reloadGroupSession?: (groupId: string, sessionId: string) => Promise<any>
   reloadWorkspaceSession?: (workspaceId: string, roleId: string, sessionId: string) => Promise<any>
+  // 写路径之后的正文失效：编辑 / 删除 / 运行落盘都必须经过它。
+  // 只失效不重取——重取由紧接着的读取路径负责，一次写只产生一次读。
+  invalidateChatBody?: (scope: { kind: 'role' | 'group'; targetId: string }, chatId: string) => void
   waitForChatSettingsSave?: () => Promise<void>
+  // 写路径快照：PATCH 前用 profile=edit 取完整 parts（view 是被裁剪的视图）。
+  loadEditSnapshot?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<any | null>
+  // 视图回写：把「用户在看哪条路径」变成服务端事实（design-4 决策 3）。
+  // 只改视图，不改任何消息内容；后端不支持时静默跳过（本地分支状态仍然有效）。
+  persistSessionView?: (kind: 'role' | 'group', targetId: string, chatId: string, head: string, branchId: string) => Promise<void>
   emit: () => void
   render: () => void
   renderComposer: () => void
   emitComposerScope?: () => void
   scrollToBottomSoon: () => void
   readImageFileAsDataUrl: (file: File) => Promise<string>
+  // RunProbe：run 终态对账的唯一入口（取代 450ms 固定轮询）。
+  runProbe?: RunProbe
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {
@@ -66,6 +77,21 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     return parseWorkspaceRoleTargetId(targetIdRaw)
   }
 
+  // invalidateChatBodyAfterWrite 是「写成功之后」的唯一正文失效原语。
+  //
+  // 只失效、不重取：重取由紧接着的读取路径负责（reload*Session / loadStoredChat），
+  // 这样一次写只产生一次读。若在这里重取，refreshTargetSession 会先取一次、
+  // reload 再取一次，白打一次业务端。
+  //
+  // 工作区会话不走 scope 化正文缓存，直接跳过。
+  function invalidateChatBodyAfterWrite(targetKind: ChatTargetKind, targetId: string, sessionId: string) {
+    if (targetKind === 'workspace') return
+    const tid = String(targetId || '').trim()
+    const sid = String(sessionId || '').trim()
+    if (!tid || !sid) return
+    deps.invalidateChatBody?.({ kind: targetKind, targetId: tid }, sid)
+  }
+
   async function refreshRoleSession(roleId: string, sessionId: string, onLoaded?: (chat: any) => void, options?: { activate?: boolean }) {
     return refreshTargetSession('role', roleId, sessionId, onLoaded, options)
   }
@@ -77,6 +103,9 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     if (!state.data || !tid || !sid) return null
     const workspaceTarget = targetKind === 'workspace' ? splitWorkspaceTargetId(tid) : { workspaceId: '', roleId: '' }
     if (targetKind === 'workspace' && (!workspaceTarget.workspaceId || !workspaceTarget.roleId)) return null
+    // 写路径之后的重取：先失效正文缓存，再读。
+    // 不做这一步的话，reload 会命中写之前的正文，新消息消失、已删消息复活。
+    invalidateChatBodyAfterWrite(targetKind, tid, sid)
     if (targetKind === 'group') {
       if (!state.data.chatsByGroup || typeof state.data.chatsByGroup !== 'object') state.data.chatsByGroup = {}
       if (!state.data.chatsByGroup[tid] || typeof state.data.chatsByGroup[tid] !== 'object') state.data.chatsByGroup[tid] = { activeChatId: '', chatMetas: [], chats: [] }
@@ -152,12 +181,33 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     return false
   }
 
+  // persistSessionView 是「视图回写」的唯一入口。
+  //
+  // 语义：把用户选中的分支头部变成服务端事实，供多客户端 / 重启后恢复。
+  // 失败不打断本地交互：本地分支状态已经生效，回写只是让它可被别处看见。
+  // 工作区会话不走 scope 化视图通道，直接跳过。
+  async function persistActiveView(targetKind: ChatTargetKind, targetId: string, sessionId: string, head: string, branchId: string) {
+    if (targetKind === 'workspace') return
+    const tid = String(targetId || '').trim()
+    const sid = String(sessionId || '').trim()
+    const headMid = String(head || '').trim()
+    if (!tid || !sid || !headMid) return
+    if (typeof deps.persistSessionView !== 'function') return
+    try {
+      await deps.persistSessionView(targetKind, tid, sid, headMid, String(branchId || '').trim())
+    } catch (_) {
+      // 视图回写失败不影响本地：下一次切换会再写一次。
+    }
+  }
+
   return {
     deps,
     sa,
     cancelledRunIds,
     startingRoleRunKeys,
     splitWorkspaceTargetId,
+    invalidateChatBodyAfterWrite,
+    persistActiveView,
     refreshRoleSession,
     refreshTargetSession,
     activeSingleRoleTarget,

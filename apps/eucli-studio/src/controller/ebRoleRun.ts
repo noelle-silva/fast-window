@@ -1,5 +1,7 @@
 import { assignErrorPayload, normalizeErrorPayload, type ErrorPayload } from '../domain/errorPayload'
 
+// 超时预算统一由 protocol/timeoutBudget 提供（healthCheck 签发 + 方法类推导）。
+// 本模块不持有任何数字常量：请求只描述「做什么」，预算由传输层决定。
 type EbNetRequest = (req: any) => Promise<any>
 
 export type EbRunState = {
@@ -85,27 +87,30 @@ export async function startRoleRun(netRequest: EbNetRequest, input: { roleId: st
   if (!body.hookPromptMode) delete (body as any).hookPromptMode
   if (!body.hookPromptPresetId) delete (body as any).hookPromptPresetId
   if (typeof body.stream !== 'boolean') delete (body as any).stream
-  const response = await netRequest({ method: 'POST', path: '/api/runs', body, timeoutMs: 30000 })
+  // 启动运行是命令：后台预算。
+  const response = await netRequest({ method: 'POST', path: '/api/runs', body })
   return normalizeRunState(response?.body)
 }
 
 export async function getRunState(netRequest: EbNetRequest, runId: string) {
   const id = String(runId || '').trim()
   if (!id) throw new Error('run id 无效')
-  const response = await netRequest({ method: 'GET', path: `/api/runs/${encodeURIComponent(id)}`, timeoutMs: 15000 })
+  // 读运行状态是交互：交互预算。
+  const response = await netRequest({ method: 'GET', path: `/api/runs/${encodeURIComponent(id)}` })
   return normalizeRunState(response?.body)
 }
 
 export async function listActiveRoleRuns(netRequest: EbNetRequest) {
-  const response = await netRequest({ method: 'GET', path: '/api/runs', timeoutMs: 15000 })
+  const response = await netRequest({ method: 'GET', path: '/api/runs' })
   const runs = Array.isArray(response?.body) ? response.body : []
   return runs.map(normalizeRunState).filter((run: EbRunState) => run.id && !isTerminalRunStatus(run.status))
 }
 
+// cancelRoleRun 必须幂等：业务端对已终态的 run 返回 204，这里照常视为成功。
 export async function cancelRoleRun(netRequest: EbNetRequest, runId: string) {
   const id = String(runId || '').trim()
   if (!id) throw new Error('run id 无效')
-  await netRequest({ method: 'POST', path: `/api/runs/${encodeURIComponent(id)}/cancel`, timeoutMs: 15000 })
+  await netRequest({ method: 'POST', path: `/api/runs/${encodeURIComponent(id)}/cancel` })
 }
 
 export async function submitToolConfirmation(netRequest: EbNetRequest, input: { decisionId: string; approved: boolean; rememberForSession?: boolean; reason?: string }) {
@@ -118,26 +123,7 @@ export async function submitToolConfirmation(netRequest: EbNetRequest, input: { 
   if (input.rememberForSession) body.rememberForSession = true
   const reason = String(input.reason || '').trim()
   if (reason) body.reason = reason
-  await netRequest({ method: 'POST', path: '/api/tool-confirmations', body, timeoutMs: 15000 })
-}
-
-export async function pollRunUntilTerminal(
-  netRequest: EbNetRequest,
-  initialRun: EbRunState,
-  onState?: (run: EbRunState) => void | Promise<void>,
-  options?: { shouldContinue?: () => boolean },
-) {
-  let state = initialRun
-  const runId = String(state?.id || '').trim()
-  if (!runId) throw new Error('run id 无效')
-  while (!isTerminalRunStatus(state.status)) {
-    if (options?.shouldContinue && !options.shouldContinue()) return state
-    await sleepMs(450)
-    if (options?.shouldContinue && !options.shouldContinue()) return state
-    state = await getRunState(netRequest, runId)
-    await onState?.(state)
-  }
-  return state
+  await netRequest({ method: 'POST', path: '/api/tool-confirmations', body })
 }
 
 export function normalizeRunState(value: any): EbRunState {
@@ -180,8 +166,4 @@ export function runStateFailureError(state: EbRunState) {
   const payload = state.error
   const err: any = new Error(String(payload?.message || state.reason || `e-b run ${state.status}`))
   return assignErrorPayload(err, payload)
-}
-
-export function sleepMs(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, Math.max(0, Math.floor(Number(ms || 0)))))
 }

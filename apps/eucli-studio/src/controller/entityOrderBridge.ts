@@ -37,7 +37,6 @@ export function saveEntityOrder(
         method: 'PUT',
         path: orderPaths[collection],
         body: { ids: normalized },
-        timeoutMs: 15000,
       })
     })
   writeChains.set(collection, next)

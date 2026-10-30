@@ -44,7 +44,7 @@ export function createSystemPluginController(deps: {
   const installTracker = createArtifactInstallTracker({
     loadState: async (pluginId) => {
       const netRequest = requireNetRequest()
-      const response = await netRequest({ method: 'GET', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install-state`, timeoutMs: 15000 })
+      const response = await netRequest({ method: 'GET', path: `/api/system-plugins/${encodeURIComponent(pluginId)}/install-state` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return normalizeArtifactInstallState(response?.body)
@@ -56,7 +56,7 @@ export function createSystemPluginController(deps: {
     },
     loadOperations: async () => {
       const netRequest = requireNetRequest()
-      const response = await netRequest({ method: 'GET', path: '/api/artifact-operations', timeoutMs: 15000 })
+      const response = await netRequest({ method: 'GET', path: '/api/artifact-operations' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return normalizeArtifactInstallStateList(response?.body).filter((state) => String(state.artifact?.kind || '') === 'plugin')

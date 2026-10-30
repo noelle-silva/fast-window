@@ -23,7 +23,7 @@ import {
 } from '../domain/sessionComposerDrafts'
 import { buildGroupSpeakerPlan } from '../domain/groupSpeakerPlan'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
-import { cancelRoleRun, pollRunUntilTerminal, runStateFailureError, startRoleRun } from './ebRoleRun'
+import { cancelRoleRun, runStateFailureError, startRoleRun } from './ebRoleRun'
 import type { EbRunState } from './ebRoleRun'
 import type { ChatTargetKind, ExistingMessageRunOptions, RoleRunInput, SendChatOptions } from './chatOperationsShared'
 import type { createChatOperationsShared } from './chatOperationsShared'
@@ -352,7 +352,11 @@ export function createChatRunOperations(
 
     if (sessionId) await refreshRunSession()
 
-    state = await pollRunUntilTerminal(netRequest, state, async (nextState) => {
+    // run 终态由事件驱动（RunProbe 只在静默/重连/可见时探一次），
+    // 不再每 450ms 发一条 HTTP。
+    const probe = deps.runProbe
+    if (!probe) throw new Error('run 探针未装配')
+    state = await probe.track(state, (nextState) => {
       state = nextState
       followMessageId = String(state.lastMessageId || followMessageId || '').trim()
       syncEbRoleRunCard(state, { roleId: input.roleId, groupId, workspaceId, sessionId, lastMessageId: followMessageId, anchorMessageId: runAnchorMessageId, dependencyMessageIds, startedFromPending, pendingChatId: startedFromPendingChatId })
@@ -360,7 +364,7 @@ export function createChatRunOperations(
       const nextSessionId = String(state.sessionId || sessionId || '').trim()
       if (nextSessionId) {
         sessionId = nextSessionId
-        if (!runSessionLoadedOnce && (startedFromPending || !input.sessionId)) await refreshRunSession()
+        if (!runSessionLoadedOnce && (startedFromPending || !input.sessionId)) void refreshRunSession()
       }
     })
 

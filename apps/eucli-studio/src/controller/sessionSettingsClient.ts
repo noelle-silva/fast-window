@@ -44,7 +44,6 @@ export async function updateRoleSessionSettings(netRequest: EbNetRequest, input:
     method: 'PATCH',
     path: `/api/roles/${encodeURIComponent(roleId)}/sessions/${encodeURIComponent(sessionId)}/settings`,
     body: settingsBody(patch),
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -57,7 +56,6 @@ export async function updateGroupSessionSettings(netRequest: EbNetRequest, input
     method: 'PATCH',
     path: `/api/groups/${encodeURIComponent(groupId)}/sessions/${encodeURIComponent(sessionId)}/settings`,
     body: settingsBody(patch),
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -71,7 +69,6 @@ export async function updateWorkspaceSessionSettings(netRequest: EbNetRequest, i
     method: 'PATCH',
     path: `/api/workspaces/${encodeURIComponent(workspaceId)}/roles/${encodeURIComponent(roleId)}/sessions/${encodeURIComponent(sessionId)}/settings`,
     body: settingsBody(patch),
-    timeoutMs: 15000,
   })
   return response?.body
 }

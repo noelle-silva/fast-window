@@ -1,8 +1,13 @@
 import { now } from '../core/utils'
 import { chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
 import { isStoredChatNewerThanCurrent, mergeChatFromStorage } from '../domain/chatStorageSync'
-import { splitGroupChatIndexKey, splitGroupChatKey } from '../domain/storageKeys'
+import { splitGroupChatIndexKey } from '../domain/storageKeys'
 import { normalizeStoredChat } from './normalizeStoredChat'
+import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
+
+// 群聊索引同步：索引读取统一走 SplitProjectionCache（带 revision 的完整快照），
+// 本模块只负责「把快照合并进 UI 状态」与「touch 更新时间」两种动作。
+// 不再依赖 meta.chatIndexByGroup：会话索引已经不属于 meta。
 
 export function createGroupChatSync(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void> }
@@ -11,36 +16,32 @@ export function createGroupChatSync(deps: {
   getSplitMetaCache: () => any
   withSplitMetaWrite: <T>(fn: () => Promise<T>) => Promise<T>
   hasActiveGroupRunInSession: (groupId: string, chatId: string) => boolean
+  loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  loadChatBody: (scope: ProjectionScope, chatId: string) => Promise<any>
+  onSessionIndexInvalidated?: (kind: 'role' | 'group', targetId: string) => void
 }) {
-  const { storage, getState, loadSplitMeta, getSplitMetaCache, withSplitMetaWrite, hasActiveGroupRunInSession } = deps
+  const {
+    storage,
+    getState,
+    loadSplitMeta,
+    getSplitMetaCache,
+    withSplitMetaWrite,
+    hasActiveGroupRunInSession,
+    loadChatIndex,
+    loadChatBody,
+    onSessionIndexInvalidated,
+  } = deps
 
-  let uiLastMetaUpdatedAt = 0
   let uiChatSyncing = false
 
-  async function loadGroupFolderMeta(groupId: string) {
-    if (!groupId) return null
+  async function loadGroupFolder(groupId: string) {
+    if (!groupId) return ''
     let meta = getSplitMetaCache()
     let folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
-    if (meta && folder) return { meta, folder }
-
+    if (meta && folder) return folder
     meta = await loadSplitMeta()
     folder = String((meta as any)?.groupFolders?.[groupId] || '').trim()
-    return meta && folder ? { meta, folder } : null
-  }
-
-  async function loadGroupIndexMeta(groupId: string) {
-    const target = await loadGroupFolderMeta(groupId)
-    const meta = target?.meta
-    const folder = String(target?.folder || '').trim()
-    if (!meta || !folder) return null
-    const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
-    if (!idx || typeof idx !== 'object') return { meta, folder, updatedAt: Number((meta as any)?.updatedAt || 0) }
-    const updatedAt = Math.max(Number((meta as any)?.updatedAt || 0), Number((idx as any)?.updatedAt || 0))
-    return {
-      meta: { ...(meta as any), updatedAt, chatIndexByGroup: { ...((meta as any).chatIndexByGroup || {}), [groupId]: idx } },
-      folder,
-      updatedAt,
-    }
+    return folder
   }
 
   async function touchGroupChatUpdatedAt(groupId: any, chatId: any, updatedAt: any) {
@@ -50,8 +51,7 @@ export function createGroupChatSync(deps: {
     if (!gid || !cid) return
 
     await withSplitMetaWrite(async () => {
-      const target = await loadGroupFolderMeta(gid)
-      const folder = String(target?.folder || '').trim()
+      const folder = await loadGroupFolder(gid)
       if (!folder) return
       const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
       if (!idx || typeof idx !== 'object') return
@@ -72,10 +72,12 @@ export function createGroupChatSync(deps: {
       ;(idx as any).chatUpdatedAt = chatMetaUpdatedAtMap(metas)
       ;(idx as any).updatedAt = now()
       await storage.set(splitGroupChatIndexKey(folder), idx)
+      // 写路径必须显式失效缓存：禁止用 TTL 当刷新通道。
+      onSessionIndexInvalidated?.('group', gid)
     })
   }
 
-  async function syncActiveGroupChatsFromStorage(metaOverride?: any) {
+  async function syncActiveGroupChatsFromStorage() {
     const state = getState()
     if (!state.data) return
     if (uiChatSyncing) return
@@ -84,21 +86,15 @@ export function createGroupChatSync(deps: {
       const gid = String((state.draft as any).activeGroupId || (state.data?.ui as any)?.activeGroupId || '').trim()
       if (!gid) return
 
-      const activeMeta = metaOverride ? null : await loadGroupIndexMeta(gid)
-      const meta = metaOverride || activeMeta?.meta || (await loadSplitMeta())
-      if (!meta || typeof meta !== 'object') return
+      const folder = await loadGroupFolder(gid)
+      if (!folder) return
+      const snapshot = await loadChatIndex({ kind: 'group', targetId: gid })
+      if (!snapshot) return
 
-      const updatedAt = Number((meta as any).updatedAt || 0)
-      if (updatedAt) uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, updatedAt)
-
-      const folder = String((meta as any).groupFolders?.[gid] || '')
-      const idx = (meta as any).chatIndexByGroup?.[gid]
-      if (!folder || !idx || typeof idx !== 'object') return
-
-      const chatMetas = chatMetasFromBox(idx, '群聊')
+      const chatMetas = snapshot.chatMetas.length ? snapshot.chatMetas : chatMetasFromBox(snapshot, '群聊')
       const desiredChatIds = chatMetas.map((x: any) => String(x?.id || '')).filter((x: any) => !!x)
-      const desiredActiveChatId = String((idx as any).activeChatId || '')
-      const wantUpdatedAt = (idx as any).chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {}
+      const desiredActiveChatId = String(snapshot.activeChatId || '')
+      const wantUpdatedAt = snapshot.chatUpdatedAt || {}
 
       if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
       if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
@@ -108,9 +104,8 @@ export function createGroupChatSync(deps: {
       const keepChatNow = String(box.activeChatId || '')
       const activeChatId = keepChatNow || desiredActiveChatId || String(desiredChatIds[0] || '')
 
-      const curChats = box.chats
       const curById = new Map<string, any>()
-      for (const c of curChats) {
+      for (const c of box.chats) {
         const cid = String(c?.id || '')
         if (cid) curById.set(cid, c)
       }
@@ -118,21 +113,18 @@ export function createGroupChatSync(deps: {
       const nextChats: any[] = []
       for (const cid of desiredChatIds) {
         const cur = curById.get(cid) || null
-        if (!cur) {
-          continue
-        }
-
-        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
+        if (!cur) continue
+        const metaUpdatedAt = Number(wantUpdatedAt[cid] || 0)
         if (metaUpdatedAt && cid !== activeChatId && isStoredChatNewerThanCurrent(metaUpdatedAt, cur.updatedAt)) cur.updatedAt = metaUpdatedAt
         nextChats.push(cur)
       }
 
       if (activeChatId) {
-        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[activeChatId] || 0)
+        const metaUpdatedAt = Number(wantUpdatedAt[activeChatId] || 0)
         const cur = curById.get(activeChatId) || null
         const curUpdatedAt = Number(cur?.updatedAt || 0)
         if (!hasActiveGroupRunInSession(gid, activeChatId) && isStoredChatNewerThanCurrent(metaUpdatedAt, curUpdatedAt)) {
-          const c0 = await storage.get(splitGroupChatKey(folder, activeChatId))
+          const c0 = await loadChatBody({ kind: 'group', targetId: gid }, activeChatId)
           const c1 = c0 && typeof c0 === 'object' ? normalizeStoredChat(c0, 'group') : null
           if (c1) {
             const idx0 = nextChats.findIndex((c: any) => String(c?.id || '') === activeChatId)

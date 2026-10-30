@@ -1,5 +1,6 @@
 import { upsertEbRoleRunCard, removeEbRoleRunCard } from '../domain/activeRunCards'
-import { getRunState, isTerminalRunStatus, listActiveRoleRuns, pollRunUntilTerminal, type EbRunState } from './ebRoleRun'
+import { getRunState, isTerminalRunStatus, listActiveRoleRuns, type EbRunState } from './ebRoleRun'
+import type { RunProbe } from './runProbe'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createControllerBootstrap(deps: {
@@ -8,6 +9,7 @@ export function createControllerBootstrap(deps: {
   showToast?: AiChatShowToast
   getNetRequest: () => ((req: any) => Promise<any>) | undefined
   isDisposed: () => boolean
+  runProbe: RunProbe
   ensureSplitStoreReady: () => Promise<any>
   loadShell: () => Promise<any>
   refreshWorkspaces: (activeWorkspaceId?: any) => Promise<any>
@@ -19,7 +21,7 @@ export function createControllerBootstrap(deps: {
   reloadGroupSession: (groupId: any, sessionId: any) => Promise<any>
   reloadWorkspaceSession: (workspaceId: any, roleId: any, sessionId: any) => Promise<any>
 }) {
-  const { state, render, showToast, getNetRequest, isDisposed, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
+  const { state, render, showToast, getNetRequest, isDisposed, runProbe, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
   const restoringRunIds = new Set<string>()
 
   async function load() {
@@ -50,6 +52,8 @@ export function createControllerBootstrap(deps: {
     }
   }
 
+  // restoreActiveEbRoleRuns 只做一次启动快照，然后交给 RunProbe 对账：
+  // 不再为每条 run 起一条 450ms 循环。
   async function restoreActiveEbRoleRuns() {
     const netRequest = getNetRequest()
     if (typeof netRequest !== 'function') return
@@ -86,16 +90,12 @@ export function createControllerBootstrap(deps: {
           let latest = await getRunState(netRequest, runId).catch(() => initialRun)
           if (syncRunCard(latest)) render()
           if (!isTerminalRunStatus(latest.status)) {
-            latest = await pollRunUntilTerminal(
-              netRequest,
-              latest,
-              async (nextRun) => {
-                latest = nextRun
-                if (syncRunCard(nextRun)) render()
-              },
-              { shouldContinue: () => !isDisposed() },
-            )
+            latest = await runProbe.track(latest, (nextRun) => {
+              latest = nextRun
+              if (syncRunCard(nextRun)) render()
+            })
           }
+          if (isDisposed()) return
           const roleId = String(latest?.roleId || '').trim()
           const groupId = String((latest as any)?.groupId || '').trim()
           const workspaceId = String((latest as any)?.workspaceId || '').trim()

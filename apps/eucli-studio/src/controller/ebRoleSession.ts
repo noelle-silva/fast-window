@@ -219,7 +219,6 @@ async function updateSessionTitle(netRequest: EbNetRequest, target: SessionTarge
     method: 'PATCH',
     path: `${sessionRouteBasePath(target)}/title`,
     body: { title: String(title || '').trim() || defaultSessionTitle(target) },
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -234,7 +233,6 @@ async function updateSessionMessage(netRequest: EbNetRequest, target: SessionTar
     method: 'PATCH',
     path: `${sessionRouteBasePath(target)}/messages/${encodeURIComponent(messageId)}`,
     body,
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -245,7 +243,6 @@ async function deleteSessionMessage(netRequest: EbNetRequest, target: SessionTar
   const response = await netRequest({
     method: 'DELETE',
     path: `${sessionRouteBasePath(target)}/messages/${encodeURIComponent(messageId)}`,
-    timeoutMs: 15000,
   })
   return response?.body
 }
@@ -256,7 +253,6 @@ async function deleteSessionMessageSubtree(netRequest: EbNetRequest, target: Ses
   const response = await netRequest({
     method: 'DELETE',
     path: `${sessionRouteBasePath(target)}/messages/${encodeURIComponent(messageId)}/subtree`,
-    timeoutMs: 15000,
   })
   return response?.body
 }

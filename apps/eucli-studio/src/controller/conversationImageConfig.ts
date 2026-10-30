@@ -34,7 +34,7 @@ export function createConversationImageConfigController(deps: {
     deps.emit()
 
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/conversation-image/config', timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/conversation-image/config' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const value = normalizeConversationImageConfig(response?.body)
@@ -79,7 +79,7 @@ export function createConversationImageConfigController(deps: {
     patchBox({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/conversation-image/config', body: config, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/conversation-image/config', body: config })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const value = normalizeConversationImageConfig(response?.body)

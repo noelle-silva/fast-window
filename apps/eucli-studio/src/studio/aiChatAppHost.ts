@@ -43,8 +43,11 @@ export type AiChatAppHostOptions = {
 
 export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Promise<AiChatAppRuntime> {
   const baseApi = createEucliStudioHostApi(options)
-  const { api, directClient } = await createDirectCapabilitiesAdapter(baseApi)
+  const { api, directClient, refreshCapabilities } = await createDirectCapabilitiesAdapter(baseApi)
   const bootstrap = normalizeStudioBootstrap(await directClient.invoke('studio.bootstrap'))
+  // 能力协商的时序：bootstrap 触发 box 能力探测，之后必须重新握手，
+  // 否则首次 healthCheck 拿到的 features 永远是探测前的空集合（gated 功能全关）。
+  await refreshCapabilities().catch(() => {})
   const created = createAiChatControllerV2({ capabilities: createAiChatCapabilitiesFromHostApi(api, EUCLI_STUDIO_APP_ID) })
   const { controller } = created
   await created.init({ businessAvailable: bootstrap.businessAvailable })

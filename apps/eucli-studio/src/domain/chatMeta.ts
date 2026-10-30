@@ -12,6 +12,9 @@ export type ChatMeta = {
   hasPending: boolean
   runStatus: ChatSessionRunStatus
   runStatusChangedAt: number
+  // partial 表示这份 meta 来自「消息窗口」而不是整份会话：
+  // 条数与摘要都是窗口切片的事实，绝不能拿来覆盖索引里的列表事实。
+  partial?: boolean
 }
 
 function normalizeWhitespace(value: unknown): string {
@@ -126,6 +129,7 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
     hasPending,
     runStatus: hasPending ? 'running' : runSummary.status,
     runStatusChangedAt: Number(runSummary.changedAt || updatedAt || createdAt || 0),
+    ...(chat.windowPartial === true ? { partial: true } : {}),
   }
 }
 
@@ -192,8 +196,12 @@ export function chatMetasFromBox(box: any, fallbackTitle = '新聊天'): ChatMet
     const meta = chatMetaFromChat(chat, fallbackTitle)
     if (!meta) continue
     const index = indexById.get(meta.id)
-    if (typeof index === 'number') out[index] = meta
-    else {
+    // 窗口切片只补「列表里还没有这条会话」的情形；
+    // 已有索引事实时绝不拿窗口的条数与摘要去覆盖它。
+    if (typeof index === 'number') {
+      if (meta.partial) continue
+      out[index] = meta
+    } else {
       indexById.set(meta.id, out.length)
       out.push(meta)
     }

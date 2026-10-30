@@ -3,7 +3,6 @@ import { now } from '../core/utils'
 export const REQUEST_RECORD_LIMIT_MIN = 1
 export const REQUEST_RECORD_LIMIT_MAX = 1000
 export const REQUEST_RECORD_LIMIT_DEFAULT = 100
-export const REQUEST_RECORD_AUTO_REFRESH_MS = 5000
 
 const REQUEST_RECORD_CACHE_MS = 60 * 1000
 
@@ -39,7 +38,6 @@ export function createRequestRecordsController(deps: {
   showToast?: (msg: string, options?: any) => void
 }) {
   let listRefreshInFlight: Promise<any[] | null> | null = null
-  let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
   function currentBox() {
     const state = deps.getState()
@@ -59,7 +57,7 @@ export function createRequestRecordsController(deps: {
       deps.emit()
     }
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/request-records', timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/request-records' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const items = normalizeRequestRecordSummaries(response?.body)
@@ -97,18 +95,14 @@ export function createRequestRecordsController(deps: {
     return listRefreshInFlight
   }
 
+  // 请求记录是「用户打开面板才看」的有限期视图：
+  // 打开时拉一次、点刷新时再拉，不再保留 5s 后台定时器（design-5 第九节第 6 条）。
   function startRequestRecordsAutoRefresh() {
-    if (autoRefreshTimer !== null) return
     void refreshRequestRecords({ force: true })
-    autoRefreshTimer = setInterval(() => {
-      void refreshRequestRecords({ force: true, silent: true })
-    }, REQUEST_RECORD_AUTO_REFRESH_MS)
   }
 
   function stopRequestRecordsAutoRefresh() {
-    if (autoRefreshTimer === null) return
-    clearInterval(autoRefreshTimer)
-    autoRefreshTimer = null
+    // 没有定时器需要清理：保留空实现是为了让调用方（面板卸载）保持对称。
   }
 
   async function refreshRequestRecordConfig(force = false) {
@@ -119,7 +113,7 @@ export function createRequestRecordsController(deps: {
     patchBox({ configLoading: true, configError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/request-records/config', timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/request-records/config' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const config = normalizeRequestRecordConfig(response?.body)
@@ -141,7 +135,7 @@ export function createRequestRecordsController(deps: {
     patchBox({ selectedId: recordId, detailLoading: true, detailError: '', detail: null })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/request-records/${encodeURIComponent(recordId)}`, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/request-records/${encodeURIComponent(recordId)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const detail = normalizeRequestRecord(response?.body)
@@ -194,7 +188,7 @@ export function createRequestRecordsController(deps: {
     patchBox({ configSaving: true, configError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/request-records/config', body: next, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/request-records/config', body: next })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const config = normalizeRequestRecordConfig(response?.body)

@@ -2,6 +2,7 @@ import * as React from 'react'
 import { isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder } from '../../domain/chatMessageDisplay'
 import { buildChatTreeLayout } from '../chatTree/chatTreeLayout'
+import { graphAsMessages } from '../../protocol/sessionGraphContract'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
 import { useEvent } from './useEvent'
@@ -474,14 +475,50 @@ export function useChatTree(deps: {
     scheduleTreeViewTransform()
   })
 
+  // 树视图的结构投影（design-4 P3）。
+  //
+  // 窗口模式下本地只有一窗（≤24 条），直接画树会把分支结构截断。
+  // 因此树打开时取一次 graph（只有结构、无正文）；拿不到就回落到本地消息。
+  // 注意：这是纯读取，不改变消息渲染路径——graph 只喂给 buildChatTreeLayout。
+  const [graphMessages, setGraphMessages] = React.useState<any[] | null>(null)
+  React.useEffect(() => {
+    if (!treeOpen || !renderChatId) {
+      setGraphMessages(null)
+      return
+    }
+    let cancelled = false
+    const load = (controller as any)?.actions?.loadSessionGraph
+    if (typeof load !== 'function') {
+      setGraphMessages(null)
+      return
+    }
+    void Promise.resolve(load())
+      .then((graph: any) => {
+        if (cancelled) return
+        if (!graph || !Array.isArray(graph.nodes) || !graph.nodes.length) {
+          setGraphMessages(null)
+          return
+        }
+        setGraphMessages(graphAsMessages(graph))
+      })
+      .catch(() => {
+        if (!cancelled) setGraphMessages(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [treeOpen, renderChatId, controller])
+
   const treeLayout = React.useMemo(() => {
     if (!renderChat || !treeOpen) return null
-    const treeMessages = chatAllMessagesRaw.filter((message: any) => {
+    // graph 命中时用它（完整 DAG），否则用本地已加载消息（旧行为）。
+    const source = graphMessages ?? chatAllMessagesRaw
+    const treeMessages = source.filter((message: any) => {
       const hasActiveRun = !!activeRunCardForAssistantMessage(activeSessionRunCards, message) && isAssistantGenerating(message)
       return !isStaleAssistantPlaceholder(message, hasActiveRun)
     })
     return buildChatTreeLayout(treeMessages, { maxNodes: 900 })
-  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), treeOpen, chatAllMessagesRaw.length, activeSessionRunCardsKey])
+  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), treeOpen, chatAllMessagesRaw.length, activeSessionRunCardsKey, graphMessages])
 
   const treeRender = React.useMemo(() => {
     const tl: any = treeLayout

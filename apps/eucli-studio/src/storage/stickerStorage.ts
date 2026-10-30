@@ -49,7 +49,7 @@ export function createStickerStorage(deps: {
 
     const u = String(dataUrl || '').trim()
     if (!looksLikeImageDataUrl(u)) return { ok: false, kind: 'bad-image' as const }
-    const item = await ebRequest({ method: 'POST', path: '/api/stickers/items', body: { categoryName: cat, stickerName: name, dataUrl: u }, timeoutMs: 30000 })
+    const item = await ebRequest({ method: 'POST', path: '/api/stickers/items', body: { categoryName: cat, stickerName: name, dataUrl: u } })
     return { ok: true, kind: 'ok' as const, relPath: String(item?.relPath || ''), item }
   }
 

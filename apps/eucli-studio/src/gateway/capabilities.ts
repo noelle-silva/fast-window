@@ -1,4 +1,5 @@
 import type { AiChatNetAdapter, AiChatRuntimeStore } from '../engine/types'
+import type { SessionSwitchClient } from '../protocol/sessionSwitchProtocol'
 
 // ---- gateway interface types ----
 
@@ -7,6 +8,8 @@ export type AiChatStorageGateway = {
   set: (key: string, value: any) => Promise<void>
   remove: (key: string) => Promise<void>
   getAll?: () => Promise<Record<string, any>>
+  // 迁移垫片：一次往返拿多个 key，用于把「4 个 index key 扇出」压成一次。
+  getMany?: (keys: string[]) => Promise<Record<string, any>>
 }
 
 export type AiChatRuntimeStorageGateway = AiChatRuntimeStore & {
@@ -65,6 +68,8 @@ export type AiChatCapabilities = {
   ui: AiChatUiGateway
   clipboard: AiChatClipboardGateway
   host?: any
+  // scope 化协议客户端（可选）：缺席时 controller 全程走旧 storage key 路径。
+  sessionSwitch?: SessionSwitchClient
 }
 
 // ---- narrow capabilities (v4.5 target) ----
@@ -131,6 +136,7 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string)
       set: requireFunction(storage.set, 'storage.set'),
       remove: requireFunction(storage.remove, 'storage.remove'),
       getAll: optionalFunction(storage.getAll),
+      getMany: optionalFunction(storage.getMany),
     },
     runtimeStorage: {
       get: requireFunction(runtimeStorage.get, 'runtimeStorage.get'),
@@ -166,5 +172,6 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string)
       readText: optionalFunction(clipboard.readText),
     },
     host: api.host,
+    sessionSwitch: api.sessionSwitch,
   }
 }

@@ -7,7 +7,7 @@ export function createInstallSourceClient(deps: {
 }) {
   async function get(kind: string): Promise<InstallSourceStatus | null> {
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/install-source/${encodeURIComponent(kind)}`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/install-source/${encodeURIComponent(kind)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return {
@@ -22,7 +22,7 @@ export function createInstallSourceClient(deps: {
   async function set(kind: string, sourceRaw: string): Promise<{ ok: boolean; error?: string }> {
     const source = String(sourceRaw || '').trim()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/install-source/${encodeURIComponent(kind)}`, body: { source }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/install-source/${encodeURIComponent(kind)}`, body: { source } })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { ok: true }
@@ -33,7 +33,7 @@ export function createInstallSourceClient(deps: {
 
   async function listShelves(kind: string): Promise<{ shelves: Shelf[]; problem: string } | null> {
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/shelves/${encodeURIComponent(kind)}`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/shelves/${encodeURIComponent(kind)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { shelves: readShelves(response?.body), problem: String(response?.body?.problem || '').trim() }
@@ -59,7 +59,7 @@ export function createInstallSourceClient(deps: {
 
   async function shelvesRequest(kind: string, method: string, body: Record<string, unknown>): Promise<ShelfOutcome> {
     try {
-      const response = await deps.netRequest({ method, path: `/api/shelves/${encodeURIComponent(kind)}`, body, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method, path: `/api/shelves/${encodeURIComponent(kind)}`, body })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return { ok: true, shelves: readShelves(response?.body) }

@@ -36,14 +36,14 @@ export function createToolWorkDirectoryController(deps: {
   }
 
   async function loadToolWorkDirectory(): Promise<string> {
-    const response = await deps.netRequest({ method: 'GET', path: '/api/tools/work-directory', timeoutMs: 15000 })
+    const response = await deps.netRequest({ method: 'GET', path: '/api/tools/work-directory' })
     const status = Number(response?.status || 0)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
     return String(response?.body?.directory || '').trim()
   }
 
   async function saveToolWorkDirectoryDirectory(directory: string): Promise<string> {
-    const response = await deps.netRequest({ method: 'PUT', path: '/api/tools/work-directory', body: { directory }, timeoutMs: 15000 })
+    const response = await deps.netRequest({ method: 'PUT', path: '/api/tools/work-directory', body: { directory } })
     const status = Number(response?.status || 0)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
     return String(response?.body?.directory || '').trim()

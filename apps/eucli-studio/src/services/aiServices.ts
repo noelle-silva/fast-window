@@ -21,7 +21,6 @@ export function createAiServices(deps: AiServicesDeps) {
       method: 'POST',
       path: '/api/assist/mermaid-fix',
       body,
-      timeoutMs: 90000,
     })
     const status = Number(r?.status || 200)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
@@ -41,7 +40,6 @@ export function createAiServices(deps: AiServicesDeps) {
       method: 'POST',
       path: '/api/assist/chat-title',
       body,
-      timeoutMs: 90000,
     })
     const status = Number(r?.status || 200)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
@@ -62,7 +60,6 @@ export function createAiServices(deps: AiServicesDeps) {
         categoryName: String(categoryName || '').trim(),
         stickerName: String(stickerName || '').trim(),
       },
-      timeoutMs: 90000,
     })
     const status = Number(r?.status || 200)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)

@@ -6,6 +6,8 @@ import { useSessionPageScrollRegistry } from './sessionPageScrollRegistry'
 import { useSessionPageVisible } from './SessionPageStack'
 import { useMessageBatchMount } from '../hooks/useMessageBatchMount'
 import { useMessageOffscreen } from '../hooks/useMessageOffscreen'
+import { useLoadOlderMessages } from '../hooks/useLoadOlderMessages'
+import { markSwitchEnhanceEnd, markSwitchEnhanceStart, markSwitchPainted } from '../../domain/switchSpan'
 
 type ChatMessageListSurfaceProps = Omit<
   React.ComponentProps<typeof ChatMessageList>,
@@ -52,6 +54,8 @@ export function SessionMessagePage(props: {
     layoutSignature,
     revealMessageRef,
   })
+  // 往上翻页：窗口是首屏读源，滚到顶部时按 cursor 续翻。
+  const onScrollPositionChange = useLoadOlderMessages({ controller: messageListProps.controller, sessionKey })
   const setScrollNode = React.useCallback(
     (el: HTMLDivElement | null) => {
       scrollRef.current = el
@@ -67,8 +71,35 @@ export function SessionMessagePage(props: {
     [activeRunTailPendingMessage, visibleMessages],
   )
 
+  // 切换观测的绘制三边界（design-5 P0）：
+  //   第一次 commit 之后 → painted；
+  //   首屏同步解析/装饰 → enhanceStart / enhanceEnd（并在此收尾 settled）。
+  // 只在「当前页且首次就绪」时上报一次，隐藏缓存页不参与。
+  const paintedKeyRef = React.useRef('')
+  React.useLayoutEffect(() => {
+    if (!pageActive || !sessionKey || paintedKeyRef.current === sessionKey) return
+    paintedKeyRef.current = sessionKey
+    markSwitchPainted()
+    markSwitchEnhanceStart()
+    // 同步装饰（markdown/mermaid 结构提交）在本次 commit 内完成：
+    // 用微任务把 enhanceEnd 排在当前帧之后，避免把自身算进装饰耗时。
+    let cancelled = false
+    void Promise.resolve().then(() => {
+      if (!cancelled) markSwitchEnhanceEnd()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pageActive, sessionKey, layoutSignature])
+
   return (
-    <CustomScrollArea ref={setScrollNode} onClick={onClick} hostSx={scrollHostSx} scrollSx={scrollSx}>
+    <CustomScrollArea
+      ref={setScrollNode}
+      onClick={onClick}
+      hostSx={scrollHostSx}
+      scrollSx={scrollSx}
+      onScrollPositionChange={pageActive ? onScrollPositionChange : undefined}
+    >
       {hasMessages ? (
         <ChatMessageList
           {...messageListProps}

@@ -33,7 +33,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ portsLoading: true, portsError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/access/persistent-ports', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/access/persistent-ports' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const ports = Array.isArray(response?.body) ? response.body.map(normalizePersistentPort) : []
@@ -53,7 +53,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ portsSaving: true, portsError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'POST', path: '/api/access/persistent-ports', body: { name, port }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'POST', path: '/api/access/persistent-ports', body: { name, port } })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshPorts()
@@ -73,7 +73,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ portsSaving: true, portsError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-ports/${encodeURIComponent(id)}/enable`, body: {}, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-ports/${encodeURIComponent(id)}/enable`, body: {} })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshPorts()
@@ -93,7 +93,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ portsSaving: true, portsError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-ports/${encodeURIComponent(id)}/disable`, body: {}, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-ports/${encodeURIComponent(id)}/disable`, body: {} })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshPorts()
@@ -113,7 +113,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ portsSaving: true, portsError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'DELETE', path: `/api/access/persistent-ports/${encodeURIComponent(id)}`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'DELETE', path: `/api/access/persistent-ports/${encodeURIComponent(id)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshPorts()
@@ -134,7 +134,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysLoading: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/access/persistent-keys', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/access/persistent-keys' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const keys = Array.isArray(response?.body) ? response.body.map(normalizePersistentKeyView) : []
@@ -154,7 +154,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysSaving: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'POST', path: '/api/access/persistent-keys', body: { name, expiresAt }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'POST', path: '/api/access/persistent-keys', body: { name, expiresAt } })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const created = normalizePersistentKeyCreated(response?.body)
@@ -175,7 +175,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysLoading: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/reveal`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/reveal` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const body = response?.body && typeof response.body === 'object' ? response.body : {}
@@ -195,7 +195,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysSaving: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, body: {}, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, body: {} })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshKeys()
@@ -215,7 +215,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysSaving: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/expiration`, body: { expiresAt }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/access/persistent-keys/${encodeURIComponent(id)}/expiration`, body: { expiresAt } })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshKeys()
@@ -235,7 +235,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ keysSaving: true, keysError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'DELETE', path: `/api/access/persistent-keys/${encodeURIComponent(id)}`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'DELETE', path: `/api/access/persistent-keys/${encodeURIComponent(id)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       await refreshKeys()
@@ -255,7 +255,7 @@ export function createAccessSettingsController(deps: {
     patchSection({ boxInfoLoading: true, boxInfoError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/box/info', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/box/info' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const info = normalizeBoxInfo(response?.body)

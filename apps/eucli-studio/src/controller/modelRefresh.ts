@@ -28,7 +28,6 @@ export function createModelRefresh(deps: {
       const r = await deps.netRequest({
         method: 'POST',
         path: `/api/providers/${encodeURIComponent(providerId)}/models/refresh`,
-        timeoutMs: 20000,
       })
 
       const status = Number(r?.status || 0)

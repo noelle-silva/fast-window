@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
+import { activeBranchHeadMidOrLast } from '../domain/branching'
 import {
   normalizeBranchId,
   ensureChatBranching,
@@ -11,8 +12,16 @@ import {
 import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatBranchOperations(shared: ReturnType<typeof createChatOperationsShared>) {
-  const { deps, sa, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed } = shared
+  const { deps, sa, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, persistActiveView } = shared
   const { getState, showToast, save, ensureActiveChatLoaded, render, scrollToBottomSoon } = deps
+
+  // 视图回写：本地分支状态已改，同时把它变成服务端事实。
+  // head 用「活动分支头部消息」表达（比 branchId 可靠，见 design-4 决策 3）。
+  function persistView(targetKind: 'role' | 'group', targetId: string, chat: any) {
+    const branchId = String(chat?.branching?.activeBranchId || '').trim()
+    const head = activeBranchHeadMidOrLast(chat)
+    void persistActiveView(targetKind, targetId, String(chat?.id || ''), head, branchId)
+  }
 
   async function createParallelBranchFromAssistantMessage(assistantMid: any) {
     const state = getState()
@@ -151,6 +160,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     if (b && !String((b as any)?.headMid || '').trim()) (b as any).headMid = pickedMid
 
     save().catch(() => {})
+    persistView('role', String(sa.activeRole()?.id || ''), chat)
     const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
     if (draft0 && String(draft0?.roleId || '') === String(sa.activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {
       state.branchDraft = null
@@ -181,6 +191,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     }
 
     save().catch(() => {})
+    persistView('role', String(sa.activeRole()?.id || ''), chat)
     render()
     scrollToBottomSoon()
   }

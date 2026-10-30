@@ -35,7 +35,7 @@ export function createModelRequestConfigController(deps: {
     deps.emit()
 
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/providers/model-request-config', timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/providers/model-request-config' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const value = normalizeModelRequestConfig(response?.body)
@@ -80,7 +80,7 @@ export function createModelRequestConfigController(deps: {
     patchBox({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/providers/model-request-config', body: config, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/providers/model-request-config', body: config })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const value = normalizeModelRequestConfig(response?.body)

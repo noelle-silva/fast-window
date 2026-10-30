@@ -1,14 +1,25 @@
 import { now } from '../core/utils'
 import { findChatMessageById } from '../domain/branching'
 import { replaceMessageText, editAssistantMessageBlock, deleteAssistantMessageBlock } from '../domain/assistantMessageBlockMutations'
+import { applyEditSnapshotParts } from './sessionEditSnapshot'
 import type { MessageMutationOperation } from '../domain/messageMutationConflicts'
 import { submitToolConfirmation as submitToolConfirmationRequest } from './ebRoleRun'
 import { deleteGroupSessionMessage, deleteGroupSessionMessageSubtree, deleteRoleSessionMessage, deleteRoleSessionMessageSubtree, deleteWorkspaceSessionMessage, deleteWorkspaceSessionMessageSubtree, updateGroupSessionMessage, updateRoleSessionMessage, updateWorkspaceSessionMessage } from './ebRoleSession'
 import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatMessageOperations(shared: ReturnType<typeof createChatOperationsShared>) {
-  const { deps, refreshTargetSession, activeTargetSessionMutationTarget, ensureTargetSessionMessageMutationAllowed } = shared
-  const { getState, netRequest, showToast, render } = deps
+  const { deps, refreshTargetSession, invalidateChatBodyAfterWrite, activeTargetSessionMutationTarget, ensureTargetSessionMessageMutationAllowed } = shared
+  const { getState, netRequest, showToast, render, loadEditSnapshot } = deps
+
+  // 写路径快照：view 是被裁剪的视图（只发 content、不发 text part），
+  // 直接拿它回写 PATCH 会把历史 parts 削掉一块。因此 PATCH 前必须先取 edit 快照。
+  // 工作区会话不走 scope 化协议，保持原样。
+  async function ensureEditSnapshot(target: { targetKind: 'role' | 'group' | 'workspace'; targetId: string; sessionId: string; chat: any }) {
+    if (!loadEditSnapshot) return
+    if (target.targetKind === 'workspace') return
+    const snapshot = await loadEditSnapshot(target.targetKind, target.targetId, target.sessionId).catch(() => null)
+    if (snapshot) applyEditSnapshotParts(target.chat, snapshot)
+  }
 
   function chatHasPendingToolConfirmation(chat: any, messageId: string, decisionId: string) {
     const message = findChatMessageById(chat, messageId)
@@ -66,6 +77,7 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       return false
     }
     if (!ensureTargetSessionMessageMutationAllowed(target, mid, operation)) return false
+    await ensureEditSnapshot(target)
     const messageIndex = messages.indexOf(message)
     const beforeMessage = clonePlain(message)
     const beforeChatUpdatedAt = target.chat.updatedAt
@@ -94,6 +106,9 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       render()
       return false
     }
+    // 写成功：本地已改，但缓存里还是写之前的正文。必须失效，
+    // 否则下一次读（运行刷新 / 对账 / 重新进入会话）会拿旧正文覆盖这次编辑。
+    invalidateChatBodyAfterWrite(target.targetKind, target.targetId, target.sessionId)
     render()
     return true
   }

@@ -12,6 +12,8 @@ import {
 import { loadProvidersFromStorage } from './splitIndexes'
 import { normalizeStoredChat } from './normalizeStoredChat'
 import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
+import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
+import { projectionScopeKey } from './splitProjectionCache'
 
 export type LazyChatKind = 'role' | 'group'
 
@@ -59,8 +61,15 @@ export function createLazyChatStore(deps: {
   getState: () => any
   loadSplitMeta: () => Promise<any>
   getSplitMetaCache?: () => any
+  // 会话索引已经不属于 meta：按 scope 从投影缓存读取（带 revision 的完整快照）。
+  loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  // 会话正文：单飞 + LRU 的加载器（优先走它，缺省时才直读 storage）。
+  chatBodies?: {
+    load: (scope: ProjectionScope, chatId: string) => Promise<any>
+    invalidate?: (scope: ProjectionScope, chatId: string) => void
+  }
 }) {
-  const { storage, getState, loadSplitMeta, getSplitMetaCache } = deps
+  const { storage, getState, loadSplitMeta, getSplitMetaCache, loadChatIndex, chatBodies } = deps
   const loadingChats = new Map<string, Promise<any>>()
 
   function cachedSplitMetaFor(kind: LazyChatKind, targetId: string) {
@@ -75,6 +84,10 @@ export function createLazyChatStore(deps: {
 
   function loadingChatKey(kind: LazyChatKind, targetId: string, chatId: string) {
     return `${kind}:${targetId}:${chatId}`
+  }
+
+  function scopeFor(kind: LazyChatKind, targetId: string): ProjectionScope {
+    return { kind, targetId }
   }
 
   async function loadShell() {
@@ -115,10 +128,10 @@ export function createLazyChatStore(deps: {
       const role = await storage.get(splitRoleKey(folder))
       if (!role || typeof role !== 'object') throw new Error('存储损坏：角色文件缺失或无效')
       d.roles.push(role)
-      const idx = meta.chatIndexByRole?.[rid] && typeof meta.chatIndexByRole?.[rid] === 'object' ? meta.chatIndexByRole[rid] : {}
+      const index = await loadChatIndex(scopeFor('role', rid))
       d.chatsByRole[String(role.id || rid)] = {
-        activeChatId: String(idx.activeChatId || ''),
-        chatMetas: chatMetasFromBox(idx, '新聊天'),
+        activeChatId: String(index?.activeChatId || ''),
+        chatMetas: index?.chatMetas || chatMetasFromBox({}, '新聊天'),
         chats: [],
       }
     }
@@ -129,10 +142,10 @@ export function createLazyChatStore(deps: {
       const group = await storage.get(splitGroupKey(folder))
       if (!group || typeof group !== 'object') throw new Error('存储损坏：群组文件缺失或无效')
       d.groups.push(group)
-      const idx = (meta as any).chatIndexByGroup?.[gid] && typeof (meta as any).chatIndexByGroup?.[gid] === 'object' ? (meta as any).chatIndexByGroup[gid] : {}
+      const index = await loadChatIndex(scopeFor('group', gid))
       d.chatsByGroup[String(group.id || gid)] = {
-        activeChatId: String(idx.activeChatId || ''),
-        chatMetas: chatMetasFromBox(idx, '群聊'),
+        activeChatId: String(index?.activeChatId || ''),
+        chatMetas: index?.chatMetas || chatMetasFromBox({}, '群聊'),
         chats: [],
       }
     }
@@ -161,7 +174,9 @@ export function createLazyChatStore(deps: {
       if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
       let raw: any = null
       try {
-        raw = await storage.get(chatKeyFor(kind, folder, chatId))
+        raw = chatBodies
+          ? await chatBodies.load(scopeFor(kind, targetId), chatId)
+          : await storage.get(chatKeyFor(kind, folder, chatId))
       } catch (error) {
         if (isMissingChatError(error)) {
           removeMissingChatRef(box, chatId, kind)
@@ -197,7 +212,9 @@ export function createLazyChatStore(deps: {
     const meta = await loadSplitMetaFor(kind, targetId)
     const folder = folderForTarget(meta, kind, targetId)
     if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
-    const raw = await storage.get(chatKeyFor(kind, folder, chatId))
+    const raw = chatBodies
+      ? await chatBodies.load(scopeFor(kind, targetId), chatId)
+      : await storage.get(chatKeyFor(kind, folder, chatId))
     return normalizeStoredChat(raw, kind)
   }
 
@@ -209,6 +226,7 @@ export function createLazyChatStore(deps: {
     const folder = folderForTarget(meta, kind, targetId)
     if (!folder) return
     await storage.remove(chatKeyFor(kind, folder, chatId))
+    chatBodies?.invalidate?.({ kind, targetId }, chatId)
   }
 
   async function ensureActiveChatLoaded() {
@@ -267,4 +285,8 @@ export function createLazyChatStore(deps: {
     upsertLoadedChat,
     removeLoadedChat,
   }
+}
+
+export function chatScopeKey(kind: LazyChatKind, targetId: string) {
+  return projectionScopeKey({ kind, targetId })
 }

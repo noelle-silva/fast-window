@@ -129,6 +129,12 @@ export function normalizeSplitMeta(raw: any) {
   const workspaceFolders = (raw as any).workspaceFolders && typeof (raw as any).workspaceFolders === 'object' ? (raw as any).workspaceFolders : {}
   const chatIndexByWorkspace =
     (raw as any).chatIndexByWorkspace && typeof (raw as any).chatIndexByWorkspace === 'object' ? (raw as any).chatIndexByWorkspace : {}
+  // 供应商 / 模型组的目录事实由 studio 后端 meta() 一并组装：
+  // 前端靠它们寻址，不再单独读 providers/index、model-groups/index。
+  const providerOrder = Array.isArray((raw as any).providerOrder) ? (raw as any).providerOrder.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+  const providerFolders = (raw as any).providerFolders && typeof (raw as any).providerFolders === 'object' ? (raw as any).providerFolders : {}
+  const modelGroupOrder = Array.isArray((raw as any).modelGroupOrder) ? (raw as any).modelGroupOrder.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+  const modelGroupFolders = (raw as any).modelGroupFolders && typeof (raw as any).modelGroupFolders === 'object' ? (raw as any).modelGroupFolders : {}
 
   return {
     schemaVersion: SPLIT_SCHEMA_VERSION,
@@ -144,6 +150,10 @@ export function normalizeSplitMeta(raw: any) {
     chatIndexByGroup,
     workspaceFolders,
     chatIndexByWorkspace,
+    providerOrder,
+    providerFolders,
+    modelGroupOrder,
+    modelGroupFolders,
   }
 }
 
@@ -359,6 +369,9 @@ export function normalizeData(raw: any) {
           messages: messages.filter((m: any) => m && typeof m === 'object').map((m: any) => normalizeChatMessage(m, { activeBranchId, toolMessagesAsAssistant: true })),
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		// windowPartial 是「只加载了一窗」的显式事实：
+		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
+		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 
@@ -481,6 +494,9 @@ export function normalizeData(raw: any) {
 			messages: messages.filter((m: any) => m && typeof m === 'object').map((m: any) => normalizeChatMessage(m, { activeBranchId, toolMessagesAsAssistant: false })),
 		}
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		// windowPartial 是「只加载了一窗」的显式事实：
+		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
+		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 
@@ -581,6 +597,9 @@ export function normalizeData(raw: any) {
           messages: messages.filter((message: any) => message && typeof message === 'object').map((message: any) => normalizeChatMessage(message, { activeBranchId, toolMessagesAsAssistant: true })),
         }
 		out.asyncToolTasks = normalizeAsyncToolTasks((cc as any).asyncToolTasks)
+		// windowPartial 是「只加载了一窗」的显式事实：
+		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
+		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 

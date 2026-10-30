@@ -94,7 +94,7 @@ export function useComposerTools(deps: {
     if (activeChatId) params.set('sessionId', String(activeChatId || ''))
     setAsyncToolTasksLoading(true)
     try {
-      const response = await request({ method: 'GET', path: `/api/async-tool-tasks?${params.toString()}`, timeoutMs: 15000 })
+      const response = await request({ method: 'GET', path: `/api/async-tool-tasks?${params.toString()}` })
       setAsyncToolTasks(Array.isArray(response?.body) ? response.body : [])
     } catch (err: any) {
       controller?.capabilities?.ui?.showToast?.(String(err?.message || err || '异步任务列表加载失败'), { kind: 'error' })

@@ -43,19 +43,19 @@ export function createToolCatalog(deps: {
 
   const installTracker = createArtifactInstallTracker({
     loadState: async (toolId) => {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}/install-state`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}/install-state` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return normalizeArtifactInstallState(response?.body)
     },
     cancel: async (toolId) => {
-      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/cancel`, body: {}, timeoutMs: 30000 })
+      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/cancel`, body: {} })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return normalizeArtifactInstallState(response?.body)
     },
     loadOperations: async () => {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/artifact-operations', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/artifact-operations' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       return normalizeArtifactInstallStateList(response?.body).filter((state) => String(state.artifact?.kind || '') === 'tool')
@@ -84,7 +84,7 @@ export function createToolCatalog(deps: {
     deps.emit()
 
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/tools', timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/tools' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const items = normalizeToolSummaries(response?.body)
@@ -106,7 +106,7 @@ export function createToolCatalog(deps: {
     patchCatalog({ detailLoading: true, detailError: '', selectedToolId: toolId, selectedTool: null, configDraft: {}, promptDescriptionDraft: '', capabilityGrantsDraft: {}, configFilesDraft: {}, configFilesRemoved: [], configFileSelected: '', workDirectoryView: false, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}`, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/tools/${encodeURIComponent(toolId)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
@@ -227,7 +227,7 @@ export function createToolCatalog(deps: {
     patchCatalog({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride, capabilityGrants, configFiles }, timeoutMs: 15000 })
+      const response = await deps.netRequest({ method: 'PUT', path: `/api/tools/${encodeURIComponent(toolId)}/user-config`, body: { userConfig, promptDescriptionOverride, capabilityGrants, configFiles } })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const tool = normalizeToolDefinition(response?.body)
@@ -311,7 +311,7 @@ export function createToolCatalog(deps: {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
     try {
-      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/${action}`, body: {}, timeoutMs: 60000 })
+      const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/${action}`, body: {} })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const state = normalizeArtifactInstallState(response?.body)
@@ -354,7 +354,7 @@ export function createToolCatalog(deps: {
   async function stopTool(toolIdRaw: any) {
     const toolId = String(toolIdRaw || '').trim()
     if (!toolId) return null
-    const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/stop`, body: {}, timeoutMs: 15000 })
+    const response = await deps.netRequest({ method: 'POST', path: `/api/tools/${encodeURIComponent(toolId)}/stop`, body: {} })
     const status = Number(response?.status || 0)
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
     return response?.body

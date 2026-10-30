@@ -35,7 +35,7 @@ export function createModelGroupsController(deps: {
     patchBox({ loading: true, error: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'GET', path: '/api/model-groups', timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'GET', path: '/api/model-groups' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const items = normalizeModelGroups(response?.body)
@@ -57,7 +57,7 @@ export function createModelGroupsController(deps: {
     patchBox({ saving: true, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/model-groups', body: items, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/model-groups', body: items })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const saved = normalizeModelGroups(response?.body)
@@ -207,7 +207,7 @@ export function createModelGroupsController(deps: {
     patchBox({ items: next, saveError: '' })
     deps.emit()
     try {
-      const response = await deps.netRequest({ method: 'PUT', path: '/api/model-groups', body: next, timeoutMs: 15_000 })
+      const response = await deps.netRequest({ method: 'PUT', path: '/api/model-groups', body: next })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       patchBox({ items: normalizeModelGroups(response?.body), saveError: '', fetchedAt: now() })

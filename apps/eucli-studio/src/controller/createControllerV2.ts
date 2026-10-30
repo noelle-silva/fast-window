@@ -17,13 +17,18 @@ import {
   setActiveComposerInput,
 } from '../domain/sessionComposerDrafts'
 import { pendingChatForTarget } from '../domain/pendingChat'
+import { activeBranchHeadMidOrLast } from '../domain/branching'
+import { currentSwitchSpan } from '../domain/switchSpan'
 import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
 import { createEmptyShellData, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
+import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { createGroupChatSync } from '../storage/groupChatSync'
+import { createProjectionPipeline } from './projectionPipeline'
+import { loadSessionEditSnapshot } from './sessionEditSnapshot'
 
 // ---- state ----
 import { createStateAccessors } from '../state/stateAccessors'
@@ -50,6 +55,7 @@ import { saveEntityOrder } from './entityOrderBridge'
 import { createAccessSettingsController } from './accessSettingsController'
 import { updateGroupSessionTitle, updateRoleSessionTitle } from './ebRoleSession'
 import { createEbRunEventConsumer } from './ebRunEvents'
+import { createRunProbe } from './runProbe'
 import { createToolCatalog } from './toolCatalog'
 import { createToolWorkDirectoryController } from './toolWorkDirectory'
 import { createInstallSourceClient } from './installSourceClient'
@@ -89,7 +95,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 } {
   const capabilities = deps.capabilities
   const api = capabilities
-  const runtimeStorage = capabilities.runtimeStorage
   const storage = capabilities.storage
 
   // ============================================================
@@ -200,6 +205,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     syncGroupAvatarFile,
   } = stickerStore
 
+  // 切换管线在 splitStore 之后装配（两者互相引用），这里先占位。
+  // 用延迟引用而不是重排初始化顺序：splitStorage 需要「索引失效」与「偏好命令」
+  // 两个回调，而管线需要 splitStorage 暴露的 loadSplitMeta。
+  let projectionPipelineRef: ReturnType<typeof createProjectionPipeline> | null = null
+
   const splitStore = createSplitStorage({
     storage,
     syncRoleAvatarFile,
@@ -207,6 +217,15 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     setState: (data: any) => { state.data = data },
     onError: (msg: string) => { api.ui?.showToast?.(msg, { kind: 'error' }) },
+    // 会话索引失效 → 投影缓存作废；缓存才是唯一读取入口。
+    onSessionIndexInvalidated: (kind, targetId) => projectionPipelineRef?.invalidateSessionIndex(kind, targetId),
+    // 实体集合 / folder 映射变化 → 目录缓存作废（会话索引仍然有效）。
+    onCatalogInvalidated: () => projectionPipelineRef?.invalidateCatalog(),
+    // activeChatId 是偏好命令：走 setActiveChat，不整包写索引。
+    setActiveChatCommand: (kind, targetId, chatId) => {
+      if (!projectionPipelineRef) return Promise.resolve(false)
+      return projectionPipelineRef.activeSelection.select({ kind, targetId }, chatId)
+    },
   })
   const {
     loadSplitMeta,
@@ -244,11 +263,52 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return splitMetaCache
   }
 
+  // 切换管线：catalog + 每 target 一份 chatIndex + activeChatId 命令 + 会话正文单飞/LRU。
+  // 会话索引已从 meta 剥离，读路径不再写盘，也不再拼 4 个 key 扇出。
+  const projectionPipeline = createProjectionPipeline({
+    storage,
+    sessionSwitch: capabilities.sessionSwitch,
+    loadSplitMeta: loadSplitMetaCached,
+    getSplitMetaCache,
+    applyLocalSelection: (scope, chatId) => {
+      const box =
+        scope.kind === 'group'
+          ? (state.data as any)?.chatsByGroup?.[scope.targetId]
+          : state.data?.chatsByRole?.[scope.targetId]
+      if (!box || typeof box !== 'object') return
+      if (String(box.activeChatId || '') === chatId) return
+      box.activeChatId = chatId
+    },
+    // head 端到端：首窗必须表达「用户在看哪条路径」。
+    // 从本地已加载的会话读活动分支头；未加载时返回空串，
+    // 由业务端按自己的默认路径切窗（等价旧行为）。
+    resolveBranchHead: (scope, chatId) => {
+      const box =
+        scope.kind === 'group'
+          ? (state.data as any)?.chatsByGroup?.[scope.targetId]
+          : state.data?.chatsByRole?.[scope.targetId]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      const chat = chats.find((item: any) => String(item?.id || '') === chatId) || null
+      if (!chat) return ''
+      return activeBranchHeadMidOrLast(chat)
+    },
+    // switchId 端到端：正文加载与偏好命令共享同一个值（三跳同源）。
+    // 只取「当前这次切换」的句柄；没有进行中的切换时返回空串。
+    resolveSwitchId: () => currentSwitchSpan()?.switchId || '',
+    onError: (message) => api.ui?.showToast?.(message, { kind: 'error' }),
+  })
+  projectionPipelineRef = projectionPipeline
+
   const lazyChatStore = createLazyChatStore({
     storage,
     getState: () => state,
     loadSplitMeta: loadSplitMetaCached,
     getSplitMetaCache,
+    loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
+    chatBodies: {
+      load: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
+      invalidate: (scope, chatId) => projectionPipeline.invalidateChatBody(scope, chatId),
+    },
   })
   const {
     loadShell,
@@ -263,7 +323,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const roleId = String(roleIdRaw || '').trim()
     const sessionId = String(sessionIdRaw || '').trim()
     if (!roleId || !sessionId) return null
-    const chat = await loadStoredChat('role', roleId, sessionId)
+    // 写路径之后必须重取正文：reloadChatBody 内部先失效再重取首窗
+    // （窗口模式保留已翻出的更早窗口），随后 loadStoredChat 直接命中新正文。
+    const fresh = await projectionPipeline.reloadChatBody({ kind: 'role', targetId: roleId }, sessionId)
+    const chat = fresh && typeof fresh === 'object' ? fresh : await loadStoredChat('role', roleId, sessionId)
     if (!chat) return null
     const loaded = upsertLoadedChat('role', roleId, chat)
     ebRunEvents.flushSession(roleId, sessionId)
@@ -274,7 +337,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const groupId = String(groupIdRaw || '').trim()
     const sessionId = String(sessionIdRaw || '').trim()
     if (!groupId || !sessionId) return null
-    const chat = await loadStoredChat('group', groupId, sessionId)
+    const fresh = await projectionPipeline.reloadChatBody({ kind: 'group', targetId: groupId }, sessionId)
+    const chat = fresh && typeof fresh === 'object' ? fresh : await loadStoredChat('group', groupId, sessionId)
     if (!chat) return null
     const loaded = upsertLoadedChat('group', groupId, chat)
     ebRunEvents.flushSession('group', groupId, sessionId)
@@ -293,6 +357,17 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const loaded = upsertWorkspaceChat(workspaceId, chat)
     ebRunEvents.flushSession('workspace', workspaceRoleTargetId(workspaceId, roleId), sessionId)
     return loaded
+  }
+
+  // 写路径快照：profile=edit 才能拿到完整 parts（view 是被裁剪的渲染视图）。
+  async function loadEditSnapshot(kind: 'role' | 'group', targetId: string, chatId: string) {
+    // 写路径同样属于「一次切换」：带上同一个 switchId，box 侧 trace 才连续。
+    return loadSessionEditSnapshot(
+      { sessionSwitch: capabilities.sessionSwitch },
+      { kind, targetId },
+      chatId,
+      { switchId: projectionPipeline.currentSwitchId() },
+    )
   }
 
   // ============================================================
@@ -362,6 +437,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getSplitMetaCache,
     withSplitMetaWrite,
     hasActiveGroupRunInSession: (groupId: string, chatId: string) => readActiveEbRunCardsForTarget(state, 'group', groupId, chatId).length > 0,
+    loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
+    loadChatBody: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
+    onSessionIndexInvalidated: (kind, targetId) => projectionPipeline.invalidateSessionIndex(kind, targetId),
   })
   const { syncActiveGroupChatsFromStorage } = groupChatSync
 
@@ -432,6 +510,53 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return ensureStoredChatLoaded(kind, targetId, chatId)
   }
 
+  // 往上翻一窗：返回 true 表示确实加载了新消息，false 表示已经到顶。
+  // UI 只依赖这个二值结果，不关心 cursor 的形状。
+  async function loadOlderMessages() {
+    const kind = activeTargetKind()
+    if (kind !== 'role' && kind !== 'group') return false
+    const target = kind === 'group' ? activeGroup() : activeRole()
+    const targetId = String((target as any)?.id || '').trim()
+    const chat = activeChatFromData()
+    const chatId = String((chat as any)?.id || '').trim()
+    if (!targetId || !chatId) return false
+    const scope = { kind, targetId } as const
+    const before = Array.isArray((chat as any)?.messages) ? (chat as any).messages.length : 0
+    const merged = await projectionPipeline.loadOlderMessages(scope, chatId)
+    const after = Array.isArray(merged?.messages) ? merged.messages.length : before
+    if (after <= before) return false
+    // 翻页结果并回内存：normalizeStoredChat 会补分支与消息字段。
+    const normalized = normalizeStoredChat(merged, kind)
+    if (normalized) upsertLoadedChat(kind, targetId, normalized)
+    emit()
+    return true
+  }
+
+  // 树视图的结构投影（design-4 P3）。
+  //
+  // 窗口模式只加载一窗（≤24 条），树视图若吃首窗消息就只画得出首屏那几条。
+  // 这里取独立的 graph 投影（只有结构、没有正文），与分页窗口正交。
+  // 后端没有 session.graph 时返回 null，调用方回落到本地消息（旧行为）。
+  async function loadSessionGraph() {
+    const kind = activeTargetKind()
+    if (kind !== 'role' && kind !== 'group') return null
+    const target = kind === 'group' ? activeGroup() : activeRole()
+    const targetId = String((target as any)?.id || '').trim()
+    const chat = activeChatFromData()
+    const chatId = String((chat as any)?.id || '').trim()
+    if (!targetId || !chatId) return null
+    const sessionSwitch = capabilities.sessionSwitch
+    if (!sessionSwitch?.hasFeature('session.graph')) return null
+    try {
+      // switchId 必须随正文/结构读取一起走：否则同一次切换里前端观测键
+      // 与 studio→box 的 X-Eucli-Trace 不是同一个值，P0 三跳 trace 断链。
+      const switchId = currentSwitchSpan()?.switchId || ''
+      return await sessionSwitch.sessionGraph({ kind, targetId }, chatId, switchId ? { switchId } : undefined)
+    } catch (_) {
+      return null
+    }
+  }
+
   async function ensureActiveChatLoaded() {
     if (activeTargetKind() === 'workspace') return ensureActiveWorkspaceChatLoaded()
     return ensureStoredActiveChatLoaded()
@@ -498,12 +623,21 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { applyChatSettingsAction, selectHookPromptForActiveChat } = chatSessionSettingsBridge
 
+  // RunProbe：run 终态对账的唯一入口。
+  // 事件是正常路径；探针只在「静默 / 重连 / 页面可见」时补一次权威快照。
+  const runProbe = createRunProbe({
+    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
+    onReconnected: (capabilities.host as any)?.directEvents?.onReconnected,
+  })
+
   const controllerBootstrap = createControllerBootstrap({
     state,
     render,
     showToast: api.ui?.showToast,
     getNetRequest: () => capabilities.net?.request,
     isDisposed: () => disposed,
+    runProbe: runProbe,
     ensureSplitStoreReady,
     loadShell,
     refreshWorkspaces,
@@ -802,13 +936,28 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     reloadRoleSession,
     reloadGroupSession,
     reloadWorkspaceSession,
+    // 写路径之后的正文失效：所有编辑 / 删除 / 运行落盘都要经过它，
+    // 否则下一次读会命中写之前的正文（新消息消失、已删消息复活）。
+    invalidateChatBody: (scope, chatId) => projectionPipeline.invalidateChatBody(scope, chatId),
     waitForChatSettingsSave,
+    loadEditSnapshot,
+    // 视图回写：把「用户在看哪条路径」变成服务端事实（design-4 决策 3）。
+    // 后端没有 session.view.patch 时静默跳过，本地分支状态仍然有效。
+    persistSessionView: async (kind, targetId, chatId, head, branchId) => {
+      const sessionSwitch = capabilities.sessionSwitch
+      if (!sessionSwitch?.hasFeature('session.view.patch')) return
+      await sessionSwitch.setSessionView({ kind, targetId }, chatId, head, { branchId })
+      // 视图变了，旧窗口属于旧路径：作废分页与正文，下次读按新 head 取。
+      projectionPipeline.invalidateSessionWindow({ kind, targetId }, chatId)
+      projectionPipeline.invalidateChatBody({ kind, targetId }, chatId)
+    },
     emit,
     render,
     renderComposer,
     emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
+    runProbe,
   })
   const {
     pickDraftImages,
@@ -844,16 +993,19 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const uiPolling = createUiPolling({
     getState: () => state,
-    storage,
-    rtStorage: runtimeStorage,
     loadSplitMeta: loadSplitMetaCached,
     getSplitMetaCache,
     emit,
     subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
+    onReconnected: (capabilities.host as any)?.directEvents?.onReconnected,
     activeTargetKind,
     activeChatFromData,
-    ensureActiveChatLoaded,
     syncActiveGroupChatsFromStorage,
+    loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
+    refreshChatIndex: (scope) => projectionPipeline.refreshChatIndex(scope),
+    loadChatBody: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
+    reloadChatBody: (scope, chatId) => projectionPipeline.reloadChatBody(scope, chatId),
+    invalidateSessionIndex: (kind, targetId) => projectionPipeline.invalidateSessionIndex(kind, targetId),
   })
   const { startUiPollers, stopUiPollers } = uiPolling
 
@@ -1182,6 +1334,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     onMouseUpMermaid: mermaidMouseUp,
     // Internal helpers exposed as actions for eventHandlers
     save: () => save(),
+    loadOlderMessages,
+    loadSessionGraph,
     render,
     renderTop: render,
     renderChat: render,
@@ -1239,6 +1393,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     disposed = true
     chatSettingsSaveQueue.abort()
     ebRunEvents.stop()
+    runProbe.stop()
     stopUiPollers()
     disposeToolCatalog()
     disposeSystemPluginController()

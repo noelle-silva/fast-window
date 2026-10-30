@@ -1,17 +1,9 @@
 import { now } from '../core/utils'
 import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
-import { chatMetaFromChat, chatMetaUpdatedAtMap, normalizeChatMetas, type ChatMeta } from '../domain/chatMeta'
+import { normalizeChatMetas, type ChatMeta } from '../domain/chatMeta'
 import { normalizeSplitMeta } from '../domain/dataNormalizers'
-import {
-  splitChatsIndexKey,
-  splitChatKey,
-  splitRoleChatIndexKey,
-  splitGroupsIndexKey,
-  splitGroupChatKey,
-  splitGroupChatIndexKey,
-  splitProvidersIndexKey,
-  splitProviderKey,
-} from '../domain/storageKeys'
+import { splitGroupChatIndexKey, splitRoleChatIndexKey } from '../domain/storageKeys'
+import type { ProjectionScope } from './splitProjectionCache'
 
 export type SplitStorageReader = {
   get: (key: string) => Promise<any>
@@ -37,153 +29,82 @@ function stringMap(value: any): Record<string, string> {
   return out
 }
 
-function maxUpdatedAt(...items: any[]): number {
-  let out = 0
-  for (const item of items) {
-    const n = Number(item || 0)
-    if (Number.isFinite(n) && n > out) out = n
-  }
-  return out
-}
-
-async function readObject(storage: SplitStorageReader, key: string): Promise<Record<string, any>> {
-  try {
-    const value = await storage.get(key)
-    return objectOrEmpty(value)
-  } catch (_) {
-    return {}
-  }
-}
-
-function needsPreviewHydration(meta: ChatMeta) {
-  return !String(meta?.lastMessagePreview || '').trim()
-}
-
-async function normalizeStoredChatIndexMetas(
-  storage: SplitStorageReader,
-  indexKey: string,
-  chatKey: (chatId: string) => string,
-  idx: Record<string, any>,
-  fallbackTitle: string,
-) {
-  const metas = normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, fallbackTitle)
-  let updatedAt = Number(idx.updatedAt || 0)
-  let changed = false
-
-  for (let index = 0; index < metas.length; index++) {
-    const meta = metas[index]
-    if (!needsPreviewHydration(meta)) continue
-    const chat = await readObject(storage, chatKey(meta.id))
-    const hydrated = chatMetaFromChat(chat, fallbackTitle)
-    if (!hydrated || !String(hydrated.lastMessagePreview || '').trim()) continue
-    metas[index] = hydrated
-    changed = true
-  }
-
-  if (changed && typeof storage.set === 'function') {
-    updatedAt = now()
-    const chatIds = metas.map((meta) => meta.id).filter(Boolean)
-    const chatUpdatedAt = chatMetaUpdatedAtMap(metas)
-    const nextIndex = {
-      ...idx,
-      chatIds,
-      chatUpdatedAt,
-      chatMetas: metas,
-      updatedAt,
-    }
-    await storage.set(indexKey, nextIndex)
-    return { metas, chatIds, chatUpdatedAt, updatedAt }
-  }
-
-  return {
-    metas,
-    chatIds: stringList(idx.chatIds),
-    chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
-    updatedAt,
-  }
-}
-
-export async function loadProvidersFromStorage(storage: SplitStorageReader, metaOverride?: any): Promise<any[]> {
-  const index = await readObject(storage, splitProvidersIndexKey())
-  const providerOrder = stringList(index.providerOrder)
-  const providerFolders = stringMap(index.providerFolders)
-
-  if (!providerOrder.length && metaOverride?.settings && Array.isArray(metaOverride.settings.providers)) {
-    return metaOverride.settings.providers.filter((x: any) => x && typeof x === 'object')
-  }
-
-  const providers: any[] = []
-  for (const providerId of providerOrder) {
-    const folder = providerFolders[providerId]
-    if (!folder) continue
-    const provider = await readObject(storage, splitProviderKey(folder))
-    if (!provider || !Object.keys(provider).length) continue
-    providers.push(provider)
-  }
-  return providers
-}
-
+// loadSplitMetaSnapshot 只读一次 meta/index。
+//
+// 这里曾经扇出读取 chats/index + groups/index + providers/index 三份额外文档，
+// 再逐个读 chats/<folder>/index 修复并回写。现在：
+//   - 目录事实（order / folder 映射）已由 studio 后端 meta() 纯组装进 meta/index；
+//   - 会话索引按 scope 懒加载（SplitProjectionCache）；
+//   - 读路径绝不写盘（禁止「读时修复并回写」）。
 export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
   const raw = await storage.get(SPLIT_META_KEY)
   if (raw == null) return null
   const meta = normalizeSplitMeta(raw)
   if (!meta) throw new Error('存储索引损坏：meta/index 格式不正确')
 
-  const chatsIndex = await readObject(storage, splitChatsIndexKey())
-  const roleOrder = stringList(chatsIndex.roleOrder).length ? stringList(chatsIndex.roleOrder) : stringList(meta.roleOrder)
-  const roleFolders = Object.keys(stringMap(chatsIndex.roleFolders)).length ? stringMap(chatsIndex.roleFolders) : stringMap(meta.roleFolders)
-  const chatIndexByRole: Record<string, any> = {}
-
-  let updatedAt = maxUpdatedAt(meta.updatedAt, chatsIndex.updatedAt)
-  for (const roleId of roleOrder) {
-    const folder = roleFolders[roleId]
-    if (!folder) continue
-    const indexKey = splitRoleChatIndexKey(folder)
-    const idx = await readObject(storage, indexKey)
-    const repaired = await normalizeStoredChatIndexMetas(storage, indexKey, (chatId) => splitChatKey(folder, chatId), idx, '新聊天')
-    chatIndexByRole[roleId] = {
-      activeChatId: String(idx.activeChatId || ''),
-      chatIds: repaired.chatIds,
-      chatUpdatedAt: repaired.chatUpdatedAt,
-      chatMetas: repaired.metas,
-    }
-    updatedAt = maxUpdatedAt(updatedAt, repaired.updatedAt)
-  }
-
-  const groupsIndex = await readObject(storage, splitGroupsIndexKey())
-  const groupOrder = stringList(groupsIndex.groupOrder)
-  const groupFolders = stringMap(groupsIndex.groupFolders)
-  const chatIndexByGroup: Record<string, any> = {}
-  updatedAt = maxUpdatedAt(updatedAt, groupsIndex.updatedAt)
-
-  for (const groupId of groupOrder) {
-    const folder = groupFolders[groupId]
-    if (!folder) continue
-    const indexKey = splitGroupChatIndexKey(folder)
-    const idx = await readObject(storage, indexKey)
-    const repaired = await normalizeStoredChatIndexMetas(storage, indexKey, (chatId) => splitGroupChatKey(folder, chatId), idx, '群聊')
-    chatIndexByGroup[groupId] = {
-      activeChatId: String(idx.activeChatId || ''),
-      chatIds: repaired.chatIds,
-      chatUpdatedAt: repaired.chatUpdatedAt,
-      chatMetas: repaired.metas,
-    }
-    updatedAt = maxUpdatedAt(updatedAt, repaired.updatedAt)
-  }
-
-  const providersIndex = await readObject(storage, splitProvidersIndexKey())
-
   return {
-    ...meta,
     schemaVersion: SPLIT_SCHEMA_VERSION,
-    updatedAt: updatedAt || now(),
-    roleOrder,
-    roleFolders,
-    chatIndexByRole,
-    groupOrder,
-    groupFolders,
-    chatIndexByGroup,
-    providerOrder: stringList(providersIndex.providerOrder),
-    providerFolders: stringMap(providersIndex.providerFolders),
+    dataVersion: Number(meta.dataVersion || 0),
+    // updatedAt 只用于展示排序，禁止参与任何新鲜度判定。
+    updatedAt: Number(meta.updatedAt || 0) || now(),
+    ui: meta.ui,
+    settings: meta.settings,
+    roleOrder: stringList(meta.roleOrder),
+    roleFolders: stringMap(meta.roleFolders),
+    groupOrder: stringList(meta.groupOrder),
+    groupFolders: stringMap(meta.groupFolders),
+    providerOrder: stringList((meta as any).providerOrder),
+    providerFolders: stringMap((meta as any).providerFolders),
+    modelGroupOrder: stringList((meta as any).modelGroupOrder),
+    modelGroupFolders: stringMap((meta as any).modelGroupFolders),
+  }
+}
+
+// loadProvidersFromStorage 直接用 meta.settings.providers：
+// 供应商实体是 studio 后端 meta() 的派生物，前端不需要再读 providers/index。
+export async function loadProvidersFromStorage(_storage: SplitStorageReader, metaOverride?: any): Promise<any[]> {
+  const providers = metaOverride?.settings?.providers
+  if (!Array.isArray(providers)) return []
+  return providers.filter((x: any) => x && typeof x === 'object')
+}
+
+// chatIndexKeyFor 是 scope 到旧 storage key 的唯一映射，供迁移期读取使用。
+export function chatIndexKeyFor(scope: ProjectionScope, folder: string): string {
+  return scope.kind === 'group' ? splitGroupChatIndexKey(folder) : splitRoleChatIndexKey(folder)
+}
+
+export type StoredChatIndex = {
+  scope: string
+  activeChatId: string
+  chatIds: string[]
+  chatUpdatedAt: Record<string, number>
+  chatMetas: ChatMeta[]
+  updatedAt: number
+  revision: number
+}
+
+function numberMap(value: any): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [key, raw] of Object.entries(objectOrEmpty(value))) {
+    const id = String(key || '').trim()
+    const number = Number(raw || 0)
+    if (id && Number.isFinite(number)) out[id] = number
+  }
+  return out
+}
+
+// normalizeStoredChatIndex 是纯读：不修复、不回写、不读会话正文。
+export function normalizeStoredChatIndex(raw: any, scope: ProjectionScope, fallbackTitle: string): StoredChatIndex {
+  const index = objectOrEmpty(raw)
+  const chatIds = stringList(index.chatIds)
+  const chatMetas = normalizeChatMetas(index.chatMetas, chatIds, index.chatUpdatedAt, fallbackTitle)
+  return {
+    scope: `${scope.kind}:${scope.targetId}`,
+    activeChatId: String(index.activeChatId || ''),
+    chatIds: chatIds.length ? chatIds : chatMetas.map((meta) => meta.id),
+    chatUpdatedAt: numberMap(index.chatUpdatedAt),
+    chatMetas,
+    updatedAt: Number(index.updatedAt || 0),
+    revision: Number(index.revision || 0),
   }
 }
