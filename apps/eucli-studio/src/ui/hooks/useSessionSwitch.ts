@@ -17,20 +17,34 @@ function chatIdOf(chat: any) {
   return String(chat?.id || '').trim()
 }
 
-// useSessionSwitch 把「选中谁」与「谁已经画出来」拆成两条独立事实：
-//   - data：控制器权威，activeChat 就绪即 BODY_READY（纯咨询，永不门控渲染）；
-//   - paint：只有新页提交后真正画出的那一帧才 PAINTED，可见页永远由它推进。
+// useSessionSwitch 把三条事实严格分开：
+//
+//   selectedId    选中目标（控制器权威偏好：正文已加载时就是 activeChat.id，
+//                 正文未加载时回落到索引偏好 activeChatId）
+//   loadedChatId  已加载正文所属会话（activeChat.id；正文未加载时为空串）
+//   bodyReady     正文是否已就绪 = loadedChatId 非空
+//
+// 关键：bodyReady 表达的是「正文已就绪」，不是「selectedId 与 loadedChatId 相等」。
+// 两者是不同维度，冷启动时必然不同步：
+//   索引偏好已经给出 selectedId，而正文还在加载中（loadedChatId 为空串）。
+// 若把「两者相等」当就绪条件，冷启动的就绪判定永远不成立：
+// renderChat 恒为 null → 页面永不挂载 → PAINTED 永不发出 → 首屏永久卡死。
+//
+// 语义边界：
+//   - 冷启动：正文到达即 bodyReady，页面立刻可挂载并进入 PAINTED；
+//   - 切换中：正文尚未切换（activeChat 为 null 或仍是旧会话），
+//     页面栈靠 visibleKey 让旧页继续可见，新正文到达后按新 key 重挂并 PAINTED。
 //
 // 注意：不要再用 React.startTransition 包外部 store 写入。
 // useSyncExternalStore 的快照更新不会被 transition 降级（React 18 必须同步渲染以避免
 // tearing），包一层只会增加开销，换不来任何延迟。
 export function useSessionSwitch(controller: any, activeChat: any, selectedChatId: unknown) {
-  const activeChatId = chatIdOf(activeChat)
-  const selectedId = String(selectedChatId || activeChatId || '').trim()
+  const loadedChatId = chatIdOf(activeChat)
+  const selectedId = String(selectedChatId || loadedChatId || '').trim()
 
   const [state, setState] = React.useState<SessionSwitchState>(createSessionSwitchState)
 
-  // SELECT 由「选中项变化」驱动，不由数据就绪驱动。
+  // SELECT 由「选中目标变化」驱动，不由数据就绪驱动。
   React.useLayoutEffect(() => {
     setState((prev) => reduceSessionSwitch(prev, { type: 'SELECT', key: selectedId }))
     if (!selectedId) return
@@ -39,13 +53,13 @@ export function useSessionSwitch(controller: any, activeChat: any, selectedChatI
     markSwitchBoundary('frontend.select')
   }, [selectedId])
 
-  // 数据就绪只记录事实，不推进可见页。
-  const dataReady = !!selectedId && activeChatId === selectedId
+  // 正文就绪只记录事实，不推进可见页。
+  const bodyReady = !!loadedChatId
   React.useLayoutEffect(() => {
-    if (!dataReady) return
+    if (!bodyReady) return
     setState((prev) => reduceSessionSwitch(prev, { type: 'BODY_READY', key: selectedId, seq: prev.seq }))
     if (currentSwitchTrace()?.key === selectedId) markSwitchBoundary('frontend.bodyReady')
-  }, [dataReady, selectedId])
+  }, [bodyReady, selectedId])
 
   // 页面栈只上报「画出来了」；seq 在 reducer 内部核对，迟到通知自动丢弃。
   const notifyPainted = React.useCallback((key: string) => {
@@ -67,12 +81,13 @@ export function useSessionSwitch(controller: any, activeChat: any, selectedChatI
   )
 
   const pending = sessionSwitchPending(state)
-  // 数据就绪即可交给页面栈挂载；能否「看得见」由 visibleKey 单独决定。
-  const renderChat = dataReady ? activeChat : null
+  // 已加载正文即可交给页面栈挂载；能否「看得见」始终由 visibleKey 单独决定。
+  const renderChat = bodyReady ? activeChat : null
 
   return {
+    // activeChatId 沿用「选中目标」语义，保持既有调用方行为不变。
     activeChatId: selectedId,
-    loadedChatId: activeChatId,
+    loadedChatId,
     selectedChatId: selectedId,
     seq: state.seq,
     visibleKey: state.visibleKey,
