@@ -247,16 +247,25 @@ export function createLazyChatStore(deps: {
     return null
   }
 
+  // upsertLoadedChat 是「会话进入内存状态」的唯一入口。
+  //
+  // 入参可以是业务端原始字节，也可以是已归一化的会话：这里统一归一化一次，
+  // 保证内存里只有一种会话形状（数值时间 + parentMid 消息树）。
+  // 若让调用方各自决定形状，未归一化的原始消息会丢掉 parentMid、
+  // 时间保持 ISO 字符串，消息树退化成"每条都是根"，侧边栏排序时间也会塌缩。
   function upsertLoadedChat(kind: LazyChatKind, targetIdRaw: any, chatRaw: any) {
     const state = getState()
     if (!state.data || !chatRaw || typeof chatRaw !== 'object') return null
     const targetId = String(targetIdRaw || '').trim()
-    const chatId = String(chatRaw?.id || '').trim()
-    if (!targetId || !chatId) return null
+    if (!targetId) return null
+    const chat = normalizeStoredChat(chatRaw, kind)
+    if (!chat) return null
+    const chatId = String(chat.id || '').trim()
+    if (!chatId) return null
     const box = targetBox(state.data, kind, targetId)
     if (!box) return null
     const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
-    const nextChat = mergeChatFromStorage(chatRaw, index >= 0 ? box.chats[index] : null)
+    const nextChat = mergeChatFromStorage(chat, index >= 0 ? box.chats[index] : null)
     if (index >= 0) box.chats[index] = nextChat
     else box.chats.unshift(nextChat)
     box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')

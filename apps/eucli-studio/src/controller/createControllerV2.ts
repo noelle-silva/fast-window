@@ -326,6 +326,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (!roleId || !sessionId) return null
     // 写路径之后必须重取正文：reloadChatBody 内部先失效再重取首窗
     // （窗口模式保留已翻出的更早窗口），随后 loadStoredChat 直接命中新正文。
+    //
+    // reloadChatBody 返回的是业务端原始字节（前端是唯一真解析方）；
+    // 归一化统一由 upsertLoadedChat 这个「入状态唯一入口」完成，
+    // 调用方不需要、也不允许各自决定会话形状。
     const fresh = await projectionPipeline.reloadChatBody({ kind: 'role', targetId: roleId }, sessionId)
     const chat = fresh && typeof fresh === 'object' ? fresh : await loadStoredChat('role', roleId, sessionId)
     if (!chat) return null

@@ -1,4 +1,4 @@
-import { now } from '../core/utils'
+import { normalizeTimeMs, now } from '../core/utils'
 import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
 
@@ -115,8 +115,10 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
   if (!id) return null
   const messages = Array.isArray(chat.messages) ? chat.messages.filter((x: any) => x && typeof x === 'object') : []
   const last = messages.length ? messages[messages.length - 1] : null
-  const createdAt = Number(chat.createdAt || 0) || now()
-  const updatedAt = Number(chat.updatedAt || 0) || createdAt
+  // 时间必须走统一的时间归一化：线格式是 ISO 字符串，直接 Number() 会得 0，
+  // 让多条会话的 updatedAt 一起塌缩成同一个 now()，侧边栏排序就失去依据。
+  const createdAt = normalizeTimeMs(chat.createdAt, now())
+  const updatedAt = normalizeTimeMs(chat.updatedAt, createdAt)
   const runSummary = chatSessionRunSummaryFromChat(chat)
   const hasPending = runSummary.status === 'running'
   return {

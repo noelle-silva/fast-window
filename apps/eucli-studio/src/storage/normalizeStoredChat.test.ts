@@ -96,3 +96,22 @@ describe('normalizeStoredChat', () => {
     expect(withoutCacheRate).not.toHaveProperty('cacheRate')
   })
 })
+
+describe('normalizeStoredChat 消息树契约', () => {
+  it('后端原始用户消息的 parentMessageId 归一化为 parentMid', () => {
+    const chat = normalizeStoredChat({
+      ...baseSession,
+      roleId: 'role-1',
+      messages: [
+        { id: 'u1', type: 'user', content: '第一问', branchId: 'main', createdAt: '2026-10-31T17:32:31.8294373Z', updatedAt: '2026-10-31T17:32:31.8294373Z' },
+        { id: 'a1', type: 'assistant', content: '第一答', parentMessageId: 'u1', branchId: 'main', createdAt: '2026-10-31T17:32:35.0548421Z', updatedAt: '2026-10-31T17:32:35.0548421Z' },
+        { id: 'u2', type: 'user', content: '第二问', parentMessageId: 'a1', branchId: 'main', createdAt: '2026-10-31T17:38:02.5199299Z', updatedAt: '2026-10-31T17:38:02.5199299Z' },
+      ],
+    }, 'role')
+
+    const messages = chat?.messages || []
+    expect(messages.find((m: any) => m.id === 'u2')?.parentMid).toBe('a1')
+    expect(messages.find((m: any) => m.id === 'u2')?.role).toBe('user')
+    expect(typeof messages.find((m: any) => m.id === 'u2')?.createdAt).toBe('number')
+  })
+})

@@ -48,3 +48,25 @@ describe('chatMeta window partiality', () => {
     expect(metas[0].title).toBe('完整标题')
   })
 })
+
+describe('chatMeta 时间归一化', () => {
+  it('线格式 ISO 字符串时间不会塌缩成同一个 now()', () => {
+    const older = chatMetaFromChat({
+      id: 'chat-a',
+      title: 'A',
+      createdAt: '2026-10-31T17:32:31.8294373Z',
+      updatedAt: '2026-10-31T17:32:31.8294373Z',
+      messages: [],
+    })
+    const newer = chatMetaFromChat({
+      id: 'chat-b',
+      title: 'B',
+      createdAt: '2026-10-31T17:39:14.4078946Z',
+      updatedAt: '2026-10-31T17:39:14.4078946Z',
+      messages: [],
+    })
+    expect(older?.updatedAt).toBe(Date.parse('2026-10-31T17:32:31.8294373Z'))
+    expect(newer?.updatedAt).toBe(Date.parse('2026-10-31T17:39:14.4078946Z'))
+    expect(newer!.updatedAt).toBeGreaterThan(older!.updatedAt)
+  })
+})
