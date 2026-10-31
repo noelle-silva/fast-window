@@ -32,9 +32,10 @@ export function createInitialControllerState() {
     pendingChat: null as any,
     pendingGroupChat: null as any,
     pendingWorkspaceChat: null as any,
-    // 正文加载失败的唯一状态格：UI 据此进入 FAILED 终态（错误占位 + 重试），
-    // 而不是永远停在「正在打开…」。任何一次成功加载都会清空它。
-    chatLoadError: { kind: 'role' as const, targetId: '', chatId: '', reason: '' },
+    // 正文加载失败的唯一记录点：按 kind+targetId+chatId 分格存放。
+    // UI 只读「当前目标会话」那一格进入 FAILED 终态（错误占位 + 重试），
+    // 并发失败互不覆盖；任何一次成功加载只清空自己这一格。
+    chatLoadFailures: {} as Record<string, { kind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; reason: string }>,
     branchDraft: null as any,
     draft: {
       input: '',

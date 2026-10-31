@@ -4,10 +4,10 @@
 // 单个会话失败不该炸整页）。但「吞掉」不等于「没有失败」——UI 必须能看见它，
 // 否则目标会话永远等不到正文，界面就停在「正在打开…」。
 //
-// 因此这里把「失败事实」收敛成一个显式的状态格：
-//   - 只有正文加载失败才写它（不写网络错误以外的猜测原因）；
-//   - 任何一次成功加载都会清空它；
-//   - UI 读取它并交给 sessionSwitch 状态机进入 FAILED 终态。
+// 失败属于「一次具体会话的加载尝试」，因此按 kind + targetId + chatId 分格存放：
+//   - 并发加载的多个会话各自记录，绝不互相覆盖；
+//   - 成功只清空自己这一格，不会抹掉别的会话的失败；
+//   - UI 只查询「当前目标会话」那一格，提示不会挂到错误的目标上。
 //
 // 它是「一次加载尝试」的事实，不是业务数据：不进 meta、不参与持久化。
 
@@ -20,8 +20,26 @@ export type ChatLoadFailure = {
   reason: string
 }
 
-export function emptyChatLoadFailure(): ChatLoadFailure {
-  return { kind: 'role', targetId: '', chatId: '', reason: '' }
+export type ChatLoadFailures = Record<string, ChatLoadFailure>
+
+function normalizeId(value: unknown) {
+  return String(value || '').trim()
+}
+
+// 一次失败属于「哪个会话」：kind + targetId + chatId 三元组。
+// 单格存储会让并发失败互相覆盖，因此键必须完整表达会话身份。
+export function chatLoadFailureKey(kind: ChatLoadTargetKind, targetId: unknown, chatId: unknown) {
+  return JSON.stringify([kind, normalizeId(targetId), normalizeId(chatId)])
+}
+
+// UI 只认「当前目标会话」的失败事实：其它会话的失败与它无关。
+export function selectChatLoadFailure(
+  failures: ChatLoadFailures | null | undefined,
+  kind: ChatLoadTargetKind,
+  targetId: unknown,
+  chatId: unknown,
+): ChatLoadFailure | null {
+  return failures?.[chatLoadFailureKey(kind, targetId, chatId)] || null
 }
 
 export function createChatLoadFailureTracker(deps: {
@@ -34,31 +52,33 @@ export function createChatLoadFailureTracker(deps: {
     const state = getState()
     if (!state) return
     const reason = String((error as any)?.message || error || '会话加载失败').trim() || '会话加载失败'
-    state.chatLoadError = {
+    state.chatLoadFailures[chatLoadFailureKey(kind, targetId, chatId)] = {
       kind,
-      targetId: String(targetId || '').trim(),
-      chatId: String(chatId || '').trim(),
+      targetId: normalizeId(targetId),
+      chatId: normalizeId(chatId),
       reason,
     }
     emit()
   }
 
-  function clear() {
+  function clear(kind: ChatLoadTargetKind, targetId: string, chatId: string) {
     const state = getState()
     if (!state) return
-    const current = state.chatLoadError as ChatLoadFailure | null
-    if (!current || !current.chatId) return
-    state.chatLoadError = emptyChatLoadFailure()
+    const key = chatLoadFailureKey(kind, targetId, chatId)
+    if (!state.chatLoadFailures[key]) return
+    delete state.chatLoadFailures[key]
     emit()
   }
 
-  // track 包裹一次正文加载：失败记录事实并继续向上抛（调用方仍可自行处理），
-  // 成功则清空失败格。绝不改变原有控制流。
+  // track 包裹一次正文加载：
+  //   - 新一轮尝试开始先作废该会话的旧失败事实（旧结果不再代表本次尝试）；
+  //   - 失败记录本次事实并继续向上抛（调用方仍可自行处理）；
+  //   - 成功无需再清：开始时已作废，本次尝试没有写回任何失败。
+  // 绝不改变原有控制流，也绝不触碰其它会话的失败。
   async function track<T>(kind: ChatLoadTargetKind, targetId: string, chatId: string, run: () => Promise<T>): Promise<T> {
+    clear(kind, targetId, chatId)
     try {
-      const value = await run()
-      clear()
-      return value
+      return await run()
     } catch (error) {
       record(kind, targetId, chatId, error)
       throw error

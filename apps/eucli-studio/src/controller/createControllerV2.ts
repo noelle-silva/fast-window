@@ -560,18 +560,36 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     }
   }
 
+  // 当前目标会话的「意图 id」：来自索引框的 activeChatId，而不是已加载正文。
+  // 失败事实必须记在用户真正要打开的会话上——正文没加载出来时 activeChatFromData()
+  // 必然为空，用它当键会让失败挂到一个不存在的会话上，UI 永远匹配不到。
+  function activeChatSelectionId() {
+    const kind = activeTargetKind()
+    if (kind === 'workspace') {
+      const workspaceId = String((activeWorkspace() as any)?.id || '').trim()
+      const roleId = String((activeRole() as any)?.id || '').trim()
+      const targetId = workspaceRoleTargetId(workspaceId, roleId)
+      return String((state.data as any)?.chatsByWorkspace?.[targetId]?.activeChatId || '').trim()
+    }
+    const target = kind === 'group' ? activeGroup() : activeRole()
+    const targetId = String((target as any)?.id || '').trim()
+    const box = kind === 'group' ? state.data?.chatsByGroup?.[targetId] : state.data?.chatsByRole?.[targetId]
+    return String(box?.activeChatId || '').trim()
+  }
+
   async function ensureActiveChatLoaded() {
     const kind = activeTargetKind()
+    const chatId = activeChatSelectionId()
     if (kind === 'workspace') {
       const workspace = activeWorkspace()
       const workspaceId = String((workspace as any)?.id || '').trim()
       const roleId = String((activeRole() as any)?.id || '').trim()
-      const chatId = String((activeChatFromData() as any)?.id || '').trim()
-      return chatLoadFailure.track('workspace', workspaceId, chatId, () => ensureActiveWorkspaceChatLoaded())
+      // targetId 与 ensureChatLoaded 保持同一身份表达（workspaceId::roleId），
+      // 否则同一会话会在两处加载路径上记成两个不同的失败格。
+      return chatLoadFailure.track('workspace', workspaceRoleTargetId(workspaceId, roleId), chatId, () => ensureActiveWorkspaceChatLoaded())
     }
     const target = kind === 'group' ? activeGroup() : activeRole()
     const targetId = String((target as any)?.id || '').trim()
-    const chatId = String((activeChatFromData() as any)?.id || '').trim()
     return chatLoadFailure.track(kind, targetId, chatId, () => ensureStoredActiveChatLoaded())
   }
 

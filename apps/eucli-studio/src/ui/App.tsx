@@ -65,6 +65,7 @@ import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigat
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
+import { selectChatLoadFailure } from '../controller/chatLoadFailure'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
@@ -177,11 +178,18 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
 
-  // 正文加载失败的唯一事实源是 controller 的 chatLoadError（由加载路径写入）。
+  // 正文加载失败的唯一事实源是 controller 的 chatLoadFailures（由加载路径写入）。
+  // 失败按会话分格存放，这里只取「当前目标会话」那一格：
+  // 并发加载时别的会话失败，绝不会把提示挂到当前目标上。
   // 这里只做「事实 → 状态机」的单向转发：失败必须进入 FAILED 终态，
   // 否则目标会话永远等不到正文，界面就停在「正在打开…」。
-  const chatLoadError = (s as any)?.chatLoadError
-  const chatLoadErrorReason = String(chatLoadError?.reason || '').trim()
+  const chatLoadFailure = selectChatLoadFailure(
+    (s as any)?.chatLoadFailures,
+    activeTargetKind,
+    activeChatTargetId,
+    activeChatId,
+  )
+  const chatLoadErrorReason = String(chatLoadFailure?.reason || '').trim()
   const notifyLoadFailed = chatSwitch.notifyLoadFailed
   React.useLayoutEffect(() => {
     if (!chatLoadErrorReason) return
