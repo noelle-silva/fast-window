@@ -98,12 +98,41 @@ describe('session switch state machine', () => {
     expect(bodyReady(state, 'a')).toBe(state)
   })
 
-  it('resets to a blank state', () => {
+  it('retry advances seq and keeps the visible page', () => {
     let state = createSessionSwitchState()
     state = select(state, 'a')
     state = painted(state, 'a')
-    const reset = reduceSessionSwitch(state, { type: 'RESET' })
-    expect(reset).toEqual(createSessionSwitchState())
+    state = select(state, 'b')
+    state = failed(state, 'b', '网络错误')
+    const failedSeq = state.seq
+
+    const retried = reduceSessionSwitch(state, { type: 'RETRY', key: 'b' })
+    // 重试是新的一轮：序号必须前进，否则上一轮的迟到事件会撞号。
+    expect(retried.seq).toBeGreaterThan(failedSeq)
+    expect(retried.selectedKey).toBe('b')
+    expect(retried.visibleKey).toBe('a')
+    expect(sessionSwitchFailed(retried)).toBe(false)
+    expect(sessionSwitchPending(retried)).toBe(true)
+  })
+
+  it('drops a late event from the previous attempt after retry', () => {
+    let state = createSessionSwitchState()
+    state = select(state, 'a')
+    state = painted(state, 'a')
+    state = select(state, 'b')
+    state = failed(state, 'b', '网络错误')
+    const previousAttemptSeq = state.seq
+
+    state = reduceSessionSwitch(state, { type: 'RETRY', key: 'b' })
+
+    // 上一轮迟到的 PAINTED：seq 已过期，必须被丢弃，不得推进可见页。
+    const latePainted = reduceSessionSwitch(state, { type: 'PAINTED', key: 'b', seq: previousAttemptSeq })
+    expect(latePainted).toBe(state)
+    expect(latePainted.visibleKey).toBe('a')
+
+    // 新一轮自己的 PAINTED 才有效。
+    const fresh = painted(state, 'b')
+    expect(fresh.visibleKey).toBe('b')
   })
 
   // FAILED 是终态：正文永远等不到时，必须让 UI 收敛到可重试的可见状态，

@@ -27,7 +27,7 @@ export type SessionSwitchEvent =
   | { type: 'BODY_READY'; key: string; seq: number }
   | { type: 'PAINTED'; key: string; seq: number }
   | { type: 'FAILED'; key: string; seq: number; reason: string }
-  | { type: 'RESET' }
+  | { type: 'RETRY'; key: string }
 
 export function createSessionSwitchState(): SessionSwitchState {
   return { seq: 0, selectedKey: '', visibleKey: '', failedKey: '', failedReason: '' }
@@ -36,7 +36,20 @@ export function createSessionSwitchState(): SessionSwitchState {
 export function reduceSessionSwitch(state: SessionSwitchState, event: SessionSwitchEvent): SessionSwitchState {
   if (!event || typeof event !== 'object') return state
 
-  if (event.type === 'RESET') return createSessionSwitchState()
+  if (event.type === 'RETRY') {
+    const key = String(event.key || '').trim()
+    if (!key) return state
+    // 重试是「对同一目标发起新一轮尝试」：序号必须继续前进，绝不能归零。
+    // 归零会让上一轮迟到的事件与新一轮撞号，被误认为当前轮。
+    // 可见页保持不变：失败不该把用户已经看到的内容顶掉。
+    return {
+      seq: state.seq + 1,
+      selectedKey: key,
+      visibleKey: state.visibleKey,
+      failedKey: '',
+      failedReason: '',
+    }
+  }
 
   if (event.type === 'SELECT') {
     const key = String(event.key || '').trim()

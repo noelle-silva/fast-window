@@ -283,6 +283,49 @@ describe('useSessionSwitch', () => {
     expect(controller.actions.setActiveChat).toHaveBeenCalledWith('b')
   })
 
+  // 回归：重试必须继续「同一目标的新一轮」，而不是把状态机归零。
+  // 归零会让 seq 回到 0（上一轮迟到事件撞号）且 selectedKey 变空（新事件全被丢弃）。
+  it('重试后仍是同一目标的有效一轮，seq 前进且可重新绘制', async () => {
+    const controller = makeController()
+    let api: any = null
+    const chatA = { id: 'a', messages: [] }
+    const chatB = { id: 'b', messages: [] }
+
+    await act(async () => {
+      root.render(<Harness controller={controller} activeChat={chatA} selectedChatId="a" onApi={(v) => { api = v }} />)
+    })
+    await act(async () => {
+      api.notifyPainted('a')
+    })
+    await act(async () => {
+      api.requestSwitch('b')
+    })
+    const seqBeforeRetry = api.seq
+
+    await act(async () => {
+      api.notifyLoadFailed('网络错误')
+    })
+    await act(async () => {
+      api.retryLoad()
+    })
+
+    // 目标没有丢、序号继续前进、旧页仍然垫底。
+    expect(api.selectedChatId).toBe('b')
+    expect(api.seq).toBeGreaterThan(seqBeforeRetry)
+    expect(api.visibleKey).toBe('a')
+    expect(api.switching).toBe(true)
+
+    // 新一轮正文到达并绘制，必须能正常收尾。
+    await act(async () => {
+      root.render(<Harness controller={controller} activeChat={chatB} selectedChatId="b" onApi={(v) => { api = v }} />)
+    })
+    await act(async () => {
+      api.notifyPainted('b')
+    })
+    expect(api.visibleKey).toBe('b')
+    expect(api.switching).toBe(false)
+  })
+
   // 失败态不能吞掉后续成功：正文到达即恢复。
   it('失败之后正文到达，失败态自动清除', async () => {
     const controller = makeController()

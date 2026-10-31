@@ -111,10 +111,12 @@ export function useSessionSwitch(controller: any, activeChat: any, preferredChat
 
   // 重试入口：失败之后重新发起同一目标的加载。
   // 它复用控制器既有动作（不新造加载通道），并清掉失败态以便重新进入切换。
+  // 关键：序号必须继续前进（RETRY），不能用归零式 RESET——
+  // 否则上一轮迟到的事件会与新一轮撞号，被误认为当前轮。
   const retryLoad = React.useCallback(() => {
     const target = String(state.selectedKey || selectedId || '').trim()
     if (!target) return
-    setState((prev) => reduceSessionSwitch(prev, { type: 'RESET' }))
+    setState((prev) => reduceSessionSwitch(prev, { type: 'RETRY', key: target }))
     setRequestedId(target)
     controller?.actions?.setActiveChat?.(target)
   }, [controller, state.selectedKey, selectedId])
