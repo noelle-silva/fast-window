@@ -60,6 +60,12 @@ function messageId(message: any): string {
   return String(message?.id || '').trim()
 }
 
+// windowPageHasMessages 判断一页窗口是否真的带有消息。
+// 「空页」是业务端对 head 无法解析的一种可能答复，不能当成「会话为空」。
+function windowPageHasMessages(page: any): boolean {
+  return Array.isArray(page?.messages) && page.messages.length > 0
+}
+
 function messageCreatedAt(message: any): number {
   const value = Number(message?.createdAt || 0)
   if (Number.isFinite(value) && value > 0) return value
@@ -165,13 +171,24 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   }
 
   // requestHeadPage 是「首窗」请求：显式带上 head，实现「按 head 看路径」。
+  //
+  // head 来自本地已加载会话的活动分支，而本地在运行期会先出现「尚未落盘」的
+  // 运行时消息（runtimePartial）。用这种 head 去切已落盘的会话，业务端可能
+  // 解析不到该锚点而返回空窗。空窗不是「会话为空」的证据，绝不能据此清空正文，
+  // 因此这里在拿到空窗时退一次「不带 head」的默认路径（等价旧行为）。
   async function requestHeadPage(scope: SessionScope, chatId: string) {
     const head = resolveHead(scope, chatId)
     const switchId = resolveSwitchID(scope, chatId)
     const extra: SessionWindowRequest = {}
     if (head) extra.head = head
     if (switchId) extra.switchId = switchId
-    return requestPage(scope, chatId, extra)
+    const page = await requestPage(scope, chatId, extra)
+    if (head && !windowPageHasMessages(page)) {
+      const retry: SessionWindowRequest = {}
+      if (switchId) retry.switchId = switchId
+      return requestPage(scope, chatId, retry)
+    }
+    return page
   }
 
   function stateFromPage(scope: SessionScope, chatId: string, page: any, previous: SessionWindowState | null): SessionWindowState {

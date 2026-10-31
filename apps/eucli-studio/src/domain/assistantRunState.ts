@@ -75,6 +75,18 @@ function storedMessageSettlesActiveRun(stored: any, options?: AssistantMessageMe
   return hasSettledAssistantToolParts(stored)
 }
 
+// isPlaceholderOnly 判断一条助手消息是否只是 UI 占位哨兵：
+// 正文是占位文案、没有 parts、没有错误、也没有可见产出。
+// 这种消息不承载任何事实，合并时必须让位给真实数据。
+export function isPlaceholderOnly(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  if (String(m.content ?? '').trim() !== ASSISTANT_RUNNING_CONTENT) return false
+  if (Array.isArray(m.parts) && m.parts.length) return false
+  if (m.error && typeof m.error === 'object') return false
+  return true
+}
+
 export function normalizeAssistantRunState(raw: unknown): AssistantRunState | null {
   const r = raw && typeof raw === 'object' ? (raw as any) : null
   if (!r) return null
@@ -276,6 +288,9 @@ export function resolveAssistantMessageForMerge(localMessage: any, storedMessage
 
   if (localActive && !storedActive) {
     if (!localRun) return stored
+    // 本地只有占位、存储已有真实产出：占位是 UI 哨兵，不承载任何事实，
+    // 必须让位给真实正文（窗口刷新不带会话状态时也会走到这里）。
+    if (isPlaceholderOnly(local) && hasAssistantVisibleOutput(stored)) return stored
     if (storedMessageSettlesActiveRun(stored, options)) return stored
     return local
   }

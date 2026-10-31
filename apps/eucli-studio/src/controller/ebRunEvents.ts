@@ -1,10 +1,11 @@
 import { normalizeTimeMs } from '../core/utils'
 import { ensureChatBranch, normalizeBranchId } from '../domain/branching'
-import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts, type AssistantRunStatus } from '../domain/assistantRunState'
+import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts } from '../domain/assistantRunState'
 import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
-import { activeEbRunCardsForTarget, isTerminalEbRunStatus, removeEbRoleRunCard, upsertEbRoleRunCard } from '../domain/activeRunCards'
+import { activeEbRunCardsForTarget, findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, upsertEbRoleRunCard } from '../domain/activeRunCards'
+import { assistantRunStatusFromRunStatus, settleRunInState } from '../domain/runTerminal'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { messageRefreshScope } from '../domain/uiRefreshScope'
 
@@ -178,14 +179,6 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
   }
 }
 
-  function assistantStatusFromRunStatus(value: unknown): AssistantRunStatus | null {
-    const status = String(value || '').trim()
-    if (status === 'completed') return 'succeeded'
-    if (status === 'failed') return 'failed'
-    if (status === 'cancelled' || status === 'canceled') return 'canceled'
-    return null
-  }
-
   function applyRunStateEvent(raw: unknown, fallbackRunIdRaw?: unknown) {
     const payload = raw && typeof raw === 'object' ? (raw as any) : null
     const runId = String(payload?.id || payload?.runId || fallbackRunIdRaw || '').trim()
@@ -194,11 +187,23 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     if (!state?.data) return false
     const status = String(payload?.status || '').trim()
     if (isTerminalEbRunStatus(status)) {
-      const removed = removeEbRoleRunCard(state, runId)
-      if (!removed) return false
+      // 终态是权威收口：无论卡片此前是否已被移除，都要收敛一次界面。
+      // settleRunInState 同时登记终态闩锁，之后的迟到补丁不会再复活它。
+      const card = findEbRoleRunCard(state, runId)
+      settleRunInState(state, {
+        runId,
+        status,
+        roleId: String(payload?.roleId || '').trim(),
+        groupId: String(payload?.groupId || '').trim(),
+        workspaceId: String(payload?.workspaceId || '').trim(),
+        sessionId: String(payload?.sessionId || '').trim(),
+        messageIds: [String(payload?.lastMessageId || '').trim(), String(payload?.inputMessageId || '').trim()],
+      }, card)
       scheduleRender()
       return true
     }
+    // 终态之后迟到的运行中状态一律丢弃：否则停止按钮与占位会被重新点亮。
+    if (isRunSettled(state, runId)) return false
     const roleId = String(payload?.roleId || '').trim()
     const sessionId = String(payload?.sessionId || '').trim()
     if (!roleId || !sessionId) return false
@@ -256,6 +261,9 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const isNewMessage = !message
     if (!message) {
       message = incomingMessage
+      // 运行期独占身份：存储快照还没有这条消息。它决定窗口刷新时是否保留，
+      // 与「是否还在生成」无关（终态收敛不能让它被丢弃）。
+      message.runtimeOnly = true
       chat.messages.push(message)
     } else {
       const liveOutputs = collectPartLiveOutputs(message)
@@ -269,21 +277,31 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     if (parentMid) message.parentMid = parentMid
     message.branchId = branchId
     message.updatedAt = Math.max(Number(message.updatedAt || 0), eventTime)
+    const terminalStatus = assistantRunStatusFromRunStatus(payload.status)
     if (messageType === 'assistant') {
-      const terminalStatus = assistantStatusFromRunStatus(payload.status)
       if (terminalStatus) {
         finishAssistantRun(message, message.content, terminalStatus, message.updatedAt)
       } else if (hasSettledAssistantToolParts(message)) {
         finishAssistantRun(message, message.content, 'succeeded', message.updatedAt)
-      } else {
+      } else if (!isRunSettled(state, runId)) {
         beginAssistantRun(message, { generationId: runId, stream: !!payload.stream, resetContent: false, startedAt: Number(message.createdAt || eventTime) || eventTime })
         checkpointAssistantRun(message, message.content, message.updatedAt)
       }
     }
 
-    if (isTerminalEbRunStatus(payload.status)) {
-      removeEbRoleRunCard(state, runId)
-    } else {
+    if (terminalStatus) {
+      // 消息级终态同样要收口 run 卡与同 run 的其它消息：
+      // 这条 update 的 payload.status 就是权威终态，不允许只收敛当前这一条。
+      settleRunInState(state, {
+        runId,
+        status: String(payload.status || '').trim(),
+        roleId,
+        groupId,
+        workspaceId,
+        sessionId,
+        messageIds: [messageId, parentMid],
+      }, findEbRoleRunCard(state, runId))
+    } else if (!isRunSettled(state, runId)) {
       const patch: any = {
         runId,
         roleId,
@@ -308,10 +326,13 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       if (!String(branch.forkFromMid || '').trim() && parentMid) branch.forkFromMid = parentMid
     }
 
-    const runStatus = String(payload.status || '').trim()
-    const activeCards = activeEbRunCardsForTarget(state, targetKind, targetId, sessionId)
-    const chatStatus = activeCards.length ? String(activeCards[activeCards.length - 1]?.status || 'running').trim() || 'running' : runStatus
-    if (chatStatus) chat.status = chatStatus
+    // 会话运行状态：终态路径已由 settleRunInState 统一收口，这里只处理运行中推进。
+    if (!terminalStatus) {
+      const runStatus = String(payload.status || '').trim()
+      const activeCards = activeEbRunCardsForTarget(state, targetKind, targetId, sessionId)
+      const chatStatus = activeCards.length ? String(activeCards[activeCards.length - 1]?.status || 'running').trim() || 'running' : runStatus
+      if (chatStatus) chat.status = chatStatus
+    }
 
     const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'
     if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, fallbackTitle), fallbackTitle)
@@ -349,6 +370,9 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const sessionId = String(delta.sessionId || '').trim()
     const messageId = String(delta.messageId || '').trim()
     if (!runId || !roleId || !sessionId || !messageId) return false
+    // 终态之后迟到的增量不再推进：它属于已收口的运行，落进来只会把消息
+    // 重新点亮成「生成中」，并留下永不消失的占位。
+    if (isRunSettled(state, runId)) return false
 
     const eventTime = normalizeTimeMs(delta.createdAt)
     const messageCreatedAt = normalizeTimeMs(delta.messageCreatedAt, eventTime)
@@ -390,6 +414,10 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       message.streaming = !!delta.stream
       message.content = ''
       message.parts = []
+      // 运行期独占身份：与 update 事件同一条判据（见 chatStorageSync）。
+      // 只有「由事件新建」的消息才有这个身份；已存在的消息保持原样，
+      // 否则一条已落盘的消息被标记后，删除时会被本地重新捞回来。
+      message.runtimeOnly = true
       chat.messages.push(message)
     }
 
@@ -442,7 +470,21 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     if (parentMid) message.parentMid = parentMid
     message.branchId = branchId
     message.updatedAt = Math.max(Number(message.updatedAt || 0), eventTime)
-    checkpointAssistantRun(message, message.content, message.updatedAt)
+    const deltaTerminalStatus = assistantRunStatusFromRunStatus(delta.status)
+    if (deltaTerminalStatus) {
+      finishAssistantRun(message, message.content, deltaTerminalStatus, message.updatedAt)
+      settleRunInState(state, {
+        runId,
+        status: String(delta.status || '').trim(),
+        roleId,
+        groupId,
+        workspaceId,
+        sessionId,
+        messageIds: [messageId, parentMid],
+      }, findEbRoleRunCard(state, runId))
+    } else {
+      checkpointAssistantRun(message, message.content, message.updatedAt)
+    }
 
     if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, targetKind === 'group' ? '群聊' : '新聊天'), targetKind === 'group' ? '群聊' : '新聊天')
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
@@ -464,7 +506,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       status: 'running',
       stream: !!delta.stream,
     }
-    upsertEbRoleRunCard(state, patch)
+    if (!deltaTerminalStatus) upsertEbRoleRunCard(state, patch)
     scheduleRuntimeChatChanged(targetKind, targetId, chat)
 
     if (isNewMessage) scheduleRender()

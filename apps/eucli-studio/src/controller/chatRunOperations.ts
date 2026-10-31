@@ -8,9 +8,9 @@ import {
   activeEbRunCardsForTarget,
   ebRoleRunCardIsOnMessagePath,
   findEbRoleRunCard,
+  isTerminalEbRunStatus,
   latestEbRunCardForTarget,
   markEbRoleRunCardCancelled,
-  removeEbRoleRunCard,
   upsertEbRoleRunCard,
 } from '../domain/activeRunCards'
 import { activateResolvedPendingChat, pendingChatForTarget } from '../domain/pendingChat'
@@ -24,6 +24,7 @@ import {
 import { buildGroupSpeakerPlan } from '../domain/groupSpeakerPlan'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { cancelRoleRun, runStateFailureError, startRoleRun } from './ebRoleRun'
+import { settleRunByCard, settleRunInState } from '../domain/runTerminal'
 import type { EbRunState } from './ebRoleRun'
 import type { ChatTargetKind, ExistingMessageRunOptions, RoleRunInput, SendChatOptions } from './chatOperationsShared'
 import type { createChatOperationsShared } from './chatOperationsShared'
@@ -370,18 +371,40 @@ export function createChatRunOperations(
 
     followMessageId = String(state.lastMessageId || followMessageId || '').trim()
     await refreshTerminalRunSession()
+    // 终态收敛的唯一入口：把 run 终态投影到 run 卡、消息状态与会话状态。
+    // 事件可能被背压丢弃，探针拿到的终态同样必须完成这一步，否则消息会永远
+    // 停在「生成中」而 run 卡已经消失。
+    settleRunInState(getState(), {
+      runId: String(state.id || '').trim(),
+      status: String(state.status || '').trim(),
+      roleId: String(state.roleId || input.roleId || '').trim(),
+      groupId,
+      workspaceId,
+      sessionId,
+      messageIds: [followMessageId, runAnchorMessageId],
+    }, findEbRoleRunCard(getState(), String(state.id || '').trim()))
     if (state.status === 'failed' || state.status === 'cancelled') throw runStateFailureError(state)
     if (!sessionId) throw new Error('e-b 未返回会话ID')
     return sessionId
   }
 
+  // finishRoleRun 是发送流程的收尾清理：保证「等待已结束」时界面一定收敛。
+  // 正常运行在 runRoleMessageViaEb 里已经按权威终态收敛过（卡片已摘除，这里是空操作）；
+  // 只有等待被异常打断、run 卡仍在时才会走到这里，此时按「本地已放弃等待」收口，
+  // 绝不把消息留在永久「生成中」。
   function finishRoleRun(runId: string) {
     const id = String(runId || '').trim()
     if (!id) return null
     const state = getState()
-    const removed = removeEbRoleRunCard(state, id)
+    const card = findEbRoleRunCard(state, id)
+    if (!card) {
+      cancelledRunIds.delete(id)
+      return null
+    }
+    const status = isTerminalEbRunStatus(card.status) ? card.status : 'cancelled'
+    settleRunByCard(state, card, status)
     cancelledRunIds.delete(id)
-    return removed
+    return card
   }
 
   function latestTargetRunCard(targetKind: ChatTargetKind, targetId: string, sessionId: string) {

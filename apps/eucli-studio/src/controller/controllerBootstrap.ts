@@ -1,4 +1,5 @@
-import { upsertEbRoleRunCard, removeEbRoleRunCard } from '../domain/activeRunCards'
+import { upsertEbRoleRunCard } from '../domain/activeRunCards'
+import { settleRunInState } from '../domain/runTerminal'
 import { getRunState, isTerminalRunStatus, listActiveRoleRuns, type EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
 import type { AiChatShowToast } from '../gateway/capabilities'
@@ -100,6 +101,17 @@ export function createControllerBootstrap(deps: {
           const groupId = String((latest as any)?.groupId || '').trim()
           const workspaceId = String((latest as any)?.workspaceId || '').trim()
           const sessionId = String(latest?.sessionId || '').trim()
+          // 先收敛终态（摘卡 + 关消息生成标记），再重读正文：
+          // 顺序反了会让重读结果被仍在「生成中」的消息状态盖住。
+          settleRunInState(state, {
+            runId,
+            status: String(latest?.status || '').trim(),
+            roleId,
+            groupId,
+            workspaceId,
+            sessionId,
+            messageIds: [String(latest?.lastMessageId || '').trim(), String(latest?.inputMessageId || '').trim()],
+          })
           if (workspaceId && sessionId && typeof reloadWorkspaceSession === 'function') {
             await reloadWorkspaceSession(workspaceId, latest.roleId, sessionId).catch(() => null)
           } else if (groupId && sessionId && typeof reloadGroupSession === 'function') {
@@ -107,7 +119,6 @@ export function createControllerBootstrap(deps: {
           } else if (roleId && sessionId && typeof reloadRoleSession === 'function') {
             await reloadRoleSession(roleId, sessionId).catch(() => null)
           }
-          removeEbRoleRunCard(state, runId)
           render()
         })
         .finally(() => {

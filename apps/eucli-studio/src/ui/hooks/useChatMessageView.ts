@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
-import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText } from '../../domain/chatMessageDisplay'
+import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText, shouldShowActiveRunTailPending } from '../../domain/chatMessageDisplay'
 import { formatTokenUsage, formatTokenUsageShort } from '../../domain/messageTokenUsage'
 import { formatCacheRate } from '../../domain/sessionCacheRate'
 
@@ -125,7 +125,7 @@ export function useChatMessageView(deps: {
     }
     return out
   }, [allMessages, activeSessionRunCardsKey, activeVisibleRunCards])
-  const showActiveRunTailPending = !!latestActiveVisibleRunCard && !renderMessages.some((message: any) => !!activeRunCardForMessage(message) && isAssistantGenerating(message))
+  const showActiveRunTailPending = shouldShowActiveRunTailPending(latestActiveVisibleRunCard, renderMessages, activeRunCardForMessage)
   const activeRunTailPendingMessage = React.useMemo(() => {
     if (!showActiveRunTailPending || !latestActiveVisibleRunCard) return null
     const runId = String(latestActiveVisibleRunCard?.runId || '').trim()

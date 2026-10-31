@@ -103,6 +103,86 @@ function normalizeEbRoleRunCard(value: unknown): EbRoleRunCard | null {
   }
 }
 
+// 运行终态台账：runId 一旦被权威地判定为终态，就再也不允许重新登记为活动运行。
+//
+// 为什么需要它：终态事实有多个来源（事件、探针、写路径收尾），彼此可能乱序。
+// 没有这条单向闩锁时，「终态已移除 → 迟到的运行中事件/启动登记」会把卡片复活，
+// 于是停止按钮永远不消失、占位永远不清除。台账同时记住「第一条终态」，
+// 后续到达的不同终态措辞（completed vs failed）不得翻案。
+// 台账是有界的内存事实：超出时间窗口或条数上限即惰性回收。
+const SETTLED_RUN_TTL_MS = 10 * 60 * 1000
+const SETTLED_RUN_LIMIT = 128
+
+type SettledRunEntry = { at: number; status: string }
+
+function settleLedger(state: any): Record<string, SettledRunEntry> {
+  if (!state || typeof state !== 'object') return {}
+  const raw = state.settledRuns
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    state.settledRuns = {}
+    return state.settledRuns
+  }
+  return raw as Record<string, SettledRunEntry>
+}
+
+function pruneSettledRuns(ledger: Record<string, SettledRunEntry>, nowMs: number) {
+  const ids = Object.keys(ledger)
+  if (!ids.length) return
+  for (const id of ids) {
+    const at = Number(ledger[id]?.at || 0)
+    if (!Number.isFinite(at) || nowMs - at > SETTLED_RUN_TTL_MS) delete ledger[id]
+  }
+  const rest = Object.keys(ledger)
+  if (rest.length <= SETTLED_RUN_LIMIT) return
+  rest
+    .sort((left, right) => Number(ledger[left]?.at || 0) - Number(ledger[right]?.at || 0))
+    .slice(0, rest.length - SETTLED_RUN_LIMIT)
+    .forEach((id) => delete ledger[id])
+}
+
+function settledEntry(state: any, runIdRaw: unknown): SettledRunEntry | null {
+  const runId = text(runIdRaw)
+  if (!runId) return null
+  const ledger = settleLedger(state)
+  const entry = ledger[runId]
+  if (!entry) return null
+  if (Date.now() - Number(entry.at || 0) > SETTLED_RUN_TTL_MS) {
+    delete ledger[runId]
+    return null
+  }
+  return entry
+}
+
+export function isRunSettled(state: any, runIdRaw: unknown): boolean {
+  return !!settledEntry(state, runIdRaw)
+}
+
+// settledRunStatus 是「这条 run 的权威终态」：第一条终态胜出，后续不再改写。
+export function settledRunStatus(state: any, runIdRaw: unknown): string {
+  return text(settledEntry(state, runIdRaw)?.status)
+}
+
+// markRunSettled 返回「本次是否是第一次登记终态」：重复调用幂等。
+// 已登记过的 run 保留第一条终态，不被后到的措辞覆盖；
+// 唯一例外是首次登记没带状态（例如只摘卡的收尾），后到的真实状态可以补全。
+export function markRunSettled(state: any, runIdRaw: unknown, status?: unknown, atMs?: number): boolean {
+  const runId = text(runIdRaw)
+  if (!runId) return false
+  const ledger = settleLedger(state)
+  const nowMs = Number.isFinite(Number(atMs)) && Number(atMs) > 0 ? Number(atMs) : timeNow()
+  pruneSettledRuns(ledger, nowMs)
+  const nextStatus = text(status)
+  const existing = ledger[runId]
+  if (existing) {
+    if (!existing.status && nextStatus) {
+      ledger[runId] = { ...existing, status: nextStatus }
+    }
+    return false
+  }
+  ledger[runId] = { at: nowMs, status: nextStatus }
+  return true
+}
+
 export function ensureActiveRunCards(state: any): EbRoleRunCard[] {
   if (!state || typeof state !== 'object') return []
   const source = Array.isArray(state.activeRunCards) ? state.activeRunCards : []
@@ -219,6 +299,19 @@ export function findEbRoleRunCard(state: any, runIdRaw: unknown) {
 export function upsertEbRoleRunCard(state: any, patchRaw: Partial<EbRoleRunCard> & { runId?: unknown }) {
   const runId = text(patchRaw?.runId)
   if (!runId) return null
+  const patchStatus = text(patchRaw.status)
+  // 终态补丁不是「活动运行」：绝不把终态 run 重新登记成卡片。
+  // 若此前存在卡片，这里同时摘除它，保证「终态 = 无卡」这一条不变量。
+  if (isTerminalEbRunStatus(patchStatus)) {
+    markRunSettled(state, runId, patchStatus)
+    const existing = Array.isArray(state?.activeRunCards) ? state.activeRunCards : []
+    if (existing.some((card: any) => text(card?.runId) === runId)) {
+      state.activeRunCards = existing.filter((card: any) => text(card?.runId) !== runId)
+    }
+    return null
+  }
+  // 单向闩锁：已收敛到终态的 run 不允许被迟到的运行中事件复活。
+  if (isRunSettled(state, runId)) return null
   const cards = ensureActiveRunCards(state)
   const index = cards.findIndex((card) => card.runId === runId)
   const current = index >= 0 ? cards[index] : null
@@ -256,9 +349,12 @@ export function markEbRoleRunCardCancelled(state: any, runIdRaw: unknown) {
   return upsertEbRoleRunCard(state, { ...card, cancelledByUser: true })
 }
 
+// removeEbRoleRunCard 是「运行进入终态」的唯一收口原语：
+// 它同时登记终态闩锁，保证之后任何迟到的运行中补丁都无法复活该 run。
 export function removeEbRoleRunCard(state: any, runIdRaw: unknown) {
   const runId = text(runIdRaw)
   if (!runId) return null
+  markRunSettled(state, runId)
   const cards = ensureActiveRunCards(state)
   const removed = cards.find((card) => card.runId === runId) || null
   state.activeRunCards = cards.filter((card) => card.runId !== runId)

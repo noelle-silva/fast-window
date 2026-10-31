@@ -18,10 +18,22 @@ function resolveMaterialIdentityConflict(currentMessage: any, storedMessage: any
   return storedMessage
 }
 
+// shouldPreserveRuntimeOnlyMessage 判断一条本地消息是否必须保留。
+//
+// 「运行期独占」消息 = 由运行事件就地创建、存储快照里还没有的消息。
+// 判定必须基于这个显式身份（runtimeOnly），而不是「是否还在生成」：
+//   - 用 generating 判定：终态一收敛标记就关掉，窗口刷新若拿到落盘前的旧页，
+//     已显示的最终回复会凭空消失，只剩占位；
+//   - 用「有可见产出」判定：已删除的消息会被重新捞回来（复活）。
+// 身份标记由事件消费者在创建消息时打上；存储确认后本地对象被存储快照替换，
+// 标记自然消失。
 function shouldPreserveRuntimeOnlyMessage(message: any) {
   const kind = chatMessageMaterialKind(message)
   if (kind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return true
-  return isAssistantTextChatMessage(message) && isAssistantGenerating(message) && hasAssistantVisibleOutput(message)
+  if (!isAssistantTextChatMessage(message)) return false
+  if (message?.runtimeOnly !== true) return false
+  if (hasAssistantVisibleOutput(message)) return true
+  return !!(message?.error && typeof message.error === 'object')
 }
 
 function setBranchHeadMid(chat: any, branchId: string, headMid: string) {
@@ -68,6 +80,16 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
     if (!currentMessage) return storedMessage
     if (!hasSameMaterialKind(currentMessage, storedMessage)) return resolveMaterialIdentityConflict(currentMessage, storedMessage)
     if (!isAssistantTextChatMessage(currentMessage) || !isAssistantTextChatMessage(storedMessage)) return storedMessage
+    // 运行期独占消息遇到「更旧的」存储快照：本地才是更新的产出。
+    // 典型场景是终态刷新与落盘并发，读到的是保存前的页；此时若用存储覆盖，
+    // 已显示的最终回复会消失，只剩占位。更新的一侧永远胜出。
+    if (currentMessage.runtimeOnly === true) {
+      const currentAt = Number(currentMessage.updatedAt || 0)
+      const storedAt = Number(storedMessage.updatedAt || 0)
+      const storedComplete = hasAssistantVisibleOutput(storedMessage) || !!(storedMessage?.error && typeof storedMessage.error === 'object')
+      if (!storedComplete) return currentMessage
+      if (currentAt > storedAt) return currentMessage
+    }
     if (!isAssistantGenerating(currentMessage) && !isAssistantGenerating(storedMessage)) return storedMessage
     return resolveAssistantMessageForMerge(currentMessage, storedMessage, { storedChatStatus: nextChat?.status })
   })
