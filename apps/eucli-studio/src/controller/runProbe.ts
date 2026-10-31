@@ -1,4 +1,5 @@
 import { getRunState, isTerminalRunStatus, normalizeRunState, type EbRunState } from './ebRoleRun'
+import { isTerminalRunEventType, readRunEventEnvelope, readRunLifecycleSnapshot } from '../protocol/runEventContract'
 
 // RunProbe 取代 450ms 固定轮询（design-5 第八节）。
 //
@@ -25,12 +26,7 @@ export type RunProbeDeps = {
 }
 
 // 终态事件类型与终态状态是两个命名空间：事件是 `run_completed`，
-// 状态是 `completed`。两者都必须能触发权威探测。
-const TERMINAL_RUN_EVENTS = new Set(['run_completed', 'run_failed', 'run_cancelled', 'run_canceled'])
-
-function isTerminalRunEventType(value: unknown) {
-  return TERMINAL_RUN_EVENTS.has(String(value || '').trim())
-}
+// 状态是 `completed`。两者都必须能触发权威探测。事件名集合由协议契约唯一持有。
 
 type ProbeEntry = {
   latest: EbRunState
@@ -164,26 +160,31 @@ export function createRunProbe(deps: RunProbeDeps): RunProbe {
   }
 
   // applyEvent 只消费 box 运行事件信封 `{type, runId, payload}`：
-  // 终态判定看信封的 type，状态合并看 payload。
+  // 运行身份只从信封取；载荷只有自证「本次运行的状态快照」时才允许合并。
+  //
+  // 这里绝不把任意 payload 整包展开进运行状态：内容事件（消息增量、模型输出、
+  // 工具计划）的 payload 里也带 id，但那是消息 / 计划的编号，展开会把运行身份
+  // 覆盖成别人的编号，于是终态按真 runId 销账时找不到卡片。
   function applyEvent(event: any) {
     const name = String(event?.name || '').trim()
     if (name !== 'eucliBox.run.event') return
-    const envelope = event?.payload
-    if (!envelope || typeof envelope !== 'object') return
-    const runId = String((envelope as any).runId || (envelope as any).payload?.runId || '').trim()
-    if (!runId || !entries.has(runId)) return
+    const envelope = readRunEventEnvelope(event?.payload)
+    if (!envelope) return
+    const runId = envelope.runId
+    if (!entries.has(runId)) return
     const entry = entries.get(runId)!
-    const eventType = String((envelope as any).type || '').trim()
-    // 终态事件是权威收尾信号：立刻探一次，拿到权威快照再 settle。
-    if (isTerminalRunEventType(eventType) || isTerminalRunStatus((envelope as any).payload?.status)) {
+    const payloadStatus = String((envelope.payload as any)?.status || '').trim()
+    // 终态信号（事件名或载荷状态）是权威收尾信号：立刻探一次，拿到权威快照再 settle。
+    if (isTerminalRunEventType(envelope.type) || isTerminalRunStatus(payloadStatus)) {
       probeNow(runId)
       return
     }
-    const snapshot = (envelope as any).payload
-    if (snapshot && typeof snapshot === 'object') {
-      entry.latest = normalizeRunState({ ...entry.latest, ...snapshot })
+    const snapshot = readRunLifecycleSnapshot(runId, envelope.payload)
+    if (snapshot) {
+      entry.latest = normalizeRunState(snapshot)
       entry.onUpdate?.(entry.latest)
     }
+    // 内容事件没有状态快照：它只证明事件通道还活着，绝不推进运行状态。
     noteActivity(runId)
   }
 
