@@ -296,28 +296,24 @@ export function findEbRoleRunCard(state: any, runIdRaw: unknown) {
   return ensureActiveRunCards(state).find((card) => card.runId === runId) || null
 }
 
-export function upsertEbRoleRunCard(state: any, patchRaw: Partial<EbRoleRunCard> & { runId?: unknown }) {
-  const runId = text(patchRaw?.runId)
-  if (!runId) return null
-  const patchStatus = text(patchRaw.status)
-  // 终态补丁不是「活动运行」：绝不把终态 run 重新登记成卡片。
-  // 若此前存在卡片，这里同时摘除它，保证「终态 = 无卡」这一条不变量。
-  if (isTerminalEbRunStatus(patchStatus)) {
-    markRunSettled(state, runId, patchStatus)
-    const existing = Array.isArray(state?.activeRunCards) ? state.activeRunCards : []
-    if (existing.some((card: any) => text(card?.runId) === runId)) {
-      state.activeRunCards = existing.filter((card: any) => text(card?.runId) !== runId)
-    }
-    return null
-  }
-  // 单向闩锁：已收敛到终态的 run 不允许被迟到的运行中事件复活。
-  if (isRunSettled(state, runId)) return null
-  const cards = ensureActiveRunCards(state)
-  const index = cards.findIndex((card) => card.runId === runId)
-  const current = index >= 0 ? cards[index] : null
+// 运行卡补丁：生命周期原语接受未归一化的 retry（构造卡时统一归一化），
+// 调用方不必先把外部载荷转成领域类型。
+export type EbRoleRunCardPatch = Partial<Omit<EbRoleRunCard, 'retry'>> & { runId?: unknown; retry?: unknown }
+
+// 运行卡的三种生命周期原语，职责互斥：
+//   register —— 出生：只有「权威运行事实」可以调用（生命周期事件、启动响应、
+//                业务端的活动运行快照）。这是 runId 合法进入卡片集合的唯一出口。
+//   update   —— 更新：只改已存在的卡。内容事件（消息增量 / 工具输出）没有出生权，
+//                卡不存在就丢弃，绝不凭内容里的编号补建一张卡。
+//   remove   —— 死亡：摘卡并登记终态闩锁，迟到事件无法复活。
+function buildEbRoleRunCard(
+  runId: string,
+  patchRaw: EbRoleRunCardPatch,
+  current: EbRoleRunCard | null,
+): EbRoleRunCard {
   const t = timeNow()
   const hasRetryPatch = Object.prototype.hasOwnProperty.call(patchRaw, 'retry')
-  const next: EbRoleRunCard = {
+  return {
     kind: 'eb-role-run',
     runId,
     roleId: text(patchRaw.roleId) || current?.roleId || '',
@@ -335,9 +331,60 @@ export function upsertEbRoleRunCard(state: any, patchRaw: Partial<EbRoleRunCard>
     createdAt: current?.createdAt || t,
     updatedAt: t,
   }
+}
 
+function removeEbRoleRunCardAt(state: any, index: number) {
+  const cards = ensureActiveRunCards(state)
+  if (index < 0 || index >= cards.length) return null
+  const removed = cards[index]
+  cards.splice(index, 1)
+  return removed
+}
+
+// registerEbRoleRunCard 是运行卡的「出生」唯一原语。
+// 终态补丁不是活动运行：登记终态闩锁并确保无卡，维持「终态 = 无卡」不变量。
+export function registerEbRoleRunCard(state: any, patchRaw: EbRoleRunCardPatch) {
+  const runId = text(patchRaw?.runId)
+  if (!runId) return null
+  const cards = ensureActiveRunCards(state)
+  const index = cards.findIndex((card) => card.runId === runId)
+  const patchStatus = text(patchRaw.status)
+  if (isTerminalEbRunStatus(patchStatus)) {
+    markRunSettled(state, runId, patchStatus)
+    removeEbRoleRunCardAt(state, index)
+    return null
+  }
+  // 单向闩锁：已收敛到终态的 run 不允许被迟到的运行中事件复活。
+  if (isRunSettled(state, runId)) {
+    removeEbRoleRunCardAt(state, index)
+    return null
+  }
+  const next = buildEbRoleRunCard(runId, patchRaw, index >= 0 ? cards[index] : null)
   if (index >= 0) cards[index] = next
   else cards.push(next)
+  return next
+}
+
+// updateEbRoleRunCard 是运行卡的「更新」原语：只改已存在的卡，绝不创造身份。
+export function updateEbRoleRunCard(state: any, patchRaw: EbRoleRunCardPatch) {
+  const runId = text(patchRaw?.runId)
+  if (!runId) return null
+  const cards = ensureActiveRunCards(state)
+  const index = cards.findIndex((card) => card.runId === runId)
+  // 内容事件没有出生权：卡不存在就丢弃，绝不凭内容里的编号补建一张卡。
+  if (index < 0) return null
+  const patchStatus = text(patchRaw.status)
+  if (isTerminalEbRunStatus(patchStatus)) {
+    markRunSettled(state, runId, patchStatus)
+    removeEbRoleRunCardAt(state, index)
+    return null
+  }
+  if (isRunSettled(state, runId)) {
+    removeEbRoleRunCardAt(state, index)
+    return null
+  }
+  const next = buildEbRoleRunCard(runId, patchRaw, cards[index])
+  cards[index] = next
   return next
 }
 
@@ -346,7 +393,7 @@ export function markEbRoleRunCardCancelled(state: any, runIdRaw: unknown) {
   if (!runId) return null
   const card = findEbRoleRunCard(state, runId)
   if (!card) return null
-  return upsertEbRoleRunCard(state, { ...card, cancelledByUser: true })
+  return updateEbRoleRunCard(state, { ...card, cancelledByUser: true })
 }
 
 // removeEbRoleRunCard 是「运行进入终态」的唯一收口原语：

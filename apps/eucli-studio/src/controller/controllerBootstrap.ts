@@ -1,4 +1,4 @@
-import { upsertEbRoleRunCard } from '../domain/activeRunCards'
+import { registerEbRoleRunCard } from '../domain/activeRunCards'
 import { settleRunInState } from '../domain/runTerminal'
 import { getRunState, isTerminalRunStatus, listActiveRoleRuns, type EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
@@ -66,7 +66,7 @@ export function createControllerBootstrap(deps: {
       const workspaceId = String((run as any)?.workspaceId || '').trim()
       const sessionId = String(run?.sessionId || '').trim()
       if (!runId || !roleId || !sessionId) return false
-      upsertEbRoleRunCard(state, {
+      registerEbRoleRunCard(state, {
         runId,
         roleId,
         groupId,

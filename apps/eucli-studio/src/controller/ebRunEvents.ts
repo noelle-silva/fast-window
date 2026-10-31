@@ -4,8 +4,9 @@ import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettl
 import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
-import { activeEbRunCardsForTarget, findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, upsertEbRoleRunCard } from '../domain/activeRunCards'
+import { activeEbRunCardsForTarget, findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
 import { assistantRunStatusFromRunStatus, settleRunInState } from '../domain/runTerminal'
+import { isLifecycleRunEventType, readRunEventEnvelope, readRunLifecycleSnapshot } from '../protocol/runEventContract'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { messageRefreshScope } from '../domain/uiRefreshScope'
 
@@ -81,10 +82,12 @@ export function createEbRunEventConsumer(deps: {
     return { targetKind: 'role' as const, targetId: roleId }
   }
 
-  function bufferAssistantMessageUpdate(payload: any, targetKind: RunEventTargetKind, targetId: string, sessionId: string, messageId: string) {
+  // 缓冲项同时保存信封 runId 与载荷：flush 时必须还原同一份身份，
+  // 不允许从载荷里重新猜运行身份。
+  function bufferAssistantMessageUpdate(runId: string, payload: any, targetKind: RunEventTargetKind, targetId: string, sessionId: string, messageId: string) {
     const key = sessionKey(targetKind, targetId, sessionId)
     const messages = pendingBySession.get(key) || new Map<string, any>()
-    messages.set(messageId, payload)
+    messages.set(messageId, { runId, payload })
     pendingBySession.set(key, messages)
   }
 
@@ -179,13 +182,17 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
   }
 }
 
-  function applyRunStateEvent(raw: unknown, fallbackRunIdRaw?: unknown) {
-    const payload = raw && typeof raw === 'object' ? (raw as any) : null
-    const runId = String(payload?.id || payload?.runId || fallbackRunIdRaw || '').trim()
+  // applyRunStateEvent 只接受「生命周期事件」的载荷，且运行身份只来自信封。
+  // 载荷必须自证是本次运行的状态快照（payload.id === runId），否则一律拒绝：
+  // 消息 id / 工具计划 id 永远不可能再被写成运行身份。
+  function applyRunStateEvent(runIdRaw: unknown, raw: unknown) {
+    const runId = String(runIdRaw || '').trim()
     if (!runId) return false
     const state = deps.getState()
     if (!state?.data) return false
-    const status = String(payload?.status || '').trim()
+    const snapshot = readRunLifecycleSnapshot(runId, raw)
+    if (!snapshot) return false
+    const status = snapshot.status
     if (isTerminalEbRunStatus(status)) {
       // 终态是权威收口：无论卡片此前是否已被移除，都要收敛一次界面。
       // settleRunInState 同时登记终态闩锁，之后的迟到补丁不会再复活它。
@@ -193,47 +200,44 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       settleRunInState(state, {
         runId,
         status,
-        roleId: String(payload?.roleId || '').trim(),
-        groupId: String(payload?.groupId || '').trim(),
-        workspaceId: String(payload?.workspaceId || '').trim(),
-        sessionId: String(payload?.sessionId || '').trim(),
-        messageIds: [String(payload?.lastMessageId || '').trim(), String(payload?.inputMessageId || '').trim()],
+        roleId: snapshot.roleId,
+        groupId: snapshot.groupId,
+        workspaceId: snapshot.workspaceId,
+        sessionId: snapshot.sessionId,
+        messageIds: [snapshot.lastMessageId, snapshot.inputMessageId],
       }, card)
       scheduleRender()
       return true
     }
     // 终态之后迟到的运行中状态一律丢弃：否则停止按钮与占位会被重新点亮。
     if (isRunSettled(state, runId)) return false
-    const roleId = String(payload?.roleId || '').trim()
-    const sessionId = String(payload?.sessionId || '').trim()
+    const { roleId, sessionId } = snapshot
     if (!roleId || !sessionId) return false
-    const groupId = String(payload?.groupId || '').trim()
-    const workspaceId = String(payload?.workspaceId || '').trim()
-    const patch: any = {
+    registerEbRoleRunCard(state, {
       runId,
       roleId,
-      groupId,
-      workspaceId,
+      groupId: snapshot.groupId,
+      workspaceId: snapshot.workspaceId,
       sessionId,
-      inputMessageId: String(payload?.inputMessageId || '').trim(),
-      lastMessageId: String(payload?.lastMessageId || payload?.inputMessageId || '').trim(),
-      anchorMessageId: String(payload?.inputMessageId || '').trim(),
-      dependencyMessageIds: Array.isArray(payload?.dependencyMessageIds) ? payload.dependencyMessageIds : [],
+      inputMessageId: snapshot.inputMessageId,
+      lastMessageId: snapshot.lastMessageId || snapshot.inputMessageId,
+      anchorMessageId: snapshot.inputMessageId,
+      dependencyMessageIds: snapshot.dependencyMessageIds,
       status: status || 'running',
-      stream: !!payload?.stream,
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, 'retry')) patch.retry = payload.retry
-    upsertEbRoleRunCard(state, patch)
+      stream: snapshot.stream,
+      retry: snapshot.retry,
+    })
     scheduleRender()
     return true
   }
 
-  function applyAssistantMessageUpdate(raw: unknown) {
+  // 内容事件只作用于已存在的运行：卡不存在就丢弃，绝不凭内容建卡。
+  function applyAssistantMessageUpdate(runIdRaw: unknown, raw: unknown) {
     const payload = raw && typeof raw === 'object' ? (raw as any) : null
     const state = deps.getState()
     if (!payload || !state.data) return false
 
-    const runId = String(payload.runId || '').trim()
+    const runId = String(runIdRaw || '').trim()
     const roleId = String(payload.roleId || '').trim()
     const groupId = String(payload.groupId || '').trim()
     const workspaceId = String(payload.workspaceId || '').trim()
@@ -247,7 +251,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const box = ensureTargetChatBox(state, targetKind, targetId)
     const chat = ensureRuntimeTargetChat(state, targetKind, targetId, sessionId, eventTime)
     if (!chat) {
-      bufferAssistantMessageUpdate(payload, targetKind, targetId, sessionId, messageId)
+      bufferAssistantMessageUpdate(runId, payload, targetKind, targetId, sessionId, messageId)
       return false
     }
     clearBufferedAssistantMessageUpdate(targetKind, targetId, sessionId, messageId)
@@ -316,7 +320,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
         stream: !!payload.stream,
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'retry')) patch.retry = payload.retry
-      upsertEbRoleRunCard(state, patch)
+      updateEbRoleRunCard(state, patch)
     }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
@@ -357,13 +361,13 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
 
   // applyAssistantMessageDelta 把“本次新增变化”叠加到本地消息：
   // 增量内容累加，重置标记则整体替换，工具片段按 id 合并。
-  function applyAssistantMessageDelta(raw: unknown) {
+  function applyAssistantMessageDelta(runIdRaw: unknown, raw: unknown) {
     const delta = raw && typeof raw === 'object' ? (raw as any) : null
     if (!delta) return false
     const state = deps.getState()
     if (!state?.data) return false
 
-    const runId = String(delta.runId || '').trim()
+    const runId = String(runIdRaw || '').trim()
     const roleId = String(delta.roleId || '').trim()
     const groupId = String(delta.groupId || '').trim()
     const workspaceId = String(delta.workspaceId || '').trim()
@@ -506,7 +510,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       status: 'running',
       stream: !!delta.stream,
     }
-    if (!deltaTerminalStatus) upsertEbRoleRunCard(state, patch)
+    if (!deltaTerminalStatus) updateEbRoleRunCard(state, patch)
     scheduleRuntimeChatChanged(targetKind, targetId, chat)
 
     if (isNewMessage) scheduleRender()
@@ -590,21 +594,23 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const items = Array.from(pending.values())
     pendingBySession.delete(key)
     let changed = false
-    for (const payload of items) {
-      changed = applyAssistantMessageUpdate(payload) || changed
+    for (const item of items) {
+      changed = applyAssistantMessageUpdate(item?.runId, item?.payload) || changed
     }
     return changed
   }
 
+  // applyRunEvent 是事件分发的唯一入口：先由协议契约解析信封，
+  // 运行身份只取信封 runId；载荷内任何 id 都不参与身份判定。
   function applyRunEvent(raw: unknown) {
-    const event = raw && typeof raw === 'object' ? (raw as any) : null
-    if (!event) return false
-    const type = String(event.type || '').trim()
-    if (type === 'assistant_message_delta') return applyAssistantMessageDelta(event.payload)
-    if (type === 'assistant_message_update' || type === 'run_message_update') return applyAssistantMessageUpdate(event.payload)
-    if (type === 'async_tool_task_update') return applyAsyncToolTaskUpdate(event.payload)
-    if (type === 'tool_output_update') return applyToolOutputUpdate(event.payload)
-    if (type === 'run_started' || type === 'run_retrying' || type === 'run_completed' || type === 'run_cancelled' || type === 'run_failed') return applyRunStateEvent(event.payload, event.runId)
+    const envelope = readRunEventEnvelope(raw)
+    if (!envelope) return false
+    const { runId, type, payload } = envelope
+    if (type === 'assistant_message_delta') return applyAssistantMessageDelta(runId, payload)
+    if (type === 'assistant_message_update' || type === 'run_message_update') return applyAssistantMessageUpdate(runId, payload)
+    if (type === 'async_tool_task_update') return applyAsyncToolTaskUpdate(payload)
+    if (type === 'tool_output_update') return applyToolOutputUpdate(payload)
+    if (isLifecycleRunEventType(type)) return applyRunStateEvent(runId, payload)
     return false
   }
 

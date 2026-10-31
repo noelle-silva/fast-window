@@ -5,7 +5,7 @@ import {
   isRunSettled,
   markRunSettled,
   removeEbRoleRunCard,
-  upsertEbRoleRunCard,
+  registerEbRoleRunCard,
 } from './activeRunCards'
 import { shouldShowActiveRunTailPending } from './chatMessageDisplay'
 import { settleRunInState } from './runTerminal'
@@ -46,7 +46,7 @@ function createState(): any {
 }
 
 function registerRunningCard(state: any) {
-  return upsertEbRoleRunCard(state, {
+  return registerEbRoleRunCard(state, {
     runId: 'run-1',
     roleId: 'role-1',
     sessionId: 'chat-1',
@@ -125,7 +125,7 @@ describe('运行终态收敛（停止按钮 / 消息 / 占位）', () => {
     expect(isRunSettled(state, 'run-1')).toBe(true)
 
     // 乱序到达的「运行中」补丁（事件背压后重放 / 探针旧快照）。
-    const revived = upsertEbRoleRunCard(state, {
+    const revived = registerEbRoleRunCard(state, {
       runId: 'run-1',
       roleId: 'role-1',
       sessionId: 'chat-1',
@@ -145,7 +145,7 @@ describe('运行终态收敛（停止按钮 / 消息 / 占位）', () => {
     settleRunInState(state, { runId: 'run-1', status: 'completed', roleId: 'role-1', sessionId: 'chat-1', messageIds: ['m2'] })
 
     // 迟到的运行中补丁走同一条闩锁。
-    upsertEbRoleRunCard(state, { runId: 'run-1', roleId: 'role-1', sessionId: 'chat-1', lastMessageId: 'm2', status: 'running' })
+    registerEbRoleRunCard(state, { runId: 'run-1', roleId: 'role-1', sessionId: 'chat-1', lastMessageId: 'm2', status: 'running' })
     expect(isAssistantGenerating(message)).toBe(false)
     expect(message.pending).toBe(false)
   })
