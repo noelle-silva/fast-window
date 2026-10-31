@@ -162,6 +162,14 @@ function normalizeRunRetryInfo(value: any): EbRunRetryInfo | null {
   }
 }
 
+// isRunMissingError 判定业务端「已没有这条运行」的权威答复。
+// 它不是停止失败：该运行早已进入终态并被回收，语义上等价于「已经结束」。
+export function isRunMissingError(error: unknown) {
+  const code = String((error as any)?.code || '').trim()
+  // 业务端错误码唯一的权威来源：agent-runtime-system 的 runtime.not_found。
+  return code === 'runtime.not_found'
+}
+
 export function runStateFailureError(state: EbRunState) {
   const payload = state.error
   const err: any = new Error(String(payload?.message || state.reason || `e-b run ${state.status}`))

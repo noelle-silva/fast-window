@@ -11,7 +11,7 @@ import {
   isTerminalEbRunStatus,
   latestEbRunCardForTarget,
   markEbRoleRunCardCancelled,
-  upsertEbRoleRunCard,
+  registerEbRoleRunCard,
 } from '../domain/activeRunCards'
 import { activateResolvedPendingChat, pendingChatForTarget } from '../domain/pendingChat'
 import {
@@ -23,7 +23,7 @@ import {
 } from '../domain/sessionComposerDrafts'
 import { buildGroupSpeakerPlan } from '../domain/groupSpeakerPlan'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
-import { cancelRoleRun, runStateFailureError, startRoleRun } from './ebRoleRun'
+import { cancelRoleRun, isRunMissingError, runStateFailureError, startRoleRun } from './ebRoleRun'
 import { settleRunByCard, settleRunInState } from '../domain/runTerminal'
 import type { EbRunState } from './ebRoleRun'
 import type { ChatTargetKind, ExistingMessageRunOptions, RoleRunInput, SendChatOptions } from './chatOperationsShared'
@@ -180,7 +180,7 @@ export function createChatRunOperations(
     if (fallback.startedFromPending && targetId && sessionId) activateResolvedPendingChat(state, targetKind, targetId, sessionId, fallback.pendingChatId)
     const inputMessageId = String(run?.inputMessageId || current?.inputMessageId || '').trim()
     const lastMessageId = String(run?.lastMessageId || fallback.lastMessageId || current?.lastMessageId || inputMessageId || '').trim()
-    return upsertEbRoleRunCard(state, {
+    return registerEbRoleRunCard(state, {
       runId: runId || String(current?.runId || '').trim(),
       roleId,
       groupId,
@@ -689,29 +689,40 @@ export function createChatRunOperations(
     const activeRun = explicitRunId
       ? findEbRoleRunCard(state, explicitRunId)
       : latestTargetRunCard(targetKind, targetId, sessionId) || activeEbRoleRunCards(state).slice(-1)[0] || null
-    if (activeRun) {
-      const runId = String(activeRun.runId || '').trim()
-      if (!runId) return showToast?.('当前运行尚未拿到 e-b run id，请稍候再试', { kind: 'error' })
-      if (typeof netRequest !== 'function') return showToast?.('e-b 请求通道不可用', { kind: 'error' })
-      try {
-        cancelledRunIds.add(runId)
-        if (activeRun) markEbRoleRunCardCancelled(state, runId)
-        await cancelRoleRun(netRequest, runId)
-        showToast?.('已请求停止', { kind: 'success' })
-        const roleId = String(activeRun?.roleId || sa.activeRole()?.id || '').trim()
-        const groupId = String((activeRun as any)?.groupId || sa.activeGroup()?.id || '').trim()
-        const workspaceId = String((activeRun as any)?.workspaceId || sa.activeWorkspace?.()?.id || '').trim()
-        const nextSessionId = String(activeRun?.sessionId || sa.activeChatFromData()?.id || '').trim()
-        if (groupId && nextSessionId) refreshTargetSession('group', groupId, nextSessionId, undefined, { activate: false }).catch(() => {})
-        else if (workspaceId && nextSessionId) refreshTargetSession('workspace', workspaceTargetId(workspaceId, roleId), nextSessionId, undefined, { activate: false }).catch(() => {})
-        else if (roleId && nextSessionId) refreshRoleSession(roleId, nextSessionId, undefined, { activate: false }).catch(() => {})
-        renderComposer()
-      } catch (e) {
-        showToast?.(String((e as any)?.message || e || '停止失败'), { kind: 'error' })
-      }
+    if (!activeRun) {
+      showToast?.('当前没有可停止的 e-b 真实运行', { kind: 'error' })
       return
     }
-    showToast?.('当前没有可停止的 e-b 真实运行', { kind: 'error' })
+    const runId = String(activeRun.runId || '').trim()
+    if (!runId) return showToast?.('当前运行尚未拿到 e-b run id，请稍候再试', { kind: 'error' })
+    if (typeof netRequest !== 'function') return showToast?.('e-b 请求通道不可用', { kind: 'error' })
+
+    cancelledRunIds.add(runId)
+    markEbRoleRunCardCancelled(state, runId)
+    try {
+      await cancelRoleRun(netRequest, runId)
+      showToast?.('已请求停止', { kind: 'success' })
+    } catch (e) {
+      if (!isRunMissingError(e)) {
+        // 传输失败 ≠ 运行已结束：保留卡片，等事件 / 探针继续对账。
+        showToast?.(String((e as any)?.message || e || '停止失败'), { kind: 'error' })
+        return
+      }
+      // 业务端已经没有这条运行：这不是「停止失败」，而是「该运行早已结束」的权威事实。
+      // 按终态收敛本地运行事实——只摘卡、只关生成标记，绝不改写任何已产出的正文。
+      settleRunByCard(state, activeRun, 'cancelled')
+      showToast?.('已停止', { kind: 'success' })
+    }
+
+    // 无论哪条路径，都按权威终态重读一次正文：重读只补事实，不覆盖已显示的产出。
+    const roleId = String(activeRun?.roleId || sa.activeRole()?.id || '').trim()
+    const groupId = String((activeRun as any)?.groupId || sa.activeGroup()?.id || '').trim()
+    const workspaceId = String((activeRun as any)?.workspaceId || sa.activeWorkspace?.()?.id || '').trim()
+    const nextSessionId = String(activeRun?.sessionId || sa.activeChatFromData()?.id || '').trim()
+    if (groupId && nextSessionId) refreshTargetSession('group', groupId, nextSessionId, undefined, { activate: false }).catch(() => {})
+    else if (workspaceId && nextSessionId) refreshTargetSession('workspace', workspaceTargetId(workspaceId, roleId), nextSessionId, undefined, { activate: false }).catch(() => {})
+    else if (roleId && nextSessionId) refreshRoleSession(roleId, nextSessionId, undefined, { activate: false }).catch(() => {})
+    renderComposer()
   }
 
   async function regenerateAssistantMessage(assistantMid: any, opts?: ExistingMessageRunOptions) {
