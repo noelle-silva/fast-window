@@ -5,7 +5,9 @@ import {
   normalizeActiveChatId,
   readActiveChatSelection,
   reconcileActiveChatSelection,
+  reconcileActiveChatSelectionFact,
   resolveActiveChatSelection,
+  resolveActiveChatSelectionFact,
   withActiveChatSelection,
   writeActiveChatSelection,
 } from './activeChatSelection'
@@ -82,5 +84,73 @@ describe('activeChatSelection', () => {
     const target = box('chat-2', ['chat-1'], ['chat-2'])
     expect(reconcileActiveChatSelection(target)).toBe('chat-2')
     expect(target.activeChatId).toBe('chat-2')
+  })
+})
+
+describe('activeChatId 事实优先级', () => {
+  it('用户意图压过运行期、服务端与本地投影', () => {
+    const target = box('', ['user', 'runtime', 'server', 'local'], ['user', 'runtime', 'server', 'local'])
+    expect(resolveActiveChatSelectionFact(target, {
+      userIntent: 'user',
+      runtimeTransient: 'runtime',
+      serverFact: 'server',
+      localProjection: 'local',
+    })).toBe('user')
+  })
+
+  it('用户意图失效时依次回落到运行期、服务端、本地投影', () => {
+    const target = box('', ['runtime', 'server', 'local'], [])
+    expect(resolveActiveChatSelectionFact(target, {
+      userIntent: 'missing',
+      runtimeTransient: 'runtime',
+      serverFact: 'server',
+      localProjection: 'local',
+    })).toBe('runtime')
+
+    expect(resolveActiveChatSelectionFact(target, {
+      userIntent: 'missing',
+      runtimeTransient: 'missing',
+      serverFact: 'server',
+      localProjection: 'local',
+    })).toBe('server')
+
+    expect(resolveActiveChatSelectionFact(target, {
+      userIntent: 'missing',
+      runtimeTransient: 'missing',
+      serverFact: 'missing',
+      localProjection: 'local',
+    })).toBe('local')
+  })
+
+  it('来源都失效时按额外候选顺序兜底', () => {
+    const target = box('', ['chat-1', 'chat-2'], [])
+    expect(resolveActiveChatSelectionFact(target, {
+      userIntent: 'missing',
+      fallbackCandidates: ['missing', 'chat-2', 'chat-1'],
+    })).toBe('chat-2')
+  })
+
+  it('多窗口场景：本窗口用户已保存的选择不被服务端索引偏好覆盖', () => {
+    const target = box('local-choice', ['local-choice', 'other-window-choice'], ['local-choice', 'other-window-choice'])
+    expect(reconcileActiveChatSelectionFact(target, {
+      userIntent: readActiveChatSelection(target),
+      serverFact: 'other-window-choice',
+    })).toBe('local-choice')
+    expect(target.activeChatId).toBe('local-choice')
+  })
+
+  it('重启恢复：失效的本地选择回落到服务端索引，再由列表首条兜底', () => {
+    const target = box('stale-local', ['chat-1', 'chat-2'], [])
+    expect(reconcileActiveChatSelectionFact(target, {
+      userIntent: readActiveChatSelection(target),
+      serverFact: 'chat-2',
+    })).toBe('chat-2')
+    expect(target.activeChatId).toBe('chat-2')
+
+    const empty = box('stale-local', ['chat-1'], [])
+    expect(reconcileActiveChatSelectionFact(empty, {
+      userIntent: readActiveChatSelection(empty),
+      serverFact: 'missing',
+    })).toBe('chat-1')
   })
 })

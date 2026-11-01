@@ -14,6 +14,8 @@
 // 读取也优先使用 readActiveChatSelection，保证全仓对「空值 / 空白」的理解一致；
 // 但只有本模块允许真正修改 holder.activeChatId。
 
+import { pickFactCandidate } from './factPrecedence'
+
 export type ActiveChatHolder = {
   activeChatId?: unknown
 }
@@ -72,6 +74,78 @@ export function firstChatIdInBox(box: any, prefer: ChatBoxIdSource = 'chatMetas'
   return firstFrom(metas) || firstFrom(chats)
 }
 
+export type ActiveChatSelectionFactInput = {
+  // 用户刚发起 / 已保存的选择。本地 activeChatId 是用户意图的持久记录，
+  // 不是索引投影：多窗口下另一窗口的索引偏好不能覆盖本窗口用户的选择。
+  userIntent?: unknown
+  // 运行期临时选择（例如草稿会话被激活）。当前没有独立来源，
+  // 预留给「运行期已成立、尚未落盘」的选择事实。
+  runtimeTransient?: unknown
+  // 服务端索引快照里的 activeChatId（派生事实）。
+  serverFact?: unknown
+  // 本地列表顺序 / 首条兜底。
+  localProjection?: unknown
+  // 额外兜底候选，按调用方给出的顺序尝试。
+  fallbackCandidates?: unknown[]
+  // 额外「已存在」集合。索引快照里的会话可能还没进入本地 chats，
+  // 但仍是可加载的合法选择，调用方必须显式传入，不能靠本地列表猜。
+  availableChatIds?: Iterable<unknown>
+  // 两个列表都为空时，首条从哪个列表取。
+  prefer?: ChatBoxIdSource
+}
+
+function existingChatIds(box: any): Set<string> {
+  const ids = new Set<string>()
+  const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
+  for (const meta of metas) {
+    const id = normalizeActiveChatId(meta?.id)
+    if (id) ids.add(id)
+  }
+  const chats = Array.isArray(box?.chats) ? box.chats : []
+  for (const chat of chats) {
+    const id = normalizeActiveChatId(chat?.id)
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
+// resolveActiveChatSelectionFact 是「当前选中会话」的唯一优先级规则。
+//
+// 顺序：用户意图 > 运行期临时态 > 服务端事实 > 本地投影。
+// 任何一个来源给出的 id 必须真实存在才算数；不存在就继续看下一来源，
+// 绝不把失效 id 写回。
+export function resolveActiveChatSelectionFact(box: any, input: ActiveChatSelectionFactInput = {}): string {
+  const existing = existingChatIds(box)
+  for (const raw of input.availableChatIds || []) {
+    const id = normalizeActiveChatId(raw)
+    if (id) existing.add(id)
+  }
+  const chosen = pickFactCandidate(
+    [
+      { source: 'user-intent' as const, value: normalizeActiveChatId(input.userIntent) },
+      { source: 'runtime-transient' as const, value: normalizeActiveChatId(input.runtimeTransient) },
+      { source: 'server-fact' as const, value: normalizeActiveChatId(input.serverFact) },
+      { source: 'local-projection' as const, value: normalizeActiveChatId(input.localProjection) },
+    ],
+    (id) => !!id && existing.has(id),
+  )
+  if (chosen) return chosen.value
+
+  for (const candidate of input.fallbackCandidates || []) {
+    const id = normalizeActiveChatId(candidate)
+    if (id && existing.has(id)) return id
+  }
+  return ''
+}
+
+// reconcileActiveChatSelectionFact 用规则解析并落盘当前选择。
+// 所有「多来源合并后选中谁」的调用点都必须走这里，禁止先 || 再写。
+export function reconcileActiveChatSelectionFact(box: any, input: ActiveChatSelectionFactInput = {}): string {
+  const next = resolveActiveChatSelectionFact(box, input) || firstChatIdInBox(box, input.prefer)
+  writeActiveChatSelection(box, next)
+  return next
+}
+
 // resolveActiveChatSelection 按候选顺序返回第一条「在盒子里真实存在」的会话。
 // 候选本身就是优先级：调用方只表达意图，存在性判断统一由这里负责。
 export function resolveActiveChatSelection(box: any, candidates: unknown[] = []): string {
@@ -101,7 +175,6 @@ export function reconcileActiveChatSelection(
   candidates: unknown[] = [readActiveChatSelection(box)],
   prefer: ChatBoxIdSource = 'chatMetas',
 ): string {
-  const next = resolveActiveChatSelection(box, candidates) || firstChatIdInBox(box, prefer)
-  writeActiveChatSelection(box, next)
-  return next
+  const [userIntent, ...fallbackCandidates] = candidates
+  return reconcileActiveChatSelectionFact(box, { userIntent, fallbackCandidates, prefer })
 }

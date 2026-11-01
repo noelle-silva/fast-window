@@ -9,6 +9,11 @@
 //
 // 因此 grep 任何单条消息字段的赋值（message.content = / message.parts = ...）
 // 只会在本文件命中。
+//
+// 字段层没有独立的跨来源优先级：同一 id 的「谁覆盖谁」先在
+// chatBodyPrecedence.resolveChatMessageFact 里以整条消息为单位裁定，
+// 进入这里的补丁都来自单一来源（运行流 / 用户编辑 / 快照落地）。
+// 本模块只保证幂等：值相同不重写，绝不引入字段级最后写入者获胜。
 
 export type ChatMessageFields = Record<string, unknown>
 

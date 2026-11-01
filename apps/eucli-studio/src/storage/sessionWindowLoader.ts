@@ -1,4 +1,5 @@
 import type { SessionScope, SessionSwitchClient, SessionWindowRequest } from '../protocol/sessionSwitchProtocol'
+import { resolveChatMessageUnionFact } from '../domain/chatBodyPrecedence'
 import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 import {
   applySessionIdentity,
@@ -110,13 +111,11 @@ function messageCreatedAt(message: any): number {
 export function mergeWindowPage(base: any, page: any): any {
   const baseMessages: any[] = Array.isArray(base?.messages) ? base.messages : []
   const pageMessages: any[] = Array.isArray(page?.messages) ? page.messages : []
-  const byId = new Map<string, any>()
-  for (const message of [...pageMessages, ...baseMessages]) {
-    const id = messageId(message)
-    if (!id || byId.has(id)) continue
-    byId.set(id, message)
-  }
-  const messages = Array.from(byId.values()).sort((left, right) => {
+  // 同一 id 以新页（服务端事实）为准，旧文档（本地投影）只补缺。
+  const messages = resolveChatMessageUnionFact({
+    authoritative: pageMessages,
+    secondary: baseMessages,
+  }).sort((left, right) => {
     const l = messageCreatedAt(left)
     const r = messageCreatedAt(right)
     if (l !== r) return l - r

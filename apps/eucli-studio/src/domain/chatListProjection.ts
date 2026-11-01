@@ -14,11 +14,15 @@
 //   - 已有会话在原位置合并，不因更新而挪到列表头；
 //   - 新会话进入列表头；
 //   - 整体替换（索引快照 / 批量刷新）保留调用方给出的顺序。
+//
+// 注意：列表顺序不是「谁覆盖谁」的事实冲突。来源优先级只作用在
+// 「同一条会话的列表字段」上，统一由 chatMeta.resolveChatMetaFact 裁决；
+// 这里只表达排序策略，不存在隐式的最后写入者获胜。
 
 import {
   chatMetaFromChat,
   chatMetasFromBox,
-  mergeChatMeta,
+  resolveChatMetaFact,
   normalizeChatMeta,
   normalizeChatMetas,
   type ChatMeta,
@@ -69,7 +73,7 @@ function upsertMeta(listRaw: any, metaRaw: any, fallbackTitle: string): ChatMeta
   const out = normalizeChatMetas(listRaw, [], {}, fallbackTitle)
   const index = out.findIndex((item) => item.id === meta.id)
   if (index >= 0) {
-    const merged = mergeChatMeta(out[index], meta)
+    const merged = resolveChatMetaFact(out[index], meta)
     if (merged) out[index] = merged
   } else {
     out.unshift(meta)

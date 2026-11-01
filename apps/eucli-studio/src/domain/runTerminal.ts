@@ -1,6 +1,6 @@
 import { finishAssistantRun, isAssistantGenerating, normalizeAssistantRunState, type AssistantRunStatus } from './assistantRunState'
 import { markRunSettled, removeEbRoleRunCard, settledRunStatus, type EbRoleRunCard } from './activeRunCards'
-import { writeChatRunStatus } from './chatSessionRunStatus'
+import { resolveFirstTerminalStatusFact, writeChatRunStatus } from './chatSessionRunStatus'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 // 运行终态的单一收敛点。
@@ -109,7 +109,7 @@ export function settleRunInState(state: any, input: RunTerminalInput, card?: EbR
   if (!assistantRunStatusFromRunStatus(input.status)) return false
   markRunSettled(state, runId, input.status, input.atMs)
   // 第一条终态胜出：后到的措辞不得翻案，一律以已登记的终态为准。
-  const status = settledRunStatus(state, runId) || String(input.status || '').trim()
+  const status = resolveFirstTerminalStatusFact(settledRunStatus(state, runId), input.status)
   const roleId = String(input.roleId || card?.roleId || '').trim()
   const groupId = String(input.groupId || card?.groupId || '').trim()
   const workspaceId = String(input.workspaceId || card?.workspaceId || '').trim()

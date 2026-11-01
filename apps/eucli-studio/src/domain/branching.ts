@@ -219,6 +219,45 @@ export function activeBranchHeadMidOrLast(chat: any): string {
   return messages.length ? String(messages[messages.length - 1]?.id || '').trim() : ''
 }
 
+export type BranchHeadFactInput = {
+  // 运行期已经前推、但可能尚未落盘的头部（runtime-transient）。
+  runtimeHead?: unknown
+  // 服务端快照里的头部（server-fact）。
+  serverHead?: unknown
+  // 本地投影兜底（例如消息列表末端）。
+  localProjectionHead?: unknown
+  // 头部必须仍然存在于当前消息集合里。
+  isAvailable?: (mid: string) => boolean
+  // 头部消息的时间，用于「分支头只前进」约束。
+  // 必须按来源分别取时间：运行期头来自本地对象，服务端头来自快照对象，
+  // 同一个 id 在两边的 updatedAt 可能不同。
+  timeOf?: (mid: string, side: 'runtime' | 'server') => number
+}
+
+// resolveBranchHeadFact 是「分支头」的唯一优先级规则。
+//
+// 默认顺序仍是 运行期临时态 > 服务端事实 > 本地投影，但分支头额外带一条
+// 只前进约束：服务端已经给出更新的头时，运行期旧头不能把视图拉回去。
+// 这条时间例外必须在这里显式表达，调用点不得再各写一遍。
+export function resolveBranchHeadFact(input: BranchHeadFactInput): string {
+  const available = (mid: string) => !!mid && (typeof input.isAvailable !== 'function' || input.isAvailable(mid))
+  const timeOf = (mid: string, side: 'runtime' | 'server') => {
+    const value = Number(input.timeOf?.(mid, side) || 0)
+    return Number.isFinite(value) ? value : 0
+  }
+  const runtimeHead = String(input.runtimeHead || '').trim()
+  const serverHead = String(input.serverHead || '').trim()
+  const localHead = String(input.localProjectionHead || '').trim()
+
+  if (available(runtimeHead)) {
+    // 分支头只前进：服务端头部更新时，以服务端为准。
+    if (!available(serverHead) || timeOf(serverHead, 'server') <= timeOf(runtimeHead, 'runtime')) return runtimeHead
+  }
+  if (available(serverHead)) return serverHead
+  if (available(localHead)) return localHead
+  return ''
+}
+
 export function ensureChatBranch(chat: any, branchId: string) {
   const branching = ensureChatBranching(chat)
   if (!branching) return null
@@ -236,10 +275,14 @@ export function activateChatBranch(chat: any, branchId: string, options?: { head
   const branching = ensureChatBranching(chat)
   if (!branching) return false
   const branch = ensureBranchInBranching(branching, bid)
-  const headIfEmptyMid = String(options?.headIfEmptyMid || '').trim()
+  const existingHeadMid = String((branch as any)?.headMid || '').trim()
+  const resolvedHeadMid = resolveBranchHeadFact({
+    serverHead: existingHeadMid,
+    localProjectionHead: options?.headIfEmptyMid,
+  })
   const heads =
-    branch && headIfEmptyMid && !String((branch as any)?.headMid || '').trim()
-      ? [{ branchId: bid, headMid: headIfEmptyMid }]
+    branch && resolvedHeadMid && resolvedHeadMid !== existingHeadMid
+      ? [{ branchId: bid, headMid: resolvedHeadMid }]
       : undefined
   return writeChatBranchingState(chat, { activeBranchId: bid, heads })
 }
@@ -421,10 +464,17 @@ export function preserveLocalBranchSelection(nextChat: any, currentChat: any) {
 
   const currentBranch = currentBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
   const nextBranch = nextBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
+  const nextHeadMid = String(nextBranch?.headMid || '').trim()
   const currentHeadMid = String(currentBranch?.headMid || '').trim()
+  // 活动分支是用户意图：本地已选中的分支优先于服务端快照。
+  // 分支头则按事实规则：服务端头部优先，只有服务端为空时才由本地补齐。
+  const resolvedHeadMid = resolveBranchHeadFact({
+    serverHead: nextHeadMid,
+    localProjectionHead: currentHeadMid,
+  })
   const heads =
-    nextBranch && currentBranch && !String(nextBranch?.headMid || '').trim() && currentHeadMid
-      ? [{ branchId: activeBranchId, headMid: currentHeadMid }]
+    nextBranch && resolvedHeadMid && resolvedHeadMid !== nextHeadMid
+      ? [{ branchId: activeBranchId, headMid: resolvedHeadMid }]
       : undefined
 
   writeChatBranchingState(next, { activeBranchId, heads })

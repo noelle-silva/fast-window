@@ -1,7 +1,11 @@
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { isStoredChatNewerThanCurrent } from '../domain/chatStorageSync'
-import { readActiveChatSelection, reconcileActiveChatSelection } from '../domain/activeChatSelection'
+import {
+  readActiveChatSelection,
+  reconcileActiveChatSelectionFact,
+  resolveActiveChatSelectionFact,
+} from '../domain/activeChatSelection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from './splitProjectionCache'
 
 // 目标会话对账：角色 / 群聊共用一套实现。
@@ -74,8 +78,17 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
       const wantUpdatedAt = snapshot.chatUpdatedAt || {}
 
       const box = ensureChatsBox(state, scope)
+      // 选中会话的裁决统一交给事实规则：
+      // 本窗口用户已保存的选择 > 服务端索引偏好 > 索引列表首条兜底。
       const keepChatNow = readActiveChatSelection(box)
-      const activeChatId = keepChatNow || desiredActiveChatId || String(desiredChatIds[0] || '')
+      const activeChatId = resolveActiveChatSelectionFact(box, {
+        userIntent: keepChatNow,
+        serverFact: desiredActiveChatId,
+        fallbackCandidates: desiredChatIds,
+        // 重取正文发生在列表投影落盘之前：此刻只能按旧行为接受调用方给出的
+        // 三种候选，存在性校验留给下面的最终 reconcile。
+        availableChatIds: [keepChatNow, desiredActiveChatId, ...desiredChatIds],
+      })
 
       const curById = new Map<string, any>()
       for (const chat of box.chats) {
@@ -108,7 +121,12 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         }
       }
 
-      reconcileActiveChatSelection(box, [keepChatNow, desiredActiveChatId, ...desiredChatIds])
+      reconcileActiveChatSelectionFact(box, {
+        userIntent: keepChatNow,
+        serverFact: desiredActiveChatId,
+        fallbackCandidates: desiredChatIds,
+        availableChatIds: desiredChatIds,
+      })
       return true
     } finally {
       syncingScopes.delete(scopeKey)

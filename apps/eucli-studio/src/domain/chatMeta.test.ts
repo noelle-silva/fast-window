@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatMetaFromChat, chatMetasFromBox } from './chatMeta'
+import { chatMetaFromChat, chatMetasFromBox, resolveChatMetaFact, type ChatMeta } from './chatMeta'
 
 describe('chatMeta window partiality', () => {
   it('marks metas derived from a window slice as partial', () => {
@@ -46,6 +46,42 @@ describe('chatMeta window partiality', () => {
     const metas = chatMetasFromBox(box, '新聊天')
     expect(metas[0].messageCount).toBe(2)
     expect(metas[0].title).toBe('完整标题')
+  })
+})
+
+describe('chatMeta 事实优先级', () => {
+  function meta(partial: Partial<ChatMeta>): ChatMeta {
+    return {
+      id: 'chat-1',
+      title: '标题',
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessagePreview: '',
+      messageCount: 0,
+      hasPending: false,
+      runStatus: 'idle',
+      runStatusChangedAt: 0,
+      ...partial,
+    }
+  }
+
+  it('服务端完整会话覆盖已有投影', () => {
+    const existing = meta({ partial: true, title: '窗口标题', messageCount: 1 })
+    const incoming = meta({ title: '完整标题', messageCount: 9 })
+    expect(resolveChatMetaFact(existing, incoming)?.title).toBe('完整标题')
+    expect(resolveChatMetaFact(existing, incoming)?.messageCount).toBe(9)
+  })
+
+  it('窗口切片（本地投影）不能覆盖任何已有事实', () => {
+    const existing = meta({ title: '索引标题', messageCount: 42 })
+    const incoming = meta({ partial: true, title: '窗口标题', messageCount: 1 })
+    expect(resolveChatMetaFact(existing, incoming)).toBe(existing)
+  })
+
+  it('同为窗口切片时保留先到者', () => {
+    const existing = meta({ partial: true, title: '先到' })
+    const incoming = meta({ partial: true, title: '后到' })
+    expect(resolveChatMetaFact(existing, incoming)).toBe(existing)
   })
 })
 

@@ -1,42 +1,15 @@
-import { preserveLocalBranchSelection, setChatBranchHeadMid } from './branching'
+import { preserveLocalBranchSelection, resolveBranchHeadFact, setChatBranchHeadMid } from './branching'
 import { replaceChatMessages } from './chatMessageCollection'
-import { hasAssistantVisibleOutput, isAssistantGenerating, resolveAssistantMessageForMerge } from './assistantRunState'
+import {
+  resolveChatMessageCollectionFact,
+  resolveChatMessageFact,
+  shouldPreserveRuntimeOnlyMessage,
+} from './chatBodyPrecedence'
 import { readChatRunStatus } from './chatSessionRunStatus'
-import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
 import { preserveSessionIdentity } from './sessionIdentity'
 
 function messageId(value: any) {
   return String(value?.id || '').trim()
-}
-
-function hasSameMaterialKind(left: any, right: any) {
-  return chatMessageMaterialKind(left) === chatMessageMaterialKind(right)
-}
-
-function resolveMaterialIdentityConflict(currentMessage: any, storedMessage: any) {
-  const currentKind = chatMessageMaterialKind(currentMessage)
-  const storedKind = chatMessageMaterialKind(storedMessage)
-  if (currentKind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return currentMessage
-  if (storedKind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return storedMessage
-  return storedMessage
-}
-
-// shouldPreserveRuntimeOnlyMessage 判断一条本地消息是否必须保留。
-//
-// 「运行期独占」消息 = 由运行事件就地创建、存储快照里还没有的消息。
-// 判定必须基于这个显式身份（runtimeOnly），而不是「是否还在生成」：
-//   - 用 generating 判定：终态一收敛标记就关掉，窗口刷新若拿到落盘前的旧页，
-//     已显示的最终回复会凭空消失，只剩占位；
-//   - 用「有可见产出」判定：已删除的消息会被重新捞回来（复活）。
-// 身份标记由事件消费者在创建消息时打上；存储确认后本地对象被存储快照替换，
-// 标记自然消失。
-function shouldPreserveRuntimeOnlyMessage(message: any) {
-  const kind = chatMessageMaterialKind(message)
-  if (kind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return true
-  if (!isAssistantTextChatMessage(message)) return false
-  if (message?.runtimeOnly !== true) return false
-  if (hasAssistantVisibleOutput(message)) return true
-  return !!(message?.error && typeof message.error === 'object')
 }
 
 function setBranchHeadMid(chat: any, branchId: string, headMid: string) {
@@ -72,14 +45,20 @@ function preserveRuntimeBranchHeads(nextChat: any, currentChat: any) {
     if (!branchId || !headMid || !nextIds.has(headMid)) continue
     const currentHead = currentById.get(headMid) || null
     if (!shouldPreserveRuntimeOnlyMessage(currentHead)) continue
-    // 分支头只能往前推，不能往后拉：存储已给出更新的头时，
-    // 把界面对齐到更旧的那一轮回复就是「发完又跳回上一个节点」。
     const nextBranch = (Array.isArray(nextChat?.branching?.branches) ? nextChat.branching.branches : []).find(
       (item: any) => String(item?.id || '').trim() === branchId,
     ) || null
-    const nextHeadMid = String(nextBranch?.headMid || '').trim()
-    const nextHead = nextHeadMid ? nextById.get(nextHeadMid) || null : null
-    if (nextHead && messageTime(nextHead) > messageTime(currentHead)) continue
+    // 分支头规则统一裁决「运行期旧头 vs 服务端新头」：
+    // 默认运行期优先，但服务端头部更新时只能前进、不能回退。
+    const resolvedHeadMid = resolveBranchHeadFact({
+      runtimeHead: headMid,
+      serverHead: nextBranch?.headMid,
+      isAvailable: (mid) => nextIds.has(mid),
+      // 运行期头的时间取本地对象，服务端头的时间取快照对象：
+      // 同一个 id 在两边可能有不同的 updatedAt。
+      timeOf: (mid, side) => messageTime(side === 'runtime' ? currentById.get(mid) : nextById.get(mid)),
+    })
+    if (resolvedHeadMid !== headMid) continue
     setBranchHeadMid(nextChat, branchId, headMid)
   }
 }
@@ -89,39 +68,20 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
   const currentMessages = Array.isArray(currentChat?.messages) ? currentChat.messages : null
   if (!nextMessages || !currentMessages || !currentMessages.length) return
 
-  const currentById = new Map<string, any>()
-  for (const message of currentMessages) {
-    const id = messageId(message)
-    if (id && !currentById.has(id)) currentById.set(id, message)
-  }
-
-  const mergedMessages = nextMessages.map((storedMessage: any) => {
-    const currentMessage = currentById.get(messageId(storedMessage)) || null
-    if (!currentMessage) return storedMessage
-    if (!hasSameMaterialKind(currentMessage, storedMessage)) return resolveMaterialIdentityConflict(currentMessage, storedMessage)
-    if (!isAssistantTextChatMessage(currentMessage) || !isAssistantTextChatMessage(storedMessage)) return storedMessage
-    // 运行期独占消息遇到「更旧的」存储快照：本地才是更新的产出。
-    // 典型场景是终态刷新与落盘并发，读到的是保存前的页；此时若用存储覆盖，
-    // 已显示的最终回复会消失，只剩占位。更新的一侧永远胜出。
-    if (currentMessage.runtimeOnly === true) {
-      const currentAt = Number(currentMessage.updatedAt || 0)
-      const storedAt = Number(storedMessage.updatedAt || 0)
-      const storedComplete = hasAssistantVisibleOutput(storedMessage) || !!(storedMessage?.error && typeof storedMessage.error === 'object')
-      if (!storedComplete) return currentMessage
-      if (currentAt > storedAt) return currentMessage
-    }
-    if (!isAssistantGenerating(currentMessage) && !isAssistantGenerating(storedMessage)) return storedMessage
-    return resolveAssistantMessageForMerge(currentMessage, storedMessage, { storedChatStatus: readChatRunStatus(nextChat) })
+  // 裁决全部交给会话正文的规则：服务端快照决定集合成员资格，
+  // 同 id 消息按「运行期独占 / 落盘事实 / 运行态合并」判定；
+  // 本地独有消息只有显式运行期独占才允许补入（删除不复活）。
+  const mergedMessages = resolveChatMessageCollectionFact({
+    serverMessages: nextMessages,
+    localMessages: currentMessages,
+    resolveMessage: (storedMessage: any, currentMessage: any) =>
+      resolveChatMessageFact({
+        serverMessage: storedMessage,
+        localMessage: currentMessage,
+        storedChatStatus: readChatRunStatus(nextChat),
+      }),
+    shouldKeepLocalMessage: shouldPreserveRuntimeOnlyMessage,
   })
-
-  const nextIds = new Set(mergedMessages.map((message: any) => messageId(message)).filter(Boolean))
-  for (const currentMessage of currentMessages) {
-    const id = messageId(currentMessage)
-    if (!id || nextIds.has(id)) continue
-    if (!shouldPreserveRuntimeOnlyMessage(currentMessage)) continue
-    mergedMessages.push(currentMessage)
-    nextIds.add(id)
-  }
   replaceChatMessages(nextChat, mergedMessages)
   preserveRuntimeBranchHeads(nextChat, currentChat)
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { registerEbRoleRunCard } from './activeRunCards'
-import { chatSessionRunSummaryFromChat, readChatRunStatus, writeChatRunStatus } from './chatSessionRunStatus'
+import {
+  chatSessionRunSummaryFromChat,
+  readChatRunStatus,
+  resolveChatRunStatusFact,
+  resolveFirstTerminalStatusFact,
+  writeChatRunStatus,
+} from './chatSessionRunStatus'
 
 function createState(): any {
   return {
@@ -98,5 +104,32 @@ describe('会话运行状态读取投影', () => {
   it('读取语义统一做空白归一化', () => {
     expect(readChatRunStatus({ status: '  running  ' })).toBe('running')
     expect(readChatRunStatus(undefined)).toBe('')
+  })
+})
+
+describe('chat.status 事实优先级', () => {
+  it('运行期临时态压过服务端终态与本地旧值', () => {
+    expect(resolveChatRunStatusFact({
+      runtimeTransient: 'running',
+      serverFact: 'completed',
+      localProjection: 'idle',
+    })).toBe('running')
+  })
+
+  it('没有运行期临时态时以服务端事实为准', () => {
+    expect(resolveChatRunStatusFact({
+      serverFact: 'failed',
+      localProjection: 'running',
+    })).toBe('failed')
+  })
+
+  it('所有来源为空时返回空串，不写兜底状态', () => {
+    expect(resolveChatRunStatusFact({})).toBe('')
+  })
+
+  it('同一条 run 的第一条终态压过后到的不同措辞', () => {
+    expect(resolveFirstTerminalStatusFact('completed', 'failed')).toBe('completed')
+    expect(resolveFirstTerminalStatusFact('', 'failed')).toBe('failed')
+    expect(resolveFirstTerminalStatusFact('', '')).toBe('')
   })
 })

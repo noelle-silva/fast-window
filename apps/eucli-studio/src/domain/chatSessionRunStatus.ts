@@ -1,4 +1,5 @@
 import { activeEbRunCardsForTarget, readActiveEbRoleRunCards } from './activeRunCards'
+import { pickFactCandidate } from './factPrecedence'
 
 export type ChatSessionRunStatus = 'idle' | 'running' | 'completed' | 'interrupted'
 
@@ -44,6 +45,43 @@ export function readChatRunStatus(chat: any): string {
   return text(chat?.status)
 }
 
+// chat.status 的事实来源只有三种：
+//   runtime-transient  仍在活动的 run 卡（用户正在等待的临时态）
+//   server-fact        终态事件 / 服务端运行快照
+//   local-projection   会话对象上已有的值（最低，仅用于避免无意义写入）
+// 用户意图不直接写 chat.status：发送动作表达的是「开始一次运行」，
+// 运行状态仍由运行卡与服务端事实决定。
+export type ChatRunStatusFactInput = {
+  runtimeTransient?: unknown
+  serverFact?: unknown
+  localProjection?: unknown
+}
+
+export function resolveChatRunStatusFact(input: ChatRunStatusFactInput): string {
+  const chosen = pickFactCandidate(
+    [
+      { source: 'runtime-transient' as const, value: text(input.runtimeTransient) },
+      { source: 'server-fact' as const, value: text(input.serverFact) },
+      { source: 'local-projection' as const, value: text(input.localProjection) },
+    ],
+    (value) => !!value,
+  )
+  return chosen?.value || ''
+}
+
+// 同一条 run 的终态只认第一条：先登记的终态压过后到的不同措辞。
+// 两者同属 server-fact，因此用「先到者胜」而不是来源等级决定。
+export function resolveFirstTerminalStatusFact(settledStatus: unknown, incomingStatus: unknown): string {
+  const chosen = pickFactCandidate(
+    [
+      { source: 'server-fact' as const, value: text(settledStatus) },
+      { source: 'server-fact' as const, value: text(incomingStatus) },
+    ],
+    (value) => !!value,
+  )
+  return chosen?.value || ''
+}
+
 // chat.status 的唯一写入口。
 //
 // 事实只有一个来源：该会话当前仍在活动的 run 卡。
@@ -60,7 +98,11 @@ export function writeChatRunStatus(
   const cards = options.target
     ? activeEbRunCardsForTarget(state, options.target.targetKind, options.target.targetId, sessionId)
     : readActiveEbRoleRunCards(state).filter((card) => card.sessionId === sessionId)
-  const nextStatus = cards.length ? text(cards[cards.length - 1]?.status) || 'running' : text(options.fallbackStatus)
+  const nextStatus = resolveChatRunStatusFact({
+    runtimeTransient: cards.length ? text(cards[cards.length - 1]?.status) || 'running' : '',
+    serverFact: options.fallbackStatus,
+    localProjection: readChatRunStatus(chat),
+  })
   if (!nextStatus) return false
   if (readChatRunStatus(chat) === nextStatus) return false
   chat.status = nextStatus

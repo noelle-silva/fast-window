@@ -14,6 +14,8 @@
 // 这个解析逻辑过去同时存在于 App.tsx 与 useSessionSwitch 里，
 // 现在收敛到本模块，任何调用方都不得再自己拼一遍。
 
+import { pickFactCandidate } from './factPrecedence'
+
 export type SessionSwitchTargetInput = {
   // 刚发起、尚未兑现的切换请求；空串表示没有进行中的请求。
   requestedChatId?: unknown
@@ -28,12 +30,19 @@ function normalizeId(value: unknown) {
 }
 
 // resolveSelectedChatId 返回「当前选中目标」。
+//
+// 来源映射：requested = 用户意图，loaded = 服务端已成立事实，
+// preferred = 本地持久化投影。顺序由事实源优先级统一声明，不再手写 if。
 export function resolveSelectedChatId(input: SessionSwitchTargetInput): string {
-  const requested = normalizeId(input.requestedChatId)
-  if (requested) return requested
-  const loaded = normalizeId(input.loadedChatId)
-  if (loaded) return loaded
-  return normalizeId(input.preferredChatId)
+  const chosen = pickFactCandidate(
+    [
+      { source: 'user-intent' as const, value: normalizeId(input.requestedChatId) },
+      { source: 'server-fact' as const, value: normalizeId(input.loadedChatId) },
+      { source: 'local-projection' as const, value: normalizeId(input.preferredChatId) },
+    ],
+    (id) => !!id,
+  )
+  return chosen?.value || ''
 }
 
 // resolveLoadedChatId 返回「已加载正文所属会话」；未加载时为空串。

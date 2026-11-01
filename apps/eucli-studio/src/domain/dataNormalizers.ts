@@ -16,6 +16,7 @@ import {
   normalizeChatBranching,
   rebuildLinearBranchingMessages,
   fillMissingBranchIdsOnly,
+  resolveBranchHeadFact,
   setChatBranchHeadMid,
 } from './branching'
 import { hasExplicitMessageParentLinks, normalizeChatMessage } from './message'
@@ -110,12 +111,22 @@ function normalizedBranchHeadMid(branchesRaw: unknown, activeBranchId: string, m
   }
   const activeBranch = branches.find((branch: any) => String(branch?.id || '') === activeBranchId) || null
   const currentHeadMid = String(activeBranch?.headMid || '').trim()
-  if (preserveCurrentHead && currentHeadMid && messageIds.has(currentHeadMid)) return currentHeadMid
+  let lastLeafMid = ''
   for (let index = messages.length - 1; index >= 0; index--) {
     const id = String(messages[index]?.id || '').trim()
-    if (id && !parentIds.has(id)) return id
+    if (id && !parentIds.has(id)) {
+      lastLeafMid = id
+      break
+    }
   }
-  return String(fallbackHeadMid || '').trim()
+  // 归一化时的分支头裁决：
+  // 已存头部（服务端事实）只有在 preserveCurrentHead 且真实存在时才生效；
+  // 否则由消息末端（本地投影）补位。
+  return resolveBranchHeadFact({
+    serverHead: preserveCurrentHead ? currentHeadMid : '',
+    localProjectionHead: lastLeafMid || String(fallbackHeadMid || '').trim(),
+    isAvailable: (mid) => messageIds.has(mid),
+  })
 }
 
 export function normalizeSplitMeta(raw: any) {

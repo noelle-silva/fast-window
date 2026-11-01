@@ -6,6 +6,7 @@ import {
   isLeafMessage,
   newestLeafDescendantMid,
   preserveLocalBranchSelection,
+  resolveBranchHeadFact,
   resolveRunFocusMid,
   setChatActiveBranchId,
   setChatBranchHeadMid,
@@ -177,5 +178,43 @@ describe('branching 分支头唯一写入口', () => {
     const merged = preserveLocalBranchSelection(next, current)
     expect(merged.branching.activeBranchId).toBe('b1')
     expect(activeBranchHeadMid(merged)).toBe('a1b')
+  })
+})
+
+describe('分支头事实优先级', () => {
+  it('运行期头存在且服务端头不更新时，运行期胜出', () => {
+    expect(resolveBranchHeadFact({
+      runtimeHead: 'runtime',
+      serverHead: 'server',
+      timeOf: (mid) => (mid === 'server' ? 100 : 200),
+    })).toBe('runtime')
+  })
+
+  it('服务端头严格更新时，运行期旧头不得回退视图', () => {
+    expect(resolveBranchHeadFact({
+      runtimeHead: 'runtime',
+      serverHead: 'server',
+      timeOf: (mid) => (mid === 'runtime' ? 100 : 200),
+    })).toBe('server')
+  })
+
+  it('运行期头不可用时按服务端、本地投影顺序回落', () => {
+    expect(resolveBranchHeadFact({
+      runtimeHead: 'missing',
+      serverHead: 'server',
+      localProjectionHead: 'local',
+      isAvailable: (mid) => mid !== 'missing',
+    })).toBe('server')
+    expect(resolveBranchHeadFact({
+      runtimeHead: 'missing',
+      serverHead: 'missing',
+      localProjectionHead: 'local',
+      isAvailable: (mid) => mid !== 'missing',
+    })).toBe('local')
+  })
+
+  it('都不存在时返回空串', () => {
+    expect(resolveBranchHeadFact({})).toBe('')
+    expect(resolveBranchHeadFact({ runtimeHead: 'x', isAvailable: () => false })).toBe('')
   })
 })

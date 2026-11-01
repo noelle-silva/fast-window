@@ -1,5 +1,6 @@
 import { normalizeTimeMs, now } from '../core/utils'
 import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
+import { factSourceRank, type FactSource } from './factPrecedence'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
 
 export type ChatMeta = {
@@ -157,15 +158,25 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
   }
 }
 
-// mergeChatMeta 是「列表事实」的唯一合并规则。
+// resolveChatMetaFact 是「列表事实」的唯一合并规则。
 //
-// 完整会话文档（非 partial）以新事实为准：它是整份会话的权威投影。
-// 窗口切片（partial）只加载了一窗，条数与摘要都不代表整份会话，
-// 因此绝不能覆盖已有的列表事实；它只在列表里还没有这条会话时补位。
-export function mergeChatMeta(existing: ChatMeta | null, incoming: ChatMeta | null): ChatMeta | null {
+// 来源判定：
+//   partial = true   窗口切片 = 本地投影：只加载了一窗，条数与摘要都不代表整份会话；
+//   partial = false  完整会话 = 服务端事实：整份会话的权威投影。
+//
+// 规则：
+//   - 服务端事实 > 本地投影；
+//   - 同来源时，完整会话以后到的完整事实为准（本次读取更新）；
+//   - 同为窗口切片时，先到者不被后到者覆盖（切片不积累任何事实）。
+export function resolveChatMetaFact(existing: ChatMeta | null, incoming: ChatMeta | null): ChatMeta | null {
   if (!existing) return incoming
   if (!incoming) return existing
-  if (incoming.partial) return existing
+  const existingSource: FactSource = existing.partial ? 'local-projection' : 'server-fact'
+  const incomingSource: FactSource = incoming.partial ? 'local-projection' : 'server-fact'
+  const existingRank = factSourceRank(existingSource)
+  const incomingRank = factSourceRank(incomingSource)
+  if (incomingRank < existingRank) return existing
+  if (incomingRank === existingRank && incoming.partial) return existing
   const merged: ChatMeta = { ...existing, ...incoming }
   delete merged.partial
   return merged
@@ -216,7 +227,7 @@ export function chatMetasFromBox(box: any, fallbackTitle = '新聊天'): ChatMet
     // 窗口切片只补「列表里还没有这条会话」的情形；
     // 已有索引事实时绝不拿窗口的条数与摘要去覆盖它。
     if (typeof index === 'number') {
-      const merged = mergeChatMeta(out[index], meta)
+      const merged = resolveChatMetaFact(out[index], meta)
       if (merged) out[index] = merged
     } else {
       indexById.set(meta.id, out.length)
