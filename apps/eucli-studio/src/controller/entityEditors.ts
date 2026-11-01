@@ -1,7 +1,8 @@
 import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
 import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRoleRunCards, activeEbRoleRunCardsForSession, activeEbRunCardsForTarget } from '../domain/activeRunCards'
-import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
+import { chatMetaFromChat } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { NEW_GROUP_ID, NEW_ROLE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy, normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates } from '../domain/roleModelCandidates'
@@ -867,18 +868,22 @@ export function createEntityEditors(deps: {
     if (chat) {
       chat.title = t
       chat.updatedAt = now()
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
+      writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, '新聊天'), fallbackTitle: '新聊天' })
     } else {
       const old = Array.isArray(box.chatMetas) ? box.chatMetas.find((m: any) => String(m?.id || '') === cid) : null
-      box.chatMetas = upsertChatMeta(box.chatMetas, {
-        id: cid,
-        title: t,
-        createdAt: Number(old?.createdAt || now()),
-        updatedAt: now(),
-        lastMessagePreview: String(old?.lastMessagePreview || ''),
-        messageCount: Number(old?.messageCount || 0),
-        hasPending: !!old?.hasPending,
-      }, '新聊天')
+      writeChatListProjection(box, {
+        kind: 'upsertMeta',
+        fallbackTitle: '新聊天',
+        meta: {
+          id: cid,
+          title: t,
+          createdAt: Number(old?.createdAt || now()),
+          updatedAt: now(),
+          lastMessagePreview: String(old?.lastMessagePreview || ''),
+          messageCount: Number(old?.messageCount || 0),
+          hasPending: !!old?.hasPending,
+        },
+      })
     }
 
     render()
@@ -912,10 +917,14 @@ export function createEntityEditors(deps: {
     if (chat) {
       chat.title = t
       chat.updatedAt = now()
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
+      writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, '群聊'), fallbackTitle: '群聊' })
     } else {
       const old = Array.isArray(box.chatMetas) ? box.chatMetas.find((item: any) => String(item?.id || '') === cid) : null
-      box.chatMetas = upsertChatMeta(box.chatMetas, { id: cid, title: t, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending }, '群聊')
+      writeChatListProjection(box, {
+        kind: 'upsertMeta',
+        fallbackTitle: '群聊',
+        meta: { id: cid, title: t, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending },
+      })
     }
     render()
     return true
@@ -1015,11 +1024,9 @@ export function createEntityEditors(deps: {
 
     const box = sa.ensureChatsBoxBare(rid)
     if (!box) return
-    const before = Array.isArray(box.chats) ? box.chats : []
     if (roleSessionHasActiveRun(state, rid, cid)) return showToast?.('该会话有真实运行中的任务，不能删除', { kind: 'error' })
 
-    box.chats = before.filter((c: any) => String(c?.id) !== cid)
-    box.chatMetas = removeChatMeta(box.chatMetas, cid, '新聊天')
+    writeChatListProjection(box, { kind: 'remove', chatId: cid, fallbackTitle: '新聊天' })
     cleanupFavoriteRefsForChat('role', rid, '', cid)
     if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))
 
@@ -1038,11 +1045,9 @@ export function createEntityEditors(deps: {
 
     const box = sa.ensureGroupChatsBoxBare(gid)
     if (!box) return
-    const before = Array.isArray(box.chats) ? box.chats : []
     if (groupSessionHasActiveRun(state, gid, cid)) return showToast?.('该群聊有真实运行中的任务，不能删除', { kind: 'error' })
 
-    box.chats = before.filter((c: any) => String(c?.id) !== cid)
-    box.chatMetas = removeChatMeta(box.chatMetas, cid, '群聊')
+    writeChatListProjection(box, { kind: 'remove', chatId: cid, fallbackTitle: '群聊' })
     cleanupFavoriteRefsForChat('group', gid, '', cid)
     if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))
 

@@ -20,6 +20,7 @@ import {
 import { hasExplicitMessageParentLinks, normalizeChatMessage } from './message'
 import { normalizeFavorites } from './favorites'
 import { chatMetasFromBox } from './chatMeta'
+import { writeChatListProjection } from './chatListProjection'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeRoleToolPolicy } from './toolPolicy'
 import { normalizeRoleModelConfig } from './roleModelCandidates'
@@ -343,11 +344,10 @@ export function normalizeData(raw: any) {
     const rid = String(r.id)
     if (!d.chatsByRole[rid] || typeof d.chatsByRole[rid] !== 'object') d.chatsByRole[rid] = { activeChatId: '', chats: [] }
     const box = d.chatsByRole[rid]
-    if (!Array.isArray(box.chats)) box.chats = []
-    box.chatMetas = chatMetasFromBox(box, '新聊天')
+    const chatMetas = chatMetasFromBox(box, '新聊天')
     writeActiveChatSelection(box, readActiveChatSelection(box))
 
-    box.chats = box.chats
+    const chats = (Array.isArray(box.chats) ? box.chats : [])
       .filter((c: any) => c && typeof c === 'object')
       .map((c: any) => {
         const cc = c
@@ -403,6 +403,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
+    writeChatListProjection(box, { kind: 'replace', chats, chatMetas })
     reconcileActiveChatSelection(box, undefined, 'chats')
   }
 
@@ -464,11 +465,10 @@ export function normalizeData(raw: any) {
     if (!gid) continue
     if (!(d as any).chatsByGroup[gid] || typeof (d as any).chatsByGroup[gid] !== 'object') (d as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
     const box = (d as any).chatsByGroup[gid]
-    if (!Array.isArray(box.chats)) box.chats = []
-    box.chatMetas = chatMetasFromBox(box, '群聊')
+    const chatMetas = chatMetasFromBox(box, '群聊')
     writeActiveChatSelection(box, readActiveChatSelection(box))
 
-    box.chats = box.chats
+    const chats = (Array.isArray(box.chats) ? box.chats : [])
       .filter((c: any) => c && typeof c === 'object')
       .map((c: any) => {
         const cc = c
@@ -525,6 +525,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
+    writeChatListProjection(box, { kind: 'replace', chats, chatMetas })
     reconcileActiveChatSelection(box, undefined, 'chats')
   }
 
@@ -563,11 +564,10 @@ export function normalizeData(raw: any) {
     if (!workspaceId || !workspaceIds.has(workspaceId)) continue
     if (!(d as any).chatsByWorkspace[targetId] || typeof (d as any).chatsByWorkspace[targetId] !== 'object') (d as any).chatsByWorkspace[targetId] = { activeChatId: '', chats: [] }
     const box = (d as any).chatsByWorkspace[targetId]
-    if (!Array.isArray(box.chats)) box.chats = []
-    box.chatMetas = chatMetasFromBox(box, '工作区会话')
+    const chatMetas = chatMetasFromBox(box, '工作区会话')
     writeActiveChatSelection(box, readActiveChatSelection(box))
 
-    box.chats = box.chats
+    const chats = (Array.isArray(box.chats) ? box.chats : [])
       .filter((chat: any) => chat && typeof chat === 'object')
       .map((chat: any) => {
         const cc = chat
@@ -625,6 +625,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
+    writeChatListProjection(box, { kind: 'replace', chats, chatMetas })
     reconcileActiveChatSelection(box, undefined, 'chats')
   }
 

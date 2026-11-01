@@ -1,6 +1,6 @@
 import { now, uid } from '../core/utils'
-import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
-import { mergeChatFromStorage } from '../domain/chatStorageSync'
+import { chatMetaFromChat } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { NEW_WORKSPACE_ID } from '../domain/constants'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
@@ -78,8 +78,7 @@ function ensureWorkspaceBox(state: any, activeRole: () => any, workspaceIdRaw: u
     ;(data as any).chatsByWorkspace[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
   }
   const box = (data as any).chatsByWorkspace[targetId]
-  if (!Array.isArray(box.chatMetas)) box.chatMetas = []
-  if (!Array.isArray(box.chats)) box.chats = []
+  writeChatListProjection(box, { kind: 'ensure' })
   box.workspaceId = workspaceId
   box.roleId = roleId
   box.targetId = targetId
@@ -211,11 +210,8 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId || !roleId || !chatId) return null
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return null
-    const index = (Array.isArray(box.chats) ? box.chats : []).findIndex((chat: any) => text(chat?.id) === chatId)
-    const nextChat = mergeChatFromStorage(chatRaw, index >= 0 ? box.chats[index] : null)
-    if (index >= 0) box.chats[index] = nextChat
-    else box.chats.unshift(nextChat)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, '工作区会话'), '工作区会话')
+    const nextChat = writeChatListProjection(box, { kind: 'upsert', chat: chatRaw, fallbackTitle: '工作区会话' })?.chat || null
+    if (!nextChat) return null
     if (!readActiveChatSelection(box)) writeActiveChatSelection(box, chatId)
     return nextChat
   }
@@ -232,8 +228,8 @@ export function createWorkspaceManager(deps: {
     if (!box) return null
     const metas = summaries.map(workspaceSessionSummaryToMeta).filter(Boolean)
     const metaIds = new Set(metas.map((meta: any) => text(meta?.id)).filter(Boolean))
-    box.chatMetas = metas
-    box.chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => metaIds.has(text(chat?.id)))
+    const chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => metaIds.has(text(chat?.id)))
+    writeChatListProjection(box, { kind: 'replace', chats, chatMetas: metas })
     reconcileActiveChatSelection(box)
     return box
   }
@@ -601,10 +597,14 @@ export function createWorkspaceManager(deps: {
       if (chat) {
         chat.title = nextTitle
         chat.updatedAt = now()
-        box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '工作区会话'), '工作区会话')
+        writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, '工作区会话'), fallbackTitle: '工作区会话' })
       } else {
         const old = (Array.isArray(box.chatMetas) ? box.chatMetas : []).find((item: any) => text(item?.id) === chatId) || null
-        box.chatMetas = upsertChatMeta(box.chatMetas, { id: chatId, title: nextTitle, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending }, '工作区会话')
+        writeChatListProjection(box, {
+          kind: 'upsertMeta',
+          fallbackTitle: '工作区会话',
+          meta: { id: chatId, title: nextTitle, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending },
+        })
       }
       render()
       return true
@@ -629,8 +629,7 @@ export function createWorkspaceManager(deps: {
     }
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return false
-    box.chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => text(chat?.id) !== chatId)
-    box.chatMetas = removeChatMeta(box.chatMetas, chatId, '工作区会话')
+    writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: '工作区会话' })
     if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
     removeLoadedChat?.('workspace', targetId, chatId)
     try {

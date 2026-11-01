@@ -1,8 +1,8 @@
 import { normalizeData } from '../domain/dataNormalizers'
 import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeFavorites } from '../domain/favorites'
-import { chatMetaFromChat, chatMetasFromBox, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
-import { mergeChatFromStorage } from '../domain/chatStorageSync'
+import { chatMetasFromBox } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import {
   splitChatKey,
   splitGroupChatKey,
@@ -34,8 +34,7 @@ function targetBox(data: any, kind: LazyChatKind, targetId: string) {
   const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
   if (!root[targetId] || typeof root[targetId] !== 'object') root[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
   const box = root[targetId]
-  if (!Array.isArray(box.chats)) box.chats = []
-  box.chatMetas = chatMetasFromBox(box, fallbackTitle)
+  writeChatListProjection(box, { kind: 'derive', fallbackTitle })
   writeActiveChatSelection(box, readActiveChatSelection(box))
   return box
 }
@@ -56,8 +55,7 @@ function isMissingChatError(error: unknown) {
 
 function removeMissingChatRef(box: any, chatId: string, kind: LazyChatKind) {
   if (!box || !chatId) return
-  box.chats = Array.isArray(box.chats) ? box.chats.filter((c: any) => String(c?.id || '') !== chatId) : []
-  box.chatMetas = removeChatMeta(box.chatMetas, chatId, kind === 'group' ? '群聊' : '新聊天')
+  writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: kind === 'group' ? '群聊' : '新聊天' })
   if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
 }
 
@@ -195,12 +193,8 @@ export function createLazyChatStore(deps: {
         return null
       }
 
-      const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
-      const nextChat = mergeChatFromStorage(chat, index >= 0 ? box.chats[index] : null)
-      if (index >= 0) box.chats[index] = nextChat
-      else box.chats.unshift(nextChat)
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
-      return nextChat
+      const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
+      return writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle })?.chat || null
     })()
     loadingChats.set(pendingKey, run)
     try {
@@ -269,12 +263,11 @@ export function createLazyChatStore(deps: {
     if (!chatId) return null
     const box = targetBox(state.data, kind, targetId)
     if (!box) return null
-    const index = box.chats.findIndex((c: any) => String(c?.id || '') === chatId)
-    const nextChat = mergeChatFromStorage(chat, index >= 0 ? box.chats[index] : null)
-    if (index >= 0) box.chats[index] = nextChat
-    else box.chats.unshift(nextChat)
-    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, kind === 'group' ? '群聊' : '新聊天'), kind === 'group' ? '群聊' : '新聊天')
-    return nextChat
+    return writeChatListProjection(box, {
+      kind: 'upsert',
+      chat,
+      fallbackTitle: kind === 'group' ? '群聊' : '新聊天',
+    })?.chat || null
   }
 
   function removeLoadedChat(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {
@@ -285,8 +278,7 @@ export function createLazyChatStore(deps: {
     if (!targetId || !chatId) return
     const box = targetBox(state.data, kind, targetId)
     if (!box) return
-    box.chats = box.chats.filter((c: any) => String(c?.id || '') !== chatId)
-    box.chatMetas = removeChatMeta(box.chatMetas, chatId, kind === 'group' ? '群聊' : '新聊天')
+    writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: kind === 'group' ? '群聊' : '新聊天' })
     if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
   }
 

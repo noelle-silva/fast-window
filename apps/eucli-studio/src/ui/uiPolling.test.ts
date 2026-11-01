@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createUiPolling } from './uiPolling'
 import { createIndexRevisionGate } from './indexRevisionGate'
-import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
 
@@ -49,10 +49,7 @@ function makeState(kind: 'role' | 'group' = 'role'): any {
 function upsertIntoState(state: any, kind: 'role' | 'group', targetId: string, chat: any) {
   const root = kind === 'group' ? 'chatsByGroup' : 'chatsByRole'
   const box = (state.data[root][targetId] ||= { activeChatId: '', chatMetas: [], chats: [] })
-  const index = box.chats.findIndex((item: any) => String(item?.id || '') === String(chat?.id || ''))
-  if (index >= 0) box.chats[index] = chat
-  else box.chats.push(chat)
-  box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, kind === 'group' ? '群聊' : '新聊天'), '新聊天')
+  writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle: kind === 'group' ? '群聊' : '新聊天' })
   return chat
 }
 
@@ -281,11 +278,14 @@ describe('uiPolling notice 对账', () => {
   it('事件携带的通知只应用一次', async () => {
     const { polling, state } = makeHarness({ revisions: [1] })
     const roleBox = (state.data.chatsByRole as any)['role-1']
-    roleBox.chatMetas = [
-      { id: 'chat-1', updatedAt: 1 },
-      { id: 'chat-2', updatedAt: 1 },
-    ]
-    roleBox.chats = [{ id: 'chat-1', updatedAt: 1 }]
+    writeChatListProjection(roleBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1 }],
+      chatMetas: [
+        { id: 'chat-1', updatedAt: 1 },
+        { id: 'chat-2', updatedAt: 1 },
+      ],
+    })
     writeActiveChatSelection(roleBox, 'chat-1')
     const notice = { id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-2', updatedAt: 9 }
 
@@ -303,8 +303,11 @@ describe('uiPolling notice 对账', () => {
     })
     const roleBox = state.data.chatsByRole['role-1']
     writeActiveChatSelection(roleBox, 'chat-1')
-    roleBox.chatMetas = [{ id: 'chat-1', updatedAt: 1 }]
-    roleBox.chats = [{ id: 'chat-1', updatedAt: 1, messages: [] }]
+    writeChatListProjection(roleBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1, messages: [] }],
+      chatMetas: [{ id: 'chat-1', updatedAt: 1 }],
+    })
 
     const applied = await polling.applyChatUpdatedNoticeOnce({ id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-1', updatedAt: 9000 })
     expect(applied).toBe(true)

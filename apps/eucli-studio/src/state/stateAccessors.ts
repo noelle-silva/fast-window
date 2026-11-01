@@ -1,4 +1,4 @@
-import { chatMetasFromBox } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { normalizeChatModelOverride } from '../domain/modelRefUtils'
 import { normalizeRoleModelConfig, roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { normalizeRoleToolPolicy } from '../domain/toolPolicy'
@@ -11,8 +11,7 @@ import {
 
 function ensureBoxShape(box: any, fallbackTitle: string) {
   if (!box || typeof box !== 'object') return { activeChatId: '', chatMetas: [], chats: [] }
-  if (!Array.isArray(box.chats)) box.chats = []
-  box.chatMetas = chatMetasFromBox(box, fallbackTitle)
+  writeChatListProjection(box, { kind: 'derive', fallbackTitle })
   writeActiveChatSelection(box, readActiveChatSelection(box))
   return box
 }

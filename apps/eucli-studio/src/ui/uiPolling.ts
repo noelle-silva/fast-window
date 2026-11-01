@@ -1,6 +1,7 @@
 import { AI_CHAT_DIRECT_EVENT } from '../protocol/aiChatProtocol'
 import { readActiveEbRunCardsForTarget } from '../domain/activeRunCards'
 import { pendingChatForTarget } from '../domain/pendingChat'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 import { createTargetChatSync, type TargetChatScope } from '../storage/targetChatSync'
 import { createIndexRevisionGate } from './indexRevisionGate'
@@ -177,7 +178,11 @@ export function createUiPolling(deps: UiPollingDeps) {
     const meta = metas.find((item: any) => String(item?.id || '') === cid) || null
     if (meta) {
       if (updatedAt && Number(meta.updatedAt || 0) !== updatedAt) {
-        meta.updatedAt = updatedAt
+        writeChatListProjection(box, {
+          kind: 'upsertMeta',
+          meta: { ...meta, updatedAt },
+          fallbackTitle: scope.kind === 'group' ? '群聊' : '新聊天',
+        })
         markNoticeApplied()
         return true
       }

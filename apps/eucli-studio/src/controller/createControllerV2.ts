@@ -18,6 +18,7 @@ import {
 } from '../domain/sessionComposerDrafts'
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
 import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
@@ -454,8 +455,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeLoadedChat: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => {
       if (kind === 'workspace') {
         const box = (state.data as any)?.chatsByWorkspace?.[String(targetId || '')]
-        if (!box || !Array.isArray(box.chats)) return
-        box.chats = box.chats.filter((chat: any) => String(chat?.id || '') !== String(chatId || ''))
+        if (!box) return
+        writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: '工作区会话' })
         return
       }
       removeLoadedChat(kind as any, targetId, chatId)

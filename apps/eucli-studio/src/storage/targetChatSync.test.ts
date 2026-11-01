@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createTargetChatSync, type TargetChatScope } from './targetChatSync'
-import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import type { ChatIndexSnapshot } from './splitProjectionCache'
 
 function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndexSnapshot {
@@ -49,10 +49,7 @@ function makeHarness(options: HarnessOptions = {}) {
     reloadChatBody,
     upsertLoadedChat: (kind, targetId, chat) => {
       const box = kind === 'group' ? state.data.chatsByGroup[targetId] : state.data.chatsByRole[targetId]
-      const index = box.chats.findIndex((item: any) => String(item?.id || '') === String(chat?.id || ''))
-      if (index >= 0) box.chats[index] = chat
-      else box.chats.push(chat)
-      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, kind === 'group' ? '群聊' : '新聊天'), '新聊天')
+      writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle: kind === 'group' ? '群聊' : '新聊天' })
       return chat
     },
     hasActiveRun: () => options.hasActiveRun === true,
@@ -66,11 +63,15 @@ const groupScope: TargetChatScope = { kind: 'group', targetId: 'group-1' }
 describe('syncTargetChats', () => {
   it('列表事实来自索引：裁剪到索引里的会话，顺序以索引为准', async () => {
     const { sync, state } = makeHarness()
-    state.data.chatsByRole['role-1'].chats = [
-      { id: 'chat-2', updatedAt: 10, messages: [] },
-      { id: 'chat-1', updatedAt: 10, messages: [] },
-      { id: 'chat-gone', updatedAt: 10, messages: [] },
-    ]
+    writeChatListProjection(state.data.chatsByRole['role-1'], {
+      kind: 'replace',
+      chats: [
+        { id: 'chat-2', updatedAt: 10, messages: [] },
+        { id: 'chat-1', updatedAt: 10, messages: [] },
+        { id: 'chat-gone', updatedAt: 10, messages: [] },
+      ],
+      chatMetas: [],
+    })
     await sync.syncTargetChats(roleScope, snapshot(1, ['chat-1', 'chat-2'], 'chat-1'))
     expect(state.data.chatsByRole['role-1'].chats.map((chat: any) => chat.id)).toEqual(['chat-1', 'chat-2'])
     expect(state.data.chatsByRole['role-1'].activeChatId).toBe('chat-1')
@@ -81,7 +82,11 @@ describe('syncTargetChats', () => {
     const { sync, state, reloadChatBody } = makeHarness({
       body: { id: 'chat-1', title: '群聊会话', updatedAt: 1000, messages: [{ id: 'm1', content: '权威正文' }] },
     })
-    state.data.chatsByGroup['group-1'].chats = [{ id: 'chat-1', updatedAt: 1000, messages: [] }]
+    writeChatListProjection(state.data.chatsByGroup['group-1'], {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1000, messages: [] }],
+      chatMetas: [],
+    })
 
     await sync.syncTargetChats(groupScope, snapshot(1, ['chat-1'], 'chat-1'), { force: true })
     expect(reloadChatBody).toHaveBeenCalledWith(groupScope, 'chat-1')
@@ -90,7 +95,11 @@ describe('syncTargetChats', () => {
 
   it('非 force 且索引时间戳没有更新时不重取正文', async () => {
     const { sync, state, reloadChatBody } = makeHarness({ body: { id: 'chat-1', messages: [] } })
-    state.data.chatsByRole['role-1'].chats = [{ id: 'chat-1', updatedAt: 99999, messages: [] }]
+    writeChatListProjection(state.data.chatsByRole['role-1'], {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 99999, messages: [] }],
+      chatMetas: [],
+    })
 
     await sync.syncTargetChats(roleScope, snapshot(1, ['chat-1'], 'chat-1'))
     expect(reloadChatBody).not.toHaveBeenCalled()

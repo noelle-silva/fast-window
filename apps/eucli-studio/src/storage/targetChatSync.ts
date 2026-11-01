@@ -1,4 +1,5 @@
 import { chatMetasFromBox } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { isStoredChatNewerThanCurrent } from '../domain/chatStorageSync'
 import { readActiveChatSelection, reconcileActiveChatSelection } from '../domain/activeChatSelection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from './splitProjectionCache'
@@ -45,7 +46,7 @@ function ensureChatsBox(state: any, scope: TargetChatScope) {
     boxes[scope.targetId] = { activeChatId: '', chatMetas: [], chats: [] }
   }
   const box = boxes[scope.targetId]
-  if (!Array.isArray(box.chats)) box.chats = []
+  writeChatListProjection(box, { kind: 'ensure' })
   return box
 }
 
@@ -93,8 +94,7 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         }
         nextChats.push(cur)
       }
-      box.chats = nextChats
-      box.chatMetas = chatMetas
+      writeChatListProjection(box, { kind: 'replace', chats: nextChats, chatMetas })
 
       if (activeChatId && !deps.hasActiveRun(scope, activeChatId)) {
         const metaUpdatedAt = Number(wantUpdatedAt[activeChatId] || 0)

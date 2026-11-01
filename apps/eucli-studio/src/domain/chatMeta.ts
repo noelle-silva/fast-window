@@ -230,27 +230,6 @@ export function chatMetasSortedByUpdatedAt(listRaw: any, fallbackTitle = '新聊
   return normalizeChatMetas(listRaw, [], {}, fallbackTitle).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
 }
 
-export function upsertChatMeta(listRaw: any, metaRaw: any, fallbackTitle = '新聊天'): ChatMeta[] {
-  const meta = normalizeChatMeta(metaRaw, '', fallbackTitle)
-  const list = Array.isArray(listRaw) ? listRaw : []
-  if (!meta) return normalizeChatMetas(list, [], {}, fallbackTitle)
-  const out = normalizeChatMetas(list, [], {}, fallbackTitle)
-  const index = out.findIndex((x) => x.id === meta.id)
-  if (index >= 0) {
-    // 同一份合并规则：窗口切片不覆盖已有索引事实（条数 / 摘要 / 标题 / 时间）。
-    const merged = mergeChatMeta(out[index], meta)
-    if (merged) out[index] = merged
-  } else {
-    out.unshift(meta)
-  }
-  return out
-}
-
-export function removeChatMeta(listRaw: any, chatId: unknown, fallbackTitle = '新聊天'): ChatMeta[] {
-  const cid = normalizeWhitespace(chatId)
-  return normalizeChatMetas(listRaw, [], {}, fallbackTitle).filter((x) => x.id !== cid)
-}
-
 export function chatMetaIds(listRaw: any): string[] {
   return normalizeChatMetas(listRaw, [], {}, '新聊天').map((x) => x.id).filter(Boolean)
 }

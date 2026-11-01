@@ -1,7 +1,8 @@
 import { normalizeTimeMs } from '../core/utils'
 import { ensureChatBranch, normalizeBranchId } from '../domain/branching'
 import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts } from '../domain/assistantRunState'
-import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
+import { chatMetaFromChat } from '../domain/chatMeta'
+import { writeChatListProjection } from '../domain/chatListProjection'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
@@ -102,27 +103,13 @@ export function createEbRunEventConsumer(deps: {
 
   function ensureTargetChatBox(state: any, targetKind: RunEventTargetKind, targetId: string) {
     if (!state?.data || !targetId) return null
-    if (targetKind === 'group') {
-      if (!state.data.chatsByGroup || typeof state.data.chatsByGroup !== 'object') state.data.chatsByGroup = {}
-      if (!state.data.chatsByGroup[targetId] || typeof state.data.chatsByGroup[targetId] !== 'object') state.data.chatsByGroup[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-      const box = state.data.chatsByGroup[targetId]
-      if (!Array.isArray(box.chats)) box.chats = []
-      if (!Array.isArray(box.chatMetas)) box.chatMetas = []
-      return box
+    const rootKey = targetKind === 'group' ? 'chatsByGroup' : targetKind === 'workspace' ? 'chatsByWorkspace' : 'chatsByRole'
+    if (!state.data[rootKey] || typeof state.data[rootKey] !== 'object') state.data[rootKey] = {}
+    if (!state.data[rootKey][targetId] || typeof state.data[rootKey][targetId] !== 'object') {
+      state.data[rootKey][targetId] = { activeChatId: '', chatMetas: [], chats: [] }
     }
-    if (targetKind === 'workspace') {
-      if (!state.data.chatsByWorkspace || typeof state.data.chatsByWorkspace !== 'object') state.data.chatsByWorkspace = {}
-      if (!state.data.chatsByWorkspace[targetId] || typeof state.data.chatsByWorkspace[targetId] !== 'object') state.data.chatsByWorkspace[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-      const box = state.data.chatsByWorkspace[targetId]
-      if (!Array.isArray(box.chats)) box.chats = []
-      if (!Array.isArray(box.chatMetas)) box.chatMetas = []
-      return box
-    }
-    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
-    if (!state.data.chatsByRole[targetId] || typeof state.data.chatsByRole[targetId] !== 'object') state.data.chatsByRole[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-    const box = state.data.chatsByRole[targetId]
-    if (!Array.isArray(box.chats)) box.chats = []
-    if (!Array.isArray(box.chatMetas)) box.chatMetas = []
+    const box = state.data[rootKey][targetId]
+    writeChatListProjection(box, { kind: 'ensure' })
     return box
   }
 
@@ -142,8 +129,7 @@ export function createEbRunEventConsumer(deps: {
       updatedAt: Math.max(Number(meta?.updatedAt || 0), t),
       runtimePartial: true,
     }
-    box.chats.unshift(runtimeChat)
-    return runtimeChat
+    return writeChatListProjection(box, { kind: 'upsert', chat: runtimeChat, updateMeta: false })?.chat || null
   }
 
 function normalizeRuntimeVisibleMessage(raw: any, fallback: { parentMessageId?: string; branchId?: string; eventTime: number }) {
@@ -341,7 +327,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     }
 
     const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'
-    if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, fallbackTitle), fallbackTitle)
+    if (box) writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, fallbackTitle), fallbackTitle })
 
     scheduleRuntimeChatChanged(targetKind, targetId, chat, messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)
 
@@ -492,7 +478,10 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       checkpointAssistantRun(message, message.content, message.updatedAt)
     }
 
-    if (box) box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, targetKind === 'group' ? '群聊' : '新聊天'), targetKind === 'group' ? '群聊' : '新聊天')
+    if (box) {
+      const fallbackTitle = targetKind === 'group' ? '群聊' : '新聊天'
+      writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, fallbackTitle), fallbackTitle })
+    }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
     if (branch) {
