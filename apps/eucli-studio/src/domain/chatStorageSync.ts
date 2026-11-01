@@ -45,9 +45,19 @@ function setBranchHeadMid(chat: any, branchId: string, headMid: string) {
   branch.updatedAt = Number(chat?.updatedAt || branch.updatedAt || 0)
 }
 
+function messageTime(message: any) {
+  const value = Number(message?.updatedAt || message?.createdAt || 0)
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
 function preserveRuntimeBranchHeads(nextChat: any, currentChat: any) {
   const nextMessages = Array.isArray(nextChat?.messages) ? nextChat.messages : []
   const nextIds = new Set(nextMessages.map((message: any) => messageId(message)).filter(Boolean))
+  const nextById = new Map<string, any>()
+  for (const message of nextMessages) {
+    const id = messageId(message)
+    if (id && !nextById.has(id)) nextById.set(id, message)
+  }
   const branches = Array.isArray(currentChat?.branching?.branches) ? currentChat.branching.branches : []
   const currentMessages = Array.isArray(currentChat?.messages) ? currentChat.messages : []
   const currentById = new Map<string, any>()
@@ -61,6 +71,14 @@ function preserveRuntimeBranchHeads(nextChat: any, currentChat: any) {
     if (!branchId || !headMid || !nextIds.has(headMid)) continue
     const currentHead = currentById.get(headMid) || null
     if (!shouldPreserveRuntimeOnlyMessage(currentHead)) continue
+    // 分支头只能往前推，不能往后拉：存储已给出更新的头时，
+    // 把界面对齐到更旧的那一轮回复就是「发完又跳回上一个节点」。
+    const nextBranch = (Array.isArray(nextChat?.branching?.branches) ? nextChat.branching.branches : []).find(
+      (item: any) => String(item?.id || '').trim() === branchId,
+    ) || null
+    const nextHeadMid = String(nextBranch?.headMid || '').trim()
+    const nextHead = nextHeadMid ? nextById.get(nextHeadMid) || null : null
+    if (nextHead && messageTime(nextHead) > messageTime(currentHead)) continue
     setBranchHeadMid(nextChat, branchId, headMid)
   }
 }

@@ -81,3 +81,39 @@ describe('终态刷新不丢最终回复', () => {
     expect(merged.messages.map((m: any) => m.id)).toEqual(['u1'])
   })
 })
+
+// 回归：分支头只能往前推。
+//
+// 现场故障：点「重新回答」或从某个节点继续发送后，回复完成会被重载回上一轮节点。
+// 原因是合并时用「本地运行期独占的旧头」覆盖了存储里已经更新的分支头，
+// 于是每次重载都把视图拉回旧的叶子。
+describe('分支头只前进不后退', () => {
+  it('存储里的分支头更新时，不被本地运行期旧头覆盖', () => {
+    const older = storedAssistant('m2', '上一轮回复', 200)
+    older.runtimeOnly = true
+    finishAssistantRun(older, '上一轮回复', 'succeeded', 200)
+    const newer = storedAssistant('m3', '本轮新回复', 500)
+
+    const current = chat([user('u1'), older, newer])
+    current.branching.branches[0].headMid = 'm2'
+    const next = chat([user('u1'), older, newer], 'completed')
+    next.branching.branches[0].headMid = 'm3'
+
+    const merged = mergeChatFromStorage(next, current)
+    expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')
+  })
+
+  it('存储还没有该消息时，运行期头部仍然前推', () => {
+    const runtime = storedAssistant('m3', '刚落盘的回复', 500)
+    runtime.runtimeOnly = true
+    finishAssistantRun(runtime, '刚落盘的回复', 'succeeded', 500)
+
+    const current = chat([user('u1'), runtime])
+    current.branching.branches[0].headMid = 'm3'
+    const next = chat([user('u1')], 'running')
+    next.branching.branches[0].headMid = 'u1'
+
+    const merged = mergeChatFromStorage(next, current)
+    expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')
+  })
+})
