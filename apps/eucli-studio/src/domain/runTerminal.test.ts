@@ -75,6 +75,8 @@ describe('运行终态收敛（停止按钮 / 消息 / 占位）', () => {
     // 输入区的停止按钮只看这个集合。
     expect(activeEbRunCardsForTarget(state, 'role', 'role-1', 'chat-1')).toHaveLength(0)
     expect(findEbRoleRunCard(state, 'run-1')).toBeNull()
+    // 会话列表运行指示同样收口到终态。
+    expect(state.data.chatsByRole['role-1'].chats[0].status).toBe('completed')
   })
 
   it('终态后消息不再生成：同 run 的消息被收敛', () => {
@@ -161,6 +163,22 @@ describe('运行终态收敛（停止按钮 / 消息 / 占位）', () => {
     expect(changed).toBe(false)
     // 首次终态不可被后来的终态改写（同一条 run 只认第一个终态）。
     expect(state.settledRuns['run-1']).toBe(firstLedger['run-1'])
+  })
+
+  it('同会话仍有活动运行时，终态收口不会把会话状态提前置为完成', () => {
+    const state = createState()
+    registerRunningCard(state)
+    registerEbRoleRunCard(state, {
+      runId: 'run-2',
+      roleId: 'role-1',
+      sessionId: 'chat-1',
+      lastMessageId: 'm3',
+      status: 'running',
+    })
+
+    settleRunInState(state, { runId: 'run-1', status: 'completed', roleId: 'role-1', sessionId: 'chat-1', messageIds: ['m2'] })
+
+    expect(state.data.chatsByRole['role-1'].chats[0].status).toBe('running')
   })
 
   it('终态台账有界：过期条目惰性回收', () => {

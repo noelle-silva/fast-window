@@ -1,5 +1,6 @@
 import { finishAssistantRun, isAssistantGenerating, normalizeAssistantRunState, type AssistantRunStatus } from './assistantRunState'
 import { markRunSettled, removeEbRoleRunCard, settledRunStatus, type EbRoleRunCard } from './activeRunCards'
+import { writeChatRunStatus } from './chatSessionRunStatus'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 // 运行终态的单一收敛点。
@@ -132,13 +133,8 @@ export function settleRunInState(state: any, input: RunTerminalInput, card?: EbR
   for (const chat of chats) {
     if (sessionId && String(chat?.id || '').trim() !== sessionId) continue
     if (settleAssistantMessagesForRun(chat, { runId, status, messageIds, atMs: input.atMs })) changed = true
-    // 会话运行状态：仍有活动卡就是 running，否则以本次终态收口。
-    const remaining = Array.isArray(state.activeRunCards) ? state.activeRunCards.filter((item: any) => String(item?.sessionId || '') === String(chat?.id || '')) : []
-    const nextStatus = remaining.length ? String(remaining[remaining.length - 1]?.status || 'running').trim() || 'running' : status
-    if (nextStatus && String(chat?.status || '') !== nextStatus) {
-      chat.status = nextStatus
-      changed = true
-    }
+    // 会话运行状态：唯一写入口；仍有活动卡就是 running，否则以本次终态收口。
+    if (writeChatRunStatus(state, chat, { fallbackStatus: status, target: { targetKind, targetId } })) changed = true
   }
   return changed
 }

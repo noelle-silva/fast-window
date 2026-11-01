@@ -29,6 +29,7 @@ import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
 import { normalizeWallpaperSettings } from './wallpaper'
 import { readActiveChatSelection, reconcileActiveChatSelection, writeActiveChatSelection } from './activeChatSelection'
+import { readChatRunStatus } from './chatSessionRunStatus'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
 import { normalizeSessionFacts } from './sessionFacts'
@@ -363,7 +364,7 @@ export function normalizeData(raw: any) {
         const out: any = {
           id: cid,
           title,
-          status: String((cc as any).status || '').trim(),
+          status: readChatRunStatus(cc),
           createdAt,
           updatedAt,
           branching,
@@ -485,7 +486,7 @@ export function normalizeData(raw: any) {
 		const out: any = {
 			id: cid,
 			title,
-			status: String((cc as any).status || '').trim(),
+			status: readChatRunStatus(cc),
 			createdAt,
           updatedAt,
           branching,
@@ -585,7 +586,7 @@ export function normalizeData(raw: any) {
           roleId: String((cc as any).roleId || '').trim(),
           workspaceId,
           title,
-          status: String((cc as any).status || '').trim(),
+          status: readChatRunStatus(cc),
           createdAt,
           updatedAt,
           branching,

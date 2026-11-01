@@ -4,7 +4,8 @@ import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettl
 import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
-import { activeEbRunCardsForTarget, findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
+import { findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
+import { writeChatRunStatus } from '../domain/chatSessionRunStatus'
 import { assistantRunStatusFromRunStatus, settleRunInState } from '../domain/runTerminal'
 import { isLifecycleRunEventType, readRunEventEnvelope, readRunLifecycleSnapshot } from '../protocol/runEventContract'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
@@ -331,11 +332,12 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     }
 
     // 会话运行状态：终态路径已由 settleRunInState 统一收口，这里只处理运行中推进。
+    // 状态怎么算、写到哪里，统一交给 chat.status 的唯一写入口。
     if (!terminalStatus) {
-      const runStatus = String(payload.status || '').trim()
-      const activeCards = activeEbRunCardsForTarget(state, targetKind, targetId, sessionId)
-      const chatStatus = activeCards.length ? String(activeCards[activeCards.length - 1]?.status || 'running').trim() || 'running' : runStatus
-      if (chatStatus) chat.status = chatStatus
+      writeChatRunStatus(state, chat, {
+        fallbackStatus: payload.status,
+        target: { targetKind, targetId },
+      })
     }
 
     const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'

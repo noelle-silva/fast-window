@@ -1,4 +1,4 @@
-import { normalizeAssistantRunState, type AssistantRunStatus } from './assistantRunState'
+import { activeEbRunCardsForTarget, readActiveEbRoleRunCards } from './activeRunCards'
 
 export type ChatSessionRunStatus = 'idle' | 'running' | 'completed' | 'interrupted'
 
@@ -7,20 +7,25 @@ export type ChatSessionRunSummary = {
   changedAt: number
 }
 
+export type ChatRunTarget = {
+  targetKind: 'role' | 'group' | 'workspace'
+  targetId: string
+}
+
+function text(value: unknown) {
+  return String(value ?? '').trim()
+}
+
 function timeValue(value: unknown) {
   if (typeof value === 'number' && isFinite(value) && value > 0) return value
-  const text = String(value || '').trim()
-  if (!text) return 0
-  const parsed = Date.parse(text)
+  const valueText = String(value || '').trim()
+  if (!valueText) return 0
+  const parsed = Date.parse(valueText)
   return isFinite(parsed) && parsed > 0 ? parsed : 0
 }
 
 function statusUpdatedAt(value: any) {
   return timeValue(value?.finishedAt) || timeValue(value?.updatedAt) || timeValue(value?.createdAt)
-}
-
-function statusStartedAt(value: any) {
-  return timeValue(value?.startedAt) || timeValue(value?.createdAt) || timeValue(value?.updatedAt)
 }
 
 export function normalizeChatSessionRunStatus(value: unknown): ChatSessionRunStatus {
@@ -31,32 +36,45 @@ export function normalizeChatSessionRunStatus(value: unknown): ChatSessionRunSta
   return 'idle'
 }
 
-function assistantRunSummary(message: any): ChatSessionRunSummary | null {
-  if (!message || typeof message !== 'object') return null
-  if (String(message?.role || message?.type || '').trim() !== 'assistant') return null
-  if (message?.error && typeof message.error === 'object') return { status: 'interrupted', changedAt: statusUpdatedAt(message) }
-
-  const run = normalizeAssistantRunState(message?.assistantRun)
-  if (!run) return null
-  const status = normalizeChatSessionRunStatus(run.status as AssistantRunStatus)
-  if (status === 'running') return null
-  if (status === 'idle') return null
-  return { status, changedAt: statusUpdatedAt(run) || statusUpdatedAt(message) }
+// chat.status 的读取语义唯一入口。
+//
+// 保留原始状态字符串（queued / failed / cancelled ...），不要在写入或读取时
+// 提前折叠成列表展示用的四态：落盘事实与展示投影是两层，折叠只发生在投影里。
+export function readChatRunStatus(chat: any): string {
+  return text(chat?.status)
 }
 
+// chat.status 的唯一写入口。
+//
+// 事实只有一个来源：该会话当前仍在活动的 run 卡。
+// 没有活动卡时，由调用方给出本次收尾/快照的权威状态（终态事件或运行中载荷）。
+// 任何其他模块都不得直接给 chat.status 赋值——否则同一个事实会出现
+// 「事件里写一份、终态里再写一份」的双写路径，先后顺序不同就会互相覆盖。
+export function writeChatRunStatus(
+  state: any,
+  chat: any,
+  options: { fallbackStatus?: unknown; target?: ChatRunTarget | null } = {},
+): boolean {
+  const sessionId = text(chat?.id)
+  if (!sessionId) return false
+  const cards = options.target
+    ? activeEbRunCardsForTarget(state, options.target.targetKind, options.target.targetId, sessionId)
+    : readActiveEbRoleRunCards(state).filter((card) => card.sessionId === sessionId)
+  const nextStatus = cards.length ? text(cards[cards.length - 1]?.status) || 'running' : text(options.fallbackStatus)
+  if (!nextStatus) return false
+  if (readChatRunStatus(chat) === nextStatus) return false
+  chat.status = nextStatus
+  return true
+}
+
+// 会话运行状态的读取投影。
+//
+// chat.status 已由唯一写入口收口，这里只做「原始状态 → 列表四态」的映射，
+// 不再扫描消息里的 assistantRun 二次推导状态：
+// 同一事实若同时存在「存储字段」与「读时推导」，两套结果迟早会分叉。
 export function chatSessionRunSummaryFromChat(chat: any): ChatSessionRunSummary {
-  const chatStatus = normalizeChatSessionRunStatus(chat?.status)
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
-
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const summary = assistantRunSummary(messages[index])
-    if (summary) {
-      if (chatStatus === 'running') return { status: 'running', changedAt: summary.changedAt || statusUpdatedAt(chat) }
-      if (chatStatus === 'completed' || chatStatus === 'interrupted') return { status: chatStatus, changedAt: statusUpdatedAt(chat) || summary.changedAt }
-      return summary
-    }
+  return {
+    status: normalizeChatSessionRunStatus(readChatRunStatus(chat)),
+    changedAt: statusUpdatedAt(chat),
   }
-
-  if (chatStatus !== 'idle') return { status: chatStatus, changedAt: statusUpdatedAt(chat) }
-  return { status: 'idle', changedAt: statusUpdatedAt(chat) }
 }

@@ -1,4 +1,4 @@
-import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus } from './chatSessionRunStatus'
+import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, readChatRunStatus } from './chatSessionRunStatus'
 
 function timeValue(value: unknown) {
   if (typeof value === 'number' && isFinite(value) && value > 0) return value
@@ -11,7 +11,7 @@ function timeValue(value: unknown) {
 function chatListOrderTime(chat: any) {
   const hasMessages = chat && typeof chat === 'object' && Array.isArray(chat.messages)
   const runSummary = hasMessages ? chatSessionRunSummaryFromChat(chat) : null
-  const status = runSummary?.status || normalizeChatSessionRunStatus(chat?.hasPending ? 'running' : chat?.runStatus || chat?.status)
+  const status = runSummary?.status || normalizeChatSessionRunStatus(chat?.hasPending ? 'running' : chat?.runStatus || readChatRunStatus(chat))
   const runChangedAt = timeValue(runSummary?.changedAt) || timeValue(chat?.runStatusChangedAt)
   const updatedAt = timeValue(chat?.updatedAt)
   const createdAt = timeValue(chat?.createdAt)

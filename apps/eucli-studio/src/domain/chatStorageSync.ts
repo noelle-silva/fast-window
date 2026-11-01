@@ -1,5 +1,6 @@
 import { preserveLocalBranchSelection } from './branching'
 import { hasAssistantVisibleOutput, isAssistantGenerating, resolveAssistantMessageForMerge } from './assistantRunState'
+import { readChatRunStatus } from './chatSessionRunStatus'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
 import { preserveSessionIdentity } from './sessionIdentity'
 
@@ -110,7 +111,7 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
       if (currentAt > storedAt) return currentMessage
     }
     if (!isAssistantGenerating(currentMessage) && !isAssistantGenerating(storedMessage)) return storedMessage
-    return resolveAssistantMessageForMerge(currentMessage, storedMessage, { storedChatStatus: nextChat?.status })
+    return resolveAssistantMessageForMerge(currentMessage, storedMessage, { storedChatStatus: readChatRunStatus(nextChat) })
   })
 
   const nextIds = new Set(nextChat.messages.map((message: any) => messageId(message)).filter(Boolean))
