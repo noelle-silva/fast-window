@@ -293,6 +293,56 @@ func TestMetaCarriesLayeredVersions(t *testing.T) {
 	}
 }
 
+// TestSessionIndexMetaKeepsCreatedAndUpdatedDistinct 钉住会话级事实的独立性：
+// createdAt 与 updatedAt 是两个不同的事实，索引不得用「最后活动时间」冒充创建时间，
+// 否则前端把索引当权威事实时，「新建于」会被最后一条消息的时间污染。
+func TestSessionIndexMetaKeepsCreatedAndUpdatedDistinct(t *testing.T) {
+	box := newFakeBox(t)
+	box.sessions["/api/roles/role-1/sessions"] = []map[string]any{
+		{
+			"id":                 "chat-1",
+			"title":              "会话一",
+			"lastMessagePreview": "一",
+			"createdAt":          "2026-06-03T10:00:00Z",
+			"updatedAt":          "2026-06-03T18:00:00Z",
+			"lastActive":         "2026-06-03T20:00:00Z",
+		},
+	}
+	store := box.store(t)
+	svc := newBusinessReadyTestService(store, nil)
+
+	payload, _ := json.Marshal(map[string]any{
+		"scopes": []any{map[string]any{"kind": "role", "targetId": "role-1"}},
+	})
+	result, err := svc.dispatch(context.Background(), "aiChat.sessionIndex.get", payload)
+	if err != nil {
+		t.Fatalf("sessionIndex.get error = %v", err)
+	}
+	indexes := objectList(objectMap(result)["indexes"])
+	if len(indexes) != 1 {
+		t.Fatalf("indexes = %#v", objectMap(result)["indexes"])
+	}
+	metas := objectList(indexes[0]["chatMetas"])
+	if len(metas) != 1 {
+		t.Fatalf("chatMetas = %#v", indexes[0]["chatMetas"])
+	}
+	meta := metas[0]
+	createdAt := millisFromAnyOrZero(meta["createdAt"])
+	updatedAt := millisFromAnyOrZero(meta["updatedAt"])
+	if createdAt != millisFromAnyOrZero("2026-06-03T10:00:00Z") {
+		t.Fatalf("chatMeta.createdAt = %d，必须来自会话创建时间", createdAt)
+	}
+	if updatedAt != millisFromAnyOrZero("2026-06-03T20:00:00Z") {
+		t.Fatalf("chatMeta.updatedAt = %d，必须来自最后活动时间", updatedAt)
+	}
+	if createdAt == updatedAt {
+		t.Fatalf("createdAt 不得与 updatedAt 混同：%d", createdAt)
+	}
+	if got := stringField(meta, "title"); got != "会话一" {
+		t.Fatalf("chatMeta.title = %q，真实标题必须保留", got)
+	}
+}
+
 func mustMeta(t *testing.T, projection *projectionService) any {
 	t.Helper()
 	value, err := projection.meta()

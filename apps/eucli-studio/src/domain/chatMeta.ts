@@ -153,7 +153,22 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
     hasPending,
     runStatus: hasPending ? 'running' : runStatus,
     runStatusChangedAt: Number((obj as any).runStatusChangedAt || (obj as any).statusChangedAt || updatedAt || createdAt || 0) || updatedAt,
+    ...((obj as any).partial === true ? { partial: true } : {}),
   }
+}
+
+// mergeChatMeta 是「列表事实」的唯一合并规则。
+//
+// 完整会话文档（非 partial）以新事实为准：它是整份会话的权威投影。
+// 窗口切片（partial）只加载了一窗，条数与摘要都不代表整份会话，
+// 因此绝不能覆盖已有的列表事实；它只在列表里还没有这条会话时补位。
+export function mergeChatMeta(existing: ChatMeta | null, incoming: ChatMeta | null): ChatMeta | null {
+  if (!existing) return incoming
+  if (!incoming) return existing
+  if (incoming.partial) return existing
+  const merged: ChatMeta = { ...existing, ...incoming }
+  delete merged.partial
+  return merged
 }
 
 export function normalizeChatMetas(raw: any, chatIdsRaw: any, chatUpdatedAtRaw: any, fallbackTitle = '新聊天'): ChatMeta[] {
@@ -201,8 +216,8 @@ export function chatMetasFromBox(box: any, fallbackTitle = '新聊天'): ChatMet
     // 窗口切片只补「列表里还没有这条会话」的情形；
     // 已有索引事实时绝不拿窗口的条数与摘要去覆盖它。
     if (typeof index === 'number') {
-      if (meta.partial) continue
-      out[index] = meta
+      const merged = mergeChatMeta(out[index], meta)
+      if (merged) out[index] = merged
     } else {
       indexById.set(meta.id, out.length)
       out.push(meta)
@@ -221,8 +236,13 @@ export function upsertChatMeta(listRaw: any, metaRaw: any, fallbackTitle = '新�
   if (!meta) return normalizeChatMetas(list, [], {}, fallbackTitle)
   const out = normalizeChatMetas(list, [], {}, fallbackTitle)
   const index = out.findIndex((x) => x.id === meta.id)
-  if (index >= 0) out[index] = { ...out[index], ...meta }
-  else out.unshift(meta)
+  if (index >= 0) {
+    // 同一份合并规则：窗口切片不覆盖已有索引事实（条数 / 摘要 / 标题 / 时间）。
+    const merged = mergeChatMeta(out[index], meta)
+    if (merged) out[index] = merged
+  } else {
+    out.unshift(meta)
+  }
   return out
 }
 

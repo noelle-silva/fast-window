@@ -11,6 +11,7 @@ import {
 import { createActiveSelectionWriter, type ActiveSelectionWriter } from '../storage/activeSelectionWriter'
 import { createChatBodyLoader, type ChatBodyLoader } from '../storage/chatBodyLoader'
 import { createSessionWindowLoader, type SessionWindowLoader } from '../storage/sessionWindowLoader'
+import { sessionIdentityFromMeta } from '../domain/sessionIdentity'
 import { normalizeStoredChatIndex } from '../storage/splitIndexes'
 import { splitChatKey, splitGroupChatIndexKey, splitGroupChatKey, splitRoleChatIndexKey } from '../domain/storageKeys'
 import type { SessionSwitchClient } from '../protocol/sessionSwitchProtocol'
@@ -201,6 +202,29 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     onError,
   })
 
+  // loadIndexQuietly 是「只取事实、不参与版本门」的索引读取。
+  //
+  // 它只服务于正文加载时的会话级事实补齐：身份是只读事实。若在这里应用
+  // dataRevision / epoch，一次换代会把「正在进行的那次窗口读取」判成旧代，
+  // 导致同一次加载白重取一遍。版本门仍然只由 refreshChatIndex 驱动。
+  async function loadIndexQuietly(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
+    if (!sessionSwitch?.hasFeature('sessionIndex.get')) return null
+    const bundle = await sessionSwitch.sessionIndexGet([scope])
+    const item = bundle?.indexes?.find((entry) => entry.scope === projectionScopeKey(scope))
+    if (!item) return null
+    const snapshot: ChatIndexSnapshot = {
+      scope: item.scope,
+      activeChatId: item.activeChatId,
+      chatIds: item.chatIds,
+      chatUpdatedAt: item.chatUpdatedAt,
+      chatMetas: item.chatMetas,
+      updatedAt: item.updatedAt,
+      revision: item.revision,
+    }
+    cache.applyChatIndex(snapshot)
+    return snapshot
+  }
+
   // 消息窗口：首屏一窗 + 往前按 cursor 续翻。
   // 它与 chatBodies 是两层：window 负责「取哪一窗」，chatBodies 负责「单飞 + LRU」。
   const sessionWindows = createSessionWindowLoader({
@@ -222,6 +246,17 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     // switchId 端到端：正文加载必须携带「当前这次切换」的关联键，
     // 否则前端边界与 box 的 X-Eucli-Trace 不是同一个值，P0 无法用 trace 解释慢案例。
     switchIdFor: () => currentSwitchID(),
+    // 会话级事实（标题 / 创建时间 / 更新时间）的唯一来源：会话索引里的 chatMeta。
+    // 窗口端点只承担消息，缺了这些事实下游就会用「新聊天」/now() 兜底。
+    //
+    // 这里读索引必须是「安静的」：只取事实，不参与版本门。
+    // 走 cache.loadChatIndex 会应用 epoch 并整份换代，把正文加载自己的在途窗口读
+    // 判成旧代而白重取一次；身份补齐是只读事实，不该驱动缓存换代。
+    resolveIdentity: async (scope, chatId) => {
+      const snapshot = cache.peekChatIndex({ kind: scope.kind, targetId: scope.targetId }) || (await loadIndexQuietly(scope))
+      const meta = snapshot?.chatMetas.find((item) => String(item?.id || '') === chatId) || null
+      return sessionIdentityFromMeta(meta)
+    },
   })
 
   // currentSwitchID 是「最近一次切换」的关联键：与偏好命令同一个值。

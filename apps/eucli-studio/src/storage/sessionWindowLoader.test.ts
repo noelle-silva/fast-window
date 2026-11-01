@@ -236,6 +236,7 @@ describe('createSessionWindowLoader', () => {
   })
 })
 
+
 // 回归：失效之前发起的窗口请求，失效之后落地不得回填。
 // 这是「已删除会话复活 / 旧正文覆盖新正文」的直接成因。
 describe('失效打断在途读取', () => {
@@ -391,6 +392,87 @@ describe('失效打断在途读取', () => {
     // 别的 scope 失效不该打断这次读取。
     expect(chat.messages.map((m: any) => m.id)).toEqual(['m-kept'])
     expect(calls).toBe(1)
+  })
+})
+
+
+describe('会话级事实：窗口加载必须保留真实标题与时间', () => {
+  it('窗口页不含会话级字段时，用索引事实补齐标题与时间', async () => {
+    const client = fakeSwitch([{ id: 'chat-1', messages: [msg('m1', 1)], nextCursor: '' }])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      resolveIdentity: () => ({ title: '真实标题', createdAt: 1000, updatedAt: 2000 }),
+    })
+    const chat = await loader.load(scope, 'chat-1')
+    expect(chat.title).toBe('真实标题')
+    expect(chat.createdAt).toBe(1000)
+    expect(chat.updatedAt).toBe(2000)
+  })
+
+  it('索引是事实源：页内缺失时由索引补齐（页内真实值优先）', async () => {
+    const client = fakeSwitch([
+      { id: 'chat-1', title: '页内标题', createdAt: 11, updatedAt: 22, messages: [msg('m1', 1)], nextCursor: '' },
+    ])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      resolveIdentity: () => ({ title: '索引标题', createdAt: 1000, updatedAt: 2000 }),
+    })
+    const chat = await loader.load(scope, 'chat-1')
+    // 页内与索引是同一份事实的两次读取：页内显式携带时以页内为准。
+    expect(chat.title).toBe('页内标题')
+    expect(chat.createdAt).toBe(11)
+    // 更新时间只能前进：页内更旧时不得回退索引事实。
+    expect(chat.updatedAt).toBe(2000)
+  })
+
+  it('索引缺席时才用页内字段（仍然不写占位标题）', async () => {
+    const client = fakeSwitch([
+      { id: 'chat-1', title: '页内标题', createdAt: 11, updatedAt: 22, messages: [msg('m1', 1)], nextCursor: '' },
+    ])
+    const loader = createSessionWindowLoader({ sessionSwitch: client })
+    const chat = await loader.load(scope, 'chat-1')
+    expect(chat.title).toBe('页内标题')
+    expect(chat.createdAt).toBe(11)
+    expect(chat.updatedAt).toBe(22)
+  })
+
+  it('索引缺席时不写入占位标题（保留窗口自身事实）', async () => {
+    const client = fakeSwitch([{ id: 'chat-1', messages: [msg('m1', 1)], nextCursor: '' }])
+    const loader = createSessionWindowLoader({ sessionSwitch: client, resolveIdentity: () => null })
+    const chat = await loader.load(scope, 'chat-1')
+    expect(chat).not.toHaveProperty('title')
+    expect(chat).not.toHaveProperty('createdAt')
+  })
+
+  it('翻页与写后刷新都保持同一份会话级事实', async () => {
+    const client = fakeSwitch([
+      { id: 'chat-1', messages: [msg('m2', 20)], nextCursor: 'c2' },
+      { id: 'chat-1', messages: [msg('m1', 10)], nextCursor: '' },
+      { id: 'chat-1', messages: [msg('m2', 21)], nextCursor: '' },
+    ])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      resolveIdentity: () => ({ title: '真实标题', createdAt: 1000, updatedAt: 2000 }),
+    })
+    await loader.load(scope, 'chat-1')
+    const paged = await loader.loadOlder(scope, 'chat-1')
+    expect(paged.title).toBe('真实标题')
+    expect(paged.createdAt).toBe(1000)
+
+    const refreshed = await loader.refresh(scope, 'chat-1')
+    expect(refreshed.title).toBe('真实标题')
+    expect(refreshed.updatedAt).toBe(2000)
+  })
+
+  it('事实源读取失败时快速失败（不静默退化成兜底标题）', async () => {
+    const client = fakeSwitch([{ id: 'chat-1', messages: [msg('m1', 1)], nextCursor: '' }])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      resolveIdentity: () => {
+        throw new Error('索引不可用')
+      },
+    })
+    await expect(loader.load(scope, 'chat-1')).rejects.toThrow(/索引不可用/)
   })
 })
 

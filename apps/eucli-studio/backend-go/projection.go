@@ -519,6 +519,10 @@ func (p *projectionService) ensureSessionIndex(ctx context.Context, scope sessio
 }
 
 // buildSessionIndex 只装数据事实：activeChatId 是 UI 偏好，由读取方现场组装。
+//
+// 创建时间与更新时间是两个不同的事实，必须分别取源：
+// 过去把 createdAt 写成 updatedAt，导致「新建于」被最后活动时间污染，
+// 前端一旦把它当权威事实，侧边栏的时间语义就整体错位。
 func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpdatedAt int64) map[string]any {
 	indexUpdatedAt := stableUpdatedAt(baseUpdatedAt)
 	chatIDs := []string{}
@@ -530,9 +534,15 @@ func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpda
 			continue
 		}
 		updatedAt := stableUpdatedAt(millisFromAnyOrZero(session["lastActive"]), millisFromAnyOrZero(session["updatedAt"]), millisFromAnyOrZero(session["createdAt"]))
+		// 创建时间是独立事实：缺失时才退回落差时间（新建会话两者同源），
+		// 绝不用「最后活动时间」冒充创建时间。
+		createdAt := millisFromAnyOrZero(session["createdAt"])
+		if createdAt <= 0 {
+			createdAt = updatedAt
+		}
 		chatIDs = append(chatIDs, id)
 		chatUpdatedAt[id] = updatedAt
-		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), fallbackTitle), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": updatedAt})
+		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), fallbackTitle), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": createdAt})
 		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
 	}
 	return map[string]any{"chatIds": chatIDs, "chatUpdatedAt": chatUpdatedAt, "chatMetas": chatMetas, "updatedAt": indexUpdatedAt}

@@ -1,6 +1,7 @@
 import { preserveLocalBranchSelection } from './branching'
 import { hasAssistantVisibleOutput, isAssistantGenerating, resolveAssistantMessageForMerge } from './assistantRunState'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
+import { preserveSessionIdentity } from './sessionIdentity'
 
 function messageId(value: any) {
   return String(value?.id || '').trim()
@@ -109,6 +110,10 @@ export function mergeChatFromStorage(nextChat: any, currentChat: any) {
   const next = preserveLocalBranchSelection(nextChat, currentChat)
   if (!next || !currentChat || typeof next !== 'object' || typeof currentChat !== 'object') return next
   mergeMessagesFromStorage(next, currentChat)
+  // 窗口切片不承担会话级事实：标题与创建时间以已加载会话为准（它来自索引事实），
+  // 更新时间只能前进（写路径刚产生的更新不能被稍旧的切片回退）。
+  // 这样即便切片被归一化时填了「新聊天」/now() 兜底，也覆盖不掉已有真实事实。
+  if ((next as any).windowPartial === true) preserveSessionIdentity(next, currentChat)
   if ((next as any).runtimePartial) delete (next as any).runtimePartial
   return next
 }

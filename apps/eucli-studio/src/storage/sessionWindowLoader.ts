@@ -1,5 +1,12 @@
 import type { SessionScope, SessionSwitchClient, SessionWindowRequest } from '../protocol/sessionSwitchProtocol'
 import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
+import {
+  applySessionIdentity,
+  mergeSessionIdentity,
+  sessionIdentityFromChat,
+  type ChatSessionIdentity,
+  type SessionIdentityResolver,
+} from '../domain/sessionIdentity'
 
 // SessionWindowLoader = 消息窗口的分页装配。
 //
@@ -10,6 +17,10 @@ import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 //   1. 组装结果是「会话形状」：与整份会话同构，因此下游 normalizeStoredChat 无需分叉；
 //   2. 分页只按 cursor 前进：不用 offset（删除消息会让 offset 整体错位）；
 //   3. 同一会话的并发翻页共享一次请求（in-flight 合流），不重复打业务端。
+//
+// 会话级事实（标题 / 创建时间 / 更新时间）不由窗口端点保证：
+// 分页切片只承担消息，因此加载器必须从「会话索引」补齐这些事实，
+// 否则下游会用「新聊天」/now() 兜底，把真实标题与时间覆盖掉、排序错乱。
 //
 // head 的语义（design-4 决策 3）：用「以这条消息为终点的路径」表达用户在看哪条分支。
 // branchId 不可靠（空值一律回落 main，运行期新建消息固定用默认分支），
@@ -26,6 +37,9 @@ export type SessionWindowLoaderDeps = {
   // switchIdFor 提供「当前这次切换」的关联键。
   // 缺席时不带 switchId：观测链在缺键时整条不启动（零成本旁路）。
   switchIdFor?: (scope: SessionScope, chatId: string) => string
+  // resolveIdentity 提供会话级事实的唯一来源（会话索引里的 chatMeta）。
+  // 窗口端点不带这些字段时由它补齐；缺席则只能用窗口自身携带的事实。
+  resolveIdentity?: SessionIdentityResolver
 }
 
 export type SessionWindowState = {
@@ -211,13 +225,39 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     return page
   }
 
-  function stateFromPage(scope: SessionScope, chatId: string, page: any, previous: SessionWindowState | null): SessionWindowState {
+  // resolveIdentity 是「会话级事实」的唯一询问点：事实源在会话索引里。
+  // 没有注入解析器时返回 null（只能用窗口自身携带的事实）。
+  // 注入了解析器却读不出来时必须向上抛：会话级事实缺失是真实故障，
+  // 静默吞掉只会让标题与时间退化成兜底值，正是这次要修的问题。
+  async function resolveIdentity(scope: SessionScope, chatId: string): Promise<ChatSessionIdentity | null> {
+    if (typeof deps.resolveIdentity !== 'function') return null
+    const resolved = await deps.resolveIdentity({ kind: scope.kind, targetId: String(scope.targetId || '').trim() }, chatId)
+    return resolved || null
+  }
+
+  // identityFor 表达会话级事实的优先级：页内事实 > 索引事实 > 已加载会话的既有事实。
+  //
+  // 窗口端点按契约只承担消息，页内通常不带会话级字段，此时由索引补齐；
+  // 页内若显式携带了真实事实，说明它与索引来自同一次读取，比缓存更可信。
+  // 已加载会话排最后：它是上一次补齐的结果，只能补缺，不能压过新读取。
+  async function identityFor(scope: SessionScope, chatId: string, page: any, previous: SessionWindowState | null): Promise<ChatSessionIdentity | null> {
+    const indexIdentity = await resolveIdentity(scope, chatId)
+    const local = mergeSessionIdentity(indexIdentity, sessionIdentityFromChat(previous?.chat))
+    return mergeSessionIdentity(sessionIdentityFromChat(page), local)
+  }
+
+  async function stateFromPage(scope: SessionScope, chatId: string, page: any, previous: SessionWindowState | null): Promise<SessionWindowState> {
     const merged = previous ? mergeWindowPage(previous.chat, page) : mergeWindowPage(page, page)
     // 窗口端点由 chatId 寻址，身份由请求确定：分页切片不必重复携带会话级字段，
     // 但下游（normalizeStoredChat / UI 列表）必须始终拿得到可用文档。
+    //
+    // 会话级事实（标题 / 创建时间 / 更新时间）由 identityFor 补齐：
+    // 缺了它们，normalizeStoredChat 会用「新聊天」/now() 兜底，
+    // 侧边栏标题与排序时间就会被兜底值覆盖。
     // windowPartial 是显式事实：这份会话只加载了一窗，
     // 条数与摘要都不代表整份会话，列表事实仍以索引为准。
-    const chat = { ...merged, id: String(merged?.id || chatId), windowPartial: true }
+    const identity = await identityFor(scope, chatId, page, previous)
+    const chat = applySessionIdentity({ ...merged, id: String(merged?.id || chatId), windowPartial: true }, identity)
     const nextCursor = String(page?.nextCursor || page?.cursor || '')
     return {
       scope,
@@ -250,10 +290,12 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     }
 
     const promise = requestHeadPage(scope, chatId)
-      .then((page) => {
+      .then(async (page) => {
         // 失效发生在读取途中：这次窗口属于上一代，绝不能写回。
         if (!guard.isCurrent(key, generation)) return null
-        const state = stateFromPage(scope, chatId, page, null)
+        const state = await stateFromPage(scope, chatId, page, null)
+        // 补齐会话级事实期间同样可能发生失效：落地前再确认一次。
+        if (!guard.isCurrent(key, generation)) return null
         states.set(key, state)
         return state
       })
@@ -291,10 +333,12 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     const pageOptions: SessionWindowRequest = { cursor: current.nextCursor }
     if (switchId) pageOptions.switchId = switchId
     const promise = requestPage(scope, chatId, pageOptions)
-      .then((page) => {
+      .then(async (page) => {
         // 失效发生在翻页途中：分页状态已经换代，旧页不得并回。
         if (!guard.isCurrent(key, generation)) return null
-        const state = stateFromPage(scope, chatId, page, current)
+        const state = await stateFromPage(scope, chatId, page, current)
+        // 补齐会话级事实期间同样可能发生失效：落地前再确认一次。
+        if (!guard.isCurrent(key, generation)) return null
         states.set(key, state)
         return state
       })
@@ -333,7 +377,8 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     // 失效发生在重取途中：旧首窗会把已删消息 / 旧正文带回来，绝不能落缓存。
     if (!guard.isCurrent(key, generation)) return STALE
     const merged = previous ? mergeRefreshedPage(previous.chat, page) : mergeWindowPage(page, page)
-    const chat = { ...merged, id: String(merged?.id || chatId), windowPartial: true }
+    const identity = await identityFor(scope, chatId, page, previous)
+    const chat = applySessionIdentity({ ...merged, id: String(merged?.id || chatId), windowPartial: true }, identity)
     const state: SessionWindowState = {
       scope,
       chatId,
