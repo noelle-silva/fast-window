@@ -236,6 +236,164 @@ describe('createSessionWindowLoader', () => {
   })
 })
 
+// 回归：失效之前发起的窗口请求，失效之后落地不得回填。
+// 这是「已删除会话复活 / 旧正文覆盖新正文」的直接成因。
+describe('失效打断在途读取', () => {
+  function deferred<T>() {
+    let resolve: (value: T) => void = () => {}
+    const promise = new Promise<T>((res) => {
+      resolve = res
+    })
+    return { promise, resolve }
+  }
+
+  it('load 在途失效：旧首窗不写回分页状态', async () => {
+    const first = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return first.promise
+        return page([msg('m-new', 10)], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+
+    const inFlight = loader.load(scope, 'chat-1')
+    loader.invalidate(scope, 'chat-1')
+    first.resolve(page([msg('m-old', 1)], ''))
+
+    const chat = await inFlight
+    // 旧代结果不得被当成有效数据交出去；重取拿到的是失效之后的窗口。
+    expect(chat.messages.map((m: any) => m.id)).toEqual(['m-new'])
+    expect(loader.peek(scope, 'chat-1')?.chat.messages.map((m: any) => m.id)).toEqual(['m-new'])
+    expect(calls).toBe(2)
+  })
+
+  it('load 在途失效之后，下一次 load 不复用旧代请求', async () => {
+    const first = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return first.promise
+        return page([msg('m-new', 10)], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+
+    const inFlight = loader.load(scope, 'chat-1')
+    loader.invalidate(scope, 'chat-1')
+    const second = loader.load(scope, 'chat-1')
+    first.resolve(page([msg('m-old', 1)], ''))
+
+    await Promise.all([inFlight, second])
+    expect(calls).toBe(2)
+    expect(loader.peek(scope, 'chat-1')?.chat.messages.map((m: any) => m.id)).toEqual(['m-new'])
+  })
+
+  it('loadOlder 在途失效：旧页不并回新分页', async () => {
+    const older = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string, options: any) => {
+        calls += 1
+        if (options?.cursor === 'c-old') return older.promise
+        if (calls === 1) return page([msg('m-head', 20)], 'c-old')
+        // 失效之后重取首窗：会话已经被删到只剩新的一条。
+        return page([msg('m-new', 10)], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+    await loader.load(scope, 'chat-1')
+    expect(loader.peek(scope, 'chat-1')?.nextCursor).toBe('c-old')
+
+    const inFlight = loader.loadOlder(scope, 'chat-1')
+    loader.invalidate(scope, 'chat-1')
+    older.resolve(page([msg('m-old', 1)], ''))
+
+    const chat = await inFlight
+    // 旧页（m-old）绝不能并回来：分页状态已被作废，这次翻页没有可交付的结果。
+    expect(chat).toBeNull()
+    expect(loader.peek(scope, 'chat-1')).toBeNull()
+    // 旧代结果不触发任何回填，也不会被当成「已到底」。
+    expect(calls).toBe(2)
+  })
+
+  it('refresh 在途失效：旧正文不覆盖新正文', async () => {
+    const stale = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return page([msg('m1', 10, { content: '第一版' })], '')
+        if (calls === 2) return stale.promise
+        return page([msg('m1', 10, { content: '第三版' })], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+    await loader.load(scope, 'chat-1')
+
+    const inFlight = loader.refresh(scope, 'chat-1')
+    loader.invalidate(scope, 'chat-1')
+    stale.resolve(page([msg('m1', 10, { content: '第二版（旧请求）' })], ''))
+
+    const chat = await inFlight
+    expect(chat.messages[0].content).toBe('第三版')
+    expect(loader.peek(scope, 'chat-1')?.chat.messages[0].content).toBe('第三版')
+  })
+
+  it('clear 同样打断在途读取', async () => {
+    const first = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return first.promise
+        return page([msg('m-new', 10)], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+
+    const inFlight = loader.load(scope, 'chat-1')
+    loader.clear()
+    first.resolve(page([msg('m-old', 1)], ''))
+
+    const chat = await inFlight
+    expect(chat.messages.map((m: any) => m.id)).toEqual(['m-new'])
+    expect(calls).toBe(2)
+  })
+
+  it('invalidateScope 只作废该 scope 的在途读取', async () => {
+    const first = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return first.promise
+        return page([msg('m-new', 10)], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+    const other = { kind: 'role' as const, targetId: 'role-2' }
+
+    const inFlight = loader.load(scope, 'chat-1')
+    loader.invalidateScope(other)
+    first.resolve(page([msg('m-kept', 1)], ''))
+
+    const chat = await inFlight
+    // 别的 scope 失效不该打断这次读取。
+    expect(chat.messages.map((m: any) => m.id)).toEqual(['m-kept'])
+    expect(calls).toBe(1)
+  })
+})
+
 describe('正文加载的 switchId 贯穿', () => {
   it('首窗请求携带当前切换的 switchId', async () => {
     const client = fakeSwitch([page([msg('m1', 1)], 'c2')])

@@ -1,6 +1,7 @@
 import { now } from '../core/utils'
 import type { ProjectionScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
+import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 
 // ChatBodyLoader（design-1 三层架构的第三层）：
 //
@@ -79,20 +80,9 @@ export function createChatBodyLoader(deps: ChatBodyLoaderDeps): ChatBodyLoader {
   const entries = new Map<string, ChatBodyEntry>()
   // in-flight 必须带代数：失效之前发起的读取，失效之后既不能回填，
   // 也不能被新的 load 直接复用（那等于把旧正文又交出去一次）。
-  const inflight = new Map<string, { generation: number; promise: Promise<any> }>()
-  const generations = new Map<string, number>()
+  const guard = createGenerationGuard()
+  const inflight = createInflightRegistry<any>()
   let totalBytes = 0
-
-  function generationOf(key: string): number {
-    const current = generations.get(key)
-    if (current !== undefined) return current
-    generations.set(key, 0)
-    return 0
-  }
-
-  function bumpGeneration(key: string) {
-    generations.set(key, generationOf(key) + 1)
-  }
 
   function evictIfNeeded() {
     while (entries.size > maxEntries || totalBytes > maxBytes) {
@@ -141,23 +131,23 @@ export function createChatBodyLoader(deps: ChatBodyLoaderDeps): ChatBodyLoader {
     const cached = touch(key)
     if (cached) return cached.chat
 
-    const generation = generationOf(key)
-    const pending = inflight.get(key)
+    const generation = guard.current(key)
+    const pending = inflight.find(key, generation)
     // 只有同代在途请求可以复用：上一代的请求即使还没回来也已经作废。
-    if (pending && pending.generation === generation) return pending.promise
+    if (pending) return pending
 
     const promise = deps
       .load(scope, chatId)
       .then((chat) => {
         // 失效发生在读取途中：这次结果属于上一代，绝不能回填。
-        if (generationOf(key) !== generation) return chat
+        if (!guard.isCurrent(key, generation)) return chat
         store(key, projectionScopeKey(scope), chatId, chat)
         return chat
       })
       .finally(() => {
-        if (inflight.get(key)?.promise === promise) inflight.delete(key)
+        inflight.release(key, promise)
       })
-    inflight.set(key, { generation, promise })
+    inflight.track(key, generation, promise)
     return promise
   }
 
@@ -178,30 +168,27 @@ export function createChatBodyLoader(deps: ChatBodyLoaderDeps): ChatBodyLoader {
     if (!chatId) return
     const key = chatBodyKey(scope, chatId)
     // 代数先推进：即使条目本来不存在，正在途中的旧读取也必须作废。
-    bumpGeneration(key)
+    guard.advance(key)
     dropEntry(key)
     // 旧代的在途请求不再具备复用价值，直接摘掉让下一次 load 重新发起。
-    const pending = inflight.get(key)
-    if (pending && pending.generation !== generationOf(key)) inflight.delete(key)
+    inflight.drop(key)
   }
 
   function invalidateScope(scope: ProjectionScope) {
     const prefix = `${projectionScopeKey(scope)}:`
-    // 候选键 = 已缓存条目 + 已知代数（remember 可能先于 load 发生）。
-    const keys = new Set<string>()
-    for (const key of entries.keys()) if (key.startsWith(prefix)) keys.add(key)
-    for (const key of generations.keys()) if (key.startsWith(prefix)) keys.add(key)
-    for (const key of keys) {
-      bumpGeneration(key)
-      dropEntry(key)
-      const pending = inflight.get(key)
-      if (pending && pending.generation !== generationOf(key)) inflight.delete(key)
-    }
+    const matches = (key: string) => key.startsWith(prefix)
+    // 先给已缓存条目登记代数（remember 可能先于 load 发生，代数表里还没有它），
+    // 再按 scope 统一换代：这一步同时覆盖「在途但还没落地」的键。
+    const cachedKeys = [...entries.keys()].filter(matches)
+    for (const key of cachedKeys) guard.current(key)
+    guard.advanceMatching(matches)
+    for (const key of cachedKeys) dropEntry(key)
+    inflight.dropMatching(matches)
   }
 
   function clear() {
     // 全清同样推进所有已知 key 的代数，避免在途读取把旧正文塞回来。
-    for (const key of [...generations.keys()]) bumpGeneration(key)
+    guard.advanceAll()
     entries.clear()
     inflight.clear()
     totalBytes = 0
@@ -214,6 +201,6 @@ export function createChatBodyLoader(deps: ChatBodyLoaderDeps): ChatBodyLoader {
     invalidate,
     invalidateScope,
     clear,
-    stats: () => ({ entries: entries.size, bytes: totalBytes, inflight: inflight.size }),
+    stats: () => ({ entries: entries.size, bytes: totalBytes, inflight: inflight.size() }),
   }
 }

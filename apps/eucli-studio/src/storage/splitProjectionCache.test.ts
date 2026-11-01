@@ -209,6 +209,152 @@ describe('SplitProjectionCache', () => {
     await Promise.all([cache.refreshChatIndex(scope), cache.refreshChatIndex(scope), cache.refreshChatIndex(scope)])
     expect(calls).toBe(1)
   })
+
+  // 回归：失效之前发起的索引读取，失效之后落地不得回填（已删除的会话会复活）。
+  it('失效打断在途索引读取：旧快照不回填', async () => {
+    let release: (value: ChatIndexSnapshot | null) => void = () => {}
+    const pending = new Promise<ChatIndexSnapshot | null>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => {
+        calls += 1
+        if (calls === 1) return pending
+        return chatIndex(projectionScopeKey(requested), [])
+      },
+      getVersions: () => versions,
+    })
+
+    const inFlight = cache.loadChatIndex(scope)
+    cache.invalidateScope(scope)
+    // 旧代结果带着「已经被删掉的 chat-1」落地。
+    release(chatIndex(projectionScopeKey(scope), ['chat-1', 'chat-2']))
+
+    await inFlight
+    expect(cache.peekChatIndex(scope)).toBeNull()
+
+    // 下一次读取必须重新请求，且拿到删除之后的事实。
+    expect((await cache.loadChatIndex(scope))?.chatIds).toEqual([])
+    expect(calls).toBe(2)
+  })
+
+  it('失效之后新的 load 不复用旧代在途请求', async () => {
+    let releaseFirst: (value: ChatIndexSnapshot | null) => void = () => {}
+    const firstPending = new Promise<ChatIndexSnapshot | null>((resolve) => {
+      releaseFirst = resolve
+    })
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => {
+        calls += 1
+        if (calls === 1) return firstPending
+        return chatIndex(projectionScopeKey(requested), ['chat-2'])
+      },
+      getVersions: () => versions,
+    })
+
+    const first = cache.refreshChatIndex(scope)
+    cache.invalidateScope(scope)
+    const second = cache.refreshChatIndex(scope)
+    releaseFirst(chatIndex(projectionScopeKey(scope), ['chat-1']))
+
+    await Promise.all([first, second])
+    expect(calls).toBe(2)
+    expect(cache.peekChatIndex(scope)?.chatIds).toEqual(['chat-2'])
+  })
+
+  // 回归：invalidateAll（整份投影失效）同样必须作废在途读取。
+  it('invalidateAll 打断在途索引读取：旧代快照不回填', async () => {
+    let release: (value: ChatIndexSnapshot | null) => void = () => {}
+    const pending = new Promise<ChatIndexSnapshot | null>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => {
+        calls += 1
+        if (calls === 1) return pending
+        return chatIndex(projectionScopeKey(requested), ['chat-new'])
+      },
+      getVersions: () => versions,
+    })
+
+    const inFlight = cache.refreshChatIndex(scope)
+    cache.invalidateAll()
+    release(chatIndex(projectionScopeKey(scope), ['chat-old']))
+
+    await inFlight
+    expect(cache.peekChatIndex(scope)).toBeNull()
+
+    expect((await cache.loadChatIndex(scope))?.chatIds).toEqual(['chat-new'])
+    expect(calls).toBe(2)
+  })
+
+  it('目录失效打断在途加载：旧目录不回填', async () => {
+    let release: (value: CatalogSnapshot) => void = () => {}
+    const pending = new Promise<CatalogSnapshot>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => {
+        calls += 1
+        if (calls === 1) return pending
+        return normalizeCatalogSnapshot({ roleOrder: ['role-new'] })
+      },
+      loadChatIndex: async () => null,
+      getVersions: () => versions,
+    })
+
+    const inFlight = cache.loadCatalog()
+    cache.invalidateCatalog()
+    release(catalog())
+
+    await inFlight
+    expect(cache.peekCatalog()).toBeNull()
+
+    expect((await cache.loadCatalog()).roleOrder).toEqual(['role-new'])
+    expect(calls).toBe(2)
+  })
+
+  // setActiveChatId 是本地写：在途读取落地后不能把旧 activeChatId 盖回来。
+  it('setActiveChatId 之后在途索引读取不回填旧偏好', async () => {
+    let release: (value: ChatIndexSnapshot | null) => void = () => {}
+    const pending = new Promise<ChatIndexSnapshot | null>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => {
+        calls += 1
+        if (calls === 2) return pending
+        return chatIndex(projectionScopeKey(requested), ['chat-1'], 'chat-1')
+      },
+      getVersions: () => versions,
+    })
+
+    await cache.loadChatIndex(scope)
+    const inFlight = cache.refreshChatIndex(scope)
+    cache.setActiveChatId(scope, 'chat-2')
+    release(chatIndex(projectionScopeKey(scope), ['chat-1'], 'chat-1'))
+
+    await inFlight
+    expect(cache.peekChatIndex(scope)?.activeChatId).toBe('chat-2')
+  })
 })
 
 describe('会话索引快照归一', () => {

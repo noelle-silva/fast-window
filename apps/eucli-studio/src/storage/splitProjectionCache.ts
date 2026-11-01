@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
 import { chatMetaFromChat, chatMetasFromBox, type ChatMeta } from '../domain/chatMeta'
+import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 
 // 前端投影缓存（design-1 三层架构的第一层）：
 //
@@ -132,40 +133,49 @@ export type SplitProjectionCacheDeps = {
 }
 
 export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
+  // catalog 与每个 scope 索引共用同一套代数守卫：
+  // 失效推进代数，在途读取落地时校验代数，旧代结果一律不回填。
+  const CATALOG_KEY = '\u0000catalog'
+  const guard = createGenerationGuard()
+  const inflight = createInflightRegistry<CatalogSnapshot | ChatIndexSnapshot | null>()
+  // 目录键先登记：invalidateAll 走 advanceAll 时才能覆盖「还没发起过加载」的目录。
+  guard.current(CATALOG_KEY)
+
   let catalog: CatalogSnapshot | null = null
   let catalogEpoch = 0
-  let catalogPromise: Promise<CatalogSnapshot> | null = null
   const indexes = new Map<string, ChatIndexSnapshot>()
   const indexEpoch = new Map<string, number>()
-  const indexPromises = new Map<string, Promise<ChatIndexSnapshot | null>>()
 
   function currentEpoch() {
     return Number(deps.getVersions().epoch || 0)
   }
 
   function invalidateAll() {
+    guard.advanceAll()
     catalog = null
     catalogEpoch = 0
-    catalogPromise = null
     indexes.clear()
     indexEpoch.clear()
-    indexPromises.clear()
+    inflight.clear()
   }
 
   // invalidateScope 只作废单个 target 的索引：切换会话不会波及别的 target。
   function invalidateScope(scope: ProjectionScope) {
     const key = projectionScopeKey(scope)
+    // 代数先推进：条目本来不存在时，在途的旧读取也必须作废。
+    guard.advance(key)
     indexes.delete(key)
     indexEpoch.delete(key)
-    indexPromises.delete(key)
+    inflight.drop(key)
   }
 
   // invalidateCatalog 只作废目录事实：实体增删 / 改名 / 改 folder 时调用。
   // 会话索引仍然有效，不该跟着一起重拉。
   function invalidateCatalog() {
+    guard.advance(CATALOG_KEY)
     catalog = null
     catalogEpoch = 0
-    catalogPromise = null
+    inflight.drop(CATALOG_KEY)
   }
 
   function peekCatalog(): CatalogSnapshot | null {
@@ -177,19 +187,25 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
   async function loadCatalog(): Promise<CatalogSnapshot> {
     const cached = peekCatalog()
     if (cached) return cached
-    if (catalogPromise) return catalogPromise
+    const generation = guard.current(CATALOG_KEY)
     const epoch = currentEpoch()
-    catalogPromise = deps
+    const pending = inflight.find(CATALOG_KEY, generation, epoch)
+    if (pending) return pending as Promise<CatalogSnapshot>
+
+    const promise = deps
       .loadCatalog()
       .then((snapshot) => {
+        // 失效（或 epoch 换代）发生在读取途中：结果属于上一代，不能回填。
+        if (!guard.isCurrent(CATALOG_KEY, generation) || epoch !== currentEpoch()) return snapshot
         catalog = snapshot
         catalogEpoch = epoch
         return snapshot
       })
       .finally(() => {
-        catalogPromise = null
+        inflight.release(CATALOG_KEY, promise)
       })
-    return catalogPromise
+    inflight.track(CATALOG_KEY, generation, promise, epoch)
+    return promise
   }
 
   function peekChatIndex(scope: ProjectionScope): ChatIndexSnapshot | null {
@@ -210,15 +226,21 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
   // 最新 revision。命中缓存直接返回会让版本门永远看到同一个旧 revision，
   // 对账永不执行（design-5 P4「revision + 缺口检测」）。
   //
-  // 它仍然单飞：同一 scope 的并发确认共享一次请求。
+  // 它仍然单飞：同一 scope 的并发确认共享一次请求。合流条件同时包含代数与 epoch，
+  // 上一代 / 上一 epoch 的在途请求不会被新一代复用。
   async function refreshChatIndex(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
     const key = projectionScopeKey(scope)
-    const pending = indexPromises.get(key)
-    if (pending) return pending
+    const generation = guard.current(key)
     const epoch = currentEpoch()
+    const pending = inflight.find(key, generation, epoch)
+    if (pending) return pending as Promise<ChatIndexSnapshot | null>
+
     const promise = deps
       .loadChatIndex(scope)
       .then((snapshot) => {
+        // 失效（删除会话 / epoch 换代）发生在读取途中：不能把旧索引写回缓存，
+        // 否则已删除的会话会借由在途请求复活。
+        if (!guard.isCurrent(key, generation) || epoch !== currentEpoch()) return snapshot
         if (snapshot) {
           indexes.set(key, snapshot)
           indexEpoch.set(key, epoch)
@@ -226,26 +248,32 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
         return snapshot
       })
       .finally(() => {
-        indexPromises.delete(key)
+        inflight.release(key, promise)
       })
-    indexPromises.set(key, promise)
+    inflight.track(key, generation, promise, epoch)
     return promise
   }
 
-  // applyChatIndex 是唯一「写入缓存」的入口：只接受完整快照，且版本必须匹配。
+  // applyChatIndex 是唯一「外部权威写入」的入口：只接受完整快照，且版本必须匹配。
+  // 它同时作废该 scope 的在途读取：外部已经给出新事实，旧读取不再有回填价值。
   function applyChatIndex(snapshot: ChatIndexSnapshot) {
     if (!snapshot || !snapshot.scope) return
+    guard.advance(snapshot.scope)
+    inflight.drop(snapshot.scope)
     indexes.set(snapshot.scope, snapshot)
     indexEpoch.set(snapshot.scope, currentEpoch())
   }
 
   // setActiveChatId 只改 UI 偏好那一格：索引里的数据事实（chatIds/chatMetas）不变。
+  // 但它是本地写：在途读取落地后不能把整份快照（含旧 activeChatId）盖回来。
   function setActiveChatId(scope: ProjectionScope, chatId: string) {
     const key = projectionScopeKey(scope)
     const snapshot = indexes.get(key)
     if (!snapshot) return
     const next = String(chatId || '').trim()
     if (snapshot.activeChatId === next) return
+    guard.advance(key)
+    inflight.drop(key)
     indexes.set(key, { ...snapshot, activeChatId: next })
   }
 

@@ -1,4 +1,5 @@
 import type { SessionScope, SessionSwitchClient, SessionWindowRequest } from '../protocol/sessionSwitchProtocol'
+import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 
 // SessionWindowLoader = 消息窗口的分页装配。
 //
@@ -36,6 +37,17 @@ export type SessionWindowState = {
   loadedMessages: number
 }
 
+// WindowReadResult 是读取的落地判定：
+//   stale=false —— 属于当前代，state 可以交给调用方（已写入分页状态）；
+//   stale=true  —— 属于上一代（期间发生过失效），调用方必须丢弃并重取。
+type WindowReadResult = { stale: boolean; state: SessionWindowState | null }
+
+function settled(state: SessionWindowState): WindowReadResult {
+  return { stale: false, state }
+}
+
+const STALE: WindowReadResult = { stale: true, state: null }
+
 export type SessionWindowLoader = {
   // load 取首屏（或已缓存的首屏）。
   load: (scope: SessionScope, chatId: string) => Promise<any>
@@ -51,6 +63,10 @@ export type SessionWindowLoader = {
 
 export const SESSION_WINDOW_DEFAULT_LIMIT = 24
 export const SESSION_WINDOW_DEFAULT_MAX_BYTES = 512 * 1024
+
+// 一次读取最多重取几轮：只在「读到一半被失效作废」时才会用上。
+// 连续失效说明状态在抖动，必须快速失败，而不是无限打业务端。
+const MAX_STALE_ATTEMPTS = 2
 
 function windowKey(scope: SessionScope, chatId: string) {
   return `${scope.kind}:${String(scope.targetId || '').trim()}:${String(chatId || '').trim()}`
@@ -129,7 +145,11 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   const maxBytes = Math.max(1, Math.floor(Number(deps.maxBytes) || SESSION_WINDOW_DEFAULT_MAX_BYTES))
 
   const states = new Map<string, SessionWindowState>()
-  const inflight = new Map<string, Promise<SessionWindowState>>()
+  // 与正文缓存同一套机制：失效推进代数，在途读取落地时校验代数。
+  // 失效之前发起的请求（load / loadOlder / refresh）失效之后一律不得回填，
+  // 否则「已删除的会话」会被旧窗口重新写回，「编辑后的正文」会被旧页覆盖。
+  const guard = createGenerationGuard()
+  const inflight = createInflightRegistry<SessionWindowState | null>()
 
   function supportsWindow() {
     return sessionSwitch.hasFeature('session.window')
@@ -214,22 +234,35 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     if (!chatId) return null
     if (!supportsWindow()) throw new Error('后端不支持 session.window')
     const key = windowKey(scope, chatId)
+    const result = await readWithGeneration(key, () => loadHeadOnce(key, scope, chatId))
+    return result.state ? result.state.chat : null
+  }
+
+  // loadHeadOnce 取一次首窗：命中缓存直接返回，在途请求按「同代」合流。
+  async function loadHeadOnce(key: string, scope: SessionScope, chatId: string): Promise<WindowReadResult> {
     const cached = states.get(key)
-    if (cached) return cached.chat
-    const pending = inflight.get(key)
-    if (pending) return (await pending).chat
+    if (cached) return settled(cached)
+    const generation = guard.current(key)
+    const pending = inflight.find(key, generation)
+    if (pending) {
+      const state = await pending
+      return state ? settled(state) : STALE
+    }
 
     const promise = requestHeadPage(scope, chatId)
       .then((page) => {
+        // 失效发生在读取途中：这次窗口属于上一代，绝不能写回。
+        if (!guard.isCurrent(key, generation)) return null
         const state = stateFromPage(scope, chatId, page, null)
         states.set(key, state)
         return state
       })
       .finally(() => {
-        inflight.delete(key)
+        inflight.release(key, promise)
       })
-    inflight.set(key, promise)
-    return (await promise).chat
+    inflight.track(key, generation, promise)
+    const state = await promise
+    return state ? settled(state) : STALE
   }
 
   async function loadOlder(scope: SessionScope, chatIdRaw: string) {
@@ -237,12 +270,21 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     if (!chatId) return null
     if (!supportsWindow()) throw new Error('后端不支持 session.window')
     const key = windowKey(scope, chatId)
+    const result = await readWithGeneration(key, () => loadOlderOnce(key, scope, chatId))
+    return result.state ? result.state.chat : null
+  }
+
+  async function loadOlderOnce(key: string, scope: SessionScope, chatId: string): Promise<WindowReadResult> {
     const current = states.get(key)
     // 没有游标就说明已经没有更早的窗口：这不是错误，是分页的自然终点。
-    if (!current || !current.nextCursor) return current?.chat || null
+    if (!current || !current.nextCursor) return { stale: false, state: current || null }
 
-    const pending = inflight.get(key)
-    if (pending) return (await pending).chat
+    const generation = guard.current(key)
+    const pending = inflight.find(key, generation)
+    if (pending) {
+      const state = await pending
+      return state ? settled(state) : STALE
+    }
 
     // 翻页属于同一次切换：cursor 之外还要带上同一个 switchId。
     const switchId = resolveSwitchID(scope, chatId)
@@ -250,15 +292,18 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     if (switchId) pageOptions.switchId = switchId
     const promise = requestPage(scope, chatId, pageOptions)
       .then((page) => {
+        // 失效发生在翻页途中：分页状态已经换代，旧页不得并回。
+        if (!guard.isCurrent(key, generation)) return null
         const state = stateFromPage(scope, chatId, page, current)
         states.set(key, state)
         return state
       })
       .finally(() => {
-        inflight.delete(key)
+        inflight.release(key, promise)
       })
-    inflight.set(key, promise)
-    return (await promise).chat
+    inflight.track(key, generation, promise)
+    const state = await promise
+    return state ? settled(state) : STALE
   }
 
   function peek(scope: SessionScope, chatIdRaw: string) {
@@ -277,8 +322,16 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     if (!chatId) return null
     if (!supportsWindow()) throw new Error('后端不支持 session.window')
     const key = windowKey(scope, chatId)
+    const result = await readWithGeneration(key, () => refreshOnce(key, scope, chatId))
+    return result.state ? result.state.chat : null
+  }
+
+  async function refreshOnce(key: string, scope: SessionScope, chatId: string): Promise<WindowReadResult> {
     const previous = states.get(key) || null
+    const generation = guard.current(key)
     const page = await requestHeadPage(scope, chatId)
+    // 失效发生在重取途中：旧首窗会把已删消息 / 旧正文带回来，绝不能落缓存。
+    if (!guard.isCurrent(key, generation)) return STALE
     const merged = previous ? mergeRefreshedPage(previous.chat, page) : mergeWindowPage(page, page)
     const chat = { ...merged, id: String(merged?.id || chatId), windowPartial: true }
     const state: SessionWindowState = {
@@ -292,23 +345,47 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     // 已经翻过的窗口不会被首窗重取推翻：续翻锚点沿用旧游标（含「已到底」）。
     state.hasMore = !!state.nextCursor
     states.set(key, state)
-    return state.chat
+    return settled(state)
+  }
+
+  // readWithGeneration 是「失效即作废」的统一出口：
+  // 一次读取若在落地时发现代数已推进，说明期间发生过失效，
+  // 这份结果属于上一代 —— 丢弃并重取，绝不把旧数据交给调用方。
+  // 重取有上限：连续失效说明状态在抖动，必须快速失败而不是无限打业务端。
+  async function readWithGeneration(
+    key: string,
+    attempt: () => Promise<WindowReadResult>,
+  ): Promise<WindowReadResult> {
+    for (let round = 0; round < MAX_STALE_ATTEMPTS; round++) {
+      const result = await attempt()
+      if (!result.stale) return result
+    }
+    throw new Error('会话窗口在连续失效中无法收敛')
   }
 
   function invalidate(scope: SessionScope, chatIdRaw: string) {
     const chatId = String(chatIdRaw || '').trim()
     if (!chatId) return
-    states.delete(windowKey(scope, chatId))
+    const key = windowKey(scope, chatId)
+    // 代数先推进：即使条目本来不存在，正在途中的旧读取也必须作废。
+    guard.advance(key)
+    states.delete(key)
+    inflight.drop(key)
   }
 
   function invalidateScope(scope: SessionScope) {
     const prefix = `${scope.kind}:${String(scope.targetId || '').trim()}:`
-    for (const key of [...states.keys()]) {
-      if (key.startsWith(prefix)) states.delete(key)
-    }
+    const matches = (key: string) => key.startsWith(prefix)
+    // 先给已缓存分页状态登记代数（在途读取可能还没落地），再按 scope 统一换代。
+    for (const key of states.keys()) guard.current(key)
+    guard.advanceMatching(matches)
+    for (const key of states.keys()) if (matches(key)) states.delete(key)
+    inflight.dropMatching(matches)
   }
 
   function clear() {
+    // 全清同样推进所有已知 key 的代数，避免在途读取把旧窗口塞回来。
+    guard.advanceAll()
     states.clear()
     inflight.clear()
   }
