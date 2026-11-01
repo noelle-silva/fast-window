@@ -1,4 +1,5 @@
 import { now, uid } from '../core/utils'
+import { writeChatMessageFields } from './chatMessageFields'
 
 export const ASSISTANT_RUNNING_CONTENT = '（生成中…）'
 
@@ -216,10 +217,13 @@ export function beginAssistantRun(
     startedAt: t,
     updatedAt: t,
   }
-  message.assistantRun = run
-  message.pending = true
-  message.streaming = !!options?.stream
-  if (options?.resetContent !== false) message.content = ASSISTANT_RUNNING_CONTENT
+  const fields: Record<string, unknown> = {
+    assistantRun: run,
+    pending: true,
+    streaming: !!options?.stream,
+  }
+  if (options?.resetContent !== false) fields.content = ASSISTANT_RUNNING_CONTENT
+  writeChatMessageFields(message, fields)
   return run
 }
 
@@ -228,15 +232,15 @@ export function checkpointAssistantRun(message: any, content: unknown, updatedAt
   if (!isAssistantGenerating(message)) return false
   const text = String(content ?? '')
   const changed = String(message.content ?? '') !== text
-  message.content = text
-  message.pending = true
+  const fields: Record<string, unknown> = { content: text, pending: true }
   if (message.assistantRun && typeof message.assistantRun === 'object') {
-    message.assistantRun = {
+    fields.assistantRun = {
       ...message.assistantRun,
       status: 'running',
       updatedAt: finiteTime(updatedAt, now()),
     }
   }
+  writeChatMessageFields(message, fields)
   return changed
 }
 
@@ -250,18 +254,17 @@ export function finishAssistantRun(message: any, content: unknown, status: Assis
     message.streaming !== false ||
     normalizeAssistantRunState(message.assistantRun)?.status !== status
 
-  message.content = text
-  message.pending = false
-  message.streaming = false
+  const fields: Record<string, unknown> = { content: text, pending: false, streaming: false }
   const cur = normalizeAssistantRunState(message.assistantRun)
   if (cur) {
-    message.assistantRun = {
+    fields.assistantRun = {
       ...cur,
       status,
       updatedAt: t,
       finishedAt: t,
     }
   }
+  writeChatMessageFields(message, fields)
   return changed
 }
 

@@ -1,5 +1,7 @@
 import { now } from '../core/utils'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
+import { replaceChatMessageById } from '../domain/chatMessageCollection'
+import { writeChatMessageFields } from '../domain/chatMessageFields'
 import { createMessageMutationGuard } from '../domain/messageMutationConflicts'
 import {
   cleanMessageReasoningParts,
@@ -84,13 +86,13 @@ export function createReasoningCleaningOperations(shared: ReturnType<typeof crea
       showToast?.('没有命中的关键词')
       return false
     }
-    message.updatedAt = now()
-    target.chat.updatedAt = message.updatedAt
+    const updatedAt = now()
+    writeChatMessageFields(message, { updatedAt })
+    target.chat.updatedAt = updatedAt
     try {
       await persistMessage(target, message)
     } catch (e: any) {
-      const index = messages.indexOf(message)
-      if (index >= 0) messages[index] = beforeMessage
+      replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
       showToast?.(String(e?.message || e || '思维链清洗失败'), { kind: 'error' })
       render()
@@ -126,7 +128,7 @@ export function createReasoningCleaningOperations(shared: ReturnType<typeof crea
     }
     try {
       for (const message of changed) {
-        message.updatedAt = now()
+        writeChatMessageFields(message, { updatedAt: now() })
         await persistMessage(target, message)
       }
     } catch (e: any) {

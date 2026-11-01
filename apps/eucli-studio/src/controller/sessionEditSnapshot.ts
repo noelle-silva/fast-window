@@ -1,4 +1,5 @@
 import { validateSessionWire } from '../protocol/sessionWireContract'
+import { writeChatMessageFields, type ChatMessageFields } from '../domain/chatMessageFields'
 import type { SessionScope, SessionSwitchClient } from '../protocol/sessionSwitchProtocol'
 
 // PATCH 前取快照：profile=edit 保证 parts 完整（含 raw / metadata）。
@@ -54,7 +55,9 @@ export function applyEditSnapshotParts(chat: any, snapshot: any) {
     if (!id) continue
     const source = byId.get(id)
     if (!source) continue
-    if (Array.isArray(source.parts)) message.parts = source.parts.map((part: any) => ({ ...part }))
-    if (typeof source.content === 'string') message.content = source.content
+    const fields: ChatMessageFields = {}
+    if (Array.isArray(source.parts)) fields.parts = source.parts.map((part: any) => ({ ...part }))
+    if (typeof source.content === 'string') fields.content = source.content
+    writeChatMessageFields(message, fields)
   }
 }

@@ -239,18 +239,17 @@ export function normalizeMessageParts(input: any) {
   return out
 }
 
-export function syncMessageTextPart(message: any) {
-  if (!message || typeof message !== 'object') return
-  const content = String(message.content ?? '')
-  if (!Array.isArray(message.parts)) message.parts = []
-  const index = message.parts.findIndex((part: any) => String(part?.type || '') === 'text')
+// partsWithSyncedText 返回「正文已经同步进 text part」的 parts 新数组。
+// 纯计算：不改入参、不写消息字段，最终由 chatMessageFields 的统一入口落地。
+export function partsWithSyncedText(partsRaw: unknown, contentRaw: unknown): any[] {
+  const content = String(contentRaw ?? '')
+  const parts = Array.isArray(partsRaw) ? partsRaw : []
+  const index = parts.findIndex((part: any) => String(part?.type || '') === 'text')
   if (!content) {
-    if (index >= 0) message.parts.splice(index, 1)
-    return
+    return index >= 0 ? parts.slice(0, index).concat(parts.slice(index + 1)) : parts.slice()
   }
   if (index >= 0) {
-    message.parts[index] = { ...message.parts[index], type: 'text', text: content }
-    return
+    return parts.map((part: any, partIndex: number) => (partIndex === index ? { ...part, type: 'text', text: content } : part))
   }
-  message.parts.unshift({ id: uid('part'), type: 'text', text: content })
+  return [{ id: uid('part'), type: 'text', text: content }].concat(parts)
 }

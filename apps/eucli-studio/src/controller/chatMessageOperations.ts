@@ -1,5 +1,7 @@
 import { now } from '../core/utils'
 import { findChatMessageById } from '../domain/branching'
+import { replaceChatMessageById } from '../domain/chatMessageCollection'
+import { writeChatMessageFields } from '../domain/chatMessageFields'
 import { replaceMessageText, editAssistantMessageBlock, deleteAssistantMessageBlock } from '../domain/assistantMessageBlockMutations'
 import { applyEditSnapshotParts } from './sessionEditSnapshot'
 import type { MessageMutationOperation } from '../domain/messageMutationConflicts'
@@ -78,7 +80,6 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
     }
     if (!ensureTargetSessionMessageMutationAllowed(target, mid, operation)) return false
     await ensureEditSnapshot(target)
-    const messageIndex = messages.indexOf(message)
     const beforeMessage = clonePlain(message)
     const beforeChatUpdatedAt = target.chat.updatedAt
     const result = mutate(message)
@@ -86,11 +87,12 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       showToast?.(result.error, { kind: 'error' })
       return false
     }
-    message.updatedAt = now()
-    target.chat.updatedAt = message.updatedAt
+    const updatedAt = now()
+    writeChatMessageFields(message, { updatedAt })
+    target.chat.updatedAt = updatedAt
     if (typeof netRequest !== 'function') {
       showToast?.('e-b 请求通道不可用', { kind: 'error' })
-      if (messageIndex >= 0) messages[messageIndex] = beforeMessage
+      replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
       render()
       return false
@@ -100,7 +102,7 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       else if (target.targetKind === 'workspace') await updateWorkspaceSessionMessage(netRequest, { workspaceId: target.workspaceId, roleId: target.roleId, sessionId: target.sessionId, messageId: mid, content: String(message.content ?? ''), parts: Array.isArray(message.parts) ? message.parts : [] })
       else await updateRoleSessionMessage(netRequest, { roleId: target.roleId, sessionId: target.sessionId, messageId: mid, content: String(message.content ?? ''), parts: Array.isArray(message.parts) ? message.parts : [] })
     } catch (e: any) {
-      if (messageIndex >= 0) messages[messageIndex] = beforeMessage
+      replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
       showToast?.(String(e?.message || e || `消息块${operationText}失败`), { kind: 'error' })
       render()

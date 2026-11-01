@@ -3,6 +3,8 @@ import { ensureChatBranch, normalizeBranchId, setChatBranchHeadMid } from '../do
 import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts } from '../domain/assistantRunState'
 import { chatMetaFromChat } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
+import { appendChatMessage, ensureChatMessages } from '../domain/chatMessageCollection'
+import { writeChatMessageFields, type ChatMessageFields } from '../domain/chatMessageFields'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
@@ -140,13 +142,15 @@ function normalizeRuntimeVisibleMessage(raw: any, fallback: { parentMessageId?: 
   if (!id || (type !== 'assistant' && type !== CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)) return null
 
   const out = normalizeChatMessage(message, { activeBranchId: fallback.branchId || CHAT_DEFAULT_BRANCH_ID, toolMessagesAsAssistant: true })
-  out.id = id
-  out.type = type
-  out.role = 'assistant'
-  out.parentMid = normalizeMessageParentMid(message) || String(fallback.parentMessageId || '').trim()
-  out.branchId = String(message.branchId || '').trim() ? normalizeBranchId(message.branchId) : ''
-  out.createdAt = normalizeTimeMs(message.createdAt, fallback.eventTime)
-  out.updatedAt = normalizeTimeMs(message.updatedAt, out.createdAt)
+  writeChatMessageFields(out, {
+    id,
+    type,
+    role: 'assistant',
+    parentMid: normalizeMessageParentMid(message) || String(fallback.parentMessageId || '').trim(),
+    branchId: String(message.branchId || '').trim() ? normalizeBranchId(message.branchId) : '',
+    createdAt: normalizeTimeMs(message.createdAt, fallback.eventTime),
+    updatedAt: normalizeTimeMs(message.updatedAt, out.createdAt),
+  })
   return out
 }
 
@@ -160,13 +164,15 @@ function collectPartLiveOutputs(message: any): Map<string, any> {
   return output
 }
 
-// restorePartLiveOutputs 将实时输出回填到刷新后的 tool part。
-function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
-  if (!message || !Array.isArray(message.parts) || liveOutputs.size === 0) return
-  for (const part of message.parts) {
+// restorePartLiveOutputs 返回「实时输出已经回填」的 parts 新数组。
+// 纯计算：不改入参，最终由 chatMessageFields 的统一入口落地。
+function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>): any[] {
+  const parts = Array.isArray(partsRaw) ? partsRaw : []
+  if (!liveOutputs.size) return parts
+  return parts.map((part: any) => {
     const live = liveOutputs.get(String(part?.callId || '').trim())
-    if (live) part.runtimeOutput = live
-  }
+    return live ? { ...part, runtimeOutput: live } : part
+  })
 }
 
   // applyRunStateEvent 只接受「生命周期事件」的载荷，且运行身份只来自信封。
@@ -242,7 +248,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       return false
     }
     clearBufferedAssistantMessageUpdate(targetKind, targetId, sessionId, messageId)
-    if (!Array.isArray(chat.messages)) chat.messages = []
+    ensureChatMessages(chat)
 
     const parentMid = String(incomingMessage.parentMid || '').trim()
     const parent = parentMid ? chat.messages.find((item: any) => String(item?.id || '').trim() === parentMid) || null : null
@@ -254,20 +260,24 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
       message = incomingMessage
       // 运行期独占身份：存储快照还没有这条消息。它决定窗口刷新时是否保留，
       // 与「是否还在生成」无关（终态收敛不能让它被丢弃）。
-      message.runtimeOnly = true
-      chat.messages.push(message)
+      writeChatMessageFields(message, { runtimeOnly: true })
+      appendChatMessage(chat, message)
     } else {
       const liveOutputs = collectPartLiveOutputs(message)
-      Object.assign(message, incomingMessage)
-      restorePartLiveOutputs(message, liveOutputs)
+      const nextFields: ChatMessageFields = { ...incomingMessage }
+      nextFields.parts = restorePartLiveOutputs(incomingMessage.parts, liveOutputs)
+      writeChatMessageFields(message, nextFields)
     }
 
     const messageType = String(incomingMessage.type || '').trim() === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT ? CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT : 'assistant'
-    message.role = 'assistant'
-    message.type = messageType
-    if (parentMid) message.parentMid = parentMid
-    message.branchId = branchId
-    message.updatedAt = Math.max(Number(message.updatedAt || 0), eventTime)
+    const structuralFields: ChatMessageFields = {
+      role: 'assistant',
+      type: messageType,
+      branchId,
+      updatedAt: Math.max(Number(message.updatedAt || 0), eventTime),
+    }
+    if (parentMid) structuralFields.parentMid = parentMid
+    writeChatMessageFields(message, structuralFields)
     const terminalStatus = assistantRunStatusFromRunStatus(payload.status)
     if (messageType === 'assistant') {
       if (terminalStatus) {
@@ -371,7 +381,7 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const box = ensureTargetChatBox(state, targetKind, targetId)
     const chat = ensureRuntimeTargetChat(state, targetKind, targetId, sessionId, messageCreatedAt)
     if (!chat) return false
-    if (!Array.isArray(chat.messages)) chat.messages = []
+    ensureChatMessages(chat)
 
     const parentMid = String(delta.parentMessageId || '').trim()
     const branchId = normalizeBranchId(delta.branchId || CHAT_DEFAULT_BRANCH_ID)
@@ -393,29 +403,31 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
         },
         { activeBranchId: branchId || CHAT_DEFAULT_BRANCH_ID, toolMessagesAsAssistant: true },
       )
-      message.id = messageId
-      message.type = 'assistant'
-      message.role = 'assistant'
-      message.parentMid = parentMid
-      message.branchId = branchId
-      message.createdAt = messageCreatedAt
-      message.updatedAt = eventTime
-      message.assistantRun = { generationId: runId, status: 'running', mode: 'new', stream: !!delta.stream, startedAt: messageCreatedAt, updatedAt: eventTime }
-      message.pending = true
-      message.streaming = !!delta.stream
-      message.content = ''
-      message.parts = []
-      // 运行期独占身份：与 update 事件同一条判据（见 chatStorageSync）。
-      // 只有「由事件新建」的消息才有这个身份；已存在的消息保持原样，
-      // 否则一条已落盘的消息被标记后，删除时会被本地重新捞回来。
-      message.runtimeOnly = true
-      chat.messages.push(message)
+      writeChatMessageFields(message, {
+        id: messageId,
+        type: 'assistant',
+        role: 'assistant',
+        parentMid,
+        branchId,
+        createdAt: messageCreatedAt,
+        updatedAt: eventTime,
+        assistantRun: { generationId: runId, status: 'running', mode: 'new', stream: !!delta.stream, startedAt: messageCreatedAt, updatedAt: eventTime },
+        pending: true,
+        streaming: !!delta.stream,
+        content: '',
+        parts: [],
+        // 运行期独占身份：与 update 事件同一条判据（见 chatStorageSync）。
+        // 只有「由事件新建」的消息才有这个身份；已存在的消息保持原样，
+        // 否则一条已落盘的消息被标记后，删除时会被本地重新捞回来。
+        runtimeOnly: true,
+      })
+      appendChatMessage(chat, message)
     }
 
     if (delta.contentReset) {
-      message.content = String(delta.contentDelta || '')
+      writeChatMessageFields(message, { content: String(delta.contentDelta || '') })
     } else if (delta.contentDelta) {
-      message.content = String(message.content || '') + String(delta.contentDelta)
+      writeChatMessageFields(message, { content: String(message.content || '') + String(delta.contentDelta) })
     }
 
     const reasoningDelta = String(delta.reasoningDelta || '')
@@ -423,44 +435,47 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     const reasoningData = String(delta.reasoningData || '')
     const reasoningSource = String(delta.reasoningSource || '')
     if (reasoningDelta || delta.reasoningReset || reasoningSignature || reasoningData) {
-      const parts = Array.isArray(message.parts) ? message.parts.slice() : []
-      let index = parts.findIndex((part: any) => String(part?.type || '') === 'reasoning')
-      if (index < 0) {
-        parts.push({ id: `${messageId}:reasoning`, type: 'reasoning', text: '', source: reasoningSource, signature: '', data: '' })
-        index = parts.length - 1
-      }
-      const prev = parts[index]
-      const nextText = delta.reasoningReset ? reasoningDelta : String(prev?.text || '') + reasoningDelta
-      parts[index] = {
-        ...prev,
+      const parts = Array.isArray(message.parts) ? message.parts : []
+      const index = parts.findIndex((part: any) => String(part?.type || '') === 'reasoning')
+      const base = index >= 0 ? parts[index] : { id: `${messageId}:reasoning`, type: 'reasoning', text: '', source: reasoningSource, signature: '', data: '' }
+      const nextText = delta.reasoningReset ? reasoningDelta : String(base?.text || '') + reasoningDelta
+      const nextPart = {
+        ...base,
         type: 'reasoning',
         text: nextText,
-        source: reasoningSource || String(prev?.source || ''),
-        signature: reasoningSignature || String(prev?.signature || ''),
-        data: reasoningData || String(prev?.data || ''),
+        source: reasoningSource || String(base?.source || ''),
+        signature: reasoningSignature || String(base?.signature || ''),
+        data: reasoningData || String(base?.data || ''),
       }
-      message.parts = parts
+      const nextParts = index >= 0
+        ? parts.map((part: any, partIndex: number) => (partIndex === index ? nextPart : part))
+        : parts.concat([nextPart])
+      writeChatMessageFields(message, { parts: nextParts })
     }
 
     if (Array.isArray(delta.partsDelta) && delta.partsDelta.length) {
-      const parts = Array.isArray(message.parts) ? message.parts.slice() : []
+      let parts = Array.isArray(message.parts) ? message.parts : []
       for (const incoming of delta.partsDelta) {
         const normalized = normalizeMessageParts([incoming])
         if (!normalized.length) continue
         const part = normalized[0]
         const key = String(part.callId || part.id || '').trim()
         const index = parts.findIndex((item: any) => String(item?.callId || item?.id || '').trim() === key)
-        if (index >= 0) parts[index] = { ...parts[index], ...part }
-        else parts.push(part)
+        parts = index >= 0
+          ? parts.map((item: any, partIndex: number) => (partIndex === index ? { ...item, ...part } : item))
+          : parts.concat([part])
       }
-      message.parts = parts
+      writeChatMessageFields(message, { parts })
     }
 
-    message.role = 'assistant'
-    message.type = 'assistant'
-    if (parentMid) message.parentMid = parentMid
-    message.branchId = branchId
-    message.updatedAt = Math.max(Number(message.updatedAt || 0), eventTime)
+    const structuralFields: ChatMessageFields = {
+      role: 'assistant',
+      type: 'assistant',
+      branchId,
+      updatedAt: Math.max(Number(message.updatedAt || 0), eventTime),
+    }
+    if (parentMid) structuralFields.parentMid = parentMid
+    writeChatMessageFields(message, structuralFields)
     const deltaTerminalStatus = assistantRunStatusFromRunStatus(delta.status)
     if (deltaTerminalStatus) {
       finishAssistantRun(message, message.content, deltaTerminalStatus, message.updatedAt)
@@ -553,17 +568,20 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     if (!Array.isArray(message.parts)) return false
     const partIndex = message.parts.findIndex((part: any) => String(part?.callId || '').trim() === callId)
     if (partIndex < 0) return false
-    const nextParts = message.parts.slice()
-    const part = nextParts[partIndex]
-    nextParts[partIndex] = {
-      ...part,
-      runtimeOutput: {
-        bytes: Math.max(0, Number(update.bytes || 0)),
-        preview: String(update.preview || '').trim(),
-        updatedAt: normalizeTimeMs(update.createdAt),
-      },
-    }
-    chat.messages[messageIndex] = { ...message, parts: nextParts, updatedAt: Math.max(Number(message.updatedAt || 0), normalizeTimeMs(update.createdAt)) }
+    const nextParts = message.parts.map((item: any, index: number) => (index === partIndex
+      ? {
+          ...item,
+          runtimeOutput: {
+            bytes: Math.max(0, Number(update.bytes || 0)),
+            preview: String(update.preview || '').trim(),
+            updatedAt: normalizeTimeMs(update.createdAt),
+          },
+        }
+      : item))
+    writeChatMessageFields(message, {
+      parts: nextParts,
+      updatedAt: Math.max(Number(message.updatedAt || 0), normalizeTimeMs(update.createdAt)),
+    })
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), normalizeTimeMs(update.createdAt))
     // 工具实时输出只改这一条消息的片段，走消息范围，不惊动整页。
     scheduleScope(messageRefreshScope(messageId))

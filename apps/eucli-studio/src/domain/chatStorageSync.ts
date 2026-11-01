@@ -1,4 +1,5 @@
 import { preserveLocalBranchSelection, setChatBranchHeadMid } from './branching'
+import { replaceChatMessages } from './chatMessageCollection'
 import { hasAssistantVisibleOutput, isAssistantGenerating, resolveAssistantMessageForMerge } from './assistantRunState'
 import { readChatRunStatus } from './chatSessionRunStatus'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
@@ -94,7 +95,7 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
     if (id && !currentById.has(id)) currentById.set(id, message)
   }
 
-  nextChat.messages = nextMessages.map((storedMessage: any) => {
+  const mergedMessages = nextMessages.map((storedMessage: any) => {
     const currentMessage = currentById.get(messageId(storedMessage)) || null
     if (!currentMessage) return storedMessage
     if (!hasSameMaterialKind(currentMessage, storedMessage)) return resolveMaterialIdentityConflict(currentMessage, storedMessage)
@@ -113,14 +114,15 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
     return resolveAssistantMessageForMerge(currentMessage, storedMessage, { storedChatStatus: readChatRunStatus(nextChat) })
   })
 
-  const nextIds = new Set(nextChat.messages.map((message: any) => messageId(message)).filter(Boolean))
+  const nextIds = new Set(mergedMessages.map((message: any) => messageId(message)).filter(Boolean))
   for (const currentMessage of currentMessages) {
     const id = messageId(currentMessage)
     if (!id || nextIds.has(id)) continue
     if (!shouldPreserveRuntimeOnlyMessage(currentMessage)) continue
-    nextChat.messages.push(currentMessage)
+    mergedMessages.push(currentMessage)
     nextIds.add(id)
   }
+  replaceChatMessages(nextChat, mergedMessages)
   preserveRuntimeBranchHeads(nextChat, currentChat)
 }
 

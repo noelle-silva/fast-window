@@ -1,5 +1,6 @@
 import { assistantToolPartId, planAssistantMessageBlocks, type AssistantMessageBlockKind } from './assistantMessageBlocks'
-import { syncMessageTextPart } from './message'
+import { writeChatMessageFields } from './chatMessageFields'
+import { partsWithSyncedText } from './message'
 
 export type AssistantMessageBlockRef = {
   kind: AssistantMessageBlockKind
@@ -46,11 +47,17 @@ function normalizeBlockRef(raw: any): AssistantMessageBlockRef | null {
   }
 }
 
-function findToolPart(message: any, ref: AssistantMessageBlockRef) {
+function findToolPartIndex(message: any, ref: AssistantMessageBlockRef): number {
   const parts = Array.isArray(message?.parts) ? message.parts : []
   const partId = String(ref.partId || '').trim()
-  if (!partId) return null
-  return parts.find((part: any, index: number) => String(part?.type || '') === 'tool' && assistantToolPartId(part, index) === partId) || null
+  if (!partId) return -1
+  return parts.findIndex((part: any, index: number) => String(part?.type || '') === 'tool' && assistantToolPartId(part, index) === partId)
+}
+
+function replaceToolPart(message: any, index: number, nextPart: any): void {
+  const parts = Array.isArray(message?.parts) ? message.parts : []
+  const nextParts = parts.map((part: any, partIndex: number) => (partIndex === index ? nextPart : part))
+  writeChatMessageFields(message, { parts: nextParts })
 }
 
 function replaceContentRange(message: any, ref: AssistantMessageBlockRef, replacement: string): MutationResult {
@@ -58,15 +65,15 @@ function replaceContentRange(message: any, ref: AssistantMessageBlockRef, replac
   const start = Number(ref.start)
   const end = Number(ref.end)
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end > content.length) return { ok: false, error: '文本块范围无效' }
-  message.content = content.slice(0, start) + replacement + content.slice(end)
-  syncMessageTextPart(message)
+  const nextContent = content.slice(0, start) + replacement + content.slice(end)
+  writeChatMessageFields(message, { content: nextContent, parts: partsWithSyncedText(message?.parts, nextContent) })
   return { ok: true }
 }
 
 export function replaceMessageText(message: any, text: unknown): MutationResult {
   if (!message || typeof message !== 'object') return { ok: false, error: '消息无效' }
-  message.content = String(text ?? '')
-  syncMessageTextPart(message)
+  const content = String(text ?? '')
+  writeChatMessageFields(message, { content, parts: partsWithSyncedText(message?.parts, content) })
   return { ok: true }
 }
 
@@ -78,28 +85,30 @@ function editTextBlock(message: any, ref: AssistantMessageBlockRef, text: string
 }
 
 function editInvocationBlock(message: any, ref: AssistantMessageBlockRef, text: string): MutationResult {
-  const part = findToolPart(message, ref)
-  if (!part) return { ok: false, error: '工具调用块不存在' }
+  const index = findToolPartIndex(message, ref)
+  if (index < 0) return { ok: false, error: '工具调用块不存在' }
 
   const parsed = parseJsonObject(String(text || '{}'))
   if (!parsed.ok) return { ok: false, error: parsed.error }
-  part.input = plainObject(parsed.value)
-  part.raw = JSON.stringify(part.input || {})
+  const input = plainObject(parsed.value)
+  replaceToolPart(message, index, { ...message.parts[index], input, raw: JSON.stringify(input) })
   return { ok: true }
 }
 
 function editResultBlock(message: any, ref: AssistantMessageBlockRef, text: string): MutationResult {
-  const part = findToolPart(message, ref)
+  const index = findToolPartIndex(message, ref)
+  const part = index >= 0 ? message.parts[index] : null
   const result = part?.result && typeof part.result === 'object' ? part.result : null
   if (!part || !result) return { ok: false, error: '工具返回块不存在' }
-  if (String(result.error || '').trim() && !String(result.content || '').trim()) result.error = String(text ?? '')
-  else result.content = String(text ?? '')
+  const nextResult = String(result.error || '').trim() && !String(result.content || '').trim()
+    ? { ...result, error: String(text ?? '') }
+    : { ...result, content: String(text ?? '') }
+  replaceToolPart(message, index, { ...part, result: nextResult })
   return { ok: true }
 }
 
-function ensureDisplay(part: any) {
-  if (!part.display || typeof part.display !== 'object' || Array.isArray(part.display)) part.display = {}
-  return part.display
+function displayOf(part: any) {
+  return part?.display && typeof part.display === 'object' && !Array.isArray(part.display) ? part.display : {}
 }
 
 function deleteTextBlock(message: any, ref: AssistantMessageBlockRef): MutationResult {
@@ -110,16 +119,18 @@ function deleteTextBlock(message: any, ref: AssistantMessageBlockRef): MutationR
 }
 
 function deleteInvocationBlock(message: any, ref: AssistantMessageBlockRef): MutationResult {
-  const part = findToolPart(message, ref)
-  if (!part) return { ok: false, error: '工具调用块不存在' }
-  ensureDisplay(part).hideInvocation = true
+  const index = findToolPartIndex(message, ref)
+  if (index < 0) return { ok: false, error: '工具调用块不存在' }
+  const part = message.parts[index]
+  replaceToolPart(message, index, { ...part, display: { ...displayOf(part), hideInvocation: true } })
   return { ok: true }
 }
 
 function deleteResultBlock(message: any, ref: AssistantMessageBlockRef): MutationResult {
-  const part = findToolPart(message, ref)
+  const index = findToolPartIndex(message, ref)
+  const part = index >= 0 ? message.parts[index] : null
   if (!part || !part.result) return { ok: false, error: '工具返回块不存在' }
-  ensureDisplay(part).hideResult = true
+  replaceToolPart(message, index, { ...part, display: { ...displayOf(part), hideResult: true } })
   return { ok: true }
 }
 
