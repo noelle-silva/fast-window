@@ -192,6 +192,8 @@ func (b *eventBridge) connectOnce(ctx context.Context) error {
 		if !json.Valid(payload) {
 			continue
 		}
+		// 会话索引缓存只在这里跟随运行生命周期失效，之后仍是纯字节透传。
+		b.service.noteRunLifecycleForSessionIndex(payload)
 		b.hub.broadcastRaw(directEventEucliBoxRun, payload)
 	}
 }
