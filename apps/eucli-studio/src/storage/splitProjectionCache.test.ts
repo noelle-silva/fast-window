@@ -192,6 +192,32 @@ describe('SplitProjectionCache', () => {
     expect(cache.peekChatIndex(scope)?.revision).toBe(8)
   })
 
+  // 代际纪律：请求发出与落地之间 epoch 换代，这份快照属于上一代，
+  // 不能写回缓存，否则新代会读到旧代索引。
+  it('refreshChatIndex 期间 epoch 换代：快照只返回、不写回缓存', async () => {
+    let calls = 0
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => {
+        calls += 1
+        // 模拟服务端在请求期间换代：管线会推进 epoch 并整份作废缓存。
+        versions.epoch = 4
+        return chatIndex(projectionScopeKey(requested), ['chat-1'])
+      },
+      getVersions: () => versions,
+    })
+
+    const snapshot = await cache.refreshChatIndex(scope)
+    expect(snapshot?.chatIds).toEqual(['chat-1'])
+    expect(cache.peekChatIndex(scope)).toBeNull()
+
+    // 下一次读取必须重新请求，而不是拿到上一代的快照。
+    await cache.loadChatIndex(scope)
+    expect(calls).toBe(2)
+  })
+
   it('refreshChatIndex 并发合流：同一 scope 只请求一次', async () => {
     let calls = 0
     const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }

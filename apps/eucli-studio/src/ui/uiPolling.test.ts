@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createUiPolling } from './uiPolling'
-import type { ChatIndexSnapshot } from '../storage/splitProjectionCache'
+import { createIndexRevisionGate } from './indexRevisionGate'
+import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
+import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 
-function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndexSnapshot {
+function snapshot(revision: number, ids: string[], activeChatId = '', scopeKey = 'role:role-1'): ChatIndexSnapshot {
   return {
-    scope: 'role:role-1',
+    scope: scopeKey,
     activeChatId,
     chatIds: ids,
     chatUpdatedAt: Object.fromEntries(ids.map((id, index) => [id, 1000 + index])),
@@ -24,65 +26,99 @@ function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndex
   }
 }
 
-function makeState() {
-  const chatsByRole: Record<string, { activeChatId: string; chatMetas: any[]; chats: any[] }> = {
-    'role-1': { activeChatId: '', chatMetas: [], chats: [] },
-  }
+function makeState(kind: 'role' | 'group' = 'role'): any {
   return {
     loading: false,
     data: {
-      ui: { activeRoleId: 'role-1', activeTargetKind: 'role', activeGroupId: '', activeWorkspaceId: '' },
+      ui: { activeRoleId: 'role-1', activeTargetKind: kind, activeGroupId: kind === 'group' ? 'group-1' : '', activeWorkspaceId: '' },
       roles: [],
-      chatsByRole,
+      chatsByRole: { 'role-1': { activeChatId: '', chatMetas: [], chats: [] } },
       groups: [],
-      chatsByGroup: {},
+      chatsByGroup: kind === 'group' ? { 'group-1': { activeChatId: '', chatMetas: [], chats: [] } } : {},
     },
-    draft: { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' },
+    draft: {
+      activeRoleId: 'role-1',
+      activeGroupId: kind === 'group' ? 'group-1' : '',
+      activeWorkspaceId: '',
+      activeTargetKind: kind,
+    },
   }
 }
 
-function makePolling(options: { revisions: number[]; ids?: string[]; emitOnSubscribe?: (listener: (event: any) => void) => void; onReconnected?: (listener: () => void) => () => void }) {
-  const state = makeState()
+function upsertIntoState(state: any, kind: 'role' | 'group', targetId: string, chat: any) {
+  const root = kind === 'group' ? 'chatsByGroup' : 'chatsByRole'
+  const box = (state.data[root][targetId] ||= { activeChatId: '', chatMetas: [], chats: [] })
+  const index = box.chats.findIndex((item: any) => String(item?.id || '') === String(chat?.id || ''))
+  if (index >= 0) box.chats[index] = chat
+  else box.chats.push(chat)
+  box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, kind === 'group' ? '群聊' : '新聊天'), '新聊天')
+  return chat
+}
+
+type HarnessOptions = {
+  kind?: 'role' | 'group'
+  revisions: number[]
+  ids?: string[]
+  // 每次 refresh 之后 epoch 取这个函数的值（模拟服务端换代）。
+  epoch?: () => number
+  bodies?: Record<string, any>
+  onReconnected?: (listener: () => void) => () => void
+  emitOnSubscribe?: (listener: (event: any) => void) => void
+}
+
+function makeHarness(options: HarnessOptions) {
+  const kind = options.kind || 'role'
+  const targetId = kind === 'group' ? 'group-1' : 'role-1'
+  const scope: ProjectionScope = { kind, targetId }
+  const scopeKey = projectionScopeKey(scope)
+  const state = makeState(kind)
   let call = 0
-  const loadChatIndex = vi.fn(async () => {
+  const refreshChatIndex = vi.fn(async () => {
     const revision = options.revisions[Math.min(call, options.revisions.length - 1)]
     call += 1
-    return snapshot(revision, options.ids || ['chat-1', 'chat-2'], 'chat-1')
+    return snapshot(revision, options.ids || ['chat-1', 'chat-2'], 'chat-1', scopeKey)
   })
-  // 版本确认必须绕过缓存：用一个独立的计数区分「轻量确认」与「命中缓存」。
-  const refreshChatIndex = vi.fn(async () => loadChatIndex())
+  const reloadChatBody = vi.fn(async (requested: ProjectionScope, chatId: string) => {
+    const body = options.bodies?.[chatId]
+    if (!body) return null
+    return { ...body, id: chatId }
+  })
+  const upsertLoadedChat = vi.fn((loadedKind: 'role' | 'group', tid: string, chat: any) => upsertIntoState(state, loadedKind, tid, chat))
   const emit = vi.fn()
   const polling = createUiPolling({
     getState: () => state,
-    loadSplitMeta: async () => null,
-    getSplitMetaCache: () => ({ roleFolders: { 'role-1': '角色一' }, groupFolders: {} }),
     emit,
     subscribeDirectEvents: (listener) => {
       options.emitOnSubscribe?.(listener)
       return () => {}
     },
     onReconnected: options.onReconnected,
-    activeTargetKind: () => 'role',
-    activeChatFromData: () => null,
-    syncActiveGroupChatsFromStorage: async () => {},
-    loadChatIndex,
+    activeTargetKind: () => kind,
+    activeChatFromData: () => {
+      const root = kind === 'group' ? 'chatsByGroup' : 'chatsByRole'
+      const box = (state.data as any)[root][targetId]
+      const id = String(box?.activeChatId || '')
+      return box?.chats?.find((item: any) => String(item?.id || '') === id) || null
+    },
     refreshChatIndex,
-    loadChatBody: async () => null,
+    reloadChatBody,
+    upsertLoadedChat,
+    getEpoch: options.epoch,
   })
-  return { polling, state, emit, loadChatIndex, refreshChatIndex }
+  return { polling, state, scope, emit, refreshChatIndex, reloadChatBody, upsertLoadedChat }
 }
 
 describe('uiPolling 版本门', () => {
   it('不再创建定时器：startUiPollers 后空闲不产生任何请求', async () => {
-    const { polling, loadChatIndex } = makePolling({ revisions: [7] })
+    const { polling, refreshChatIndex } = makeHarness({ revisions: [7] })
     polling.startUiPollers()
     await new Promise((resolve) => setTimeout(resolve, 60))
-    expect(loadChatIndex).not.toHaveBeenCalled()
+    expect(refreshChatIndex).not.toHaveBeenCalled()
     polling.stopUiPollers()
   })
 
   it('revision 未变时不重算、不 emit', async () => {
-    const { polling, emit } = makePolling({ revisions: [7, 7, 7] })
+    const { polling, emit } = makeHarness({ revisions: [7, 7, 7] })
     await polling.uiPollTick()
     emit.mockClear()
 
@@ -92,7 +128,7 @@ describe('uiPolling 版本门', () => {
   })
 
   it('revision 变化时同步并 emit 一次', async () => {
-    const { polling, emit } = makePolling({ revisions: [7, 8, 8] })
+    const { polling, emit } = makeHarness({ revisions: [7, 8, 8] })
     await polling.uiPollTick()
     emit.mockClear()
 
@@ -103,50 +139,31 @@ describe('uiPolling 版本门', () => {
   })
 
   it('同步后本地会话列表来自索引快照（而非 meta）', async () => {
-    const { polling, state } = makePolling({ revisions: [3], ids: ['chat-a', 'chat-b'] })
+    const { polling, state } = makeHarness({ revisions: [3], ids: ['chat-a', 'chat-b'] })
     await polling.uiPollTick()
     expect(state.data.chatsByRole['role-1'].chatMetas.map((meta: any) => meta.id)).toEqual(['chat-a', 'chat-b'])
     expect(state.data.chatsByRole['role-1'].activeChatId).toBe('chat-a')
   })
 
-  it('meta 的 updatedAt 不参与新鲜度判定：索引 revision 相同即视为无变化', async () => {
-    const { polling, emit, refreshChatIndex } = makePolling({ revisions: [9, 9] })
+  it('版本门必须绕过缓存：每次都调用 refreshChatIndex', async () => {
+    const { polling, refreshChatIndex } = makeHarness({ revisions: [9, 9] })
     await polling.uiPollTick()
-    emit.mockClear()
     const before = refreshChatIndex.mock.calls.length
-
     await polling.uiPollTick()
-    expect(emit).not.toHaveBeenCalled()
-    // 版本门必须做一次轻量确认（缓存命中也要问服务端），但 revision 没变就不同步。
     expect(refreshChatIndex.mock.calls.length).toBeGreaterThan(before)
   })
 
-  // 审查偏差 B：版本门比较的必须是「服务端最新 revision」，而不是缓存里的旧值。
-  it('版本门绕过缓存：命中缓存也要确认服务端最新 revision', async () => {
-    const { polling, emit, refreshChatIndex } = makePolling({ revisions: [7, 8] })
-    await polling.uiPollTick()
-    emit.mockClear()
-
-    await polling.uiPollTick()
-    // 若版本门读到缓存（仍是 7），这里就永远不会触发；必须能观察到 8。
-    expect(emit).toHaveBeenCalledTimes(1)
-    expect(refreshChatIndex).toHaveBeenCalled()
-  })
-
-  // 审查偏差 B：revision 必须按 scope 记录，不能是全局单值。
   it('已应用版本按 scope 区分：切换 target 后各自重新对账', async () => {
-    const { polling, state, emit } = makePolling({ revisions: [7] })
+    const { polling, state, emit } = makeHarness({ revisions: [7] })
     await polling.uiPollTick()
     emit.mockClear()
 
-    // 切到另一个角色：它的已应用版本是「未知」，必须对账一次。
     state.data.ui.activeRoleId = 'role-2'
     state.draft.activeRoleId = 'role-2'
     state.data.chatsByRole['role-2'] = { activeChatId: '', chatMetas: [], chats: [] }
     await polling.uiPollTick()
     expect(emit).toHaveBeenCalledTimes(1)
 
-    // 再切回来：role-1 的版本仍是 7，且服务端也还是 7 → 不再对账。
     emit.mockClear()
     state.data.ui.activeRoleId = 'role-1'
     state.draft.activeRoleId = 'role-1'
@@ -154,10 +171,9 @@ describe('uiPolling 版本门', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  // 审查偏差 B：断线重连 / 页面恢复必须强制对账（版本门会挡住缺口补齐）。
   it('重连成功强制对账一次（忽略版本门）', async () => {
     let reconnectListener: (() => void) | null = null
-    const { polling, emit } = makePolling({
+    const { polling, emit } = makeHarness({
       revisions: [7],
       onReconnected: (listener) => {
         reconnectListener = listener
@@ -168,42 +184,101 @@ describe('uiPolling 版本门', () => {
     await polling.uiPollTick()
     emit.mockClear()
 
-    // 版本没变，普通 tick 不会对账。
     await polling.uiPollTick()
     expect(emit).not.toHaveBeenCalled()
 
-    // 重连：强制对账。
     reconnectListener!()
-    // 强制对账是异步的（读快照 → 同步 → emit），用宏任务等待链尾。
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(emit).toHaveBeenCalledTimes(1)
     polling.stopUiPollers()
+  })
+
+  // 回归 1：服务端重建后 revision 可能与上一代相同，只记 revision 会永久跳过。
+  it('epoch 换代后即使 revision 相同也重新对账', async () => {
+    let epoch = 1
+    const { polling, emit } = makeHarness({ revisions: [7], epoch: () => epoch })
+    await polling.uiPollTick()
+    emit.mockClear()
+
+    // 同一代、同一 revision：版本门挡住。
+    await polling.uiPollTick()
+    expect(emit).not.toHaveBeenCalled()
+
+    // 换代（服务端重建），revision 仍然是 7：必须重新生效。
+    epoch = 2
+    await polling.uiPollTick()
+    expect(emit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('uiPolling 对账取回权威正文', () => {
+  // 回归 2：群聊强制对账过去走缓存正文，本地时间戳没变就永远读不到新正文。
+  it('群聊强制对账必须重新取正文（不看本地时间戳）', async () => {
+    const { polling, state, reloadChatBody } = makeHarness({
+      kind: 'group',
+      revisions: [7, 7],
+      bodies: { 'chat-1': { title: '群聊会话', messages: [{ id: 'm1', content: '权威正文' }], updatedAt: 1000 } },
+    })
+    // 本地已有一条同 updatedAt 的会话：普通对账不会重取。
+    upsertIntoState(state, 'group', 'group-1', { id: 'chat-1', title: '旧标题', messages: [], updatedAt: 1000 })
+
+    await polling.uiPollTick()
+    reloadChatBody.mockClear()
+
+    await polling.uiPollTick({ force: true })
+    expect(reloadChatBody).toHaveBeenCalledTimes(1)
+    const box = state.data.chatsByGroup['group-1']
+    const chat = box.chats.find((item: any) => item.id === 'chat-1')
+    expect(chat.messages[0].content).toBe('权威正文')
+  })
+
+  it('角色强制对账同样走权威重取', async () => {
+    const { polling, state, reloadChatBody } = makeHarness({
+      revisions: [7, 7],
+      bodies: { 'chat-1': { title: '角色会话', messages: [{ id: 'm1', content: '新正文' }], updatedAt: 1000 } },
+    })
+    upsertIntoState(state, 'role', 'role-1', { id: 'chat-1', title: '旧标题', messages: [], updatedAt: 1000 })
+
+    await polling.uiPollTick()
+    reloadChatBody.mockClear()
+
+    await polling.uiPollTick({ force: true })
+    expect(reloadChatBody).toHaveBeenCalledTimes(1)
+    const chat = state.data.chatsByRole['role-1'].chats.find((item: any) => item.id === 'chat-1')
+    expect(chat.messages[0].content).toBe('新正文')
+  })
+
+  it('普通对账在索引时间戳更新时也重取正文', async () => {
+    const { polling, reloadChatBody } = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', messages: [{ id: 'm1', content: '新正文' }], updatedAt: 1000 } },
+    })
+    await polling.uiPollTick()
+    // 索引里 chat-1 的 updatedAt 是 1000，本地没有会话 → 必须取回正文。
+    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1')
+  })
+
+  it('运行中的会话不被对账覆盖', async () => {
+    const { polling, state, reloadChatBody } = makeHarness({ revisions: [7, 7] })
+    state.data.chatsByRole['role-1'].activeChatId = 'chat-1'
+    ;(state as any).activeRunCards = [{ kind: 'eb-role-run', runId: 'r1', roleId: 'role-1', groupId: '', workspaceId: '', sessionId: 'chat-1', status: 'running' }]
+
+    await polling.uiPollTick({ force: true })
+    expect(reloadChatBody).not.toHaveBeenCalled()
   })
 })
 
 describe('uiPolling notice 对账', () => {
   it('没有携带通知时不再回读 runtime storage', async () => {
+    const { polling } = makeHarness({ revisions: [1] })
     const rtGet = vi.fn(async () => ({ id: 'notice-1' }))
-    const state = makeState()
-    const polling = createUiPolling({
-      getState: () => state,
-      loadSplitMeta: async () => null,
-      getSplitMetaCache: () => ({ roleFolders: { 'role-1': '角色一' }, groupFolders: {} }),
-      emit: () => {},
-      activeTargetKind: () => 'role',
-      activeChatFromData: () => null,
-      syncActiveGroupChatsFromStorage: async () => {},
-      loadChatIndex: async () => null,
-      loadChatBody: async () => null,
-      // 旧实现会通过 rtStorage 轮询一个 studio 侧根本不存在的键。
-      ...({ rtStorage: { get: rtGet } } as any),
-    })
+    ;(polling as any).rtStorage = { get: rtGet }
     await polling.applyChatUpdatedNoticeOnce()
     expect(rtGet).not.toHaveBeenCalled()
   })
 
   it('事件携带的通知只应用一次', async () => {
-    const { polling, state } = makePolling({ revisions: [1] })
+    const { polling, state } = makeHarness({ revisions: [1] })
     const roleBox = (state.data.chatsByRole as any)['role-1']
     roleBox.chatMetas = [
       { id: 'chat-1', updatedAt: 1 },
@@ -211,7 +286,6 @@ describe('uiPolling notice 对账', () => {
     ]
     roleBox.chats = [{ id: 'chat-1', updatedAt: 1 }]
     roleBox.activeChatId = 'chat-1'
-    // 非当前会话的通知走「只更新列表元数据」这条路径，不触发正文重读。
     const notice = { id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-2', updatedAt: 9 }
 
     const first = await polling.applyChatUpdatedNoticeOnce(notice)
@@ -219,5 +293,44 @@ describe('uiPolling notice 对账', () => {
     expect(first).toBe(true)
     expect(second).toBe(false)
     expect(roleBox.chatMetas[1].updatedAt).toBe(9)
+  })
+
+  it('当前会话的通知走权威重取正文', async () => {
+    const { polling, state, reloadChatBody } = makeHarness({
+      revisions: [1],
+      bodies: { 'chat-1': { title: '会话', messages: [{ id: 'm1', content: '通知后的正文' }], updatedAt: 9000 } },
+    })
+    const roleBox = state.data.chatsByRole['role-1']
+    roleBox.activeChatId = 'chat-1'
+    roleBox.chatMetas = [{ id: 'chat-1', updatedAt: 1 }]
+    roleBox.chats = [{ id: 'chat-1', updatedAt: 1, messages: [] }]
+
+    const applied = await polling.applyChatUpdatedNoticeOnce({ id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-1', updatedAt: 9000 })
+    expect(applied).toBe(true)
+    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1')
+    expect(roleBox.chats[0].messages[0].content).toBe('通知后的正文')
+  })
+})
+
+describe('createIndexRevisionGate', () => {
+  it('revision 非正时永远允许对账（旧后端没有版本语义）', () => {
+    const gate = createIndexRevisionGate()
+    expect(gate.shouldApply('role:r1', 1, 0)).toBe(true)
+    gate.markApplied('role:r1', 1, 0)
+    expect(gate.shouldApply('role:r1', 1, 0)).toBe(true)
+  })
+
+  it('同代同 revision 被挡住，换代后重新允许', () => {
+    const gate = createIndexRevisionGate()
+    gate.markApplied('role:r1', 1, 7)
+    expect(gate.shouldApply('role:r1', 1, 7)).toBe(false)
+    expect(gate.shouldApply('role:r1', 2, 7)).toBe(true)
+    expect(gate.shouldApply('role:r1', 1, 8)).toBe(true)
+  })
+
+  it('版本门按 scope 独立记录', () => {
+    const gate = createIndexRevisionGate()
+    gate.markApplied('role:r1', 1, 7)
+    expect(gate.shouldApply('role:r2', 1, 7)).toBe(true)
   })
 })

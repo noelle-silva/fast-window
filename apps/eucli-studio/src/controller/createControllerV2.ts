@@ -26,7 +26,6 @@ import { createStickerStorage } from '../storage/stickerStorage'
 import { createEmptyShellData, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
-import { createGroupChatSync } from '../storage/groupChatSync'
 import { createProjectionPipeline } from './projectionPipeline'
 import { loadSessionEditSnapshot } from './sessionEditSnapshot'
 
@@ -64,7 +63,6 @@ import { createModelRequestConfigController } from './modelRequestConfig'
 import { createConversationImageConfigController } from './conversationImageConfig'
 import { createRequestRecordsController } from './requestRecords'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
-import { readActiveEbRunCardsForTarget } from '../domain/activeRunCards'
 import { loadWorkspaceSession } from './workspaceBridge'
 import { createChatSessionTarget, chatSettingsTargetKey, type ChatSettingsTarget } from './chatSessionTarget'
 import { createChatSettingsSaveQueue, type ChatSettingsAction } from './chatSettingsSaveQueue'
@@ -230,7 +228,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const {
     loadSplitMeta,
-    withSplitMetaWrite,
     ensureSplitStoreReady,
     setActiveRoleChatSelection,
     removeRoleChatEntry,
@@ -433,21 +430,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
 
   // ============================================================
-  // 8. GROUP CHAT SYNC
+  // 8. PERSISTENCE
   // ============================================================
-  const groupChatSync = createGroupChatSync({
-    storage,
-    getState: () => state,
-    loadSplitMeta: loadSplitMetaCached,
-    getSplitMetaCache,
-    withSplitMetaWrite,
-    hasActiveGroupRunInSession: (groupId: string, chatId: string) => readActiveEbRunCardsForTarget(state, 'group', groupId, chatId).length > 0,
-    loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
-    loadChatBody: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
-    onSessionIndexInvalidated: (kind, targetId) => projectionPipeline.invalidateSessionIndex(kind, targetId),
-  })
-  const { syncActiveGroupChatsFromStorage } = groupChatSync
-
   const persistence = createPersistence({
     getState: () => state,
     activeChatFromData,
@@ -1032,19 +1016,19 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const uiPolling = createUiPolling({
     getState: () => state,
-    loadSplitMeta: loadSplitMetaCached,
-    getSplitMetaCache,
     emit,
     subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
     onReconnected: (capabilities.host as any)?.directEvents?.onReconnected,
     activeTargetKind,
     activeChatFromData,
-    syncActiveGroupChatsFromStorage,
-    loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
+    // 索引永远是权威读取：refreshChatIndex 绕过投影缓存确认服务端 revision。
     refreshChatIndex: (scope) => projectionPipeline.refreshChatIndex(scope),
-    loadChatBody: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
+    // 正文永远是权威重取：reloadChatBody 先失效再取，绝不返回缓存旧正文。
     reloadChatBody: (scope, chatId) => projectionPipeline.reloadChatBody(scope, chatId),
-    invalidateSessionIndex: (kind, targetId) => projectionPipeline.invalidateSessionIndex(kind, targetId),
+    // 入状态统一走 upsertLoadedChat（会话进入内存状态的唯一入口）。
+    upsertLoadedChat: (kind, targetId, chat) => upsertLoadedChat(kind, targetId, chat),
+    // 版本门必须同时看代际：服务端重建后 revision 可能相同。
+    getEpoch: () => projectionPipeline.versions().epoch,
   })
   const { startUiPollers, stopUiPollers } = uiPolling
 
