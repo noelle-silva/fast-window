@@ -1,5 +1,6 @@
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { isStoredChatNewerThanCurrent } from '../domain/chatStorageSync'
+import { readActiveChatSelection, reconcileActiveChatSelection } from '../domain/activeChatSelection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from './splitProjectionCache'
 
 // 目标会话对账：角色 / 群聊共用一套实现。
@@ -72,7 +73,7 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
       const wantUpdatedAt = snapshot.chatUpdatedAt || {}
 
       const box = ensureChatsBox(state, scope)
-      const keepChatNow = String(box.activeChatId || '')
+      const keepChatNow = readActiveChatSelection(box)
       const activeChatId = keepChatNow || desiredActiveChatId || String(desiredChatIds[0] || '')
 
       const curById = new Map<string, any>()
@@ -107,9 +108,7 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         }
       }
 
-      if (keepChatNow && desiredChatIds.includes(keepChatNow)) box.activeChatId = keepChatNow
-      else if (desiredActiveChatId && desiredChatIds.includes(desiredActiveChatId)) box.activeChatId = desiredActiveChatId
-      else box.activeChatId = String(desiredChatIds[0] || '')
+      reconcileActiveChatSelection(box, [keepChatNow, desiredActiveChatId, ...desiredChatIds])
       return true
     } finally {
       syncingScopes.delete(scopeKey)

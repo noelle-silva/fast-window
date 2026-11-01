@@ -8,6 +8,12 @@ import { clearPendingChatForTarget, createPendingChatEntry, pendingChatForTarget
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import { workspaceRegisteredRoleIds, workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import {
+  firstChatIdInBox,
+  readActiveChatSelection,
+  reconcileActiveChatSelection,
+  writeActiveChatSelection,
+} from '../domain/activeChatSelection'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { saveEntityOrder } from './entityOrderBridge'
 import {
@@ -77,7 +83,7 @@ function ensureWorkspaceBox(state: any, activeRole: () => any, workspaceIdRaw: u
   box.workspaceId = workspaceId
   box.roleId = roleId
   box.targetId = targetId
-  box.activeChatId = text(box.activeChatId)
+  writeActiveChatSelection(box, readActiveChatSelection(box))
   return box
 }
 
@@ -210,7 +216,7 @@ export function createWorkspaceManager(deps: {
     if (index >= 0) box.chats[index] = nextChat
     else box.chats.unshift(nextChat)
     box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(nextChat, '工作区会话'), '工作区会话')
-    if (!box.activeChatId) box.activeChatId = chatId
+    if (!readActiveChatSelection(box)) writeActiveChatSelection(box, chatId)
     return nextChat
   }
 
@@ -228,8 +234,7 @@ export function createWorkspaceManager(deps: {
     const metaIds = new Set(metas.map((meta: any) => text(meta?.id)).filter(Boolean))
     box.chatMetas = metas
     box.chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => metaIds.has(text(chat?.id)))
-    if (box.activeChatId && !metaIds.has(text(box.activeChatId))) box.activeChatId = ''
-    if (!box.activeChatId) box.activeChatId = text(metas[0]?.id || box.chats[0]?.id)
+    reconcileActiveChatSelection(box)
     return box
   }
 
@@ -273,14 +278,14 @@ export function createWorkspaceManager(deps: {
     const box = ensureWorkspaceBox(state, activeRole, workspaceId)
     if (!box) return null
     if (!Array.isArray(box.chatMetas) || !box.chatMetas.length) await refreshActiveWorkspaceChats(workspaceId).catch(() => null)
-    const ids = [text(box.activeChatId), ...(Array.isArray(box.chatMetas) ? box.chatMetas.map((meta: any) => text(meta?.id)) : [])]
+    const ids = [readActiveChatSelection(box), ...(Array.isArray(box.chatMetas) ? box.chatMetas.map((meta: any) => text(meta?.id)) : [])]
       .filter((id, index, list) => !!id && list.indexOf(id) === index)
     for (const chatId of ids) {
-      box.activeChatId = chatId
+      writeActiveChatSelection(box, chatId)
       const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId)
       if (chat) return chat
     }
-    box.activeChatId = ''
+    writeActiveChatSelection(box, '')
     return null
   }
 
@@ -569,7 +574,7 @@ export function createWorkspaceManager(deps: {
       box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
       if (!box || !boxHasChatRef(box, chatId)) return
     }
-    box.activeChatId = chatId
+    writeActiveChatSelection(box, chatId)
     const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId).catch(() => null)
     if (text(chat?.roleId)) state.draft.activeRoleId = text(chat?.roleId)
     activateComposerDraftForCurrentSession(state)
@@ -626,7 +631,7 @@ export function createWorkspaceManager(deps: {
     if (!box) return false
     box.chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => text(chat?.id) !== chatId)
     box.chatMetas = removeChatMeta(box.chatMetas, chatId, '工作区会话')
-    if (text(box.activeChatId) === chatId) box.activeChatId = text(box.chatMetas[0]?.id || box.chats[0]?.id)
+    if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
     removeLoadedChat?.('workspace', targetId, chatId)
     try {
       await deleteWorkspaceSession(requireNetRequest(), workspaceId, roleId, chatId)

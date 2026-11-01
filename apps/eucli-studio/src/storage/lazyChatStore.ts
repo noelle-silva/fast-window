@@ -14,6 +14,11 @@ import { normalizeStoredChat } from './normalizeStoredChat'
 import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
+import {
+  firstChatIdInBox,
+  readActiveChatSelection,
+  writeActiveChatSelection,
+} from '../domain/activeChatSelection'
 
 export type LazyChatKind = 'role' | 'group'
 
@@ -31,7 +36,7 @@ function targetBox(data: any, kind: LazyChatKind, targetId: string) {
   const box = root[targetId]
   if (!Array.isArray(box.chats)) box.chats = []
   box.chatMetas = chatMetasFromBox(box, fallbackTitle)
-  box.activeChatId = String(box.activeChatId || '')
+  writeActiveChatSelection(box, readActiveChatSelection(box))
   return box
 }
 
@@ -53,7 +58,7 @@ function removeMissingChatRef(box: any, chatId: string, kind: LazyChatKind) {
   if (!box || !chatId) return
   box.chats = Array.isArray(box.chats) ? box.chats.filter((c: any) => String(c?.id || '') !== chatId) : []
   box.chatMetas = removeChatMeta(box.chatMetas, chatId, kind === 'group' ? '群聊' : '新聊天')
-  if (String(box.activeChatId || '') === chatId) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
+  if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
 }
 
 export function createLazyChatStore(deps: {
@@ -130,7 +135,7 @@ export function createLazyChatStore(deps: {
       d.roles.push(role)
       const index = await loadChatIndex(scopeFor('role', rid))
       d.chatsByRole[String(role.id || rid)] = {
-        activeChatId: String(index?.activeChatId || ''),
+        activeChatId: readActiveChatSelection(index),
         chatMetas: index?.chatMetas || chatMetasFromBox({}, '新聊天'),
         chats: [],
       }
@@ -144,7 +149,7 @@ export function createLazyChatStore(deps: {
       d.groups.push(group)
       const index = await loadChatIndex(scopeFor('group', gid))
       d.chatsByGroup[String(group.id || gid)] = {
-        activeChatId: String(index?.activeChatId || ''),
+        activeChatId: readActiveChatSelection(index),
         chatMetas: index?.chatMetas || chatMetasFromBox({}, '群聊'),
         chats: [],
       }
@@ -239,11 +244,11 @@ export function createLazyChatStore(deps: {
       .map((id) => id.trim())
       .filter((id, index, list) => !!id && list.indexOf(id) === index)
     for (const chatId of ids) {
-      box.activeChatId = chatId
+      writeActiveChatSelection(box, chatId)
       const chat = await ensureChatLoaded(kind, targetId, chatId)
       if (chat) return chat
     }
-    box.activeChatId = ''
+    writeActiveChatSelection(box, '')
     return null
   }
 
@@ -282,7 +287,7 @@ export function createLazyChatStore(deps: {
     if (!box) return
     box.chats = box.chats.filter((c: any) => String(c?.id || '') !== chatId)
     box.chatMetas = removeChatMeta(box.chatMetas, chatId, kind === 'group' ? '群聊' : '新聊天')
-    if (String(box.activeChatId || '') === chatId) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
+    if (readActiveChatSelection(box) === chatId) writeActiveChatSelection(box, firstChatIdInBox(box))
   }
 
   return {

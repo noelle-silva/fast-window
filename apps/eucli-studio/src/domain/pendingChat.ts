@@ -1,5 +1,6 @@
 import { now, uid } from '../core/utils'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from './workspaceRoleTarget'
+import { writeActiveChatSelection } from './activeChatSelection'
 
 export type PendingChatTargetKind = 'role' | 'group' | 'workspace'
 
@@ -86,19 +87,19 @@ export function activateResolvedPendingChat(state: any, kind: PendingChatTargetK
   if (kind === 'group') {
     if (!state.data.chatsByGroup || typeof state.data.chatsByGroup !== 'object') state.data.chatsByGroup = {}
     if (!state.data.chatsByGroup[targetId] || typeof state.data.chatsByGroup[targetId] !== 'object') state.data.chatsByGroup[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-    state.data.chatsByGroup[targetId].activeChatId = chatId
+    writeActiveChatSelection(state.data.chatsByGroup[targetId], chatId)
     return true
   }
 
   if (kind === 'workspace') {
     if (!state.data.chatsByWorkspace || typeof state.data.chatsByWorkspace !== 'object') state.data.chatsByWorkspace = {}
     if (!state.data.chatsByWorkspace[targetId] || typeof state.data.chatsByWorkspace[targetId] !== 'object') state.data.chatsByWorkspace[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-    state.data.chatsByWorkspace[targetId].activeChatId = chatId
+    writeActiveChatSelection(state.data.chatsByWorkspace[targetId], chatId)
     return true
   }
 
   if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
   if (!state.data.chatsByRole[targetId] || typeof state.data.chatsByRole[targetId] !== 'object') state.data.chatsByRole[targetId] = { activeChatId: '', chatMetas: [], chats: [] }
-  state.data.chatsByRole[targetId].activeChatId = chatId
+  writeActiveChatSelection(state.data.chatsByRole[targetId], chatId)
   return true
 }

@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
 import { chatMetaFromChat, chatMetasFromBox, type ChatMeta } from '../domain/chatMeta'
+import { normalizeActiveChatId, readActiveChatSelection, withActiveChatSelection } from '../domain/activeChatSelection'
 import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 
 // 前端投影缓存（design-1 三层架构的第一层）：
@@ -116,7 +117,7 @@ export function normalizeChatIndexSnapshot(raw: any, scope: ProjectionScope): Ch
   const ids = chatIds.length ? chatIds : chatMetas.map((meta) => meta.id)
   return {
     scope: key,
-    activeChatId: String((raw as any).activeChatId || ''),
+    activeChatId: normalizeActiveChatId((raw as any).activeChatId),
     chatIds: ids,
     chatUpdatedAt,
     chatMetas,
@@ -271,10 +272,10 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     const snapshot = indexes.get(key)
     if (!snapshot) return
     const next = String(chatId || '').trim()
-    if (snapshot.activeChatId === next) return
+    if (readActiveChatSelection(snapshot) === next) return
     guard.advance(key)
     inflight.drop(key)
-    indexes.set(key, { ...snapshot, activeChatId: next })
+    indexes.set(key, withActiveChatSelection(snapshot, next))
   }
 
   function chatIndexIds(scope: ProjectionScope): string[] {

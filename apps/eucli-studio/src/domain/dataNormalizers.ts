@@ -28,6 +28,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
 import { normalizeWallpaperSettings } from './wallpaper'
+import { readActiveChatSelection, reconcileActiveChatSelection, writeActiveChatSelection } from './activeChatSelection'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
 import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
 import { normalizeSessionFacts } from './sessionFacts'
@@ -343,7 +344,7 @@ export function normalizeData(raw: any) {
     const box = d.chatsByRole[rid]
     if (!Array.isArray(box.chats)) box.chats = []
     box.chatMetas = chatMetasFromBox(box, '新聊天')
-    box.activeChatId = String(box.activeChatId || '')
+    writeActiveChatSelection(box, readActiveChatSelection(box))
 
     box.chats = box.chats
       .filter((c: any) => c && typeof c === 'object')
@@ -401,10 +402,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    const roleMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
-    if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !roleMetaIds.includes(box.activeChatId))) {
-      box.activeChatId = String(box.chats[0]?.id || roleMetaIds[0] || '')
-    }
+    reconcileActiveChatSelection(box, undefined, 'chats')
   }
 
   if (!d.ui || typeof d.ui !== 'object') d.ui = {}
@@ -467,7 +465,7 @@ export function normalizeData(raw: any) {
     const box = (d as any).chatsByGroup[gid]
     if (!Array.isArray(box.chats)) box.chats = []
     box.chatMetas = chatMetasFromBox(box, '群聊')
-    box.activeChatId = String(box.activeChatId || '')
+    writeActiveChatSelection(box, readActiveChatSelection(box))
 
     box.chats = box.chats
       .filter((c: any) => c && typeof c === 'object')
@@ -526,10 +524,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    const groupMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
-    if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !groupMetaIds.includes(box.activeChatId))) {
-      box.activeChatId = String(box.chats[0]?.id || groupMetaIds[0] || '')
-    }
+    reconcileActiveChatSelection(box, undefined, 'chats')
   }
 
   if (!Array.isArray((d as any).workspaces)) (d as any).workspaces = []
@@ -569,7 +564,7 @@ export function normalizeData(raw: any) {
     const box = (d as any).chatsByWorkspace[targetId]
     if (!Array.isArray(box.chats)) box.chats = []
     box.chatMetas = chatMetasFromBox(box, '工作区会话')
-    box.activeChatId = String(box.activeChatId || '')
+    writeActiveChatSelection(box, readActiveChatSelection(box))
 
     box.chats = box.chats
       .filter((chat: any) => chat && typeof chat === 'object')
@@ -629,10 +624,7 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    const workspaceMetaIds = box.chatMetas.map((meta: any) => String(meta?.id || '')).filter(Boolean)
-    if (!box.activeChatId || (!box.chats.some((chat: any) => String(chat.id) === box.activeChatId) && !workspaceMetaIds.includes(box.activeChatId))) {
-      box.activeChatId = String(box.chats[0]?.id || workspaceMetaIds[0] || '')
-    }
+    reconcileActiveChatSelection(box, undefined, 'chats')
   }
 
   const targetKind0 = String((d.ui as any).activeTargetKind || '').trim()

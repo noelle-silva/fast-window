@@ -3,6 +3,7 @@ import { createUiPolling } from './uiPolling'
 import { createIndexRevisionGate } from './indexRevisionGate'
 import { chatMetaFromChat, upsertChatMeta } from '../domain/chatMeta'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
+import { writeActiveChatSelection } from '../domain/activeChatSelection'
 
 function snapshot(revision: number, ids: string[], activeChatId = '', scopeKey = 'role:role-1'): ChatIndexSnapshot {
   return {
@@ -260,7 +261,7 @@ describe('uiPolling 对账取回权威正文', () => {
 
   it('运行中的会话不被对账覆盖', async () => {
     const { polling, state, reloadChatBody } = makeHarness({ revisions: [7, 7] })
-    state.data.chatsByRole['role-1'].activeChatId = 'chat-1'
+    writeActiveChatSelection(state.data.chatsByRole['role-1'], 'chat-1')
     ;(state as any).activeRunCards = [{ kind: 'eb-role-run', runId: 'r1', roleId: 'role-1', groupId: '', workspaceId: '', sessionId: 'chat-1', status: 'running' }]
 
     await polling.uiPollTick({ force: true })
@@ -285,7 +286,7 @@ describe('uiPolling notice 对账', () => {
       { id: 'chat-2', updatedAt: 1 },
     ]
     roleBox.chats = [{ id: 'chat-1', updatedAt: 1 }]
-    roleBox.activeChatId = 'chat-1'
+    writeActiveChatSelection(roleBox, 'chat-1')
     const notice = { id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-2', updatedAt: 9 }
 
     const first = await polling.applyChatUpdatedNoticeOnce(notice)
@@ -301,7 +302,7 @@ describe('uiPolling notice 对账', () => {
       bodies: { 'chat-1': { title: '会话', messages: [{ id: 'm1', content: '通知后的正文' }], updatedAt: 9000 } },
     })
     const roleBox = state.data.chatsByRole['role-1']
-    roleBox.activeChatId = 'chat-1'
+    writeActiveChatSelection(roleBox, 'chat-1')
     roleBox.chatMetas = [{ id: 'chat-1', updatedAt: 1 }]
     roleBox.chats = [{ id: 'chat-1', updatedAt: 1, messages: [] }]
 

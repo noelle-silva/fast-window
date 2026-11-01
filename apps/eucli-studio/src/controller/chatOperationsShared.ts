@@ -2,6 +2,8 @@ import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { messageMutationConflict, type MessageMutationOperation } from '../domain/messageMutationConflicts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { writeActiveChatSelection } from '../domain/activeChatSelection'
+import { activateResolvedPendingChat } from '../domain/pendingChat'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import type { ModelRef } from '../domain/modelRefUtils'
 import type { EbRunState } from './ebRoleRun'
@@ -56,6 +58,8 @@ export type ChatOperationsDeps = {
   // 视图回写：把「用户在看哪条路径」变成服务端事实（design-4 决策 3）。
   // 只改视图，不改任何消息内容；后端不支持时静默跳过（本地分支状态仍然有效）。
   persistSessionView?: (kind: 'role' | 'group', targetId: string, chatId: string, head: string, branchId: string) => Promise<void>
+  // pending 会话落成真实会话后：把「用户选中了它」交给与普通点击相同的偏好持久化入口。
+  persistActiveChatSelection?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<void>
   emit: () => void
   render: () => void
   renderComposer: () => void
@@ -106,15 +110,19 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     // 写路径之后的重取：先失效正文缓存，再读。
     // 不做这一步的话，reload 会命中写之前的正文，新消息消失、已删消息复活。
     invalidateChatBodyAfterWrite(targetKind, tid, sid)
+    let box: any = null
     if (targetKind === 'group') {
       if (!state.data.chatsByGroup || typeof state.data.chatsByGroup !== 'object') state.data.chatsByGroup = {}
       if (!state.data.chatsByGroup[tid] || typeof state.data.chatsByGroup[tid] !== 'object') state.data.chatsByGroup[tid] = { activeChatId: '', chatMetas: [], chats: [] }
+      box = state.data.chatsByGroup[tid]
     } else if (targetKind === 'workspace') {
       if (!state.data.chatsByWorkspace || typeof state.data.chatsByWorkspace !== 'object') state.data.chatsByWorkspace = {}
       if (!state.data.chatsByWorkspace[tid] || typeof state.data.chatsByWorkspace[tid] !== 'object') state.data.chatsByWorkspace[tid] = { activeChatId: '', chatMetas: [], chats: [] }
+      box = state.data.chatsByWorkspace[tid]
     } else {
       if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
       if (!state.data.chatsByRole[tid] || typeof state.data.chatsByRole[tid] !== 'object') state.data.chatsByRole[tid] = { activeChatId: '', chatMetas: [], chats: [] }
+      box = state.data.chatsByRole[tid]
     }
     const chat = targetKind === 'group'
       ? typeof reloadGroupSession === 'function'
@@ -134,11 +142,7 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
           ? await ensureChatLoaded('role', tid, sid)
           : null
     if (chat) {
-      if (options?.activate !== false) {
-        if (targetKind === 'group') state.data.chatsByGroup[tid].activeChatId = sid
-        else if (targetKind === 'workspace') state.data.chatsByWorkspace[tid].activeChatId = sid
-        else state.data.chatsByRole[tid].activeChatId = sid
-      }
+      if (options?.activate !== false) writeActiveChatSelection(box, sid)
       onLoaded?.(chat)
       emit()
     }
@@ -200,6 +204,29 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     }
   }
 
+  // activateResolvedPendingSelection 是 pending 会话落成真实会话后的唯一收口。
+  //
+  // 本地选择事实先同步落地（UI 必须立刻切到新会话），随后走与普通点击完全相同的
+  // 偏好持久化入口，把「用户选中了它」写进服务端偏好。只改 activeChatId：
+  // chatMetas / 正文 / 分支 / 运行卡 / chat.status 一律不在这里碰。
+  //
+  // 工作区会话没有对应的偏好命令（协议 scope 只有 role/group），保持原有行为；
+  // 重复调用不会重复持久化：pending 在第一次成功迁移时已经被清空。
+  async function activateResolvedPendingSelection(targetKind: ChatTargetKind, targetIdRaw: string, chatIdRaw: string, expectedPendingChatIdRaw?: string) {
+    const targetId = String(targetIdRaw || '').trim()
+    const chatId = String(chatIdRaw || '').trim()
+    if (!targetId || !chatId) return false
+    const activated = activateResolvedPendingChat(getState(), targetKind, targetId, chatId, expectedPendingChatIdRaw)
+    if (!activated) return false
+    if (targetKind === 'workspace') return true
+    try {
+      await deps.persistActiveChatSelection?.(targetKind, targetId, chatId)
+    } catch (_) {
+      // 本地选择已经生效；偏好命令自身会在 onError 上报失败，这里只负责不产生未处理拒绝。
+    }
+    return true
+  }
+
   return {
     deps,
     sa,
@@ -208,6 +235,7 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     splitWorkspaceTargetId,
     invalidateChatBodyAfterWrite,
     persistActiveView,
+    activateResolvedPendingSelection,
     refreshRoleSession,
     refreshTargetSession,
     activeSingleRoleTarget,

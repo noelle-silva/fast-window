@@ -6,6 +6,7 @@ import { NEW_GROUP_ID, NEW_ROLE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy, normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates } from '../domain/roleModelCandidates'
 import { clearPendingChatForTarget, createPendingChatEntry } from '../domain/pendingChat'
+import { firstChatIdInBox, readActiveChatSelection, writeActiveChatSelection } from '../domain/activeChatSelection'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
@@ -806,7 +807,7 @@ export function createEntityEditors(deps: {
     if (!box) return
     const cid = String(chatId || '')
     if (!boxHasChatRef(box, cid)) return
-    box.activeChatId = cid
+    writeActiveChatSelection(box, cid)
     activateComposerDraftForCurrentSession(state)
     ;(setRoleActiveChatSelection?.(String(role.id || ''), cid) || save()).catch(() => {})
     render()
@@ -824,7 +825,7 @@ export function createEntityEditors(deps: {
     if (!box) return
     const cid = String(chatId || '')
     if (!boxHasChatRef(box, cid)) return
-    box.activeChatId = cid
+    writeActiveChatSelection(box, cid)
     activateComposerDraftForCurrentSession(state)
     ;(setGroupActiveChatSelection?.(String((group as any).id || ''), cid) || save()).catch(() => {})
     render()
@@ -1020,11 +1021,11 @@ export function createEntityEditors(deps: {
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
     box.chatMetas = removeChatMeta(box.chatMetas, cid, '新聊天')
     cleanupFavoriteRefsForChat('role', rid, '', cid)
-    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
+    if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))
 
     removeLoadedChat?.('role', rid, cid)
     void removeChatInStore?.('role', rid, cid).catch(() => {})
-    void (setRoleActiveChatSelection?.(rid, String(box.activeChatId || '')) || save()).catch(() => {})
+    void (setRoleActiveChatSelection?.(rid, readActiveChatSelection(box)) || save()).catch(() => {})
     render()
   }
 
@@ -1043,11 +1044,11 @@ export function createEntityEditors(deps: {
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
     box.chatMetas = removeChatMeta(box.chatMetas, cid, '群聊')
     cleanupFavoriteRefsForChat('group', gid, '', cid)
-    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
+    if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))
 
     removeLoadedChat?.('group', gid, cid)
     void removeChatInStore?.('group', gid, cid).catch(() => {})
-    void (setGroupActiveChatSelection?.(gid, String(box.activeChatId || '')) || save()).catch(() => {})
+    void (setGroupActiveChatSelection?.(gid, readActiveChatSelection(box)) || save()).catch(() => {})
     render()
   }
 

@@ -13,7 +13,7 @@ import {
   markEbRoleRunCardCancelled,
   registerEbRoleRunCard,
 } from '../domain/activeRunCards'
-import { activateResolvedPendingChat, pendingChatForTarget } from '../domain/pendingChat'
+import { pendingChatForTarget } from '../domain/pendingChat'
 import {
   activeComposerDraftKey,
   activateComposerDraftForCurrentSession,
@@ -33,7 +33,7 @@ export function createChatRunOperations(
   shared: ReturnType<typeof createChatOperationsShared>,
   draftOperations: { buildRunImages: (draftImages: any[]) => any[] },
 ) {
-  const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed } = shared
+  const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, activateResolvedPendingSelection } = shared
   const { getState, netRequest, showToast, ensureActiveChatLoaded, render, renderComposer, scrollToBottomSoon } = deps
   const { buildRunImages } = draftOperations
 
@@ -177,7 +177,7 @@ export function createChatRunOperations(
     const sessionId = String(run?.sessionId || fallback.sessionId || current?.sessionId || '').trim()
     const targetKind: ChatTargetKind = workspaceId ? 'workspace' : groupId ? 'group' : 'role'
     const targetId = workspaceId ? workspaceTargetId(workspaceId, roleId) : groupId || roleId
-    if (fallback.startedFromPending && targetId && sessionId) activateResolvedPendingChat(state, targetKind, targetId, sessionId, fallback.pendingChatId)
+    if (fallback.startedFromPending && targetId && sessionId) void activateResolvedPendingSelection(targetKind, targetId, sessionId, fallback.pendingChatId)
     const inputMessageId = String(run?.inputMessageId || current?.inputMessageId || '').trim()
     const lastMessageId = String(run?.lastMessageId || fallback.lastMessageId || current?.lastMessageId || inputMessageId || '').trim()
     return registerEbRoleRunCard(state, {

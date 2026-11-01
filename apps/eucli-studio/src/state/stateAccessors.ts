@@ -3,30 +3,18 @@ import { normalizeChatModelOverride } from '../domain/modelRefUtils'
 import { normalizeRoleModelConfig, roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import {
+  readActiveChatSelection,
+  reconcileActiveChatSelection,
+  writeActiveChatSelection,
+} from '../domain/activeChatSelection'
 
 function ensureBoxShape(box: any, fallbackTitle: string) {
   if (!box || typeof box !== 'object') return { activeChatId: '', chatMetas: [], chats: [] }
   if (!Array.isArray(box.chats)) box.chats = []
   box.chatMetas = chatMetasFromBox(box, fallbackTitle)
-  box.activeChatId = String(box.activeChatId || '')
+  writeActiveChatSelection(box, readActiveChatSelection(box))
   return box
-}
-
-function chatIdExistsInBox(box: any, chatId: any) {
-  const cid = String(chatId || '').trim()
-  if (!cid) return false
-  const chats = Array.isArray(box?.chats) ? box.chats : []
-  if (chats.some((c: any) => String(c?.id || '') === cid)) return true
-  const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
-  return metas.some((m: any) => String(m?.id || '') === cid)
-}
-
-function firstChatIdInBox(box: any) {
-  const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
-  const firstMeta = metas.map((m: any) => String(m?.id || '')).find(Boolean)
-  if (firstMeta) return firstMeta
-  const chats = Array.isArray(box?.chats) ? box.chats : []
-  return String(chats[0]?.id || '')
 }
 
 export function createStateAccessors(deps: {
@@ -113,7 +101,7 @@ export function createStateAccessors(deps: {
       if (!g) return null
       const box = s.data.chatsByGroup?.[String(g.id)]
       if (!box) return null
-      const activeChatId = String(box.activeChatId || '')
+      const activeChatId = readActiveChatSelection(box)
       const chats = Array.isArray(box.chats) ? box.chats : []
       return chats.find((c: any) => String(c?.id) === activeChatId) || null
     }
@@ -123,7 +111,7 @@ export function createStateAccessors(deps: {
       if (!targetId) return null
       const box = (s.data as any).chatsByWorkspace?.[targetId]
       if (!box) return null
-      const activeChatId = String(box.activeChatId || '')
+      const activeChatId = readActiveChatSelection(box)
       const chats = Array.isArray(box.chats) ? box.chats : []
       return chats.find((c: any) => String(c?.id) === activeChatId) || null
     }
@@ -132,7 +120,7 @@ export function createStateAccessors(deps: {
     if (!r) return null
     const box = s.data.chatsByRole?.[String(r.id)]
     if (!box) return null
-    const activeChatId = String(box.activeChatId || '')
+    const activeChatId = readActiveChatSelection(box)
     const chats = Array.isArray(box.chats) ? box.chats : []
     return chats.find((c: any) => String(c?.id) === activeChatId) || null
   }
@@ -200,8 +188,7 @@ export function createStateAccessors(deps: {
     if (!gid) return null
     if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chatMetas: [], chats: [] }
     const box = ensureBoxShape(s.data.chatsByGroup[gid], '群聊')
-    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
-    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
+    reconcileActiveChatSelection(box)
     return box
   }
 
@@ -218,8 +205,7 @@ export function createStateAccessors(deps: {
     box.workspaceId = wid
     box.roleId = rid
     box.targetId = targetId
-    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
-    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
+    reconcileActiveChatSelection(box)
     return box
   }
 
@@ -239,8 +225,7 @@ export function createStateAccessors(deps: {
     if (!s.data.chatsByRole || typeof s.data.chatsByRole !== 'object') s.data.chatsByRole = {}
     if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chatMetas: [], chats: [] }
     const box = ensureBoxShape(s.data.chatsByRole[rid], '新聊天')
-    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
-    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
+    reconcileActiveChatSelection(box)
     return box
   }
 

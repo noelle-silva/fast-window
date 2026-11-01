@@ -17,6 +17,7 @@ import {
   setActiveComposerInput,
 } from '../domain/sessionComposerDrafts'
 import { pendingChatForTarget } from '../domain/pendingChat'
+import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
 import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
@@ -273,9 +274,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         scope.kind === 'group'
           ? (state.data as any)?.chatsByGroup?.[scope.targetId]
           : state.data?.chatsByRole?.[scope.targetId]
-      if (!box || typeof box !== 'object') return
-      if (String(box.activeChatId || '') === chatId) return
-      box.activeChatId = chatId
+      writeActiveChatSelection(box, chatId)
     },
     // head 端到端：首窗必须表达「用户在看哪条路径」。
     // 从本地已加载的会话读活动分支头；未加载时返回空串，
@@ -962,6 +961,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     // 写路径之后的正文失效：所有编辑 / 删除 / 运行落盘都要经过它，
     // 否则下一次读会命中写之前的正文（新消息消失、已删消息复活）。
     invalidateChatBody: (scope, chatId) => projectionPipeline.invalidateChatBody(scope, chatId),
+    // pending 会话落成真实会话后：与普通点击共用同一偏好写入机制。
+    persistActiveChatSelection: (kind, targetId, chatId) => {
+      if (kind === 'group') return setActiveGroupChatSelection(targetId, chatId)
+      return setActiveRoleChatSelection(targetId, chatId)
+    },
     waitForChatSettingsSave,
     loadEditSnapshot,
     // 视图回写：把「用户在看哪条路径」变成服务端事实（design-4 决策 3）。
