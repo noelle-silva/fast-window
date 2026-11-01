@@ -3,11 +3,10 @@ import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import {
   normalizeBranchId,
-  ensureChatBranching,
-  ensureChatBranch,
   findChatMessageById,
   findPrevAssistantMidForAssistant,
-  findChatBranch,
+  activateChatBranch,
+  setChatActiveBranchId,
 } from '../domain/branching'
 import type { createChatOperationsShared } from './chatOperationsShared'
 
@@ -150,14 +149,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     const pickedBranchId = normalizeBranchId((picked as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
     if (!pickedMid || !pickedBranchId) return
 
-    const branching = ensureChatBranching(chat)
-    if (!branching) return
-    ensureChatBranch(chat, pickedBranchId)
-    ;(branching as any).activeBranchId = pickedBranchId
-    ;(chat as any).branching = branching
-
-    const b = findChatBranch(chat, pickedBranchId)
-    if (b && !String((b as any)?.headMid || '').trim()) (b as any).headMid = pickedMid
+    activateChatBranch(chat, pickedBranchId, { headIfEmptyMid: pickedMid })
 
     save().catch(() => {})
     persistView('role', String(sa.activeRole()?.id || ''), chat)
@@ -179,11 +171,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     if (!chat) return
 
     const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
-    const branching = ensureChatBranching(chat)
-    if (!branching) return
-    ensureChatBranch(chat, bid)
-    ;(branching as any).activeBranchId = bid
-    ;(chat as any).branching = branching
+    setChatActiveBranchId(chat, bid)
 
     const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
     if (draft0 && String(draft0?.roleId || '') === String(sa.activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {

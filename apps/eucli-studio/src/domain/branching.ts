@@ -91,6 +91,54 @@ export function fillMissingBranchIdsOnly(messages: any[], branchId: string) {
   return last
 }
 
+type ChatBranchHeadWrite = {
+  branchId: string
+  headMid: string
+  updatedAt?: number
+}
+
+type ChatBranchingWrite = {
+  activeBranchId?: string
+  heads?: ChatBranchHeadWrite[]
+}
+
+function ensureBranchInBranching(branching: any, branchId: string) {
+  const bid = normalizeBranchId(branchId)
+  const branches = Array.isArray(branching?.branches) ? branching.branches : []
+  let branch = branches.find((item: any) => String(item?.id || '') === bid) || null
+  if (!branch) {
+    const t = now()
+    branch = { id: bid, name: bid === CHAT_DEFAULT_BRANCH_ID ? CHAT_DEFAULT_BRANCH_NAME : '分支', headMid: '', createdAt: t, updatedAt: t, forkFromMid: '' }
+    branches.push(branch)
+    ;(branching as any).branches = branches.slice(0, 200)
+  }
+  return branch
+}
+
+// writeChatBranchingState 是 chat.branching 中「活动分支 + 分支头」的唯一写入口。
+// 其它领域函数只负责计算目标状态，最终都必须经过这里落盘到会话对象。
+function writeChatBranchingState(chat: any, write: ChatBranchingWrite) {
+  const c = chat && typeof chat === 'object' ? chat : null
+  if (!c) return false
+  const branching = ensureChatBranching(c)
+  if (!branching) return false
+
+  if (write.activeBranchId !== undefined) {
+    const activeBranchId = normalizeBranchId(write.activeBranchId)
+    ensureBranchInBranching(branching, activeBranchId)
+    ;(branching as any).activeBranchId = activeBranchId
+  }
+
+  for (const head of write.heads || []) {
+    const branch = ensureBranchInBranching(branching, head.branchId)
+    if (!branch) continue
+    ;(branch as any).headMid = String(head.headMid || '').trim()
+    if (head.updatedAt !== undefined) (branch as any).updatedAt = Number(head.updatedAt)
+  }
+
+  return true
+}
+
 export function touchActiveBranchHead(chat: any) {
   const c = chat && typeof chat === 'object' ? chat : null
   if (!c) return
@@ -99,10 +147,8 @@ export function touchActiveBranchHead(chat: any) {
   const createdAt = Number((c as any).createdAt || now())
   const updatedAt = Number((c as any).updatedAt || createdAt || now())
   const branching = normalizeChatBranching((c as any).branching, lastMid, createdAt, updatedAt)
-  ;(c as any).branching = branching
   const bid = normalizeBranchId((branching as any).activeBranchId)
-  const b = ((branching as any).branches || []).find((x: any) => String(x?.id || '') === bid) || null
-  if (b) { b.headMid = lastMid; b.updatedAt = updatedAt }
+  writeChatBranchingState(c, { heads: [{ branchId: bid, headMid: lastMid, updatedAt }] })
 }
 
 export function repairChatLinearBranching(chat: any) {
@@ -113,7 +159,6 @@ export function repairChatLinearBranching(chat: any) {
   const updatedAt = Number((c as any).updatedAt || createdAt || now())
   const lastMid0 = msgs.length ? String((msgs[msgs.length - 1] as any)?.id || '') : ''
   const branching = normalizeChatBranching((c as any).branching, lastMid0, createdAt, updatedAt)
-  ;(c as any).branching = branching
   const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
   const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
   const idSet = new Set<string>()
@@ -132,8 +177,7 @@ export function repairChatLinearBranching(chat: any) {
   } else {
     headMid = rebuildLinearBranchingMessages(msgs, activeBranchId)
   }
-  const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
-  if (b) { b.headMid = headMid; b.updatedAt = updatedAt }
+  writeChatBranchingState(c, { heads: [{ branchId: activeBranchId, headMid, updatedAt }] })
 }
 
 export function ensureChatBranching(chat: any) {
@@ -178,32 +222,41 @@ export function activeBranchHeadMidOrLast(chat: any): string {
 export function ensureChatBranch(chat: any, branchId: string) {
   const branching = ensureChatBranching(chat)
   if (!branching) return null
-  const bid = normalizeBranchId(branchId)
-  const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
-  let b = branches.find((x: any) => String(x?.id || '') === bid) || null
-  if (!b) {
-    const t = now()
-    b = { id: bid, name: bid === CHAT_DEFAULT_BRANCH_ID ? CHAT_DEFAULT_BRANCH_NAME : '分支', headMid: '', createdAt: t, updatedAt: t, forkFromMid: '' }
-    branches.push(b)
-    ;(branching as any).branches = branches.slice(0, 200)
-  }
-  return b
+  return ensureBranchInBranching(branching, branchId)
 }
 
 export function setChatActiveBranchId(chat: any, branchId: string) {
-  const branching = ensureChatBranching(chat)
-  if (!branching) return
-  const bid = normalizeBranchId(branchId)
-  ensureChatBranch(chat, bid)
-  ;(branching as any).activeBranchId = bid
-  ;(chat as any).branching = branching
+  writeChatBranchingState(chat, { activeBranchId: branchId })
 }
 
-export function setChatBranchHeadMid(chat: any, branchId: string, headMid: string) {
-  const b = ensureChatBranch(chat, branchId)
-  if (!b) return
-  b.headMid = String(headMid || '').trim()
-  b.updatedAt = Number((chat as any)?.updatedAt || now())
+// activateChatBranch 在切换活动分支的同时，仅当目标分支还没有头部时补齐头部。
+// 用于“切到某条兄弟回复”的场景：已有头部不能被切换动作回退。
+export function activateChatBranch(chat: any, branchId: string, options?: { headIfEmptyMid?: string }) {
+  const bid = normalizeBranchId(branchId)
+  const branching = ensureChatBranching(chat)
+  if (!branching) return false
+  const branch = ensureBranchInBranching(branching, bid)
+  const headIfEmptyMid = String(options?.headIfEmptyMid || '').trim()
+  const heads =
+    branch && headIfEmptyMid && !String((branch as any)?.headMid || '').trim()
+      ? [{ branchId: bid, headMid: headIfEmptyMid }]
+      : undefined
+  return writeChatBranchingState(chat, { activeBranchId: bid, heads })
+}
+
+export function setChatBranchHeadMid(
+  chat: any,
+  branchId: string,
+  headMid: string,
+  options?: { updatedAt?: number; touchUpdatedAt?: boolean },
+) {
+  const updatedAt =
+    options?.updatedAt !== undefined
+      ? Number(options.updatedAt)
+      : options?.touchUpdatedAt === false
+        ? undefined
+        : Number((chat as any)?.updatedAt || now())
+  writeChatBranchingState(chat, { heads: [{ branchId, headMid, updatedAt }] })
 }
 
 export function collectChatMessageIds(chat: any) {
@@ -348,9 +401,7 @@ export function activateChatBranchByMessage(chat: any, messageId: any) {
     })[0]
   if (!picked) return false
 
-  ;(branching as any).activeBranchId = normalizeBranchId(picked.id)
-  ;(chat as any).branching = branching
-  return true
+  return writeChatBranchingState(chat, { activeBranchId: normalizeBranchId(picked.id) })
 }
 
 export function preserveLocalBranchSelection(nextChat: any, currentChat: any) {
@@ -370,12 +421,13 @@ export function preserveLocalBranchSelection(nextChat: any, currentChat: any) {
 
   const currentBranch = currentBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
   const nextBranch = nextBranches.find((branch: any) => String(branch?.id || '').trim() === activeBranchId) || null
-  if (nextBranch && currentBranch && !String(nextBranch?.headMid || '').trim() && String(currentBranch?.headMid || '').trim()) {
-    nextBranch.headMid = String(currentBranch.headMid || '')
-  }
+  const currentHeadMid = String(currentBranch?.headMid || '').trim()
+  const heads =
+    nextBranch && currentBranch && !String(nextBranch?.headMid || '').trim() && currentHeadMid
+      ? [{ branchId: activeBranchId, headMid: currentHeadMid }]
+      : undefined
 
-  nextBranching.activeBranchId = activeBranchId
-  next.branching = nextBranching
+  writeChatBranchingState(next, { activeBranchId, heads })
   return next
 }
 

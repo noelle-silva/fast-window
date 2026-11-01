@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { activeBranchHeadMid, activeBranchHeadMidOrLast, isLeafMessage, newestLeafDescendantMid, resolveRunFocusMid } from './branching'
+import {
+  activeBranchHeadMid,
+  activeBranchHeadMidOrLast,
+  activateChatBranch,
+  isLeafMessage,
+  newestLeafDescendantMid,
+  preserveLocalBranchSelection,
+  resolveRunFocusMid,
+  setChatActiveBranchId,
+  setChatBranchHeadMid,
+} from './branching'
 
 // 消息树：
 //   u1 -> a1 -> u2 -> a2
@@ -27,6 +37,7 @@ function chatWithBranching() {
       { id: 'a1b', parentMid: 'u1', createdAt: 3 },
     ],
     branching: {
+      schemaVersion: 1,
       activeBranchId: 'main',
       branches: [
         { id: 'main', headMid: 'a1' },
@@ -41,7 +52,7 @@ describe('branching 活动分支头部读取', () => {
     const chat = chatWithBranching()
     expect(activeBranchHeadMid(chat)).toBe('a1')
     // 切到另一分支
-    chat.branching.activeBranchId = 'b1'
+    setChatActiveBranchId(chat, 'b1')
     expect(activeBranchHeadMid(chat)).toBe('a1b')
   })
 
@@ -49,16 +60,16 @@ describe('branching 活动分支头部读取', () => {
     expect(activeBranchHeadMid(null)).toBe('')
     expect(activeBranchHeadMid({ messages: [] })).toBe('')
     const chat = chatWithBranching()
-    chat.branching.branches[0].headMid = ''
+    setChatBranchHeadMid(chat, 'main', '', { touchUpdatedAt: false })
     expect(activeBranchHeadMid(chat)).toBe('')
   })
 
   it('activeBranchHeadMidOrLast 头部缺失时回落最后一条消息', () => {
     const chat = chatWithBranching()
-    chat.branching.branches[0].headMid = ''
+    setChatBranchHeadMid(chat, 'main', '', { touchUpdatedAt: false })
     expect(activeBranchHeadMidOrLast(chat)).toBe('a1b')
     // 头部存在时不回落
-    chat.branching.branches[0].headMid = 'a1'
+    setChatBranchHeadMid(chat, 'main', 'a1', { touchUpdatedAt: false })
     expect(activeBranchHeadMidOrLast(chat)).toBe('a1')
   })
 
@@ -125,5 +136,46 @@ describe('branching 路径末端基元', () => {
     expect(resolveRunFocusMid(null, { anchorMid: 'u1', outputMid: 'a1' })).toBe('')
     expect(resolveRunFocusMid(tree(), null)).toBe('')
     expect(resolveRunFocusMid(tree(), { anchorMid: '', outputMid: '' })).toBe('a3')
+  })
+})
+
+describe('branching 分支头唯一写入口', () => {
+  it('setChatBranchHeadMid 写入头部与更新时间', () => {
+    const chat: any = { updatedAt: 20, messages: [], branching: { schemaVersion: 1, activeBranchId: 'main', branches: [{ id: 'main', headMid: 'a1', updatedAt: 1 }] } }
+    setChatBranchHeadMid(chat, 'main', 'a2')
+    expect(activeBranchHeadMid(chat)).toBe('a2')
+    expect(chat.branching.branches[0].updatedAt).toBe(20)
+  })
+
+  it('setChatBranchHeadMid 可只改头部而不动更新时间', () => {
+    const chat: any = { updatedAt: 20, messages: [], branching: { schemaVersion: 1, activeBranchId: 'main', branches: [{ id: 'main', headMid: 'a1', updatedAt: 1 }] } }
+    setChatBranchHeadMid(chat, 'main', 'a2', { touchUpdatedAt: false })
+    expect(chat.branching.branches[0].headMid).toBe('a2')
+    expect(chat.branching.branches[0].updatedAt).toBe(1)
+  })
+
+  it('activateChatBranch 只在目标头为空时补齐头部', () => {
+    const chat: any = chatWithBranching()
+    activateChatBranch(chat, 'b1', { headIfEmptyMid: 'a1b' })
+    expect(chat.branching.activeBranchId).toBe('b1')
+    expect(activeBranchHeadMid(chat)).toBe('a1b')
+
+    activateChatBranch(chat, 'main', { headIfEmptyMid: 'a9' })
+    expect(activeBranchHeadMid(chat)).toBe('a1')
+  })
+
+  it('setChatActiveBranchId 不触碰已有头部', () => {
+    const chat: any = chatWithBranching()
+    setChatActiveBranchId(chat, 'b1')
+    expect(chat.branching.activeBranchId).toBe('b1')
+    expect(activeBranchHeadMid(chat)).toBe('a1b')
+  })
+
+  it('preserveLocalBranchSelection 保留本地活动分支并补回空头', () => {
+    const current: any = { branching: { schemaVersion: 1, activeBranchId: 'b1', branches: [{ id: 'b1', headMid: 'a1b' }] } }
+    const next: any = { branching: { schemaVersion: 1, activeBranchId: 'main', branches: [{ id: 'main', headMid: '' }, { id: 'b1', headMid: '' }] } }
+    const merged = preserveLocalBranchSelection(next, current)
+    expect(merged.branching.activeBranchId).toBe('b1')
+    expect(activeBranchHeadMid(merged)).toBe('a1b')
   })
 })

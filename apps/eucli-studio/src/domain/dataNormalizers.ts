@@ -16,6 +16,7 @@ import {
   normalizeChatBranching,
   rebuildLinearBranchingMessages,
   fillMissingBranchIdsOnly,
+  setChatBranchHeadMid,
 } from './branching'
 import { hasExplicitMessageParentLinks, normalizeChatMessage } from './message'
 import { normalizeFavorites } from './favorites'
@@ -392,12 +393,7 @@ export function normalizeData(raw: any) {
           headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
         }
         try {
-          const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-          const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
-          if (b) {
-            b.headMid = headMid
-            b.updatedAt = updatedAt
-          }
+          setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}
 
         return out
@@ -514,12 +510,7 @@ export function normalizeData(raw: any) {
           headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
         }
         try {
-          const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-          const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
-          if (b) {
-            b.headMid = headMid
-            b.updatedAt = updatedAt
-          }
+          setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}
 
         return out
@@ -614,12 +605,7 @@ export function normalizeData(raw: any) {
           headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
         }
         try {
-          const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-          const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
-          if (b) {
-            b.headMid = headMid
-            b.updatedAt = updatedAt
-          }
+          setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}
 
         return out

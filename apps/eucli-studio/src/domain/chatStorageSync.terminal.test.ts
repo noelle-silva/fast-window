@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mergeChatFromStorage } from './chatStorageSync'
+import { setChatBranchHeadMid } from './branching'
 import { ASSISTANT_RUNNING_CONTENT, beginAssistantRun, finishAssistantRun } from './assistantRunState'
 
 // 回归：终态后「最终消息不丢失」。
@@ -95,9 +96,9 @@ describe('分支头只前进不后退', () => {
     const newer = storedAssistant('m3', '本轮新回复', 500)
 
     const current = chat([user('u1'), older, newer])
-    current.branching.branches[0].headMid = 'm2'
+    setChatBranchHeadMid(current, 'main', 'm2', { touchUpdatedAt: false })
     const next = chat([user('u1'), older, newer], 'completed')
-    next.branching.branches[0].headMid = 'm3'
+    setChatBranchHeadMid(next, 'main', 'm3', { touchUpdatedAt: false })
 
     const merged = mergeChatFromStorage(next, current)
     expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')
@@ -109,9 +110,9 @@ describe('分支头只前进不后退', () => {
     finishAssistantRun(runtime, '刚落盘的回复', 'succeeded', 500)
 
     const current = chat([user('u1'), runtime])
-    current.branching.branches[0].headMid = 'm3'
+    setChatBranchHeadMid(current, 'main', 'm3', { touchUpdatedAt: false })
     const next = chat([user('u1')], 'running')
-    next.branching.branches[0].headMid = 'u1'
+    setChatBranchHeadMid(next, 'main', 'u1', { touchUpdatedAt: false })
 
     const merged = mergeChatFromStorage(next, current)
     expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')

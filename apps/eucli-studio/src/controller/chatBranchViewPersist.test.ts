@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createChatOperationsShared } from './chatOperationsShared'
 import { createChatBranchOperations } from './chatBranchOperations'
+import { setChatBranchHeadMid } from '../domain/branching'
 
 // 决策 3：分支切换必须回写服务端（PATCH {base}/view）。
 //
@@ -113,7 +114,7 @@ describe('分支切换回写服务端视图（决策 3）', () => {
     const harness = makeHarness()
     // 清掉所有 headMid，让 activeBranchHeadMidOrLast 无从取得。
     harness.chat.branching.branches.forEach((branch: any) => {
-      branch.headMid = ''
+      setChatBranchHeadMid(harness.chat, String(branch?.id || ''), '', { touchUpdatedAt: false })
     })
     harness.chat.messages.length = 0
     const ops = createChatBranchOperations(harness.shared)

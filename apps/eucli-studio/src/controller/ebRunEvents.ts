@@ -1,5 +1,5 @@
 import { normalizeTimeMs } from '../core/utils'
-import { ensureChatBranch, normalizeBranchId } from '../domain/branching'
+import { ensureChatBranch, normalizeBranchId, setChatBranchHeadMid } from '../domain/branching'
 import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts } from '../domain/assistantRunState'
 import { chatMetaFromChat } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
@@ -312,9 +312,8 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
     if (branch) {
-      branch.headMid = messageId
-      branch.updatedAt = chat.updatedAt
       if (!String(branch.forkFromMid || '').trim() && parentMid) branch.forkFromMid = parentMid
+      setChatBranchHeadMid(chat, branchId, messageId)
     }
 
     // 会话运行状态：终态路径已由 settleRunInState 统一收口，这里只处理运行中推进。
@@ -485,9 +484,8 @@ function restorePartLiveOutputs(message: any, liveOutputs: Map<string, any>) {
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
     if (branch) {
-      branch.headMid = messageId
-      branch.updatedAt = chat.updatedAt
       if (!String(branch.forkFromMid || '').trim() && parentMid) branch.forkFromMid = parentMid
+      setChatBranchHeadMid(chat, branchId, messageId)
     }
     const patch: any = {
       runId,

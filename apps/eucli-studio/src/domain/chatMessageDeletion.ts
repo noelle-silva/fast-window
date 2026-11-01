@@ -1,4 +1,4 @@
-import { ensureChatBranching, normalizeBranchId } from './branching'
+import { ensureChatBranching, normalizeBranchId, setChatBranchHeadMid } from './branching'
 
 const BRANCH_HEAD_REPAIR_GUARD_LIMIT = 6000
 
@@ -85,11 +85,12 @@ function repairBranchHeads(
 
     const ancestorMid = findNearestExistingAncestor(currentHeadMid, oldById, currentById)
     if (ancestorMid) {
-      ;(branch as any).headMid = ancestorMid
+      setChatBranchHeadMid(chat, branchId, ancestorMid, { touchUpdatedAt: false })
       continue
     }
 
-    ;(branch as any).headMid = pickLatestMessageInBranch(currentMessages, branchId) || fallbackForBranch(currentById, lastMessageId)
+    const nextHeadMid = pickLatestMessageInBranch(currentMessages, branchId) || fallbackForBranch(currentById, lastMessageId)
+    setChatBranchHeadMid(chat, branchId, nextHeadMid, { touchUpdatedAt: false })
   }
 }
 

@@ -1,4 +1,4 @@
-import { preserveLocalBranchSelection } from './branching'
+import { preserveLocalBranchSelection, setChatBranchHeadMid } from './branching'
 import { hasAssistantVisibleOutput, isAssistantGenerating, resolveAssistantMessageForMerge } from './assistantRunState'
 import { readChatRunStatus } from './chatSessionRunStatus'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
@@ -42,8 +42,7 @@ function setBranchHeadMid(chat: any, branchId: string, headMid: string) {
   const branches = Array.isArray(chat?.branching?.branches) ? chat.branching.branches : []
   const branch = branches.find((item: any) => String(item?.id || '').trim() === branchId) || null
   if (!branch) return
-  branch.headMid = headMid
-  branch.updatedAt = Number(chat?.updatedAt || branch.updatedAt || 0)
+  setChatBranchHeadMid(chat, branchId, headMid, { updatedAt: Number(chat?.updatedAt || branch.updatedAt || 0) })
 }
 
 function messageTime(message: any) {
