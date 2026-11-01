@@ -180,12 +180,22 @@ export function useSidebarNavigation(input: {
       const { sessions } = roleSidebarSessions(data, activeRoleId)
       const ids = sessions.map((chat: any) => String(chat?.id || '')).filter(Boolean)
       if (remembered && ids.includes(remembered)) return
+      // pending 会话刚落地时，列表可能还停在上一轮：此时 remembered 仍是 draft id，
+      // 而 ids[0] 是上一轮会话。选中事实优先，绝不能把用户刚选中的新会话倒回列表头。
+      // 先记住当前选中，等列表追上（对账 / 正文加载）后自然会回到「已记住且在列表里」。
+      const selected = String(selectedActiveChatId || '')
+      if (selected) {
+        if (remembered !== selected) {
+          rememberRoleSession(activeRoleId, selected)
+          bumpMemory()
+        }
+        return
+      }
       if (remembered) forgetRoleSession(activeRoleId)
       const first = ids[0] || ''
       if (!first) return
       rememberRoleSession(activeRoleId, first)
       bumpMemory()
-      if (first !== String(selectedActiveChatId || '')) requestSwitch(first, { force: true })
       return
     }
     if (activeTargetKind === 'workspace') {
@@ -205,12 +215,20 @@ export function useSidebarNavigation(input: {
       const { sessions } = workspaceSidebarSessions(data, activeWorkspaceId, activeRoleId)
       const ids = sessions.map((chat: any) => String(chat?.id || '')).filter(Boolean)
       if (remembered && ids.includes(remembered)) return
+      // 同角色视图：pending 会话刚落地时列表可能还没追上，选中事实优先于列表头。
+      const selected = String(selectedActiveChatId || '')
+      if (selected) {
+        if (remembered !== selected) {
+          rememberWorkspaceSession(activeWorkspaceId, activeRoleId, selected)
+          bumpMemory()
+        }
+        return
+      }
       if (remembered) forgetWorkspaceSession(activeWorkspaceId, activeRoleId)
       const first = ids[0] || ''
       if (!first) return
       rememberWorkspaceSession(activeWorkspaceId, activeRoleId, first)
       bumpMemory()
-      if (first !== String(selectedActiveChatId || '')) requestSwitch(first, { force: true })
     }
   }, [
     sidebarVisible,

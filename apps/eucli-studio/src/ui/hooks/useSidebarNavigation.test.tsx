@@ -176,6 +176,83 @@ describe('侧边栏导航', () => {
     expect(getSidebarNavigationMemory().role.sessionByRole['role-a']).toBe('session-r1')
   })
 
+  // 回归：新建会话发送后，pending 落地的一瞬间列表仍是上一轮会话。
+  // 此时绝不能因为 remembered(draft id) 不在列表里，就把用户刚选中的新会话
+  // 强制切回列表头（上一轮会话）。
+  it('pending 会话落地且列表尚未追上时，不做回退切换', () => {
+    const requestSwitch = vi.fn()
+    const data = {
+      roles,
+      workspaces,
+      chatsByRole: {
+        'role-a': {
+          activeChatId: 'session-old',
+          chatMetas: [{ id: 'session-old', updatedAt: 1 }],
+          chats: [],
+        },
+      },
+    }
+    renderHook(baseInput({
+      data,
+      sidebarVisible: true,
+      pendingRoleChat: { roleId: 'role-a', chat: { id: 'draft-1' } },
+      selectedActiveChatId: 'draft-1',
+      requestSwitch,
+    }))
+    expect(getSidebarNavigationMemory().role.sessionByRole['role-a']).toBe('draft-1')
+    requestSwitch.mockClear()
+
+    renderHook(baseInput({
+      data,
+      sidebarVisible: true,
+      pendingRoleChat: null,
+      selectedActiveChatId: 'session-new',
+      requestSwitch,
+    }))
+
+    expect(requestSwitch).not.toHaveBeenCalled()
+    expect(getSidebarNavigationMemory().role.sessionByRole['role-a']).toBe('session-new')
+  })
+
+  it('工作区 pending 会话落地且列表尚未追上时，不做回退切换', () => {
+    const requestSwitch = vi.fn()
+    const data = {
+      roles,
+      workspaces,
+      chatsByWorkspace: {
+        'ws-1::role-a': {
+          activeChatId: 'session-old',
+          chatMetas: [{ id: 'session-old', updatedAt: 1 }],
+          chats: [],
+        },
+      },
+    }
+    renderHook(baseInput({
+      data,
+      sidebarVisible: true,
+      activeTargetKind: 'workspace',
+      activeWorkspaceId: 'ws-1',
+      pendingWorkspaceChat: { workspaceId: 'ws-1', roleId: 'role-a', chat: { id: 'draft-w' } },
+      selectedActiveChatId: 'draft-w',
+      requestSwitch,
+    }))
+    expect(getSidebarNavigationMemory().workspace.sessionByWorkspaceRole['ws-1::role-a']).toBe('draft-w')
+    requestSwitch.mockClear()
+
+    renderHook(baseInput({
+      data,
+      sidebarVisible: true,
+      activeTargetKind: 'workspace',
+      activeWorkspaceId: 'ws-1',
+      pendingWorkspaceChat: null,
+      selectedActiveChatId: 'session-new',
+      requestSwitch,
+    }))
+
+    expect(requestSwitch).not.toHaveBeenCalled()
+    expect(getSidebarNavigationMemory().workspace.sessionByWorkspaceRole['ws-1::role-a']).toBe('session-new')
+  })
+
   it('角色视图点击与当前同名的角色时仍进入工作区目标', () => {
     const controller = createController()
     renderHook(baseInput({
