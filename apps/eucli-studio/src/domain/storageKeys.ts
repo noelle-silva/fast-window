@@ -35,14 +35,6 @@ export function providerFolderName(provider: any) {
   return safeDirName(provider?.name || provider?.id, '供应商')
 }
 
-export function workspaceFolderName(workspace: any) {
-  return safeDirName(workspace?.name || workspace?.id, '工作区')
-}
-
-export function splitChatsIndexKey() {
-  return 'chats/index'
-}
-
 export function splitRoleChatIndexKey(folder: unknown) {
   return `chats/${String(folder || '')}/index`
 }
@@ -55,58 +47,20 @@ export function splitChatKey(folder: unknown, chatId: unknown) {
   return `chats/${String(folder || '')}/${String(chatId || '')}/chat`
 }
 
-export function roleChatImageRelPath(folder: unknown, chatId: unknown, fileName: unknown) {
-  const rawName = String(fileName || '').trim() || 'image.png'
-  const dot = rawName.lastIndexOf('.')
-  const ext = dot > 0 ? rawName.slice(dot).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 12) : ''
-  const stem = dot > 0 ? rawName.slice(0, dot) : rawName
-  const name = `${safeDirName(stem, 'image')}${ext || '.png'}`
-  return `chats/${String(folder || '')}/${String(chatId || '')}/images/${name}`
-}
-
 export function splitGroupsIndexKey() {
   return 'groups/index'
-}
-
-export function splitWorkspacesIndexKey() {
-  return 'workspaces/index'
 }
 
 export function splitGroupKey(folder: unknown) {
   return `groups/${String(folder || '')}/group`
 }
 
-export function splitWorkspaceKey(folder: unknown) {
-  return `workspaces/${String(folder || '')}/workspace`
-}
-
 export function splitGroupChatKey(folder: unknown, chatId: unknown) {
   return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
 }
 
-export function splitWorkspaceChatKey(folder: unknown, chatId: unknown) {
-  return `workspaces/${String(folder || '')}/sessions/${String(chatId || '')}`
-}
-
 export function splitGroupChatIndexKey(folder: unknown) {
   return `groups/${String(folder || '')}/chats/index`
-}
-
-export function splitWorkspaceChatIndexKey(folder: unknown) {
-  return `workspaces/${String(folder || '')}/sessions/index`
-}
-
-export function groupChatImageRelPath(folder: unknown, chatId: unknown, fileName: unknown) {
-  const rawName = String(fileName || '').trim() || 'image.png'
-  const dot = rawName.lastIndexOf('.')
-  const ext = dot > 0 ? rawName.slice(dot).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 12) : ''
-  const stem = dot > 0 ? rawName.slice(0, dot) : rawName
-  const name = `${safeDirName(stem, 'image')}${ext || '.png'}`
-  return `groups/${String(folder || '')}/chats/${String(chatId || '')}/images/${name}`
-}
-
-export function splitProvidersIndexKey() {
-  return 'providers/index'
 }
 
 export function splitProviderKey(folder: unknown) {
