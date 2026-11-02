@@ -26,7 +26,7 @@ import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
-import { createEmptyShellData, createSplitStorage } from '../storage/splitStorage'
+import { createEmptyShellDataFromStorage, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
 import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
@@ -1449,7 +1449,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     await ensureRenderer().catch(() => {})
     if (options?.businessAvailable === false) {
       // 未连接业务端：controller 只承载客户端外壳，不加载业务数据、不启动轮询与事件订阅。
-      state.data = createEmptyShellData()
+      // 客户端偏好走 client-state/ 本地通道，离线外壳也能恢复外观 / 字体 / 布局等设置。
+      state.data = await createEmptyShellDataFromStorage(storage)
+      state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+      state.draft.activeGroupId = String((state.data?.ui as any)?.activeGroupId || '')
+      ;(state.draft as any).activeWorkspaceId = String((state.data?.ui as any)?.activeWorkspaceId || '')
+      const targetKind = String((state.data?.ui as any)?.activeTargetKind || 'role').trim()
+      state.draft.activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
       state.loading = false
       render()
       return

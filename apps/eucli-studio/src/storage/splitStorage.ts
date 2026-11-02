@@ -1,6 +1,5 @@
-import { cloneJsonData } from '../core/jsonData'
 import { now, uid } from '../core/utils'
-import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
+import { VERSION, SPLIT_SCHEMA_VERSION, CLIENT_PREFERENCES_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
 import { projectionOwnedSettings } from '../domain/projectionSettings'
@@ -17,6 +16,13 @@ import {
   groupFolderName,
   providerFolderName,
 } from '../domain/storageKeys'
+import {
+  createClientPreferencesSnapshot,
+  overlayClientPreferences,
+  readClientPreferences,
+  type ClientPreferences,
+  type ClientPreferencesStorage,
+} from './clientPreferences'
 import { chatIndexKeyFor, loadSplitMetaSnapshot, normalizeStoredChatIndex } from './splitIndexes'
 import { initializeStickerSettingsStorage } from './stickerSettingsPersistence'
 
@@ -64,18 +70,30 @@ async function removeRequired(storage: { remove: (key: string) => Promise<any> }
 const noop = async () => {}
 
 // 未连接业务端时的外壳数据：形状与已加载数据一致，但没有业务内容。
-// 会话界面靠它保持可渲染，业务数据由连接成功后的正常加载路径填充。
-export function createEmptyShellData() {
+// 客户端偏好来自独立的 client-state/preferences 通道，因此离线外壳也能
+// 保留外观 / 字体 / 布局 / 壁纸 / 主题等本地设置。
+export function createEmptyShellData(preferences?: ClientPreferences | null) {
+  const view = overlayClientPreferences({ ui: {}, settings: {} }, preferences || null)
   return normalizeData({
     version: VERSION,
-    settings: {},
+    settings: view.settings,
     favorites: {},
     roles: [],
     chatsByRole: {},
     groups: [],
     chatsByGroup: {},
-    ui: {},
+    ui: view.ui,
   })
+}
+
+// createEmptyShellDataFromStorage 只读客户端偏好通道，不触碰 meta/index，
+// 因此「未连接业务端」的启动路径不再依赖 eucli-box。
+export async function createEmptyShellDataFromStorage(storage: ClientPreferencesStorage) {
+  const data = createEmptyShellData(await readClientPreferences(storage))
+  // 离线外壳的「当前视图」就是偏好基线：归一化补出的默认值不应在
+  // 第一次无改动保存时被误判成用户变更。
+  splitMetaBaseline = preferenceFingerprint(data.ui, data.settings)
+  return data
 }
 
 // canonicalJson 递归排序对象键，保证「语义相同、键序不同」的两份偏好
@@ -137,8 +155,13 @@ export function createSplitStorage(deps: {
 
   async function loadSplitMeta() {
     const meta = await loadSplitMetaSnapshot(storage)
-    rememberMetaSnapshot(meta)
-    return meta
+    // 目录 / 派生字段仍来自 meta；客户端偏好独立通道在读取边界叠加。
+    // 叠加发生在 cache / 基线之前，所以「无变化不写盘」比较的是
+    // 用户真正看到的偏好，而不是 meta 里可能为空的占位值。
+    const preferences = meta ? await readClientPreferences(storage) : null
+    const effective = meta ? { ...meta, ...overlayClientPreferences(meta, preferences) } : null
+    rememberMetaSnapshot(effective)
+    return effective
   }
 
   function withSplitMetaWrite<T>(fn: () => Promise<T>): Promise<T> {
@@ -367,35 +390,26 @@ export function createSplitStorage(deps: {
     return normalizeStoredChatIndex(raw, { kind, targetId }, kind === 'group' ? '群聊' : '新聊天').chatIds
   }
 
-  // ensureSplitStoreReady 只建立最小目录骨架：
-  //   - meta/index（偏好 + 目录事实，后端 meta() 会补齐派生字段）
+  // ensureSplitStoreReady 只建立「客户端可用」的最小存储骨架：
   //   - sessions/favorites
   //   - 表情包设置
+  //
+  // meta/index 已降级为目录 / 派生字段的只读投影，由 studio 后端组装，
+  // 前端绝不再预写空 meta；客户端偏好则走 client-state/preferences。
   // 不再预写 groups/index、providers/index：前者只在用户改群组顺序时写，
   // 后者已是纯派生物（顺序由业务端供应商列表决定）。
   async function ensureSplitStoreReady() {
     const meta = (await loadSplitMeta()) || splitMetaCache
     if (meta) return
-    const updatedAt = now()
     await initializeStickerSettingsStorage(storage)
     await storage.set(SESSION_FAVORITES_KEY, { folders: [], chatRefsByFolderId: {} })
-    await writeRequired(storage, SPLIT_META_KEY, {
-      schemaVersion: SPLIT_SCHEMA_VERSION,
-      dataVersion: VERSION,
-      updatedAt,
-      ui: {},
-      settings: {},
-      roleOrder: [],
-      roleFolders: {},
-      groupOrder: [],
-      groupFolders: {},
-    })
-    rememberMetaSnapshot(await loadSplitMetaSnapshot(storage))
   }
 
-  // saveMetaOnly 只在 ui / settings 真变化时写盘：
-  //   - 切换会话不再产生一次 meta 写；
-  //   - 不再 bump 全局 updatedAt（updatedAt 已降级为纯展示排序字段）。
+  // saveMetaOnly 的语义已经收敛为「保存客户端偏好」：
+  //   - 只写 client-state/preferences（ui + 投影自有 settings）；
+  //   - 不再写 meta/index，meta 只作为目录 / 派生字段的只读投影；
+  //   - 切换会话不再产生一次偏好写；
+  //   - 通道走本地状态区，因此保存不要求 eucli-box 连接。
   //
   // 整个「读状态 → 比较 → 写盘 → 更新基线」都放进单一写链：
   // 连续保存按调用顺序执行，后一次能看到前一次落盘后的基线。
@@ -410,45 +424,27 @@ export function createSplitStorage(deps: {
       const targetKind = String(state.draft?.activeTargetKind || '').trim()
       ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
 
-      const old = splitMetaCache || (await loadSplitMeta())
-      if (!old) throw new Error('存储未初始化')
-
-      // 状态可能是调用方传进来的任意对象：写盘前先深拷贝成独立快照，
-      // payload / 缓存都不再引用 state.data 里的对象。
-      const nextUi = cloneJsonData(state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {})
       // 写盘 payload 与指纹共用同一份「投影自有 settings」过滤：
-      // providers / stickers / assist 子键都不进入 meta/index。
-      const nextSettings = projectionOwnedSettings(
-        cloneJsonData(state.data.settings && typeof state.data.settings === 'object' ? state.data.settings : {}),
-      )
+      // providers / stickers / assist 子键都不进入偏好通道。
+      const preferences = createClientPreferencesSnapshot(state.data.ui, state.data.settings)
+      const fingerprint = preferenceFingerprint(preferences.ui, preferences.settings)
 
-      const fingerprint = preferenceFingerprint(nextUi, nextSettings)
-      // 只有 ui / settings 真的变了才写盘：切换会话不产生 meta 写。
+      // 基线尚未建立时，本地读一次偏好通道（不读 meta、不需要业务连接）。
+      // 通道缺失时基线保持 null：第一次保存必须落盘。
+      if (splitMetaBaseline === null) {
+        const persisted = await readClientPreferences(storage)
+        if (persisted) splitMetaBaseline = preferenceFingerprint(persisted.ui, persisted.settings)
+      }
+      // 只有 ui / 投影自有 settings 真的变了才写盘。
       if (fingerprint === splitMetaBaseline) return
 
-      // meta/index 只承载「客户端偏好」：ui + settings。
-      // 目录事实（order / folder 映射）归各自的 index key，会话索引归各 scope，
-      // 三者不再混在一份文档里，避免一次偏好写入顺带覆盖别的事实。
-      //
-      // updatedAt 原样保留：它已降级为纯展示排序字段，偏好写入不再 bump 它，
-      // 否则任何一次 ui 改动都会让所有下游以为「整份数据变了」。
-      const meta = {
-        schemaVersion: SPLIT_SCHEMA_VERSION,
-        dataVersion: VERSION,
-        updatedAt: Number(old.updatedAt || 0) || now(),
-        ui: nextUi,
-        settings: nextSettings,
-      }
-
       // 写失败必须抛给调用方：基线保持不变，下一次仍会重试。
-      await storage.set(SPLIT_META_KEY, meta)
-      splitMetaCache = {
-        ...old,
-        ...meta,
-        ui: cloneJsonData(nextUi),
-        settings: cloneJsonData(nextSettings),
-      }
+      await storage.set(CLIENT_PREFERENCES_KEY, preferences)
       splitMetaBaseline = fingerprint
+      if (splitMetaCache) {
+        const effective = overlayClientPreferences(splitMetaCache, preferences)
+        splitMetaCache = { ...splitMetaCache, ui: effective.ui, settings: effective.settings }
+      }
     })
   }
 

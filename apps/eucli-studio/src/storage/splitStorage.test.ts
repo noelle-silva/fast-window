@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
+import { CLIENT_PREFERENCES_KEY, SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
 import { createSplitStorage } from './splitStorage'
 
 function memoryStorage(initial: Record<string, any>) {
@@ -59,7 +59,7 @@ describe('saveMetaOnly', () => {
     expect(storage.writes).toEqual([])
   })
 
-  it('ui 真变化时写一次 meta，且不 bump 全局 updatedAt', async () => {
+  it('ui 真变化时只写一次偏好通道，且不触碰 meta/index', async () => {
     const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
     const storage = memoryStorage({ [SPLIT_META_KEY]: metaDoc(ui) })
     const state = makeState(ui)
@@ -70,14 +70,16 @@ describe('saveMetaOnly', () => {
     storage.writes.length = 0
 
     await store.saveMetaOnly()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
-    const saved = storage.values[SPLIT_META_KEY]
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    const saved = storage.values[CLIENT_PREFERENCES_KEY]
     expect(saved.ui.activeRoleId).toBe('role-2')
-    // updatedAt 已降级为纯展示字段：偏好写入不再推进它。
-    expect(saved.updatedAt).toBe(111)
+    // 偏好文档只有 ui / settings，不再是 meta/index 的形状。
+    expect(saved).not.toHaveProperty('schemaVersion')
+    expect(saved).not.toHaveProperty('updatedAt')
+    expect(storage.values[SPLIT_META_KEY].ui.activeRoleId).toBe('role-1')
   })
 
-  it('settings 变化时同样写一次 meta', async () => {
+  it('settings 变化时写偏好通道，而不是 meta/index', async () => {
     const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
     const storage = memoryStorage({ [SPLIT_META_KEY]: metaDoc(ui, { streamEnabled: true }) })
     const state = makeState(ui, { streamEnabled: false })
@@ -88,8 +90,8 @@ describe('saveMetaOnly', () => {
     storage.writes.length = 0
 
     await store.saveMetaOnly()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
-    expect(storage.values[SPLIT_META_KEY].settings.streamEnabled).toBe(false)
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    expect(storage.values[CLIENT_PREFERENCES_KEY].settings.streamEnabled).toBe(false)
   })
 
   it('aiServices 的 assist 子键变化不算偏好变化', async () => {
@@ -132,14 +134,14 @@ describe('saveMetaOnly', () => {
     storage.writes.length = 0
 
     await store.saveMetaOnly()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
-    const saved = storage.values[SPLIT_META_KEY]
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    const saved = storage.values[CLIENT_PREFERENCES_KEY]
     expect(saved.settings.aiServices.localOnly).toEqual({ enabled: false })
-    // assist 子键不进入 meta：它们由业务端独立写入。
+    // assist 子键不进入偏好通道：它们由业务端独立写入。
     expect(saved.settings.aiServices.mermaidFix).toBeUndefined()
   })
 
-  it('外观字段变化仍被指纹检测到，且派生 / 专用字段不落进 meta', async () => {
+  it('外观字段变化仍被指纹检测到，且派生 / 专用字段不落进偏好通道', async () => {
     const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
     const storage = memoryStorage({
       [SPLIT_META_KEY]: metaDoc(ui, {
@@ -162,8 +164,8 @@ describe('saveMetaOnly', () => {
     storage.writes.length = 0
 
     await store.saveMetaOnly()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
-    const saved = storage.values[SPLIT_META_KEY]
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    const saved = storage.values[CLIENT_PREFERENCES_KEY]
     expect(saved.settings.wallpaper.activeId).toBe('w2')
     expect(saved.settings.providers).toBeUndefined()
     expect(saved.settings.stickers).toBeUndefined()
@@ -184,6 +186,93 @@ describe('saveMetaOnly', () => {
 
     await store.saveMetaOnly()
     expect(storage.writes).toEqual([])
+  })
+
+  it('没有 meta/index 也能保存客户端偏好（不依赖业务连接）', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({})
+    const state = makeState(ui, { streamEnabled: false })
+    state.draft.activeRoleId = 'role-1'
+
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.saveMetaOnly()
+
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    expect(storage.values[CLIENT_PREFERENCES_KEY]).toMatchObject({
+      ui: { activeRoleId: 'role-1' },
+      settings: { streamEnabled: false },
+    })
+  })
+
+  it('连续保存按调用顺序串行落盘', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({ [SPLIT_META_KEY]: metaDoc(ui, { streamEnabled: true }) })
+    const state = makeState(ui, { streamEnabled: true })
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const originalSet = storage.set
+    let calls = 0
+    storage.set = async (key: string, value: any) => {
+      calls += 1
+      if (calls === 1) {
+        started()
+        await gate
+      }
+      return originalSet(key, value)
+    }
+
+    state.data.settings.streamEnabled = false
+    const first = store.saveMetaOnly()
+    await startedPromise
+
+    state.data.settings.streamEnabled = true
+    const second = store.saveMetaOnly()
+    await Promise.resolve()
+    // 第一次写盘还没完成，第二次必须排队等待。
+    expect(calls).toBe(1)
+
+    release()
+    await Promise.all([first, second])
+
+    expect(calls).toBe(2)
+    expect(storage.values[CLIENT_PREFERENCES_KEY].settings.streamEnabled).toBe(true)
+  })
+
+  it('写盘失败上抛，基线不前进，下一次仍会重试', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({ [SPLIT_META_KEY]: metaDoc(ui, { streamEnabled: true }) })
+    const state = makeState(ui, { streamEnabled: true })
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    const originalSet = storage.set
+    let shouldFail = true
+    storage.set = async (key: string, value: any) => {
+      if (shouldFail) {
+        shouldFail = false
+        throw new Error('disk full')
+      }
+      return originalSet(key, value)
+    }
+
+    state.data.settings.streamEnabled = false
+    await expect(store.saveMetaOnly()).rejects.toThrow('disk full')
+    expect(storage.writes).toEqual([])
+
+    await store.saveMetaOnly()
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    expect(storage.values[CLIENT_PREFERENCES_KEY].settings.streamEnabled).toBe(false)
   })
 })
 

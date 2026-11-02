@@ -1,10 +1,10 @@
-import { cloneJsonData } from '../core/jsonData'
 import { normalizeData } from '../domain/dataNormalizers'
 import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeFavorites } from '../domain/favorites'
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { readActiveChatSelection } from '../domain/activeChatSelection'
 import { splitGroupKey, splitRoleKey } from '../domain/storageKeys'
+import { overlayClientPreferences, readClientPreferences } from './clientPreferences'
 import { loadProvidersFromStorage } from './splitIndexes'
 import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 
@@ -25,8 +25,11 @@ export type BuildStateFromMetaOptions = {
 //
 // 两个调用者（外壳加载与旧的整体加载）曾经各写一份等价逻辑，
 // 任何派生字段 / 深拷贝隔离的调整都必须同时改两处。现在统一在这里：
-//   - ui / settings 从 meta 深拷贝，state 与 meta 快照是两棵独立的树；
-//   - stickers / providers 作为派生字段挂到 settings；
+//   - 目录事实（order / folder 映射）与派生字段（providers / stickers）
+//     仍然由 meta / 专用通道提供；
+//   - 客户端偏好先读 meta 快照，再叠加 client-state/preferences（ui +
+//     投影自有 settings），偏好通道永远不依赖业务连接；
+//   - 叠加结果深拷贝成独立的两棵树，state 与 meta / 偏好快照互不共享引用；
 //   - 会话列表只装索引事实（activeChatId + chatMetas），正文按需懒加载。
 export async function buildStateFromMeta(options: BuildStateFromMetaOptions): Promise<any> {
   const { meta, storage, loadChatIndex } = options
@@ -46,16 +49,19 @@ export async function buildStateFromMeta(options: BuildStateFromMetaOptions): Pr
   }
 
   const providers = await loadProvidersFromStorage(storage, meta)
+  // 偏好通道是本地读：缺失 / 损坏都返回 null，回落到 meta 快照。
+  const preferences = await readClientPreferences(storage)
+  const preferencesView = overlayClientPreferences({ ui: meta.ui, settings: meta.settings }, preferences)
 
   const d: any = {
     version: VERSION,
-    settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
+    settings: preferencesView.settings,
     favorites: normalizeFavorites(favorites),
     roles: [],
     chatsByRole: {},
     groups: [],
     chatsByGroup: {},
-    ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
+    ui: preferencesView.ui,
   }
   d.settings.stickers = stickers && typeof stickers === 'object' ? stickers : {}
   d.settings.providers = providers

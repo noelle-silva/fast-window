@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION, VERSION } from '../domain/constants'
+import { CLIENT_PREFERENCES_KEY, SPLIT_META_KEY, SPLIT_SCHEMA_VERSION, VERSION } from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
 import { createLazyChatStore } from './lazyChatStore'
 import { createSplitStorage } from './splitStorage'
@@ -91,7 +91,7 @@ async function saveMutation(mutate: (settings: any) => void) {
   const { state, split } = await loadShellData(storage)
   mutate(state.data.settings)
   await split.saveMetaOnly()
-  return { storage, payload: storage.values[SPLIT_META_KEY] }
+  return { storage, payload: storage.values[CLIENT_PREFERENCES_KEY] }
 }
 
 async function reloadAfterSave(storage: ReturnType<typeof memoryStorage>) {
@@ -131,36 +131,47 @@ describe('客户端偏好保存/重载·引用隔离', () => {
   })
 })
 
-describe('客户端偏好保存/重载·保存到 meta/index', () => {
-  it('端到端保存 composerModelShowProvider 到 meta/index', async () => {
+describe('客户端偏好保存/重载·写入 client-state/preferences', () => {
+  it('端到端保存 composerModelShowProvider 到偏好通道', async () => {
     const { storage, payload } = await saveMutation((settings) => {
       settings.composerModelShowProvider = true
     })
 
     expect(storage.set).toHaveBeenCalled()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
     expect(payload.settings.composerModelShowProvider).toBe(true)
   })
 
-  it('在 meta/index 上端到端保存 branchTree.dir', async () => {
+  it('偏好保存不产生 meta/index 写入', async () => {
+    const storage = createHarness()
+    const metaBefore = cloneDocument(storage.values[SPLIT_META_KEY])
+    const { state, split } = await loadShellData(storage)
+    state.data.settings.composerModelShowProvider = true
+
+    await split.saveMetaOnly()
+
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
+    expect(storage.values[CLIENT_PREFERENCES_KEY].settings.composerModelShowProvider).toBe(true)
+    expect(storage.values[SPLIT_META_KEY]).toEqual(metaBefore)
+  })
+
+  it('偏好通道保存 branchTree.dir', async () => {
     const { storage, payload } = await saveMutation((settings) => {
       settings.branchTree.dir = 'tb'
     })
 
-    expect(storage.set).toHaveBeenCalled()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
     expect(payload.settings.branchTree.dir).toBe('tb')
   })
 
-  it('aiServices 的 assist 子键变化不触发 meta 写盘', async () => {
-    const { storage, payload } = await saveMutation((settings) => {
+  it('aiServices 的 assist 子键变化不触发偏好写盘', async () => {
+    const { storage } = await saveMutation((settings) => {
       settings.aiServices.mermaidFix.enabled = true
     })
 
     // assist 配置由 aiChat.assistConfig.set 单独写入，不属于客户端偏好。
     expect(storage.set).not.toHaveBeenCalled()
     expect(storage.writes).toEqual([])
-    expect(payload.settings.aiServices.mermaidFix.enabled).toBe(false)
   })
 
   it('aiServices 的非 assist 本地键仍作为客户端偏好保存', async () => {
@@ -168,13 +179,75 @@ describe('客户端偏好保存/重载·保存到 meta/index', () => {
       settings.aiServices.localOnly = { enabled: true }
     })
 
-    expect(storage.set).toHaveBeenCalled()
-    expect(storage.writes).toEqual([SPLIT_META_KEY])
+    expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
     expect(payload.settings.aiServices.localOnly).toEqual({ enabled: true })
+  })
+
+  it('只有 providers / stickers / assist 子键变化时不算客户端偏好', async () => {
+    const { storage, payload } = await saveMutation((settings) => {
+      settings.providers = [{ id: 'p1' }]
+      settings.stickers = { enabled: true }
+      settings.aiServices.mermaidFix.enabled = true
+    })
+
+    expect(storage.writes).toEqual([])
+    expect(payload).toBeUndefined()
   })
 })
 
-describe('客户端偏好保存/重载·重启读回', () => {
+describe('客户端偏好保存/重载·设置往返', () => {
+  it('ui + 外观 / 字体 / 布局 / 壁纸 / 主题 / 输入区设置往返保持', async () => {
+    const storage = createHarness()
+    const { state, split } = await loadShellData(storage)
+
+    state.data.ui.sidebarWidth = 321
+    state.data.ui.sidebarCollapsed = true
+    const settings = state.data.settings
+    settings.transparentChatBg = true
+    settings.chatBgOpacity = 42
+    settings.chatFontSize = 19
+    settings.chatFontFamily = 'Consolas'
+    settings.chatLetterSpacing = 2
+    settings.chatLineHeight = 2
+    settings.branchTree.dir = 'tb'
+    settings.wallpaper = {
+      enabled: true,
+      activeId: 'w2',
+      presets: [{ id: 'w2', relPath: 'wallpapers/w2.webp', view: { x: 50, y: 50, scale: 1 } }],
+    }
+    settings.colorTheme = { activePresetId: 'sakura-night', importedPresets: [] }
+    settings.composerWidthPercent = 66
+    settings.composerMinRows = 4
+    settings.composerModelShowProvider = true
+
+    await split.saveMetaOnly()
+    const data = await reloadAfterSave(storage)
+
+    expect(data.ui.sidebarWidth).toBe(321)
+    expect(data.ui.sidebarCollapsed).toBe(true)
+    expect(data.settings.transparentChatBg).toBe(true)
+    expect(data.settings.chatBgOpacity).toBe(42)
+    expect(data.settings.chatFontSize).toBe(19)
+    expect(data.settings.chatFontFamily).toBe('Consolas')
+    expect(data.settings.chatLetterSpacing).toBe(2)
+    expect(data.settings.chatLineHeight).toBe(2)
+    expect(data.settings.branchTree.dir).toBe('tb')
+    expect(data.settings.wallpaper).toMatchObject({ enabled: true, activeId: 'w2' })
+    expect(data.settings.wallpaper.presets[0]).toMatchObject({ id: 'w2', relPath: 'wallpapers/w2.webp' })
+    expect(data.settings.colorTheme.activePresetId).toBe('sakura-night')
+    expect(data.settings.composerWidthPercent).toBe(66)
+    expect(data.settings.composerMinRows).toBe(4)
+    expect(data.settings.composerModelShowProvider).toBe(true)
+
+    // 业务派生 / 专用字段仍由 meta 提供，不写入偏好通道。
+    const payload = storage.values[CLIENT_PREFERENCES_KEY]
+    expect(payload.settings.providers).toBeUndefined()
+    expect(payload.settings.stickers).toBeUndefined()
+    for (const key of ['mermaidFix', 'chatTitleNaming', 'stickerNaming', 'contextCompression']) {
+      expect(payload.settings.aiServices?.[key]).toBeUndefined()
+    }
+  })
+
   it('重启后 composerModelShowProvider 仍为 true', async () => {
     const { storage } = await saveMutation((settings) => {
       settings.composerModelShowProvider = true
@@ -208,7 +281,7 @@ describe('客户端偏好保存/重载·重启读回', () => {
     })
 
     const data = await reloadAfterSave(storage)
-    // 未写盘：读回的仍是 meta/index 里的旧值，真实 assist 配置由业务端提供。
+    // 未写盘：读回的仍是 meta 里的旧值，真实 assist 配置由业务端提供。
     expect(data.settings.aiServices.mermaidFix.enabled).toBe(false)
   })
 })
