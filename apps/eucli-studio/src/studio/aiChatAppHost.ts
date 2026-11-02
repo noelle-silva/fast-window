@@ -6,6 +6,7 @@ import { createDirectCapabilitiesAdapter } from '../direct/createDirectCapabilit
 import { createAiChatCapabilitiesFromHostApi, type AiChatShowToast } from '../gateway/capabilities'
 import { AI_CHAT_DIRECT_PROTOCOL_VERSION } from '../protocol/aiChatProtocol'
 import { EUCLI_STUDIO_APP_ID, EUCLI_STUDIO_CONTROLLER_KEY } from '../runtime/eucliStudioGlobals'
+import { installSessionDiagnostics } from '../diagnostics/session.diagnostics'
 import { normalizeArtifactCandidateList, normalizeArtifactInstallationList, normalizeStudioBootstrap, type ArtifactCandidateList, type ArtifactInstallationList, type StudioBootstrap } from '../domain/release'
 
 type BackendEndpoint = {
@@ -52,6 +53,7 @@ export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Pro
   const { controller } = created
   await created.init({ businessAvailable: bootstrap.businessAvailable })
   ;(window as any)[EUCLI_STUDIO_CONTROLLER_KEY] = controller
+  installSessionDiagnostics({ controller, directClient })
 
   return {
     controller,
