@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createChatOperationsShared } from './chatOperationsShared'
 import { createChatMessageOperations } from './chatMessageOperations'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 // B1 回归：消息写成功之后必须失效正文缓存。
 // 编辑 / 删除都会立刻 refreshTargetSession，但 refresh 之前的本地修改
@@ -45,6 +46,8 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
   const invalidateChatBody = vi.fn()
   const updateRoleSessionMessage = vi.fn(async () => ({}))
   const deleteRoleSessionMessage = vi.fn(async () => ({}))
+  const emitScope = vi.fn()
+  const render = vi.fn()
   const netRequest = vi.fn(async (req: any) => {
     if (String(req?.method || '').toUpperCase() === 'PATCH') return { status: 200, body: {} }
     return { status: 200, body: {} }
@@ -53,7 +56,8 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
   const shared = createChatOperationsShared({
     getState: () => state,
     emit: () => {},
-    render: () => {},
+    emitScope,
+    render,
     renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
@@ -62,7 +66,7 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
     // 刷新路径：回读同一份 chat（模拟业务端已落盘）。
     reloadRoleSession: async () => chat,
     reloadGroupSession: async () => chat,
-  })
+  } as any)
 
   return {
     state,
@@ -72,6 +76,8 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
     updateRoleSessionMessage,
     deleteRoleSessionMessage,
     netRequest,
+    emitScope,
+    render,
   }
 }
 
@@ -122,5 +128,18 @@ describe('消息写成功后失效正文缓存（B1）', () => {
     await ops.deleteMessage('m1')
 
     expect(harness.invalidateChatBody).not.toHaveBeenCalled()
+  })
+})
+
+describe('消息结构变化通知', () => {
+  it('编辑成功后只发当前会话与列表地址', async () => {
+    const harness = createHarness()
+    const ops = createChatMessageOperations(harness.shared)
+
+    await ops.editMessage('m1', '改后的文本')
+
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-a', 'chat-1'))
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('role', 'role-a'))
+    expect(harness.render).not.toHaveBeenCalled()
   })
 })

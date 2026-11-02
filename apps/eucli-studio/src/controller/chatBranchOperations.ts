@@ -9,10 +9,26 @@ import {
   setChatActiveBranchId,
 } from '../domain/branching'
 import type { createChatOperationsShared } from './chatOperationsShared'
+import { refreshScopes } from '../domain/uiRefreshScope'
+
+type BranchScopeDeps = {
+  emitScope?: (scope: string) => void
+}
 
 export function createChatBranchOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, sa, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, persistActiveView } = shared
   const { getState, showToast, ensureActiveChatLoaded, render, scrollToBottomSoon } = deps
+  const { emitScope } = deps as typeof deps & BranchScopeDeps
+
+  function notifyActiveSession(chat: any) {
+    const targetId = String(sa.activeRole()?.id || '').trim()
+    const chatId = String(chat?.id || '').trim()
+    if (emitScope && targetId && chatId) {
+      emitScope(refreshScopes.session('role', targetId, chatId))
+      return
+    }
+    render()
+  }
 
   // 视图回写：本地分支状态已改，同时把它变成服务端事实。
   // head 用「活动分支头部消息」表达（比 branchId 可靠，见 design-4 决策 3）。
@@ -156,7 +172,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     if (draft0 && String(draft0?.roleId || '') === String(sa.activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {
       state.branchDraft = null
     }
-    render()
+    notifyActiveSession(chat)
     scrollToBottomSoon()
   }
 
@@ -178,7 +194,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     }
 
     persistView('role', String(sa.activeRole()?.id || ''), chat)
-    render()
+    notifyActiveSession(chat)
     scrollToBottomSoon()
   }
 

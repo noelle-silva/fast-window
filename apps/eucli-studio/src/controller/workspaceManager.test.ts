@@ -3,6 +3,7 @@
 // 落到该组合自己的数据盒；目标组合没有会话时呈现空态，不伪造草稿会话。
 import { describe, expect, it, vi } from 'vitest'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { createStateAccessors } from '../state/stateAccessors'
 import { createWorkspaceManager } from './workspaceManager'
 
@@ -77,10 +78,11 @@ function createHarness(
     },
   }
   let emitCount = 0
+  const emit = vi.fn(() => { emitCount += 1 })
   const manager = createWorkspaceManager({
     getState: () => state,
     netRequest,
-    emit: () => { emitCount += 1 },
+    emit,
     render: () => {},
     closeModal: () => {},
     saveMeta: async () => {},
@@ -91,7 +93,7 @@ function createHarness(
     clearPendingWorkspaceChat: () => { state.pendingWorkspaceChat = null },
     ...extraDeps,
   })
-  return { state, manager, emits: () => emitCount }
+  return { state, manager, emits: () => emitCount, emit }
 }
 
 function boxOf(state: any, combinationId: string) {
@@ -701,5 +703,31 @@ describe('工作区异步落地按代数 / 序号收敛', () => {
 
     await inFlight
     expect(harness.state.draft.activeRoleId).toBe('role-b')
+  })
+})
+
+describe('工作区会话切换通知', () => {
+  it('选中与正文到达都走工作区会话地址，不产生全局广播', async () => {
+    const emitScope = vi.fn()
+    const sessions = {
+      [workspaceRoleTargetId('ws-1', 'role-a')]: [
+        { id: 'session-a1', roleId: 'role-a', workspaceId: 'ws-1', title: 'A 的会话', messages: [] },
+      ],
+    }
+    const harness = createHarness(sessions, undefined, { emitScope })
+    const targetId = workspaceRoleTargetId('ws-1', 'role-a')
+    harness.state.data.chatsByWorkspace[targetId] = {
+      activeChatId: 'session-a0',
+      chatMetas: [{ id: 'session-a0' }, { id: 'session-a1' }],
+      chats: [{ id: 'session-a0' }, { id: 'session-a1' }],
+    }
+
+    await harness.manager.pickChatForActiveWorkspace('session-a1')
+
+    expect(emitScope).toHaveBeenCalledWith(refreshScopes.navigation())
+    expect(emitScope).toHaveBeenCalledWith(refreshScopes.composer())
+    expect(emitScope).toHaveBeenCalledWith(refreshScopes.chatList('workspace', targetId))
+    expect(emitScope).toHaveBeenCalledWith(refreshScopes.session('workspace', targetId, 'session-a1'))
+    expect(harness.emit).not.toHaveBeenCalled()
   })
 })

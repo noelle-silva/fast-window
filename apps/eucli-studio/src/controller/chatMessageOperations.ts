@@ -8,10 +8,27 @@ import type { MessageMutationOperation } from '../domain/messageMutationConflict
 import { submitToolConfirmation as submitToolConfirmationRequest } from './ebRoleRun'
 import { deleteGroupSessionMessage, deleteGroupSessionMessageSubtree, deleteRoleSessionMessage, deleteRoleSessionMessageSubtree, deleteWorkspaceSessionMessage, deleteWorkspaceSessionMessageSubtree, updateGroupSessionMessage, updateRoleSessionMessage, updateWorkspaceSessionMessage } from './ebRoleSession'
 import type { createChatOperationsShared } from './chatOperationsShared'
+import { refreshScopes } from '../domain/uiRefreshScope'
+
+type MessageScopeDeps = {
+  emitScope?: (scope: string) => void
+}
 
 export function createChatMessageOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, refreshTargetSession, invalidateChatBodyAfterWrite, activeTargetSessionMutationTarget, ensureTargetSessionMessageMutationAllowed } = shared
   const { getState, netRequest, showToast, render, loadEditSnapshot } = deps
+  const { emitScope } = deps as typeof deps & MessageScopeDeps
+
+  function notifyTargetStructure(target: { targetKind: 'role' | 'group' | 'workspace'; targetId: string; sessionId: string }) {
+    const targetId = String(target?.targetId || '').trim()
+    const sessionId = String(target?.sessionId || '').trim()
+    if (emitScope && targetId && sessionId) {
+      emitScope(refreshScopes.session(target.targetKind, targetId, sessionId))
+      emitScope(refreshScopes.chatList(target.targetKind, targetId))
+      return
+    }
+    render()
+  }
 
   // 写路径快照：view 是被裁剪的视图（只发 content、不发 text part），
   // 直接拿它回写 PATCH 会把历史 parts 削掉一块。因此 PATCH 前必须先取 edit 快照。
@@ -57,11 +74,11 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       await submitToolConfirmationRequest(netRequest, { decisionId, approved, rememberForSession, reason: approved ? '' : '用户拒绝工具调用' })
       showToast?.(approved ? (rememberForSession ? '已同意工具执行（本会话内始终同意）' : '已同意工具执行') : '已拒绝工具执行', { kind: 'success' })
       await refreshTargetSession(target.targetKind, target.targetId, target.sessionId, undefined, { activate: false })
-      render()
+      notifyTargetStructure(target)
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '工具确认提交失败'), { kind: 'error' })
-      render()
+      notifyTargetStructure(target)
       return false
     }
   }
@@ -94,7 +111,7 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       showToast?.('e-b 请求通道不可用', { kind: 'error' })
       replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
-      render()
+      notifyTargetStructure(target)
       return false
     }
     try {
@@ -105,13 +122,13 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
       showToast?.(String(e?.message || e || `消息块${operationText}失败`), { kind: 'error' })
-      render()
+      notifyTargetStructure(target)
       return false
     }
     // 写成功：本地已改，但缓存里还是写之前的正文。必须失效，
     // 否则下一次读（运行刷新 / 对账 / 重新进入会话）会拿旧正文覆盖这次编辑。
     invalidateChatBodyAfterWrite(target.targetKind, target.targetId, target.sessionId)
-    render()
+    notifyTargetStructure(target)
     return true
   }
 
@@ -128,11 +145,11 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       else if (target.targetKind === 'workspace') await deleteWorkspaceSessionMessage(netRequest, { workspaceId: target.workspaceId, roleId: target.roleId, sessionId: target.sessionId, messageId: mid })
       else await deleteRoleSessionMessage(netRequest, { roleId: target.roleId, sessionId: target.sessionId, messageId: mid })
       await refreshTargetSession(target.targetKind, target.targetId, target.sessionId)
-      render()
+      notifyTargetStructure(target)
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '消息删除失败'), { kind: 'error' })
-      render()
+      notifyTargetStructure(target)
       return false
     }
   }
@@ -150,11 +167,11 @@ export function createChatMessageOperations(shared: ReturnType<typeof createChat
       else if (target.targetKind === 'workspace') await deleteWorkspaceSessionMessageSubtree(netRequest, { workspaceId: target.workspaceId, roleId: target.roleId, sessionId: target.sessionId, messageId: mid })
       else await deleteRoleSessionMessageSubtree(netRequest, { roleId: target.roleId, sessionId: target.sessionId, messageId: mid })
       await refreshTargetSession(target.targetKind, target.targetId, target.sessionId)
-      render()
+      notifyTargetStructure(target)
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '消息删除失败'), { kind: 'error' })
-      render()
+      notifyTargetStructure(target)
       return false
     }
   }

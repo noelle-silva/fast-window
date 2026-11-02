@@ -52,6 +52,7 @@ import { createModelGroupsController } from './modelGroups'
 import { createFavoritesOperations } from './favoritesOperations'
 import { createEntityEditors } from './entityEditors'
 import { createChatOperations } from './chatOperations'
+import type { ChatOperationsDeps } from './chatOperationsShared'
 import { createPersistence } from './persistence'
 import { createWorkspaceManager } from './workspaceManager'
 import { saveEntityOrder } from './entityOrderBridge'
@@ -458,6 +459,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     emit,
     render,
+    emitScope,
     closeModal,
     saveMeta: savePreferences,
     scrollToBottomSoon,
@@ -902,6 +904,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeProviderEntity,
     save: savePreferences,
     render,
+    emitScope,
     closeModal,
     showToast: api.ui?.showToast,
     pickImageFiles,
@@ -981,7 +984,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 16. CHAT OPERATIONS
   // ============================================================
-  const chatOps = createChatOperations({
+  const chatOperationsDeps: ChatOperationsDeps & { emitScope: (scope: string) => void } = {
     getState: () => state,
     pickImageFiles,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -1016,11 +1019,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     render,
     renderComposer: renderAll,
     emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
+    emitScope,
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
     runProbe,
     sessionWrites,
-  })
+  }
+  const chatOps = createChatOperations(chatOperationsDeps)
   const {
     pickDraftImages,
     addDraftImagesFromFiles,

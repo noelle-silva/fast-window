@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createChatOperationsShared } from './chatOperationsShared'
 import { createChatBranchOperations } from './chatBranchOperations'
 import { setChatBranchHeadMid } from '../domain/branching'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 // 决策 3：分支切换必须回写服务端（PATCH {base}/view）。
 //
@@ -50,10 +51,13 @@ function makeHarness(options: { persist?: boolean; legacySave?: () => Promise<vo
   }
 
   const persistSessionView = vi.fn(async () => {})
+  const emitScope = vi.fn()
+  const render = vi.fn()
   const shared = createChatOperationsShared({
     getState: () => state,
     emit: () => {},
-    render: () => {},
+    emitScope,
+    render,
     renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
@@ -63,7 +67,7 @@ function makeHarness(options: { persist?: boolean; legacySave?: () => Promise<vo
     // 断言分支切换不再调用它（防止回归）。
     ...(options.legacySave ? { save: options.legacySave } : {}),
   } as any)
-  return { state, chat, shared, persistSessionView, legacySave: options.legacySave }
+  return { state, chat, shared, persistSessionView, legacySave: options.legacySave, emitScope, render }
 }
 
 describe('分支切换回写服务端视图（决策 3）', () => {
@@ -134,5 +138,17 @@ describe('分支切换回写服务端视图（决策 3）', () => {
 
     await ops.setActiveBranch('alt')
     expect(harness.persistSessionView).not.toHaveBeenCalled()
+  })
+})
+
+describe('分支切换通知', () => {
+  it('切换分支只发当前会话地址，不再全局广播', async () => {
+    const harness = makeHarness()
+    const ops = createChatBranchOperations(harness.shared)
+
+    await ops.setActiveBranch('alt')
+
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-1', 'chat-1'))
+    expect(harness.render).not.toHaveBeenCalled()
   })
 })

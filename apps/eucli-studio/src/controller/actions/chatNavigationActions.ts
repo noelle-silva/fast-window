@@ -1,5 +1,5 @@
 import { removeDraftImage as removeDraftImageFromList } from '../../domain/draftImageUtils'
-import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
+import { COMPOSER_REFRESH_SCOPE, GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
 import {
   activateComposerDraftForCurrentSession,
   saveActiveComposerDraftMirror,
@@ -24,28 +24,59 @@ export function createChatNavigationActions(deps: {
 }) {
   const { state, emit, emitScope, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
 
+  function notifyScopes(scopes: readonly string[]) {
+    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
+    if (emitScope && addresses.length) {
+      for (const address of addresses) emitScope(address)
+      return
+    }
+    emit()
+  }
+
+  function notifyLoadedChat(kind: 'role' | 'group', targetId: string, box: any) {
+    const chatId = String(box?.activeChatId || '').trim()
+    if (!targetId || !chatId) return
+    const activeKind = String(state.draft?.activeTargetKind || state.data?.ui?.activeTargetKind || 'role')
+    const activeTargetId = kind === 'group'
+      ? String(state.draft?.activeGroupId || '')
+      : String(state.draft?.activeRoleId || '')
+    if (activeKind !== kind || activeTargetId !== targetId) return
+    notifyScopes([
+      refreshScopes.navigation(),
+      refreshScopes.session(kind, targetId, chatId),
+    ])
+  }
+
   return {
     setActiveRole: (roleId: any) => {
+      const targetId = String(roleId || '')
       saveActiveComposerDraftMirror(state)
       state.branchDraft = null
       ;(state.draft as any).activeTargetKind = 'role'
-      state.draft.activeRoleId = String(roleId || '')
-      ensureChatsBoxBare(state.draft.activeRoleId)
+      state.draft.activeRoleId = targetId
+      const box = ensureChatsBoxBare(targetId)
       activateComposerDraftForCurrentSession(state)
-      ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
+      notifyScopes([
+        refreshScopes.navigation(),
+        refreshScopes.composer(),
+      ])
+      ensureActiveChatLoaded().catch(() => {}).finally(() => notifyLoadedChat('role', targetId, box))
       saveMeta().catch(() => {})
-      emit()
     },
     setActiveGroup: (groupId: any) => {
+      const targetId = String(groupId || '')
       saveActiveComposerDraftMirror(state)
       state.branchDraft = null
       ;(state.draft as any).activeTargetKind = 'group'
-      ;(state.draft as any).activeGroupId = String(groupId || '')
-      ensureGroupChatsBoxBare((state.draft as any).activeGroupId)
+      ;(state.draft as any).activeGroupId = targetId
+      const box = ensureGroupChatsBoxBare(targetId)
       activateComposerDraftForCurrentSession(state)
-      ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
+      notifyScopes([
+        refreshScopes.navigation(),
+        refreshScopes.composer(),
+      ])
+      ensureActiveChatLoaded().catch(() => {}).finally(() => notifyLoadedChat('group', targetId, box))
       saveMeta().catch(() => {})
-      emit()
     },
     setActiveWorkspace: (workspaceId: any) => {
       setActiveWorkspace(workspaceId)

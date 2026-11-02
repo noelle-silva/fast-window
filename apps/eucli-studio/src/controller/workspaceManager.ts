@@ -16,6 +16,7 @@ import {
 } from '../domain/activeChatSelection'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
+import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
 import { saveEntityOrder } from './entityOrderBridge'
 import {
   createWorkspaceSession,
@@ -126,6 +127,7 @@ export function createWorkspaceManager(deps: {
   netRequest?: (req: any) => Promise<any>
   emit: () => void
   render: () => void
+  emitScope?: (scope: string) => void
   closeModal: () => void
   saveMeta: () => Promise<void>
   scrollToBottomSoon: () => void
@@ -142,7 +144,7 @@ export function createWorkspaceManager(deps: {
   cleanupFavoriteRefsForChat?: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget?: (targetKind: string, targetId: string) => void
 }) {
-  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
+  const { getState, netRequest, emit, render, emitScope, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
   let workspaceMoveSeq = 0
   // 列表刷新是「最后发起的请求获胜」：旧响应落地时序号已变，直接丢弃。
   // 工作区列表与每个角色组合的会话列表各自一条序列。
@@ -167,6 +169,32 @@ export function createWorkspaceManager(deps: {
   function requireNetRequest() {
     if (typeof netRequest !== 'function') throw new Error('工作区请求通道不可用')
     return netRequest
+  }
+
+  function notifyScopes(scopes: readonly string[]) {
+    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
+    if (emitScope && addresses.length) {
+      for (const address of addresses) emitScope(address)
+      return
+    }
+    render()
+  }
+
+  function notifyWorkspaceChatSelected(targetId: string, chatId: string) {
+    if (!targetId || !chatId) return
+    notifyScopes([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+      refreshScopes.chatList('workspace', targetId),
+    ])
+  }
+
+  function notifyWorkspaceChatLoaded(targetId: string, chatId: string) {
+    if (!targetId || !chatId) return
+    notifyScopes([
+      refreshScopes.session('workspace', targetId, chatId),
+      refreshScopes.chatList('workspace', targetId),
+    ])
   }
 
   function markWorkspacePromptPreviewStale() {
@@ -610,9 +638,10 @@ export function createWorkspaceManager(deps: {
     const roleId = text(role?.id || '')
     const chatId = text(chatIdRaw)
     if (!workspaceId || !chatId) return
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
     saveActiveComposerDraftMirror(state)
     clearPendingChatForTarget(state, 'workspace', workspaceId)
-    clearPendingChatForTarget(state, 'workspace', workspaceRoleTargetId(workspaceId, roleId))
+    clearPendingChatForTarget(state, 'workspace', targetId)
     let box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return
     if (!boxHasChatRef(box, chatId)) {
@@ -621,7 +650,8 @@ export function createWorkspaceManager(deps: {
       if (!box || !boxHasChatRef(box, chatId)) return
     }
     writeActiveChatSelection(box, chatId)
-    const requestToken = sessionWrites?.capture('workspace', workspaceRoleTargetId(workspaceId, roleId), chatId) || null
+    notifyWorkspaceChatSelected(targetId, chatId)
+    const requestToken = sessionWrites?.capture('workspace', targetId, chatId) || null
     const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId).catch(() => null)
     // 会话被删除：旧加载结果不得继续驱动选中 / 草稿 / 渲染。
     if (sessionWrites && !sessionWrites.isCurrent(requestToken)) return
@@ -630,7 +660,7 @@ export function createWorkspaceManager(deps: {
     if (text(chat?.roleId)) state.draft.activeRoleId = text(chat?.roleId)
     activateComposerDraftForCurrentSession(state)
     saveMeta().catch(() => {})
-    render()
+    notifyWorkspaceChatLoaded(targetId, chatId)
     scrollToBottomSoon()
   }
 

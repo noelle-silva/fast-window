@@ -12,6 +12,7 @@ import { firstChatIdInBox, readActiveChatSelection, writeActiveChatSelection } f
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
+import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -97,6 +98,7 @@ export function createEntityEditors(deps: {
   saveProviderEntity?: (provider: any) => Promise<void>
   removeProviderEntity?: (providerId: any) => Promise<void>
   render: () => void
+  emitScope?: (scope: string) => void
   closeModal: () => void
   showToast?: AiChatShowToast
   pickImageFiles?: (maxCount?: number) => Promise<any[]>
@@ -117,11 +119,37 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
     // UI 负责滚动逻辑（React）
+  }
+
+  function notifyScopes(scopes: readonly string[]) {
+    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
+    if (emitScope && addresses.length) {
+      for (const address of addresses) emitScope(address)
+      return
+    }
+    render()
+  }
+
+  function notifyChatSelected(kind: 'role' | 'group', targetId: string, chatId: string) {
+    if (!targetId || !chatId) return
+    notifyScopes([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+      refreshScopes.chatList(kind, targetId),
+    ])
+  }
+
+  function notifyChatLoaded(kind: 'role' | 'group', targetId: string, chatId: string) {
+    if (!targetId || !chatId) return
+    notifyScopes([
+      refreshScopes.session(kind, targetId, chatId),
+      refreshScopes.chatList(kind, targetId),
+    ])
   }
 
   function loadPickedChatInBackground(kind: 'role' | 'group', targetId: string, chatId: string, load?: (targetId: string, chatId: string) => Promise<any>) {
@@ -133,7 +161,7 @@ export function createEntityEditors(deps: {
         if (!state.data) return
         const box = kind === 'group' ? (state.data as any).chatsByGroup?.[targetId] : state.data.chatsByRole?.[targetId]
         const stillActive = String(box?.activeChatId || '') === chatId
-        if (stillActive) render()
+        if (stillActive) notifyChatLoaded(kind, targetId, chatId)
         if (stillActive && chat) scrollToBottomSoon()
       })
       .catch((error: any) => {
@@ -141,7 +169,7 @@ export function createEntityEditors(deps: {
         const box = kind === 'group' ? (state.data as any)?.chatsByGroup?.[targetId] : state.data?.chatsByRole?.[targetId]
         if (String(box?.activeChatId || '') !== chatId) return
         showToast?.(String(error?.message || error || '会话加载失败'), { kind: 'error' })
-        render()
+        notifyScopes([refreshScopes.session(kind, targetId, chatId)])
       })
   }
 
@@ -811,36 +839,38 @@ export function createEntityEditors(deps: {
     const state = getState()
     const role = sa.activeRole()
     if (!role || !state.data) return
+    const targetId = String(role.id || '')
     saveActiveComposerDraftMirror(state)
     clearPendingChatForTarget(state, 'role', role.id)
-    const box = sa.ensureChatsBoxBare(String(role.id))
+    const box = sa.ensureChatsBoxBare(targetId)
     if (!box) return
     const cid = String(chatId || '')
     if (!boxHasChatRef(box, cid)) return
     writeActiveChatSelection(box, cid)
     activateComposerDraftForCurrentSession(state)
-    ;(setRoleActiveChatSelection?.(String(role.id || ''), cid) || save()).catch(() => {})
-    render()
+    ;(setRoleActiveChatSelection?.(targetId, cid) || save()).catch(() => {})
+    notifyChatSelected('role', targetId, cid)
     scrollToBottomSoon()
-    loadPickedChatInBackground('role', String(role.id || ''), cid, ensureChatLoaded)
+    loadPickedChatInBackground('role', targetId, cid, ensureChatLoaded)
   }
 
   async function pickChatForActiveGroup(chatId: any) {
     const state = getState()
     const group = sa.activeGroup()
     if (!group || !state.data) return
+    const targetId = String((group as any).id || '')
     saveActiveComposerDraftMirror(state)
-    clearPendingChatForTarget(state, 'group', (group as any).id)
-    const box = sa.ensureGroupChatsBoxBare(String((group as any).id || ''))
+    clearPendingChatForTarget(state, 'group', targetId)
+    const box = sa.ensureGroupChatsBoxBare(targetId)
     if (!box) return
     const cid = String(chatId || '')
     if (!boxHasChatRef(box, cid)) return
     writeActiveChatSelection(box, cid)
     activateComposerDraftForCurrentSession(state)
-    ;(setGroupActiveChatSelection?.(String((group as any).id || ''), cid) || save()).catch(() => {})
-    render()
+    ;(setGroupActiveChatSelection?.(targetId, cid) || save()).catch(() => {})
+    notifyChatSelected('group', targetId, cid)
     scrollToBottomSoon()
-    loadPickedChatInBackground('group', String((group as any).id || ''), cid, ensureGroupChatLoaded)
+    loadPickedChatInBackground('group', targetId, cid, ensureGroupChatLoaded)
   }
 
   function pickChatForActiveTarget(chatId: any) {

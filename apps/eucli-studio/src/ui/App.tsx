@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
-import { useUiDataVersion } from './hooks/useScopedUiVersion'
+import { useScopedUiVersion, useUiDataVersion } from './hooks/useScopedUiVersion'
 import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
@@ -31,7 +31,7 @@ import { useSessionKeepAlive } from './hooks/useSessionKeepAlive'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
-import { messageRefreshScope } from '../domain/uiRefreshScope'
+import { messageRefreshScope, refreshScopes } from '../domain/uiRefreshScope'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
@@ -198,6 +198,15 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const renderChat = chatSwitch.renderChat
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
+
+  useScopedUiVersion(controller, refreshScopes.navigation())
+  const activeSessionScope = React.useMemo(
+    () => (activeChatId && activeChatTargetId
+      ? refreshScopes.session(activeTargetKind, activeChatTargetId, activeChatId)
+      : ''),
+    [activeTargetKind, activeChatTargetId, activeChatId],
+  )
+  useScopedUiVersion(controller, activeSessionScope, !!activeSessionScope)
 
   // 正文加载失败的唯一事实源是 controller 的 chatLoadFailures（由加载路径写入）。
   // 失败按会话分格存放，这里只取「当前目标会话」那一格：
