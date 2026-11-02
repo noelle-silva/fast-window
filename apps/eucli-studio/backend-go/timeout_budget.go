@@ -74,6 +74,9 @@ func methodTimeoutClass(method string, envelope ebRequest) timeoutClass {
 		"aiChat.healthCheck",
 		"studio.bootstrap":
 		return timeoutClassInteraction
+	case "aiChat.assistConfig.set":
+		// assist 配置写入是后台动作：只写 box，不阻塞交互读。
+		return timeoutClassBackground
 	case "aiChat.netRequest", "eucli.eb.request":
 		return ebTimeoutClass(envelope)
 	default:

@@ -1,4 +1,5 @@
 import type { AiChatNetAdapter, AiChatRuntimeStore } from '../engine/types'
+import type { AiChatAssistService } from '../protocol/aiChatProtocol'
 import type { SessionSwitchClient } from '../protocol/sessionSwitchProtocol'
 
 // ---- gateway interface types ----
@@ -53,6 +54,11 @@ export type AiChatClipboardGateway = {
   readText?: () => Promise<string>
 }
 
+// AI 微服务配置写入通道：一次只写目标 service 对应的 assist 端点。
+export type AiChatAssistConfigGateway = {
+  set: (service: AiChatAssistService, config: Record<string, any>) => Promise<any>
+}
+
 // ---- full capabilities (legacy compat) ----
 
 export type AiChatCapabilities = {
@@ -67,6 +73,8 @@ export type AiChatCapabilities = {
   artifacts: AiChatArtifactGateway
   ui: AiChatUiGateway
   clipboard: AiChatClipboardGateway
+  // AI 微服务配置写入（可选）：与 meta 偏好写入彻底解耦。
+  assistConfig?: AiChatAssistConfigGateway
   host?: any
   // scope 化协议客户端（可选）：缺席时 controller 全程走旧 storage key 路径。
   sessionSwitch?: SessionSwitchClient
@@ -171,6 +179,9 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string)
       writeImage: optionalFunction(clipboard.writeImage),
       readText: optionalFunction(clipboard.readText),
     },
+    assistConfig: api.assistConfig && typeof api.assistConfig.set === 'function'
+      ? { set: api.assistConfig.set }
+      : undefined,
     host: api.host,
     sessionSwitch: api.sessionSwitch,
   }

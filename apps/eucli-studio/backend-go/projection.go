@@ -258,15 +258,11 @@ func (p *projectionService) resetReadModel() {
 	p.model.sessions.invalidateAll()
 }
 
-func (p *projectionService) saveMeta(ctx context.Context, value any) error {
+// saveMeta 只负责客户端本地偏好（projection.UI / projection.Settings）。
+// e-b assist 配置由 aiChat.assistConfig.set 单独写入，两条事实互不阻塞。
+func (p *projectionService) saveMeta(_ context.Context, value any) error {
 	meta := objectMap(value)
 	settings := objectMap(meta["settings"])
-	if err := p.saveAssistConfigs(ctx, settings); err != nil {
-		return err
-	}
-	if len(settings) > 0 {
-		p.model.assist.invalidate()
-	}
 	_, err := p.config.updateProjection(func(projection *projectionConfig) {
 		projection.UI = objectMap(meta["ui"])
 		projection.Settings = mergeProjectionSettingsForMetaSave(projection.Settings, settings)
@@ -289,37 +285,6 @@ func (p *projectionService) loadFavorites(ctx context.Context) (map[string]any, 
 func (p *projectionService) saveFavorites(ctx context.Context, favorites map[string]any) error {
 	_, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: "/api/sessions/favorites", Body: mustJSON(favorites)})
 	return err
-}
-
-func (p *projectionService) saveAssistConfigs(ctx context.Context, settings map[string]any) error {
-	services := objectMap(settings["aiServices"])
-	requests := []struct {
-		config map[string]any
-		path   string
-	}{
-		{config: objectMap(services["stickerNaming"]), path: "/api/assist/stickers/name/config"},
-		{config: objectMap(services["mermaidFix"]), path: "/api/assist/mermaid-fix/config"},
-		{config: objectMap(services["chatTitleNaming"]), path: "/api/assist/chat-title/config"},
-		{config: objectMap(services["contextCompression"]), path: "/api/assist/context-compression/config"},
-	}
-	for _, req := range requests {
-		if len(req.config) == 0 {
-			continue
-		}
-		kind := stringField(req.config, "kind")
-		providerID := stringField(req.config, "providerId")
-		groupID := stringField(req.config, "groupId")
-		modelID := stringField(req.config, "modelId")
-		coordinate := assistModelCoordinate(kind, providerID, groupID, modelID)
-		body := map[string]any{"enabled": boolField(req.config, "enabled", false), "modelPick": modelID, "coordinate": coordinate, "systemPrompt": stringField(req.config, "systemPrompt"), "lowTemperature": boolField(req.config, "lowTemperature", true)}
-		if req.path == "/api/assist/context-compression/config" {
-			body = map[string]any{"modelPick": modelID, "coordinate": coordinate, "retainRecentMessages": intField(req.config, "retainRecentMessages", 15), "lowTemperature": boolField(req.config, "lowTemperature", true)}
-		}
-		if _, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: req.path, Body: mustJSON(body)}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (p *projectionService) saveStickers(value any) error {
@@ -472,20 +437,12 @@ func (p *projectionService) ensureAssistConfigs(ctx context.Context) (map[string
 
 func (p *projectionService) fetchAssistConfigs(ctx context.Context) (map[string]any, error) {
 	out := map[string]any{}
-	for _, item := range []struct {
-		key  string
-		path string
-	}{
-		{key: "mermaidFix", path: "/api/assist/mermaid-fix/config"},
-		{key: "chatTitleNaming", path: "/api/assist/chat-title/config"},
-		{key: "stickerNaming", path: "/api/assist/stickers/name/config"},
-		{key: "contextCompression", path: "/api/assist/context-compression/config"},
-	} {
-		config, err := p.loadAssistConfig(ctx, item.path)
+	for _, spec := range assistServiceSpecs {
+		config, err := p.loadAssistConfig(ctx, spec.path)
 		if err != nil {
 			return nil, err
 		}
-		out[item.key] = config
+		out[spec.key] = config
 	}
 	return out, nil
 }

@@ -171,6 +171,15 @@ func (s *service) dispatch(ctx context.Context, method string, params json.RawMe
 			return map[string]any{}, nil
 		}
 		return map[string]any{}, s.projection.remove(ctx, key)
+	case "aiChat.assistConfig.set":
+		var req struct {
+			Service string         `json:"service"`
+			Config  map[string]any `json:"config"`
+		}
+		if err := json.Unmarshal(paramsOrEmpty(params), &req); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, s.projection.setAssistConfig(ctx, req.Service, req.Config)
 	case "aiChat.imageRead":
 		return s.handleImageRead(ctx, params)
 	case "aiChat.imageWrite":
@@ -334,6 +343,7 @@ func isBusinessMethod(method string) bool {
 		"aiChat.storageSet",
 		"aiChat.storageRemove",
 		"aiChat.storageGetMany",
+		"aiChat.assistConfig.set",
 		"aiChat.sessionIndex.get",
 		"aiChat.sessionSummary.list",
 		"aiChat.session.get",

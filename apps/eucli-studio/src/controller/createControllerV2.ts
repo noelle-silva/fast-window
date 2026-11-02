@@ -2,6 +2,7 @@
 import { createUnifiedAssistantRenderEngine } from '../render/unified/engine'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 import type { AiChatController } from './types'
+import type { AiChatAssistService } from '../protocol/aiChatProtocol'
 
 // ---- domain ----
 import {
@@ -1161,7 +1162,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const appearanceActions = createAppearanceActions({ state, emit, saveMeta, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
   const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta })
-  const aiServiceActionSet = createAiServiceActions({ state, emit, saveMeta, showToast: api.ui?.showToast })
+  const aiServiceActionSet = createAiServiceActions({
+    state,
+    emit,
+    // AI 微服务配置是 e-b 的独立事实：只写目标 service，绝不触发本地 meta 保存。
+    saveAssistConfig: (service: AiChatAssistService, config: Record<string, any>) => {
+      const setter = api.assistConfig?.set
+      if (!setter) return Promise.reject(new Error('当前宿主不支持 AI 微服务配置写入'))
+      return setter(service, config)
+    },
+  })
   const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, reorderStickerCategoriesInternal, reorderStickersInternal, loadStickersFromSource, setStickersEnabled })
   const wallpaperActions = createWallpaperActions({
     state,

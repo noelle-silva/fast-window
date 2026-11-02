@@ -1,5 +1,5 @@
 import { createAiChatDirectClient, type AiChatDirectClient } from './createAiChatDirectClient'
-import { AI_CHAT_DIRECT_METHOD } from '../protocol/aiChatProtocol'
+import { AI_CHAT_DIRECT_METHOD, type AiChatAssistService } from '../protocol/aiChatProtocol'
 import { EUCLI_STUDIO_APP_ID } from '../runtime/eucliStudioGlobals'
 import { createSessionSwitchClient, storageGetMany } from './sessionSwitchClient'
 import { readHealthCheckFeatures } from './sessionSwitchClient'
@@ -40,6 +40,12 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
       remove: async (key: string) => directClient.invoke(AI_CHAT_DIRECT_METHOD.storageRemove, { key }),
       // 迁移垫片：把 4 个 index key 的扇出压成一次往返。
       getMany: (keys: string[]) => storageGetMany(directClient, keys),
+    },
+
+    assistConfig: {
+      // 显式写入单个 AI 微服务配置：不再经由 meta 顺带写四个 assist 端点。
+      set: async (service: AiChatAssistService, config: Record<string, any>) =>
+        directClient.invoke(AI_CHAT_DIRECT_METHOD.assistConfigSet, { service, config }),
     },
 
     runtimeStorage: {
