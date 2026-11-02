@@ -34,7 +34,14 @@ import { normalizeWallpaperSettings } from './wallpaper'
 import { readActiveChatSelection, reconcileActiveChatSelection, writeActiveChatSelection } from './activeChatSelection'
 import { readChatRunStatus } from './chatSessionRunStatus'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
-import { normalizeComposerMinRows, normalizeComposerRadius, normalizeComposerWidthPercent } from './composerAppearance'
+import {
+  normalizeComposerMinRows,
+  normalizeComposerModelShowProvider,
+  normalizeComposerRadius,
+  normalizeComposerWidthPercent,
+} from './composerAppearance'
+import { normalizeRequestRecordViewOptions } from './requestRecordViewOptions'
+import { normalizeSettingsNavOrder } from './settingsNavigation'
 import { normalizeSessionFacts } from './sessionFacts'
 import { normalizeTokenUsage } from './messageTokenUsage'
 import { normalizeCacheRate } from './sessionCacheRate'
@@ -189,6 +196,9 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).composerWidthPercent = normalizeComposerWidthPercent((d.settings as any).composerWidthPercent)
   ;(d.settings as any).composerMinRows = normalizeComposerMinRows((d.settings as any).composerMinRows)
   ;(d.settings as any).composerRadius = normalizeComposerRadius((d.settings as any).composerRadius)
+  ;(d.settings as any).composerModelShowProvider = normalizeComposerModelShowProvider((d.settings as any).composerModelShowProvider)
+  ;(d.settings as any).requestRecordViewOptions = normalizeRequestRecordViewOptions((d.settings as any).requestRecordViewOptions)
+  ;(d.settings as any).settingsNavOrder = normalizeSettingsNavOrder((d.settings as any).settingsNavOrder)
   ;(d.settings as any).chatFontSize = normalizeChatFontSize((d.settings as any).chatFontSize)
   ;(d.settings as any).chatFontFamily = normalizeChatFontFamily((d.settings as any).chatFontFamily)
   ;(d.settings as any).chatLetterSpacing = normalizeChatLetterSpacing((d.settings as any).chatLetterSpacing)

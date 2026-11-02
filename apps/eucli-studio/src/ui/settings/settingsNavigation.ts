@@ -1,32 +1,43 @@
 import { GROUP_ENTRY_VISIBLE } from '../appConstants'
+import {
+  SETTINGS_NAVIGATION_VALUES,
+  normalizeSettingsNavOrder,
+  type SettingsTabValue,
+} from '../../domain/settingsNavigation'
 
-export type SettingsTabValue = 'appearance' | 'session' | 'data' | 'groups' | 'roles' | 'workspaces' | 'providers' | 'modelGroups' | 'services' | 'tools' | 'stickers' | 'hookPrompts' | 'placeholders' | 'systemPlugins' | 'commandSystem' | 'eb' | 'access' | 'requestRecords'
+export type { SettingsTabValue }
 
 export type SettingsNavigationItem = {
   value: SettingsTabValue
   label: string
 }
 
-const ALL_SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = [
-  { value: 'tools', label: 'AI 工具管理' },
-  { value: 'systemPlugins', label: '系统插件管理' },
-  { value: 'roles', label: '角色管理' },
-  { value: 'providers', label: '供应商管理' },
-  { value: 'modelGroups', label: '模型组' },
-  { value: 'placeholders', label: '占位符管理' },
-  { value: 'hookPrompts', label: 'hook 提示词' },
-  { value: 'session', label: '会话设置' },
-  { value: 'workspaces', label: '工作区管理' },
-  { value: 'groups', label: '群组管理' },
-  { value: 'services', label: 'AI 微服务' },
-  { value: 'eb', label: 'eucli-box连接设置' },
-  { value: 'appearance', label: '客户端外观' },
-  { value: 'stickers', label: '表情包' },
-  { value: 'commandSystem', label: '命令系统管理' },
-  { value: 'access', label: '端口开放设置' },
-  { value: 'requestRecords', label: '请求记录' },
-  { value: 'data', label: '客户端数据' },
-]
+// 标签是 UI 展示事实；分类的合法值与默认顺序由 domain 层统一维护。
+const SETTINGS_NAVIGATION_LABELS: Record<SettingsTabValue, string> = {
+  tools: 'AI 工具管理',
+  systemPlugins: '系统插件管理',
+  roles: '角色管理',
+  providers: '供应商管理',
+  modelGroups: '模型组',
+  placeholders: '占位符管理',
+  hookPrompts: 'hook 提示词',
+  session: '会话设置',
+  workspaces: '工作区管理',
+  groups: '群组管理',
+  services: 'AI 微服务',
+  eb: 'eucli-box连接设置',
+  appearance: '客户端外观',
+  stickers: '表情包',
+  commandSystem: '命令系统管理',
+  access: '端口开放设置',
+  requestRecords: '请求记录',
+  data: '客户端数据',
+}
+
+const ALL_SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = SETTINGS_NAVIGATION_VALUES.map((value) => ({
+  value,
+  label: SETTINGS_NAVIGATION_LABELS[value],
+}))
 
 // 群组入口显隐总开关（唯一事实源）关闭时，从导航列表过滤掉「群组管理」；开启时原样恢复。
 export const SETTINGS_NAVIGATION_ITEMS: SettingsNavigationItem[] = ALL_SETTINGS_NAVIGATION_ITEMS.filter(
@@ -40,25 +51,16 @@ export function resolveSettingsTab(value: unknown, items: SettingsNavigationItem
   return items[0]?.value ?? SETTINGS_NAVIGATION_ITEMS[0].value
 }
 
-// 保存的顺序只作为“优先顺序”：未知条目忽略、重复忽略，未覆盖到的分类按默认顺序补在末尾。
+// 顺序归一化复用 domain 单一事实源，再按当前显隐规则映射为可见导航项。
 export function mergeSettingsNavigationItems(rawOrder: unknown): SettingsNavigationItem[] {
-  const byValue = new Map<SettingsTabValue, SettingsNavigationItem>(SETTINGS_NAVIGATION_ITEMS.map((item) => [item.value, item]))
+  const byValue = new Map<SettingsTabValue, SettingsNavigationItem>(
+    SETTINGS_NAVIGATION_ITEMS.map((item) => [item.value, item]),
+  )
   const ordered: SettingsNavigationItem[] = []
-  const seen = new Set<SettingsTabValue>()
 
-  if (Array.isArray(rawOrder)) {
-    for (const raw of rawOrder) {
-      const item = byValue.get(String(raw || '').trim() as SettingsTabValue)
-      if (!item || seen.has(item.value)) continue
-      seen.add(item.value)
-      ordered.push(item)
-    }
-  }
-
-  for (const item of SETTINGS_NAVIGATION_ITEMS) {
-    if (seen.has(item.value)) continue
-    seen.add(item.value)
-    ordered.push(item)
+  for (const value of normalizeSettingsNavOrder(rawOrder)) {
+    const item = byValue.get(value)
+    if (item) ordered.push(item)
   }
 
   return ordered
