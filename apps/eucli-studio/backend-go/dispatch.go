@@ -180,6 +180,7 @@ const (
 	storageSequencePrefix = "storage:"
 	runtimeSequencePrefix = "runtime:"
 	imageSequencePrefix   = "image:"
+	assistSequencePrefix  = "assist:"
 	connectionSequenceKey = "connection"
 )
 
@@ -193,6 +194,8 @@ type requestPeek struct {
 	Key string
 	// ImagePath 是 imageRead/Write/Delete 的路径。
 	ImagePath string
+	// AssistService 是 assistConfig.set 的目标 AI 微服务。
+	AssistService string
 	// Envelope 是透传请求（netRequest / eb.request）的 method / path。
 	Envelope ebRequest
 	// SwitchID / Scope 是观测关联键。
@@ -211,6 +214,7 @@ func peekRequestParams(method string, params json.RawMessage) requestPeek {
 		RelPath  string          `json:"relPath"`
 		Method   string          `json:"method"`
 		URL      string          `json:"url"`
+		Service  string          `json:"service"`
 		SwitchID string          `json:"switchId"`
 		Scope    json.RawMessage `json:"scope"`
 	}
@@ -218,6 +222,7 @@ func peekRequestParams(method string, params json.RawMessage) requestPeek {
 		return peek
 	}
 	peek.Key = strings.TrimSpace(probe.Key)
+	peek.AssistService = strings.TrimSpace(probe.Service)
 	if path := strings.TrimSpace(probe.Path); path != "" {
 		peek.ImagePath = path
 	} else {
@@ -293,6 +298,9 @@ func classifyRequest(method string, peek requestPeek) dispatchIntent {
 	case "aiChat.setActiveChat":
 		// 偏好命令写客户端投影配置：与 meta 写共用一把序列门。
 		return dispatchIntent{lane: laneLocal, sequenceKey: storageSequencePrefix + "meta/index"}
+	case "aiChat.assistConfig.set":
+		// 写入 e-b 的 assist 端点：按 service 串行，不同服务之间互不排队。
+		return dispatchIntent{lane: laneRemote, sequenceKey: assistSequencePrefix + peek.AssistService}
 	default:
 		return dispatchIntent{lane: laneRemote}
 	}
