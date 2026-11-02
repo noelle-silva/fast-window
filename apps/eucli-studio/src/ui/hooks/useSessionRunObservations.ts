@@ -16,12 +16,13 @@ type TargetKind = 'role' | 'group' | 'workspace'
 
 export function useSessionRunObservations(deps: {
   data: any
+  dataVersion: number
   s: any
   activeTargetKind: TargetKind
   activeChatTargetId: any
   activeChatId: any
 }) {
-  const { data, s, activeTargetKind, activeChatTargetId, activeChatId } = deps
+  const { data, dataVersion, s, activeTargetKind, activeChatTargetId, activeChatId } = deps
 
   const [chatSessionRunNotices, setChatSessionRunNotices] = React.useState<Record<string, ChatSessionRunNotice>>({})
   const chatSessionRunStatusRef = React.useRef<Record<string, ChatSessionRunObservation>>({})
@@ -72,7 +73,9 @@ export function useSessionRunObservations(deps: {
     })
 
     chatSessionRunStatusRef.current = nextByKey
-  })
+    // 全表扫描只由「数据版本 / 数据引用」驱动：
+    // App 本地 UI 状态（开弹层、树、页面）重渲染时不得重复扫描会话数据。
+  }, [dataVersion, data])
 
   React.useEffect(() => {
     const key = chatSessionRunNoticeKey(activeTargetKind, activeChatTargetId, activeChatId)
@@ -83,7 +86,8 @@ export function useSessionRunObservations(deps: {
       delete next[key]
       return next
     })
-  })
+    // 只有目标切换时才需要清掉「刚被打开会话」的通知。
+  }, [activeTargetKind, activeChatTargetId, activeChatId])
 
   const clearChatSessionRunNotice = useEvent((targetKind: TargetKind, targetId: string, chatId: string) => {
     const key = chatSessionRunNoticeKey(targetKind, targetId, chatId)

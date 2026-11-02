@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
+import { useUiDataVersion } from './hooks/useScopedUiVersion'
 import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
@@ -100,10 +101,16 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   return Math.ceil(gap) <= thresholdPx
 }
 
+// 无树 / 无目标时返回同一个稳定空集，避免每次渲染新建 Set 让下游 memo 失效。
+const EMPTY_TREE_HIGHLIGHT_EDGE_KEYS = new Set<string>()
+
 export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseViews: ReleaseCandidatesViews; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
   const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseViews, onReleaseRefresh } = props
   const s = useAiChatState(controller)
   const data = s.data
+  // 全局数据版本：区分「数据变化」与「App 本地 UI 状态变化」的唯一令牌。
+  // 顶层派生 memo 都以它为失效依据，本地 state 重渲染不会触发 O(n) 重算。
+  const dataVersion = useUiDataVersion(controller)
   const colorThemePreset = resolveColorThemePreview(data?.settings?.colorTheme, (s.draft as any)?.colorThemeDraft)
   const colorThemeColors = React.useMemo(() => getColorThemeColors(colorThemePreset), [colorThemePreset])
   const theme = React.useMemo(() => createStudioMuiTheme(colorThemePreset.mode, colorThemeColors), [colorThemePreset.mode, colorThemeColors])
@@ -205,17 +212,22 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeChatSettingsTargetKey = activeChatTargetId && activeChatId
     ? chatSettingsTargetKey({ kind: activeTargetKind, targetId: activeChatTargetId, sessionId: activeChatId })
     : ''
-  const chatSettingsSavingStatuses = chatSettingsSavingByTarget && typeof chatSettingsSavingByTarget === 'object'
-    ? Object.values(chatSettingsSavingByTarget).filter((item: any) => (
-        chatSettingsTargetKey({ kind: String(item?.kind || '') as any, targetId: String(item?.targetId || ''), sessionId: String(item?.sessionId || '') }) === activeChatSettingsTargetKey
-      )) as any[]
-    : []
-  const chatSettingsSavingFor = (action: string) => chatSettingsSavingStatuses.find((item: any) => String(item?.action || '') === action) || null
+  const chatSettingsSavingStatuses = React.useMemo(() => {
+    if (!chatSettingsSavingByTarget || typeof chatSettingsSavingByTarget !== 'object') return []
+    return Object.values(chatSettingsSavingByTarget).filter((item: any) => (
+      chatSettingsTargetKey({ kind: String(item?.kind || '') as any, targetId: String(item?.targetId || ''), sessionId: String(item?.sessionId || '') }) === activeChatSettingsTargetKey
+    )) as any[]
+    // 队列状态在对象内部增删，引用不变；dataVersion 是唯一的失效依据。
+  }, [dataVersion, chatSettingsSavingByTarget, activeChatSettingsTargetKey])
+  const chatSettingsSavingFor = React.useCallback(
+    (action: string) => chatSettingsSavingStatuses.find((item: any) => String(item?.action || '') === action) || null,
+    [chatSettingsSavingStatuses],
+  )
   const chatSettingsModelSaving = !!chatSettingsSavingFor('model')
   const chatSettingsReasoningSaving = !!chatSettingsSavingFor('reasoning')
   const chatSettingsStreamSaving = !!chatSettingsSavingFor('stream')
   const chatSettingsHookSaving = !!chatSettingsSavingFor('hook')
-  const openingChatMeta = (() => {
+  const openingChatMeta = React.useMemo(() => {
     if (activeChat || !data) return null
     const targetId = String(activeChatTargetId || '').trim()
     if (!targetId) return null
@@ -224,7 +236,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (!openingChatId) return null
     const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
     return metas.find((m: any) => String(m?.id || '') === openingChatId) || null
-  })()
+    // chatMetas 会就地更新，引用不保证变化；dataVersion 负责兜底失效。
+  }, [dataVersion, activeChat, data, activeChatTargetId, activeChatId, activeChatSelectionBox])
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
     activeTargetKind === 'role' &&
@@ -245,6 +258,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     isSendingThisChat,
   } = useSessionRunObservations({
     data,
+    dataVersion,
     s,
     activeTargetKind,
     activeChatTargetId,
@@ -640,9 +654,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const treeHighlightEdgeKeys = React.useMemo(() => {
     const tr: any = treeRender
     const target = String(lastMsgId || '').trim()
-    if (!tr || !target) return new Set<string>()
+    if (!tr || !target) return EMPTY_TREE_HIGHLIGHT_EDGE_KEYS
     const byId = tr?.byId
-    if (!byId || typeof byId.get !== 'function') return new Set<string>()
+    if (!byId || typeof byId.get !== 'function') return EMPTY_TREE_HIGHLIGHT_EDGE_KEYS
 
     const out = new Set<string>()
     const seen = new Set<string>()
@@ -673,9 +687,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const effectiveProviderId = hasChatOverride ? overrideProviderId : roleProviderId
   const effectiveModelId = hasChatOverride ? overrideModelId : roleModelId
   const effectiveModelRef = hasChatOverride ? chatOverrideRef : roleModelRef
-  const reasoningProfile = activeTargetKind !== 'group'
-    ? modelReasoningProfileFromModelRef(effectiveModelRef, providers, modelGroups)
-    : { supportsReasoning: false, defaultReasoningEffort: '' as const }
+  const reasoningProfile = React.useMemo(() => {
+    if (activeTargetKind === 'group') return { supportsReasoning: false, defaultReasoningEffort: '' as const }
+    const modelRef = normalizeModelRef(chatOverride) || roleDefaultModelRef(activeRole)
+    return modelReasoningProfileFromModelRef(modelRef, providers, modelGroups)
+    // providers / modelGroups 会就地更新，dataVersion 负责失效。
+  }, [dataVersion, activeTargetKind, chatOverride, activeRole, providers, modelGroups])
   const activeChatReasoningEffort = chatReasoningEffort(activeChat)
   const activeEffectiveReasoningEffort = effectiveReasoningEffort(activeChat, reasoningProfile)
   const activeReasoningLabel = reasoningEffortLabel(activeEffectiveReasoningEffort)
@@ -746,7 +763,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeRoleId = String(activeRole?.id || '')
   // 会话导航统一走 domain：工作区会话按「工作区::角色」复合键取箱，
   // 曾用纯工作区 id 直查取空，导致历史切换按钮恒灰。
-  const chatNav = resolveActiveChatNav({
+  const chatNav = React.useMemo(() => resolveActiveChatNav({
     loading: !!s.loading,
     kind: activeTargetKind,
     groupId: activeGroupId,
@@ -755,7 +772,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     data,
     state: s,
     activeChat,
-  })
+    // 会话列表可能就地排序 / 增删，引用不保证变化；dataVersion 负责失效。
+  }), [dataVersion, s, data, activeTargetKind, activeGroupId, activeWorkspaceId, activeRoleId, activeChat])
 
   React.useLayoutEffect(() => {
     // 只有聊天页有输入区；离开聊天页时清掉偏移，让通知回到默认位置。
@@ -973,7 +991,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   // 顶栏按钮配置：侧边栏负责角色 / 工作区导航，顶栏只保留会话操作与全局入口。
   const canCreateChat = activeTargetKind === 'workspace' ? !!(activeWorkspace && activeRole) : !!activeRole
-  const runningSessions = collectRunningSessions({ state: s, data, includeGroups: GROUP_ENTRY_VISIBLE })
+  const runningSessions = React.useMemo(
+    () => collectRunningSessions({ state: s, data, includeGroups: GROUP_ENTRY_VISIBLE }),
+    // 运行卡与会话标题都在 state/data 内就地更新，dataVersion 是失效依据。
+    [dataVersion, s, data],
+  )
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
   const navControlsProps = {
     canCreateChat,
