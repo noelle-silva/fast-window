@@ -55,7 +55,7 @@ export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Pro
   await created.init({ businessAvailable: bootstrap.businessAvailable })
   ;(window as any)[EUCLI_STUDIO_CONTROLLER_KEY] = controller
   installSessionDiagnostics({ controller, directClient })
-  installSmokeDiagnostics({ controller })
+  installSmokeDiagnostics({ controller, directClient })
 
   return {
     controller,

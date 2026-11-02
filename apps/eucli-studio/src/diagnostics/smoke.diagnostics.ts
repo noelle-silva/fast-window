@@ -14,6 +14,9 @@ import { EUCLI_STUDIO_DIAGNOSTICS_KEY } from '../runtime/eucliStudioGlobals'
 
 export type SmokeDiagnosticsDeps = {
   controller: any
+  directClient: {
+    invoke: (method: string, params?: unknown, options?: { timeoutMs?: number }) => Promise<any>
+  }
 }
 
 type StepResult = {
@@ -48,7 +51,7 @@ async function waitFor(check: () => boolean, timeoutMs: number, reason: string):
 }
 
 export function installSmokeDiagnostics(deps: SmokeDiagnosticsDeps) {
-  const { controller } = deps
+  const { controller, directClient } = deps
 
   function state() {
     return controller.getState?.() || {}
@@ -97,6 +100,11 @@ export function installSmokeDiagnostics(deps: SmokeDiagnosticsDeps) {
     const marker = `smoke-${startedAt}`
     const steps: StepResult[] = []
     let createdChatId = ''
+
+    await waitFor(() => {
+      const s = state()
+      return !!s?.data && !!text(s?.draft?.activeRoleId || s?.data?.ui?.activeRoleId)
+    }, 10000, '应用尚未就绪：没有可用角色')
 
     const record = (name: string, status: StepResult['status'], detail: string) => {
       steps.push({ name, status, detail })
@@ -195,14 +203,18 @@ export function installSmokeDiagnostics(deps: SmokeDiagnosticsDeps) {
       return `deleted=${createdChatId}`
     })
 
-    record('断线重连', 'skipped', '当前诊断入口不直接控制 WebSocket 重连；由会话写回守卫的集成测试覆盖')
+    await runStep('断线重连', async () => {
+      const client = directClient as any
+      const before = client.ws
+      if (!before) throw new Error('当前没有可断开的 WebSocket 连接')
+      if (typeof client.markDisconnected === 'function') client.markDisconnected(before, '诊断强制重连')
+      else before.close()
+      await waitFor(() => !!client.ws && client.ws !== before && client.ws.readyState === 1, 10000, '重连超时')
+      await directClient.invoke('aiChat.healthCheck', {})
+      return 'WebSocket 已断开并重连，握手成功'
+    })
 
-    const groups = Array.isArray(state()?.data?.groups) ? state().data.groups : []
-    if (!groups.length) {
-      record('群聊', 'skipped', '当前没有群组目标')
-    } else {
-      record('群聊', 'skipped', '群聊链路需要独立目标与配置，本版冒烟暂不自动切换')
-    }
+    record('群聊', 'skipped', '该功能后续退役，不再纳入冒烟')
 
     const ok = steps.every((step) => step.status !== 'failed')
     return { ok, marker, startedAt, finishedAt: Date.now(), steps }
