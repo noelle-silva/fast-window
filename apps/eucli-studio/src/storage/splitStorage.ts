@@ -3,6 +3,7 @@ import { now, uid } from '../core/utils'
 import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
+import { projectionOwnedSettings } from '../domain/projectionSettings'
 import {
   splitRoleKey,
   splitChatKey,
@@ -16,8 +17,8 @@ import {
   groupFolderName,
   providerFolderName,
 } from '../domain/storageKeys'
-import { chatIndexKeyFor, loadProvidersFromStorage, loadSplitMetaSnapshot, normalizeStoredChatIndex } from './splitIndexes'
-import { initializeStickerSettingsStorage, loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
+import { chatIndexKeyFor, loadSplitMetaSnapshot, normalizeStoredChatIndex } from './splitIndexes'
+import { initializeStickerSettingsStorage } from './stickerSettingsPersistence'
 
 let splitMetaCache: any = null
 // splitMetaBaseline 是「上次成功落盘的 ui + settings」的规范化指纹。
@@ -77,10 +78,6 @@ export function createEmptyShellData() {
   })
 }
 
-// providers / stickers 是后端派生字段：每次 meta() 都会重新组装，
-// 拿它们做比较会让每次保存都判定为「有变化」。
-const DERIVED_SETTINGS_KEYS = ['providers', 'stickers'] as const
-
 // canonicalJson 递归排序对象键，保证「语义相同、键序不同」的两份偏好
 // 得到同一个指纹；数组保持原序。
 function canonicalJson(value: any): string {
@@ -98,13 +95,11 @@ function canonicalJson(value: any): string {
   return `{${parts.join(',')}}`
 }
 
-// preferenceFingerprint 只覆盖「客户端偏好」：ui + settings（去掉派生字段）。
+// preferenceFingerprint 只覆盖「客户端偏好」：ui + 投影自有 settings。
+// 过滤名单的唯一事实源是 domain/projectionSettings，禁止在这里复制。
 // 基线在读取成功、写入成功两个时刻更新，且只保存字符串，不保存对象。
 function preferenceFingerprint(ui: any, settings: any) {
-  const source = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {}
-  const settingsSnapshot = cloneJsonData(source)
-  for (const key of DERIVED_SETTINGS_KEYS) delete (settingsSnapshot as any)[key]
-  return `${canonicalJson(ui)}|${canonicalJson(settingsSnapshot)}`
+  return `${canonicalJson(ui)}|${canonicalJson(projectionOwnedSettings(settings))}`
 }
 
 export function createSplitStorage(deps: {
@@ -112,6 +107,8 @@ export function createSplitStorage(deps: {
   syncRoleAvatarFile?: (folder: any, role: any) => Promise<void>
   syncGroupAvatarFile?: (folder: any, group: any) => Promise<void>
   getState?: () => any
+  // 整体 load 已删除（状态组装统一走 lazyChatStore.loadShell）。
+  // 这两个字段仅保留给现有控制器装配，待控制器侧清理后移除。
   setState?: (data: any) => void
   onError?: (msg: string) => void
   // 会话索引已迁出 meta：任何会话索引失效都通知上层缓存作废。
@@ -126,8 +123,6 @@ export function createSplitStorage(deps: {
     syncRoleAvatarFile: _syncRoleAvatarFile = noop,
     syncGroupAvatarFile: _syncGroupAvatarFile = noop,
     getState,
-    setState,
-    onError,
     onSessionIndexInvalidated,
     onCatalogInvalidated,
     setActiveChatCommand,
@@ -372,89 +367,6 @@ export function createSplitStorage(deps: {
     return normalizeStoredChatIndex(raw, { kind, targetId }, kind === 'group' ? '群聊' : '新聊天').chatIds
   }
 
-  async function loadSplitData() {
-    const meta = (await loadSplitMeta()) || splitMetaCache
-    if (!meta) return null
-
-    let stickers = null
-    try {
-      stickers = await loadStickerSettingsFromStorage(storage)
-    } catch (_) {
-      stickers = null
-    }
-
-    let favorites = null
-    try {
-      favorites = await storage.get(SESSION_FAVORITES_KEY)
-    } catch (_) {
-      favorites = null
-    }
-
-    const providers = await loadProvidersFromStorage(storage, meta)
-
-    const d = {
-      version: VERSION,
-      // 与 loadShell 同理：state 必须是独立的一棵树，往 settings 挂
-      // stickers / providers 时不得改到 meta 快照。
-      settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
-      favorites: normalizeFavorites(favorites),
-      roles: [] as any[],
-      chatsByRole: {} as Record<string, any>,
-      groups: [] as any[],
-      chatsByGroup: {} as Record<string, any>,
-      ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
-    }
-
-    ;(d.settings as any).stickers = stickers && typeof stickers === 'object' ? stickers : {}
-    ;(d.settings as any).providers = providers
-
-    for (const rid of meta.roleOrder) {
-      const folder = String(meta.roleFolders?.[rid] || '')
-      if (!folder) throw new Error('存储索引损坏：roleFolders 缺失')
-
-      const r = await storage.get(splitRoleKey(folder))
-      const role = r && typeof r === 'object' ? r : null
-      if (!role) throw new Error('存储损坏：角色文件缺失或无效')
-
-      d.roles.push(role)
-
-      const idx = normalizeStoredChatIndex(
-        await storage.get(splitRoleChatIndexKey(folder)).catch(() => null),
-        { kind: 'role', targetId: rid },
-        '新聊天',
-      )
-      d.chatsByRole[String(role.id || rid)] = {
-        activeChatId: idx.activeChatId,
-        chatMetas: idx.chatMetas,
-        chats: [],
-      }
-    }
-
-    for (const gid of (meta as any).groupOrder || []) {
-      const folder = String((meta as any).groupFolders?.[gid] || '')
-      if (!folder) throw new Error('存储索引损坏：groupFolders 缺失')
-
-      const g0 = await storage.get(splitGroupKey(folder))
-      const group = g0 && typeof g0 === 'object' ? g0 : null
-      if (!group) throw new Error('存储损坏：群组文件缺失或无效')
-
-      ;(d as any).groups.push(group)
-
-      const idx = normalizeStoredChatIndex(
-        await storage.get(splitGroupChatIndexKey(folder)).catch(() => null),
-        { kind: 'group', targetId: gid },
-        '群聊',
-      )
-      ;(d as any).chatsByGroup[String(group.id || gid)] = {
-        activeChatId: idx.activeChatId,
-        chatMetas: idx.chatMetas,
-        chats: [],
-      }
-    }
-
-    return normalizeData(d)
-  }
-
   // ensureSplitStoreReady 只建立最小目录骨架：
   //   - meta/index（偏好 + 目录事实，后端 meta() 会补齐派生字段）
   //   - sessions/favorites
@@ -504,8 +416,11 @@ export function createSplitStorage(deps: {
       // 状态可能是调用方传进来的任意对象：写盘前先深拷贝成独立快照，
       // payload / 缓存都不再引用 state.data 里的对象。
       const nextUi = cloneJsonData(state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {})
-      const nextSettings = cloneJsonData(state.data.settings && typeof state.data.settings === 'object' ? state.data.settings : {})
-      for (const key of DERIVED_SETTINGS_KEYS) delete (nextSettings as any)[key]
+      // 写盘 payload 与指纹共用同一份「投影自有 settings」过滤：
+      // providers / stickers / assist 子键都不进入 meta/index。
+      const nextSettings = projectionOwnedSettings(
+        cloneJsonData(state.data.settings && typeof state.data.settings === 'object' ? state.data.settings : {}),
+      )
 
       const fingerprint = preferenceFingerprint(nextUi, nextSettings)
       // 只有 ui / settings 真的变了才写盘：切换会话不产生 meta 写。
@@ -550,49 +465,9 @@ export function createSplitStorage(deps: {
     await next
   }
 
-  async function load() {
-    const state = getState?.()
-    try {
-      await ensureSplitStoreReady()
-      const split = await loadSplitData()
-      if (!split) throw new Error('存储未初始化')
-      setState?.(split)
-      if (state) {
-        state.draft.activeRoleId = String(split?.ui?.activeRoleId || '')
-        state.draft.activeGroupId = String((split?.ui as any)?.activeGroupId || '')
-        ;(state.draft as any).activeWorkspaceId = String((split?.ui as any)?.activeWorkspaceId || '')
-        const targetKind = String((split?.ui as any)?.activeTargetKind || 'role').trim()
-        state.draft.activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
-      }
-    } catch (e: any) {
-      setState?.(null)
-      if (state) {
-        state.draft.activeRoleId = ''
-        state.draft.activeGroupId = ''
-        ;(state.draft as any).activeWorkspaceId = ''
-        state.draft.activeTargetKind = 'role'
-      }
-      onError?.(String(e?.message || e || '加载失败'))
-    } finally {
-      if (state) state.loading = false
-    }
-  }
-
-  async function save() {
-    const state = getState?.()
-    if (!state?.data) return
-    state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
-    ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
-    ;(state.data.ui as any).activeWorkspaceId = String((state.draft as any)?.activeWorkspaceId || '')
-    const targetKind = String(state.draft?.activeTargetKind || '').trim()
-    ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
-    await saveMetaOnly()
-  }
-
   return {
     loadSplitMeta,
     withSplitMetaWrite,
-    loadSplitData,
     ensureSplitStoreReady,
     saveRoleEntity,
     removeRoleEntity,
@@ -606,7 +481,5 @@ export function createSplitStorage(deps: {
     removeGroupChatEntry,
     saveMetaOnly,
     saveFavoritesOnly,
-    load,
-    save,
   }
 }

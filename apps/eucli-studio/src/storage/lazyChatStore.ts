@@ -1,18 +1,7 @@
-import { cloneJsonData } from '../core/jsonData'
-import { normalizeData } from '../domain/dataNormalizers'
-import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
-import { normalizeFavorites } from '../domain/favorites'
-import { chatMetasFromBox } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
-import {
-  splitChatKey,
-  splitGroupChatKey,
-  splitGroupKey,
-  splitRoleKey,
-} from '../domain/storageKeys'
-import { loadProvidersFromStorage } from './splitIndexes'
+import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
+import { buildStateFromMeta } from './buildStateFromMeta'
 import { normalizeStoredChat } from './normalizeStoredChat'
-import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
 import type { SessionWriteGuard, SessionWriteToken } from './sessionWriteGuard'
@@ -109,66 +98,7 @@ export function createLazyChatStore(deps: {
   async function loadShell() {
     const meta = await loadSplitMeta()
     if (!meta) return null
-
-    let stickers = null
-    try {
-      stickers = await loadStickerSettingsFromStorage(storage)
-    } catch (_) {
-      stickers = null
-    }
-
-    let favorites = null
-    try {
-      favorites = await storage.get(SESSION_FAVORITES_KEY)
-    } catch (_) {
-      favorites = null
-    }
-
-    const providers = await loadProvidersFromStorage(storage, meta)
-    // state 与 meta 快照必须是两棵独立的树：下面还要往 settings 里挂
-    // stickers / providers，共享引用会顺带改到偏好基线。
-    const d: any = {
-      version: VERSION,
-      settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
-      favorites: normalizeFavorites(favorites),
-      roles: [],
-      chatsByRole: {},
-      groups: [],
-      chatsByGroup: {},
-      ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
-    }
-    d.settings.stickers = stickers && typeof stickers === 'object' ? stickers : {}
-    d.settings.providers = providers
-
-    for (const rid of meta.roleOrder || []) {
-      const folder = String(meta.roleFolders?.[rid] || '')
-      if (!folder) throw new Error('存储索引损坏：roleFolders 缺失')
-      const role = await storage.get(splitRoleKey(folder))
-      if (!role || typeof role !== 'object') throw new Error('存储损坏：角色文件缺失或无效')
-      d.roles.push(role)
-      const index = await loadChatIndex(scopeFor('role', rid))
-      d.chatsByRole[String(role.id || rid)] = {
-        activeChatId: readActiveChatSelection(index),
-        chatMetas: index?.chatMetas || chatMetasFromBox({}, '新聊天'),
-        chats: [],
-      }
-    }
-
-    for (const gid of (meta as any).groupOrder || []) {
-      const folder = String((meta as any).groupFolders?.[gid] || '')
-      if (!folder) throw new Error('存储索引损坏：groupFolders 缺失')
-      const group = await storage.get(splitGroupKey(folder))
-      if (!group || typeof group !== 'object') throw new Error('存储损坏：群组文件缺失或无效')
-      d.groups.push(group)
-      const index = await loadChatIndex(scopeFor('group', gid))
-      d.chatsByGroup[String(group.id || gid)] = {
-        activeChatId: readActiveChatSelection(index),
-        chatMetas: index?.chatMetas || chatMetasFromBox({}, '群聊'),
-        chats: [],
-      }
-    }
-
-    return normalizeData(d)
+    return buildStateFromMeta({ meta, storage, loadChatIndex })
   }
 
   async function ensureChatLoaded(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {

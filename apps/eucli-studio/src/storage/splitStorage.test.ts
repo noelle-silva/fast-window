@@ -92,6 +92,84 @@ describe('saveMetaOnly', () => {
     expect(storage.values[SPLIT_META_KEY].settings.streamEnabled).toBe(false)
   })
 
+  it('aiServices 的 assist 子键变化不算偏好变化', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({
+      [SPLIT_META_KEY]: metaDoc(ui, {
+        streamEnabled: true,
+        aiServices: { mermaidFix: { enabled: false }, localOnly: { enabled: true } },
+      }),
+    })
+    // assist 子键由 aiChat.assistConfig.set 单独写入，不进入客户端偏好指纹。
+    const state = makeState(ui, {
+      streamEnabled: true,
+      aiServices: { mermaidFix: { enabled: true }, contextCompression: { retainRecentMessages: 9 }, localOnly: { enabled: true } },
+    })
+    state.draft.activeRoleId = 'role-1'
+
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    await store.saveMetaOnly()
+    expect(storage.writes).toEqual([])
+  })
+
+  it('aiServices 的非 assist 本地键仍参与偏好判定并落盘', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({
+      [SPLIT_META_KEY]: metaDoc(ui, {
+        aiServices: { mermaidFix: { enabled: false }, localOnly: { enabled: true } },
+      }),
+    })
+    const state = makeState(ui, {
+      aiServices: { mermaidFix: { enabled: true }, localOnly: { enabled: false } },
+    })
+    state.draft.activeRoleId = 'role-1'
+
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    await store.saveMetaOnly()
+    expect(storage.writes).toEqual([SPLIT_META_KEY])
+    const saved = storage.values[SPLIT_META_KEY]
+    expect(saved.settings.aiServices.localOnly).toEqual({ enabled: false })
+    // assist 子键不进入 meta：它们由业务端独立写入。
+    expect(saved.settings.aiServices.mermaidFix).toBeUndefined()
+  })
+
+  it('外观字段变化仍被指纹检测到，且派生 / 专用字段不落进 meta', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const storage = memoryStorage({
+      [SPLIT_META_KEY]: metaDoc(ui, {
+        wallpaper: { activeId: 'w1' },
+        providers: [{ id: 'p1' }],
+        stickers: { enabled: false },
+        aiServices: { mermaidFix: { enabled: false } },
+      }),
+    })
+    const state = makeState(ui, {
+      wallpaper: { activeId: 'w2' },
+      providers: [{ id: 'p2' }],
+      stickers: { enabled: true },
+      aiServices: { mermaidFix: { enabled: true } },
+    })
+    state.draft.activeRoleId = 'role-1'
+
+    const store = createSplitStorage({ storage, getState: () => state })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    await store.saveMetaOnly()
+    expect(storage.writes).toEqual([SPLIT_META_KEY])
+    const saved = storage.values[SPLIT_META_KEY]
+    expect(saved.settings.wallpaper.activeId).toBe('w2')
+    expect(saved.settings.providers).toBeUndefined()
+    expect(saved.settings.stickers).toBeUndefined()
+    expect(saved.settings.aiServices.mermaidFix).toBeUndefined()
+  })
+
   it('派生字段（providers / stickers）变化不算偏好变化', async () => {
     const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
     const storage = memoryStorage({ [SPLIT_META_KEY]: metaDoc(ui, { streamEnabled: true, providers: [{ id: 'p1' }] }) })

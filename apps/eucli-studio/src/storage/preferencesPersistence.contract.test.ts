@@ -152,14 +152,25 @@ describe('客户端偏好保存/重载·保存到 meta/index', () => {
     expect(payload.settings.branchTree.dir).toBe('tb')
   })
 
-  it('在 meta/index 上端到端保存 aiServices.mermaidFix.enabled', async () => {
+  it('aiServices 的 assist 子键变化不触发 meta 写盘', async () => {
     const { storage, payload } = await saveMutation((settings) => {
       settings.aiServices.mermaidFix.enabled = true
     })
 
+    // assist 配置由 aiChat.assistConfig.set 单独写入，不属于客户端偏好。
+    expect(storage.set).not.toHaveBeenCalled()
+    expect(storage.writes).toEqual([])
+    expect(payload.settings.aiServices.mermaidFix.enabled).toBe(false)
+  })
+
+  it('aiServices 的非 assist 本地键仍作为客户端偏好保存', async () => {
+    const { storage, payload } = await saveMutation((settings) => {
+      settings.aiServices.localOnly = { enabled: true }
+    })
+
     expect(storage.set).toHaveBeenCalled()
     expect(storage.writes).toEqual([SPLIT_META_KEY])
-    expect(payload.settings.aiServices.mermaidFix.enabled).toBe(true)
+    expect(payload.settings.aiServices.localOnly).toEqual({ enabled: true })
   })
 })
 
@@ -182,13 +193,23 @@ describe('客户端偏好保存/重载·重启读回', () => {
     expect(data.settings.branchTree.dir).toBe('tb')
   })
 
-  it('重启后 aiServices.mermaidFix.enabled 仍为 true', async () => {
+  it('重启后 aiServices 的非 assist 本地键仍存在', async () => {
+    const { storage } = await saveMutation((settings) => {
+      settings.aiServices.localOnly = { enabled: true }
+    })
+
+    const data = await reloadAfterSave(storage)
+    expect(data.settings.aiServices.localOnly).toEqual({ enabled: true })
+  })
+
+  it('重启后 assist 子键不会被客户端偏好回灌', async () => {
     const { storage } = await saveMutation((settings) => {
       settings.aiServices.mermaidFix.enabled = true
     })
 
     const data = await reloadAfterSave(storage)
-    expect(data.settings.aiServices.mermaidFix.enabled).toBe(true)
+    // 未写盘：读回的仍是 meta/index 里的旧值，真实 assist 配置由业务端提供。
+    expect(data.settings.aiServices.mermaidFix.enabled).toBe(false)
   })
 })
 
