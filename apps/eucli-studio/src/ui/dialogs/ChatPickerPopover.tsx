@@ -23,9 +23,10 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../components/ChatSessionRunIndicator'
 import { SOFT_POPOVER_HEADER_SX, SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX, SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
 import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { chatHistoryMatchesSearch } from '../utils/text'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { useScopedUiVersion, useUiDataVersion } from '../hooks/useScopedUiVersion'
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ChatPickerPopover = React.memo(function ChatPickerPopover(props: {
@@ -103,8 +104,19 @@ export const ChatPickerPopover = React.memo(function ChatPickerPopover(props: {
     onChatContextMenu,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
+  // 迁移期保留全局兜底：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
   useUiDataVersion(controller)
+  const chatListTargetId =
+    String(activeChatTargetId || '').trim() ||
+    (activeTargetKind === 'group'
+      ? String((activeGroup as any)?.id || '').trim()
+      : activeTargetKind === 'workspace'
+        ? workspaceRoleTargetId((activeWorkspace as any)?.id, (activeRole as any)?.id)
+        : String((activeRole as any)?.id || '').trim())
+  const entityDomain = activeTargetKind === 'group' ? 'groups' : activeTargetKind === 'workspace' ? 'workspaces' : 'roles'
+  // 选择器打开时才建立范围订阅；打开瞬间直接读当前快照，闭包里的 props 已是最新。
+  useScopedUiVersion(controller, refreshScopes.chatList(activeTargetKind, chatListTargetId), !!chatPickerEl && !!chatListTargetId)
+  useScopedUiVersion(controller, refreshScopes.entities(entityDomain), !!chatPickerEl)
 
   return (
     <DependablePopover

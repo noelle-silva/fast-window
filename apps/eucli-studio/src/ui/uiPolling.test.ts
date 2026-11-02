@@ -310,6 +310,37 @@ describe('uiPolling notice 对账', () => {
     expect(roleBox.chatMetas[1].updatedAt).toBe(9)
   })
 
+  it('非当前会话的通知只更新列表，不重载当前正文', async () => {
+    const { polling, state, reloadChatBody } = makeHarness({
+      revisions: [1],
+      bodies: { 'chat-1': { title: '当前会话', messages: [{ id: 'm1', content: '当前正文' }], updatedAt: 9000 } },
+    })
+    const roleBox = state.data.chatsByRole['role-1']
+    writeActiveChatSelection(roleBox, 'chat-1')
+    writeChatListProjection(roleBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', title: '当前会话', updatedAt: 1, messages: [{ id: 'm1', content: '当前正文' }] }],
+      chatMetas: [
+        { id: 'chat-1', title: '当前会话', updatedAt: 1 },
+        { id: 'chat-2', title: '旧标题', updatedAt: 1 },
+      ],
+    })
+    reloadChatBody.mockClear()
+
+    const applied = await polling.applyChatUpdatedNoticeOnce({
+      id: 'n-other',
+      targetKind: 'role',
+      targetId: 'role-1',
+      chatId: 'chat-2',
+      updatedAt: 77,
+    })
+
+    expect(applied).toBe(true)
+    expect(reloadChatBody).not.toHaveBeenCalled()
+    expect(roleBox.chatMetas.find((meta: any) => meta.id === 'chat-2').updatedAt).toBe(77)
+    expect(roleBox.chats[0].messages[0].content).toBe('当前正文')
+  })
+
   it('当前会话的通知走权威重取正文', async () => {
     const { polling, state, reloadChatBody } = makeHarness({
       revisions: [1],

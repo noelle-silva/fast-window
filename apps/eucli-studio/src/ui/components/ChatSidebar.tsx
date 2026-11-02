@@ -11,8 +11,9 @@ import {
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
 import type { SidebarView } from '../../domain/sidebarView'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { useScopedUiVersion, useUiDataVersion } from '../hooks/useScopedUiVersion'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
@@ -101,7 +102,22 @@ export function ChatSidebar(props: {
     onTabChange,
   } = props
 
-  const dataVersion = useUiDataVersion(controller)
+  // 迁移期保留全局兜底；列表 / 运行卡 / 导航各自建立范围订阅。
+  const globalDataVersion = useUiDataVersion(controller)
+  const chatListTargetId =
+    activeTargetKind === 'workspace'
+      ? workspaceRoleTargetId(activeWorkspaceId, activeRoleId)
+      : activeTargetKind === 'group'
+        ? String((data as any)?.ui?.activeGroupId || '').trim()
+        : String(activeRoleId || '').trim()
+  const chatListVersion = useScopedUiVersion(
+    controller,
+    refreshScopes.chatList(activeTargetKind, chatListTargetId),
+    !!chatListTargetId,
+  )
+  const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards())
+  const navigationVersion = useScopedUiVersion(controller, refreshScopes.navigation())
+  const refreshVersion = `${globalDataVersion}:${chatListVersion}:${runCardsVersion}:${navigationVersion}`
   const memory = getSidebarNavigationMemory()
   const activeTab: RoleSidebarTab | WorkspaceSidebarTab = view === 'role' ? memory.role.tab : memory.workspace.tab
 
@@ -233,7 +249,7 @@ export function ChatSidebar(props: {
         {view === 'role' ? (
           <RoleSidebarPanel
             tab={memory.role.tab}
-            dataVersion={dataVersion}
+            refreshVersion={refreshVersion}
             roles={roles}
             activeRoleId={activeRoleId}
             activeTargetKind={activeTargetKind}
@@ -255,7 +271,7 @@ export function ChatSidebar(props: {
         ) : (
           <WorkspaceSidebarPanel
             tab={memory.workspace.tab}
-            dataVersion={dataVersion}
+            refreshVersion={refreshVersion}
             roles={workspaceRoles}
             workspaces={workspaces}
             activeRoleId={activeRoleId}

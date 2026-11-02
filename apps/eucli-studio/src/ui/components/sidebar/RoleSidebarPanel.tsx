@@ -9,7 +9,7 @@ import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
 
 export function RoleSidebarPanel(props: {
   tab: RoleSidebarTab
-  dataVersion: number
+  refreshVersion: string
   roles: any[]
   activeRoleId: string
   activeTargetKind: 'role' | 'group' | 'workspace'
@@ -41,7 +41,7 @@ export function RoleSidebarPanel(props: {
 }) {
   const sessions = React.useMemo(
     () => roleSidebarSessions(props.data, props.activeRoleId),
-    [props.dataVersion, props.data, props.activeRoleId],
+    [props.refreshVersion, props.data, props.activeRoleId],
   )
 
   if (props.tab === 'history') {

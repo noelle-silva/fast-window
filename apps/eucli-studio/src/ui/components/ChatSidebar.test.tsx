@@ -5,8 +5,10 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
-import { resetSidebarNavigationMemory, setWorkspaceSidebarTab } from '../../domain/sidebarNavigationMemory'
+import { resetSidebarNavigationMemory, setRoleSidebarTab, setWorkspaceSidebarTab } from '../../domain/sidebarNavigationMemory'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { createStudioMuiTheme } from '../colorThemeStyles'
+import { createUiCore } from '../uiCore'
 import { ChatSidebar } from './ChatSidebar'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -27,6 +29,16 @@ function createController() {
   return {
     getSnapshot: () => 0,
     subscribe: () => () => {},
+    actions: { openRoleEditor: noop, openWorkspaceEditor: noop },
+  } as any
+}
+
+function createScopedController(uiCore: ReturnType<typeof createUiCore>) {
+  return {
+    getSnapshot: () => uiCore.getVer(),
+    subscribe: uiCore.subscribe,
+    getScopeVer: (scope: string) => uiCore.getScopeVer(scope),
+    subscribeScope: (scope: string, fn: () => void) => uiCore.subscribeScope(scope, fn),
     actions: { openRoleEditor: noop, openWorkspaceEditor: noop },
   } as any
 }
@@ -116,5 +128,30 @@ describe('侧边栏视图的角色范围', () => {
     expect(host!.textContent).toContain('甲角色')
     expect(host!.textContent).not.toContain('乙角色')
     expect(host!.textContent).not.toContain('丙角色')
+  })
+
+  it('当前 target 的 chatList scope 变化时侧边栏更新，且不推进全局版本', () => {
+    const uiCore = createUiCore()
+    const data: any = { chatsByRole: { 'role-a': { activeChatId: '', chatMetas: [], chats: [] } }, chatsByWorkspace: {} }
+    setRoleSidebarTab('history')
+    renderSidebar({
+      controller: createScopedController(uiCore),
+      data,
+      view: 'role',
+      activeTargetKind: 'role',
+      activeRoleId: 'role-a',
+      activeChatId: '',
+    })
+
+    expect(host!.textContent).toContain('还没有会话')
+    const globalVersion = uiCore.getVer()
+
+    act(() => {
+      data.chatsByRole['role-a'].chatMetas.push({ id: 'c1', title: '后到会话', updatedAt: 100 })
+      uiCore.emitScope(refreshScopes.chatList('role', 'role-a'))
+    })
+
+    expect(uiCore.getVer()).toBe(globalVersion)
+    expect(host!.textContent).toContain('后到会话')
   })
 })

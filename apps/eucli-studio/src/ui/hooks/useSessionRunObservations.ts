@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { readActiveEbRunCardsForTarget } from '../../domain/activeRunCards'
 import { normalizeChatSessionRunStatus } from '../../domain/chatSessionRunStatus'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import type { ChatSessionRunIndicatorKind } from '../components/ChatSessionRunIndicator'
 import {
   chatSessionRunNoticeKey,
@@ -11,6 +12,7 @@ import {
   type ChatSessionRunObservation,
 } from '../chatSessionRunObservations'
 import { useEvent } from './useEvent'
+import { useScopedUiVersion } from './useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -21,8 +23,11 @@ export function useSessionRunObservations(deps: {
   activeTargetKind: TargetKind
   activeChatTargetId: any
   activeChatId: any
+  // 运行卡范围订阅；未注入时沿用全局数据版本兜底。
+  controller?: any
 }) {
-  const { data, dataVersion, s, activeTargetKind, activeChatTargetId, activeChatId } = deps
+  const { data, dataVersion, s, activeTargetKind, activeChatTargetId, activeChatId, controller } = deps
+  const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards(), !!controller)
 
   const [chatSessionRunNotices, setChatSessionRunNotices] = React.useState<Record<string, ChatSessionRunNotice>>({})
   const chatSessionRunStatusRef = React.useRef<Record<string, ChatSessionRunObservation>>({})
@@ -73,9 +78,9 @@ export function useSessionRunObservations(deps: {
     })
 
     chatSessionRunStatusRef.current = nextByKey
-    // 全表扫描只由「数据版本 / 数据引用」驱动：
+    // 全表扫描只由「数据版本 / 运行卡版本 / 数据引用」驱动：
     // App 本地 UI 状态（开弹层、树、页面）重渲染时不得重复扫描会话数据。
-  }, [dataVersion, data])
+  }, [dataVersion, runCardsVersion, data])
 
   React.useEffect(() => {
     const key = chatSessionRunNoticeKey(activeTargetKind, activeChatTargetId, activeChatId)

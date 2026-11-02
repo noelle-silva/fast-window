@@ -79,6 +79,26 @@ describe('运行中会话窗口', () => {
     expect(onOpen.mock.calls[0][0]).toMatchObject({ key: 'role:role-a:session-1', sessionId: 'session-1' })
   })
 
+  it('打开时订阅 runCards 范围', async () => {
+    const subscribeScope = vi.fn(() => () => {})
+    const controller = { getScopeVer: () => 0, subscribeScope }
+
+    await act(async () => {
+      root.render(
+        React.createElement(RunningSessionsDialog, {
+          open: true,
+          entries: [],
+          activeKey: '',
+          onClose: vi.fn(),
+          onOpen: vi.fn(),
+          controller,
+        }),
+      )
+    })
+
+    expect(subscribeScope).toHaveBeenCalledWith('runCards', expect.any(Function))
+  })
+
   it('没有运行中会话时显示空状态', async () => {
     await act(async () => {
       root.render(

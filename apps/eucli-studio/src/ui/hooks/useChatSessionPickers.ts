@@ -1,10 +1,11 @@
 import * as React from 'react'
 import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
-import { parseWorkspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { chatHistoryMatchesSearch } from '../utils/text'
 import { useEvent } from './useEvent'
 import { useLazyListWindow } from './useLazyListWindow'
-import { useUiDataVersion } from './useScopedUiVersion'
+import { useScopedUiVersion, useUiDataVersion } from './useScopedUiVersion'
 
 const CHAT_HISTORY_PAGE_SIZE = 20
 const CHAT_HISTORY_BOTTOM_THRESHOLD_RATIO = 0.25
@@ -71,9 +72,24 @@ export function useChatSessionPickers(deps: {
   const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
   const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
   const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
-  // 会话列表条数的唯一失效依据：刷新中枢的全局数据版本号。
+  // 会话列表条数的唯一失效依据：刷新中枢的版本号。
+  // 迁移期保留全局兜底，同时订阅当前 target 的 chatList 与对应实体域；
   // 会话数据可能异步后到并就地写入，不允许依赖 data / 目标对象的引用比对重算。
   const dataVersion = useUiDataVersion(controller)
+  const chatListTargetId =
+    String(activeChatTargetId || '').trim() ||
+    (activeTargetKind === 'group'
+      ? String((activeGroup as any)?.id || '').trim()
+      : activeTargetKind === 'workspace'
+        ? workspaceRoleTargetId((activeWorkspace as any)?.id, (activeRole as any)?.id)
+        : String((activeRole as any)?.id || '').trim())
+  const entityDomain = activeTargetKind === 'group' ? 'groups' : activeTargetKind === 'workspace' ? 'workspaces' : 'roles'
+  const chatListVersion = useScopedUiVersion(
+    controller,
+    refreshScopes.chatList(activeTargetKind, chatListTargetId),
+    !!chatPickerEl && !!chatListTargetId,
+  )
+  const entitiesVersion = useScopedUiVersion(controller, refreshScopes.entities(entityDomain), !!chatPickerEl)
   const chatHistoryTotal = React.useMemo(() => {
     if (activeTargetKind === 'group') {
       if (!activeGroup) return 0
@@ -92,7 +108,7 @@ export function useChatSessionPickers(deps: {
     const box = data?.chatsByRole?.[String(role.id)]
     const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
     return chats.filter((chat: any) => chatHistoryMatchesSearch(chat, '新聊天', chatPickerSearchText)).length
-  }, [dataVersion, activeTargetKind, activeChatTargetId, chatPickerSearchText])
+  }, [dataVersion, chatListVersion, entitiesVersion, activeTargetKind, activeChatTargetId, chatPickerSearchText])
   const { scrollRef: chatHistoryScrollRef, onScrollPositionChange: onChatHistoryScrollPositionChange, visibleCount: chatHistoryVisibleCount } = useLazyListWindow({
     resetKey: [chatPickerEl ? 'open' : 'closed', chatPickerView, activeTargetKind, activeChatTargetId, chatPickerSearchText].join(':'),
     total: chatHistoryTotal,

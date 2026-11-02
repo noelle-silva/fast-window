@@ -16,9 +16,11 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import type { RunningSessionEntry, RunningSessionStatusKey } from '../../domain/runningSessions'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { DependableDialog } from '../components/DependableOverlay'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { colorMixVar } from '../colorThemeStyles'
+import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
 
 const TARGET_KIND_LABEL: Record<RunningSessionEntry['targetKind'], string> = {
@@ -66,8 +68,11 @@ export function RunningSessionsDialog(props: {
   activeKey: string
   onClose: () => void
   onOpen: (entry: RunningSessionEntry) => void
+  // 运行卡范围订阅通道：打开时才建立，关闭的弹层不订阅任何数据地址。
+  controller?: any
 }) {
   const { open, entries, activeKey, onClose, onOpen } = props
+  useScopedUiVersion(props.controller, refreshScopes.runCards(), !!open && !!props.controller)
 
   return (
     <DependableDialog

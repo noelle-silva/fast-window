@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { createStudioMuiTheme } from '../colorThemeStyles'
 import { ChatPickerPopover } from '../dialogs/ChatPickerPopover'
@@ -111,43 +112,46 @@ function ChatPickerHarness(props: {
   })
 
   return (
-    <ChatPickerPopover
-      controller={controller}
-      data={data}
-      chatPickerEl={anchor}
-      closeChatPicker={noop}
-      chatPickerView={view}
-      setChatPickerView={setView}
-      chatPickerSearchOpen={pickers.chatPickerSearchOpen}
-      setChatPickerSearchOpen={pickers.setChatPickerSearchOpen}
-      chatPickerSearchText={pickers.chatPickerSearchText}
-      setChatPickerSearchText={pickers.setChatPickerSearchText}
-      chatPickerSearchInputRef={pickers.chatPickerSearchInputRef}
-      chatHistoryScrollRef={pickers.chatHistoryScrollRef}
-      onChatHistoryScrollPositionChange={pickers.onChatHistoryScrollPositionChange}
-      chatHistoryVisibleCount={pickers.chatHistoryVisibleCount}
-      favoriteSearchOpen={favorites.favoriteSearchOpen}
-      setFavoriteSearchOpen={favorites.setFavoriteSearchOpen}
-      favoriteSearchText={favorites.favoriteSearchText}
-      setFavoriteSearchText={favorites.setFavoriteSearchText}
-      favoriteSearchInputRef={favorites.favoriteSearchInputRef}
-      favoriteFolders={favorites.favoriteFolders}
-      renderFavoriteFolderTree={favorites.renderFavoriteFolderTree}
-      collapseAllFavoriteFolders={favorites.collapseAllFavoriteFolders}
-      openCreateFavoriteFolder={favorites.openCreateFavoriteFolder}
-      activeTargetKind={kind}
-      activeGroup={group}
-      activeWorkspace={workspace}
-      activeRole={role}
-      activeChatTargetId={targetId}
-      pendingGroupChat={null}
-      pendingWorkspaceChat={null}
-      pendingRoleChat={null}
-      chatSessionRunIndicatorKind={emptyIndicator}
-      clearChatSessionRunNotice={noop}
-      requestSwitch={noop}
-      onChatContextMenu={noop}
-    />
+    <>
+      <button data-testid="open-chat-picker" onClick={pickers.openChatPicker}>打开会话选择器</button>
+      <ChatPickerPopover
+        controller={controller}
+        data={data}
+        chatPickerEl={anchor}
+        closeChatPicker={noop}
+        chatPickerView={view}
+        setChatPickerView={setView}
+        chatPickerSearchOpen={pickers.chatPickerSearchOpen}
+        setChatPickerSearchOpen={pickers.setChatPickerSearchOpen}
+        chatPickerSearchText={pickers.chatPickerSearchText}
+        setChatPickerSearchText={pickers.setChatPickerSearchText}
+        chatPickerSearchInputRef={pickers.chatPickerSearchInputRef}
+        chatHistoryScrollRef={pickers.chatHistoryScrollRef}
+        onChatHistoryScrollPositionChange={pickers.onChatHistoryScrollPositionChange}
+        chatHistoryVisibleCount={pickers.chatHistoryVisibleCount}
+        favoriteSearchOpen={favorites.favoriteSearchOpen}
+        setFavoriteSearchOpen={favorites.setFavoriteSearchOpen}
+        favoriteSearchText={favorites.favoriteSearchText}
+        setFavoriteSearchText={favorites.setFavoriteSearchText}
+        favoriteSearchInputRef={favorites.favoriteSearchInputRef}
+        favoriteFolders={favorites.favoriteFolders}
+        renderFavoriteFolderTree={favorites.renderFavoriteFolderTree}
+        collapseAllFavoriteFolders={favorites.collapseAllFavoriteFolders}
+        openCreateFavoriteFolder={favorites.openCreateFavoriteFolder}
+        activeTargetKind={kind}
+        activeGroup={group}
+        activeWorkspace={workspace}
+        activeRole={role}
+        activeChatTargetId={targetId}
+        pendingGroupChat={null}
+        pendingWorkspaceChat={null}
+        pendingRoleChat={null}
+        chatSessionRunIndicatorKind={emptyIndicator}
+        clearChatSessionRunNotice={noop}
+        requestSwitch={noop}
+        onChatContextMenu={noop}
+      />
+    </>
   )
 }
 
@@ -209,6 +213,34 @@ describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
       expect(document.body.textContent).toContain('后到会话')
     })
   }
+
+  it('选择器打开时，当前 target 的 chatList scope 变化无需全局 emit 也能更新列表', () => {
+    const uiCore = createUiCore()
+    const controller = createControllerStub(uiCore)
+    const data = createData()
+    const role = { id: 'r1', name: '角色一' }
+    const group = { id: 'g1', name: '群组一' }
+    const workspace = { id: 'w1', name: '工作区一' }
+    data.chatsByRole.r1 = { activeChatId: '', chatMetas: [], chats: [] }
+
+    renderHarness(
+      <ChatPickerHarness controller={controller} data={data} kind="role" role={role} group={group} workspace={workspace} anchor={anchor!} startView="history" />,
+    )
+    act(() => {
+      const openButton = document.querySelector('[data-testid="open-chat-picker"]') as HTMLButtonElement
+      openButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(document.body.textContent).toContain('没有匹配的会话')
+    const globalVersion = uiCore.getVer()
+
+    act(() => {
+      data.chatsByRole.r1.chatMetas.push({ id: 'c1', title: '范围后到会话', updatedAt: 100 })
+      uiCore.emitScope(refreshScopes.chatList('role', 'r1'))
+    })
+
+    expect(uiCore.getVer()).toBe(globalVersion)
+    expect(document.body.textContent).toContain('范围后到会话')
+  })
 
   it('先打开收藏夹、收藏数据后到时，收藏夹列表自动出现且无需切换视图', () => {
     const uiCore = createUiCore()

@@ -12,7 +12,7 @@ import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
 
 export function WorkspaceSidebarPanel(props: {
   tab: WorkspaceSidebarTab
-  dataVersion: number
+  refreshVersion: string
   roles: any[]
   workspaces: any[]
   activeRoleId: string
@@ -49,7 +49,7 @@ export function WorkspaceSidebarPanel(props: {
 }) {
   const sessions = React.useMemo(
     () => workspaceSidebarSessions(props.data, props.activeWorkspaceId, props.activeRoleId),
-    [props.dataVersion, props.data, props.activeWorkspaceId, props.activeRoleId],
+    [props.refreshVersion, props.data, props.activeWorkspaceId, props.activeRoleId],
   )
 
   if (props.tab === 'workspaces') {

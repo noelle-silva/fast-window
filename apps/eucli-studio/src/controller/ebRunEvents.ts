@@ -12,7 +12,7 @@ import { writeChatRunStatus } from '../domain/chatSessionRunStatus'
 import { assistantRunStatusFromRunStatus, settleRunInState } from '../domain/runTerminal'
 import { isLifecycleRunEventType, readRunEventEnvelope, readRunLifecycleSnapshot } from '../protocol/runEventContract'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
-import { messageRefreshScope } from '../domain/uiRefreshScope'
+import { messageRefreshScope, refreshScopes } from '../domain/uiRefreshScope'
 
 type DirectEventSubscription = (listener: (event: any) => void) => () => void
 type RunEventTargetKind = 'role' | 'group' | 'workspace'
@@ -53,6 +53,18 @@ export function createEbRunEventConsumer(deps: {
       pendingScopes.clear()
       for (const item of scopes) deps.emitScope?.(item)
     })
+  }
+
+  // 列表事实（chat.updatedAt / chatMetas）只惊动该 target 的列表订阅者。
+  // targetId 缺失时构造器会退化成 global，必须在这里拦住，不能把列表更新放大成全局广播。
+  function scheduleChatListChanged(targetKind: RunEventTargetKind, targetId: string) {
+    const id = String(targetId || '').trim()
+    if (!id) return
+    scheduleScope(refreshScopes.chatList(targetKind, id))
+  }
+
+  function scheduleRunCardsChanged() {
+    scheduleScope(refreshScopes.runCards())
   }
 
   function sessionKey(targetKind: RunEventTargetKind, targetId: string, sessionId: string) {
@@ -199,6 +211,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         sessionId: snapshot.sessionId,
         messageIds: [snapshot.lastMessageId, snapshot.inputMessageId],
       }, card)
+      scheduleRunCardsChanged()
       scheduleRender()
       return true
     }
@@ -220,6 +233,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       stream: snapshot.stream,
       retry: snapshot.retry,
     })
+    scheduleRunCardsChanged()
     scheduleRender()
     return true
   }
@@ -302,6 +316,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         sessionId,
         messageIds: [messageId, parentMid],
       }, findEbRoleRunCard(state, runId))
+      scheduleRunCardsChanged()
     } else if (!isRunSettled(state, runId)) {
       const patch: any = {
         runId,
@@ -318,6 +333,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'retry')) patch.retry = payload.retry
       updateEbRoleRunCard(state, patch)
+      scheduleRunCardsChanged()
     }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
@@ -337,6 +353,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
 
     const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'
     if (box) writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, fallbackTitle), fallbackTitle })
+    scheduleChatListChanged(targetKind, targetId)
 
     scheduleRuntimeChatChanged(targetKind, targetId, chat, messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)
 
@@ -488,6 +505,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         sessionId,
         messageIds: [messageId, parentMid],
       }, findEbRoleRunCard(state, runId))
+      scheduleRunCardsChanged()
     } else {
       checkpointAssistantRun(message, message.content, message.updatedAt)
     }
@@ -514,7 +532,11 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       status: 'running',
       stream: !!delta.stream,
     }
-    if (!deltaTerminalStatus) updateEbRoleRunCard(state, patch)
+    if (!deltaTerminalStatus) {
+      updateEbRoleRunCard(state, patch)
+      scheduleRunCardsChanged()
+    }
+    scheduleChatListChanged(targetKind, targetId)
     scheduleRuntimeChatChanged(targetKind, targetId, chat)
 
     if (isNewMessage) scheduleRender()
@@ -583,7 +605,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       updatedAt: Math.max(Number(message.updatedAt || 0), normalizeTimeMs(update.createdAt)),
     })
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), normalizeTimeMs(update.createdAt))
-    // 工具实时输出只改这一条消息的片段，走消息范围，不惊动整页。
+    // 工具实时输出改消息片段与会话时间：消息走消息范围，列表时间走 chatList 范围。
+    scheduleChatListChanged(targetKind, targetId)
     scheduleScope(messageRefreshScope(messageId))
     return true
   }

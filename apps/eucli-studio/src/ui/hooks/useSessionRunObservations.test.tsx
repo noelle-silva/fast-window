@@ -7,6 +7,8 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { createUiCore } from '../uiCore'
 
 const { collectSpy } = vi.hoisted(() => ({ collectSpy: vi.fn() }))
 
@@ -42,6 +44,7 @@ function Harness(props: {
   activeChatId: string
   localTick: number
   apiRef: React.MutableRefObject<any>
+  controller?: any
 }) {
   props.apiRef.current = useSessionRunObservations({
     data: props.data,
@@ -50,6 +53,7 @@ function Harness(props: {
     activeTargetKind: 'role',
     activeChatTargetId: 'r1',
     activeChatId: props.activeChatId,
+    controller: props.controller,
   })
   return <div data-tick={props.localTick} />
 }
@@ -83,6 +87,7 @@ describe('useSessionRunObservations', () => {
     dataVersion: number
     activeChatId?: string
     localTick?: number
+    controller?: any
   }) {
     await act(async () => {
       root.render(
@@ -92,6 +97,7 @@ describe('useSessionRunObservations', () => {
           activeChatId={props.activeChatId ?? ''}
           localTick={props.localTick ?? 0}
           apiRef={apiRef}
+          controller={props.controller}
         />,
       )
     })
@@ -111,6 +117,28 @@ describe('useSessionRunObservations', () => {
     data.chatsByRole.r1.chats[0].runStatusChangedAt = 200
     await render({ data, dataVersion: 1, localTick: 1 })
 
+    expect(collectSpy).toHaveBeenCalledTimes(2)
+    expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toEqual({ kind: 'completed', changedAt: 200 })
+  })
+
+  it('注入 controller 时由 runCards scope 驱动扫描，不依赖全局版本', async () => {
+    const uiCore = createUiCore()
+    const controller = {
+      getScopeVer: (scope: string) => uiCore.getScopeVer(scope),
+      subscribeScope: (scope: string, fn: () => void) => uiCore.subscribeScope(scope, fn),
+    }
+    const data = createData('running')
+
+    await render({ data, dataVersion: 0, controller })
+    expect(collectSpy).toHaveBeenCalledTimes(1)
+
+    data.chatsByRole.r1.chats[0].status = 'completed'
+    data.chatsByRole.r1.chats[0].runStatusChangedAt = 200
+    await act(async () => {
+      uiCore.emitScope(refreshScopes.runCards())
+    })
+
+    expect(uiCore.getVer()).toBe(0)
     expect(collectSpy).toHaveBeenCalledTimes(2)
     expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toEqual({ kind: 'completed', changedAt: 200 })
   })
