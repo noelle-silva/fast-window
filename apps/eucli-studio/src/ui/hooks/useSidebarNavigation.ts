@@ -68,7 +68,9 @@ export function useSidebarNavigation(input: {
   } = input
 
   const activeRoleId = String((activeRole as any)?.id || '')
-  const [, setMemoryVersion] = React.useState(0)
+  // 侧边栏记忆是模块级可变对象；Surface memo 后必须把版本号带出去，
+  // 否则页签/选中变化无法穿透 memo，界面会停在旧快照。
+  const [memoryVersion, setMemoryVersion] = React.useState(0)
   const bumpMemory = React.useCallback(() => setMemoryVersion((value) => value + 1), [])
   const initRef = React.useRef(false)
 
@@ -321,6 +323,7 @@ export function useSidebarNavigation(input: {
   return {
     switchSession,
     view,
+    memoryVersion,
     toggleView,
     selectRole,
     selectWorkspace,

@@ -20,6 +20,7 @@ import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { LiveAssistantBody } from './LiveAssistantBody'
 import { RefImageThumb, StickerText } from './MessageMedia'
 import { formatDurationMs } from '../utils/time'
+import { useRenderProbe } from '../../diagnostics/renderProbe'
 
 type MessageRole = 'user' | 'assistant'
 
@@ -102,6 +103,8 @@ function runRetryFailure(retry: any) {
 }
 
 function MessageRowImpl(props: MessageRowProps) {
+  useRenderProbe('messageRow')
+
   const {
     controller,
     mid,

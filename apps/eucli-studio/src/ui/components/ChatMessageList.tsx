@@ -9,6 +9,7 @@ import type { MessageOffscreenHandle } from '../hooks/useMessageOffscreen'
 import { buildChatListIndex } from './ChatListIndex'
 import { MessageRow, type MessageRowActions, type MessageRowUiPolicy } from './MessageRow'
 import { MessageOffscreenSlot } from './MessageOffscreenSlot'
+import { useRenderProbe } from '../../diagnostics/renderProbe'
 
 type MessageRole = 'user' | 'assistant'
 
@@ -80,6 +81,8 @@ const EMPTY_SIBLINGS: any[] = []
 //   - uiPolicy 与 actions 是单例对象，行级 memo 只比引用与布尔，不做深比较；
 //   - 因此「切到已缓存会话」时已上屏行的 MessageRow 渲染次数为 0。
 export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMessageListProps) {
+  useRenderProbe('messageList')
+
   const {
     controller,
     messageBatchGroups = [],

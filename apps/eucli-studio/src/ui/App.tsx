@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, CssBaseline, GlobalStyles, ThemeProvider, Typography } from '@mui/material'
+import { Box, Button, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
 import { useUiDataVersion } from './hooks/useScopedUiVersion'
 import { useSessionSwitch } from './hooks/useSessionSwitch'
@@ -31,7 +31,6 @@ import { useSessionKeepAlive } from './hooks/useSessionKeepAlive'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
-import { createChatGlobalStyles } from './globalStyles'
 import { messageRefreshScope } from '../domain/uiRefreshScope'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
@@ -41,22 +40,10 @@ import { ConfirmDialog } from './dialogs/ConfirmDialog'
 import { ToolWorkDirectoryPromptDialog } from './dialogs/ToolWorkDirectoryPromptDialog'
 import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
-import { FavoriteFoldersDialogs } from './dialogs/FavoriteFoldersDialogs'
-import { ChatSessionDialogs } from './dialogs/ChatSessionDialogs'
-import { RunningSessionsDialog } from './dialogs/RunningSessionsDialog'
-import { ChatContextMenus } from './dialogs/ChatContextMenus'
-import { MessageMenusDialogs } from './dialogs/MessageMenusDialogs'
-import { RolePickerPopover } from './dialogs/RolePickerPopover'
-import { ChatPickerPopover } from './dialogs/ChatPickerPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
-import { HookPromptSelector } from './components/HookPromptSelector'
-import { ChatTopBar } from './components/ChatTopBar'
-import { ChatSidebar } from './components/ChatSidebar'
 import { resolveSortMovePosition } from './components/SortableDnd'
 import { SidebarResizeLine } from './components/SidebarResizeLine'
 import { SessionMessagePage } from './components/SessionMessagePage'
-import { SessionPageStack } from './components/SessionPageStack'
-import { Freeze } from './components/Freeze'
 import type { AiChatDataDirectory } from './settings/DataSettingsPanel'
 import type { AiChatEucliBoxConnection } from './settings/EbSettingsPanel'
 import { PluginSettingsPage, type SettingsTabSelection } from './settings/PluginSettingsPage'
@@ -78,16 +65,19 @@ import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../domain/release'
 import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTheme'
-import { ThemeColorsProvider } from './hooks/useThemeColors'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveSidebarLayout } from '../domain/sidebarLayout'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
-import { colorMixVar, createStudioMuiTheme } from './colorThemeStyles'
-import { ChatComposer } from './composer/ChatComposer'
-import { ComposerControlsPopovers } from './composer/ComposerControlsPopovers'
-import { ComposerImagePickerPopover } from './composer/ComposerImagePickerPopover'
+import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
+import { ShellFrame } from './surfaces/ShellFrame'
+import { TopBarSurface } from './surfaces/TopBarSurface'
+import { SidebarSurface } from './surfaces/SidebarSurface'
+import { ComposerSurface } from './surfaces/ComposerSurface'
+import { SessionViewport } from './surfaces/SessionViewport'
+import { SettingsSurface } from './surfaces/SettingsSurface'
+import { OverlaySurface } from './surfaces/OverlaySurface'
 
 type SettingsTab = SettingsTabSelection
 
@@ -103,6 +93,16 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
 
 // 无树 / 无目标时返回同一个稳定空集，避免每次渲染新建 Set 让下游 memo 失效。
 const EMPTY_TREE_HIGHLIGHT_EDGE_KEYS = new Set<string>()
+
+// 消息页滚动容器的稳定 props：所有会话页共享同一对象。
+const SESSION_SCROLL_HOST_SX = { flex: 1, minHeight: 0 } as const
+
+// 空会话文案只创建一次，避免每次渲染给消息页新元素。
+const EMPTY_SESSION_CONTENT = (
+  <Typography variant="body2" color="text.secondary">
+    还没有消息。输入内容并发送。
+  </Typography>
+)
 
 export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseViews: ReleaseCandidatesViews; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
   const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseViews, onReleaseRefresh } = props
@@ -151,8 +151,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
   const bgAlpha = transparentChatBg ? wallpaperVeilAlpha(chatBgOpacity, chatBgBlur) : 1
-  const wallpaper = normalizeWallpaperSettings(data?.settings?.wallpaper)
-  const activeWallpaper = wallpaper.enabled ? wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null : null
+  const wallpaper = React.useMemo(
+    () => normalizeWallpaperSettings(data?.settings?.wallpaper),
+    [dataVersion, data?.settings?.wallpaper],
+  )
+  const activeWallpaper = React.useMemo(
+    () => (wallpaper.enabled ? wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null : null),
+    [wallpaper],
+  )
   const activeWallpaperSrc = useWallpaperImage(controller, activeWallpaper?.relPath || '')
 
   const activeTargetKind0 = String((s.draft as any)?.activeTargetKind || (data?.ui as any)?.activeTargetKind || 'role').trim()
@@ -434,6 +440,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   })
   const {
     switchSession,
+    memoryVersion: sidebarMemoryVersion,
     selectRole: onSelectRoleInSidebar,
     selectWorkspace: onSelectWorkspaceInSidebar,
     selectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
@@ -460,7 +467,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     controller?.capabilities?.ui?.startDragging?.()
   })
 
-  const standaloneWindowControls = windowControls?.standalone ? <StandaloneWindowControls actions={windowControls.actions} /> : null
+  const standaloneWindowControls = React.useMemo(
+    () => (windowControls?.standalone ? <StandaloneWindowControls actions={windowControls.actions} /> : null),
+    [windowControls?.standalone, windowControls?.actions],
+  )
 
   const onClickOpenImageViewer = useEvent((e: React.MouseEvent) => {
     const t = e.target as any
@@ -675,12 +685,20 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     return out
   }, [treeRender, lastMsgId])
   const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
-  const chatOverrideRef = normalizeModelRef(chatOverride)
+  const chatOverrideRef = React.useMemo(
+    () => normalizeModelRef(chatOverride),
+    // 归一化结果的语义只由 override 本身决定；dataVersion 负责兜底可变引用。
+    [dataVersion, chatOverride],
+  )
   const hasChatOverride = !!chatOverrideRef
   const overrideProviderId = String(chatOverrideRef?.providerId || '').trim()
   const overrideModelId = String(chatOverrideRef?.modelId || '').trim()
 
-  const roleModelRef = roleDefaultModelRef(activeRole)
+  const roleModelRef = React.useMemo(
+    () => roleDefaultModelRef(activeRole),
+    // 角色默认模型随角色读写就地更新，dataVersion 是失效依据。
+    [dataVersion, activeRole],
+  )
   const roleProviderId = String(roleModelRef?.providerId || '').trim()
   const roleModelId = String(roleModelRef?.modelId || '').trim()
 
@@ -689,10 +707,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const effectiveModelRef = hasChatOverride ? chatOverrideRef : roleModelRef
   const reasoningProfile = React.useMemo(() => {
     if (activeTargetKind === 'group') return { supportsReasoning: false, defaultReasoningEffort: '' as const }
-    const modelRef = normalizeModelRef(chatOverride) || roleDefaultModelRef(activeRole)
-    return modelReasoningProfileFromModelRef(modelRef, providers, modelGroups)
+    return modelReasoningProfileFromModelRef(effectiveModelRef, providers, modelGroups)
     // providers / modelGroups 会就地更新，dataVersion 负责失效。
-  }, [dataVersion, activeTargetKind, chatOverride, activeRole, providers, modelGroups])
+  }, [dataVersion, activeTargetKind, effectiveModelRef, providers, modelGroups])
   const activeChatReasoningEffort = chatReasoningEffort(activeChat)
   const activeEffectiveReasoningEffort = effectiveReasoningEffort(activeChat, reasoningProfile)
   const activeReasoningLabel = reasoningEffortLabel(activeEffectiveReasoningEffort)
@@ -997,24 +1014,56 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [dataVersion, s, data],
   )
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
-  const navControlsProps = {
+
+  // 稳定 handler：所有内联箭头只在这里创建一次，Surface 的 memo 才能真正生效。
+  const handleRunStarted = useEvent((runAnchorMid: string) => {
+    setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))
+  })
+  const onOpenRunningSessions = useEvent(() => setRunningSessionsOpen(true))
+  const onCloseRunningSessions = useEvent(() => setRunningSessionsOpen(false))
+  const onCreateChat = useEvent(() => controller.actions.createChat())
+  const onToggleTree = useEvent(() => setTreeOpen((v) => !v))
+  const onOpenProviders = useEvent(() => controller.actions.openProviders?.())
+
+  const sidebarMovePosition = React.useCallback(
+    (items: any[], activeId: string, overId: string) =>
+      resolveSortMovePosition(items.map((item: any) => String(item?.id || '')), activeId, overId) || 'before',
+    [],
+  )
+  const onMoveRole = useEvent((activeId: string, overId: string) => {
+    controller.actions.moveRole?.(activeId, overId, sidebarMovePosition(roles, activeId, overId))
+  })
+  const onMoveWorkspace = useEvent((activeId: string, overId: string) => {
+    controller.actions.moveWorkspace?.(activeId, overId, sidebarMovePosition(workspaces, activeId, overId))
+  })
+
+  const navControlsProps = React.useMemo(() => ({
     canCreateChat,
     treeOpen,
     chatNav,
     onOpenChatPicker: openChatPicker,
-    onOpenRunningSessions: () => setRunningSessionsOpen(true),
-    onCreateChat: () => controller.actions.createChat(),
-    onToggleTree: () => setTreeOpen((v) => !v),
-    onOpenProviders: () => controller.actions.openProviders?.(),
+    onOpenRunningSessions,
+    onCreateChat,
+    onToggleTree,
+    onOpenProviders,
     onOpenSettings: openPluginSettings,
     onSwitchChat: switchSession,
-  }
+  }), [
+    canCreateChat,
+    treeOpen,
+    chatNav,
+    openChatPicker,
+    onOpenRunningSessions,
+    onCreateChat,
+    onToggleTree,
+    onOpenProviders,
+    openPluginSettings,
+    switchSession,
+  ])
 
-  const sidebarMovePosition = (items: any[], activeId: string, overId: string) =>
-    resolveSortMovePosition(items.map((item: any) => String(item?.id || '')), activeId, overId) || 'before'
-
-  const sidebarProps = {
+  const sidebarProps = React.useMemo(() => ({
     controller,
+    navigationVersion: sidebarMemoryVersion,
     view: sidebarNavigation.view,
     onToggleView: sidebarNavigation.toggleView,
     width: sidebarLayout.width,
@@ -1041,666 +1090,990 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSelectRole: onSelectRoleInSidebar,
     onSelectWorkspace: onSelectWorkspaceInSidebar,
     onSelectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
-    onMoveRole: (activeId: string, overId: string) => controller.actions.moveRole?.(activeId, overId, sidebarMovePosition(roles, activeId, overId)),
-    onMoveWorkspace: (activeId: string, overId: string) => controller.actions.moveWorkspace?.(activeId, overId, sidebarMovePosition(workspaces, activeId, overId)),
+    onMoveRole,
+    onMoveWorkspace,
     onSelectSession: onSelectSidebarSession,
     onChatContextMenu,
     onTabChange: onChangeSidebarTab,
-  }
+  }), [
+    controller,
+    sidebarMemoryVersion,
+    sidebarNavigation.view,
+    sidebarNavigation.toggleView,
+    sidebarLayout.width,
+    sidebarResize.sidebarRef,
+    sidebarResize.resizing,
+    sidebarResize.onSplitterPointerDown,
+    topbarOpacity,
+    topbarBlur,
+    roles,
+    activeWorkspaceRoles,
+    workspaces,
+    activeRole,
+    activeWorkspaceId,
+    activeTargetKind,
+    chatSwitch.selectedChatId,
+    data,
+    pendingRoleChat,
+    pendingWorkspaceChat,
+    formatModelRefText,
+    openPluginSettings,
+    chatSessionRunIndicatorKind,
+    onSelectRoleInSidebar,
+    onSelectWorkspaceInSidebar,
+    onSelectWorkspaceRoleInSidebar,
+    onMoveRole,
+    onMoveWorkspace,
+    onSelectSidebarSession,
+    onChatContextMenu,
+    onChangeSidebarTab,
+  ])
 
-  return (
-    <ThemeProvider theme={theme}>
-      <ThemeColorsProvider colors={colorThemeColors}>
-      <CssBaseline />
-      <GlobalStyles styles={createChatGlobalStyles({ colorThemeColors, transparentChatBg, bgAlpha, chatBgBlur, chatFontSize, chatFontFamily, chatLetterSpacing, chatLineHeight })} />
+  const composerProps = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    composerRef,
+    onClickOpenImageViewer,
+    treeOpen,
+    effectiveTreeView,
+    treePanelW,
+    composerOpacity,
+    composerBlur,
+    composerWidthPercent,
+    composerMinRows,
+    composerRadius,
+    composerModelShowProvider,
+    draft: s.draft,
+    activeSessionComposerDraftKey: String((s as any).activeSessionComposerDraftKey || ''),
+    composerInputRef,
+    activeTargetKind,
+    activeChatTargetId: String(activeChatTargetId || ''),
+    activeChatId: String(activeChatId || ''),
+    activeRole,
+    activeGroup,
+    roles,
+    activeStopRunId,
+    formatModelRefText,
+    openImagePicker,
+    hookPrompts,
+    activeHookPromptMode: activeHookPromptMode as any,
+    activeHookPromptPresetId,
+    roleDefaultHookPromptPresetId,
+    hookPromptSelectorDisabled,
+    chatSettingsHookSaving,
+    hookPromptSelectorDisabledReason,
+    roleSessionControlsEnabled,
+    hasChatOverride,
+    effectiveModelId,
+    effectiveModelRef,
+    openTempModelPicker,
+    roleModelStepPrevEnabled,
+    roleModelStepNextEnabled,
+    stepRoleModelCandidate,
+    providers,
+    modelGroups,
+    reasoningProfile,
+    activeReasoningLabel,
+    chatSettingsReasoningSaving,
+    openReasoningPicker,
+    hasChatReasoningOverride,
+    activeContextTokenUsageText,
+    activeContextTokenUsageShortText,
+    activeCacheRateText,
+    activeAsyncToolTaskRunningCount,
+    openAsyncToolTasks,
+    activeStreamOn,
+    chatSettingsStreamSaving,
+    activeChat,
+    onSend,
+    onStop,
+    onPaste,
+  }), [
+    controller,
+    s.loading,
+    s.draft,
+    (s as any).activeSessionComposerDraftKey,
+    composerRef,
+    onClickOpenImageViewer,
+    treeOpen,
+    effectiveTreeView,
+    treePanelW,
+    composerOpacity,
+    composerBlur,
+    composerWidthPercent,
+    composerMinRows,
+    composerRadius,
+    composerModelShowProvider,
+    composerInputRef,
+    activeTargetKind,
+    activeChatTargetId,
+    activeChatId,
+    activeRole,
+    activeGroup,
+    roles,
+    activeStopRunId,
+    formatModelRefText,
+    openImagePicker,
+    hookPrompts,
+    activeHookPromptMode,
+    activeHookPromptPresetId,
+    roleDefaultHookPromptPresetId,
+    hookPromptSelectorDisabled,
+    chatSettingsHookSaving,
+    hookPromptSelectorDisabledReason,
+    roleSessionControlsEnabled,
+    hasChatOverride,
+    effectiveModelId,
+    effectiveModelRef,
+    openTempModelPicker,
+    roleModelStepPrevEnabled,
+    roleModelStepNextEnabled,
+    stepRoleModelCandidate,
+    providers,
+    modelGroups,
+    reasoningProfile,
+    activeReasoningLabel,
+    chatSettingsReasoningSaving,
+    openReasoningPicker,
+    hasChatReasoningOverride,
+    activeContextTokenUsageText,
+    activeContextTokenUsageShortText,
+    activeCacheRateText,
+    activeAsyncToolTaskRunningCount,
+    openAsyncToolTasks,
+    activeStreamOn,
+    chatSettingsStreamSaving,
+    activeChat,
+    onSend,
+    onStop,
+    onPaste,
+  ])
 
-      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative', isolation: 'isolate', color: 'var(--studio-text-primary)', background: 'var(--studio-app-background)' }}>
-        {activeWallpaper ? (
-          <Box sx={{ position: 'absolute', inset: 0, zIndex: -2, pointerEvents: 'none', overflow: 'hidden' }}>
-            {activeWallpaperSrc ? (
-              <Box
-                component="img"
-                src={activeWallpaperSrc}
-                alt=""
-                sx={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: `${activeWallpaper.view.x}% ${activeWallpaper.view.y}%`,
-                  transform: `scale(${activeWallpaper.view.scale * 1.05})`,
-                  transformOrigin: `${activeWallpaper.view.x}% ${activeWallpaper.view.y}%`,
-                  display: 'block',
-                }}
-              />
-            ) : null}
+  const messageListProps = React.useMemo(() => ({
+    controller,
+    roles,
+    activeRole,
+    activeTargetKind,
+    activeVisibleRunCards,
+    prevAiMidByAssistantId,
+    assistantSiblingsByPrevAiMid,
+    chatAllMessagesRaw,
+    expandedToolMsgIds,
+    expandedUserMsgIds,
+    editingMsg,
+    loading: s.loading,
+    uiBusy,
+    userMessageCollapseEnabled,
+    userMessageCollapseLines,
+    reasoningDisplayMode,
+    reasoningRenderEnabled,
+    stickersEnabled,
+    stickerMap,
+    renderSafetyPolicyKey: renderSafetyPolicy,
+    formatModelRefText,
+    messageMutationBlocked,
+    onMessageContextMenu,
+    onToggleToolMessage: toggleExpandedToolMsg,
+    onToggleUserMessage: toggleExpandedUserMsg,
+    onEditTextChange: setEditingMsgText,
+    onCancelEditMessage: cancelEditMessage,
+    onSaveEditMessage: saveEditMessage,
+    onStartEditMessage: startEditMessage,
+    onCopyMessageText: copyMessageText,
+    onSwitchBranchSibling: switchBranchSibling,
+    onRegenerate: openRegenConfirm,
+    onDeleteMessage: openDeleteMessageConfirm,
+  }), [
+    controller,
+    roles,
+    activeRole,
+    activeTargetKind,
+    activeVisibleRunCards,
+    prevAiMidByAssistantId,
+    assistantSiblingsByPrevAiMid,
+    chatAllMessagesRaw,
+    expandedToolMsgIds,
+    expandedUserMsgIds,
+    editingMsg,
+    s.loading,
+    uiBusy,
+    userMessageCollapseEnabled,
+    userMessageCollapseLines,
+    reasoningDisplayMode,
+    reasoningRenderEnabled,
+    stickersEnabled,
+    stickerMap,
+    renderSafetyPolicy,
+    formatModelRefText,
+    messageMutationBlocked,
+    onMessageContextMenu,
+    toggleExpandedToolMsg,
+    toggleExpandedUserMsg,
+    setEditingMsgText,
+    cancelEditMessage,
+    saveEditMessage,
+    startEditMessage,
+    copyMessageText,
+    switchBranchSibling,
+    openRegenConfirm,
+    openDeleteMessageConfirm,
+  ])
+
+  const scrollSx = React.useMemo(() => ({
+    height: '100%',
+    overflowX: 'hidden',
+    overflowAnchor: 'none',
+    pl: 2,
+    pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+    pt: `calc(${TOPBAR_H}px + 16px)`,
+    bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
+    paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+  }), [treeOpen, effectiveTreeView, treePanelW, transparentChatBg, composerHeight])
+
+  const sessionPage = React.useMemo(
+    () => (sessionPageKey ? (
+      <SessionMessagePage
+        sessionKey={sessionPageKey}
+        messages={renderMessages}
+        hasMessages={!!renderChat && Array.isArray(renderChat.messages) && renderChat.messages.length > 0}
+        activeRunTailPendingMessage={activeRunTailPendingMessage}
+        layoutSignature={messageLayoutSignature}
+        messageOffscreenEnabled={messageOffscreenSkipEnabled}
+        revealMessageRef={revealMessageRef}
+        emptyContent={EMPTY_SESSION_CONTENT}
+        messageListProps={messageListProps}
+        scrollHostSx={SESSION_SCROLL_HOST_SX}
+        scrollSx={scrollSx}
+        onClick={onClickOpenImageViewer}
+      />
+    ) : null),
+    [
+      sessionPageKey,
+      renderMessages,
+      renderChat,
+      activeRunTailPendingMessage,
+      messageLayoutSignature,
+      messageOffscreenSkipEnabled,
+      revealMessageRef,
+      messageListProps,
+      scrollSx,
+      onClickOpenImageViewer,
+    ],
+  )
+
+  const emptyOverlay = React.useMemo(() => {
+    if (sessionPageKey || sessionVisibleKey) return null
+    return (
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          overflowY: 'auto',
+          pl: 2,
+          pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+          pt: `calc(${TOPBAR_H}px + 16px)`,
+          bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
+          paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+        }}
+      >
+        {s.loading ? (
+          <Typography variant="body2" color="text.secondary">
+            加载中…
+          </Typography>
+        ) : activeTargetKind === 'group' && !activeGroup ? (
+          <Typography variant="body2" color="text.secondary">
+            请选择群组
+          </Typography>
+        ) : activeTargetKind === 'workspace' && !activeWorkspace ? (
+          <Typography variant="body2" color="text.secondary">
+            请选择工作区
+          </Typography>
+        ) : activeTargetKind === 'workspace' && !activeWorkspaceRoles.length ? (
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              当前工作区还没有注册角色。
+            </Typography>
+            <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
+              去注册角色
+            </Button>
           </Box>
-        ) : null}
-        {activeWallpaper ? (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: -1,
-              pointerEvents: 'none',
-              bgcolor: colorMixVar('--studio-canvas', Math.max(1, bgAlpha * 100)),
-              backdropFilter: chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
-              WebkitBackdropFilter: chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
-            }}
-          />
-        ) : null}
-        <ChatTopBar
-          page={page}
-          topbarOpacity={topbarOpacity}
-          topbarBlur={topbarBlur}
-          standaloneWindowControls={standaloneWindowControls}
-          onTopbarPointerDown={onTopbarPointerDown}
-          onCloseSettings={closePluginSettings}
-          nav={navControlsProps}
-        />
-
-        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'row' }}>
-          {sidebarVisible && sidebarLayout.side === 'left' ? (
-            <ChatSidebar {...sidebarProps} side="left" />
-          ) : null}
-
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
-        <Box
-          aria-hidden={page === 'chat' ? undefined : true}
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            // 常驻不卸载：离开聊天页只隐藏，避免返回时整棵聊天子树重新挂载造成卡顿。
-            visibility: page === 'chat' ? 'inherit' : 'hidden',
-          }}
-        >
-          <Freeze frozen={page !== 'chat'}>
-            <Box
-              ref={chatPaneRef}
-              sx={{
-                flex: 1,
-                minWidth: 0,
-                minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                position: 'relative',
-                bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-canvas)',
-              }}
-            >
-              {/* 切换进度只做「细进度条」：不遮挡内容区，旧页继续垫底。 */}
-              {chatSwitch.switching ? (
+        ) : activeTargetKind === 'workspace' && !activeRole ? (
+          <Typography variant="body2" color="text.secondary">
+            请选择角色
+          </Typography>
+        ) : activeTargetKind !== 'group' && !activeRole ? (
+          <Typography variant="body2" color="text.secondary">
+            请选择角色
+          </Typography>
+        ) : !renderChat ? (
+          chatSwitch.failed ? (
+            <Box role="alert" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+              <Typography variant="body2" color="error">
+                会话加载失败：{chatSwitch.failedReason || '未知错误'}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button size="small" variant="contained" onClick={() => chatSwitch.retryLoad()}>
+                  重试
+                </Button>
+              </Box>
+            </Box>
+          ) : openingChatMeta ? (
+            <Box role="status" aria-live="polite" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+              {[0, 1, 2].map((i) => (
                 <Box
-                  role="progressbar"
-                  aria-label="正在切换会话"
+                  key={i}
                   sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 2,
-                    zIndex: 3,
-                    overflow: 'hidden',
-                    pointerEvents: 'none',
-                    bgcolor: 'var(--studio-border)',
-                    '&::after': {
-                      content: '""',
-                      position: 'absolute',
-                      inset: 0,
-                      width: '35%',
-                      bgcolor: 'var(--studio-secondary)',
-                      animation: 'fw-switch-progress 900ms ease-in-out infinite',
-                    },
-                    '@keyframes fw-switch-progress': {
-                      '0%': { transform: 'translateX(-100%)' },
-                      '100%': { transform: 'translateX(320%)' },
-                    },
+                    height: i === 0 ? 56 : 96,
+                    borderRadius: 3,
+                    bgcolor: 'var(--studio-paper)',
+                    border: '1px solid var(--studio-border)',
+                    opacity: 0.6,
                   }}
                 />
-              ) : null}
-             <SessionPageStack
-                activeKey={sessionPageKey}
-                visibleKey={sessionVisibleKey}
-                keys={sessionKeepAliveKeys}
-                activeScrollRef={chatRootRef}
-                onPainted={chatSwitch.notifyPainted}
-                activePage={
-                  sessionPageKey ? (
-                    <SessionMessagePage
-                      sessionKey={sessionPageKey}
-                      messages={renderMessages}
-                      hasMessages={!!renderChat && Array.isArray(renderChat.messages) && renderChat.messages.length > 0}
-                      activeRunTailPendingMessage={activeRunTailPendingMessage}
-                      layoutSignature={messageLayoutSignature}
-                      messageOffscreenEnabled={messageOffscreenSkipEnabled}
-                      revealMessageRef={revealMessageRef}
-                      emptyContent={
-                        <Typography variant="body2" color="text.secondary">
-                          还没有消息。输入内容并发送。
-                        </Typography>
-                      }
-                      messageListProps={{
-                        controller,
-                        roles,
-                        activeRole,
-                        activeTargetKind,
-                        activeVisibleRunCards,
-                        prevAiMidByAssistantId,
-                        assistantSiblingsByPrevAiMid,
-                        chatAllMessagesRaw,
-                        expandedToolMsgIds,
-                        expandedUserMsgIds,
-                        editingMsg,
-                        loading: s.loading,
-                        uiBusy,
-                        userMessageCollapseEnabled,
-                        userMessageCollapseLines,
-                        reasoningDisplayMode,
-                        reasoningRenderEnabled,
-                        stickersEnabled,
-                        stickerMap,
-                        renderSafetyPolicyKey: renderSafetyPolicy,
-                        formatModelRefText,
-                        messageMutationBlocked,
-                        onMessageContextMenu,
-                        onToggleToolMessage: toggleExpandedToolMsg,
-                        onToggleUserMessage: toggleExpandedUserMsg,
-                        onEditTextChange: setEditingMsgText,
-                        onCancelEditMessage: cancelEditMessage,
-                        onSaveEditMessage: saveEditMessage,
-                        onStartEditMessage: startEditMessage,
-                        onCopyMessageText: copyMessageText,
-                        onSwitchBranchSibling: switchBranchSibling,
-                        onRegenerate: openRegenConfirm,
-                        onDeleteMessage: openDeleteMessageConfirm,
-                      }}
-                      scrollHostSx={{
-                        flex: 1,
-                        minHeight: 0,
-                      }}
-                      scrollSx={{
-                        height: '100%',
-                        overflowX: 'hidden',
-                        overflowAnchor: 'none',
-                        pl: 2,
-                        pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
-                        pt: `calc(${TOPBAR_H}px + 16px)`,
-                        bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
-                        paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
-                      }}
-                      onClick={onClickOpenImageViewer}
-                    />
-                  ) : null
-                }
-              />
+              ))}
+              <Typography variant="caption" color="text.secondary">
+                正在打开「{String((openingChatMeta as any)?.title || '会话')}」…
+              </Typography>
+            </Box>
+          ) : (
+            EMPTY_SESSION_CONTENT
+          )
+        ) : (
+          EMPTY_SESSION_CONTENT
+        )}
+      </Box>
+    )
+  }, [
+    sessionPageKey,
+    sessionVisibleKey,
+    s.loading,
+    activeTargetKind,
+    activeGroup,
+    activeWorkspace,
+    activeWorkspaceRoles,
+    activeRole,
+    renderChat,
+    chatSwitch.failed,
+    chatSwitch.failedReason,
+    chatSwitch.retryLoad,
+    openingChatMeta,
+    openPluginSettings,
+    transparentChatBg,
+    treeOpen,
+    effectiveTreeView,
+    treePanelW,
+    composerHeight,
+  ])
 
-              {/* 只有「没有旧页可垫底」时才允许占位内容：冷启动首次、上次失败、上次 empty。
-                  切换期间旧页保持可见，这里不能抢画面。 */}
-              {!sessionPageKey && !sessionVisibleKey ? (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    overflowY: 'auto',
-                    pl: 2,
-                    pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
-                    pt: `calc(${TOPBAR_H}px + 16px)`,
-                    bgcolor: transparentChatBg ? 'transparent' : 'var(--studio-paper-muted)',
-                    paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
-                  }}
-                >
-                  {s.loading ? (
-                    <Typography variant="body2" color="text.secondary">
-                      加载中…
-                    </Typography>
-                  ) : activeTargetKind === 'group' && !activeGroup ? (
-                    <Typography variant="body2" color="text.secondary">
-                      请选择群组
-                    </Typography>
-                  ) : activeTargetKind === 'workspace' && !activeWorkspace ? (
-                    <Typography variant="body2" color="text.secondary">
-                      请选择工作区
-                    </Typography>
-                  ) : activeTargetKind === 'workspace' && !activeWorkspaceRoles.length ? (
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        当前工作区还没有注册角色。
-                      </Typography>
-                      <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => openPluginSettings('workspaces')}>
-                        去注册角色
-                      </Button>
-                    </Box>
-                  ) : activeTargetKind === 'workspace' && !activeRole ? (
-                    <Typography variant="body2" color="text.secondary">
-                      请选择角色
-                    </Typography>
-                  ) : activeTargetKind !== 'group' && !activeRole ? (
-                    <Typography variant="body2" color="text.secondary">
-                      请选择角色
-                    </Typography>
-                  ) : !renderChat ? (
-                    chatSwitch.failed ? (
-                      // 加载失败是终态：必须给出错误占位 + 重试入口，
-                      // 绝不允许继续显示「正在打开…」让用户无限等待。
-                      <Box role="alert" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-                        <Typography variant="body2" color="error">
-                          会话加载失败：{chatSwitch.failedReason || '未知错误'}
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Button size="small" variant="contained" onClick={() => chatSwitch.retryLoad()}>
-                            重试
-                          </Button>
-                        </Box>
-                      </Box>
-                    ) : openingChatMeta ? (
-                      // 无旧页可垫底时才用骨架；骨架复用消息区精确几何，promote 时不跳动。
-                      <Box role="status" aria-live="polite" sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-                        {[0, 1, 2].map((i) => (
-                          <Box
-                            key={i}
-                            sx={{
-                              height: i === 0 ? 56 : 96,
-                              borderRadius: 3,
-                              bgcolor: 'var(--studio-paper)',
-                              border: '1px solid var(--studio-border)',
-                              opacity: 0.6,
-                            }}
-                          />
-                        ))}
-                        <Typography variant="caption" color="text.secondary">
-                          正在打开「{String((openingChatMeta as any)?.title || '会话')}」…
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        还没有消息。输入内容并发送。
-                      </Typography>
-                    )
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      还没有消息。输入内容并发送。
-                    </Typography>
-                  )}
-                </Box>
-              ) : null}
+  const treeElement = React.useMemo(() => (
+    <ChatTreeModal
+      treeOpen={treeOpen}
+      effectiveTreeView={effectiveTreeView}
+      treePanelW={treePanelW}
+      treeResizing={treeResizing}
+      transparentChatBg={transparentChatBg}
+      bgAlpha={bgAlpha}
+      onTreeSplitterPointerDown={onTreeSplitterPointerDown}
+      onTreeSplitterPointerMove={onTreeSplitterPointerMove}
+      endTreeResize={endTreeResize}
+      setTreePan={setTreePan}
+      setTreeScale={setTreeScale}
+      treeViewRef={treeViewRef}
+      scheduleTreeViewTransform={scheduleTreeViewTransform}
+      applyTreeViewTransform={applyTreeViewTransform}
+      treeDir={treeDir}
+      cycleTreeDir={cycleTreeDir}
+      treeDragging={treeDragging}
+      onTreePointerDown={onTreePointerDown}
+      onTreePointerMove={onTreePointerMove}
+      endTreeDrag={endTreeDrag}
+      onTreeWheel={onTreeWheel}
+      treeHostRightRef={treeHostRightRef}
+      treeHostFloatRef={treeHostFloatRef}
+      treeViewportRef={treeViewportRef}
+      treeSuppressClickRef={treeSuppressClickRef}
+      treeRender={treeRender}
+      treeFocusMid={treeFocusMid}
+      treeHighlightEdgeKeys={treeHighlightEdgeKeys}
+      treePop={treePop}
+      setTreePop={setTreePop}
+      jumpToMessage={jumpToMessage}
+      onTreeNodeContextMenu={onTreeNodeContextMenu}
+      closeTreeModal={closeTreeModal}
+    />
+  ), [
+    treeOpen,
+    effectiveTreeView,
+    treePanelW,
+    treeResizing,
+    transparentChatBg,
+    bgAlpha,
+    onTreeSplitterPointerDown,
+    onTreeSplitterPointerMove,
+    endTreeResize,
+    setTreePan,
+    setTreeScale,
+    treeViewRef,
+    scheduleTreeViewTransform,
+    applyTreeViewTransform,
+    treeDir,
+    cycleTreeDir,
+    treeDragging,
+    onTreePointerDown,
+    onTreePointerMove,
+    endTreeDrag,
+    onTreeWheel,
+    treeHostRightRef,
+    treeHostFloatRef,
+    treeViewportRef,
+    treeSuppressClickRef,
+    treeRender,
+    treeFocusMid,
+    treeHighlightEdgeKeys,
+    treePop,
+    setTreePop,
+    jumpToMessage,
+    onTreeNodeContextMenu,
+    closeTreeModal,
+  ])
 
-              <ChatTreeModal
-                treeOpen={treeOpen}
-                effectiveTreeView={effectiveTreeView}
-                treePanelW={treePanelW}
-                treeResizing={treeResizing}
-                transparentChatBg={transparentChatBg}
-                bgAlpha={bgAlpha}
-                onTreeSplitterPointerDown={onTreeSplitterPointerDown}
-                onTreeSplitterPointerMove={onTreeSplitterPointerMove}
-                endTreeResize={endTreeResize}
-                setTreePan={setTreePan}
-                setTreeScale={setTreeScale}
-                treeViewRef={treeViewRef}
-                scheduleTreeViewTransform={scheduleTreeViewTransform}
-                applyTreeViewTransform={applyTreeViewTransform}
-                treeDir={treeDir}
-                cycleTreeDir={cycleTreeDir}
-                treeDragging={treeDragging}
-                onTreePointerDown={onTreePointerDown}
-                onTreePointerMove={onTreePointerMove}
-                endTreeDrag={endTreeDrag}
-                onTreeWheel={onTreeWheel}
-                treeHostRightRef={treeHostRightRef}
-                treeHostFloatRef={treeHostFloatRef}
-                treeViewportRef={treeViewportRef}
-                treeSuppressClickRef={treeSuppressClickRef}
-                treeRender={treeRender}
-                treeFocusMid={treeFocusMid}
-                treeHighlightEdgeKeys={treeHighlightEdgeKeys}
-                treePop={treePop}
+  const composerElement = React.useMemo(
+    () => <ComposerSurface {...composerProps} />,
+    [composerProps],
+  )
 
-                setTreePop={setTreePop}
-                jumpToMessage={jumpToMessage}
-                onTreeNodeContextMenu={onTreeNodeContextMenu}
-                closeTreeModal={closeTreeModal}
-              />
+  const settingsContent = React.useMemo(() => (
+    <PluginSettingsPage
+      controller={controller}
+      loading={!!s.loading}
+      data={data}
+      roles={roles}
+      groups={groups}
+      workspaces={workspaces}
+      providers={providers}
+      modelGroups={(s as any).modelGroups}
+      models={s.models}
+      tools={(s as any).tools}
+      toolWorkDirectory={(s as any).toolWorkDirectory}
+      modelRequestConfig={(s as any).modelRequestConfig}
+      conversationImageConfig={(s as any).conversationImageConfig}
+      requestRecords={(s as any).requestRecords}
+      bootstrap={bootstrap}
+      releaseViews={releaseViews}
+      onReleaseRefresh={onReleaseRefresh}
+      accessSettings={(s as any)?.accessSettings}
+      hookPrompts={hookPrompts}
+      placeholders={placeholders}
+      systemPlugins={systemPlugins}
+      draft={s.draft}
+      activeRoleId={String(s.draft?.activeRoleId || '')}
+      activeWorkspaceId={String((s.draft as any)?.activeWorkspaceId || '')}
+      activeTargetKind={activeTargetKind}
+      tab={settingsTab}
+      onTabChange={setSettingsTab}
+      dataDirectory={dataDirectory}
+      eucliBoxConnection={eucliBoxConnection}
+    />
+  ), [
+    controller,
+    s.loading,
+    data,
+    roles,
+    groups,
+    workspaces,
+    providers,
+    (s as any).modelGroups,
+    s.models,
+    (s as any).tools,
+    (s as any).toolWorkDirectory,
+    (s as any).modelRequestConfig,
+    (s as any).conversationImageConfig,
+    (s as any).requestRecords,
+    bootstrap,
+    releaseViews,
+    onReleaseRefresh,
+    (s as any)?.accessSettings,
+    hookPrompts,
+    placeholders,
+    systemPlugins,
+    s.draft,
+    (s.draft as any)?.activeRoleId,
+    (s.draft as any)?.activeWorkspaceId,
+    activeTargetKind,
+    settingsTab,
+    setSettingsTab,
+    dataDirectory,
+    eucliBoxConnection,
+  ])
 
-              <ChatComposer
-                controller={controller}
-                loading={!!s.loading}
-                composerRef={composerRef}
-                onClickOpenImageViewer={onClickOpenImageViewer}
-                treeOpen={treeOpen}
-                effectiveTreeView={effectiveTreeView}
-                treePanelW={treePanelW}
-                composerOpacity={composerOpacity}
-                composerBlur={composerBlur}
-                composerWidthPercent={composerWidthPercent}
-                composerMinRows={composerMinRows}
-                composerRadius={composerRadius}
-                composerModelShowProvider={composerModelShowProvider}
-                draft={s.draft}
-                activeSessionComposerDraftKey={String((s as any).activeSessionComposerDraftKey || '')}
-                composerInputRef={composerInputRef}
-                activeTargetKind={activeTargetKind}
-                activeChatTargetId={String(activeChatTargetId || '')}
-                activeChatId={String(activeChatId || '')}
-                activeRole={activeRole}
-                activeGroup={activeGroup}
-                roles={roles}
-                activeStopRunId={activeStopRunId}
-                formatModelRefText={formatModelRefText}
-                openImagePicker={openImagePicker}
-                hookPrompts={hookPrompts}
-                activeHookPromptMode={activeHookPromptMode as any}
-                activeHookPromptPresetId={activeHookPromptPresetId}
-                roleDefaultHookPromptPresetId={roleDefaultHookPromptPresetId}
-                hookPromptSelectorDisabled={hookPromptSelectorDisabled}
-                chatSettingsHookSaving={chatSettingsHookSaving}
-                hookPromptSelectorDisabledReason={hookPromptSelectorDisabledReason}
-                roleSessionControlsEnabled={roleSessionControlsEnabled}
-                hasChatOverride={hasChatOverride}
-                effectiveModelId={effectiveModelId}
-                effectiveModelRef={effectiveModelRef}
-                openTempModelPicker={openTempModelPicker}
-                roleModelStepPrevEnabled={roleModelStepPrevEnabled}
-                roleModelStepNextEnabled={roleModelStepNextEnabled}
-                stepRoleModelCandidate={stepRoleModelCandidate}
-                providers={providers}
-                modelGroups={modelGroups}
-                reasoningProfile={reasoningProfile}
-                activeReasoningLabel={activeReasoningLabel}
-                chatSettingsReasoningSaving={chatSettingsReasoningSaving}
-                openReasoningPicker={openReasoningPicker}
-                hasChatReasoningOverride={hasChatReasoningOverride}
-                activeContextTokenUsageText={activeContextTokenUsageText}
-                activeContextTokenUsageShortText={activeContextTokenUsageShortText}
-                activeCacheRateText={activeCacheRateText}
-                activeAsyncToolTaskRunningCount={activeAsyncToolTaskRunningCount}
-                openAsyncToolTasks={openAsyncToolTasks}
-                activeStreamOn={activeStreamOn}
-                chatSettingsStreamSaving={chatSettingsStreamSaving}
-                activeChat={activeChat}
-                onSend={onSend}
-                onStop={onStop}
-                onPaste={onPaste}
-              />
-        </Box>
-          </Freeze>
+  const overlayImagePicker = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    activeRole,
+    imagePickerEl,
+    closeImagePicker,
+    onPickDraftImages,
+  }), [controller, s.loading, activeRole, imagePickerEl, closeImagePicker, onPickDraftImages])
+
+  const overlayMessageMenus = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    uiBusy,
+    msgMenu,
+    closeMsgMenu,
+    msgMenuIsToolResponse,
+    msgMenuMid,
+    msgMenuText,
+    copyMessageText,
+    toggleExpandedToolMsg,
+    expandedToolMsgIds,
+    msgMenuCanEdit,
+    startEditMessage,
+    messageMutationBlocked,
+    msgMenuCanRegen,
+    msgMenuRegenMid,
+    msgMenuRegenRole,
+    setRegen,
+    regen,
+    treeNodeMenu,
+    closeTreeNodeMenu,
+    confirmDelMsg,
+    setConfirmDelMsg,
+    confirmDelTree,
+    setConfirmDelTree,
+    regenPathParentMid,
+    onRunStarted: handleRunStarted,
+  }), [
+    controller,
+    s.loading,
+    uiBusy,
+    msgMenu,
+    closeMsgMenu,
+    msgMenuIsToolResponse,
+    msgMenuMid,
+    msgMenuText,
+    copyMessageText,
+    toggleExpandedToolMsg,
+    expandedToolMsgIds,
+    msgMenuCanEdit,
+    startEditMessage,
+    messageMutationBlocked,
+    msgMenuCanRegen,
+    msgMenuRegenMid,
+    msgMenuRegenRole,
+    setRegen,
+    regen,
+    treeNodeMenu,
+    closeTreeNodeMenu,
+    confirmDelMsg,
+    setConfirmDelMsg,
+    confirmDelTree,
+    setConfirmDelTree,
+    regenPathParentMid,
+    handleRunStarted,
+  ])
+
+  const overlayComposerControls = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    providers,
+    modelGroups,
+    roleSessionControlsEnabled,
+    tempModelPickerEl,
+    closeTempModelPicker,
+    tempModelSource,
+    onTempModelSourceChanged,
+    tempModelProviderId,
+    onTempProviderChanged,
+    tempModelGroupId,
+    onTempModelGroupChanged,
+    tempModelPick,
+    setTempModelPick,
+    tempModelReady,
+    roleModelCandidates,
+    tempModelHighlightKey,
+    onPickRoleModelCandidate,
+    clearTempModelOverride,
+    hasChatOverride,
+    saveTempModelOverride,
+    reasoningPickerEl,
+    closeReasoningPicker,
+    activeEffectiveReasoningEffort,
+    activeChatReasoningEffort,
+    pickReasoningEffort,
+    clearReasoningEffort,
+    hasChatReasoningOverride,
+    asyncToolTasksEl,
+    closeAsyncToolTasks,
+    refreshAsyncToolTasks,
+    asyncToolTasksLoading,
+    asyncToolTasks,
+  }), [
+    controller,
+    s.loading,
+    providers,
+    modelGroups,
+    roleSessionControlsEnabled,
+    tempModelPickerEl,
+    closeTempModelPicker,
+    tempModelSource,
+    onTempModelSourceChanged,
+    tempModelProviderId,
+    onTempProviderChanged,
+    tempModelGroupId,
+    onTempModelGroupChanged,
+    tempModelPick,
+    setTempModelPick,
+    tempModelReady,
+    roleModelCandidates,
+    tempModelHighlightKey,
+    onPickRoleModelCandidate,
+    clearTempModelOverride,
+    hasChatOverride,
+    saveTempModelOverride,
+    reasoningPickerEl,
+    closeReasoningPicker,
+    activeEffectiveReasoningEffort,
+    activeChatReasoningEffort,
+    pickReasoningEffort,
+    clearReasoningEffort,
+    hasChatReasoningOverride,
+    asyncToolTasksEl,
+    closeAsyncToolTasks,
+    refreshAsyncToolTasks,
+    asyncToolTasksLoading,
+    asyncToolTasks,
+  ])
+
+  const overlayRolePicker = React.useMemo(() => ({
+    controller,
+    rolePickerEl,
+    closeRolePicker,
+    rolePickerView,
+    roles,
+    workspaceRoles: activeWorkspaceRoles,
+    workspaces,
+    draftActiveRoleId: String(s.draft?.activeRoleId || ''),
+    activeWorkspaceId,
+    activeTargetKind,
+    formatModelRefText,
+    openPluginSettings,
+  }), [
+    controller,
+    rolePickerEl,
+    closeRolePicker,
+    rolePickerView,
+    roles,
+    activeWorkspaceRoles,
+    workspaces,
+    s.draft?.activeRoleId,
+    activeWorkspaceId,
+    activeTargetKind,
+    formatModelRefText,
+    openPluginSettings,
+  ])
+
+  const overlayChatPicker = React.useMemo(() => ({
+    controller,
+    data,
+    chatPickerEl,
+    closeChatPicker,
+    chatPickerView,
+    setChatPickerView,
+    chatPickerSearchOpen,
+    setChatPickerSearchOpen,
+    chatPickerSearchText,
+    setChatPickerSearchText,
+    chatPickerSearchInputRef,
+    chatHistoryScrollRef,
+    onChatHistoryScrollPositionChange,
+    chatHistoryVisibleCount,
+    favoriteSearchOpen,
+    setFavoriteSearchOpen,
+    favoriteSearchText,
+    setFavoriteSearchText,
+    favoriteSearchInputRef,
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
+    activeTargetKind,
+    activeGroup,
+    activeWorkspace,
+    activeRole,
+    activeChatTargetId: String(activeChatTargetId || ''),
+    pendingGroupChat: (s as any)?.pendingGroupChat,
+    pendingWorkspaceChat: (s as any)?.pendingWorkspaceChat,
+    pendingRoleChat: (s as any)?.pendingChat,
+    chatSessionRunIndicatorKind,
+    clearChatSessionRunNotice,
+    requestSwitch: switchSession,
+    onChatContextMenu,
+  }), [
+    controller,
+    data,
+    chatPickerEl,
+    closeChatPicker,
+    chatPickerView,
+    setChatPickerView,
+    chatPickerSearchOpen,
+    setChatPickerSearchOpen,
+    chatPickerSearchText,
+    setChatPickerSearchText,
+    chatPickerSearchInputRef,
+    chatHistoryScrollRef,
+    onChatHistoryScrollPositionChange,
+    chatHistoryVisibleCount,
+    favoriteSearchOpen,
+    setFavoriteSearchOpen,
+    favoriteSearchText,
+    setFavoriteSearchText,
+    favoriteSearchInputRef,
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
+    activeTargetKind,
+    activeGroup,
+    activeWorkspace,
+    activeRole,
+    activeChatTargetId,
+    (s as any)?.pendingGroupChat,
+    (s as any)?.pendingWorkspaceChat,
+    (s as any)?.pendingChat,
+    chatSessionRunIndicatorKind,
+    clearChatSessionRunNotice,
+    switchSession,
+    onChatContextMenu,
+  ])
+
+  const overlayContextMenus = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    favoriteFolderMenu,
+    closeFavoriteFolderMenu,
+    openCreateFavoriteFolder,
+    setMoveFavoriteFolderDialog,
+    openRenameFavoriteFolder,
+    setConfirmClearFavoriteFolder,
+    openDeleteFavoriteFolderConfirm,
+    favoriteChatMenu,
+    closeFavoriteChatMenu,
+    openFavoriteDialog,
+    setEditingChatTitle,
+    isSendingThisChat,
+    chatMenu,
+    closeChatMenu,
+    setConfirmDelChat,
+  }), [
+    controller,
+    s.loading,
+    favoriteFolderMenu,
+    closeFavoriteFolderMenu,
+    openCreateFavoriteFolder,
+    setMoveFavoriteFolderDialog,
+    openRenameFavoriteFolder,
+    setConfirmClearFavoriteFolder,
+    openDeleteFavoriteFolderConfirm,
+    favoriteChatMenu,
+    closeFavoriteChatMenu,
+    openFavoriteDialog,
+    setEditingChatTitle,
+    isSendingThisChat,
+    chatMenu,
+    closeChatMenu,
+    setConfirmDelChat,
+  ])
+
+  const overlayFavoriteDialogs = React.useMemo(() => ({
+    loading: !!s.loading,
+    favoriteFolders,
+    createFavoriteFolder,
+    setCreateFavoriteFolder,
+    closeCreateFavoriteFolder,
+    submitCreateFavoriteFolder,
+    openCreateFavoriteFolder,
+    renameFavoriteFolder,
+    setRenameFavoriteFolder,
+    closeRenameFavoriteFolder,
+    submitRenameFavoriteFolder,
+    confirmDeleteFavoriteFolder,
+    closeDeleteFavoriteFolderConfirm,
+    submitDeleteFavoriteFolder,
+    moveFavoriteFolderContents,
+    setMoveFavoriteFolderContents,
+    closeMoveFavoriteFolderContents,
+    submitMoveFavoriteFolderContents,
+    confirmClearFavoriteFolder,
+    closeConfirmClearFavoriteFolder,
+    submitClearFavoriteFolder,
+    moveFavoriteFolderDialog,
+    setMoveFavoriteFolderDialog,
+    closeMoveFavoriteFolderDialog,
+    submitMoveFavoriteFolder,
+    collectFavoriteFolderSubtreeIds,
+    favoriteDialog,
+    closeFavoriteDialog,
+    saveFavoriteDialog,
+    renderFavoriteFolderPicker,
+    renderFavoriteFolderSinglePicker,
+  }), [
+    s.loading,
+    favoriteFolders,
+    createFavoriteFolder,
+    setCreateFavoriteFolder,
+    closeCreateFavoriteFolder,
+    submitCreateFavoriteFolder,
+    openCreateFavoriteFolder,
+    renameFavoriteFolder,
+    setRenameFavoriteFolder,
+    closeRenameFavoriteFolder,
+    submitRenameFavoriteFolder,
+    confirmDeleteFavoriteFolder,
+    closeDeleteFavoriteFolderConfirm,
+    submitDeleteFavoriteFolder,
+    moveFavoriteFolderContents,
+    setMoveFavoriteFolderContents,
+    closeMoveFavoriteFolderContents,
+    submitMoveFavoriteFolderContents,
+    confirmClearFavoriteFolder,
+    closeConfirmClearFavoriteFolder,
+    submitClearFavoriteFolder,
+    moveFavoriteFolderDialog,
+    setMoveFavoriteFolderDialog,
+    closeMoveFavoriteFolderDialog,
+    submitMoveFavoriteFolder,
+    collectFavoriteFolderSubtreeIds,
+    favoriteDialog,
+    closeFavoriteDialog,
+    saveFavoriteDialog,
+    renderFavoriteFolderPicker,
+    renderFavoriteFolderSinglePicker,
+  ])
+
+  const overlaySessionDialogs = React.useMemo(() => ({
+    controller,
+    loading: !!s.loading,
+    editingChatTitle,
+    setEditingChatTitle,
+    closeEditingChatTitle,
+    saveEditingChatTitle,
+    confirmDelChat,
+    setConfirmDelChat,
+    isSendingThisChat,
+  }), [
+    controller,
+    s.loading,
+    editingChatTitle,
+    setEditingChatTitle,
+    closeEditingChatTitle,
+    saveEditingChatTitle,
+    confirmDelChat,
+    setConfirmDelChat,
+    isSendingThisChat,
+  ])
+
+  const overlayRunningSessions = React.useMemo(() => ({
+    open: runningSessionsOpen,
+    entries: runningSessions,
+    activeKey: activeRunningSessionKey,
+    onClose: onCloseRunningSessions,
+    onOpen: openRunningSession,
+  }), [
+    runningSessionsOpen,
+    runningSessions,
+    activeRunningSessionKey,
+    onCloseRunningSessions,
+    openRunningSession,
+  ])
+
+  return (
+    <ShellFrame
+      theme={theme}
+      colorThemeColors={colorThemeColors}
+      transparentChatBg={transparentChatBg}
+      bgAlpha={bgAlpha}
+      chatBgBlur={chatBgBlur}
+      chatFontSize={chatFontSize}
+      chatFontFamily={chatFontFamily}
+      chatLetterSpacing={chatLetterSpacing}
+      chatLineHeight={chatLineHeight}
+      activeWallpaper={activeWallpaper}
+      activeWallpaperSrc={activeWallpaperSrc}
+    >
+      <TopBarSurface
+        controller={controller}
+        page={page}
+        topbarOpacity={topbarOpacity}
+        topbarBlur={topbarBlur}
+        standaloneWindowControls={standaloneWindowControls}
+        onTopbarPointerDown={onTopbarPointerDown}
+        onCloseSettings={closePluginSettings}
+        nav={navControlsProps}
+      />
+
+      <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'row' }}>
+        {sidebarVisible && sidebarLayout.side === 'left' ? (
+          <SidebarSurface {...sidebarProps} side="left" />
+        ) : null}
+
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          <SessionViewport
+            frozen={page !== 'chat'}
+            visible={page === 'chat'}
+            chatPaneRef={chatPaneRef}
+            transparentChatBg={transparentChatBg}
+            switching={chatSwitch.switching}
+            activeKey={sessionPageKey}
+            visibleKey={sessionVisibleKey}
+            keys={sessionKeepAliveKeys}
+            activeScrollRef={chatRootRef}
+            onPainted={chatSwitch.notifyPainted}
+            activePage={sessionPage}
+            emptyOverlay={emptyOverlay}
+            extras={treeElement}
+            composer={composerElement}
+          />
 
           {/* 全局弹层区：刻意放在页面冻结子树之外。
               弹层是 Portal 浮层、不属于页面内容；一旦被 Freeze 冻结，
               「关闭弹层 + 切页」同批次的更新会被 Freeze 复用旧元素而吞掉，
               弹层 open 会卡在 true、遮罩残留并拦截整页交互
               （典型症状：没有工作区时点「去创建工作区」跳设置页，浮窗不关）。 */}
-          <ComposerImagePickerPopover
-            controller={controller}
-            loading={!!s.loading}
-            activeRole={activeRole}
-            imagePickerEl={imagePickerEl}
-            closeImagePicker={closeImagePicker}
-            onPickDraftImages={onPickDraftImages}
+          <OverlaySurface
+            imagePicker={overlayImagePicker}
+            messageMenus={overlayMessageMenus}
+            composerControls={overlayComposerControls}
+            rolePicker={overlayRolePicker}
+            chatPicker={overlayChatPicker}
+            contextMenus={overlayContextMenus}
+            favoriteDialogs={overlayFavoriteDialogs}
+            sessionDialogs={overlaySessionDialogs}
+            runningSessions={overlayRunningSessions}
           />
 
-          <MessageMenusDialogs
-            controller={controller}
-            loading={!!s.loading}
-            uiBusy={uiBusy}
-            msgMenu={msgMenu}
-            closeMsgMenu={closeMsgMenu}
-            msgMenuIsToolResponse={msgMenuIsToolResponse}
-            msgMenuMid={msgMenuMid}
-            msgMenuText={msgMenuText}
-            copyMessageText={copyMessageText}
-            toggleExpandedToolMsg={toggleExpandedToolMsg}
-            expandedToolMsgIds={expandedToolMsgIds}
-            msgMenuCanEdit={msgMenuCanEdit}
-            startEditMessage={startEditMessage}
-            messageMutationBlocked={messageMutationBlocked}
-            msgMenuCanRegen={msgMenuCanRegen}
-            msgMenuRegenMid={msgMenuRegenMid}
-            msgMenuRegenRole={msgMenuRegenRole}
-            setRegen={setRegen}
-            regen={regen}
-            treeNodeMenu={treeNodeMenu}
-            closeTreeNodeMenu={closeTreeNodeMenu}
-            confirmDelMsg={confirmDelMsg}
-            setConfirmDelMsg={setConfirmDelMsg}
-            confirmDelTree={confirmDelTree}
-            setConfirmDelTree={setConfirmDelTree}
-            regenPathParentMid={regenPathParentMid}
-            onRunStarted={(runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))}
+          <SettingsSurface
+            mounted={settingsMounted}
+            visible={page === 'settings'}
+            content={settingsContent}
           />
-
-          <ComposerControlsPopovers
-            controller={controller}
-            loading={!!s.loading}
-            providers={providers}
-            modelGroups={modelGroups}
-            roleSessionControlsEnabled={roleSessionControlsEnabled}
-            tempModelPickerEl={tempModelPickerEl}
-            closeTempModelPicker={closeTempModelPicker}
-            tempModelSource={tempModelSource}
-            onTempModelSourceChanged={onTempModelSourceChanged}
-            tempModelProviderId={tempModelProviderId}
-            onTempProviderChanged={onTempProviderChanged}
-            tempModelGroupId={tempModelGroupId}
-            onTempModelGroupChanged={onTempModelGroupChanged}
-            tempModelPick={tempModelPick}
-            setTempModelPick={setTempModelPick}
-            tempModelReady={tempModelReady}
-            roleModelCandidates={roleModelCandidates}
-            tempModelHighlightKey={tempModelHighlightKey}
-            onPickRoleModelCandidate={onPickRoleModelCandidate}
-            clearTempModelOverride={clearTempModelOverride}
-            hasChatOverride={hasChatOverride}
-            saveTempModelOverride={saveTempModelOverride}
-            reasoningPickerEl={reasoningPickerEl}
-            closeReasoningPicker={closeReasoningPicker}
-            activeEffectiveReasoningEffort={activeEffectiveReasoningEffort}
-            activeChatReasoningEffort={activeChatReasoningEffort}
-            pickReasoningEffort={pickReasoningEffort}
-            clearReasoningEffort={clearReasoningEffort}
-            hasChatReasoningOverride={hasChatReasoningOverride}
-            asyncToolTasksEl={asyncToolTasksEl}
-            closeAsyncToolTasks={closeAsyncToolTasks}
-            refreshAsyncToolTasks={refreshAsyncToolTasks}
-            asyncToolTasksLoading={asyncToolTasksLoading}
-            asyncToolTasks={asyncToolTasks}
-          />
-
-          <RolePickerPopover
-            controller={controller}
-            rolePickerEl={rolePickerEl}
-            closeRolePicker={closeRolePicker}
-            rolePickerView={rolePickerView}
-            roles={roles}
-            workspaceRoles={activeWorkspaceRoles}
-            workspaces={workspaces}
-            draftActiveRoleId={String(s.draft?.activeRoleId || '')}
-            activeWorkspaceId={activeWorkspaceId}
-            activeTargetKind={activeTargetKind}
-            formatModelRefText={formatModelRefText}
-            openPluginSettings={openPluginSettings}
-          />
-
-          <ChatPickerPopover
-            controller={controller}
-            data={data}
-            chatPickerEl={chatPickerEl}
-            closeChatPicker={closeChatPicker}
-            chatPickerView={chatPickerView}
-            setChatPickerView={setChatPickerView}
-            chatPickerSearchOpen={chatPickerSearchOpen}
-            setChatPickerSearchOpen={setChatPickerSearchOpen}
-            chatPickerSearchText={chatPickerSearchText}
-            setChatPickerSearchText={setChatPickerSearchText}
-            chatPickerSearchInputRef={chatPickerSearchInputRef}
-            chatHistoryScrollRef={chatHistoryScrollRef}
-            onChatHistoryScrollPositionChange={onChatHistoryScrollPositionChange}
-            chatHistoryVisibleCount={chatHistoryVisibleCount}
-            favoriteSearchOpen={favoriteSearchOpen}
-            setFavoriteSearchOpen={setFavoriteSearchOpen}
-            favoriteSearchText={favoriteSearchText}
-            setFavoriteSearchText={setFavoriteSearchText}
-            favoriteSearchInputRef={favoriteSearchInputRef}
-            favoriteFolders={favoriteFolders}
-            renderFavoriteFolderTree={renderFavoriteFolderTree}
-            collapseAllFavoriteFolders={collapseAllFavoriteFolders}
-            openCreateFavoriteFolder={openCreateFavoriteFolder}
-            activeTargetKind={activeTargetKind}
-            activeGroup={activeGroup}
-            activeWorkspace={activeWorkspace}
-            activeRole={activeRole}
-            activeChatTargetId={String(activeChatTargetId || '')}
-            pendingGroupChat={(s as any)?.pendingGroupChat}
-            pendingWorkspaceChat={(s as any)?.pendingWorkspaceChat}
-            pendingRoleChat={(s as any)?.pendingChat}
-            chatSessionRunIndicatorKind={chatSessionRunIndicatorKind}
-            clearChatSessionRunNotice={clearChatSessionRunNotice}
-            requestSwitch={switchSession}
-            onChatContextMenu={onChatContextMenu}
-          />
-
-          <ChatContextMenus
-            controller={controller}
-            loading={!!s.loading}
-            favoriteFolderMenu={favoriteFolderMenu}
-            closeFavoriteFolderMenu={closeFavoriteFolderMenu}
-            openCreateFavoriteFolder={openCreateFavoriteFolder}
-            setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
-            openRenameFavoriteFolder={openRenameFavoriteFolder}
-            setConfirmClearFavoriteFolder={setConfirmClearFavoriteFolder}
-            openDeleteFavoriteFolderConfirm={openDeleteFavoriteFolderConfirm}
-            favoriteChatMenu={favoriteChatMenu}
-            closeFavoriteChatMenu={closeFavoriteChatMenu}
-            openFavoriteDialog={openFavoriteDialog}
-            setEditingChatTitle={setEditingChatTitle}
-            isSendingThisChat={isSendingThisChat}
-            chatMenu={chatMenu}
-            closeChatMenu={closeChatMenu}
-            setConfirmDelChat={setConfirmDelChat}
-          />
-
-          <FavoriteFoldersDialogs
-            loading={!!s.loading}
-            favoriteFolders={favoriteFolders}
-            createFavoriteFolder={createFavoriteFolder}
-            setCreateFavoriteFolder={setCreateFavoriteFolder}
-            closeCreateFavoriteFolder={closeCreateFavoriteFolder}
-            submitCreateFavoriteFolder={submitCreateFavoriteFolder}
-            openCreateFavoriteFolder={openCreateFavoriteFolder}
-            renameFavoriteFolder={renameFavoriteFolder}
-            setRenameFavoriteFolder={setRenameFavoriteFolder}
-            closeRenameFavoriteFolder={closeRenameFavoriteFolder}
-            submitRenameFavoriteFolder={submitRenameFavoriteFolder}
-            confirmDeleteFavoriteFolder={confirmDeleteFavoriteFolder}
-            closeDeleteFavoriteFolderConfirm={closeDeleteFavoriteFolderConfirm}
-            submitDeleteFavoriteFolder={submitDeleteFavoriteFolder}
-            moveFavoriteFolderContents={moveFavoriteFolderContents}
-            setMoveFavoriteFolderContents={setMoveFavoriteFolderContents}
-            closeMoveFavoriteFolderContents={closeMoveFavoriteFolderContents}
-            submitMoveFavoriteFolderContents={submitMoveFavoriteFolderContents}
-            confirmClearFavoriteFolder={confirmClearFavoriteFolder}
-            closeConfirmClearFavoriteFolder={closeConfirmClearFavoriteFolder}
-            submitClearFavoriteFolder={submitClearFavoriteFolder}
-            moveFavoriteFolderDialog={moveFavoriteFolderDialog}
-            setMoveFavoriteFolderDialog={setMoveFavoriteFolderDialog}
-            closeMoveFavoriteFolderDialog={closeMoveFavoriteFolderDialog}
-            submitMoveFavoriteFolder={submitMoveFavoriteFolder}
-            collectFavoriteFolderSubtreeIds={collectFavoriteFolderSubtreeIds}
-            favoriteDialog={favoriteDialog}
-            closeFavoriteDialog={closeFavoriteDialog}
-            saveFavoriteDialog={saveFavoriteDialog}
-            renderFavoriteFolderPicker={renderFavoriteFolderPicker}
-            renderFavoriteFolderSinglePicker={renderFavoriteFolderSinglePicker}
-          />
-
-          <ChatSessionDialogs
-            controller={controller}
-            loading={!!s.loading}
-            editingChatTitle={editingChatTitle}
-            setEditingChatTitle={setEditingChatTitle}
-            closeEditingChatTitle={closeEditingChatTitle}
-            saveEditingChatTitle={saveEditingChatTitle}
-            confirmDelChat={confirmDelChat}
-            setConfirmDelChat={setConfirmDelChat}
-            isSendingThisChat={isSendingThisChat}
-          />
-
-          <RunningSessionsDialog
-            open={runningSessionsOpen}
-            entries={runningSessions}
-            activeKey={activeRunningSessionKey}
-            onClose={() => setRunningSessionsOpen(false)}
-            onOpen={openRunningSession}
-          />
-
         </Box>
 
-        {settingsMounted ? (
-        <Box
-          aria-hidden={page === 'settings' ? undefined : true}
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            // 与聊天层同理：用 inherit 而非显式 visible，避免隐藏时子级穿透父级重新显形。
-            visibility: page === 'settings' ? 'inherit' : 'hidden',
-          }}
-        >
-          <Freeze frozen={page !== 'settings'}>
-          <PluginSettingsPage
-            controller={controller}
-            loading={!!s.loading}
-            data={data}
-            roles={roles}
-            groups={groups}
-            workspaces={workspaces}
-            providers={providers}
-            modelGroups={(s as any).modelGroups}
-            models={s.models}
-            tools={(s as any).tools}
-            toolWorkDirectory={(s as any).toolWorkDirectory}
-            modelRequestConfig={(s as any).modelRequestConfig}
-            conversationImageConfig={(s as any).conversationImageConfig}
-            requestRecords={(s as any).requestRecords}
-            bootstrap={bootstrap}
-            releaseViews={releaseViews}
-            onReleaseRefresh={onReleaseRefresh}
-            accessSettings={(s as any)?.accessSettings}
-            hookPrompts={hookPrompts}
-            placeholders={placeholders}
-            systemPlugins={systemPlugins}
-            draft={s.draft}
-            activeRoleId={String(s.draft?.activeRoleId || '')}
-            activeWorkspaceId={String((s.draft as any)?.activeWorkspaceId || '')}
-            activeTargetKind={activeTargetKind}
-            tab={settingsTab}
-            onTabChange={setSettingsTab}
-            dataDirectory={dataDirectory}
-            eucliBoxConnection={eucliBoxConnection}
-          />
-          </Freeze>
-        </Box>
+        {sidebarVisible && sidebarLayout.side === 'right' ? (
+          <SidebarSurface {...sidebarProps} side="right" />
         ) : null}
-          </Box>
-
-          {sidebarVisible && sidebarLayout.side === 'right' ? (
-            <ChatSidebar {...sidebarProps} side="right" />
-          ) : null}
-        </Box>
-
-        <SidebarResizeLine lineRef={sidebarResize.lineRef} active={sidebarResize.resizing} />
-
-        <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
-        <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
-        <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
-        <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} roles={roles} />
-        <ToolWorkDirectoryPromptDialog controller={controller} state={(s as any).toolWorkDirectory} />
-        <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} workspaces={workspaces} />
-        <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
-        <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />
       </Box>
-      </ThemeColorsProvider>
-    </ThemeProvider>
+
+      <SidebarResizeLine lineRef={sidebarResize.lineRef} active={sidebarResize.resizing} />
+
+      <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
+      <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
+      <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
+      <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} roles={roles} />
+      <ToolWorkDirectoryPromptDialog controller={controller} state={(s as any).toolWorkDirectory} />
+      <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} workspaces={workspaces} />
+      <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
+      <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />
+    </ShellFrame>
   )
 }
-
