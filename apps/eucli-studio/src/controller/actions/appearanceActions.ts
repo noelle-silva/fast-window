@@ -13,6 +13,19 @@ import {
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
+import {
+  normalizeChatBgBlur,
+  normalizeChatBgOpacity,
+  normalizeComposerBlur,
+  normalizeComposerOpacity,
+  normalizeTopbarBlur,
+  normalizeTopbarOpacity,
+} from '../../domain/appearanceSettings'
+import {
+  normalizeBranchTreeDir,
+  normalizeBranchTreeSettings,
+  normalizeBranchTreeView,
+} from '../../domain/branchTree'
 import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
@@ -41,6 +54,15 @@ export function createAppearanceActions(deps: {
     })
   }
 
+  // 分支树设置只允许经领域归一化建立/读取，避免动作层自带一份默认值。
+  const currentBranchTree = () => {
+    if (!state.data) return null
+    if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
+    const next = normalizeBranchTreeSettings((state.data.settings as any).branchTree)
+    ;(state.data.settings as any).branchTree = next
+    return next
+  }
+
   // 配色草稿：设置页未保存的编辑层。首次操作时从当前设置克隆；保存按单个预设物化落盘。
   const ensureColorThemeDraft = (): ColorThemeDraft => {
     const existing = (state.draft as any).colorThemeDraft as ColorThemeDraft | null
@@ -57,37 +79,37 @@ export function createAppearanceActions(deps: {
     },
     setChatBgOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.chatBgOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
+      state.data.settings.chatBgOpacity = normalizeChatBgOpacity(opacity)
       if (commit) persistMeta()
       emit()
     },
     setChatBgBlur: (blur: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.chatBgBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+      state.data.settings.chatBgBlur = normalizeChatBgBlur(blur)
       if (commit) persistMeta()
       emit()
     },
     setTopbarOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.topbarOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
+      state.data.settings.topbarOpacity = normalizeTopbarOpacity(opacity)
       if (commit) persistMeta()
       emit()
     },
     setTopbarBlur: (blur: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.topbarBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+      state.data.settings.topbarBlur = normalizeTopbarBlur(blur)
       if (commit) persistMeta()
       emit()
     },
     setComposerOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.composerOpacity = clamp(Math.round(Number(opacity || 0)), 40, 100)
+      state.data.settings.composerOpacity = normalizeComposerOpacity(opacity)
       if (commit) persistMeta()
       emit()
     },
     setComposerBlur: (blur: any, commit: any) => {
       if (!state.data) return
-      state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+      state.data.settings.composerBlur = normalizeComposerBlur(blur)
       if (commit) persistMeta()
       emit()
     },
@@ -255,43 +277,30 @@ export function createAppearanceActions(deps: {
       emit()
     },
     setBranchTreeDir: (dir: any) => {
-      if (!state.data) return
-      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
-      if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-        (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
-      const v = String(dir || '').trim()
-      const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
-      ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
+      const branchTree = currentBranchTree()
+      if (!branchTree) return
+      branchTree.dir = normalizeBranchTreeDir(dir)
       persistMeta()
       emit()
     },
     setBranchTreeView: (view: any) => {
-      if (!state.data) return
-      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
-      if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-        (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
-      const v = String(view || '').trim()
-      const ok = v === 'right' || v === 'float'
-      ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
+      const branchTree = currentBranchTree()
+      if (!branchTree) return
+      branchTree.view = normalizeBranchTreeView(view)
       persistMeta()
       emit()
     },
     setBranchTreeFollowSelected: (enabled: any) => {
-      if (!state.data) return
-      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
-      if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-        (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
-      ;(state.data.settings as any).branchTree.followSelected = !!enabled
+      const branchTree = currentBranchTree()
+      if (!branchTree) return
+      branchTree.followSelected = !!enabled
       persistMeta()
       emit()
     },
     setBranchTreeModalHotkey: (hotkey: any) => {
-      if (!state.data) return
-      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
-      if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-        (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
-      const v = String(hotkey || '').trim().slice(0, 80)
-      ;(state.data.settings as any).branchTree.modalHotkey = v
+      const branchTree = currentBranchTree()
+      if (!branchTree) return
+      branchTree.modalHotkey = normalizeBranchTreeSettings({ modalHotkey: hotkey }).modalHotkey
       persistMeta()
       emit()
     },

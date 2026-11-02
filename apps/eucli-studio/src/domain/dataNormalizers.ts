@@ -30,7 +30,16 @@ import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
-import { normalizeWallpaperSettings } from './wallpaper'
+import { isTransparentChatBg, normalizeWallpaperSettings } from './wallpaper'
+import { normalizeBranchTreeSettings } from './branchTree'
+import {
+  normalizeChatBgBlur,
+  normalizeChatBgOpacity,
+  normalizeComposerBlur,
+  normalizeComposerOpacity,
+  normalizeTopbarBlur,
+  normalizeTopbarOpacity,
+} from './appearanceSettings'
 import { readActiveChatSelection, reconcileActiveChatSelection, writeActiveChatSelection } from './activeChatSelection'
 import { readChatRunStatus } from './chatSessionRunStatus'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from './chatFont'
@@ -186,13 +195,12 @@ export function normalizeData(raw: any) {
   const d = d0
 
   if (!d.settings || typeof d.settings !== 'object') d.settings = {}
-  if (typeof d.settings.transparentChatBg !== 'boolean') d.settings.transparentChatBg = false
-  if (typeof d.settings.chatBgOpacity !== 'number' || !isFinite(d.settings.chatBgOpacity)) d.settings.chatBgOpacity = 0
-  if (typeof d.settings.chatBgBlur !== 'number' || !isFinite(d.settings.chatBgBlur)) d.settings.chatBgBlur = 0
-  if (typeof d.settings.topbarOpacity !== 'number' || !isFinite(d.settings.topbarOpacity)) d.settings.topbarOpacity = 100
-  if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
-  if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
-  if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+  d.settings.chatBgOpacity = normalizeChatBgOpacity(d.settings.chatBgOpacity)
+  d.settings.chatBgBlur = normalizeChatBgBlur(d.settings.chatBgBlur)
+  d.settings.topbarOpacity = normalizeTopbarOpacity(d.settings.topbarOpacity)
+  d.settings.topbarBlur = normalizeTopbarBlur(d.settings.topbarBlur)
+  d.settings.composerOpacity = normalizeComposerOpacity(d.settings.composerOpacity)
+  d.settings.composerBlur = normalizeComposerBlur(d.settings.composerBlur)
   ;(d.settings as any).composerWidthPercent = normalizeComposerWidthPercent((d.settings as any).composerWidthPercent)
   ;(d.settings as any).composerMinRows = normalizeComposerMinRows((d.settings as any).composerMinRows)
   ;(d.settings as any).composerRadius = normalizeComposerRadius((d.settings as any).composerRadius)
@@ -204,17 +212,7 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).chatLetterSpacing = normalizeChatLetterSpacing((d.settings as any).chatLetterSpacing)
   ;(d.settings as any).chatLineHeight = normalizeChatLineHeight((d.settings as any).chatLineHeight)
   ;(d.settings as any)[COLOR_THEME_SETTING_KEY] = normalizeColorThemeSettings((d.settings as any)[COLOR_THEME_SETTING_KEY])
-  if (!(d.settings as any).branchTree || typeof (d.settings as any).branchTree !== 'object') (d.settings as any).branchTree = { dir: 'lr' }
-  const btree = (d.settings as any).branchTree
-  const dir0 = String(btree?.dir || '').trim()
-  const okDir = dir0 === 'lr' || dir0 === 'tb' || dir0 === 'bt' || dir0 === 'rl'
-  btree.dir = okDir ? dir0 : 'lr'
-  const view0 = String(btree?.view || '').trim()
-  const okView = view0 === 'right' || view0 === 'float'
-  btree.view = okView ? view0 : 'float'
-  if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
-  if (typeof btree.modalHotkey !== 'string') btree.modalHotkey = ''
-  btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
+  ;(d.settings as any).branchTree = normalizeBranchTreeSettings((d.settings as any).branchTree)
   migrateSidebarLayout(d.settings)
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
@@ -224,13 +222,8 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled((d.settings as any).messageOffscreenSkipEnabled)
   ;(d.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((d.settings as any).sessionKeepAliveLimit)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)
-  if ((d.settings as any).wallpaper.enabled) d.settings.transparentChatBg = true
-  d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
-  d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
-  d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
-  d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
-  d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
-  d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
+  // 透明背景只由壁纸开关派生；持久化字段是派生快照，动作层不再双写。
+  d.settings.transparentChatBg = isTransparentChatBg(d.settings)
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
   if (!Array.isArray(d.settings.providers)) d.settings.providers = []
@@ -257,15 +250,20 @@ export function normalizeData(raw: any) {
   const mapOut: Record<string, any> = {}
   for (const cat of st.categories) {
     const box = st.map && typeof st.map === 'object' ? (st.map as any)[cat] : null
-    const outBox: Record<string, { relPath: string; createdAt: number; updatedAt: number }> = {}
+    const outBox: Record<string, { relPath: string; order?: number; createdAt: number; updatedAt: number }> = {}
     if (box && typeof box === 'object') {
       for (const [k, v] of Object.entries(box)) {
         const name = String(k || '').trim()
         if (!name || name.length > 80) continue
         const relPath = typeof (v as any)?.relPath === 'string' ? String((v as any).relPath || '').trim() : ''
         if (!relPath) continue
+        // order 是业务端维护的排序真值，重建成 map 时必须原样保留；
+        // 缺失时维持旧行为（不出现在归一化结果里，UI 按 0 与名称排序）。
+        const order0 = (v as any)?.order
+        const order = typeof order0 === 'number' && isFinite(order0) ? order0 : undefined
         outBox[name] = {
           relPath,
+          ...(order === undefined ? {} : { order }),
           createdAt: Number((v as any)?.createdAt || now()),
           updatedAt: Number((v as any)?.updatedAt || (v as any)?.createdAt || now()),
         }

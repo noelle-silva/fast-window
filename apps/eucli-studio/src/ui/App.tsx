@@ -60,12 +60,20 @@ import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen
 import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
+import {
+  normalizeChatBgBlur,
+  normalizeChatBgOpacity,
+  normalizeComposerBlur,
+  normalizeComposerOpacity,
+  normalizeTopbarBlur,
+  normalizeTopbarOpacity,
+} from '../domain/appearanceSettings'
 import { chatStreamEnabled } from '../domain/chatStream'
 import type { HookPromptLibrary } from '../domain/hookPrompt'
 import type { PlaceholderLibrary } from '../domain/placeholder'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../domain/release'
 import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTheme'
-import { normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
+import { isTransparentChatBg, normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveSidebarLayout } from '../domain/sidebarLayout'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
@@ -122,13 +130,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const hookPrompts = (s as any)?.hookPrompts && typeof (s as any).hookPrompts === 'object' ? (s as any).hookPrompts : { loading: false, error: '', library: { presets: [] } as HookPromptLibrary }
   const placeholders = (s as any)?.placeholders && typeof (s as any).placeholders === 'object' ? (s as any).placeholders : { loading: false, error: '', library: { placeholders: [], folders: [] } as PlaceholderLibrary, preview: { text: '', problems: [] }, problems: [], dependencyTree: { name: '' } }
   const systemPlugins = (s as any)?.systemPlugins && typeof (s as any).systemPlugins === 'object' ? (s as any).systemPlugins : { loading: false, error: '', items: [], selectedPluginId: '', selectedPlugin: null, availableInterfaces: [] }
-  const transparentChatBg = !!data?.settings?.transparentChatBg
-  const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
-  const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
-  const topbarOpacity = clampNum(Number(data?.settings?.topbarOpacity ?? 100), 0, 100)
-  const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
-  const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
-  const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const transparentChatBg = isTransparentChatBg(data?.settings)
+  const chatBgOpacity = normalizeChatBgOpacity(data?.settings?.chatBgOpacity)
+  const chatBgBlur = normalizeChatBgBlur(data?.settings?.chatBgBlur)
+  const topbarOpacity = normalizeTopbarOpacity(data?.settings?.topbarOpacity)
+  const topbarBlur = normalizeTopbarBlur(data?.settings?.topbarBlur)
+  const composerOpacity = normalizeComposerOpacity(data?.settings?.composerOpacity)
+  const composerBlur = normalizeComposerBlur(data?.settings?.composerBlur)
   const composerWidthPercent = normalizeComposerWidthPercent(data?.settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(data?.settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(data?.settings?.composerRadius)

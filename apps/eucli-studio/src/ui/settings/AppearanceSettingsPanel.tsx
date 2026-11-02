@@ -20,6 +20,28 @@ import {
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
+  CHAT_BG_BLUR_MAX,
+  CHAT_BG_BLUR_MIN,
+  CHAT_BG_OPACITY_MAX,
+  CHAT_BG_OPACITY_MIN,
+  COMPOSER_BLUR_MAX,
+  COMPOSER_BLUR_MIN,
+  COMPOSER_OPACITY_MAX,
+  COMPOSER_OPACITY_MIN,
+  TOPBAR_BLUR_MAX,
+  TOPBAR_BLUR_MIN,
+  TOPBAR_OPACITY_MAX,
+  TOPBAR_OPACITY_MIN,
+  normalizeChatBgBlur,
+  normalizeChatBgOpacity,
+  normalizeComposerBlur,
+  normalizeComposerOpacity,
+  normalizeTopbarBlur,
+  normalizeTopbarOpacity,
+} from '../../domain/appearanceSettings'
+import { normalizeBranchTreeSettings } from '../../domain/branchTree'
+import { isTransparentChatBg } from '../../domain/wallpaper'
+import {
   SESSION_KEEP_ALIVE_MAX_LIMIT,
   SESSION_KEEP_ALIVE_MIN_LIMIT,
   normalizeSessionKeepAliveLimit,
@@ -163,13 +185,13 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [treeHotkeyRecording, controller])
 
-  const transparentChatBg = !!settings?.transparentChatBg
-  const chatBgOpacity = clampNum(Number(settings?.chatBgOpacity ?? 0), 0, 100)
-  const chatBgBlur = clampNum(Number(settings?.chatBgBlur ?? 0), 0, 24)
-  const topbarOpacity = clampNum(Number(settings?.topbarOpacity ?? 100), 0, 100)
-  const topbarBlur = clampNum(Number(settings?.topbarBlur ?? 0), 0, 24)
-  const composerOpacity = clampNum(Number(settings?.composerOpacity ?? 86), 40, 100)
-  const composerBlur = clampNum(Number(settings?.composerBlur ?? 10), 0, 24)
+  const transparentChatBg = isTransparentChatBg(settings)
+  const chatBgOpacity = normalizeChatBgOpacity(settings?.chatBgOpacity)
+  const chatBgBlur = normalizeChatBgBlur(settings?.chatBgBlur)
+  const topbarOpacity = normalizeTopbarOpacity(settings?.topbarOpacity)
+  const topbarBlur = normalizeTopbarBlur(settings?.topbarBlur)
+  const composerOpacity = normalizeComposerOpacity(settings?.composerOpacity)
+  const composerBlur = normalizeComposerBlur(settings?.composerBlur)
   const composerWidthPercent = normalizeComposerWidthPercent(settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(settings?.composerRadius)
@@ -187,18 +209,10 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
-  const branchTreeView = (() => {
-    const raw = String(((settings as any)?.branchTree?.view ?? '') as any).trim()
-    return raw === 'right' || raw === 'float' ? raw : 'right'
-  })()
-  const branchTreeFollowSelected = (() => {
-    const raw = (settings as any)?.branchTree?.followSelected
-    return typeof raw === 'boolean' ? raw : true
-  })()
-  const branchTreeModalHotkey = (() => {
-    const raw = String(((settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
-    return normalizeHotkeyString(raw)
-  })()
+  const branchTree = normalizeBranchTreeSettings((settings as any)?.branchTree)
+  const branchTreeView = branchTree.view
+  const branchTreeFollowSelected = branchTree.followSelected
+  const branchTreeModalHotkey = normalizeHotkeyString(branchTree.modalHotkey)
   const sidebarLayout = resolveSidebarLayout(settings)
 
   return (
@@ -419,8 +433,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={chatBgOpacity}
-                min={0}
-                max={100}
+                min={CHAT_BG_OPACITY_MIN}
+                max={CHAT_BG_OPACITY_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setChatBgOpacity?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setChatBgOpacity?.(v, true)}
@@ -441,8 +455,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={chatBgBlur}
-                min={0}
-                max={24}
+                min={CHAT_BG_BLUR_MIN}
+                max={CHAT_BG_BLUR_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setChatBgBlur?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
@@ -463,8 +477,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={topbarOpacity}
-                min={0}
-                max={100}
+                min={TOPBAR_OPACITY_MIN}
+                max={TOPBAR_OPACITY_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
@@ -485,8 +499,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={topbarBlur}
-                min={0}
-                max={24}
+                min={TOPBAR_BLUR_MIN}
+                max={TOPBAR_BLUR_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
@@ -507,8 +521,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={composerOpacity}
-                min={40}
-                max={100}
+                min={COMPOSER_OPACITY_MIN}
+                max={COMPOSER_OPACITY_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
@@ -529,8 +543,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               <Slider
                 size="small"
                 value={composerBlur}
-                min={0}
-                max={24}
+                min={COMPOSER_BLUR_MIN}
+                max={COMPOSER_BLUR_MAX}
                 step={1}
                 onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
                 onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}

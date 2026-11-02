@@ -7,12 +7,13 @@ import { TOPBAR_H } from '../appConstants'
 import { colorMixVar } from '../colorThemeStyles'
 import { ChatTreeNodeShape } from './ChatTreeNodeShape'
 import { normalizeChatTreeNodeRole, svgSafeId } from './chatTreeLayout'
+import type { BranchTreeDir, BranchTreeView } from '../../domain/branchTree'
 
 // 分支树最多承载数百个 SVG 节点，重绘代价高。
 // 用 memo 把它与无关的整页刷新隔离：只有树自身相关的 props 变化时才重绘。
 export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
   treeOpen: boolean
-  effectiveTreeView: 'right' | 'float'
+  effectiveTreeView: BranchTreeView
   treePanelW: number
   treeResizing: boolean
   transparentChatBg: boolean
@@ -25,7 +26,7 @@ export const ChatTreeModal = React.memo(function ChatTreeModal(props: {
   treeViewRef: React.MutableRefObject<{ x: number; y: number; scale: number }>
   scheduleTreeViewTransform: () => void
   applyTreeViewTransform: () => void
-  treeDir: 'lr' | 'tb' | 'bt' | 'rl'
+  treeDir: BranchTreeDir
   cycleTreeDir: () => void
   treeDragging: boolean
   onTreePointerDown: (e: React.PointerEvent) => void

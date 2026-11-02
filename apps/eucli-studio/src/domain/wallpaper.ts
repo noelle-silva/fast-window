@@ -53,6 +53,13 @@ export function clampWallpaperScale(value: unknown, fallback: number): number {
   return Math.min(WALLPAPER_MAX_SCALE, Math.max(WALLPAPER_MIN_SCALE, n))
 }
 
+// 聊天透明背景是壁纸开关的纯派生事实：唯一来源是 wallpaper.enabled。
+// 持久化字段 transparentChatBg 只是派生快照，读取端不得反向写回。
+export function isTransparentChatBg(settings: unknown): boolean {
+  const box = settings && typeof settings === 'object' ? (settings as Record<string, any>) : {}
+  return normalizeWallpaperSettings(box.wallpaper).enabled
+}
+
 // 壁纸启用即代表聊天背景按透明模式渲染，这里给出统一的“白纱”浓度（0-1）。
 export function wallpaperVeilAlpha(chatBgOpacity: unknown, chatBgBlur: unknown): number {
   const opacity = Math.min(100, Math.max(0, Number(chatBgOpacity) || 0))

@@ -1,9 +1,10 @@
 import * as React from 'react'
+import type { BranchTreeDir, BranchTreeView } from '../../domain/branchTree'
 
 export function useChatTreeKeyboardNav(deps: {
   treeOpen: boolean
-  effectiveTreeView: 'right' | 'float'
-  treeDir: 'lr' | 'tb' | 'bt' | 'rl'
+  effectiveTreeView: BranchTreeView
+  treeDir: BranchTreeDir
   treeRender: any
   treeFocusMid: string
   getLastMsgId: () => string

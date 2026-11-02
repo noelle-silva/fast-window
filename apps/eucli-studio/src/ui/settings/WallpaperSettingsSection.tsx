@@ -4,9 +4,9 @@ import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate'
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { normalizeWallpaperSettings, wallpaperVeilAlpha, type WallpaperPreset } from '../../domain/wallpaper'
+import { normalizeChatBgBlur, normalizeChatBgOpacity } from '../../domain/appearanceSettings'
 import { colorMixVar } from '../colorThemeStyles'
 import { useEvent } from '../hooks/useEvent'
-import { clampNum } from '../utils/numbers'
 import { clearWallpaperImage, useWallpaperImage } from '../wallpaper/useWallpaperImage'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsPill, SettingsSection } from './SettingsSurfaces'
@@ -19,8 +19,9 @@ export function WallpaperSettingsSection(props: { controller: any; loading: bool
   const activePreset = wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null
   const activeSrc = useWallpaperImage(controller, activePreset?.relPath || '')
   const canEnable = wallpaper.presets.length > 0
-  const chatBgBlur = clampNum(Number(settings?.chatBgBlur ?? 0), 0, 24)
-  const veilPercent = Math.max(1, wallpaperVeilAlpha(settings?.chatBgOpacity, settings?.chatBgBlur) * 100)
+  const chatBgOpacity = normalizeChatBgOpacity(settings?.chatBgOpacity)
+  const chatBgBlur = normalizeChatBgBlur(settings?.chatBgBlur)
+  const veilPercent = Math.max(1, wallpaperVeilAlpha(chatBgOpacity, chatBgBlur) * 100)
 
   const toggleEnabled = useEvent(() => controller.actions.setWallpaperEnabled?.(!wallpaper.enabled))
   const pickWallpaper = useEvent(() => controller.actions.addWallpaperFromPicker?.())

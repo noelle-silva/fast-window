@@ -21,6 +21,7 @@ import { AccessSettingsPanel } from './AccessSettingsPanel'
 import { ProvidersSettingsPanel } from './ProvidersSettingsPanel'
 import { RequestRecordsSettingsPanel } from './RequestRecordsSettingsPanel'
 import { normalizeRequestRecordViewOptions } from '../../domain/requestRecordViewOptions'
+import { isTransparentChatBg } from '../../domain/wallpaper'
 import type { ReleaseCandidatesViews, StudioBootstrap } from '../../domain/release'
 
 // tab 为 'auto' 时表示尚未由用户点选，按导航排序解析出当前分类；其余情况为用户显式指定。
@@ -60,7 +61,7 @@ export function PluginSettingsPage(props: {
   const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, conversationImageConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
-  const transparentChatBg = !!data?.settings?.transparentChatBg
+  const transparentChatBg = isTransparentChatBg(data?.settings)
   const requestRecordViewOptions = normalizeRequestRecordViewOptions((data?.settings as any)?.requestRecordViewOptions)
 
   const navItems = React.useMemo(() => mergeSettingsNavigationItems(settingsNavOrder), [settingsNavOrder])

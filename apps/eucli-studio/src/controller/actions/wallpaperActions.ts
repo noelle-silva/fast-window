@@ -33,12 +33,8 @@ export function createWallpaperActions(deps: {
     emit()
   }
 
-  // 透明背景由壁纸开关统一驱动：壁纸在，聊天背景就按透明模式渲染。
-  function setBackgroundTransparency(enabled: boolean) {
-    if (!state.data?.settings) return
-    state.data.settings.transparentChatBg = enabled
-  }
-
+  // 透明背景是 wallpaper.enabled 的纯派生物：
+  // 动作层只维护壁纸事实，派生字段由 dataNormalizers / 读取端统一解析。
   return {
     addWallpaperFromPicker: async () => {
       if (!state.data) return
@@ -70,7 +66,6 @@ export function createWallpaperActions(deps: {
       settings.presets.push({ id, relPath, view: { ...DEFAULT_WALLPAPER_VIEW } })
       settings.activeId = id
       settings.enabled = true
-      setBackgroundTransparency(true)
       commit()
       showToast?.('壁纸已添加', { kind: 'success' })
     },
@@ -81,7 +76,6 @@ export function createWallpaperActions(deps: {
       const next = enabled === true
       if (next && settings.presets.length === 0) return showToast?.('请先添加壁纸', { kind: 'error' })
       settings.enabled = next
-      setBackgroundTransparency(next)
       commit()
     },
 
@@ -92,7 +86,6 @@ export function createWallpaperActions(deps: {
       if (!settings.presets.some((item) => item.id === nextId)) return
       settings.activeId = nextId
       settings.enabled = true
-      setBackgroundTransparency(true)
       commit()
     },
 
@@ -113,10 +106,7 @@ export function createWallpaperActions(deps: {
       const remaining = settings.presets.filter((item) => item.id !== nextId)
       settings.presets = remaining
       if (settings.activeId === nextId) settings.activeId = String(remaining[0]?.id || '')
-      if (remaining.length === 0) {
-        settings.enabled = false
-        setBackgroundTransparency(false)
-      }
+      if (remaining.length === 0) settings.enabled = false
       commit()
     },
 

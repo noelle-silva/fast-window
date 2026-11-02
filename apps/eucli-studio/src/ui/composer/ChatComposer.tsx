@@ -11,6 +11,7 @@ import { FitTextLabel } from '../components/FitTextLabel'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { ReasoningCleanDialog } from '../components/ReasoningCleanDialog'
 import { composerSideInsetPercent } from '../../domain/composerAppearance'
+import type { BranchTreeView } from '../../domain/branchTree'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
@@ -91,7 +92,7 @@ export function ChatComposer(props: {
   composerRef: React.MutableRefObject<HTMLDivElement | null>
   onClickOpenImageViewer: (e: React.MouseEvent) => void
   treeOpen: boolean
-  effectiveTreeView: 'right' | 'float'
+  effectiveTreeView: BranchTreeView
   treePanelW: number
   composerOpacity: number
   composerBlur: number

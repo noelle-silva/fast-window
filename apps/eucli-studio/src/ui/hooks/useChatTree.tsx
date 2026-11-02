@@ -5,6 +5,12 @@ import { buildChatTreeLayout } from '../chatTree/chatTreeLayout'
 import { graphAsMessages } from '../../protocol/sessionGraphContract'
 import { hotkeyFromKeyEvent, normalizeHotkeyString } from '../utils/hotkeys'
 import { clampNum } from '../utils/numbers'
+import {
+  BRANCH_TREE_DIR_OPTIONS,
+  normalizeBranchTreeSettings,
+  type BranchTreeDir,
+  type BranchTreeView,
+} from '../../domain/branchTree'
 import { useEvent } from './useEvent'
 import { useChatTreeKeyboardNav } from './useChatTreeKeyboardNav'
 
@@ -57,28 +63,17 @@ export function useChatTree(deps: {
     getLastMsgId,
   } = deps
 
-  const savedTreeDir = (() => {
-    const raw = String(((data?.settings as any)?.branchTree?.dir ?? '') as any).trim()
-    return raw === 'lr' || raw === 'tb' || raw === 'bt' || raw === 'rl' ? (raw as any) : 'lr'
-  })() as 'lr' | 'tb' | 'bt' | 'rl'
-  const savedTreeView = (() => {
-    const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
-    return raw === 'right' || raw === 'float' ? (raw as any) : 'right'
-  })() as 'right' | 'float'
-  const savedTreeModalHotkey = (() => {
-    const raw = String(((data?.settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
-    return normalizeHotkeyString(raw)
-  })()
-  const savedTreeFollowSelected = (() => {
-    const raw = (data?.settings as any)?.branchTree?.followSelected
-    return typeof raw === 'boolean' ? raw : true
-  })() as boolean
+  const savedTree = normalizeBranchTreeSettings((data?.settings as any)?.branchTree)
+  const savedTreeDir = savedTree.dir
+  const savedTreeView = savedTree.view
+  const savedTreeModalHotkey = normalizeHotkeyString(savedTree.modalHotkey)
+  const savedTreeFollowSelected = savedTree.followSelected
 
   const [treeOpen, setTreeOpen] = React.useState(false)
-  const [treeViewOverride, setTreeViewOverride] = React.useState<'' | 'right' | 'float'>('')
+  const [treeViewOverride, setTreeViewOverride] = React.useState<'' | BranchTreeView>('')
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
-  const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>(() => savedTreeDir)
+  const [treeDir, setTreeDir] = React.useState<BranchTreeDir>(() => savedTreeDir)
   const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
   const [treeFollowTick, setTreeFollowTick] = React.useState(0)
@@ -95,7 +90,7 @@ export function useChatTree(deps: {
   const treeInitialCenterRafRef = React.useRef<number>(0)
   const treeNeedInitialCenterRef = React.useRef(false)
 
-  const effectiveTreeView = (treeViewOverride || savedTreeView) as 'right' | 'float'
+  const effectiveTreeView = (treeViewOverride || savedTreeView) as BranchTreeView
 
   const [treePanelW, setTreePanelW] = React.useState(360)
   const treePanelWRef = React.useRef(360)
@@ -464,7 +459,7 @@ export function useChatTree(deps: {
   }, [treeOpen, effectiveTreeView, scheduleTreeViewTransform, stopTreeFollow])
 
   const cycleTreeDir = useEvent(() => {
-    const order: Array<'lr' | 'tb' | 'bt' | 'rl'> = ['lr', 'tb', 'bt', 'rl']
+    const order = BRANCH_TREE_DIR_OPTIONS
     const i = Math.max(0, order.indexOf(treeDir))
     const next = order[(i + 1) % order.length]
     setTreeDir(next)
