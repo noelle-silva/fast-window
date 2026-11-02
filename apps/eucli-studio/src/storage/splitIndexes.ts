@@ -1,3 +1,4 @@
+import { cloneJsonData } from '../core/jsonData'
 import { now } from '../core/utils'
 import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
 import { normalizeChatMetas, type ChatMeta } from '../domain/chatMeta'
@@ -47,8 +48,10 @@ export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
     dataVersion: Number(meta.dataVersion || 0),
     // updatedAt 只用于展示排序，禁止参与任何新鲜度判定。
     updatedAt: Number(meta.updatedAt || 0) || now(),
-    ui: meta.ui,
-    settings: meta.settings,
+    // ui / settings 在读取边界就与存储原始对象断开：调用方（state、loadShell）
+    // 会直接改这两块偏好，若共享引用会把快照 / 落盘基线一起污染。
+    ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
+    settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
     roleOrder: stringList(meta.roleOrder),
     roleFolders: stringMap(meta.roleFolders),
     groupOrder: stringList(meta.groupOrder),

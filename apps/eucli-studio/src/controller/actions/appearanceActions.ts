@@ -13,6 +13,7 @@ import {
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
+import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
@@ -33,6 +34,13 @@ export function createAppearanceActions(deps: {
 }) {
   const { state, emit, saveMeta, showToast, currentRenderSafetyPolicy } = deps
 
+  // 外观开关是用户操作，保存失败必须可见：统一经这里上报，不再静默吞错。
+  const persistMeta = () => {
+    void saveMeta().catch((error: any) => {
+      showToast?.(String(error?.message || error || '保存外观设置失败'), { kind: 'error' })
+    })
+  }
+
   // 配色草稿：设置页未保存的编辑层。首次操作时从当前设置克隆；保存按单个预设物化落盘。
   const ensureColorThemeDraft = (): ColorThemeDraft => {
     const existing = (state.draft as any).colorThemeDraft as ColorThemeDraft | null
@@ -50,85 +58,85 @@ export function createAppearanceActions(deps: {
     setChatBgOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatBgOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setChatBgBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatBgBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setTopbarOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.topbarOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setTopbarBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.topbarBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerOpacity = clamp(Math.round(Number(opacity || 0)), 40, 100)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerWidthPercent: (percent: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerWidthPercent = normalizeComposerWidthPercent(percent)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerMinRows: (rows: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerMinRows = normalizeComposerMinRows(rows)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerRadius: (radius: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerRadius = normalizeComposerRadius(radius)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setComposerModelShowProvider: (enabled: any) => {
       if (!state.data) return
       state.data.settings.composerModelShowProvider = normalizeComposerModelShowProvider(enabled)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setChatFontSize: (size: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatFontSize = normalizeChatFontSize(size)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setChatFontFamily: (family: any) => {
       if (!state.data) return
       state.data.settings.chatFontFamily = normalizeChatFontFamily(family)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setChatLetterSpacing: (spacing: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatLetterSpacing = normalizeChatLetterSpacing(spacing)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setChatLineHeight: (height: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatLineHeight = normalizeChatLineHeight(height)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     // 配色草稿动作：选中 / 改色 / 改名 / 新增 / 导入都先建立草稿并实时预览；
@@ -149,7 +157,7 @@ export function createAppearanceActions(deps: {
       // 切换到已保存预设属于使用行为：即时生效落盘，不产生未保存标记。
       if (existsInSaved && settings.activePresetId !== id) {
         ;(state.data.settings as any)[COLOR_THEME_SETTING_KEY] = { ...settings, activePresetId: id }
-        saveMeta().catch(() => {})
+        persistMeta()
       }
       if (draft) draft.activePresetId = id
       emit()
@@ -225,7 +233,7 @@ export function createAppearanceActions(deps: {
       if (!result) return false
       ;(state.data.settings as any)[COLOR_THEME_SETTING_KEY] = result.settings
       ;(state.draft as any).colorThemeDraft = result.draft
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
       showToast?.('配色已保存', { kind: 'success' })
       return true
@@ -243,7 +251,7 @@ export function createAppearanceActions(deps: {
         return
       }
       ;(state.data.settings as any).renderSafetyPolicy = next
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setBranchTreeDir: (dir: any) => {
@@ -254,7 +262,7 @@ export function createAppearanceActions(deps: {
       const v = String(dir || '').trim()
       const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
       ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setBranchTreeView: (view: any) => {
@@ -265,7 +273,7 @@ export function createAppearanceActions(deps: {
       const v = String(view || '').trim()
       const ok = v === 'right' || v === 'float'
       ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setBranchTreeFollowSelected: (enabled: any) => {
@@ -274,7 +282,7 @@ export function createAppearanceActions(deps: {
       if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
         (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
       ;(state.data.settings as any).branchTree.followSelected = !!enabled
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setBranchTreeModalHotkey: (hotkey: any) => {
@@ -284,59 +292,51 @@ export function createAppearanceActions(deps: {
         (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
       const v = String(hotkey || '').trim().slice(0, 80)
       ;(state.data.settings as any).branchTree.modalHotkey = v
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setSettingsNavOrder: (order: any) => {
       if (!state.data || !Array.isArray(order)) return
       if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
-      const seen = new Set<string>()
-      const next: string[] = []
-      for (const raw of order) {
-        const value = String(raw || '').trim()
-        if (!value || seen.has(value)) continue
-        seen.add(value)
-        next.push(value)
-      }
-      ;(state.data.settings as any).settingsNavOrder = next
-      saveMeta().catch(() => {})
+      ;(state.data.settings as any).settingsNavOrder = normalizeSettingsNavOrder(order)
+      persistMeta()
       emit()
     },
     toggleUserMessageCollapse: () => {
       if (!state.data) return
       state.data.settings.userMessageCollapseEnabled = !state.data.settings.userMessageCollapseEnabled
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setUserMessageCollapseLines: (lines: any, commit: any) => {
       if (!state.data) return
       state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
-      if (commit) saveMeta().catch(() => {})
+      if (commit) persistMeta()
       emit()
     },
     setReasoningDisplayMode: (mode: any) => {
       if (!state.data) return
       state.data.settings.reasoningDisplayMode = normalizeReasoningDisplayMode(mode)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setReasoningRenderEnabled: (enabled: any) => {
       if (!state.data) return
       state.data.settings.reasoningRenderEnabled = normalizeReasoningRenderEnabled(enabled)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setMessageOffscreenSkipEnabled: (enabled: any) => {
       if (!state.data) return
       state.data.settings.messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(enabled)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     // 会话页面保活上限：虚拟化后单页成本下降，允许用户把常驻页数调大。
     setSessionKeepAliveLimit: (limit: any) => {
       if (!state.data) return
       ;(state.data.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit(limit)
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     // 侧边栏布局只有一份：位置与宽度不再按角色 / 工作区各存一套。
@@ -345,7 +345,7 @@ export function createAppearanceActions(deps: {
       const next = resolveSidebarLayout(state.data.settings as any)
       next.side = normalizeSidebarSide(side)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
     setSidebarWidth: (width: any) => {
@@ -353,7 +353,7 @@ export function createAppearanceActions(deps: {
       const next = resolveSidebarLayout(state.data.settings as any)
       next.width = normalizeSidebarWidth(width)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
-      saveMeta().catch(() => {})
+      persistMeta()
       emit()
     },
   }

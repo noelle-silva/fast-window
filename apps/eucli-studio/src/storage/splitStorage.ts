@@ -1,3 +1,4 @@
+import { cloneJsonData } from '../core/jsonData'
 import { now, uid } from '../core/utils'
 import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
@@ -19,6 +20,10 @@ import { chatIndexKeyFor, loadProvidersFromStorage, loadSplitMetaSnapshot, norma
 import { initializeStickerSettingsStorage, loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 
 let splitMetaCache: any = null
+// splitMetaBaseline 是「上次成功落盘的 ui + settings」的规范化指纹。
+// 它必须是不可变字符串，绝不能持有 state / 存储快照里的对象引用，
+// 否则内存一改，基线跟着变，「无变化不写盘」就会误判为相等。
+let splitMetaBaseline: string | null = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
 let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
 
@@ -72,23 +77,34 @@ export function createEmptyShellData() {
   })
 }
 
-// sameMetaPayload 判断「这次 saveMetaOnly 是否真的有变化」。
-// 只比较「客户端偏好」那部分：providers / stickers 是后端派生字段，
-// 每次 meta() 都会重新组装，拿它们做比较会让每次保存都判定为「有变化」。
-function sameMetaPayload(ui: any, settings: any, previous: any) {
-  const normalize = (value: any) => {
-    const source = value && typeof value === 'object' ? { ...value } : {}
-    // providers / stickers 是后端派生字段：每次 meta() 都重新组装，
-    // 拿它们做比较会让每次保存都判定为「有变化」。
-    delete (source as any).stickers
-    delete (source as any).providers
-    const keys = Object.keys(source).sort()
-    const out: Record<string, string> = {}
-    for (const key of keys) out[key] = JSON.stringify((source as any)[key] ?? null)
-    return JSON.stringify(out)
+// providers / stickers 是后端派生字段：每次 meta() 都会重新组装，
+// 拿它们做比较会让每次保存都判定为「有变化」。
+const DERIVED_SETTINGS_KEYS = ['providers', 'stickers'] as const
+
+// canonicalJson 递归排序对象键，保证「语义相同、键序不同」的两份偏好
+// 得到同一个指纹；数组保持原序。
+function canonicalJson(value: any): string {
+  if (value === null || typeof value !== 'object') {
+    const text = JSON.stringify(value)
+    return text === undefined ? 'null' : text
   }
-  if (normalize(ui) !== normalize(previous?.ui)) return false
-  return normalize(settings) === normalize(previous?.settings)
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`
+  const keys = Object.keys(value).sort()
+  const parts: string[] = []
+  for (const key of keys) {
+    if (value[key] === undefined) continue
+    parts.push(`${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+  }
+  return `{${parts.join(',')}}`
+}
+
+// preferenceFingerprint 只覆盖「客户端偏好」：ui + settings（去掉派生字段）。
+// 基线在读取成功、写入成功两个时刻更新，且只保存字符串，不保存对象。
+function preferenceFingerprint(ui: any, settings: any) {
+  const source = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {}
+  const settingsSnapshot = cloneJsonData(source)
+  for (const key of DERIVED_SETTINGS_KEYS) delete (settingsSnapshot as any)[key]
+  return `${canonicalJson(ui)}|${canonicalJson(settingsSnapshot)}`
 }
 
 export function createSplitStorage(deps: {
@@ -117,9 +133,16 @@ export function createSplitStorage(deps: {
     setActiveChatCommand,
   } = deps
 
+  // rememberMetaSnapshot 是「内存快照 + 落盘基线」的唯一入口：
+  // 两者必须同时基于同一份已隔离的深拷贝更新。
+  function rememberMetaSnapshot(meta: any) {
+    splitMetaCache = meta
+    splitMetaBaseline = meta ? preferenceFingerprint(meta.ui, meta.settings) : null
+  }
+
   async function loadSplitMeta() {
     const meta = await loadSplitMetaSnapshot(storage)
-    splitMetaCache = meta
+    rememberMetaSnapshot(meta)
     return meta
   }
 
@@ -371,13 +394,15 @@ export function createSplitStorage(deps: {
 
     const d = {
       version: VERSION,
-      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      // 与 loadShell 同理：state 必须是独立的一棵树，往 settings 挂
+      // stickers / providers 时不得改到 meta 快照。
+      settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
       favorites: normalizeFavorites(favorites),
       roles: [] as any[],
       chatsByRole: {} as Record<string, any>,
       groups: [] as any[],
       chatsByGroup: {} as Record<string, any>,
-      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+      ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
     }
 
     ;(d.settings as any).stickers = stickers && typeof stickers === 'object' ? stickers : {}
@@ -453,52 +478,63 @@ export function createSplitStorage(deps: {
       groupOrder: [],
       groupFolders: {},
     })
-    splitMetaCache = await loadSplitMetaSnapshot(storage)
+    rememberMetaSnapshot(await loadSplitMetaSnapshot(storage))
   }
 
-  // saveMetaOnly 只在 ui 真变化时写盘：
+  // saveMetaOnly 只在 ui / settings 真变化时写盘：
   //   - 切换会话不再产生一次 meta 写；
   //   - 不再 bump 全局 updatedAt（updatedAt 已降级为纯展示排序字段）。
+  //
+  // 整个「读状态 → 比较 → 写盘 → 更新基线」都放进单一写链：
+  // 连续保存按调用顺序执行，后一次能看到前一次落盘后的基线。
   async function saveMetaOnly() {
-    const state = getState?.()
-    if (!state?.data) return
+    return withSplitMetaWrite(async () => {
+      const state = getState?.()
+      if (!state?.data) return
 
-    state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
-    ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
-    ;(state.data.ui as any).activeWorkspaceId = String((state.draft as any)?.activeWorkspaceId || '')
-    const targetKind = String(state.draft?.activeTargetKind || '').trim()
-    ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
+      state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
+      ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
+      ;(state.data.ui as any).activeWorkspaceId = String((state.draft as any)?.activeWorkspaceId || '')
+      const targetKind = String(state.draft?.activeTargetKind || '').trim()
+      ;(state.data.ui as any).activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
 
-    const old = splitMetaCache || (await loadSplitMeta())
-    if (!old) throw new Error('存储未初始化')
+      const old = splitMetaCache || (await loadSplitMeta())
+      if (!old) throw new Error('存储未初始化')
 
-    const nextUi = state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {}
+      // 状态可能是调用方传进来的任意对象：写盘前先深拷贝成独立快照，
+      // payload / 缓存都不再引用 state.data 里的对象。
+      const nextUi = cloneJsonData(state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {})
+      const nextSettings = cloneJsonData(state.data.settings && typeof state.data.settings === 'object' ? state.data.settings : {})
+      for (const key of DERIVED_SETTINGS_KEYS) delete (nextSettings as any)[key]
 
-    const settingsMeta = state.data.settings && typeof state.data.settings === 'object' ? { ...(state.data.settings as any) } : {}
-    try {
-      delete (settingsMeta as any).stickers
-      delete (settingsMeta as any).providers
-    } catch (_) {}
+      const fingerprint = preferenceFingerprint(nextUi, nextSettings)
+      // 只有 ui / settings 真的变了才写盘：切换会话不产生 meta 写。
+      if (fingerprint === splitMetaBaseline) return
 
-    // 只有 ui / settings 真的变了才写盘：切换会话不产生 meta 写。
-    if (sameMetaPayload(nextUi, settingsMeta, old)) return
+      // meta/index 只承载「客户端偏好」：ui + settings。
+      // 目录事实（order / folder 映射）归各自的 index key，会话索引归各 scope，
+      // 三者不再混在一份文档里，避免一次偏好写入顺带覆盖别的事实。
+      //
+      // updatedAt 原样保留：它已降级为纯展示排序字段，偏好写入不再 bump 它，
+      // 否则任何一次 ui 改动都会让所有下游以为「整份数据变了」。
+      const meta = {
+        schemaVersion: SPLIT_SCHEMA_VERSION,
+        dataVersion: VERSION,
+        updatedAt: Number(old.updatedAt || 0) || now(),
+        ui: nextUi,
+        settings: nextSettings,
+      }
 
-    // meta/index 只承载「客户端偏好」：ui + settings。
-    // 目录事实（order / folder 映射）归各自的 index key，会话索引归各 scope，
-    // 三者不再混在一份文档里，避免一次偏好写入顺带覆盖别的事实。
-    //
-    // updatedAt 原样保留：它已降级为纯展示排序字段，偏好写入不再 bump 它，
-    // 否则任何一次 ui 改动都会让所有下游以为「整份数据变了」。
-    const meta = {
-      schemaVersion: SPLIT_SCHEMA_VERSION,
-      dataVersion: VERSION,
-      updatedAt: Number(old.updatedAt || 0) || now(),
-      ui: nextUi,
-      settings: settingsMeta,
-    }
-
-    await storage.set(SPLIT_META_KEY, meta)
-    splitMetaCache = { ...old, ...meta }
+      // 写失败必须抛给调用方：基线保持不变，下一次仍会重试。
+      await storage.set(SPLIT_META_KEY, meta)
+      splitMetaCache = {
+        ...old,
+        ...meta,
+        ui: cloneJsonData(nextUi),
+        settings: cloneJsonData(nextSettings),
+      }
+      splitMetaBaseline = fingerprint
+    })
   }
 
   async function saveFavoritesOnly() {

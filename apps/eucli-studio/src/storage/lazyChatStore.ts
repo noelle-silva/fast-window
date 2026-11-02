@@ -1,3 +1,4 @@
+import { cloneJsonData } from '../core/jsonData'
 import { normalizeData } from '../domain/dataNormalizers'
 import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeFavorites } from '../domain/favorites'
@@ -124,15 +125,17 @@ export function createLazyChatStore(deps: {
     }
 
     const providers = await loadProvidersFromStorage(storage, meta)
+    // state 与 meta 快照必须是两棵独立的树：下面还要往 settings 里挂
+    // stickers / providers，共享引用会顺带改到偏好基线。
     const d: any = {
       version: VERSION,
-      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      settings: cloneJsonData(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}),
       favorites: normalizeFavorites(favorites),
       roles: [],
       chatsByRole: {},
       groups: [],
       chatsByGroup: {},
-      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+      ui: cloneJsonData(meta.ui && typeof meta.ui === 'object' ? meta.ui : {}),
     }
     d.settings.stickers = stickers && typeof stickers === 'object' ? stickers : {}
     d.settings.providers = providers
