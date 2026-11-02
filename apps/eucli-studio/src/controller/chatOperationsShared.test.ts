@@ -23,7 +23,6 @@ function createHarness() {
   }))
   const shared = createChatOperationsShared({
     getState: () => state,
-    save: async () => {},
     emit: () => {},
     render: () => {},
     renderComposer: () => {},
@@ -85,7 +84,6 @@ describe('刷新落点不得覆盖更新的选中事实', () => {
     }
     const shared = createChatOperationsShared({
       getState: () => state,
-      save: async () => {},
       emit: () => {},
       render: () => {},
       renderComposer: () => {},
@@ -121,7 +119,6 @@ describe('写路径的正文缓存失效', () => {
     const reloadRoleSession = vi.fn(async (_roleId: string, sessionId: string) => ({ id: sessionId, messages: [] }))
     const shared = createChatOperationsShared({
       getState: () => state,
-      save: async () => {},
       emit: () => {},
       render: () => {},
       renderComposer: () => {},

@@ -31,7 +31,6 @@ function createHarness() {
   const persistActiveChatSelection = vi.fn(async () => {})
   const shared = createChatOperationsShared({
     getState: () => state,
-    save: async () => {},
     emit: () => {},
     render: () => {},
     renderComposer: () => {},

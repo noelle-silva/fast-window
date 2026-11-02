@@ -43,7 +43,6 @@ export type ChatOperationsDeps = {
   pickImageFiles?: (maxCount: number) => Promise<any[]>
   netRequest?: (req: any) => Promise<any>
   showToast?: AiChatShowToast
-  save: () => Promise<void>
   ensureActiveChatLoaded?: () => Promise<any>
   ensureChatLoaded?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<any>
   ensureWorkspaceChatLoaded?: (workspaceId: string, roleId: string, chatId: string) => Promise<any>

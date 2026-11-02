@@ -449,10 +449,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const persistence = createPersistence({
     getState: () => state,
-    activeChatFromData,
     saveMetaOnly,
   })
-  const { saveMeta, saveCurrentChat } = persistence
+  const { savePreferences } = persistence
 
   const workspaceManager = createWorkspaceManager({
     getState: () => state,
@@ -460,7 +459,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     render,
     closeModal,
-    saveMeta,
+    saveMeta: savePreferences,
     scrollToBottomSoon,
     showToast: api.ui?.showToast,
     activeTargetKind,
@@ -700,10 +699,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { load, restoreActiveEbRoleRuns } = controllerBootstrap
 
-  async function save() {
-    await saveCurrentChat()
-  }
-
   async function runChatSettingsSave(target: ChatSettingsTarget, action: ChatSettingsAction, value: unknown, work: (isCurrent: () => boolean) => Promise<void>, failText: string): Promise<'saved' | false> {
     return chatSettingsSaveQueue.runSave(target, action, value, work, failText)
   }
@@ -905,7 +900,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeGroupEntity,
     saveProviderEntity,
     removeProviderEntity,
-    save: saveMeta,
+    save: savePreferences,
     render,
     closeModal,
     showToast: api.ui?.showToast,
@@ -991,7 +986,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     pickImageFiles,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     showToast: api.ui?.showToast,
-    save,
     ensureActiveChatLoaded,
     ensureChatLoaded: (kind: 'role' | 'group', targetId: string, chatId: string) => ensureChatLoaded(kind, targetId, chatId),
     ensureWorkspaceChatLoaded: (workspaceId: string, roleId: string, chatId: string) => ensureWorkspaceChatLoaded(workspaceId, roleId, chatId),
@@ -1085,7 +1079,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // Build placeholder actions object for eventHandlers (circular dep)
   const actionsPlaceholder: Record<string, any> = {
     emit,
-    save: () => saveMeta(),
+    save: () => savePreferences(),
     render,
     renderTop: render,
     renderComposer: renderAll,
@@ -1161,8 +1155,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 20. ACTIONS — complete controller.actions object
   // ============================================================
-  const appearanceActions = createAppearanceActions({ state, emit, saveMeta, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
-  const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta })
+  const appearanceActions = createAppearanceActions({ state, emit, saveMeta: savePreferences, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
+  const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta: savePreferences })
   const aiServiceActionSet = createAiServiceActions({
     state,
     emit,
@@ -1177,7 +1171,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const wallpaperActions = createWallpaperActions({
     state,
     emit,
-    saveMeta,
+    saveMeta: savePreferences,
     showToast: api.ui?.showToast,
     pickImageFiles,
     writeImageBase64: api.files?.images?.writeBase64 as any,
@@ -1197,7 +1191,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const entityActions = createEntityActions({
     state,
     emit,
-    saveMeta,
+    saveMeta: savePreferences,
     showToast: api.ui?.showToast,
     getProvider,
     closeModal,
@@ -1330,7 +1324,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     state,
     emit,
     emitScope,
-    saveMeta,
+    saveMeta: savePreferences,
     ensureActiveChatLoaded,
     ensureChatsBoxBare,
     ensureGroupChatsBoxBare,
@@ -1412,7 +1406,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     onMouseMoveMermaid: mermaidMouseMove,
     onMouseUpMermaid: mermaidMouseUp,
     // Internal helpers exposed as actions for eventHandlers
-    save: () => save(),
+    save: savePreferences,
     loadOlderMessages,
     loadSessionGraph,
     render,

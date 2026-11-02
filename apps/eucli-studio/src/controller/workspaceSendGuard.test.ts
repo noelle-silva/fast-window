@@ -27,7 +27,6 @@ function createOperations(activeRoleId: string) {
   const operations = createChatOperations({
     getState: () => state,
     netRequest,
-    save: async () => {},
     emit: () => {},
     render: () => {},
     renderComposer: () => {},

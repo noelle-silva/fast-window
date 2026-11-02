@@ -1,11 +1,12 @@
 export function createPersistence(deps: {
   getState: () => any
-  activeChatFromData: () => any
   saveMetaOnly: () => Promise<void>
 }) {
   const { getState, saveMetaOnly } = deps
 
-  function syncDraftUiToData() {
+  // 客户端偏好（活动角色 / 群组 / 工作区 / 目标类型）从 draft 回写到 state.data.ui。
+  // 聊天正文属于业务端，不在这里保存。
+  function syncPreferencesToData() {
     const state = getState()
     if (!state?.data) return null
     if (!state.data.ui || typeof state.data.ui !== 'object') state.data.ui = {}
@@ -17,18 +18,13 @@ export function createPersistence(deps: {
     return state
   }
 
-  async function saveMeta() {
-    const state = syncDraftUiToData()
+  async function savePreferences() {
+    const state = syncPreferencesToData()
     if (!state) return
     await saveMetaOnly()
   }
 
-  async function saveCurrentChat() {
-    await saveMeta()
-  }
-
   return {
-    saveMeta,
-    saveCurrentChat,
+    savePreferences,
   }
 }

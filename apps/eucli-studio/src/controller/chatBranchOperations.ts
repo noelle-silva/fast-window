@@ -12,7 +12,7 @@ import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatBranchOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, sa, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, persistActiveView } = shared
-  const { getState, showToast, save, ensureActiveChatLoaded, render, scrollToBottomSoon } = deps
+  const { getState, showToast, ensureActiveChatLoaded, render, scrollToBottomSoon } = deps
 
   // 视图回写：本地分支状态已改，同时把它变成服务端事实。
   // head 用「活动分支头部消息」表达（比 branchId 可靠，见 design-4 决策 3）。
@@ -151,7 +151,6 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
 
     activateChatBranch(chat, pickedBranchId, { headIfEmptyMid: pickedMid })
 
-    save().catch(() => {})
     persistView('role', String(sa.activeRole()?.id || ''), chat)
     const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
     if (draft0 && String(draft0?.roleId || '') === String(sa.activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {
@@ -178,7 +177,6 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
       state.branchDraft = null
     }
 
-    save().catch(() => {})
     persistView('role', String(sa.activeRole()?.id || ''), chat)
     render()
     scrollToBottomSoon()

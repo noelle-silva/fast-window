@@ -52,7 +52,6 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
 
   const shared = createChatOperationsShared({
     getState: () => state,
-    save: async () => {},
     emit: () => {},
     render: () => {},
     renderComposer: () => {},

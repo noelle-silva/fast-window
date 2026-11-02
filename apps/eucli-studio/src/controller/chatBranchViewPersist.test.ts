@@ -32,7 +32,7 @@ function makeChat() {
   }
 }
 
-function makeHarness(options: { persist?: boolean } = {}) {
+function makeHarness(options: { persist?: boolean; legacySave?: () => Promise<void> } = {}) {
   const chat = makeChat()
   const state: any = {
     loading: false,
@@ -52,7 +52,6 @@ function makeHarness(options: { persist?: boolean } = {}) {
   const persistSessionView = vi.fn(async () => {})
   const shared = createChatOperationsShared({
     getState: () => state,
-    save: async () => {},
     emit: () => {},
     render: () => {},
     renderComposer: () => {},
@@ -60,8 +59,11 @@ function makeHarness(options: { persist?: boolean } = {}) {
     readImageFileAsDataUrl: async () => '',
     ensureActiveChatLoaded: async () => chat,
     ...(options.persist === false ? {} : { persistSessionView }),
-  })
-  return { state, chat, shared, persistSessionView }
+    // 旧实现会通过 deps.save 顺带触发 meta/index 保存；这里注入同形依赖，
+    // 断言分支切换不再调用它（防止回归）。
+    ...(options.legacySave ? { save: options.legacySave } : {}),
+  } as any)
+  return { state, chat, shared, persistSessionView, legacySave: options.legacySave }
 }
 
 describe('分支切换回写服务端视图（决策 3）', () => {
@@ -89,6 +91,17 @@ describe('分支切换回写服务端视图（决策 3）', () => {
     // head 必须是切换后活动分支的头部消息。
     expect(String(call[3])).not.toBe('')
     expect(call[4]).toBe(String(harness.chat.branching.activeBranchId))
+  })
+
+  it('分支切换不再额外触发保存（视图回写已覆盖）', async () => {
+    const legacySave = vi.fn(async () => {})
+    const harness = makeHarness({ legacySave })
+    const ops = createChatBranchOperations(harness.shared)
+
+    await ops.setActiveBranch('alt')
+    await ops.switchBranchByAssistantSibling('m2', 1)
+
+    expect(legacySave).not.toHaveBeenCalled()
   })
 
   it('后端不支持视图回写时不影响本地切换（persist 缺席也不报错）', async () => {
