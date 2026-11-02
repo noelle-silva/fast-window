@@ -34,7 +34,7 @@ export function createChatRunOperations(
   draftOperations: { buildRunImages: (draftImages: any[]) => any[] },
 ) {
   const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, activateResolvedPendingSelection } = shared
-  const { getState, netRequest, showToast, ensureActiveChatLoaded, render, renderComposer, scrollToBottomSoon } = deps
+  const { getState, netRequest, showToast, ensureActiveChatLoaded, render, renderComposer: renderAll, scrollToBottomSoon } = deps
   const { buildRunImages } = draftOperations
 
   function workspaceTargetId(workspaceIdRaw: unknown, roleIdRaw?: unknown) {
@@ -426,14 +426,14 @@ export function createChatRunOperations(
     const previousMessageIds = collectChatMessageIds(chatBeforeRun)
     let acceptedRunId = ''
     try {
-      renderComposer()
+      renderAll()
       const reasoningEffort = chatReasoningEffort(sa.activeChatFromData())
       const modelOverride = currentRoleChatModelOverride()
       const hookSelection = chatHookPromptSelection(sa.activeChatFromData())
       await runRoleMessageViaEb({ roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, userMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
         syncEbRoleRunCard(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, anchorMessageId: userMessageId })
-        renderComposer()
+        renderAll()
       }, { previousMessageIds, ancestorMessageId: userMessageId }, (run) => opts?.onRunState?.(run))
       return true
     } catch (e) {
@@ -457,14 +457,14 @@ export function createChatRunOperations(
     const previousMessageIds = collectChatMessageIds(chatBeforeRun)
     let acceptedRunId = ''
     try {
-      renderComposer()
+      renderAll()
       const reasoningEffort = chatReasoningEffort(sa.activeChatFromData())
       const modelOverride = currentRoleChatModelOverride()
       const hookSelection = chatHookPromptSelection(sa.activeChatFromData())
       await runRoleMessageViaEb({ roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, contextMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
         syncEbRoleRunCard(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, anchorMessageId: contextMessageId })
-        renderComposer()
+        renderAll()
       }, { previousMessageIds, ancestorMessageId: contextMessageId }, (run) => opts?.onRunState?.(run))
       return true
     } catch (e) {
@@ -490,7 +490,7 @@ export function createChatRunOperations(
 
     let clearDraftOnce = !!String(input.clearComposerDraftKey || '').trim()
     try {
-      renderComposer()
+      renderAll()
       for (let index = 0; index < roleIds.length; index++) {
         const roleId = roleIds[index]
         const role = sa.getRoleById(roleId)
@@ -528,7 +528,7 @@ export function createChatRunOperations(
               clearComposerDraftByKey(state, input.clearComposerDraftKey)
               clearDraftOnce = false
             }
-            renderComposer()
+            renderAll()
           }, { previousMessageIds, ancestorMessageId: anchorMessageId }, (run) => opts?.onRunState?.(run))
           sessionId = String(nextSessionId || sessionId || '').trim()
         } catch (e) {
@@ -609,14 +609,14 @@ export function createChatRunOperations(
     const previousMessageIds = collectChatMessageIds(chat)
     let acceptedRunId = ''
     try {
-      renderComposer()
+      renderAll()
       const reasoningEffort = chatReasoningEffort(pendingChat || currentChat)
       await runRoleMessageViaEb({ roleId: rid, workspaceId, sessionId, message: input, attachments, parentMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId, stream }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
         syncEbRoleRunCard(run, { roleId: rid, workspaceId, sessionId, anchorMessageId: parentMessageId })
         clearComposerDraftByKey(state, draftKey)
         state.branchDraft = null
-        renderComposer()
+        renderAll()
         render()
       }, { previousMessageIds, ancestorMessageId: parentMessageId }, (run) => opts?.onRunState?.(run))
     } catch (e) {
@@ -722,7 +722,7 @@ export function createChatRunOperations(
     if (groupId && nextSessionId) refreshTargetSession('group', groupId, nextSessionId, undefined, { activate: false }).catch(() => {})
     else if (workspaceId && nextSessionId) refreshTargetSession('workspace', workspaceTargetId(workspaceId, roleId), nextSessionId, undefined, { activate: false }).catch(() => {})
     else if (roleId && nextSessionId) refreshRoleSession(roleId, nextSessionId, undefined, { activate: false }).catch(() => {})
-    renderComposer()
+    renderAll()
   }
 
   async function regenerateAssistantMessage(assistantMid: any, opts?: ExistingMessageRunOptions) {

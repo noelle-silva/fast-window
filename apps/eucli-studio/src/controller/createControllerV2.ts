@@ -145,7 +145,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 5. INLINE HELPERS
 
   function render() { emit() }
-  function renderComposer() { emit() }
+  // 诚实命名：当前行为就是全局刷新，不再冒充“只刷新输入区”。
+  function renderAll() { emit() }
 
   function getControllerState() {
     // 纯读取：快照读取器不得修改 state（草稿镜像已在 emit 边界同步）。
@@ -1019,7 +1020,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     },
     emit,
     render,
-    renderComposer,
+    renderComposer: renderAll,
     emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
@@ -1087,7 +1088,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     save: () => saveMeta(),
     render,
     renderTop: render,
-    renderComposer,
+    renderComposer: renderAll,
     renderChat: render,
     renderModal: render,
     scrollToBottomSoon,
@@ -1418,7 +1419,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     renderTop: render,
     renderChat: render,
     renderSide: render,
-    renderComposer,
+    renderComposer: renderAll,
     renderModal: render,
     scrollToBottomSoon,
     activeRole,
