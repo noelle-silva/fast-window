@@ -23,13 +23,19 @@ import {
 //   - 不允许为了让新代码通过而直接调大 EMIT_BASELINE 或调小 SCOPE_BASELINE；
 //   - 如果确实需要新增全局广播（启动/加载/epoch 换代），必须走显式白名单评审，
 //     而不是悄悄改这里的数字。
-const EMIT_BASELINE = 266
-// scope 通知基线（当前 3 处，由上面的 AST 规则在锚点 137422c5 上算得）：
-//   - src/controller/actions/chatNavigationActions.ts:84
-//   - src/controller/createControllerV2.ts:1024
-//   - src/controller/ebRunEvents.ts:54（可选调用 deps.emitScope?.(item) 同样计入）
-// 任何一处减少都会让下面的 `>= SCOPE_BASELINE` 失败，防止有人回退成全局广播。
-const SCOPE_BASELINE = 3
+// 110-08a 收口后的实际值：201。已地址化的域包括：
+//   - settings：appearanceActions / wallpaperActions / aiServiceActions；
+//   - entities：roles / groups / workspaces / providers / modelGroups / tools /
+//     hookPrompts / placeholders / plugins / accessSettings / requestRecords /
+//     modelRequestConfig / conversationImageConfig / toolWorkDirectory；
+//   - session / chatList：uiPolling 对账、加载失败、正文刷新、并行分支草稿；
+//   - navigation / composer / chatList：工作区切换与实体会话创建。
+// 尚未地址化：favorites（消费者 useFavoriteFolders 只订阅全局数据版本）。
+const EMIT_BASELINE = 201
+// scope 通知基线（当前 22 处）：上面各域的 emitScope/emitScopes 调用总和，
+// 由 AST 规则在本次收口后算得。任何一处减少都会让下面的 `>= SCOPE_BASELINE`
+// 失败，防止有人回退成全局广播。
+const SCOPE_BASELINE = 22
 
 // 内核实现文件：定义 emit / emitScope / emitScopes 并把空地址归一到全局通道。
 // 它的内部调用不是业务发射点，单独排除；其余任何文件都不得豁免。

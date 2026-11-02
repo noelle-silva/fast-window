@@ -9,6 +9,7 @@ import type { ModelRef } from '../domain/modelRefUtils'
 import type { EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
 import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 export type ChatTargetKind = 'role' | 'group' | 'workspace'
 
@@ -61,6 +62,7 @@ export type ChatOperationsDeps = {
   // pending 会话落成真实会话后：把「用户选中了它」交给与普通点击相同的偏好持久化入口。
   persistActiveChatSelection?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<void>
   emit: () => void
+  emitScope?: (scope: string) => void
   render: () => void
   renderComposer: () => void
   emitComposerScope?: () => void
@@ -155,7 +157,12 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
         writeActiveChatSelection(box, sid)
       }
       onLoaded?.(chat)
-      emit()
+      if (deps.emitScope) {
+        deps.emitScope(refreshScopes.session(targetKind, tid, sid))
+        deps.emitScope(refreshScopes.chatList(targetKind, tid))
+      } else {
+        emit()
+      }
     }
     return chat
   }

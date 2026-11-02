@@ -5,6 +5,7 @@ import { writeChatListProjection } from '../domain/chatListProjection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 import { createTargetChatSync, type TargetChatScope } from '../storage/targetChatSync'
 import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { createIndexRevisionGate } from './indexRevisionGate'
 
 type DirectEventSubscription = (listener: (event: any) => void) => () => void
@@ -25,7 +26,8 @@ type DirectEventSubscription = (listener: (event: any) => void) => () => void
 
 export type UiPollingDeps = {
   getState: () => any
-  emit: () => void
+  // 对账结果按 target / session 地址通知；不再整页广播。
+  emitScope: (scope: string) => void
   subscribeDirectEvents?: DirectEventSubscription
   // 连接重建成功：断线期间可能漏掉事件，必须强制对账。
   onReconnected?: (listener: () => void) => () => void
@@ -108,6 +110,36 @@ export function createUiPolling(deps: UiPollingDeps) {
     return true
   }
 
+  function activeChatIdForScope(scope: TargetChatScope): string {
+    const state = deps.getState()
+    const box = scope.kind === 'group' ? (state.data as any)?.chatsByGroup?.[scope.targetId] : state.data?.chatsByRole?.[scope.targetId]
+    return String(deps.activeChatFromData()?.id || box?.activeChatId || '').trim()
+  }
+
+  // 对账写回索引与正文后，按地址通知：
+  //   - 列表属于 target：永远发 chatList；
+  //   - 当前会话正文可能被重取：带 chatId 发 session，绝不整页广播。
+  function notifyTargetReconciled(scope: TargetChatScope) {
+    deps.emitScope(refreshScopes.chatList(scope.kind, scope.targetId))
+    const chatId = activeChatIdForScope(scope)
+    if (chatId) deps.emitScope(refreshScopes.session(scope.kind, scope.targetId, chatId))
+  }
+
+  // 事件通知的落点：当前会话正文变了才发 session；非当前会话只更新列表。
+  function notifyNoticeApplied(raw: any) {
+    const kindText = String(raw?.targetKind || '').trim()
+    const kind = kindText === 'group' ? 'group' : kindText === 'role' ? 'role' : ''
+    const targetId = String(raw?.targetId || raw?.roleId || '').trim()
+    const chatId = String(raw?.chatId || '').trim()
+    if (!kind || !targetId) return
+    deps.emitScope(refreshScopes.chatList(kind, targetId))
+    const scope = activeScope()
+    if (!scope || scope.kind !== kind || scope.targetId !== targetId) return
+    if (chatId && chatId === activeChatIdForScope(scope)) {
+      deps.emitScope(refreshScopes.session(kind, targetId, chatId))
+    }
+  }
+
   // uiPollTick 不再由定时器驱动：它是「版本门」的唯一入口，
   // 由事件（chat-updated）/ 重连 / 可见性恢复 / 显式调用触发。
   async function uiPollTick(options?: { force?: boolean }) {
@@ -126,7 +158,7 @@ export function createUiPolling(deps: UiPollingDeps) {
       // 下一次事件或触发器仍会强制重试。
       if (applied) {
         pendingForceReconcile = false
-        deps.emit()
+        notifyTargetReconciled(scope)
       }
     } catch {
       // 版本门是后台对账：单次失败不打扰用户，下一次事件 / 重连会再试。
@@ -227,7 +259,7 @@ export function createUiPolling(deps: UiPollingDeps) {
       .then(async () => {
         if (uiPollingDisposed) return
         const changed = await applyChatUpdatedNoticeOnce(raw)
-        if (changed) deps.emit()
+        if (changed) notifyNoticeApplied(raw)
       })
       .catch(() => {})
   }

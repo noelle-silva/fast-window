@@ -22,7 +22,7 @@ import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
-import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
+import { COMPOSER_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
@@ -129,6 +129,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     activateComposerDraftForCurrentSession(state)
     emitRaw()
   }
+
+  // 域级地址通知：模块只声明自己变更的域，不再借全局通道。
+  const emitSettings = () => emitScope(refreshScopes.settings())
+  const emitEntity = (domain: string) => () => emitScope(refreshScopes.entities(domain))
 
   // ============================================================
   // 3. SPLIT META CACHE (shared across modules)
@@ -613,7 +617,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const hookPromptLibraryController = createHookPromptLibraryController({
     getState: () => state,
     getNetRequest: () => capabilities.net?.request,
-    emit,
+    emit: emitEntity('hookPrompts'),
     showToast: api.ui?.showToast,
   })
   const { refreshHookPromptLibrary, persistHookPromptLibrary, reorderHookPromptPresetOrder } = hookPromptLibraryController
@@ -621,7 +625,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const placeholderLibraryController = createPlaceholderLibraryController({
     getState: () => state,
     getNetRequest: () => capabilities.net?.request,
-    emit,
+    emit: emitEntity('placeholders'),
     showToast: api.ui?.showToast,
   })
   const { refreshPlaceholderLibrary, persistPlaceholderLibrary, reorderPlaceholders, refreshPlaceholderPreview, refreshPlaceholderDependencyTree, loadRolePlaceholderDependencyTree } = placeholderLibraryController
@@ -632,7 +636,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     pickArchiveFile: api.files?.pickArchiveFile,
     pickArchiveFolder: api.files?.pickArchiveFolder,
     importArtifactPackage: api.artifacts?.import,
-    emit,
+    emit: emitEntity('plugins'),
     showToast: api.ui?.showToast,
     refreshPlaceholderLibrary,
   })
@@ -671,7 +675,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   // 正文加载失败的唯一记录点：任何一次正文加载都必须经过它，
   // 失败才会被 UI 看见并收敛成可重试的终态。
-  const chatLoadFailure = createChatLoadFailureTracker({ getState: () => state, emit })
+  const chatLoadFailure = createChatLoadFailureTracker({ getState: () => state, emit, emitScope })
 
   // RunProbe：run 终态对账的唯一入口。
   // 事件是正常路径；探针只在「静默 / 重连 / 页面可见」时补一次权威快照。
@@ -727,7 +731,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     getProvider,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('providers'),
     showToast: api.ui?.showToast,
   })
   const { refreshModels } = modelRefresh
@@ -735,7 +739,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const modelGroupsController = createModelGroupsController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('modelGroups'),
     showToast: api.ui?.showToast,
   })
   const {
@@ -759,7 +763,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     pickArchiveFile: api.files?.pickArchiveFile,
     pickArchiveFolder: api.files?.pickArchiveFolder,
     importArtifactPackage: api.artifacts?.import,
-    emit,
+    emit: emitEntity('tools'),
     showToast: api.ui?.showToast,
   })
   const { refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setInstallTerminalListener: setToolInstallTerminalListener, dispose: disposeToolCatalog } = toolCatalog
@@ -774,7 +778,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     storage,
-    emit,
+    emit: emitEntity('toolWorkDirectory'),
     showToast: api.ui?.showToast,
   })
   const toolWorkDirectoryActions = { ...toolWorkDirectory }
@@ -782,7 +786,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const modelRequestConfigController = createModelRequestConfigController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('modelRequestConfig'),
     showToast: api.ui?.showToast,
   })
   const { refreshModelRequestConfig, setModelRequestConfigDraft, resetModelRequestConfigDraftToDefaults, saveModelRequestConfig } = modelRequestConfigController
@@ -790,7 +794,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const conversationImageConfigController = createConversationImageConfigController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('conversationImageConfig'),
     showToast: api.ui?.showToast,
   })
   const { refreshConversationImageConfig, setConversationImageConfigDraft, resetConversationImageConfigDraftToDefaults, saveConversationImageConfig } = conversationImageConfigController
@@ -798,7 +802,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const requestRecordsController = createRequestRecordsController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('requestRecords'),
     showToast: api.ui?.showToast,
   })
   const requestRecordActions = { ...requestRecordsController }
@@ -806,7 +810,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const accessSettingsController = createAccessSettingsController({
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    emit,
+    emit: emitEntity('accessSettings'),
     showToast: api.ui?.showToast,
   })
 
@@ -816,6 +820,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const favOps = createFavoritesOperations({
     getState: () => state,
     save: saveFavoritesOnly,
+    // 收藏夹的消费者 useFavoriteFolders 仍只订阅全局数据版本；
+    // 在它改成范围订阅前保持全局，避免半改后漏刷。
     emit,
     showToast: api.ui?.showToast,
     activeTargetKind,
@@ -1060,7 +1066,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const uiPolling = createUiPolling({
     getState: () => state,
-    emit,
+    emitScope,
     subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
     onReconnected: (capabilities.host as any)?.directEvents?.onReconnected,
     activeTargetKind,
@@ -1160,11 +1166,12 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 20. ACTIONS — complete controller.actions object
   // ============================================================
-  const appearanceActions = createAppearanceActions({ state, emit, saveMeta: savePreferences, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
+  const appearanceActions = createAppearanceActions({ state, emit: emitSettings, emitScope, saveMeta: savePreferences, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
   const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta: savePreferences })
   const aiServiceActionSet = createAiServiceActions({
     state,
-    emit,
+    emit: emitSettings,
+    emitScope,
     // AI 微服务配置是 e-b 的独立事实：只写目标 service，绝不触发本地 meta 保存。
     saveAssistConfig: (service: AiChatAssistService, config: Record<string, any>) => {
       const setter = api.assistConfig?.set
@@ -1172,10 +1179,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       return setter(service, config)
     },
   })
-  const stickerActions = createStickerActions({ state, emit, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, reorderStickerCategoriesInternal, reorderStickersInternal, loadStickersFromSource, setStickersEnabled })
+  const stickerActions = createStickerActions({ state, emit: emitSettings, showToast: api.ui?.showToast, pickImageFiles, addStickerInternal, createStickerCategoryInternal, deleteStickerCategoryInternal, deleteStickerInternal, renameStickerInternal, reorderStickerCategoriesInternal, reorderStickersInternal, loadStickersFromSource, setStickersEnabled })
   const wallpaperActions = createWallpaperActions({
     state,
-    emit,
+    emit: emitSettings,
+    emitScope,
     saveMeta: savePreferences,
     showToast: api.ui?.showToast,
     pickImageFiles,
@@ -1196,6 +1204,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const entityActions = createEntityActions({
     state,
     emit,
+    emitScope,
     saveMeta: savePreferences,
     showToast: api.ui?.showToast,
     getProvider,
@@ -1244,7 +1253,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const toolActions = createToolActions({
     state,
-    emit,
+    emit: emitEntity('tools'),
     showToast: api.ui?.showToast,
     refreshTools,
     moveTool,

@@ -11,6 +11,8 @@
 //
 // 它是「一次加载尝试」的事实，不是业务数据：不进 meta、不参与持久化。
 
+import { refreshScopes } from '../domain/uiRefreshScope'
+
 export type ChatLoadTargetKind = 'role' | 'group' | 'workspace'
 
 export type ChatLoadFailure = {
@@ -45,8 +47,18 @@ export function selectChatLoadFailure(
 export function createChatLoadFailureTracker(deps: {
   getState: () => any
   emit: () => void
+  // 失败事实属于具体会话：只通知该 session 地址；身份不足时地址构造器会回落到 global。
+  emitScope?: (scope: string) => void
 }) {
-  const { getState, emit } = deps
+  const { getState, emit, emitScope } = deps
+
+  function notify(kind: ChatLoadTargetKind, targetId: string, chatId: string) {
+    if (emitScope) {
+      emitScope(refreshScopes.session(kind, targetId, chatId))
+      return
+    }
+    emit()
+  }
 
   function record(kind: ChatLoadTargetKind, targetId: string, chatId: string, error: unknown) {
     const state = getState()
@@ -58,7 +70,7 @@ export function createChatLoadFailureTracker(deps: {
       chatId: normalizeId(chatId),
       reason,
     }
-    emit()
+    notify(kind, targetId, chatId)
   }
 
   function clear(kind: ChatLoadTargetKind, targetId: string, chatId: string) {
@@ -67,7 +79,7 @@ export function createChatLoadFailureTracker(deps: {
     const key = chatLoadFailureKey(kind, targetId, chatId)
     if (!state.chatLoadFailures[key]) return
     delete state.chatLoadFailures[key]
-    emit()
+    notify(kind, targetId, chatId)
   }
 
   // track 包裹一次正文加载：

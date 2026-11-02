@@ -31,6 +31,36 @@ function createHarness(reorderRoles = vi.fn(async () => {}), reorderProviders = 
   return { state, emit, showToast, actions, reorderRoles, reorderProviders }
 }
 
+describe('实体通知地址', () => {
+  it('角色与供应商排序分别通知各自实体域，不触发全局广播', async () => {
+    const state: any = {
+      data: {
+        roles: [{ id: 'role-a' }, { id: 'role-b' }],
+        settings: { providers: [{ id: 'provider-a' }, { id: 'provider-b' }] },
+      },
+      draft: {},
+    }
+    const emit = vi.fn()
+    const emitScope = vi.fn()
+    const actions = createEntityActions({
+      state,
+      emit,
+      emitScope,
+      reorderRoles: vi.fn(async () => {}),
+      reorderProviders: vi.fn(async () => {}),
+    } as any)
+
+    await actions.moveRole('role-a', 'role-b', 'after')
+    await actions.moveProvider('provider-a', 'provider-b', 'after')
+
+    expect(emitScope.mock.calls.map((call) => call[0])).toEqual([
+      'entities:roles',
+      'entities:providers',
+    ])
+    expect(emit).not.toHaveBeenCalled()
+  })
+})
+
 describe('角色手动排序', () => {
   it('拖拽后立即更新视窗顺序，并把完整顺序写入业务端', async () => {
     const harness = createHarness()

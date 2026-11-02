@@ -192,7 +192,7 @@ export function createEntityEditors(deps: {
       if (!looksLikeImageDataUrl(u)) return showToast?.('头像图片无效', { kind: 'error' })
 
       state.draft.roleAvatarImageCropSrc = u
-      render()
+    notifyScopes([refreshScopes.uiShell()])
     } catch (e: any) {
       showToast?.(String(e?.message || e || '选择头像失败'), { kind: 'error' })
     }
@@ -202,7 +202,7 @@ export function createEntityEditors(deps: {
     const state = getState()
     state.draft.roleAvatarImage = ''
     state.draft.roleAvatarImageCropSrc = ''
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   async function pickGroupAvatarImage() {
@@ -222,7 +222,7 @@ export function createEntityEditors(deps: {
       if (!looksLikeImageDataUrl(u)) return showToast?.('头像图片无效', { kind: 'error' })
 
       ;(state.draft as any).groupAvatarImageCropSrc = u
-      render()
+    notifyScopes([refreshScopes.uiShell()])
     } catch (e: any) {
       showToast?.(String(e?.message || e || '选择头像失败'), { kind: 'error' })
     }
@@ -232,7 +232,7 @@ export function createEntityEditors(deps: {
     const state = getState()
     ;(state.draft as any).groupAvatarImage = ''
     ;(state.draft as any).groupAvatarImageCropSrc = ''
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   // ===== Role CRUD =====
@@ -272,7 +272,7 @@ export function createEntityEditors(deps: {
     if (!populateNewRoleDraft()) return
     ;(getState().draft as any).roleEditorInPlace = false
     getState().modal = 'role'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function createRole() {
@@ -282,20 +282,20 @@ export function createEntityEditors(deps: {
   function openNewRoleEditorInPlace() {
     if (!populateNewRoleDraft()) return
     ;(getState().draft as any).roleEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openRoleEditor(roleId: any) {
     if (!populateRoleDraft(roleId)) return
     ;(getState().draft as any).roleEditorInPlace = false
     getState().modal = 'role'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openRoleEditorInPlace(roleId: any) {
     if (!populateRoleDraft(roleId)) return
     ;(getState().draft as any).roleEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function populateRoleDraft(roleId: any) {
@@ -384,7 +384,7 @@ export function createEntityEditors(deps: {
         closeModal()
       } catch (e: any) {
         showToast?.(String(e?.message || e || '角色保存失败'), { kind: 'error' })
-        render()
+    notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
       }
       return
     }
@@ -415,7 +415,7 @@ export function createEntityEditors(deps: {
     } catch (e: any) {
       Object.assign(role, previous)
       showToast?.(String(e?.message || e || '角色保存失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
     }
   }
 
@@ -443,7 +443,8 @@ export function createEntityEditors(deps: {
     try {
       await removeRoleEntity?.(rid)
       showToast?.('角色已删除', { kind: 'success' })
-      render()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       state.data.roles = previousRoles
@@ -452,7 +453,8 @@ export function createEntityEditors(deps: {
       ;(state.draft as any).activeTargetKind = previousActiveTargetKind
       ;(state.draft as any).activeGroupId = previousActiveGroupId
       showToast?.(String(e?.message || e || '角色删除失败'), { kind: 'error' })
-      render()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }
@@ -481,7 +483,7 @@ export function createEntityEditors(deps: {
     if (!populateNewGroupDraft()) return
     ;(getState().draft as any).groupEditorInPlace = false
     getState().modal = 'group'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function createGroup() {
@@ -491,20 +493,20 @@ export function createEntityEditors(deps: {
   function openNewGroupEditorInPlace() {
     if (!populateNewGroupDraft()) return
     ;(getState().draft as any).groupEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openGroupEditor(groupId: any) {
     if (!populateGroupDraft(groupId)) return
     ;(getState().draft as any).groupEditorInPlace = false
     getState().modal = 'group'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openGroupEditorInPlace(groupId: any) {
     if (!populateGroupDraft(groupId)) return
     ;(getState().draft as any).groupEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function populateGroupDraft(groupId: any) {
@@ -569,7 +571,7 @@ export function createEntityEditors(deps: {
         closeModal()
       } catch (e: any) {
         showToast?.(String(e?.message || e || '群组保存失败'), { kind: 'error' })
-        render()
+    notifyScopes([refreshScopes.entities('groups'), refreshScopes.uiShell()])
       }
       return
     }
@@ -585,7 +587,7 @@ export function createEntityEditors(deps: {
     } catch (e: any) {
       Object.assign(group, previous)
       showToast?.(String(e?.message || e || '群组保存失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.entities('groups'), refreshScopes.uiShell()])
     }
   }
 
@@ -615,7 +617,8 @@ export function createEntityEditors(deps: {
       await removeGroupEntity?.(gid)
       cleanupFavoriteRefsForTarget('group', gid)
       showToast?.('群组已删除', { kind: 'success' })
-      render()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       ;(state.data as any).groups = previousGroups
@@ -623,7 +626,8 @@ export function createEntityEditors(deps: {
       ;(state.draft as any).activeGroupId = previousActiveGroupId
       ;(state.draft as any).activeTargetKind = previousActiveTargetKind
       showToast?.(String(e?.message || e || '群组删除失败'), { kind: 'error' })
-      render()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }
@@ -634,7 +638,7 @@ export function createEntityEditors(deps: {
     const state = getState()
     state.draft.editProviderId = ''
     state.modal = 'providers'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openProviderInlineEditor(providerId: any) {
@@ -650,7 +654,7 @@ export function createEntityEditors(deps: {
     state.draft.providerApiKeys = Array.isArray(p.apiKeys) ? p.apiKeys.map((key: any) => ({ ...key })) : []
     if (!state.draft.providerApiKeys.length && String(p.apiKey || '').trim()) state.draft.providerApiKeys = [{ id: 'legacy', name: '默认 Key', key: String(p.apiKey || ''), enabled: true, weight: 1 }]
     state.draft.providerRegisteredModels = Array.isArray(p.registeredModels) ? p.registeredModels.map((model: any) => ({ ...model })) : []
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   async function saveProviderInlineEditor() {
@@ -679,12 +683,12 @@ export function createEntityEditors(deps: {
 
     if (!nextProtocol) {
       showToast?.('请选择供应商协议', { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.uiShell()])
       return
     }
     if (!nextApiKeys.length) {
       showToast?.('请至少填写一个供应商 Key', { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.uiShell()])
       return
     }
 
@@ -700,11 +704,11 @@ export function createEntityEditors(deps: {
       await saveProviderEntity?.(p)
       state.draft.editProviderId = ''
       showToast?.('供应商已保存', { kind: 'success' })
-      render()
+    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     } catch (e: any) {
       Object.assign(p, previous)
       showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     }
   }
 
@@ -783,12 +787,12 @@ export function createEntityEditors(deps: {
     try {
       await removeProviderEntity?.(pid)
       showToast?.('供应商已删除', { kind: 'success' })
-      render()
+    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       state.data.settings.providers = previousProviders
       showToast?.(String(e?.message || e || '供应商删除失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return false
     }
   }
@@ -808,7 +812,7 @@ export function createEntityEditors(deps: {
     state.branchDraft = null
     state.sideTab = 'chats'
     activateComposerDraftForCurrentSession(state)
-    render()
+    notifyScopes([refreshScopes.navigation(), refreshScopes.composer(), refreshScopes.chatList('role', rid)])
     scrollToBottomSoon()
   }
 
@@ -824,7 +828,7 @@ export function createEntityEditors(deps: {
     state.branchDraft = null
     state.sideTab = 'chats'
     activateComposerDraftForCurrentSession(state)
-    render()
+    notifyScopes([refreshScopes.navigation(), refreshScopes.composer(), refreshScopes.chatList('group', String((group as any).id || ''))])
     scrollToBottomSoon()
   }
 
@@ -900,7 +904,7 @@ export function createEntityEditors(deps: {
       if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return false
     } catch (e: any) {
       showToast?.(String(e?.message || e || '会话标题保存失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.chatList('role', rid)])
       return false
     }
 
@@ -927,7 +931,7 @@ export function createEntityEditors(deps: {
       })
     }
 
-    render()
+    notifyScopes([refreshScopes.chatList('role', rid)])
     return true
   }
 
@@ -951,7 +955,7 @@ export function createEntityEditors(deps: {
       if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return false
     } catch (e: any) {
       showToast?.(String(e?.message || e || '群聊标题保存失败'), { kind: 'error' })
-      render()
+    notifyScopes([refreshScopes.chatList('group', gid)])
       return false
     }
 
@@ -969,7 +973,7 @@ export function createEntityEditors(deps: {
         meta: { id: cid, title: t, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending },
       })
     }
-    render()
+    notifyScopes([refreshScopes.chatList('group', gid)])
     return true
   }
 
@@ -1078,7 +1082,8 @@ export function createEntityEditors(deps: {
     removeLoadedChat?.('role', rid, cid)
     void removeChatInStore?.('role', rid, cid).catch(() => {})
     void (setRoleActiveChatSelection?.(rid, readActiveChatSelection(box)) || save()).catch(() => {})
-    render()
+    activateComposerDraftForCurrentSession(state)
+    notifyScopes([refreshScopes.navigation(), refreshScopes.chatList('role', rid)])
   }
 
   function deleteChatForGroup(groupId: any, chatId: any) {
@@ -1101,7 +1106,8 @@ export function createEntityEditors(deps: {
     removeLoadedChat?.('group', gid, cid)
     void removeChatInStore?.('group', gid, cid).catch(() => {})
     void (setGroupActiveChatSelection?.(gid, readActiveChatSelection(box)) || save()).catch(() => {})
-    render()
+    activateComposerDraftForCurrentSession(state)
+    notifyScopes([refreshScopes.navigation(), refreshScopes.chatList('group', gid)])
   }
 
   return {

@@ -79,10 +79,12 @@ function createHarness(
   }
   let emitCount = 0
   const emit = vi.fn(() => { emitCount += 1 })
+  const emitScope = vi.fn((_scope: string) => { emitCount += 1 })
   const manager = createWorkspaceManager({
     getState: () => state,
     netRequest,
     emit,
+    emitScope,
     render: () => {},
     closeModal: () => {},
     saveMeta: async () => {},

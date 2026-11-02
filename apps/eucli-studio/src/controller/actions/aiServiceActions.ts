@@ -8,13 +8,23 @@ import {
   CONTEXT_COMPRESSION_RETAIN_RECENT_MESSAGES_MAX,
 } from '../../domain/constants'
 import type { AiChatAssistService } from '../../protocol/aiChatProtocol'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 
 export function createAiServiceActions(deps: {
   state: any
   emit: () => void
+  emitScope?: (scope: string) => void
   saveAssistConfig: (service: AiChatAssistService, config: Record<string, any>) => Promise<any>
 }) {
-  const { state, emit, saveAssistConfig } = deps
+  const { state, emit, emitScope, saveAssistConfig } = deps
+
+  function notifySettings() {
+    if (emitScope) {
+      emitScope(refreshScopes.settings())
+      return
+    }
+    emit()
+  }
 
   function ensureAiServiceConfig(serviceName: AiChatAssistService) {
     if (!state.data) return null
@@ -35,7 +45,7 @@ export function createAiServiceActions(deps: {
     if (!box) return
     Object.assign(box, patch)
     persistAiService(serviceName)
-    emit()
+    notifySettings()
   }
 
   function setAiServiceModelSource(serviceName: AiChatAssistService, value: any) {

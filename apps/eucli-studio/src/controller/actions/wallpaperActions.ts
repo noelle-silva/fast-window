@@ -8,17 +8,27 @@ import {
   normalizeWallpaperView,
 } from '../../domain/wallpaper'
 import type { AiChatShowToast } from '../../gateway/capabilities'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 
 export function createWallpaperActions(deps: {
   state: any
   emit: () => void
+  emitScope?: (scope: string) => void
   saveMeta: () => Promise<any>
   showToast?: AiChatShowToast
   pickImageFiles?: (maxCount?: number) => Promise<any[]>
   writeImageBase64?: (req: any) => Promise<any>
   deleteImage?: (req: any) => Promise<any>
 }) {
-  const { state, emit, saveMeta, showToast, pickImageFiles, writeImageBase64, deleteImage } = deps
+  const { state, emit, emitScope, saveMeta, showToast, pickImageFiles, writeImageBase64, deleteImage } = deps
+
+  function notifySettings() {
+    if (emitScope) {
+      emitScope(refreshScopes.settings())
+      return
+    }
+    emit()
+  }
 
   function currentSettings() {
     if (!state.data) return null
@@ -30,7 +40,7 @@ export function createWallpaperActions(deps: {
 
   function commit() {
     saveMeta().catch(() => {})
-    emit()
+    notifySettings()
   }
 
   // 透明背景是 wallpaper.enabled 的纯派生物：

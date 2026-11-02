@@ -3,10 +3,12 @@ import { moveListItemById, type ListMovePosition } from '../../domain/listOrderi
 import { normalizeModelRef } from '../../domain/modelRefUtils'
 import { addRoleModelCandidate, modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates, removeRoleModelCandidate } from '../../domain/roleModelCandidates'
 import type { AiChatShowToast } from '../../gateway/capabilities'
+import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
 
 export function createEntityActions(deps: {
   state: any
   emit: () => void
+  emitScope?: (scope: string) => void
   saveMeta: () => Promise<any>
   showToast?: AiChatShowToast
   getProvider: (providerId: string) => any
@@ -53,9 +55,18 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, roleId: string, chatId: string) => any
 }) {
-  const { state, emit, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emit, emitScope, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
   let roleMoveSeq = 0
   let providerMoveSeq = 0
+
+  function notifyScopes(scopes: readonly string[]) {
+    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
+    if (emitScope && addresses.length) {
+      for (const address of addresses) emitScope(address)
+      return
+    }
+    emit()
+  }
 
   return {
     closeModal: () => closeModal(),
@@ -64,7 +75,7 @@ export function createEntityActions(deps: {
     openProviderEditor: (providerId: any) => openProviderInlineEditor(String(providerId || '')),
     closeProviderEditor: () => {
       state.draft.editProviderId = ''
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     saveProvider: () => saveProviderInlineEditor(),
     moveRole: async (roleId: any, targetRoleId: any, position: any) => {
@@ -80,14 +91,14 @@ export function createEntityActions(deps: {
 
       const seq = ++roleMoveSeq
       state.data.roles = nextRoles
-      emit()
+      notifyScopes([refreshScopes.entities('roles')])
       try {
         await reorderRoles(nextRoles.map((role: any) => String(role?.id || '')))
       } catch (e: any) {
         // 快速连续拖拽时，旧请求失败不能覆盖更新的本地顺序。
         if (seq !== roleMoveSeq) return
         state.data.roles = previousRoles
-        emit()
+      notifyScopes([refreshScopes.entities('roles')])
         showToast?.(String(e?.message || e || '角色排序保存失败'), { kind: 'error' })
       }
     },
@@ -107,13 +118,13 @@ export function createEntityActions(deps: {
 
       const seq = ++providerMoveSeq
       state.data.settings.providers = next
-      emit()
+      notifyScopes([refreshScopes.entities('providers')])
       try {
         await reorderProviders(next.map((provider: any) => String(provider?.id || '')))
       } catch (e: any) {
         if (seq !== providerMoveSeq) return
         state.data.settings.providers = previous
-        emit()
+      notifyScopes([refreshScopes.entities('providers')])
         showToast?.(String(e?.message || e || '供应商排序保存失败'), { kind: 'error' })
       }
     },
@@ -122,7 +133,7 @@ export function createEntityActions(deps: {
       state.draft.deleteRoleId = ''
       ;(state.draft as any).deleteGroupId = ''
       state.modal = 'confirm'
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     openRoleEditor: (roleId: any) => openRoleEditor(String(roleId || '')),
     openRoleEditorInPlace: (roleId: any) => openRoleEditorInPlace(String(roleId || '')),
@@ -151,7 +162,7 @@ export function createEntityActions(deps: {
       ;(state.draft as any).deleteGroupId = ''
       state.draft.deleteProviderId = ''
       state.modal = 'confirm'
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     askDeleteGroup: (groupId: any) => {
       const gid = String(groupId || '')
@@ -160,7 +171,7 @@ export function createEntityActions(deps: {
       state.draft.deleteRoleId = ''
       state.draft.deleteProviderId = ''
       state.modal = 'confirm'
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     askDeleteWorkspace: (workspaceId: any) => {
       const wid = String(workspaceId || '')
@@ -170,7 +181,7 @@ export function createEntityActions(deps: {
       ;(state.draft as any).deleteGroupId = ''
       state.draft.deleteProviderId = ''
       state.modal = 'confirm'
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     confirmDelete: async () => {
       const rid = String(state.draft.deleteRoleId || '')
@@ -193,7 +204,7 @@ export function createEntityActions(deps: {
       if (ok) {
         closeModal()
       }
-      emit()
+      notifyScopes([refreshScopes.entities('roles'), refreshScopes.entities('groups'), refreshScopes.entities('workspaces'), refreshScopes.entities('providers'), refreshScopes.navigation(), refreshScopes.settings(), refreshScopes.uiShell()])
     },
     renameChat: (roleId: any, chatId: any, title: any) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
     renameGroupChat: (groupId: any, chatId: any, title: any) => renameGroupChatTitle(String(groupId || ''), String(chatId || ''), String(title ?? '')),
@@ -208,23 +219,23 @@ export function createEntityActions(deps: {
       state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
       state.draft.roleModelId = ''
       state.draft.roleCustomModelId = ''
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     roleModelSourceChanged: (source: any) => {
       state.draft.roleModelSource = String(source || '') === 'model_group' ? 'model_group' : 'provider'
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     roleModelGroupChanged: (groupId: any) => {
       state.draft.roleModelGroupId = String(groupId || '')
       state.draft.roleModelGroupModelId = ''
       state.draft.roleCustomModelId = ''
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     roleModelChanged: (modelId: any) => {
       const mid = String(modelId || '')
       if (String(state.draft.roleModelSource || '') === 'model_group') state.draft.roleModelGroupModelId = mid
       else state.draft.roleModelId = mid
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     // 把当前选择（来源 + 供应商/模型组 + 模型）作为一个候选加入角色候选池。
     addRoleModelCandidate: () => {
@@ -238,20 +249,20 @@ export function createEntityActions(deps: {
       if (next.length === normalizeRoleModelCandidates(state.draft.roleModelCandidates).length) return showToast?.('该模型已在候选池中', { kind: 'error' })
       state.draft.roleModelCandidates = next
       state.draft.roleDefaultModelCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, next)
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     removeRoleModelCandidate: (id: any) => {
       const next = removeRoleModelCandidate(state.draft.roleModelCandidates, id)
       state.draft.roleModelCandidates = next
       state.draft.roleDefaultModelCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, next)
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     setDefaultRoleModelCandidate: (id: any) => {
       const next = normalizeRoleModelCandidates(state.draft.roleModelCandidates)
       const target = String(id || '').trim()
       if (!next.some((candidate) => modelCandidateKey(candidate) === target)) return
       state.draft.roleDefaultModelCandidateId = target
-      emit()
+      notifyScopes([refreshScopes.uiShell()])
     },
     pickRoleAvatarImage: () => pickRoleAvatarImage(),
     clearRoleAvatarImage: () => clearRoleAvatarImage(),

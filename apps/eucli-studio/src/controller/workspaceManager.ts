@@ -197,6 +197,41 @@ export function createWorkspaceManager(deps: {
     ])
   }
 
+  function notifyWorkspaceTarget(targetId: string) {
+    if (!targetId) return
+    notifyScopes([refreshScopes.chatList('workspace', targetId)])
+    const box = (getState().data as any)?.chatsByWorkspace?.[targetId]
+    const chatId = text(box?.activeChatId)
+    if (chatId) notifyScopes([refreshScopes.session('workspace', targetId, chatId)])
+  }
+
+  // 进入工作区 / 切换工作区角色：目标身份、草稿与列表是三个独立地址。
+  function notifyWorkspaceActivated(workspaceId: string) {
+    const state = getState()
+    const roleId = currentWorkspaceRoleId(state, activeRole)
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    notifyScopes([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+      ...(targetId ? [refreshScopes.chatList('workspace', targetId)] : []),
+    ])
+    if (targetId) notifyWorkspaceTarget(targetId)
+  }
+
+  function notifyWorkspaceCombination(workspaceId: string) {
+    const targetId = workspaceRoleTargetId(workspaceId, currentWorkspaceRoleId(getState(), activeRole))
+    notifyWorkspaceTarget(targetId)
+  }
+
+  function notifyWorkspaceChatCreated(workspaceId: string) {
+    const targetId = workspaceRoleTargetId(workspaceId, currentWorkspaceRoleId(getState(), activeRole))
+    notifyScopes([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+      ...(targetId ? [refreshScopes.chatList('workspace', targetId)] : []),
+    ])
+  }
+
   function markWorkspacePromptPreviewStale() {
     const state = getState()
     if (!state?.draft) return
@@ -209,7 +244,7 @@ export function createWorkspaceManager(deps: {
     if (!state?.data) return ''
     ;(state.draft as any).workspaceActualPromptLoading = true
     ;(state.draft as any).workspaceActualPromptError = ''
-    render()
+    notifyScopes([refreshScopes.uiShell()])
     try {
       const actualPrompt = await previewWorkspacePrompt(requireNetRequest(), workspaceDraft(state))
       ;(state.draft as any).workspaceActualPrompt = actualPrompt
@@ -222,7 +257,7 @@ export function createWorkspaceManager(deps: {
       return ''
     } finally {
       ;(state.draft as any).workspaceActualPromptLoading = false
-      render()
+    notifyScopes([refreshScopes.uiShell()])
     }
   }
 
@@ -369,7 +404,7 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId) return
     ensureWorkspaceBox(state, activeRole, workspaceId)
     refreshActiveWorkspaceChats(workspaceId).catch(() => null).finally(() => {
-      ensureActiveWorkspaceChatLoaded().catch(() => null).finally(() => emit())
+      ensureActiveWorkspaceChatLoaded().catch(() => null).finally(() => notifyWorkspaceCombination(workspaceId))
     })
   }
 
@@ -393,7 +428,7 @@ export function createWorkspaceManager(deps: {
     activateComposerDraftForCurrentSession(state)
     loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
-    emit()
+    notifyWorkspaceActivated(workspaceId)
   }
 
   function setWorkspaceRole(roleIdRaw: unknown) {
@@ -408,7 +443,7 @@ export function createWorkspaceManager(deps: {
     activateComposerDraftForCurrentSession(state)
     if (workspaceId) loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
-    emit()
+    notifyWorkspaceActivated(workspaceId)
   }
 
   async function moveWorkspace(workspaceIdRaw: unknown, targetWorkspaceIdRaw: unknown, positionRaw: unknown) {
@@ -424,14 +459,14 @@ export function createWorkspaceManager(deps: {
 
     const seq = ++workspaceMoveSeq
     ;(state.data as any).workspaces = next
-    emit()
+    notifyScopes([refreshScopes.entities('workspaces')])
     try {
       await saveEntityOrder(requireNetRequest(), 'workspaces', next.map((workspace) => text(workspace?.id)))
     } catch (e: any) {
       // 快速连续拖拽时，旧请求失败不能覆盖更新的本地顺序。
       if (seq !== workspaceMoveSeq) return
       ;(state.data as any).workspaces = workspaces
-      emit()
+      notifyScopes([refreshScopes.entities('workspaces')])
       showToast?.(String(e?.message || e || '工作区排序保存失败'), { kind: 'error' })
     }
   }
@@ -455,14 +490,14 @@ export function createWorkspaceManager(deps: {
     if (!populateNewWorkspaceDraft()) return
     ;(getState().draft as any).workspaceEditorInPlace = false
     getState().modal = 'workspace'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
     refreshWorkspacePromptPreview().catch(() => null)
   }
 
   function openNewWorkspaceEditorInPlace() {
     if (!populateNewWorkspaceDraft()) return
     ;(getState().draft as any).workspaceEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
     refreshWorkspacePromptPreview().catch(() => null)
   }
 
@@ -470,13 +505,13 @@ export function createWorkspaceManager(deps: {
     if (!populateWorkspaceDraft(workspaceIdRaw)) return
     ;(getState().draft as any).workspaceEditorInPlace = false
     getState().modal = 'workspace'
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function openWorkspaceEditorInPlace(workspaceIdRaw: unknown) {
     if (!populateWorkspaceDraft(workspaceIdRaw)) return
     ;(getState().draft as any).workspaceEditorInPlace = true
-    render()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function populateWorkspaceDraft(workspaceIdRaw: unknown) {
@@ -504,7 +539,7 @@ export function createWorkspaceManager(deps: {
     const current = workspaceDraftDirectories((state.draft as any)?.workspaceDirectories)
     ;(state.draft as any).workspaceDirectories = current.concat({ path: '', alias: '', description: '' })
     markWorkspacePromptPreviewStale()
-    emit()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function removeWorkspaceDirectory(indexRaw: unknown) {
@@ -514,7 +549,7 @@ export function createWorkspaceManager(deps: {
     const next = current.filter((_, currentIndex) => currentIndex !== index)
     ;(state.draft as any).workspaceDirectories = next.length ? next : [{ path: '', alias: '', description: '' }]
     markWorkspacePromptPreviewStale()
-    emit()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function setWorkspaceDirectoryField(indexRaw: unknown, fieldRaw: unknown, value: unknown) {
@@ -527,7 +562,7 @@ export function createWorkspaceManager(deps: {
     current[index] = { ...current[index], [field]: String(value ?? '') }
     ;(state.draft as any).workspaceDirectories = current
     markWorkspacePromptPreviewStale()
-    emit()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function setWorkspaceRoleRegistered(roleIdRaw: unknown, registeredRaw: unknown) {
@@ -541,7 +576,7 @@ export function createWorkspaceManager(deps: {
       ? (current.includes(roleId) ? current : current.concat(roleId))
       : current.filter((currentRoleId) => currentRoleId !== roleId)
     ;(state.draft as any).workspaceRegisteredRoleIds = next
-    emit()
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   async function saveWorkspaceEditor() {
@@ -575,10 +610,12 @@ export function createWorkspaceManager(deps: {
       saveMeta().catch(() => {})
       showToast?.(isNew ? '工作区已创建' : '工作区已保存', { kind: 'success' })
       closeModal()
-      emit()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.uiShell()])
+      notifyWorkspaceActivated(workspaceId)
     } catch (e: any) {
       showToast?.(String(e?.message || e || '工作区保存失败'), { kind: 'error' })
-      render()
+      notifyScopes([refreshScopes.uiShell()])
     }
   }
 
@@ -598,11 +635,12 @@ export function createWorkspaceManager(deps: {
         ;(state.draft as any).activeWorkspaceId = text((state.data as any)?.workspaces?.[0]?.id)
       }
       showToast?.('工作区已删除', { kind: 'success' })
-      render()
+      activateComposerDraftForCurrentSession(state)
+      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '工作区删除失败'), { kind: 'error' })
-      render()
+      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }
@@ -625,7 +663,7 @@ export function createWorkspaceManager(deps: {
     state.branchDraft = null
     state.sideTab = 'chats'
     activateComposerDraftForCurrentSession(state)
-    render()
+    notifyWorkspaceChatCreated(text((workspace as any).id))
     scrollToBottomSoon()
   }
 
@@ -694,11 +732,11 @@ export function createWorkspaceManager(deps: {
           meta: { id: chatId, title: nextTitle, createdAt: Number(old?.createdAt || now()), updatedAt: now(), lastMessagePreview: String(old?.lastMessagePreview || ''), messageCount: Number(old?.messageCount || 0), hasPending: !!old?.hasPending },
         })
       }
-      render()
+      notifyScopes([refreshScopes.chatList('workspace', targetId)])
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '工作区会话标题保存失败'), { kind: 'error' })
-      render()
+      notifyScopes([refreshScopes.chatList('workspace', targetId)])
       return false
     }
   }
@@ -727,11 +765,11 @@ export function createWorkspaceManager(deps: {
       await deleteWorkspaceSession(requireNetRequest(), workspaceId, roleId, chatId)
       cleanupFavoriteRefsForChat?.('workspace', workspaceId, roleId, chatId)
       saveMeta().catch(() => {})
-      render()
+      notifyScopes([refreshScopes.navigation(), refreshScopes.chatList('workspace', targetId)])
       return true
     } catch (e: any) {
       showToast?.(String(e?.message || e || '删除工作区会话失败'), { kind: 'error' })
-      render()
+      notifyScopes([refreshScopes.navigation(), refreshScopes.chatList('workspace', targetId)])
       return false
     }
   }

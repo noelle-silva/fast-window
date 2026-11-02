@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import { useAiChatState } from './hooks/useAiChatState'
-import { useScopedUiVersion, useUiDataVersion } from './hooks/useScopedUiVersion'
+import { useScopedUiVersion, useScopedUiVersions, useUiDataVersion } from './hooks/useScopedUiVersion'
 import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
@@ -119,6 +119,29 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   // 全局数据版本：区分「数据变化」与「App 本地 UI 状态变化」的唯一令牌。
   // 顶层派生 memo 都以它为失效依据，本地 state 重渲染不会触发 O(n) 重算。
   const dataVersion = useUiDataVersion(controller)
+  // 外观 / 字体 / 壁纸 / 树设置等全局设置：App 是壳层的唯一接线点，
+  // 设置变化先在这里失效，再由稳定 props 分发给 ShellFrame / Surface。
+  const settingsVersion = useScopedUiVersion(controller, refreshScopes.settings())
+  // 实体 / 库 / 插件域与壳层路由：这些数据会被就地修改，必须用地址版本穿透 memo。
+  const domainVersion = useScopedUiVersions(controller, [
+    refreshScopes.uiShell(),
+    refreshScopes.entities('roles'),
+    refreshScopes.entities('groups'),
+    refreshScopes.entities('workspaces'),
+    refreshScopes.entities('providers'),
+    refreshScopes.entities('modelGroups'),
+    refreshScopes.entities('tools'),
+    refreshScopes.entities('hookPrompts'),
+    refreshScopes.entities('placeholders'),
+    refreshScopes.entities('plugins'),
+    refreshScopes.entities('accessSettings'),
+    refreshScopes.entities('requestRecords'),
+    refreshScopes.entities('modelRequestConfig'),
+    refreshScopes.entities('conversationImageConfig'),
+    refreshScopes.entities('toolWorkDirectory'),
+  ])
+  const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards())
+
   const colorThemePreset = resolveColorThemePreview(data?.settings?.colorTheme, (s.draft as any)?.colorThemeDraft)
   const colorThemeColors = React.useMemo(() => getColorThemeColors(colorThemePreset), [colorThemePreset])
   const theme = React.useMemo(() => createStudioMuiTheme(colorThemePreset.mode, colorThemeColors), [colorThemePreset.mode, colorThemeColors])
@@ -161,7 +184,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const bgAlpha = transparentChatBg ? wallpaperVeilAlpha(chatBgOpacity, chatBgBlur) : 1
   const wallpaper = React.useMemo(
     () => normalizeWallpaperSettings(data?.settings?.wallpaper),
-    [dataVersion, data?.settings?.wallpaper],
+    [dataVersion, settingsVersion, data?.settings?.wallpaper],
   )
   const activeWallpaper = React.useMemo(
     () => (wallpaper.enabled ? wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null : null),
@@ -286,6 +309,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeTargetKind,
     activeChatTargetId,
     activeChatId,
+    controller,
   })
 
   const formatModelRefText = React.useCallback(
@@ -1027,8 +1051,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const canCreateChat = activeTargetKind === 'workspace' ? !!(activeWorkspace && activeRole) : !!activeRole
   const runningSessions = React.useMemo(
     () => collectRunningSessions({ state: s, data, includeGroups: GROUP_ENTRY_VISIBLE }),
-    // 运行卡与会话标题都在 state/data 内就地更新，dataVersion 是失效依据。
-    [dataVersion, s, data],
+    // 运行卡与会话标题都在 state/data 内就地更新；
+    // dataVersion 兜底整包数据，runCardsVersion 保证只发 runCards 时列表也不陈旧。
+    [dataVersion, runCardsVersion, s, data],
   )
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
 
@@ -1144,6 +1169,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSelectSidebarSession,
     onChatContextMenu,
     onChangeSidebarTab,
+    settingsVersion,
+    domainVersion,
   ])
 
   const composerProps = React.useMemo(() => ({
@@ -1264,6 +1291,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onSend,
     onStop,
     onPaste,
+    settingsVersion,
+    domainVersion,
   ])
 
   const messageListProps = React.useMemo(() => ({
@@ -1334,6 +1363,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     switchBranchSibling,
     openRegenConfirm,
     openDeleteMessageConfirm,
+    settingsVersion,
+    domainVersion,
   ])
 
   const scrollSx = React.useMemo(() => ({
@@ -1621,6 +1652,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setSettingsTab,
     dataDirectory,
     eucliBoxConnection,
+    settingsVersion,
+    domainVersion,
   ])
 
   const overlayImagePicker = React.useMemo(() => ({
@@ -1760,6 +1793,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     refreshAsyncToolTasks,
     asyncToolTasksLoading,
     asyncToolTasks,
+    domainVersion,
   ])
 
   const overlayRolePicker = React.useMemo(() => ({
@@ -1788,6 +1822,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeTargetKind,
     formatModelRefText,
     openPluginSettings,
+    domainVersion,
   ])
 
   const overlayChatPicker = React.useMemo(() => ({
@@ -1991,12 +2026,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   ])
 
   const overlayRunningSessions = React.useMemo(() => ({
+    controller,
     open: runningSessionsOpen,
     entries: runningSessions,
     activeKey: activeRunningSessionKey,
     onClose: onCloseRunningSessions,
     onOpen: openRunningSession,
   }), [
+    controller,
     runningSessionsOpen,
     runningSessions,
     activeRunningSessionKey,

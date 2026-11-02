@@ -4,6 +4,7 @@ import { createIndexRevisionGate } from './indexRevisionGate'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
+import { AI_CHAT_DIRECT_EVENT } from '../protocol/aiChatProtocol'
 
 function snapshot(revision: number, ids: string[], activeChatId = '', scopeKey = 'role:role-1'): ChatIndexSnapshot {
   return {
@@ -86,7 +87,7 @@ function makeHarness(options: HarnessOptions) {
   const emit = vi.fn()
   const polling = createUiPolling({
     getState: () => state,
-    emit,
+    emitScope: emit,
     subscribeDirectEvents: (listener) => {
       options.emitOnSubscribe?.(listener)
       return () => {}
@@ -139,15 +140,19 @@ describe('uiPolling 版本门', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  it('revision 变化时同步并 emit 一次', async () => {
+  it('revision 变化时按 target/session 通知，不广播 global', async () => {
     const { polling, emit } = makeHarness({ revisions: [7, 8, 8] })
     await polling.uiPollTick()
     emit.mockClear()
 
     await polling.uiPollTick()
-    expect(emit).toHaveBeenCalledTimes(1)
+    const scopes = emit.mock.calls.map((call: any[]) => call[0])
+    expect(scopes).toContain('chatList:role:role-1')
+    expect(scopes).toContain('session:role:role-1:chat-1')
+    expect(scopes).not.toContain('global')
+    const count = emit.mock.calls.length
     await polling.uiPollTick()
-    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenCalledTimes(count)
   })
 
   it('同步后本地会话列表来自索引快照（而非 meta）', async () => {
@@ -174,7 +179,7 @@ describe('uiPolling 版本门', () => {
     state.draft.activeRoleId = 'role-2'
     state.data.chatsByRole['role-2'] = { activeChatId: '', chatMetas: [], chats: [] }
     await polling.uiPollTick()
-    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit.mock.calls.length).toBeGreaterThan(0)
 
     emit.mockClear()
     state.data.ui.activeRoleId = 'role-1'
@@ -201,7 +206,7 @@ describe('uiPolling 版本门', () => {
 
     reconnectListener!()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit.mock.calls.map((call: any[]) => call[0])).toContain('chatList:role:role-1')
     polling.stopUiPollers()
   })
 
@@ -219,7 +224,7 @@ describe('uiPolling 版本门', () => {
     // 换代（服务端重建），revision 仍然是 7：必须重新生效。
     epoch = 2
     await polling.uiPollTick()
-    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit.mock.calls.map((call: any[]) => call[0])).toContain('chatList:role:role-1')
   })
 })
 
@@ -339,6 +344,70 @@ describe('uiPolling notice 对账', () => {
     expect(reloadChatBody).not.toHaveBeenCalled()
     expect(roleBox.chatMetas.find((meta: any) => meta.id === 'chat-2').updatedAt).toBe(77)
     expect(roleBox.chats[0].messages[0].content).toBe('当前正文')
+  })
+
+  it('事件里的非当前会话通知只发 chatList，不发 session/global', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    const roleBox = harness.state.data.chatsByRole['role-1']
+    writeChatListProjection(roleBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1 }],
+      chatMetas: [
+        { id: 'chat-1', updatedAt: 1 },
+        { id: 'chat-2', updatedAt: 1 },
+      ],
+    })
+    writeActiveChatSelection(roleBox, 'chat-1')
+    await harness.polling.uiPollTick()
+    harness.emit.mockClear()
+    harness.polling.startUiPollers()
+
+    listener!({
+      name: AI_CHAT_DIRECT_EVENT.chatUpdated,
+      payload: { id: 'n-other', targetKind: 'role', targetId: 'role-1', chatId: 'chat-2', updatedAt: 77 },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const scopes = harness.emit.mock.calls.map((call: any[]) => call[0])
+    expect(scopes).toContain('chatList:role:role-1')
+    expect(scopes).not.toContain('session:role:role-1:chat-2')
+    expect(scopes).not.toContain('global')
+    harness.polling.stopUiPollers()
+  })
+
+  it('事件里的当前会话通知发 session，且不广播 global', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', messages: [{ id: 'm1', content: '通知后的正文' }], updatedAt: 9000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    const roleBox = harness.state.data.chatsByRole['role-1']
+    writeChatListProjection(roleBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1, messages: [] }],
+      chatMetas: [{ id: 'chat-1', updatedAt: 1 }],
+    })
+    writeActiveChatSelection(roleBox, 'chat-1')
+    await harness.polling.uiPollTick()
+    roleBox.chats[0].updatedAt = 1
+    harness.emit.mockClear()
+    harness.polling.startUiPollers()
+
+    listener!({
+      name: AI_CHAT_DIRECT_EVENT.chatUpdated,
+      payload: { id: 'n-current', targetKind: 'role', targetId: 'role-1', chatId: 'chat-1', updatedAt: 9000 },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const scopes = harness.emit.mock.calls.map((call: any[]) => call[0])
+    expect(scopes).toContain('session:role:role-1:chat-1')
+    expect(scopes).not.toContain('global')
+    harness.polling.stopUiPollers()
   })
 
   it('当前会话的通知走权威重取正文', async () => {

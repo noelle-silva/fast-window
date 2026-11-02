@@ -88,7 +88,7 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
       sourceAssistantMid: mid,
       createdAt: now(),
     }
-    render()
+    notifyActiveSession(chat)
     scrollToBottomSoon()
   }
 
