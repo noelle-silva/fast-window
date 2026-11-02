@@ -61,8 +61,7 @@ export type ChatOperationsDeps = {
   persistSessionView?: (kind: 'role' | 'group', targetId: string, chatId: string, head: string, branchId: string) => Promise<void>
   // pending 会话落成真实会话后：把「用户选中了它」交给与普通点击相同的偏好持久化入口。
   persistActiveChatSelection?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<void>
-  emit: () => void
-  emitScope?: (scope: string) => void
+  emitScope: (scope: string) => void
   render: () => void
   renderComposer: () => void
   emitComposerScope?: () => void
@@ -75,7 +74,7 @@ export type ChatOperationsDeps = {
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {
-  const { getState, showToast, ensureChatLoaded, ensureWorkspaceChatLoaded, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession, ensureActiveChatLoaded, emit } = deps
+  const { getState, showToast, ensureChatLoaded, ensureWorkspaceChatLoaded, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession, ensureActiveChatLoaded } = deps
 
   const sa = createStateAccessors({ getState })
   const cancelledRunIds = new Set<string>()
@@ -157,12 +156,8 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
         writeActiveChatSelection(box, sid)
       }
       onLoaded?.(chat)
-      if (deps.emitScope) {
-        deps.emitScope(refreshScopes.session(targetKind, tid, sid))
-        deps.emitScope(refreshScopes.chatList(targetKind, tid))
-      } else {
-        emit()
-      }
+      deps.emitScope(refreshScopes.session(targetKind, tid, sid))
+      deps.emitScope(refreshScopes.chatList(targetKind, tid))
     }
     return chat
   }

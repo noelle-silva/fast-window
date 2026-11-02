@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
 import { normalizeHookPromptSelection, HOOK_PROMPT_SESSION_METADATA_KEY, HOOK_PROMPT_SESSION_METADATA_MODE_KEY } from '../domain/hookPrompt'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { updateGroupSessionSettings, updateRoleSessionSettings, updateWorkspaceSessionSettings, type SessionSettingsPatch } from './sessionSettingsClient'
 import { updateGroupSessionHookPrompt, updateRoleSessionHookPrompt, updateWorkspaceSessionHookPrompt } from './hookPromptClient'
 import { workspaceSessionToChat } from './workspaceBridge'
@@ -12,7 +13,7 @@ import type { AiChatShowToast } from '../gateway/capabilities'
 export function createChatSessionSettingsBridge(deps: {
   getState: () => any
   getNetRequest: () => ((req: any) => Promise<any>) | undefined
-  emit: () => void
+  emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   runChatSettingsSave: (target: ChatSettingsTarget, action: ChatSettingsAction, value: unknown, work: (isCurrent: () => boolean) => Promise<void>, failText: string) => Promise<'saved' | false>
   captureChatSettingsTarget: () => ChatSettingsTarget | null
@@ -22,7 +23,12 @@ export function createChatSessionSettingsBridge(deps: {
   upsertLoadedChat: (kind: 'role' | 'group', targetId: string, chat: any) => any
   sessionWrites?: SessionWriteGuard
 }) {
-  const { getState, getNetRequest, emit, showToast, runChatSettingsSave, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, upsertWorkspaceChat, upsertLoadedChat, sessionWrites } = deps
+  const { getState, getNetRequest, emitScope, showToast, runChatSettingsSave, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, upsertWorkspaceChat, upsertLoadedChat, sessionWrites } = deps
+
+  // 会话级设置只属于当前这一格会话事实：模型 / 思考等级 / 流式 / hook。
+  function emitSession(target: ChatSettingsTarget) {
+    emitScope(refreshScopes.session(target.kind, target.targetId, target.sessionId))
+  }
 
   function captureTargetWrite(target: ChatSettingsTarget) {
     if (!sessionWrites) return null
@@ -105,7 +111,7 @@ export function createChatSessionSettingsBridge(deps: {
     if (chat && (chat as any).clientDraft) {
       applyLocal(chat)
       ;(chat as any).updatedAt = now()
-      emit()
+      emitSession(target)
       return 'draft'
     }
     const netRequest = getNetRequest()
@@ -117,7 +123,7 @@ export function createChatSessionSettingsBridge(deps: {
     const rollback = captureChatSettingsField(chat, action)
     applyLocal(chat)
     ;(chat as any).updatedAt = now()
-    emit()
+    emitSession(target)
     const writeToken = captureTargetWrite(target)
     return runChatSettingsSave(target, action, patch, async (isCurrent) => {
       try {
@@ -131,14 +137,14 @@ export function createChatSessionSettingsBridge(deps: {
         }
         if (!isCurrent() || !targetWriteIsCurrent(writeToken)) return
         applyChatSettingsSessionResponse(target, session)
-        emit()
+        emitSession(target)
       } catch (error) {
         // 乐观展示失败即回滚到保存前，绝不让未确认的值留在视窗上冒充事实。
         if (isCurrent()) {
           const current = currentChatForSettingsTarget(target)
           if (current) {
             restoreChatSettingsField(current, action, rollback)
-            emit()
+            emitSession(target)
           }
         }
         throw error
@@ -157,7 +163,7 @@ export function createChatSessionSettingsBridge(deps: {
     if (!chat) return
     if ((chat as any).clientDraft) {
       writeHookPromptSelectionToChat(chat, selection.mode, selection.presetId)
-      emit()
+      emitSession(target)
       return
     }
     const netRequest = getNetRequest()
@@ -174,7 +180,7 @@ export function createChatSessionSettingsBridge(deps: {
       }
       if (!isCurrent() || !targetWriteIsCurrent(writeToken)) return
       applyChatSettingsSessionResponse(target, session)
-      emit()
+      emitSession(target)
     }, '当前会话 hook 提示词保存失败')
     if (ok && isActiveChatSettingsTarget(target)) {
       showToast?.(selection.mode === 'preset' ? '当前会话 hook 提示词已保存' : selection.mode === 'none' ? '已关闭当前会话 hook 提示词' : '已恢复跟随角色默认预设', { kind: 'success' })

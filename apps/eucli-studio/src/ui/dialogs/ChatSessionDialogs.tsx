@@ -1,8 +1,9 @@
 import * as React from 'react'
 import { Button, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
 import { parseWorkspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { DependableDialog } from '../components/DependableOverlay'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { useScopedUiVersions } from '../hooks/useScopedUiVersion'
 
 type EditingChatTitleState = { targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; text: string }
 type ConfirmDeleteChatState = { targetKind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string }
@@ -31,8 +32,18 @@ export const ChatSessionDialogs = React.memo(function ChatSessionDialogs(props: 
     isSendingThisChat,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 编辑标题 / 删除确认都服务于「某个 target 的某条会话」：
+  // 打开时订阅该 target 的 chatList 与运行卡，关闭时零订阅。
+  const operationTarget = editingChatTitle.chatId ? editingChatTitle : confirmDelChat
+  const dialogOpen = !!operationTarget.chatId && !!operationTarget.targetId
+  useScopedUiVersions(
+    controller,
+    [
+      refreshScopes.chatList(operationTarget.targetKind, operationTarget.targetId),
+      refreshScopes.runCards(),
+    ],
+    dialogOpen,
+  )
 
   return (
     <>

@@ -7,8 +7,7 @@ import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope
 
 export function createEntityActions(deps: {
   state: any
-  emit: () => void
-  emitScope?: (scope: string) => void
+  emitScope: (scope: string) => void
   saveMeta: () => Promise<any>
   showToast?: AiChatShowToast
   getProvider: (providerId: string) => any
@@ -55,17 +54,13 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, roleId: string, chatId: string) => any
 }) {
-  const { state, emit, emitScope, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emitScope, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
   let roleMoveSeq = 0
   let providerMoveSeq = 0
 
   function notifyScopes(scopes: readonly string[]) {
     const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
-    if (emitScope && addresses.length) {
-      for (const address of addresses) emitScope(address)
-      return
-    }
-    emit()
+    for (const address of addresses) emitScope(address)
   }
 
   return {

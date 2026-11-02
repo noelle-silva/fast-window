@@ -8,7 +8,8 @@ import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -58,8 +59,9 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
     setConfirmDelChat,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 菜单开关属于 uiShell：只在任一菜单打开时订阅，关闭不订阅任何地址。
+  const menusOpen = !!favoriteFolderMenu.folderId || !!favoriteChatMenu.chatId || !!chatMenu.chatId
+  useScopedUiVersion(controller, refreshScopes.uiShell(), menusOpen)
 
   const favoriteChatTargetKey = favoriteChatMenu.targetKind === 'workspace'
     ? workspaceRoleTargetId(favoriteChatMenu.targetId, favoriteChatMenu.roleId)

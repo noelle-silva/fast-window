@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { createChatInteractionActions } from './chatInteractionActions'
 
 function createHarness() {
@@ -6,16 +8,18 @@ function createHarness() {
   const ensureWorkspaceChatLoaded = vi.fn(async () => ({ id: 'session-b1', roleId: 'role-b' }))
   const aiGenerateChatTitle = vi.fn(async () => ({ title: '新标题' }))
   const reloadWorkspaceSession = vi.fn(async () => ({}))
-  const emit = vi.fn()
+  const reloadRoleSession = vi.fn(async () => ({}))
+  const emitScope = vi.fn()
   const actions = createChatInteractionActions({
     state,
-    emit,
+    emitScope,
     showToast: vi.fn(),
     ensureWorkspaceChatLoaded,
     aiGenerateChatTitle,
     reloadWorkspaceSession,
+    reloadRoleSession,
   } as any)
-  return { actions, ensureWorkspaceChatLoaded, aiGenerateChatTitle, reloadWorkspaceSession, emit }
+  return { actions, ensureWorkspaceChatLoaded, aiGenerateChatTitle, reloadWorkspaceSession, reloadRoleSession, emitScope }
 }
 
 describe('工作区会话智能起名', () => {
@@ -27,6 +31,19 @@ describe('工作区会话智能起名', () => {
     expect(harness.ensureWorkspaceChatLoaded).toHaveBeenCalledWith('ws-1', 'role-b', 'session-b1')
     expect(harness.aiGenerateChatTitle).toHaveBeenCalledWith('role-b', 'session-b1', 'ws-1')
     expect(harness.reloadWorkspaceSession).toHaveBeenCalledWith('ws-1', 'role-b', 'session-b1')
-    expect(harness.emit).toHaveBeenCalled()
+    const targetId = workspaceRoleTargetId('ws-1', 'role-b')
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('workspace', targetId))
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('workspace', targetId, 'session-b1'))
+  })
+})
+
+describe('角色会话智能起名', () => {
+  it('标题更新只通知该角色的 chatList 与当前 session', async () => {
+    const harness = createHarness()
+
+    await harness.actions.aiGenerateChatTitle('role-a', 'session-a1')
+
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('role', 'role-a'))
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-a', 'session-a1'))
   })
 })

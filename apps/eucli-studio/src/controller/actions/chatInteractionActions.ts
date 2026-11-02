@@ -1,11 +1,13 @@
 import { now } from '../../core/utils'
 import { normalizeModelRef } from '../../domain/modelRefUtils'
 import { normalizeReasoningEffort } from '../../domain/reasoning'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createChatInteractionActions(deps: {
   state: any
-  emit: () => void
+  emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   sendChat: (opts?: any) => any
   stopSending: (runId?: any) => any
@@ -35,7 +37,16 @@ export function createChatInteractionActions(deps: {
   ensureWorkspaceChatLoaded: (workspaceId: string, roleId: string, chatId: string) => Promise<any>
   loadStickersFromSource: () => Promise<any>
 }) {
-  const { state, emit, showToast, sendChat, stopSending, regenerateAssistantMessage, replyFromUserMessage, createParallelBranchFromAssistantMessage, switchBranchByAssistantSibling, setActiveBranch, submitToolConfirmationDecision, deleteMessage, deleteMessageSubtree, editMessage, editMessageBlock, deleteMessageBlock, cleanMessageReasoning, cleanSessionReasoning, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, applyChatSettingsAction, isChatModelActionPending, aiGenerateChatTitle, aiGenerateGroupChatTitle, aiGenerateStickerName, reloadRoleSession, reloadWorkspaceSession, ensureWorkspaceChatLoaded, loadStickersFromSource } = deps
+  const { state, emitScope, showToast, sendChat, stopSending, regenerateAssistantMessage, replyFromUserMessage, createParallelBranchFromAssistantMessage, switchBranchByAssistantSibling, setActiveBranch, submitToolConfirmationDecision, deleteMessage, deleteMessageSubtree, editMessage, editMessageBlock, deleteMessageBlock, cleanMessageReasoning, cleanSessionReasoning, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, applyChatSettingsAction, isChatModelActionPending, aiGenerateChatTitle, aiGenerateGroupChatTitle, aiGenerateStickerName, reloadRoleSession, reloadWorkspaceSession, ensureWorkspaceChatLoaded, loadStickersFromSource } = deps
+
+  // 标题既在 target 的会话列表里，也在当前会话的顶栏里：两个地址一起通知。
+  function emitChatTitle(kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) {
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!tid || !cid) return
+    emitScope(refreshScopes.chatList(kind, tid))
+    emitScope(refreshScopes.session(kind, tid, cid))
+  }
 
   return {
     send: () => sendChat(),
@@ -143,7 +154,7 @@ export function createChatInteractionActions(deps: {
 	          const nextTitle = String((title as any)?.title || title || '').trim()
 	          return reloadRoleSession(String(roleId || ''), String(chatId || ''))
 	            .then(() => {
-	              emit()
+	              emitChatTitle('role', String(roleId || ''), String(chatId || ''))
 	              showToast?.(`已更新标题（${cost()}s）：${nextTitle || '（空）'}`, { kind: 'success' })
 	              return title
 	            })
@@ -164,6 +175,7 @@ export function createChatInteractionActions(deps: {
           return aiGenerateGroupChatTitle(String(groupId || ''), String(chatId || ''))
         })
         .then((title: any) => {
+          emitChatTitle('group', String(groupId || ''), String(chatId || ''))
           showToast?.(`已更新标题（${cost()}s）：${globalThis.String(title || '').trim() || '（空）'}`, { kind: 'success' })
           return title
         })
@@ -193,7 +205,7 @@ export function createChatInteractionActions(deps: {
         .then(async ({ title }: any) => {
           await reloadWorkspaceSession(wid, sessionRoleId, cid)
           const nextTitle = String((title as any)?.title || title || '').trim()
-          emit()
+          emitChatTitle('workspace', workspaceRoleTargetId(wid, sessionRoleId), cid)
           showToast?.(`已更新标题（${cost()}s）：${nextTitle || '（空）'}`, { kind: 'success' })
           return title
         })
@@ -215,7 +227,7 @@ export function createChatInteractionActions(deps: {
         .then((name: any) => {
           const nextName = String((name as any)?.name || name || '').trim()
           return loadStickersFromSource().then(() => {
-            emit()
+            emitScope(refreshScopes.settings())
             showToast?.(`已更新表情名（${cost()}s）：${nextName || '（空）'}`, { kind: 'success' })
             return name
           })

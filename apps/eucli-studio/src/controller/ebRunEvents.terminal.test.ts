@@ -24,10 +24,8 @@ function createHarness() {
     activeRunCards: [],
   }
   let listener: ((event: any) => void) | null = null
-  const emit = vi.fn()
   const consumer = createEbRunEventConsumer({
     getState: () => state,
-    emit,
     emitScope: () => {},
     subscribeDirectEvents: (next) => {
       listener = next
@@ -40,7 +38,7 @@ function createHarness() {
   const send = (type: string, payload: any) => {
     listener?.({ name: 'eucliBox.run.event', payload: { type, runId: payload?.runId || 'run-1', payload } })
   }
-  return { state, emit, consumer, send }
+  return { state, consumer, send }
 }
 
 const flushFrames = async () => {

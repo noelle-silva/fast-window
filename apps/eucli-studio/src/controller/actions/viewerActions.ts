@@ -1,10 +1,12 @@
 import { clamp, now } from '../../core/utils'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../../core/viewerZoom'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 
 export function createViewerActions(deps: {
   state: any
-  emit: () => void
+  emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   activeChatFromData: () => any
   sanitizeSvg: (svg: any, renderSafetyPolicy?: any) => string
@@ -14,7 +16,12 @@ export function createViewerActions(deps: {
   reloadRoleSession: (roleId: string, sessionId: string) => Promise<any>
   reloadWorkspaceSession: (workspaceId: string, roleId: string, sessionId: string) => Promise<any>
 }) {
-  const { state, emit, showToast, activeChatFromData, sanitizeSvg, currentRenderSafetyPolicy, locateMessageInActiveChat, aiFixMermaidInMessage, reloadRoleSession, reloadWorkspaceSession } = deps
+  const { state, emitScope, showToast, activeChatFromData, sanitizeSvg, currentRenderSafetyPolicy, locateMessageInActiveChat, aiFixMermaidInMessage, reloadRoleSession, reloadWorkspaceSession } = deps
+
+  // 查看器开关、翻页、缩放都是页面级 UI 状态：只属于 uiShell。
+  function emitViewerShell() {
+    emitScope(refreshScopes.uiShell())
+  }
 
   return {
     aiFixMermaid: (messageId: any, mermaidSrc: any, renderErrorMsg: any) => {
@@ -24,11 +31,13 @@ export function createViewerActions(deps: {
       let workspaceId = ''
       let sessionId = ''
       let mid = ''
+      let targetKind: 'role' | 'workspace' = 'role'
       return Promise.resolve()
         .then(() => {
           const located = locateMessageInActiveChat(String(messageId || ''))
           const kind = String(located?.kind || '')
           if (!located || (kind !== 'role' && kind !== 'workspace')) throw new Error('当前会话暂未接入 Mermaid AI 修复')
+          targetKind = kind
           sessionId = String(located.chat?.id || '').trim()
           workspaceId = kind === 'workspace' ? String(located.targetId || '').trim() : ''
           roleId = kind === 'workspace' ? String((located.chat as any)?.roleId || state.draft?.activeRoleId || '').trim() : String(located.targetId || '').trim()
@@ -43,7 +52,10 @@ export function createViewerActions(deps: {
           const reload = workspaceId ? reloadWorkspaceSession(workspaceId, roleId, sessionId) : reloadRoleSession(roleId, sessionId)
           return reload.then(() => {
             if (!activeChatFromData()) throw new Error('Mermaid 修复已完成，但刷新最新会话失败')
-            emit()
+            // 修复写回的是消息正文：按会话 + 列表预览地址通知，不动页面壳层。
+            const targetId = targetKind === 'workspace' ? workspaceRoleTargetId(workspaceId, roleId) : roleId
+            emitScope(refreshScopes.session(targetKind, targetId, sessionId))
+            emitScope(refreshScopes.chatList(targetKind, targetId))
             showToast?.(`Mermaid 已修复（${cost()}s）`, { kind: 'success' })
             return nextMermaid || fixed
           })
@@ -76,7 +88,7 @@ export function createViewerActions(deps: {
       state.mermaid.index = clamp(idx, 0, Math.max(0, items.length - 1))
       state.mermaid.scale = 1
       state.modal = 'mermaid'
-      emit()
+      emitViewerShell()
     },
     openImageViewer: (rootEl: any, srcEl: any) => {
       const root = rootEl instanceof Element ? rootEl : document.body
@@ -105,61 +117,61 @@ export function createViewerActions(deps: {
       state.imageViewer.index = clamp(idx, 0, Math.max(0, items.length - 1))
       state.imageViewer.scale = 1
       state.modal = 'image'
-      emit()
+      emitViewerShell()
     },
     mermaidPrev: () => {
       const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
       if (!len) return
       state.mermaid.index = (Number(state.mermaid.index || 0) - 1 + len) % len
       state.mermaid.scale = 1
-      emit()
+      emitViewerShell()
     },
     mermaidNext: () => {
       const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
       if (!len) return
       state.mermaid.index = (Number(state.mermaid.index || 0) + 1) % len
       state.mermaid.scale = 1
-      emit()
+      emitViewerShell()
     },
     mermaidZoom: (dir: any) => {
       const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
       state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
-      emit()
+      emitViewerShell()
     },
     mermaidSetScale: (scale: any) => {
       state.mermaid.scale = clamp(Number(scale || 1), VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
-      emit()
+      emitViewerShell()
     },
     mermaidReset: () => {
       state.mermaid.scale = 1
-      emit()
+      emitViewerShell()
     },
     imagePrev: () => {
       const len = Array.isArray(state.imageViewer.items) ? state.imageViewer.items.length : 0
       if (!len) return
       state.imageViewer.index = (Number(state.imageViewer.index || 0) - 1 + len) % len
       state.imageViewer.scale = 1
-      emit()
+      emitViewerShell()
     },
     imageNext: () => {
       const len = Array.isArray(state.imageViewer.items) ? state.imageViewer.items.length : 0
       if (!len) return
       state.imageViewer.index = (Number(state.imageViewer.index || 0) + 1) % len
       state.imageViewer.scale = 1
-      emit()
+      emitViewerShell()
     },
     imageZoom: (dir: any) => {
       const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
       state.imageViewer.scale = clamp(Number(state.imageViewer.scale || 1) * factor, VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
-      emit()
+      emitViewerShell()
     },
     imageSetScale: (scale: any) => {
       state.imageViewer.scale = clamp(Number(scale || 1), VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
-      emit()
+      emitViewerShell()
     },
     imageReset: () => {
       state.imageViewer.scale = 1
-      emit()
+      emitViewerShell()
     },
   }
 }

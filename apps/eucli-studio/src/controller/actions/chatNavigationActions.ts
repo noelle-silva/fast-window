@@ -9,8 +9,7 @@ import {
 
 export function createChatNavigationActions(deps: {
   state: any
-  emit: () => void
-  emitScope?: (scope: string) => void
+  emitScope: (scope: string) => void
   saveMeta: () => Promise<any>
   ensureActiveChatLoaded: () => Promise<any>
   ensureChatsBoxBare: (roleId: string) => any
@@ -22,15 +21,11 @@ export function createChatNavigationActions(deps: {
   pickDraftImages: () => any
   addDraftImagesFromFiles: (files: File[]) => any
 }) {
-  const { state, emit, emitScope, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
+  const { state, emitScope, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
 
   function notifyScopes(scopes: readonly string[]) {
     const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
-    if (emitScope && addresses.length) {
-      for (const address of addresses) emitScope(address)
-      return
-    }
-    emit()
+    for (const address of addresses) emitScope(address)
   }
 
   function notifyLoadedChat(kind: 'role' | 'group', targetId: string, box: any) {
@@ -106,14 +101,14 @@ export function createChatNavigationActions(deps: {
         ;(state.draft as any).workspaceActualPromptError = ''
       }
       ;(state.draft as any)[k] = value
-      emit()
+      // 非输入草稿字段属于编辑器 / 弹层状态，归 uiShell。
+      emitScope(refreshScopes.uiShell())
     },
     removeDraftImage: (id: any) => {
       const draft = activateComposerDraftForCurrentSession(state)
       setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
       // 草稿图片只该动输入区，走 composer 范围，不惊动整页。
-      if (emitScope) emitScope(COMPOSER_REFRESH_SCOPE)
-      else emit()
+      emitScope(COMPOSER_REFRESH_SCOPE)
     },
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: async (files: any) => {

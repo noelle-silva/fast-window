@@ -8,7 +8,8 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { messageRefreshScope, refreshScopes } from '../../domain/uiRefreshScope'
+import { useScopedUiVersions } from '../hooks/useScopedUiVersion'
 
 type MessageRole = 'user' | 'assistant'
 type MessageMenuState = { mid: string; role: MessageRole; x: number; y: number }
@@ -75,8 +76,16 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
     onRunStarted,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 消息菜单 / 删除确认只关心具体消息：打开时订阅消息地址与运行卡，关闭时不订阅。
+  // 这里拿不到 target/chat 身份，使用带 mid 的既有消息地址（仍不是全局通道）。
+  const openMid = String(
+    msgMenu.mid || treeNodeMenu.mid || confirmDelMsg.mid || confirmDelTree.mid || regen.mid || '',
+  ).trim()
+  useScopedUiVersions(
+    controller,
+    [messageRefreshScope(openMid), refreshScopes.runCards()],
+    !!openMid,
+  )
 
   return (
     <>

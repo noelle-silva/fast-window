@@ -5,7 +5,9 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 import { createStudioMuiTheme } from '../colorThemeStyles'
+import { createUiCore } from '../uiCore'
 import { RolePickerPopover } from './RolePickerPopover'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -22,6 +24,14 @@ function createController() {
   return {
     getSnapshot: () => 0,
     subscribe: () => () => {},
+    actions: { setActiveRole: noop, setWorkspaceRole: noop, openRoleEditor: noop },
+  } as any
+}
+
+function createScopedController(uiCore: ReturnType<typeof createUiCore>) {
+  return {
+    getScopeVer: (scope: string) => uiCore.getScopeVer(scope),
+    subscribeScope: (scope: string, fn: () => void) => uiCore.subscribeScope(scope, fn),
     actions: { setActiveRole: noop, setWorkspaceRole: noop, openRoleEditor: noop },
   } as any
 }
@@ -50,17 +60,22 @@ describe('角色选择器的角色范围', () => {
     anchor = null
   })
 
-  function renderPicker(view: 'role' | 'workspaceRole', workspaceRoles: any[]) {
+  function renderPicker(
+    view: 'role' | 'workspaceRole',
+    workspaceRoles: any[],
+    controller: any = createController(),
+    pickerRoles: any[] = roles,
+  ) {
     const theme = createStudioMuiTheme('light', getColorThemeColors(resolveColorThemePreview(undefined, null)))
     act(() => {
       root.render(
         <ThemeProvider theme={theme}>
           <RolePickerPopover
-            controller={createController()}
+            controller={controller}
             rolePickerEl={anchor}
             closeRolePicker={noop}
             rolePickerView={view}
-            roles={roles}
+            roles={pickerRoles}
             workspaceRoles={workspaceRoles}
             workspaces={[{ id: 'ws-1', name: '工作区一' }]}
             draftActiveRoleId="role-a"
@@ -88,5 +103,25 @@ describe('角色选择器的角色范围', () => {
     expect(document.body.textContent).toContain('甲角色')
     expect(document.body.textContent).not.toContain('乙角色')
     expect(document.body.textContent).not.toContain('丙角色')
+  })
+
+  it('角色列表只由 entities:roles 刷新，全局 emit 不再兜底', () => {
+    const uiCore = createUiCore()
+    const pickerRoles = [{ id: 'role-a', name: '甲角色' }]
+
+    renderPicker('role', [], createScopedController(uiCore), pickerRoles)
+    expect(document.body.textContent).toContain('甲角色')
+    expect(document.body.textContent).not.toContain('乙角色')
+
+    act(() => {
+      pickerRoles.push({ id: 'role-b', name: '乙角色' })
+      uiCore.emit()
+    })
+    expect(document.body.textContent).not.toContain('乙角色')
+
+    act(() => {
+      uiCore.emitScope(refreshScopes.entities('roles'))
+    })
+    expect(document.body.textContent).toContain('乙角色')
   })
 })

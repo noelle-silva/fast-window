@@ -9,9 +9,8 @@ import { fileURLToPath } from 'node:url'
 
 // 全局订阅 ratchet（只允许缩小）。
 //
-// 迁移期允许 App 根壳继续订阅全局版本，保证拆 Surface 过程中不漏刷；
-// 但 `src/ui/**` 下不允许出现新的 `useAiChatState` / `controller.subscribe(...)`。
-// 每完成一批 Surface 迁移，就从允许清单里删掉对应文件；清单只减不增。
+// 终态：`src/ui/**` 下不允许再出现 `useAiChatState` / `useUiDataVersion` /
+// `controller.subscribe(...)` 的消费点。允许清单已清空，任何新增都会失败。
 //
 // 基础设施定义文件：它们本身就是订阅能力的实现，不是“使用全局订阅”的组件。
 // - useAiChatState.ts 定义 useAiChatState；
@@ -22,7 +21,7 @@ const SUBSCRIBE_INFRASTRUCTURE_FILES = new Set([
   'src/ui/hooks/useScopedUiVersion.ts',
 ])
 
-const ALLOWED_GLOBAL_SUBSCRIPTION_FILES = ['src/ui/App.tsx'] as const
+const ALLOWED_GLOBAL_SUBSCRIPTION_FILES: readonly string[] = []
 
 const UI_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -37,20 +36,28 @@ describe('契约·全局订阅只减不增', () => {
 
   const hits = collectCalls(
     files,
-    (call) => call.name === 'useAiChatState' || (call.name === 'subscribe' && isControllerReceiver(call.receiverText)),
+    (call) =>
+      call.name === 'useAiChatState' ||
+      call.name === 'useUiDataVersion' ||
+      (call.name === 'subscribe' && isControllerReceiver(call.receiverText)),
   ).filter((hit) => !SUBSCRIBE_INFRASTRUCTURE_FILES.has(hit.relPath))
 
-  it('全局订阅只出现在允许清单内', () => {
+  it('全局订阅只出现在允许清单内（当前为空）', () => {
     const hitFiles = Array.from(new Set(hits.map((hit) => hit.relPath))).sort()
     const detail = hits.length ? `\n命中的全局订阅：\n${formatLocations(hits)}` : ''
 
     expect(
       hitFiles,
       '发现了允许清单之外的新增全局订阅。\n' +
-        '禁止在 src/ui/** 里直接使用 useAiChatState 或 controller.subscribe(...)；' +
+        '禁止在 src/ui/** 里使用 useAiChatState、useUiDataVersion 或 controller.subscribe(...)；' +
         '请改用 useScopedUiVersion(controller, refreshScopes.xxx())。' +
         detail,
     ).toEqual([...ALLOWED_GLOBAL_SUBSCRIPTION_FILES].sort())
+  })
+
+  it('App 根不再使用任何全局订阅', () => {
+    const appHits = hits.filter((hit) => hit.relPath === 'src/ui/App.tsx')
+    expect(appHits, formatLocations(appHits)).toEqual([])
   })
 
   it('允许清单只减不增：每个被允许的文件都必须仍有命中，迁移完成后要删掉它', () => {

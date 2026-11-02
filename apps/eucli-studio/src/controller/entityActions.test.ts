@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { createEntityActions } from './actions/entityActions'
 
 function createHarness(reorderRoles = vi.fn(async () => {}), reorderProviders = vi.fn(async () => {})) {
@@ -18,17 +19,17 @@ function createHarness(reorderRoles = vi.fn(async () => {}), reorderProviders = 
     },
     draft: {},
   }
-  const emit = vi.fn()
+  const emitScope = vi.fn()
   const showToast = vi.fn()
   const actions = createEntityActions({
     state,
-    emit,
+    emitScope,
     showToast,
     reorderRoles,
     reorderProviders,
     moveWorkspace: async () => {},
   } as any)
-  return { state, emit, showToast, actions, reorderRoles, reorderProviders }
+  return { state, emitScope, showToast, actions, reorderRoles, reorderProviders }
 }
 
 describe('实体通知地址', () => {
@@ -40,11 +41,9 @@ describe('实体通知地址', () => {
       },
       draft: {},
     }
-    const emit = vi.fn()
     const emitScope = vi.fn()
     const actions = createEntityActions({
       state,
-      emit,
       emitScope,
       reorderRoles: vi.fn(async () => {}),
       reorderProviders: vi.fn(async () => {}),
@@ -54,10 +53,9 @@ describe('实体通知地址', () => {
     await actions.moveProvider('provider-a', 'provider-b', 'after')
 
     expect(emitScope.mock.calls.map((call) => call[0])).toEqual([
-      'entities:roles',
-      'entities:providers',
+      refreshScopes.entities('roles'),
+      refreshScopes.entities('providers'),
     ])
-    expect(emit).not.toHaveBeenCalled()
   })
 })
 
@@ -69,7 +67,7 @@ describe('角色手动排序', () => {
 
     expect(harness.state.data.roles.map((role: any) => role.id)).toEqual(['role-b', 'role-c', 'role-a'])
     expect(harness.reorderRoles).toHaveBeenCalledWith(['role-b', 'role-c', 'role-a'])
-    expect(harness.emit).toHaveBeenCalled()
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.entities('roles'))
   })
 
   it('业务端拒绝排序时回滚视窗顺序并提示', async () => {

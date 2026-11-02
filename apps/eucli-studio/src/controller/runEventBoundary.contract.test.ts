@@ -37,7 +37,6 @@ function createHarness() {
   }
   const consumer = createEbRunEventConsumer({
     getState: () => state,
-    emit: vi.fn(),
     emitScope: () => {},
   })
   return { state, consumer }

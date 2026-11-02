@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  APP_DATA_REFRESH_SCOPE,
   COMPOSER_REFRESH_SCOPE,
   GLOBAL_REFRESH_SCOPE,
   NAVIGATION_REFRESH_SCOPE,
@@ -13,6 +14,7 @@ import {
 describe('刷新地址构造器', () => {
   it('产出稳定的基础地址', () => {
     expect(refreshScopes.global()).toBe(GLOBAL_REFRESH_SCOPE)
+    expect(refreshScopes.appData()).toBe(APP_DATA_REFRESH_SCOPE)
     expect(refreshScopes.settings()).toBe(SETTINGS_REFRESH_SCOPE)
     expect(refreshScopes.navigation()).toBe(NAVIGATION_REFRESH_SCOPE)
     expect(refreshScopes.composer()).toBe(COMPOSER_REFRESH_SCOPE)

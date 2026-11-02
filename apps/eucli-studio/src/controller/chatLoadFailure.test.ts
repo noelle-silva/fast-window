@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import {
   chatLoadFailureKey,
   createChatLoadFailureTracker,
@@ -7,9 +8,9 @@ import {
 
 function createHarness() {
   const state: any = { chatLoadFailures: {} }
-  const emit = vi.fn()
-  const tracker = createChatLoadFailureTracker({ getState: () => state, emit })
-  return { state, emit, tracker }
+  const emitScope = vi.fn()
+  const tracker = createChatLoadFailureTracker({ getState: () => state, emitScope })
+  return { state, emitScope, tracker }
 }
 
 describe('chat load failure tracker', () => {
@@ -72,18 +73,20 @@ describe('chat load failure tracker', () => {
     expect(chatLoadFailureKey('role', ' role-1 ', ' chat-a ')).toBe(chatLoadFailureKey('role', 'role-1', 'chat-a'))
   })
 
-  it('重复清理不产生多余广播', async () => {
-    const { tracker, emit } = createHarness()
+  it('失败与清理只通知该会话地址，重复清理不产生多余广播', async () => {
+    const { tracker, emitScope } = createHarness()
 
     await tracker.track('role', 'role-1', 'chat-a', () => Promise.reject(new Error('失败'))).catch(() => null)
-    const afterFailure = emit.mock.calls.length
+    const sessionScope = refreshScopes.session('role', 'role-1', 'chat-a')
+    expect(emitScope).toHaveBeenCalledWith(sessionScope)
+    const afterFailure = emitScope.mock.calls.length
 
     tracker.clear('role', 'role-1', 'chat-a')
-    const afterClear = emit.mock.calls.length
+    const afterClear = emitScope.mock.calls.length
     expect(afterClear).toBe(afterFailure + 1)
 
     // 已经空了：再清一次不该广播。
     tracker.clear('role', 'role-1', 'chat-a')
-    expect(emit.mock.calls.length).toBe(afterClear)
+    expect(emitScope.mock.calls.length).toBe(afterClear)
   })
 })

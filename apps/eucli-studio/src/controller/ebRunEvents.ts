@@ -19,40 +19,34 @@ type RunEventTargetKind = 'role' | 'group' | 'workspace'
 
 export function createEbRunEventConsumer(deps: {
   getState: () => any
-  emit: () => void
-  emitScope?: (scope: string) => void
+  emitScope: (scope: string) => void
   subscribeDirectEvents?: DirectEventSubscription
   onRuntimeChatChanged?: (targetKind: RunEventTargetKind, targetId: string, chat: any, options?: { urgent?: boolean }) => Promise<void> | void
 }) {
   let unsubscribe: (() => void) | null = null
-  let renderRaf = 0
   let scopeRaf = 0
   const pendingScopes = new Set<string>()
   const pendingBySession = new Map<string, Map<string, any>>()
   const changedTimers = new Map<string, number>()
 
-  function scheduleRender() {
-    if (renderRaf) return
-    renderRaf = window.requestAnimationFrame(() => {
-      renderRaf = 0
-      deps.emit()
-    })
-  }
-
   // 范围刷新同样按帧合并：一帧内的多次流式增量只通知一次，且只惊动对应范围。
   function scheduleScope(scope: string) {
-    if (typeof deps.emitScope !== 'function') {
-      scheduleRender()
-      return
-    }
     pendingScopes.add(scope)
     if (scopeRaf) return
     scopeRaf = window.requestAnimationFrame(() => {
       scopeRaf = 0
       const scopes = Array.from(pendingScopes)
       pendingScopes.clear()
-      for (const item of scopes) deps.emitScope?.(item)
+      for (const item of scopes) deps.emitScope(item)
     })
+  }
+
+  // 新消息挂载 / 终态 / 异步工具返回都只改变这一格会话，按 session 地址通知。
+  function scheduleSession(targetKind: RunEventTargetKind, targetId: string, sessionId: string) {
+    const tid = String(targetId || '').trim()
+    const sid = String(sessionId || '').trim()
+    if (!tid || !sid) return
+    scheduleScope(refreshScopes.session(targetKind, tid, sid))
   }
 
   // 列表事实（chat.updatedAt / chatMetas）只惊动该 target 的列表订阅者。
@@ -212,7 +206,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         messageIds: [snapshot.lastMessageId, snapshot.inputMessageId],
       }, card)
       scheduleRunCardsChanged()
-      scheduleRender()
+      const target = runEventTarget(snapshot.roleId, snapshot.groupId, snapshot.workspaceId)
+      scheduleSession(target.targetKind, target.targetId, snapshot.sessionId)
       return true
     }
     // 终态之后迟到的运行中状态一律丢弃：否则停止按钮与占位会被重新点亮。
@@ -234,7 +229,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       retry: snapshot.retry,
     })
     scheduleRunCardsChanged()
-    scheduleRender()
+    const target = runEventTarget(snapshot.roleId, snapshot.groupId, snapshot.workspaceId)
+    scheduleSession(target.targetKind, target.targetId, snapshot.sessionId)
     return true
   }
 
@@ -360,13 +356,13 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     // 范围分发：一次运行中，除了“新消息首次挂载”“终止态”“异步工具返回”这几个
     // 影响面更大的变化，其余（思考/正文推进、工具片段与实时输出）都只动这一条消息，
     // 走消息范围，不惊动整页。工具卡就在该消息内容区里，由消息范围驱动更新；
-    // 异步工具返回消息不在该内容区渲染，必须仍走全局。
-    const needsGlobal =
+    // 异步工具返回消息不在该内容区渲染，必须让整个会话页重渲染。
+    const needsSessionRescope =
       isNewMessage ||
       isTerminalEbRunStatus(payload.status) ||
       messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT
-    if (needsGlobal) {
-      scheduleRender()
+    if (needsSessionRescope) {
+      scheduleSession(targetKind, targetId, sessionId)
     } else {
       scheduleScope(messageRefreshScope(messageId))
     }
@@ -539,7 +535,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     scheduleChatListChanged(targetKind, targetId)
     scheduleRuntimeChatChanged(targetKind, targetId, chat)
 
-    if (isNewMessage) scheduleRender()
+    if (isNewMessage) scheduleSession(targetKind, targetId, sessionId)
     else scheduleScope(messageRefreshScope(messageId))
     return true
   }
@@ -564,7 +560,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     else tasks.push(task)
     ;(chat as any).asyncToolTasks = tasks
     scheduleRuntimeChatChanged(targetKind, targetId, chat, true)
-    scheduleRender()
+    scheduleSession(targetKind, targetId, sessionId)
     return true
   }
 
@@ -659,10 +655,11 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       unsubscribe = null
     }
     pendingBySession.clear()
-    if (renderRaf) {
-      window.cancelAnimationFrame(renderRaf)
-      renderRaf = 0
+    if (scopeRaf) {
+      window.cancelAnimationFrame(scopeRaf)
+      scopeRaf = 0
     }
+    pendingScopes.clear()
     for (const timer of changedTimers.values()) window.clearTimeout(timer)
     changedTimers.clear()
   }

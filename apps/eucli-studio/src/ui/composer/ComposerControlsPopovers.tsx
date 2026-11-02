@@ -6,7 +6,8 @@ import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { numericTimeValue } from '../utils/time'
 import { ModelSourcePicker } from '../components/ModelSourcePicker'
 import { RoleModelCandidateList } from '../components/RoleModelCandidateList'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { useScopedUiVersions } from '../hooks/useScopedUiVersion'
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ComposerControlsPopovers = React.memo(function ComposerControlsPopovers(props: {
@@ -82,8 +83,17 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
     asyncToolTasks,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 弹层打开时才建立数据订阅，关闭时零订阅：
+  // 输入区状态归 composer，供应商 / 模型组内容归各自实体域。
+  useScopedUiVersions(
+    controller,
+    [
+      refreshScopes.composer(),
+      refreshScopes.entities('providers'),
+      refreshScopes.entities('modelGroups'),
+    ],
+    !!tempModelPickerEl || !!reasoningPickerEl || !!asyncToolTasksEl,
+  )
 
   return (
     <>

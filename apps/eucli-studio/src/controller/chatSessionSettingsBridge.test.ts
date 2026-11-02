@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { createChatSessionSettingsBridge } from './chatSessionSettingsBridge'
 
 // 会话级设置的乐观显示：先写视窗，业务端确认后覆盖，失败则精确回滚。
 function createHarness(options: { failRequest?: boolean } = {}) {
   const chat: any = { id: 's-1', modelOverride: { kind: 'provider', providerId: 'p-old', groupId: '', modelId: 'm-old' } }
   const state: any = { data: {} }
-  const emits: number[] = []
+  const scopes: string[] = []
   const toasts: string[] = []
   let applied: any = null
 
@@ -15,7 +16,7 @@ function createHarness(options: { failRequest?: boolean } = {}) {
       if (options.failRequest) throw new Error('网络失败')
       return { body: { id: 's-1', modelOverride: { kind: 'provider', providerId: 'p-new', groupId: '', modelId: 'm-new' } } }
     },
-    emit: () => { emits.push(1) },
+    emitScope: (scope) => { scopes.push(scope) },
     showToast: (message: any) => { toasts.push(String(message)) },
     runChatSettingsSave: async (_target: any, _action: any, _value: any, work: (isCurrent: () => boolean) => Promise<void>) => {
       try {
@@ -44,7 +45,7 @@ function createHarness(options: { failRequest?: boolean } = {}) {
     )
   }
 
-  return { chat, state, emits, toasts, run, bridge, target, getApplied: () => applied }
+  return { chat, state, scopes, toasts, run, bridge, target, getApplied: () => applied }
 }
 
 describe('会话级设置的乐观显示', () => {
@@ -53,6 +54,15 @@ describe('会话级设置的乐观显示', () => {
     const result = await harness.run()
     expect(result).toBe('saved')
     expect(harness.chat.modelOverride.modelId).toBe('m-new')
+  })
+
+  it('乐观显示、确认、回滚都只通知该会话的 session 地址', async () => {
+    const harness = createHarness({ failRequest: true })
+    await harness.run()
+
+    const sessionScope = refreshScopes.session('role', 'r-1', 's-1')
+    expect(harness.scopes.length).toBeGreaterThan(0)
+    expect(harness.scopes.every((scope) => scope === sessionScope)).toBe(true)
   })
 
   it('请求失败时回滚到保存前的值', async () => {

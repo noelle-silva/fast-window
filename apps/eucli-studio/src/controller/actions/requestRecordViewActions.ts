@@ -1,11 +1,12 @@
 import { isRequestRecordViewOptionKey, normalizeRequestRecordViewOptions, setRequestRecordViewOption } from '../../domain/requestRecordViewOptions'
+import { refreshScopes } from '../../domain/uiRefreshScope'
 
 export function createRequestRecordViewActions(deps: {
   state: any
-  emit: () => void
+  emitScope: (scope: string) => void
   saveMeta: () => Promise<any>
 }) {
-  const { state, emit, saveMeta } = deps
+  const { state, emitScope, saveMeta } = deps
 
   return {
     setRequestRecordViewOption: (key: any, value: any) => {
@@ -15,7 +16,7 @@ export function createRequestRecordViewActions(deps: {
       const current = normalizeRequestRecordViewOptions((state.data.settings as any).requestRecordViewOptions)
       ;(state.data.settings as any).requestRecordViewOptions = setRequestRecordViewOption(current, key, !!value)
       saveMeta().catch(() => {})
-      emit()
+      emitScope(refreshScopes.settings())
     },
   }
 }

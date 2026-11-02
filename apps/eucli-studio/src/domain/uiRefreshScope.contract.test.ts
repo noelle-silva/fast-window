@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  APP_DATA_REFRESH_SCOPE,
   COMPOSER_REFRESH_SCOPE,
   GLOBAL_REFRESH_SCOPE,
   NAVIGATION_REFRESH_SCOPE,
@@ -20,6 +21,7 @@ import {
 // 唯一性断言只使用完整身份样例，因为“缺身份 → global”本身就可能与 global 相同。
 const COMPLETE_ADDRESS_SAMPLES = {
   global: refreshScopes.global(),
+  appData: refreshScopes.appData(),
   uiShellBase: refreshScopes.uiShell(),
   uiShellSection: refreshScopes.uiShell('sidebar'),
   settings: refreshScopes.settings(),
@@ -37,6 +39,7 @@ const COMPLETE_ADDRESS_SAMPLES = {
 describe('契约·刷新地址目录', () => {
   it('基础地址前缀稳定', () => {
     expect(refreshScopes.global()).toBe(GLOBAL_REFRESH_SCOPE)
+    expect(refreshScopes.appData()).toBe(APP_DATA_REFRESH_SCOPE)
     expect(refreshScopes.settings()).toBe(SETTINGS_REFRESH_SCOPE)
     expect(refreshScopes.navigation()).toBe(NAVIGATION_REFRESH_SCOPE)
     expect(refreshScopes.composer()).toBe(COMPOSER_REFRESH_SCOPE)

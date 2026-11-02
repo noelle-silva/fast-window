@@ -1,12 +1,27 @@
 import { registerEbRoleRunCard } from '../domain/activeRunCards'
 import { settleRunInState } from '../domain/runTerminal'
+import { activateComposerDraftForCurrentSession } from '../domain/sessionComposerDrafts'
+import { refreshScopes } from '../domain/uiRefreshScope'
+import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { getRunState, isTerminalRunStatus, listActiveRoleRuns, type EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
+function runSessionScope(run: EbRunState): string {
+  const sessionId = String(run?.sessionId || '').trim()
+  const roleId = String(run?.roleId || '').trim()
+  const groupId = String((run as any)?.groupId || '').trim()
+  const workspaceId = String((run as any)?.workspaceId || '').trim()
+  if (!sessionId) return ''
+  if (workspaceId) return refreshScopes.session('workspace', workspaceRoleTargetId(workspaceId, roleId), sessionId)
+  if (groupId) return refreshScopes.session('group', groupId, sessionId)
+  if (roleId) return refreshScopes.session('role', roleId, sessionId)
+  return ''
+}
+
 export function createControllerBootstrap(deps: {
   state: any
-  render: () => void
+  emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   getNetRequest: () => ((req: any) => Promise<any>) | undefined
   isDisposed: () => boolean
@@ -22,7 +37,7 @@ export function createControllerBootstrap(deps: {
   reloadGroupSession: (groupId: any, sessionId: any) => Promise<any>
   reloadWorkspaceSession: (workspaceId: any, roleId: any, sessionId: any) => Promise<any>
 }) {
-  const { state, render, showToast, getNetRequest, isDisposed, runProbe, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
+  const { state, emitScope, showToast, getNetRequest, isDisposed, runProbe, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
   const restoringRunIds = new Set<string>()
 
   async function load() {
@@ -50,6 +65,10 @@ export function createControllerBootstrap(deps: {
       showToast?.(String(e?.message || e || '加载失败'), { kind: 'error' })
     } finally {
       state.loading = false
+      // 启动落定的草稿镜像仍要在通知边界同步：旧 render() 包装负责的副作用
+      // 不能因为改发 appData 地址而丢失。
+      activateComposerDraftForCurrentSession(state)
+      emitScope(refreshScopes.appData())
     }
   }
 
@@ -89,11 +108,11 @@ export function createControllerBootstrap(deps: {
       Promise.resolve()
         .then(async () => {
           let latest = await getRunState(netRequest, runId).catch(() => initialRun)
-          if (syncRunCard(latest)) render()
+          if (syncRunCard(latest)) emitScope(refreshScopes.runCards())
           if (!isTerminalRunStatus(latest.status)) {
             latest = await runProbe.track(latest, (nextRun) => {
               latest = nextRun
-              if (syncRunCard(nextRun)) render()
+              if (syncRunCard(nextRun)) emitScope(refreshScopes.runCards())
             })
           }
           if (isDisposed()) return
@@ -119,7 +138,8 @@ export function createControllerBootstrap(deps: {
           } else if (roleId && sessionId && typeof reloadRoleSession === 'function') {
             await reloadRoleSession(roleId, sessionId).catch(() => null)
           }
-          render()
+          const sessionScope = runSessionScope(latest)
+          if (sessionScope) emitScope(sessionScope)
         })
         .finally(() => {
           restoringRunIds.delete(runId)
@@ -131,7 +151,7 @@ export function createControllerBootstrap(deps: {
       changed = true
       trackRestoredRun(run)
     }
-    if (changed) render()
+    if (changed) emitScope(refreshScopes.runCards())
   }
 
   return { load, restoreActiveEbRoleRuns }

@@ -24,11 +24,9 @@ function createHarness(targetKind: 'role' | 'group') {
     },
     branchDraft: null,
   }
-  const emit = vi.fn()
   const emitScope = vi.fn()
   const actions = createChatNavigationActions({
     state,
-    emit,
     emitScope,
     saveMeta: async () => {},
     ensureActiveChatLoaded: async () => null,
@@ -41,7 +39,7 @@ function createHarness(targetKind: 'role' | 'group') {
     pickDraftImages: () => {},
     addDraftImagesFromFiles: async () => {},
   })
-  return { state, emit, emitScope, actions }
+  return { state, emitScope, actions }
 }
 
 describe('会话目标切换通知', () => {
@@ -55,7 +53,6 @@ describe('会话目标切换通知', () => {
 
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.navigation())
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
-    expect(harness.emit).not.toHaveBeenCalled()
   })
 
   it('setActiveGroup 使用群组与会话的显式地址', async () => {
@@ -68,6 +65,23 @@ describe('会话目标切换通知', () => {
 
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.navigation())
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
-    expect(harness.emit).not.toHaveBeenCalled()
+  })
+
+  it('非输入草稿字段归 uiShell，草稿图片归 composer', () => {
+    const harness = createHarness('role')
+
+    harness.actions.setDraft('workspaceName', '新工作区')
+    harness.actions.removeDraftImage('img-1')
+
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.uiShell())
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
+  })
+
+  it('输入框按键不广播，避免外部刷新重置输入区', () => {
+    const harness = createHarness('role')
+
+    harness.actions.setDraft('input', '正在输入')
+
+    expect(harness.emitScope).not.toHaveBeenCalled()
   })
 })

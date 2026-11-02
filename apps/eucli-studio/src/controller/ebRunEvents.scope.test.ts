@@ -22,11 +22,9 @@ function createHarness() {
     settledRuns: {},
   }
   let listener: ((event: any) => void) | null = null
-  const emit = vi.fn()
   const emitScope = vi.fn()
   const consumer = createEbRunEventConsumer({
     getState: () => state,
-    emit,
     emitScope,
     subscribeDirectEvents: (next) => {
       listener = next
@@ -39,7 +37,7 @@ function createHarness() {
   const send = (type: string, payload: any) => {
     listener?.({ name: 'eucliBox.run.event', payload: { type, runId: String(payload?.runId || 'run-1'), payload } })
   }
-  return { state, emit, emitScope, send }
+  return { state, emitScope, send }
 }
 
 const flushFrames = async () => {
@@ -75,13 +73,11 @@ describe('运行事件的范围通知', () => {
     harness.send('assistant_message_delta', { ...base, contentDelta: '第一段' })
     await flushFrames()
 
-    harness.emit.mockClear()
     harness.emitScope.mockClear()
     harness.send('assistant_message_delta', { ...base, contentDelta: '第二段' })
     await flushFrames()
 
     const scopes = harness.emitScope.mock.calls.map((call) => call[0])
-    expect(harness.emit).not.toHaveBeenCalled()
     expect(scopes).toContain(messageRefreshScope('m2'))
     expect(scopes).toContain(refreshScopes.chatList('role', 'role-1'))
     expect(scopes).toContain(refreshScopes.runCards())
@@ -111,7 +107,6 @@ describe('运行事件的范围通知', () => {
     })
     await flushFrames()
 
-    harness.emit.mockClear()
     harness.emitScope.mockClear()
     harness.send('assistant_message_update', {
       runId: 'run-1',
@@ -132,7 +127,6 @@ describe('运行事件的范围通知', () => {
     await flushFrames()
 
     const scopes = harness.emitScope.mock.calls.map((call) => call[0])
-    expect(harness.emit).not.toHaveBeenCalled()
     expect(scopes).toContain(messageRefreshScope('m2'))
     expect(scopes).toContain(refreshScopes.chatList('role', 'role-1'))
     expect(scopes).toContain(refreshScopes.runCards())

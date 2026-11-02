@@ -18,7 +18,8 @@ export function createChatSettingsSaveQueue(deps: {
   captureCurrentTarget: () => ChatSettingsTarget | null
   isActiveTarget: (target: ChatSettingsTarget) => boolean
   isDisposed: () => boolean
-  onStateChanged: () => void
+  // 保存状态属于具体会话：通知方按 target 发 session 地址，不再整页广播。
+  onStateChanged: (target: ChatSettingsTarget) => void
   onError: (message: string) => void
 }) {
   const saveTails = new Map<string, Promise<boolean>>()
@@ -62,14 +63,14 @@ export function createChatSettingsSaveQueue(deps: {
       if (!isCurrent()) return false
       const savingByTarget = deps.getSavingByTarget()
       savingByTarget[targetKey] = status
-      deps.onStateChanged()
+      deps.onStateChanged(target)
       try {
         await work(isCurrent)
         return isCurrent()
       } finally {
         if (savingByTarget[targetKey] === status && saveTails.get(targetKey) === run) {
           delete savingByTarget[targetKey]
-          deps.onStateChanged()
+          deps.onStateChanged(target)
         }
       }
     })

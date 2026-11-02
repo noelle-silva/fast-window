@@ -18,15 +18,14 @@ type TargetKind = 'role' | 'group' | 'workspace'
 
 export function useSessionRunObservations(deps: {
   data: any
-  dataVersion: number
   s: any
   activeTargetKind: TargetKind
   activeChatTargetId: any
   activeChatId: any
-  // 运行卡范围订阅；未注入时沿用全局数据版本兜底。
+  // 运行卡范围订阅；未注入时不做任何数据订阅。
   controller?: any
 }) {
-  const { data, dataVersion, s, activeTargetKind, activeChatTargetId, activeChatId, controller } = deps
+  const { data, s, activeTargetKind, activeChatTargetId, activeChatId, controller } = deps
   const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards(), !!controller)
 
   const [chatSessionRunNotices, setChatSessionRunNotices] = React.useState<Record<string, ChatSessionRunNotice>>({})
@@ -78,9 +77,9 @@ export function useSessionRunObservations(deps: {
     })
 
     chatSessionRunStatusRef.current = nextByKey
-    // 全表扫描只由「数据版本 / 运行卡版本 / 数据引用」驱动：
+    // 全表扫描只由「运行卡版本 / 数据引用」驱动：
     // App 本地 UI 状态（开弹层、树、页面）重渲染时不得重复扫描会话数据。
-  }, [dataVersion, runCardsVersion, data])
+  }, [runCardsVersion, data])
 
   React.useEffect(() => {
     const key = chatSessionRunNoticeKey(activeTargetKind, activeChatTargetId, activeChatId)

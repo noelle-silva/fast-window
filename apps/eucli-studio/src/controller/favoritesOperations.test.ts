@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { createFavoritesOperations } from './favoritesOperations'
 
 function createHarness() {
@@ -10,17 +11,34 @@ function createHarness() {
       },
     },
   }
+  const emitScope = vi.fn()
   const ops = createFavoritesOperations({
     getState: () => state,
     save: async () => {},
-    emit: () => {},
+    emitScope,
     showToast: vi.fn(),
     activeTargetKind: () => 'workspace',
     activeRole: () => null,
     activeGroup: () => null,
   })
-  return { state, ops }
+  return { state, ops, emitScope }
 }
+
+describe('收藏夹通知地址', () => {
+  it('新建、改名、删除、移动都只通知 entities:favorites', () => {
+    const harness = createHarness()
+    const favoritesScope = refreshScopes.entities('favorites')
+
+    const folderId = harness.ops.createFavoriteFolder('新收藏夹')
+    harness.ops.renameFavoriteFolder(folderId, '重命名')
+    harness.ops.moveFavoriteFolder(folderId, '')
+    harness.ops.clearFavoriteFolderRefs(folderId)
+    harness.ops.deleteFavoriteFolderTree(folderId)
+
+    expect(harness.emitScope.mock.calls.length).toBeGreaterThan(0)
+    expect(harness.emitScope.mock.calls.every((call) => call[0] === favoritesScope)).toBe(true)
+  })
+})
 
 describe('工作区会话收藏身份', () => {
   it('保存收藏时分别保留工作区编号与角色编号', () => {

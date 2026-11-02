@@ -13,7 +13,7 @@ import {
 import type { SidebarView } from '../../domain/sidebarView'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
-import { useScopedUiVersion, useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
@@ -102,8 +102,8 @@ export function ChatSidebar(props: {
     onTabChange,
   } = props
 
-  // 迁移期保留全局兜底；列表 / 运行卡 / 导航各自建立范围订阅。
-  const globalDataVersion = useUiDataVersion(controller)
+  // 列表 / 运行卡 / 导航各自建立范围订阅：数据变化由 App 的实体订阅驱动 props，
+  // 这里只负责列表与运行指示的细粒度刷新，不再保留全局兜底。
   const chatListTargetId =
     activeTargetKind === 'workspace'
       ? workspaceRoleTargetId(activeWorkspaceId, activeRoleId)
@@ -117,7 +117,7 @@ export function ChatSidebar(props: {
   )
   const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards())
   const navigationVersion = useScopedUiVersion(controller, refreshScopes.navigation())
-  const refreshVersion = `${globalDataVersion}:${chatListVersion}:${runCardsVersion}:${navigationVersion}`
+  const refreshVersion = `${chatListVersion}:${runCardsVersion}:${navigationVersion}`
   const memory = getSidebarNavigationMemory()
   const activeTab: RoleSidebarTab | WorkspaceSidebarTab = view === 'role' ? memory.role.tab : memory.workspace.tab
 

@@ -1,5 +1,6 @@
 import { NEW_ROLE_ID, NEW_GROUP_ID, NEW_WORKSPACE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy } from '../domain/toolPolicy'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 export function fmtTime(ts: any) {
   try {
@@ -20,8 +21,8 @@ export function fmtTime(ts: any) {
   }
 }
 
-export function createModalHelpers(deps: { state: any; render: () => void }) {
-  const { state, render } = deps
+export function createModalHelpers(deps: { state: any; emitScope: (scope: string) => void }) {
+  const { state, emitScope } = deps
 
   function closeModal() {
     // cancelMermaidDrag handled by eventHandlers module
@@ -73,7 +74,8 @@ export function createModalHelpers(deps: { state: any; render: () => void }) {
       ;(state.draft as any).workspaceDirectories = []
       ;(state.draft as any).workspaceRegisteredRoleIds = []
     }
-    render()
+    // 关闭弹层只改变页面级 UI 状态：按 uiShell 通知，不整页广播。
+    emitScope(refreshScopes.uiShell())
   }
 
   return { closeModal }

@@ -46,18 +46,13 @@ export function selectChatLoadFailure(
 
 export function createChatLoadFailureTracker(deps: {
   getState: () => any
-  emit: () => void
-  // 失败事实属于具体会话：只通知该 session 地址；身份不足时地址构造器会回落到 global。
-  emitScope?: (scope: string) => void
+  // 失败事实属于具体会话：只通知该 session 地址。
+  emitScope: (scope: string) => void
 }) {
-  const { getState, emit, emitScope } = deps
+  const { getState, emitScope } = deps
 
   function notify(kind: ChatLoadTargetKind, targetId: string, chatId: string) {
-    if (emitScope) {
-      emitScope(refreshScopes.session(kind, targetId, chatId))
-      return
-    }
-    emit()
+    emitScope(refreshScopes.session(kind, targetId, chatId))
   }
 
   function record(kind: ChatLoadTargetKind, targetId: string, chatId: string, error: unknown) {

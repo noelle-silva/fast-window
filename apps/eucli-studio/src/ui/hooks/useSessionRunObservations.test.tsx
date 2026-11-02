@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 //
 // 运行通知的扫描失效依据：
-// 全表扫描只允许由「全局数据版本 / 数据引用」驱动；
+// 全表扫描只允许由「运行卡版本 / 数据引用」驱动；
 // App 本地 UI 状态导致的重渲染不得重复扫描整份会话数据。
 import * as React from 'react'
 import { act } from 'react'
@@ -40,7 +40,6 @@ function createData(status: string) {
 
 function Harness(props: {
   data: any
-  dataVersion: number
   activeChatId: string
   localTick: number
   apiRef: React.MutableRefObject<any>
@@ -48,7 +47,6 @@ function Harness(props: {
 }) {
   props.apiRef.current = useSessionRunObservations({
     data: props.data,
-    dataVersion: props.dataVersion,
     s: STATE_STUB,
     activeTargetKind: 'role',
     activeChatTargetId: 'r1',
@@ -84,7 +82,6 @@ describe('useSessionRunObservations', () => {
 
   async function render(props: {
     data: any
-    dataVersion: number
     activeChatId?: string
     localTick?: number
     controller?: any
@@ -93,7 +90,6 @@ describe('useSessionRunObservations', () => {
       root.render(
         <Harness
           data={props.data}
-          dataVersion={props.dataVersion}
           activeChatId={props.activeChatId ?? ''}
           localTick={props.localTick ?? 0}
           apiRef={apiRef}
@@ -103,19 +99,19 @@ describe('useSessionRunObservations', () => {
     })
   }
 
-  it('本地重渲染不重复扫描；数据版本变化时才扫描并产生终态通知', async () => {
+  it('本地重渲染不重复扫描；数据引用变化时才扫描并产生终态通知', async () => {
     const data = createData('running')
 
-    await render({ data, dataVersion: 0 })
+    await render({ data })
     expect(collectSpy).toHaveBeenCalledTimes(1)
     expect(apiRef.current.chatSessionRunNotices).toEqual({})
 
-    await render({ data, dataVersion: 0, localTick: 1 })
+    await render({ data, localTick: 1 })
     expect(collectSpy).toHaveBeenCalledTimes(1)
 
-    data.chatsByRole.r1.chats[0].status = 'completed'
-    data.chatsByRole.r1.chats[0].runStatusChangedAt = 200
-    await render({ data, dataVersion: 1, localTick: 1 })
+    const next = createData('completed')
+    next.chatsByRole.r1.chats[0].runStatusChangedAt = 200
+    await render({ data: next, localTick: 1 })
 
     expect(collectSpy).toHaveBeenCalledTimes(2)
     expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toEqual({ kind: 'completed', changedAt: 200 })
@@ -129,7 +125,7 @@ describe('useSessionRunObservations', () => {
     }
     const data = createData('running')
 
-    await render({ data, dataVersion: 0, controller })
+    await render({ data, controller })
     expect(collectSpy).toHaveBeenCalledTimes(1)
 
     data.chatsByRole.r1.chats[0].status = 'completed'
@@ -144,14 +140,14 @@ describe('useSessionRunObservations', () => {
   })
 
   it('切换到该会话时清除它的运行通知', async () => {
-    const data = createData('running')
+    const running = createData('running')
 
-    await render({ data, dataVersion: 0 })
-    data.chatsByRole.r1.chats[0].status = 'completed'
-    await render({ data, dataVersion: 1 })
+    await render({ data: running })
+    const completed = createData('completed')
+    await render({ data: completed })
     expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toBeTruthy()
 
-    await render({ data, dataVersion: 1, activeChatId: 'c1' })
+    await render({ data: completed, activeChatId: 'c1' })
     expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toBeUndefined()
   })
 })

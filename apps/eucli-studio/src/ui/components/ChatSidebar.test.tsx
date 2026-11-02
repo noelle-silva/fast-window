@@ -154,4 +154,27 @@ describe('侧边栏视图的角色范围', () => {
     expect(uiCore.getVer()).toBe(globalVersion)
     expect(host!.textContent).toContain('后到会话')
   })
+
+  it('全局 emit 不再兜底刷新侧边栏：只有范围地址能穿透', () => {
+    const uiCore = createUiCore()
+    const data: any = { chatsByRole: { 'role-a': { activeChatId: '', chatMetas: [], chats: [] } }, chatsByWorkspace: {} }
+    setRoleSidebarTab('history')
+    renderSidebar({
+      controller: createScopedController(uiCore),
+      data,
+      view: 'role',
+      activeTargetKind: 'role',
+      activeRoleId: 'role-a',
+      activeChatId: '',
+    })
+
+    expect(host!.textContent).toContain('还没有会话')
+
+    act(() => {
+      data.chatsByRole['role-a'].chatMetas.push({ id: 'c1', title: '只经全局变化', updatedAt: 100 })
+      uiCore.emit()
+    })
+
+    expect(host!.textContent).not.toContain('只经全局变化')
+  })
 })

@@ -1,15 +1,16 @@
 import { clamp } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 export function createMermaidUi(deps: {
   getState: () => any
   assistantRenderer: any
-  emit: () => void
+  emitScope: (scope: string) => void
 }) {
   const {
     getState,
     assistantRenderer,
-    emit,
+    emitScope,
   } = deps
 
   const { sanitizeHtml, sanitizeSvg } = assistantRenderer
@@ -106,7 +107,7 @@ export function createMermaidUi(deps: {
     s.mermaid.index = idx
     s.mermaid.scale = 1
     s.modal = 'mermaid'
-    emit()
+    emitScope(refreshScopes.uiShell())
     renderMermaidModalDom(true)
   }
 

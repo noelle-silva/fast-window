@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 //
 // 派生列表失效依据单一来源守护：
-// 列表的条数 / 排序 / 过滤 / 可见项只允许以刷新中枢递增的全局数据版本号为重算依据。
-// 时序场景：先进入目标（列表为空），数据后到（就地写入 + 中枢 emit），列表必须自动出现，
+// 列表的条数 / 排序 / 过滤 / 可见项只允许以显式刷新地址为失效依据。
+// 时序场景：先进入目标（列表为空），数据后到（就地写入 + 对应地址通知），列表必须自动出现，
 // 不得停留在旧结果，也不得依赖切换目标或对象引用比对来补救。
 import * as React from 'react'
 import { act } from 'react'
@@ -157,7 +157,7 @@ function ChatPickerHarness(props: {
 
 const TARGET_LABEL: Record<TargetKind, string> = { role: '角色', group: '群组', workspace: '工作区' }
 
-describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
+describe('派生列表失效依据：显式刷新地址', () => {
   let host: HTMLDivElement | null = null
   let anchor: HTMLButtonElement | null = null
   let root: any = null
@@ -188,6 +188,13 @@ describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
     })
   }
 
+  function openPicker() {
+    act(() => {
+      const openButton = document.querySelector('[data-testid="open-chat-picker"]') as HTMLButtonElement
+      openButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  }
+
   for (const kind of ['role', 'group', 'workspace'] as const) {
     it(`先进入${TARGET_LABEL[kind]}目标、会话数据后到时，${TARGET_LABEL[kind]}会话列表自动出现且无需切换目标`, () => {
       const uiCore = createUiCore()
@@ -203,13 +210,16 @@ describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
       renderHarness(
         <ChatPickerHarness controller={controller} data={data} kind={kind} role={role} group={group} workspace={workspace} anchor={anchor!} startView="history" />,
       )
+      openPicker()
       expect(document.body.textContent).toContain('没有匹配的会话')
+      const globalVersion = uiCore.getVer()
 
       act(() => {
         boxOf(data, kind, targetId).chatMetas.push({ id: 'c1', title: '后到会话', updatedAt: 100 })
-        uiCore.emit()
+        uiCore.emitScope(refreshScopes.chatList(kind, targetId))
       })
 
+      expect(uiCore.getVer()).toBe(globalVersion)
       expect(document.body.textContent).toContain('后到会话')
     })
   }
@@ -226,10 +236,7 @@ describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
     renderHarness(
       <ChatPickerHarness controller={controller} data={data} kind="role" role={role} group={group} workspace={workspace} anchor={anchor!} startView="history" />,
     )
-    act(() => {
-      const openButton = document.querySelector('[data-testid="open-chat-picker"]') as HTMLButtonElement
-      openButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+    openPicker()
     expect(document.body.textContent).toContain('没有匹配的会话')
     const globalVersion = uiCore.getVer()
 
@@ -256,12 +263,14 @@ describe('派生列表失效依据：刷新中枢全局数据版本号', () => {
       <ChatPickerHarness controller={controller} data={data} kind="workspace" role={role} group={group} workspace={workspace} anchor={anchor!} startView="favorites" />,
     )
     expect(document.body.textContent).toContain('还没有收藏夹')
+    const globalVersion = uiCore.getVer()
 
     act(() => {
       data.favorites.folders.push({ id: 'f1', name: '后到收藏夹', parentId: '', createdAt: 1 })
-      uiCore.emit()
+      uiCore.emitScope(refreshScopes.entities('favorites'))
     })
 
+    expect(uiCore.getVer()).toBe(globalVersion)
     expect(document.body.textContent).toContain('后到收藏夹')
   })
 })

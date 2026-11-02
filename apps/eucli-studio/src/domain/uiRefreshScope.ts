@@ -8,6 +8,10 @@
 
 export const GLOBAL_REFRESH_SCOPE = 'global'
 
+// 整包数据范围：启动加载、epoch 换代、整份数据替换与 state.loading 变化。
+// 频率极低，但影响 App 根的所有派生，不能拆成普通实体地址。
+export const APP_DATA_REFRESH_SCOPE = 'appData'
+
 // 输入区范围：输入草稿与草稿图片的变化只该动输入区，不惊动整页。
 export const COMPOSER_REFRESH_SCOPE = 'composer'
 
@@ -39,6 +43,7 @@ function scopedAddress(prefix: string, parts: readonly unknown[]): string {
 // 统一地址目录：消费者按语义取地址，不关心分隔符与转义。
 export const refreshScopes = {
   global: () => GLOBAL_REFRESH_SCOPE,
+  appData: () => APP_DATA_REFRESH_SCOPE,
   uiShell: (section?: unknown) => {
     const part = segment(section)
     return part ? `${UI_SHELL_REFRESH_SCOPE}:${part}` : UI_SHELL_REFRESH_SCOPE

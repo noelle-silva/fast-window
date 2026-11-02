@@ -4,7 +4,8 @@ import { DependablePopover } from '../components/DependableOverlay'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { RoleList, WorkspaceList } from '../components/EntityLists'
 import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { useScopedUiVersions } from '../hooks/useScopedUiVersion'
 
 // 选择器一次只服务一个目标，不再用页签在「角色 / 工作区」之间切换：
 // - 'role'：角色按钮（角色模式）打开，选中写进当前角色。
@@ -42,8 +43,18 @@ export const RolePickerPopover = React.memo(function RolePickerPopover(props: {
     openPluginSettings,
   } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 角色 / 工作区选择器打开时才订阅各自的实体域；供应商与模型组
+  // 只用于模型标识展示，同样按实体地址刷新。关闭时不订阅。
+  useScopedUiVersions(
+    controller,
+    [
+      refreshScopes.entities('roles'),
+      refreshScopes.entities('workspaces'),
+      refreshScopes.entities('providers'),
+      refreshScopes.entities('modelGroups'),
+    ],
+    !!rolePickerEl,
+  )
 
   const showWorkspaces = rolePickerView === 'workspace'
   const pickerRoles = rolePickerView === 'workspaceRole' ? workspaceRoles : roles

@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
-import { useAiChatState } from './hooks/useAiChatState'
-import { useScopedUiVersion, useScopedUiVersions, useUiDataVersion } from './hooks/useScopedUiVersion'
+import { useScopedUiVersion, useScopedUiVersions } from './hooks/useScopedUiVersion'
 import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
@@ -114,11 +113,11 @@ const EMPTY_SESSION_CONTENT = (
 
 export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap; dataDirectory?: AiChatDataDirectory; eucliBoxConnection?: AiChatEucliBoxConnection; windowControls?: AiChatWindowControls; releaseViews: ReleaseCandidatesViews; onReleaseRefresh: (kind?: string) => Promise<void> | void }) {
   const { controller, bootstrap, dataDirectory, eucliBoxConnection, windowControls, releaseViews, onReleaseRefresh } = props
-  const s = useAiChatState(controller)
+  const s = controller.getState()
   const data = s.data
-  // 全局数据版本：区分「数据变化」与「App 本地 UI 状态变化」的唯一令牌。
-  // 顶层派生 memo 都以它为失效依据，本地 state 重渲染不会触发 O(n) 重算。
-  const dataVersion = useUiDataVersion(controller)
+  // App 根不再订阅全局版本：每类变化都由显式地址驱动。
+  // appData 只承担启动加载 / epoch 换代 / 整包替换 / loading 这类低频事实。
+  const appDataVersion = useScopedUiVersion(controller, refreshScopes.appData())
   // 外观 / 字体 / 壁纸 / 树设置等全局设置：App 是壳层的唯一接线点，
   // 设置变化先在这里失效，再由稳定 props 分发给 ShellFrame / Surface。
   const settingsVersion = useScopedUiVersion(controller, refreshScopes.settings())
@@ -184,7 +183,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const bgAlpha = transparentChatBg ? wallpaperVeilAlpha(chatBgOpacity, chatBgBlur) : 1
   const wallpaper = React.useMemo(
     () => normalizeWallpaperSettings(data?.settings?.wallpaper),
-    [dataVersion, settingsVersion, data?.settings?.wallpaper],
+    [appDataVersion, settingsVersion, data?.settings?.wallpaper],
   )
   const activeWallpaper = React.useMemo(
     () => (wallpaper.enabled ? wallpaper.presets.find((preset) => preset.id === wallpaper.activeId) || null : null),
@@ -204,6 +203,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   )
   const activeWorkspaceRoles = React.useMemo(() => workspaceRolesInScope(activeWorkspace, roles), [activeWorkspace, roles])
   const activeChatTargetId = activeChatTargetKey(activeTargetKind, { groupId: activeGroupId, workspaceId: activeWorkspaceId, roleId: (activeRole as any)?.id })
+  // 当前 target 的会话列表元数据（标题 / 排序 / 运行指示）：
+  // 顶栏相邻会话与侧栏都由它驱动，标题生成后必须在这里失效。
+  const activeChatListScope = React.useMemo(
+    () => (activeChatTargetId ? refreshScopes.chatList(activeTargetKind, activeChatTargetId) : ''),
+    [activeTargetKind, activeChatTargetId],
+  )
+  const activeChatListVersion = useScopedUiVersion(controller, activeChatListScope, !!activeChatListScope)
   const activeChatSelectionBox = activeChatTargetId
     ? activeTargetKind === 'group'
       ? (data as any)?.chatsByGroup?.[activeChatTargetId]
@@ -222,14 +228,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const renderChatId = chatSwitch.renderChatId
   const activeChatId = chatSwitch.activeChatId
 
-  useScopedUiVersion(controller, refreshScopes.navigation())
+  const navigationVersion = useScopedUiVersion(controller, refreshScopes.navigation())
   const activeSessionScope = React.useMemo(
     () => (activeChatId && activeChatTargetId
       ? refreshScopes.session(activeTargetKind, activeChatTargetId, activeChatId)
       : ''),
     [activeTargetKind, activeChatTargetId, activeChatId],
   )
-  useScopedUiVersion(controller, activeSessionScope, !!activeSessionScope)
+  const activeSessionVersion = useScopedUiVersion(controller, activeSessionScope, !!activeSessionScope)
 
   // 正文加载失败的唯一事实源是 controller 的 chatLoadFailures（由加载路径写入）。
   // 失败按会话分格存放，这里只取「当前目标会话」那一格：
@@ -263,8 +269,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     return Object.values(chatSettingsSavingByTarget).filter((item: any) => (
       chatSettingsTargetKey({ kind: String(item?.kind || '') as any, targetId: String(item?.targetId || ''), sessionId: String(item?.sessionId || '') }) === activeChatSettingsTargetKey
     )) as any[]
-    // 队列状态在对象内部增删，引用不变；dataVersion 是唯一的失效依据。
-  }, [dataVersion, chatSettingsSavingByTarget, activeChatSettingsTargetKey])
+    // 队列状态在对象内部增删，引用不变；当前 session 版本负责失效。
+  }, [appDataVersion, activeSessionVersion, chatSettingsSavingByTarget, activeChatSettingsTargetKey])
   const chatSettingsSavingFor = React.useCallback(
     (action: string) => chatSettingsSavingStatuses.find((item: any) => String(item?.action || '') === action) || null,
     [chatSettingsSavingStatuses],
@@ -282,8 +288,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (!openingChatId) return null
     const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
     return metas.find((m: any) => String(m?.id || '') === openingChatId) || null
-    // chatMetas 会就地更新，引用不保证变化；dataVersion 负责兜底失效。
-  }, [dataVersion, activeChat, data, activeChatTargetId, activeChatId, activeChatSelectionBox])
+    // chatMetas 会就地更新，引用不保证变化；chatList 版本负责失效。
+  }, [appDataVersion, activeChatListVersion, activeChat, data, activeChatTargetId, activeChatId, activeChatSelectionBox])
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
     activeTargetKind === 'role' &&
@@ -304,7 +310,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     isSendingThisChat,
   } = useSessionRunObservations({
     data,
-    dataVersion,
     s,
     activeTargetKind,
     activeChatTargetId,
@@ -728,8 +733,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
   const chatOverrideRef = React.useMemo(
     () => normalizeModelRef(chatOverride),
-    // 归一化结果的语义只由 override 本身决定；dataVersion 负责兜底可变引用。
-    [dataVersion, chatOverride],
+    // 归一化结果的语义只由 override 本身决定；session 版本负责穿透就地更新。
+    [activeSessionVersion, chatOverride],
   )
   const hasChatOverride = !!chatOverrideRef
   const overrideProviderId = String(chatOverrideRef?.providerId || '').trim()
@@ -737,8 +742,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const roleModelRef = React.useMemo(
     () => roleDefaultModelRef(activeRole),
-    // 角色默认模型随角色读写就地更新，dataVersion 是失效依据。
-    [dataVersion, activeRole],
+    // 角色默认模型随角色读写就地更新，实体域版本是失效依据。
+    [domainVersion, activeRole],
   )
   const roleProviderId = String(roleModelRef?.providerId || '').trim()
   const roleModelId = String(roleModelRef?.modelId || '').trim()
@@ -749,8 +754,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const reasoningProfile = React.useMemo(() => {
     if (activeTargetKind === 'group') return { supportsReasoning: false, defaultReasoningEffort: '' as const }
     return modelReasoningProfileFromModelRef(effectiveModelRef, providers, modelGroups)
-    // providers / modelGroups 会就地更新，dataVersion 负责失效。
-  }, [dataVersion, activeTargetKind, effectiveModelRef, providers, modelGroups])
+    // providers / modelGroups 会就地更新，实体域版本负责失效。
+  }, [domainVersion, activeTargetKind, effectiveModelRef, providers, modelGroups])
   const activeChatReasoningEffort = chatReasoningEffort(activeChat)
   const activeEffectiveReasoningEffort = effectiveReasoningEffort(activeChat, reasoningProfile)
   const activeReasoningLabel = reasoningEffortLabel(activeEffectiveReasoningEffort)
@@ -830,8 +835,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     data,
     state: s,
     activeChat,
-    // 会话列表可能就地排序 / 增删，引用不保证变化；dataVersion 负责失效。
-  }), [dataVersion, s, data, activeTargetKind, activeGroupId, activeWorkspaceId, activeRoleId, activeChat])
+    // 会话列表可能就地排序 / 增删，引用不保证变化；chatList / navigation 版本共同失效。
+  }), [appDataVersion, navigationVersion, activeChatListVersion, activeSessionVersion, s, data, activeTargetKind, activeGroupId, activeWorkspaceId, activeRoleId, activeChat])
 
   React.useLayoutEffect(() => {
     // 只有聊天页有输入区；离开聊天页时清掉偏移，让通知回到默认位置。
@@ -1052,8 +1057,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const runningSessions = React.useMemo(
     () => collectRunningSessions({ state: s, data, includeGroups: GROUP_ENTRY_VISIBLE }),
     // 运行卡与会话标题都在 state/data 内就地更新；
-    // dataVersion 兜底整包数据，runCardsVersion 保证只发 runCards 时列表也不陈旧。
-    [dataVersion, runCardsVersion, s, data],
+    // appData 兜底整包数据，runCardsVersion 保证只发 runCards 时列表也不陈旧，
+    // activeChatListVersion 让当前 target 的标题 / 排序变化穿透这份派生。
+    [appDataVersion, runCardsVersion, activeChatListVersion, s, data],
   )
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
 
@@ -2056,7 +2062,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       activeWallpaperSrc={activeWallpaperSrc}
     >
       <TopBarSurface
-        controller={controller}
         page={page}
         topbarOpacity={topbarOpacity}
         topbarBlur={topbarBlur}

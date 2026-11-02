@@ -167,7 +167,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
   }
 
-  const { closeModal } = createModalHelpers({ state, render })
+  const { closeModal } = createModalHelpers({ state, emitScope })
 
   function getStickerRelPath(category: any, name: any) {
     const cat = typeof category === 'string' ? category.trim() : ''
@@ -227,7 +227,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     syncRoleAvatarFile,
     syncGroupAvatarFile,
     getState: () => state,
-    setState: (data: any) => { state.data = data },
+    // 整包数据替换是 App 根的唯一语义：不能拆成某个实体地址。
+    setState: (data: any) => {
+      state.data = data
+      emitScope(refreshScopes.appData())
+    },
     onError: (msg: string) => { api.ui?.showToast?.(msg, { kind: 'error' }) },
     // 会话索引失效 → 投影缓存作废；缓存才是唯一读取入口。
     onSessionIndexInvalidated: (kind, targetId) => projectionPipelineRef?.invalidateSessionIndex(kind, targetId),
@@ -445,7 +449,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     captureCurrentTarget: captureChatSettingsTarget,
     isActiveTarget: isActiveChatSettingsTarget,
     isDisposed: () => disposed,
-    onStateChanged: () => emit(),
+    // 保存状态挂在具体会话上：按 target 发 session 地址，当前会话自己重渲染。
+    onStateChanged: (target) => emitScope(refreshScopes.session(target.kind, target.targetId, target.sessionId)),
     onError: (message: string) => { api.ui?.showToast?.(message, { kind: 'error' }) },
   })
 
@@ -549,7 +554,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     // 翻页结果并回内存：normalizeStoredChat 会补分支与消息字段。
     const normalized = normalizeStoredChat(merged, kind)
     if (normalized) upsertLoadedChat(kind, targetId, normalized)
-    emit()
+    emitScope(refreshScopes.session(kind, targetId, chatId))
     return true
   }
 
@@ -661,7 +666,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const chatSessionSettingsBridge = createChatSessionSettingsBridge({
     getState: () => state,
     getNetRequest: () => capabilities.net?.request,
-    emit,
+    emitScope,
     showToast: api.ui?.showToast,
     runChatSettingsSave,
     captureChatSettingsTarget,
@@ -675,7 +680,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   // 正文加载失败的唯一记录点：任何一次正文加载都必须经过它，
   // 失败才会被 UI 看见并收敛成可重试的终态。
-  const chatLoadFailure = createChatLoadFailureTracker({ getState: () => state, emit, emitScope })
+  const chatLoadFailure = createChatLoadFailureTracker({ getState: () => state, emitScope })
 
   // RunProbe：run 终态对账的唯一入口。
   // 事件是正常路径；探针只在「静默 / 重连 / 页面可见」时补一次权威快照。
@@ -687,7 +692,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const controllerBootstrap = createControllerBootstrap({
     state,
-    render,
+    emitScope,
     showToast: api.ui?.showToast,
     getNetRequest: () => capabilities.net?.request,
     isDisposed: () => disposed,
@@ -820,9 +825,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const favOps = createFavoritesOperations({
     getState: () => state,
     save: saveFavoritesOnly,
-    // 收藏夹的消费者 useFavoriteFolders 仍只订阅全局数据版本；
-    // 在它改成范围订阅前保持全局，避免半改后漏刷。
-    emit,
+    // 收藏夹是 entities:favorites 域：树与弹层按该地址订阅。
+    emitScope,
     showToast: api.ui?.showToast,
     activeTargetKind,
     activeRole,
@@ -878,7 +882,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const mermaidUi = createMermaidUi({
     getState: () => state,
     assistantRenderer,
-    emit,
+    emitScope,
   })
   const {
     applyMermaidScaleDom,
@@ -1021,7 +1025,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       projectionPipeline.invalidateSessionWindow({ kind, targetId }, chatId)
       projectionPipeline.invalidateChatBody({ kind, targetId }, chatId)
     },
-    emit,
     render,
     renderComposer: renderAll,
     emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
@@ -1057,7 +1060,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const ebRunEvents = createEbRunEventConsumer({
     getState: () => state,
-    emit,
     emitScope,
     subscribeDirectEvents: (capabilities.host as any)?.directEvents?.subscribe,
     // 视窗架构：运行事件只刷新画面，不把 UI 快照整包写回业务端。
@@ -1125,7 +1127,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         ;(state.draft as any).workspaceActualPromptError = ''
       }
       if (k) (state.draft as any)[k] = value
-      emit()
+      emitScope(refreshScopes.uiShell())
     },
     // These will be filled by the full actions object
     openProvidersEditor: () => openProvidersEditor(),
@@ -1136,7 +1138,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeDraftImage: (id: string) => {
       const draft = activateComposerDraftForCurrentSession(state)
       setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
-      emit()
+      emitScope(refreshScopes.composer())
     },
     sendChat: () => sendChat(),
     pickDraftImages: () => pickDraftImages(),
@@ -1167,7 +1169,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 20. ACTIONS — complete controller.actions object
   // ============================================================
   const appearanceActions = createAppearanceActions({ state, emit: emitSettings, emitScope, saveMeta: savePreferences, showToast: api.ui?.showToast, currentRenderSafetyPolicy })
-  const requestRecordViewActions = createRequestRecordViewActions({ state, emit, saveMeta: savePreferences })
+  const requestRecordViewActions = createRequestRecordViewActions({ state, emitScope, saveMeta: savePreferences })
   const aiServiceActionSet = createAiServiceActions({
     state,
     emit: emitSettings,
@@ -1203,7 +1205,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   }
   const entityActions = createEntityActions({
     state,
-    emit,
     emitScope,
     saveMeta: savePreferences,
     showToast: api.ui?.showToast,
@@ -1336,7 +1337,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const chatNavigationActions = createChatNavigationActions({
     state,
-    emit,
     emitScope,
     saveMeta: savePreferences,
     ensureActiveChatLoaded,
@@ -1351,7 +1351,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const chatInteractionActions = createChatInteractionActions({
     state,
-    emit,
+    emitScope,
     showToast: api.ui?.showToast,
     sendChat,
     stopSending,
@@ -1383,7 +1383,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const viewerActions = createViewerActions({
     state,
-    emit,
+    emitScope,
     showToast: api.ui?.showToast,
     activeChatFromData,
     sanitizeSvg,
@@ -1471,7 +1471,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       const targetKind = String((state.data?.ui as any)?.activeTargetKind || 'role').trim()
       state.draft.activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
       state.loading = false
-      render()
+      activateComposerDraftForCurrentSession(state)
+      emitScope(refreshScopes.appData())
       return
     }
     await load()
@@ -1479,7 +1480,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ebRunEvents.start()
     await restoreActiveEbRoleRuns()
     startUiPollers()
-    render()
+    emitScope(refreshScopes.appData())
   }
 
   function dispose() {

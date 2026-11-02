@@ -2,7 +2,8 @@ import * as React from 'react'
 import { Box, Button, Stack } from '@mui/material'
 import { DependablePopover } from '../components/DependableOverlay'
 import ImageIcon from '@mui/icons-material/Image'
-import { useUiDataVersion } from '../hooks/useScopedUiVersion'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ComposerImagePickerPopover = React.memo(function ComposerImagePickerPopover(props: {
@@ -15,8 +16,8 @@ export const ComposerImagePickerPopover = React.memo(function ComposerImagePicke
 }) {
   const { controller, loading, activeRole, imagePickerEl, closeImagePicker, onPickDraftImages } = props
 
-  // 订阅全局数据版本：数据变化时本组件仍刷新；父级本地 UI 变化被 memo 挡在外面。
-  useUiDataVersion(controller)
+  // 图片选择器属于输入区：只在打开时订阅 composer，关闭不订阅任何地址。
+  useScopedUiVersion(controller, refreshScopes.composer(), !!imagePickerEl)
 
   return (
     <DependablePopover

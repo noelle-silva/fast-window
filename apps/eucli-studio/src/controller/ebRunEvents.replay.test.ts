@@ -36,7 +36,6 @@ function createHarness() {
   let listener: ((event: any) => void) | null = null
   const consumer = createEbRunEventConsumer({
     getState: () => state,
-    emit: vi.fn(),
     emitScope: () => {},
     subscribeDirectEvents: (next) => {
       listener = next

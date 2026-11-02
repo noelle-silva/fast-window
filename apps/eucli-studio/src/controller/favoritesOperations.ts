@@ -1,18 +1,24 @@
 import { now, uid } from '../core/utils'
 import { favoriteChatRefKey, collectFavoriteFolderSubtreeIds } from '../domain/favorites'
 import { validateFavoriteFolderName } from '../domain/favoriteValidator'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createFavoritesOperations(deps: {
   getState: () => any
   save: () => Promise<void>
-  emit: () => void
+  emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   activeTargetKind: () => string
   activeRole: () => any
   activeGroup: () => any
 }) {
-  const { getState, save, emit, showToast } = deps
+  const { getState, save, emitScope, showToast } = deps
+
+  // 收藏夹只属于 favorites 实体域：树、弹层、收藏标记都按此地址取版本。
+  function emitFavorites() {
+    emitScope(refreshScopes.entities('favorites'))
+  }
 
   function normalizeTargetKind(targetKind: any) {
     const kindText = String(targetKind || '').trim()
@@ -117,7 +123,7 @@ export function createFavoritesOperations(deps: {
     fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [id]: [] }
     persistFavorites()
-    emit()
+    emitFavorites()
     return id
   }
 
@@ -133,7 +139,7 @@ export function createFavoritesOperations(deps: {
     if (favoriteFolderNameExists(v.name, fid)) return showToast?.('文件夹已存在', { kind: 'error' })
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '') === fid ? { ...f, name: v.name, updatedAt: now() } : f))
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   function deleteFavoriteFolderKeepContents(folderId: any, targetFolderId?: any) {
@@ -173,7 +179,7 @@ export function createFavoritesOperations(deps: {
     } catch (_) {}
     fav.chatRefsByFolderId = nextRefs
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   function deleteFavoriteFolderTree(folderId: any) {
@@ -190,7 +196,7 @@ export function createFavoritesOperations(deps: {
     }
     fav.chatRefsByFolderId = nextRefs
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   function clearFavoriteFolderRefs(folderId: any) {
@@ -201,7 +207,7 @@ export function createFavoritesOperations(deps: {
     if (!fav.folders.some((f: any) => String(f?.id || '').trim() === fid)) return
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [fid]: [] }
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   function moveFavoriteFolder(folderId: any, nextParentId?: any) {
@@ -226,7 +232,7 @@ export function createFavoritesOperations(deps: {
 
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '').trim() === fid ? { ...f, parentId: pid, updatedAt: now() } : f))
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   function setChatFavoriteFolders(targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) {
@@ -255,7 +261,7 @@ export function createFavoritesOperations(deps: {
       fav.chatRefsByFolderId[fid] = next
     }
     persistFavorites()
-    emit()
+    emitFavorites()
   }
 
   return {
