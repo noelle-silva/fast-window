@@ -71,4 +71,28 @@ describe('外观设置消息屏外跳过', () => {
     })
     expect(switchForSection(host!, '消息屏外跳过').checked).toBe(false)
   })
+
+  it('模型按钮显示供应商开关点击后回传 true/false', async () => {
+    const setComposerModelShowProvider = vi.fn()
+
+    await act(async () => {
+      root.render(renderPanel({}, { setComposerModelShowProvider }))
+    })
+    expect(switchForSection(host!, '模型按钮显示供应商').checked).toBe(false)
+
+    await act(async () => {
+      switchForSection(host!, '模型按钮显示供应商').click()
+    })
+    expect(setComposerModelShowProvider).toHaveBeenCalledWith(true)
+
+    await act(async () => {
+      root.render(renderPanel({ composerModelShowProvider: true }, { setComposerModelShowProvider }))
+    })
+    expect(switchForSection(host!, '模型按钮显示供应商').checked).toBe(true)
+
+    await act(async () => {
+      switchForSection(host!, '模型按钮显示供应商').click()
+    })
+    expect(setComposerModelShowProvider).toHaveBeenLastCalledWith(false)
+  })
 })

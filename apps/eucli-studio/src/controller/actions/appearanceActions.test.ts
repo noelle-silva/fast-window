@@ -29,3 +29,19 @@ describe('消息屏外跳过开关', () => {
     expect(saveMeta).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('模型按钮显示供应商开关', () => {
+  it('切换后立即更新设置并持久化', () => {
+    const { state, emit, saveMeta, actions } = setup()
+
+    actions.setComposerModelShowProvider(true)
+    expect(state.data.settings.composerModelShowProvider).toBe(true)
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(saveMeta).toHaveBeenCalledTimes(1)
+
+    actions.setComposerModelShowProvider(false)
+    expect(state.data.settings.composerModelShowProvider).toBe(false)
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(saveMeta).toHaveBeenCalledTimes(2)
+  })
+})
