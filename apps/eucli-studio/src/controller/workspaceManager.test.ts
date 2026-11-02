@@ -645,3 +645,61 @@ describe('工作区会话身份：独立参数与自身角色', () => {
     expect(boxOf(harness.state, workspaceRoleTargetId('ws/1', 'role/1'))).toBeTruthy()
   })
 })
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+describe('工作区异步落地按代数 / 序号收敛', () => {
+  it('迟到的会话列表响应不覆盖更新的列表', async () => {
+    const first = deferred<any>()
+    const second = deferred<any>()
+    let listCalls = 0
+    const netRequest = vi.fn(async (req: any) => {
+      expect(req?.method).toBe('GET')
+      listCalls += 1
+      if (listCalls === 1) return first.promise
+      if (listCalls === 2) return second.promise
+      return { body: [] }
+    })
+    const harness = createHarness({}, netRequest)
+    const firstRefresh = harness.manager.refreshActiveWorkspaceChats('ws-1')
+    const secondRefresh = harness.manager.refreshActiveWorkspaceChats('ws-1')
+
+    second.resolve({ body: [{ id: 'session-new', roleId: 'role-a', workspaceId: 'ws-1', title: '新列表', createdAt: 1, updatedAt: 1 }] })
+    await secondRefresh
+    first.resolve({ body: [{ id: 'session-old', roleId: 'role-a', workspaceId: 'ws-1', title: '旧列表', createdAt: 1, updatedAt: 1 }] })
+    await firstRefresh
+
+    const box = boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-a'))
+    expect(box.chatMetas.map((meta: any) => meta.id)).toEqual(['session-new'])
+  })
+
+  it('选择会话期间切换了工作区角色：旧加载不再改写当前角色', async () => {
+    const detail = deferred<any>()
+    const netRequest = vi.fn(async (req: any) => {
+      const path = String(req?.path || '')
+      if (String(req?.method) === 'GET' && /\/sessions\/session-a1$/.test(path)) return detail.promise
+      if (String(req?.method) === 'GET' && /\/sessions$/.test(path)) return { body: [] }
+      throw new Error(`未预期的请求：${req?.method} ${path}`)
+    })
+    const harness = createHarness({}, netRequest)
+    const targetId = workspaceRoleTargetId('ws-1', 'role-a')
+    harness.state.data.chatsByWorkspace[targetId] = {
+      activeChatId: 'session-a1',
+      chatMetas: [{ id: 'session-a1', title: 'A 的会话', createdAt: 1, updatedAt: 1 }],
+      chats: [],
+    }
+
+    const inFlight = harness.manager.pickChatForActiveWorkspace('session-a1')
+    harness.state.draft.activeRoleId = 'role-b'
+    detail.resolve({
+      body: { id: 'session-a1', roleId: 'role-a', workspaceId: 'ws-1', title: 'A 的会话', createdAt: 1, updatedAt: 1, messages: [] },
+    })
+
+    await inFlight
+    expect(harness.state.draft.activeRoleId).toBe('role-b')
+  })
+})

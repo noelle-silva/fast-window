@@ -37,8 +37,14 @@ function createHarness() {
 describe('工作区会话刷新身份', () => {
   it('刷新会话时把工作区编号与角色编号分别交给业务端', async () => {
     const harness = createHarness()
+    const targetId = workspaceRoleTargetId('ws-1', 'role-b')
+    harness.state.data.chatsByWorkspace[targetId] = {
+      activeChatId: '',
+      chatMetas: [{ id: 'session-b1', title: 'B', createdAt: 1, updatedAt: 1 }],
+      chats: [{ id: 'session-b1', messages: [] }],
+    }
 
-    await harness.shared.refreshTargetSession('workspace', workspaceRoleTargetId('ws-1', 'role-b'), 'session-b1')
+    await harness.shared.refreshTargetSession('workspace', targetId, 'session-b1')
 
     expect(harness.reloadWorkspaceSession).toHaveBeenCalledWith('ws-1', 'role-b', 'session-b1')
     expect(harness.state.data.chatsByWorkspace[workspaceRoleTargetId('ws-1', 'role-b')]?.activeChatId).toBe('session-b1')
@@ -51,6 +57,49 @@ describe('工作区会话刷新身份', () => {
 
     expect(chat).toBeNull()
     expect(harness.reloadWorkspaceSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('刷新落点不得覆盖更新的选中事实', () => {
+  it('刷新期间用户切到别的会话：旧刷新不把 activeChatId 抢回来', async () => {
+    let resolveReload: (value: any) => void = () => {}
+    const pending = new Promise((resolve) => {
+      resolveReload = resolve
+    })
+    const state: any = {
+      data: {
+        roles: [{ id: 'role-a', name: '角色 A' }],
+        groups: [],
+        workspaces: [],
+        chatsByRole: {
+          'role-a': {
+            activeChatId: 'chat-1',
+            chats: [{ id: 'chat-1', messages: [] }, { id: 'chat-2', messages: [] }],
+          },
+        },
+        chatsByGroup: {},
+        chatsByWorkspace: {},
+        ui: { activeTargetKind: 'role', activeRoleId: 'role-a', activeGroupId: '', activeWorkspaceId: '' },
+      },
+      draft: { activeTargetKind: 'role', activeRoleId: 'role-a', activeGroupId: '', activeWorkspaceId: '' },
+    }
+    const shared = createChatOperationsShared({
+      getState: () => state,
+      save: async () => {},
+      emit: () => {},
+      render: () => {},
+      renderComposer: () => {},
+      scrollToBottomSoon: () => {},
+      readImageFileAsDataUrl: async () => '',
+      reloadRoleSession: vi.fn(async () => pending),
+    })
+
+    const inFlight = shared.refreshTargetSession('role', 'role-a', 'chat-1')
+    state.data.chatsByRole['role-a'].activeChatId = 'chat-2'
+    resolveReload({ id: 'chat-1', messages: [] })
+
+    await inFlight
+    expect(state.data.chatsByRole['role-a'].activeChatId).toBe('chat-2')
   })
 })
 

@@ -7,6 +7,7 @@ import {
   resolveActiveChatSelectionFact,
 } from '../domain/activeChatSelection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from './splitProjectionCache'
+import type { SessionWriteGuard } from './sessionWriteGuard'
 
 // 目标会话对账：角色 / 群聊共用一套实现。
 //
@@ -32,6 +33,10 @@ export type TargetChatSyncDeps = {
   upsertLoadedChat: (kind: 'role' | 'group', targetId: string, chat: any) => any
   // 运行中的会话以内存为准，对账不得覆盖它。
   hasActiveRun: (scope: ProjectionScope, chatId: string) => boolean
+  // 连接 / 投影代际：正文重取期间换代，旧快照不得写回。
+  getEpoch?: () => number
+  // 会话代数：正文重取期间删除会话，旧正文不得写回。
+  sessionWrites?: SessionWriteGuard
 }
 
 function fallbackTitle(scope: TargetChatScope) {
@@ -58,18 +63,30 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
   // 并发保护按 scope 分桶：不同 target 的对账互不阻塞。
   const syncingScopes = new Set<string>()
 
+  function epochSnapshot(): number | null {
+    if (typeof deps.getEpoch !== 'function') return null
+    const value = Number(deps.getEpoch())
+    return Number.isFinite(value) ? value : null
+  }
+
+  function epochIsCurrent(epoch: number | null): boolean {
+    if (epoch === null) return true
+    return epochSnapshot() === epoch
+  }
+
   // syncTargetChats 是「索引快照 → UI 状态」的唯一入口。
   // 返回 false 表示这次被并发对账挡下，调用方不得据此推进版本门。
   async function syncTargetChats(
     scope: TargetChatScope,
     snapshot: ChatIndexSnapshot,
-    options?: { force?: boolean },
+    options?: { force?: boolean; isCurrent?: () => boolean },
   ): Promise<boolean> {
     const state = deps.getState()
     if (!state.data) return false
     const scopeKey = projectionScopeKey(scope)
     if (syncingScopes.has(scopeKey)) return false
     syncingScopes.add(scopeKey)
+    const epoch = epochSnapshot()
     try {
       const title = fallbackTitle(scope)
       const chatMetas = snapshot.chatMetas.length ? snapshot.chatMetas : chatMetasFromBox(snapshot, title)
@@ -116,11 +133,18 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         // force：本地时间戳不可信（断线 / 服务端重建），必须取回权威正文。
         const mustReload = options?.force === true || isStoredChatNewerThanCurrent(metaUpdatedAt, curUpdatedAt)
         if (mustReload) {
+          const token = deps.sessionWrites?.capture(scope.kind, scope.targetId, activeChatId) || null
           const raw = await deps.reloadChatBody(scope, activeChatId)
+          // 读取期间换代 / 会话被删除：旧正文不得写回，整次对账也不得推进版本门。
+          if (!epochIsCurrent(epoch)) return false
+          if (deps.sessionWrites && !deps.sessionWrites.isCurrent(token)) return false
+          if (options?.isCurrent && !options.isCurrent()) return false
           if (raw && typeof raw === 'object') deps.upsertLoadedChat(scope.kind, scope.targetId, raw)
         }
       }
 
+      // 读取期间索引被失效（删除会话 / target）：列表与选中事实都不能再落。
+      if (options?.isCurrent && !options.isCurrent()) return false
       reconcileActiveChatSelectionFact(box, {
         userIntent: keepChatNow,
         serverFact: desiredActiveChatId,
@@ -142,7 +166,11 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
     if (!chatId) return false
     if (deps.hasActiveRun(scope, chatId)) return false
 
+    const epoch = epochSnapshot()
+    const token = deps.sessionWrites?.capture(scope.kind, scope.targetId, chatId) || null
     const raw = await deps.reloadChatBody(scope, chatId)
+    if (!epochIsCurrent(epoch)) return false
+    if (deps.sessionWrites && !deps.sessionWrites.isCurrent(token)) return false
     if (!raw || typeof raw !== 'object') return false
     return !!deps.upsertLoadedChat(scope.kind, scope.targetId, raw)
   }

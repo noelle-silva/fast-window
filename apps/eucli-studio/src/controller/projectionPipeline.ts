@@ -57,12 +57,18 @@ export type ProjectionPipeline = {
   loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
   // 版本门数据源：即使缓存命中也要向服务端确认最新 revision。
   refreshChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  // 版本门守卫：只有仍被缓存承认的快照才允许驱动对账。
+  isChatIndexSnapshotCurrent: (scope: ProjectionScope, snapshot: ChatIndexSnapshot | null) => boolean
   loadOlderMessages: (scope: ProjectionScope, chatId: string) => Promise<any>
   reloadChatBody: (scope: ProjectionScope, chatId: string) => Promise<any>
   invalidateSessionIndex: (kind: 'role' | 'group', targetId: string) => void
   invalidateCatalog: () => void
   invalidateChatBody: (scope: ProjectionScope, chatId: string) => void
   invalidateSessionWindow: (scope: ProjectionScope, chatId: string) => void
+  // 删除会话：正文与分页状态一起作废（写路径不得使用）。
+  invalidateChatSession: (scope: ProjectionScope, chatId: string) => void
+  // 删除 target（角色 / 群组）：该 scope 下所有会话正文与分页一起作废。
+  invalidateScopeSessions: (scope: ProjectionScope) => void
   invalidateAll: () => void
   folderForScope: (scope: ProjectionScope) => string
   // 当前这次切换的关联键（空串表示没有进行中的切换）。
@@ -209,6 +215,7 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
   // 导致同一次加载白重取一遍。版本门仍然只由 refreshChatIndex 驱动。
   async function loadIndexQuietly(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
     if (!sessionSwitch?.hasFeature('sessionIndex.get')) return null
+    const token = cache.captureChatIndexScope(scope)
     const bundle = await sessionSwitch.sessionIndexGet([scope])
     const item = bundle?.indexes?.find((entry) => entry.scope === projectionScopeKey(scope))
     if (!item) return null
@@ -221,7 +228,8 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
       updatedAt: item.updatedAt,
       revision: item.revision,
     }
-    cache.applyChatIndex(snapshot)
+    // 读取期间发生过失效 / 换代：这份事实属于上一代，不写回缓存，也不交给调用方。
+    if (!cache.applyChatIndexIfCurrent(snapshot, token)) return null
     return snapshot
   }
 
@@ -319,6 +327,19 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     sessionWindows.invalidate(scope, chatId)
   }
 
+  // 删除会话：正文缓存与分页状态一起换代。缺任何一条，在途读取都可能在
+  // 删除之后把旧正文 / 旧窗口重新写回。
+  function invalidateChatSession(scope: ProjectionScope, chatId: string) {
+    chatBodies.invalidate(scope, chatId)
+    sessionWindows.invalidate(scope, chatId)
+  }
+
+  // 删除角色 / 群组：整个 scope 的正文与分页一起换代。
+  function invalidateScopeSessions(scope: ProjectionScope) {
+    chatBodies.invalidateScope(scope)
+    sessionWindows.invalidateScope(scope)
+  }
+
   function invalidateAll() {
     cache.invalidateAll()
     chatBodies.clear()
@@ -355,12 +376,15 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     applyVersions,
     loadChatIndex: (scope) => cache.loadChatIndex(scope),
     refreshChatIndex: (scope) => cache.refreshChatIndex(scope),
+    isChatIndexSnapshotCurrent: (scope, snapshot) => cache.isChatIndexSnapshotCurrent(scope, snapshot),
     loadOlderMessages,
     reloadChatBody,
     invalidateSessionIndex,
     invalidateCatalog,
     invalidateChatBody,
     invalidateSessionWindow,
+    invalidateChatSession,
+    invalidateScopeSessions,
     invalidateAll,
     folderForScope,
     currentSwitchId: currentSwitchID,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createTargetChatSync, type TargetChatScope } from './targetChatSync'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import type { ChatIndexSnapshot } from './splitProjectionCache'
+import { createSessionWriteGuard } from './sessionWriteGuard'
 
 function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndexSnapshot {
   return {
@@ -39,10 +40,12 @@ type HarnessOptions = {
   body?: any
   hasActiveRun?: boolean
   reload?: (scope: TargetChatScope, chatId: string) => Promise<any>
+  getEpoch?: () => number
 }
 
 function makeHarness(options: HarnessOptions = {}) {
   const state = makeState()
+  const sessionWrites = createSessionWriteGuard()
   const reloadChatBody = vi.fn(options.reload || (async () => options.body || null))
   const sync = createTargetChatSync({
     getState: () => state,
@@ -53,8 +56,10 @@ function makeHarness(options: HarnessOptions = {}) {
       return chat
     },
     hasActiveRun: () => options.hasActiveRun === true,
+    sessionWrites,
+    getEpoch: options.getEpoch,
   })
-  return { sync, state, reloadChatBody }
+  return { sync, state, reloadChatBody, sessionWrites }
 }
 
 const roleScope: TargetChatScope = { kind: 'role', targetId: 'role-1' }
@@ -139,5 +144,42 @@ describe('syncChatById', () => {
     const { sync, reloadChatBody } = makeHarness({ hasActiveRun: true, body: { id: 'chat-1', messages: [] } })
     expect(await sync.syncChatById(roleScope, 'chat-1')).toBe(false)
     expect(reloadChatBody).not.toHaveBeenCalled()
+  })
+
+  it('正文重取期间会话被删除：旧正文不回填内存', async () => {
+    let release: (value: any) => void = () => {}
+    const gate = new Promise((resolve) => { release = resolve })
+    const harness = makeHarness({ reload: () => gate })
+    writeChatListProjection(harness.state.data.chatsByRole['role-1'], {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1, messages: [] }],
+      chatMetas: [],
+    })
+
+    const inFlight = harness.sync.syncChatById(roleScope, 'chat-1')
+    harness.sessionWrites.invalidateSession('role', 'role-1', 'chat-1')
+    release({ id: 'chat-1', updatedAt: 2, messages: [{ id: 'm-old', content: '旧正文' }] })
+
+    expect(await inFlight).toBe(false)
+    expect(harness.state.data.chatsByRole['role-1'].chats[0].messages).toEqual([])
+  })
+
+  it('正文重取期间连接换代：旧正文不回填内存', async () => {
+    let release: (value: any) => void = () => {}
+    const gate = new Promise((resolve) => { release = resolve })
+    let epoch = 1
+    const harness = makeHarness({ reload: () => gate, getEpoch: () => epoch })
+    writeChatListProjection(harness.state.data.chatsByRole['role-1'], {
+      kind: 'replace',
+      chats: [{ id: 'chat-1', updatedAt: 1, messages: [] }],
+      chatMetas: [],
+    })
+
+    const inFlight = harness.sync.syncChatById(roleScope, 'chat-1')
+    epoch = 2
+    release({ id: 'chat-1', updatedAt: 2, messages: [{ id: 'm-old', content: '旧正文' }] })
+
+    expect(await inFlight).toBe(false)
+    expect(harness.state.data.chatsByRole['role-1'].chats[0].messages).toEqual([])
   })
 })

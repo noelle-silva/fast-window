@@ -354,6 +354,39 @@ describe('SplitProjectionCache', () => {
     expect(calls).toBe(2)
   })
 
+  it('applyChatIndexIfCurrent 拒绝失效之后落地的外部快照', () => {
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => chatIndex(projectionScopeKey(requested), ['chat-1']),
+      getVersions: () => versions,
+    })
+    const token = cache.captureChatIndexScope(scope)
+    cache.invalidateScope(scope)
+
+    expect(cache.applyChatIndexIfCurrent(chatIndex(projectionScopeKey(scope), ['chat-old']), token)).toBe(false)
+    expect(cache.peekChatIndex(scope)).toBeNull()
+  })
+
+  it('isChatIndexSnapshotCurrent 只承认仍被缓存承认的快照', async () => {
+    const versions: ProjectionVersions = { dataRevision: 1, preferenceRevision: 1, epoch: 3 }
+    const scope = { kind: 'role' as const, targetId: 'role-1' }
+    const cache = createSplitProjectionCache({
+      loadCatalog: async () => catalog(),
+      loadChatIndex: async (requested) => chatIndex(projectionScopeKey(requested), ['chat-1']),
+      getVersions: () => versions,
+    })
+    const token = cache.captureChatIndexScope(scope)
+    const stale = chatIndex(projectionScopeKey(scope), ['chat-old'])
+    cache.invalidateScope(scope)
+    expect(cache.applyChatIndexIfCurrent(stale, token)).toBe(false)
+    expect(cache.isChatIndexSnapshotCurrent(scope, stale)).toBe(false)
+
+    const fresh = await cache.loadChatIndex(scope)
+    expect(cache.isChatIndexSnapshotCurrent(scope, fresh)).toBe(true)
+  })
+
   // setActiveChatId 是本地写：在途读取落地后不能把旧 activeChatId 盖回来。
   it('setActiveChatId 之后在途索引读取不回填旧偏好', async () => {
     let release: (value: ChatIndexSnapshot | null) => void = () => {}

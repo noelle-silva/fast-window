@@ -2,12 +2,13 @@ import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { messageMutationConflict, type MessageMutationOperation } from '../domain/messageMutationConflicts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
-import { writeActiveChatSelection } from '../domain/activeChatSelection'
+import { activeChatIdExistsInBox, readActiveChatSelection, writeActiveChatSelection } from '../domain/activeChatSelection'
 import { activateResolvedPendingChat } from '../domain/pendingChat'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import type { ModelRef } from '../domain/modelRefUtils'
 import type { EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
+import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 
 export type ChatTargetKind = 'role' | 'group' | 'workspace'
 
@@ -68,6 +69,8 @@ export type ChatOperationsDeps = {
   readImageFileAsDataUrl: (file: File) => Promise<string>
   // RunProbe：run 终态对账的唯一入口（取代 450ms 固定轮询）。
   runProbe?: RunProbe
+  // 会话写回代数：删除会话之后，旧刷新不得回写正文 / 选中事实。
+  sessionWrites?: SessionWriteGuard
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {
@@ -124,6 +127,7 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
       if (!state.data.chatsByRole[tid] || typeof state.data.chatsByRole[tid] !== 'object') state.data.chatsByRole[tid] = { activeChatId: '', chatMetas: [], chats: [] }
       box = state.data.chatsByRole[tid]
     }
+    const writeToken = deps.sessionWrites?.capture(targetKind, tid, sid) || null
     const chat = targetKind === 'group'
       ? typeof reloadGroupSession === 'function'
         ? await reloadGroupSession(tid, sid)
@@ -141,8 +145,16 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
         : typeof ensureChatLoaded === 'function'
           ? await ensureChatLoaded('role', tid, sid)
           : null
+    // 读取期间会话被删除 / target 被删除：旧正文不能再触发任何落点写入。
+    if (deps.sessionWrites && !deps.sessionWrites.isCurrent(writeToken)) return null
     if (chat) {
-      if (options?.activate !== false) writeActiveChatSelection(box, sid)
+      // 用户在这段时间切到了别的会话：旧刷新的「激活」不得把选中事实抢回来；
+      // 会话已被删除时也不写：activeChatId 不能指向不存在的会话。
+      const currentSelection = readActiveChatSelection(box)
+      const canActivate = !currentSelection || currentSelection === sid
+      if (options?.activate !== false && canActivate && activeChatIdExistsInBox(box, sid)) {
+        writeActiveChatSelection(box, sid)
+      }
       onLoaded?.(chat)
       emit()
     }

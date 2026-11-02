@@ -7,6 +7,7 @@ import { NEW_GROUP_ID, NEW_ROLE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy, normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates } from '../domain/roleModelCandidates'
 import { clearPendingChatForTarget, createPendingChatEntry } from '../domain/pendingChat'
+import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { firstChatIdInBox, readActiveChatSelection, writeActiveChatSelection } from '../domain/activeChatSelection'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
@@ -108,10 +109,15 @@ export function createEntityEditors(deps: {
   setRoleActiveChatSelection?: (roleId: string, chatId: string) => Promise<void>
   setGroupActiveChatSelection?: (groupId: string, chatId: string) => Promise<void>
   removeLoadedChat?: (kind: 'role' | 'group', targetId: string, chatId: string) => void
+  // 删除会话 / 实体时推进代数并作废缓存：删除之前发起的读写不得回填。
+  onChatDeleted?: (kind: 'role' | 'group', targetId: string, chatId: string) => void
+  onTargetDeleted?: (kind: 'role' | 'group', targetId: string) => void
+  // 重命名回包也要带代数：期间会话被删除，旧标题不能把会话重新写回列表。
+  sessionWrites?: SessionWriteGuard
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -390,6 +396,8 @@ export function createEntityEditors(deps: {
     if (!state.data) return false
     const rid = String(roleId || '')
     if (!rid) return false
+    // 删除动作一开始就换代：服务端删除尚未返回时，在途读写已经在写旧事实。
+    onTargetDeleted?.('role', rid)
     const previousRoles = Array.isArray(state.data.roles) ? state.data.roles.slice() : []
     const previousChatsByRole = state.data.chatsByRole && typeof state.data.chatsByRole === 'object' ? { ...state.data.chatsByRole } : {}
     const previousActiveRoleId = String(state.draft.activeRoleId || '')
@@ -566,6 +574,7 @@ export function createEntityEditors(deps: {
       showToast?.('该群组有真实运行中的任务，不能删除', { kind: 'error' })
       return false
     }
+    onTargetDeleted?.('group', gid)
     ;(state.data as any).groups = previousGroups.filter((group: any) => String(group?.id || '') !== gid)
     if ((state.data as any).chatsByGroup && typeof (state.data as any).chatsByGroup === 'object') delete (state.data as any).chatsByGroup[gid]
     if (String((state.draft as any).activeGroupId || '') === gid) {
@@ -853,10 +862,12 @@ export function createEntityEditors(deps: {
     let t = String(title ?? '').replace(/\s+/g, ' ').trim()
     if (t.length > 80) t = t.slice(0, 80).trim()
     t = t || '新聊天'
+    const writeToken = sessionWrites?.capture('role', rid, cid) || null
 
     try {
       if (typeof renameRoleChatInStore !== 'function') throw new Error('会话标题保存通道不可用')
       await renameRoleChatInStore(rid, cid, t)
+      if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return false
     } catch (e: any) {
       showToast?.(String(e?.message || e || '会话标题保存失败'), { kind: 'error' })
       render()
@@ -902,10 +913,12 @@ export function createEntityEditors(deps: {
     let t = String(title ?? '').replace(/\s+/g, ' ').trim()
     if (t.length > 80) t = t.slice(0, 80).trim()
     t = t || '群聊'
+    const writeToken = sessionWrites?.capture('group', gid, cid) || null
 
     try {
       if (typeof renameGroupChatInStore !== 'function') throw new Error('群聊标题保存通道不可用')
       await renameGroupChatInStore(gid, cid, t)
+      if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return false
     } catch (e: any) {
       showToast?.(String(e?.message || e || '群聊标题保存失败'), { kind: 'error' })
       render()
@@ -1026,6 +1039,8 @@ export function createEntityEditors(deps: {
     if (!box) return
     if (roleSessionHasActiveRun(state, rid, cid)) return showToast?.('该会话有真实运行中的任务，不能删除', { kind: 'error' })
 
+    // 先换代再删本地：在途正文 / 窗口 / 索引读取落地时都会被判成旧代。
+    onChatDeleted?.('role', rid, cid)
     writeChatListProjection(box, { kind: 'remove', chatId: cid, fallbackTitle: '新聊天' })
     cleanupFavoriteRefsForChat('role', rid, '', cid)
     if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))
@@ -1047,6 +1062,8 @@ export function createEntityEditors(deps: {
     if (!box) return
     if (groupSessionHasActiveRun(state, gid, cid)) return showToast?.('该群聊有真实运行中的任务，不能删除', { kind: 'error' })
 
+    // 先换代再删本地：在途正文 / 窗口 / 索引读取落地时都会被判成旧代。
+    onChatDeleted?.('group', gid, cid)
     writeChatListProjection(box, { kind: 'remove', chatId: cid, fallbackTitle: '群聊' })
     cleanupFavoriteRefsForChat('group', gid, '', cid)
     if (readActiveChatSelection(box) === cid) writeActiveChatSelection(box, firstChatIdInBox(box))

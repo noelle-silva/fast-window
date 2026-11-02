@@ -46,6 +46,14 @@ export type ProjectionVersions = {
   epoch: number
 }
 
+// 一次 scope 读取的版本令牌：代数（失效）与 epoch（连接换代）必须同时成立，
+// 外部权威写入才允许落地。它让「读完之后写回」与内部 load 路径共享同一套纪律。
+export type ChatIndexScopeToken = {
+  key: string
+  generation: number
+  epoch: number
+}
+
 export function projectionScopeKey(scope: ProjectionScope): string {
   return `${scope.kind}:${String(scope.targetId || '').trim()}`
 }
@@ -255,6 +263,38 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     return promise
   }
 
+  // captureChatIndexScope 记录「发起读取时」的代数与 epoch。
+  // 异步读取落地前用它确认期间没有发生过失效 / 换代。
+  function captureChatIndexScope(scope: ProjectionScope): ChatIndexScopeToken {
+    const key = projectionScopeKey(scope)
+    return { key, generation: guard.current(key), epoch: currentEpoch() }
+  }
+
+  // applyChatIndexIfCurrent 是「异步读取结果落地」的守卫版本：
+  // 只有令牌仍然成立才写入缓存，否则结果属于上一代，只返回给调用方、不回填。
+  function applyChatIndexIfCurrent(snapshot: ChatIndexSnapshot, token: ChatIndexScopeToken): boolean {
+    if (!snapshot || !snapshot.scope) return false
+    if (token.key !== snapshot.scope) return false
+    if (!guard.isCurrent(token.key, token.generation)) return false
+    if (token.epoch !== currentEpoch()) return false
+    guard.advance(token.key)
+    inflight.drop(token.key)
+    indexes.set(token.key, snapshot)
+    indexEpoch.set(token.key, currentEpoch())
+    return true
+  }
+
+  // isChatIndexSnapshotCurrent 判断一份快照是否仍是当前缓存的权威事实。
+  // 版本门在应用快照前调用它：被失效挡下、只返回未回填的旧快照不能驱动对账。
+  function isChatIndexSnapshotCurrent(scope: ProjectionScope, snapshot: ChatIndexSnapshot | null): boolean {
+    if (!snapshot) return false
+    const current = peekChatIndex(scope)
+    if (!current) return false
+    return current.scope === snapshot.scope
+      && current.revision === snapshot.revision
+      && current.updatedAt === snapshot.updatedAt
+  }
+
   // applyChatIndex 是唯一「外部权威写入」的入口：只接受完整快照，且版本必须匹配。
   // 它同时作废该 scope 的在途读取：外部已经给出新事实，旧读取不再有回填价值。
   function applyChatIndex(snapshot: ChatIndexSnapshot) {
@@ -295,6 +335,9 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     peekChatIndex,
     loadChatIndex,
     refreshChatIndex,
+    captureChatIndexScope,
+    applyChatIndexIfCurrent,
+    isChatIndexSnapshotCurrent,
     applyChatIndex,
     setActiveChatId,
     chatIndexIds,

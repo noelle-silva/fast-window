@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createLazyChatStore } from './lazyChatStore'
+import { createSessionWriteGuard } from './sessionWriteGuard'
 
 // 回归：会话进入内存状态必须只有一种形状。
 //
@@ -49,6 +50,70 @@ const rawSession = {
     { id: 'u2', type: 'user', content: '第二问', parentMessageId: 'a1', branchId: 'main', createdAt: '2026-10-31T17:38:02.5199299Z', updatedAt: '2026-10-31T17:38:02.5199299Z' },
   ],
 }
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+describe('删除会话打断在途加载', () => {
+  function createGuardedHarness() {
+    const state: any = {
+      data: {
+        chatsByRole: {
+          'role-1': { activeChatId: 'chat-1', chatMetas: [], chats: [] },
+        },
+        chatsByGroup: {},
+      },
+    }
+    const sessionWrites = createSessionWriteGuard()
+    const load = vi.fn()
+    const store = createLazyChatStore({
+      storage: { get: vi.fn(async () => null), set: vi.fn(async () => {}) },
+      getState: () => state,
+      loadSplitMeta: vi.fn(async () => ({ roleFolders: { 'role-1': 'role-folder' } })),
+      loadChatIndex: vi.fn(async () => null),
+      chatBodies: { load },
+      sessionWrites,
+    })
+    return { state, store, sessionWrites, load }
+  }
+
+  it('删除之前发起的加载在删除之后落地：不写回内存，已删除会话不复活', async () => {
+    const harness = createGuardedHarness()
+    const pending = deferred<any>()
+    harness.load.mockReturnValueOnce(pending.promise)
+
+    const inFlight = harness.store.ensureChatLoaded('role', 'role-1', 'chat-1')
+    harness.sessionWrites.invalidateSession('role', 'role-1', 'chat-1')
+    pending.resolve(rawSession)
+
+    expect(await inFlight).toBeNull()
+    const box = harness.state.data.chatsByRole['role-1']
+    expect(box.chats).toHaveLength(0)
+    expect(box.chatMetas).toHaveLength(0)
+  })
+
+  it('删除之后的新加载捕获新代数，不复用旧代在途请求', async () => {
+    const harness = createGuardedHarness()
+    const first = deferred<any>()
+    harness.load.mockReturnValueOnce(first.promise).mockResolvedValueOnce(rawSession)
+
+    const inFlight = harness.store.ensureChatLoaded('role', 'role-1', 'chat-1')
+    harness.sessionWrites.invalidateSession('role', 'role-1', 'chat-1')
+    const second = harness.store.ensureChatLoaded('role', 'role-1', 'chat-1')
+    first.resolve(rawSession)
+
+    expect(await inFlight).toBeNull()
+    const loaded = await second
+    expect(loaded?.id).toBe('chat-1')
+    expect(harness.load).toHaveBeenCalledTimes(2)
+    expect(harness.state.data.chatsByRole['role-1'].chats.map((chat: any) => chat.id)).toEqual(['chat-1'])
+  })
+})
 
 describe('upsertLoadedChat 是会话入状态的唯一入口', () => {
   it('原始会话入状态后保留父子链并转成数值时间', () => {

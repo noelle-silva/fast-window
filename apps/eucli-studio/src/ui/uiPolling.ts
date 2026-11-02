@@ -4,6 +4,7 @@ import { pendingChatForTarget } from '../domain/pendingChat'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from '../storage/splitProjectionCache'
 import { createTargetChatSync, type TargetChatScope } from '../storage/targetChatSync'
+import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { createIndexRevisionGate } from './indexRevisionGate'
 
 type DirectEventSubscription = (listener: (event: any) => void) => () => void
@@ -32,12 +33,16 @@ export type UiPollingDeps = {
   activeChatFromData: () => any
   // 版本门数据源：即使缓存命中也要向服务端确认最新 revision。
   refreshChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  // 版本门守卫：读取期间被失效 / 换代挡下的旧快照不能驱动对账。
+  isChatIndexSnapshotCurrent?: (scope: ProjectionScope, snapshot: ChatIndexSnapshot | null) => boolean
   // 权威正文重取：重取首窗但保留已翻出的更早窗口。
   reloadChatBody: (scope: ProjectionScope, chatId: string) => Promise<any>
   // 会话进入内存状态的唯一入口。
   upsertLoadedChat: (kind: 'role' | 'group', targetId: string, chat: any) => any
   // 当前连接 / 投影代际：版本门必须把它和 revision 一起比较。
   getEpoch?: () => number
+  // 会话写回代数：对账期间会话被删除，旧正文不得回填。
+  sessionWrites?: SessionWriteGuard
 }
 
 export function createUiPolling(deps: UiPollingDeps) {
@@ -47,6 +52,8 @@ export function createUiPolling(deps: UiPollingDeps) {
     reloadChatBody: deps.reloadChatBody,
     upsertLoadedChat: deps.upsertLoadedChat,
     hasActiveRun: (scope, chatId) => readActiveEbRunCardsForTarget(deps.getState(), scope.kind, scope.targetId, chatId).length > 0,
+    getEpoch: deps.getEpoch,
+    sessionWrites: deps.sessionWrites,
   })
 
   let uiLastChatUpdatedNoticeId = ''
@@ -80,6 +87,9 @@ export function createUiPolling(deps: UiPollingDeps) {
     // 索引永远是权威读取：refreshChatIndex 绕过缓存确认服务端 revision。
     const snapshot = await deps.refreshChatIndex(scope)
     if (!snapshot) return false
+    // 读取期间发生过失效 / 换代：refreshChatIndex 只返回快照、不回填缓存，
+    // 它已经不是当前权威事实，不能驱动列表收敛，也不能推进版本门。
+    if (deps.isChatIndexSnapshotCurrent && !deps.isChatIndexSnapshotCurrent(scope, snapshot)) return false
 
     // epoch 必须在 refresh 之后读：refreshChatIndex 内部会用服务端快照推进版本。
     const epoch = currentEpoch()
@@ -88,7 +98,10 @@ export function createUiPolling(deps: UiPollingDeps) {
     const force = options?.force === true
     if (!force && !gate.shouldApply(scopeKey, epoch, revision)) return false
 
-    const applied = await targetChatSync.syncTargetChats(scope, snapshot, { force })
+    const applied = await targetChatSync.syncTargetChats(scope, snapshot, {
+      force,
+      isCurrent: () => !deps.isChatIndexSnapshotCurrent || deps.isChatIndexSnapshotCurrent(scope, snapshot),
+    })
     // 被并发对账挡下时不推进版本门：下一次仍会重试，不会把缺口吞掉。
     if (!applied) return false
     gate.markApplied(scopeKey, epoch, revision)

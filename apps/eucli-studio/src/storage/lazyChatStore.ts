@@ -14,6 +14,7 @@ import { normalizeStoredChat } from './normalizeStoredChat'
 import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
+import type { SessionWriteGuard, SessionWriteToken } from './sessionWriteGuard'
 import {
   firstChatIdInBox,
   readActiveChatSelection,
@@ -53,6 +54,14 @@ function isMissingChatError(error: unknown) {
   return message.includes('json file does not exist') || message.includes('会话不存在') || message.includes('session does not exist')
 }
 
+function boxHasChatRef(box: any, chatId: string) {
+  if (!box || !chatId) return false
+  const metas = Array.isArray(box.chatMetas) ? box.chatMetas : []
+  if (metas.some((meta: any) => String(meta?.id || '').trim() === chatId)) return true
+  const chats = Array.isArray(box.chats) ? box.chats : []
+  return chats.some((chat: any) => String(chat?.id || '').trim() === chatId)
+}
+
 function removeMissingChatRef(box: any, chatId: string, kind: LazyChatKind) {
   if (!box || !chatId) return
   writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: kind === 'group' ? '群聊' : '新聊天' })
@@ -71,9 +80,12 @@ export function createLazyChatStore(deps: {
     load: (scope: ProjectionScope, chatId: string) => Promise<any>
     invalidate?: (scope: ProjectionScope, chatId: string) => void
   }
+  // 删除会话 / target 时推进代数：删除之前发起的加载不得把结果写回盒子里。
+  sessionWrites?: SessionWriteGuard
 }) {
-  const { storage, getState, loadSplitMeta, getSplitMetaCache, loadChatIndex, chatBodies } = deps
-  const loadingChats = new Map<string, Promise<any>>()
+  const { storage, getState, loadSplitMeta, getSplitMetaCache, loadChatIndex, chatBodies, sessionWrites } = deps
+  // 在途登记带令牌：删除之后的新调用不能复用旧代的 promise。
+  const loadingChats = new Map<string, { token: SessionWriteToken | null; promise: Promise<any> }>()
 
   function cachedSplitMetaFor(kind: LazyChatKind, targetId: string) {
     const meta = typeof getSplitMetaCache === 'function' ? getSplitMetaCache() : null
@@ -168,8 +180,11 @@ export function createLazyChatStore(deps: {
     if (existing && !existing.runtimePartial) return existing
 
     const pendingKey = loadingChatKey(kind, targetId, chatId)
+    const token = sessionWrites?.capture(kind, targetId, chatId) || null
     const pending = loadingChats.get(pendingKey)
-    if (pending) return pending
+    // 旧代在途请求即使还没落地也已经作废：删除之后必须发起新请求。
+    if (pending && (!sessionWrites || sessionWrites.isCurrent(pending.token))) return pending.promise
+    if (pending) loadingChats.delete(pendingKey)
 
     const run = (async () => {
       const meta = await loadSplitMetaFor(kind, targetId)
@@ -187,6 +202,8 @@ export function createLazyChatStore(deps: {
         }
         throw error
       }
+      // 会话在读取途中被删除：旧结果不得写回，否则已删除的会话会复活。
+      if (sessionWrites && !sessionWrites.isCurrent(token)) return null
       const chat = normalizeStoredChat(raw, kind)
       if (!chat) {
         removeMissingChatRef(box, chatId, kind)
@@ -196,11 +213,12 @@ export function createLazyChatStore(deps: {
       const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
       return writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle })?.chat || null
     })()
-    loadingChats.set(pendingKey, run)
+    loadingChats.set(pendingKey, { token, promise: run })
     try {
       return await run
     } finally {
-      loadingChats.delete(pendingKey)
+      // 只摘自己：旧代请求收尾不能删掉同 key 的新代登记。
+      if (loadingChats.get(pendingKey)?.promise === run) loadingChats.delete(pendingKey)
     }
   }
 
@@ -238,6 +256,9 @@ export function createLazyChatStore(deps: {
       .map((id) => id.trim())
       .filter((id, index, list) => !!id && list.indexOf(id) === index)
     for (const chatId of ids) {
+      // ids 是循环开始时的快照：期间可能已经被删除。删除之后不得再写偏好，
+      // 也不得用「删除之后才发起」的加载把会话重新写回。
+      if (!boxHasChatRef(box, chatId)) continue
       writeActiveChatSelection(box, chatId)
       const chat = await ensureChatLoaded(kind, targetId, chatId)
       if (chat) return chat

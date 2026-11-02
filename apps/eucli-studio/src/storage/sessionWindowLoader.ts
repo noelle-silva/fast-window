@@ -164,6 +164,17 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   const guard = createGenerationGuard()
   const inflight = createInflightRegistry<SessionWindowState | null>()
 
+  // commit 是分页状态唯一的落地动作。
+  //
+  // 它同时承担「写序」职责：每次成功写入都推进代数，让同一代的其它在途写入
+  // （refresh 与 loadOlder 并发时最常见）在落地时发现自己已经过期，从而丢弃。
+  // 没有这一步，「首窗重取」会覆盖刚翻出的更早窗口，「旧翻页」也会把已删除的
+  // 消息并回新正文——两者都属于旧结果覆盖新事实。
+  function commit(key: string, state: SessionWindowState) {
+    guard.advance(key)
+    states.set(key, state)
+  }
+
   function supportsWindow() {
     return sessionSwitch.hasFeature('session.window')
   }
@@ -295,7 +306,7 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
         const state = await stateFromPage(scope, chatId, page, null)
         // 补齐会话级事实期间同样可能发生失效：落地前再确认一次。
         if (!guard.isCurrent(key, generation)) return null
-        states.set(key, state)
+        commit(key, state)
         return state
       })
       .finally(() => {
@@ -338,7 +349,7 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
         const state = await stateFromPage(scope, chatId, page, current)
         // 补齐会话级事实期间同样可能发生失效：落地前再确认一次。
         if (!guard.isCurrent(key, generation)) return null
-        states.set(key, state)
+        commit(key, state)
         return state
       })
       .finally(() => {
@@ -370,6 +381,7 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   }
 
   async function refreshOnce(key: string, scope: SessionScope, chatId: string): Promise<WindowReadResult> {
+    // previous 必须取「本次请求所属代」的基线；落地前再确认它没有被别的写入替换。
     const previous = states.get(key) || null
     const generation = guard.current(key)
     const page = await requestHeadPage(scope, chatId)
@@ -377,6 +389,9 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     if (!guard.isCurrent(key, generation)) return STALE
     const merged = previous ? mergeRefreshedPage(previous.chat, page) : mergeWindowPage(page, page)
     const identity = await identityFor(scope, chatId, page, previous)
+    // 补齐会话级事实期间同样可能发生失效或已被更新的写入抢先：
+    // 旧首窗落地会把新正文 / 已翻出的历史覆盖掉。
+    if (!guard.isCurrent(key, generation)) return STALE
     const chat = applySessionIdentity({ ...merged, id: String(merged?.id || chatId), windowPartial: true }, identity)
     const state: SessionWindowState = {
       scope,
@@ -388,7 +403,7 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
     }
     // 已经翻过的窗口不会被首窗重取推翻：续翻锚点沿用旧游标（含「已到底」）。
     state.hasMore = !!state.nextCursor
-    states.set(key, state)
+    commit(key, state)
     return settled(state)
   }
 

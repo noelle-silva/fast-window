@@ -35,6 +35,11 @@ type ProbeEntry = {
   onUpdate?: (run: EbRunState) => void
   timer: ReturnType<typeof setTimeout> | null
   inFlight: boolean
+  // 每次权威信号（终态事件 / 重连 / 生命周期快照）推进一次：
+  // 在途探针回来时若序号已变，说明它不是最新事实，必须丢弃。
+  probeEpoch: number
+  // 在途期间被权威信号打断：当前请求收尾后立刻补一次探测。
+  pendingProbe: boolean
   backoffMs: number
   settled: boolean
 }
@@ -86,29 +91,48 @@ export function createRunProbe(deps: RunProbeDeps): RunProbe {
     }, entry.backoffMs)
   }
 
+  // supersedeProbe 是「权威信号优先」的唯一入口：
+  // 已经发出的探测属于旧事实，不能再把它的结果写回运行状态。
+  function supersedeProbe(entry: ProbeEntry) {
+    entry.probeEpoch += 1
+    if (entry.inFlight) entry.pendingProbe = true
+  }
+
   // probe 是唯一发 HTTP 的地方：同一 runId 最多 1 个在途探针。
   async function probe(runId: string) {
     const entry = entries.get(runId)
     if (!entry || entry.settled || entry.inFlight) return
     entry.inFlight = true
+    const epoch = entry.probeEpoch
     try {
       const run = await getRunState(deps.netRequest, runId)
       if (entry.settled) return
-      entry.latest = run
+      // 终态快照永远优先收尾：即使期间有过别的信号，它也不会让 run 卡在 running。
       if (isTerminalRunStatus(run.status)) {
         settle(entry, run)
         return
       }
+      // 请求发出之后已有更新的权威信号：这份非终态快照属于上一代，丢弃。
+      if (entry.probeEpoch !== epoch) return
+      entry.latest = run
       entry.onUpdate?.(run)
       entry.backoffMs = Math.min(entry.backoffMs * 2, RUN_PROBE_MAX_BACKOFF_MS)
       schedule(entry, runId)
     } catch {
       if (entry.settled) return
+      // 旧代请求的失败同样不能影响新一代的节奏：权威信号已经安排了后续探测。
+      if (entry.probeEpoch !== epoch) return
       // 探针失败不等于 run 失败：保留最后一次已知状态，继续按退避节奏确认。
       entry.backoffMs = Math.min(entry.backoffMs * 2, RUN_PROBE_MAX_BACKOFF_MS)
       schedule(entry, runId)
     } finally {
       entry.inFlight = false
+      // 在途期间被权威信号打断：现在才能安全地补一次（仍然只有 1 个在途）。
+      if (entry.pendingProbe && !entry.settled) {
+        entry.pendingProbe = false
+        clearTimer(entry)
+        void probe(runId)
+      }
     }
   }
 
@@ -123,7 +147,10 @@ export function createRunProbe(deps: RunProbeDeps): RunProbe {
   function probeNow(runId: string) {
     const entry = entries.get(runId)
     if (!entry || entry.settled) return
+    // 权威信号到达：在途探测即使还没回来也已过期，结果不得回填。
+    supersedeProbe(entry)
     clearTimer(entry)
+    if (entry.inFlight) return
     void probe(runId)
   }
 
@@ -151,6 +178,8 @@ export function createRunProbe(deps: RunProbeDeps): RunProbe {
         onUpdate,
         timer: null,
         inFlight: false,
+        probeEpoch: 0,
+        pendingProbe: false,
         backoffMs: RUN_PROBE_SILENCE_MS,
         settled: false,
       }
@@ -181,6 +210,8 @@ export function createRunProbe(deps: RunProbeDeps): RunProbe {
     }
     const snapshot = readRunLifecycleSnapshot(runId, envelope.payload)
     if (snapshot) {
+      // 事件里的生命周期快照比在途 HTTP 更新：在途结果回来时不得把它盖回旧状态。
+      supersedeProbe(entry)
       entry.latest = normalizeRunState(snapshot)
       entry.onUpdate?.(entry.latest)
     }

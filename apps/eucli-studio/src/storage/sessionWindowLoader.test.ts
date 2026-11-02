@@ -348,6 +348,33 @@ describe('失效打断在途读取', () => {
     expect(loader.peek(scope, 'chat-1')?.chat.messages[0].content).toBe('第三版')
   })
 
+  it('迟到的 refresh 不得覆盖更新的 refresh（同代写入按代数排序）', async () => {
+    const stale = deferred<any>()
+    let calls = 0
+    const client = {
+      hasFeature: () => true,
+      sessionWindow: vi.fn(async (_scope: any, chatId: string) => {
+        calls += 1
+        if (calls === 1) return page([msg('m1', 10, { content: '第一版' })], '')
+        if (calls === 2) return stale.promise
+        if (calls === 3) return page([msg('m1', 10, { content: '第三版' })], '')
+        return page([msg('m1', 10, { content: '第四版' })], '')
+      }),
+    }
+    const loader = createSessionWindowLoader({ sessionSwitch: client as any })
+    await loader.load(scope, 'chat-1')
+
+    const olderRefresh = loader.refresh(scope, 'chat-1')
+    const newerRefresh = await loader.refresh(scope, 'chat-1')
+    expect(newerRefresh.messages[0].content).toBe('第三版')
+
+    // 旧请求晚到：必须被新一代挡下并重取，而不是把「第二版」写回。
+    stale.resolve(page([msg('m1', 10, { content: '第二版（旧请求）' })], ''))
+    const olderResult = await olderRefresh
+    expect(olderResult.messages[0].content).toBe('第四版')
+    expect(loader.peek(scope, 'chat-1')?.chat.messages[0].content).toBe('第四版')
+  })
+
   it('clear 同样打断在途读取', async () => {
     const first = deferred<any>()
     let calls = 0

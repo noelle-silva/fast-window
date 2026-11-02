@@ -6,6 +6,7 @@ import { workspaceSessionToChat } from './workspaceBridge'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import type { ChatSettingsAction } from './chatSettingsSaveQueue'
 import type { ChatSettingsTarget } from './chatSessionTarget'
+import type { SessionWriteGuard, SessionWriteKind } from '../storage/sessionWriteGuard'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createChatSessionSettingsBridge(deps: {
@@ -19,8 +20,18 @@ export function createChatSessionSettingsBridge(deps: {
   isActiveChatSettingsTarget: (target: ChatSettingsTarget) => boolean
   upsertWorkspaceChat: (workspaceId: string, chat: any) => any
   upsertLoadedChat: (kind: 'role' | 'group', targetId: string, chat: any) => any
+  sessionWrites?: SessionWriteGuard
 }) {
-  const { getState, getNetRequest, emit, showToast, runChatSettingsSave, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, upsertWorkspaceChat, upsertLoadedChat } = deps
+  const { getState, getNetRequest, emit, showToast, runChatSettingsSave, captureChatSettingsTarget, currentChatForSettingsTarget, isActiveChatSettingsTarget, upsertWorkspaceChat, upsertLoadedChat, sessionWrites } = deps
+
+  function captureTargetWrite(target: ChatSettingsTarget) {
+    if (!sessionWrites) return null
+    return sessionWrites.capture(target.kind as SessionWriteKind, target.targetId, target.sessionId)
+  }
+
+  function targetWriteIsCurrent(token: ReturnType<typeof captureTargetWrite>) {
+    return !sessionWrites || sessionWrites.isCurrent(token)
+  }
 
   function writeHookPromptSelectionToChat(chat: any, modeRaw: any, presetIdRaw?: any) {
     if (!chat || typeof chat !== 'object') return
@@ -107,6 +118,7 @@ export function createChatSessionSettingsBridge(deps: {
     applyLocal(chat)
     ;(chat as any).updatedAt = now()
     emit()
+    const writeToken = captureTargetWrite(target)
     return runChatSettingsSave(target, action, patch, async (isCurrent) => {
       try {
         let session: any = null
@@ -117,7 +129,7 @@ export function createChatSessionSettingsBridge(deps: {
         } else {
           session = await updateRoleSessionSettings(netRequest, { roleId: target.roleId, sessionId: target.sessionId }, patch)
         }
-        if (!isCurrent()) return
+        if (!isCurrent() || !targetWriteIsCurrent(writeToken)) return
         applyChatSettingsSessionResponse(target, session)
         emit()
       } catch (error) {
@@ -150,6 +162,7 @@ export function createChatSessionSettingsBridge(deps: {
     }
     const netRequest = getNetRequest()
     if (typeof netRequest !== 'function') return showToast?.('业务端请求通道不可用', { kind: 'error' })
+    const writeToken = captureTargetWrite(target)
     const ok = await runChatSettingsSave(target, 'hook', { mode: selection.mode, presetId: selection.presetId }, async (isCurrent) => {
       let session: any = null
       if (kind === 'group') {
@@ -159,7 +172,7 @@ export function createChatSessionSettingsBridge(deps: {
       } else {
         session = await updateRoleSessionHookPrompt(netRequest, { roleId: target.roleId, sessionId: target.sessionId, mode: selection.mode, presetId: selection.presetId })
       }
-      if (!isCurrent()) return
+      if (!isCurrent() || !targetWriteIsCurrent(writeToken)) return
       applyChatSettingsSessionResponse(target, session)
       emit()
     }, '当前会话 hook 提示词保存失败')

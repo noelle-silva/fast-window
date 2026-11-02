@@ -201,6 +201,40 @@ describe('RunProbe 取代 450ms 轮询', () => {
     expect(harness.netRequest).not.toHaveBeenCalled()
   })
 
+  it('终态事件到达时，迟到的运行中探针结果被丢弃并立刻补探一次', async () => {
+    let release: (value: any) => void = () => {}
+    const slow = new Promise((resolve) => { release = resolve })
+    let calls = 0
+    const netRequest = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) return slow
+      return { status: 200, body: runState({ status: 'completed' }) }
+    })
+    const eventListeners: Array<(event: any) => void> = []
+    const probe = createRunProbe({
+      netRequest,
+      subscribeDirectEvents: (listener) => {
+        eventListeners.push(listener)
+        return () => { eventListeners.length = 0 }
+      },
+    })
+    const updates: EbRunState[] = []
+    const promise = probe.track(runState(), (run) => updates.push(run))
+
+    await vi.advanceTimersByTimeAsync(RUN_PROBE_SILENCE_MS)
+    expect(calls).toBe(1)
+
+    // 终态事件先到：在途探针已经过期。
+    for (const listener of eventListeners) listener({ name: 'eucliBox.run.event', payload: { type: 'run_completed', runId: 'run-1' } })
+    release({ status: 200, body: runState({ status: 'running', lastMessageId: 'm-stale' }) })
+    await vi.advanceTimersByTimeAsync(0)
+
+    // 旧结果不得写回运行状态；必须补一次权威探测并拿到终态。
+    expect(updates.some((run) => run.status === 'running' && run.lastMessageId === 'm-stale')).toBe(false)
+    expect(calls).toBe(2)
+    await expect(promise).resolves.toMatchObject({ status: 'completed' })
+  })
+
   it('stop 结束本地等待，不 resolve 也不 reject', async () => {
     const harness = createHarness([{ status: 'running' }])
     let settled = false

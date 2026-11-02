@@ -62,6 +62,7 @@ type HarnessOptions = {
   bodies?: Record<string, any>
   onReconnected?: (listener: () => void) => () => void
   emitOnSubscribe?: (listener: (event: any) => void) => void
+  isChatIndexSnapshotCurrent?: (scope: ProjectionScope, snapshot: ChatIndexSnapshot | null) => boolean
 }
 
 function makeHarness(options: HarnessOptions) {
@@ -99,6 +100,7 @@ function makeHarness(options: HarnessOptions) {
       return box?.chats?.find((item: any) => String(item?.id || '') === id) || null
     },
     refreshChatIndex,
+    isChatIndexSnapshotCurrent: options.isChatIndexSnapshotCurrent,
     reloadChatBody,
     upsertLoadedChat,
     getEpoch: options.epoch,
@@ -122,6 +124,18 @@ describe('uiPolling 版本门', () => {
 
     await polling.uiPollTick()
     await polling.uiPollTick()
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it('读取期间失效的旧索引快照不驱动对账、不推进版本门', async () => {
+    const { polling, state, emit, upsertLoadedChat } = makeHarness({
+      revisions: [7, 7],
+      ids: ['chat-stale'],
+      isChatIndexSnapshotCurrent: () => false,
+    })
+    await polling.uiPollTick()
+    expect(upsertLoadedChat).not.toHaveBeenCalled()
+    expect(state.data.chatsByRole['role-1'].chatMetas).toEqual([])
     expect(emit).not.toHaveBeenCalled()
   })
 

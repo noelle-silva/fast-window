@@ -15,6 +15,7 @@ import {
   writeActiveChatSelection,
 } from '../domain/activeChatSelection'
 import type { AiChatShowToast } from '../gateway/capabilities'
+import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { saveEntityOrder } from './entityOrderBridge'
 import {
   createWorkspaceSession,
@@ -65,6 +66,13 @@ function firstRoleId(state: any) {
 
 function currentWorkspaceRoleId(state: any, activeRole: () => any) {
   return text(activeRole()?.id || state?.draft?.activeRoleId || state?.data?.ui?.activeRoleId)
+}
+
+function isActiveWorkspaceRole(state: any, activeRole: () => any, workspaceId: string, roleId: string): boolean {
+  if (!state?.data) return false
+  if (String(state.draft?.activeTargetKind || state.data.ui?.activeTargetKind || '').trim() !== 'workspace') return false
+  const currentWorkspaceId = text(state.draft?.activeWorkspaceId || state.data.ui?.activeWorkspaceId)
+  return currentWorkspaceId === workspaceId && currentWorkspaceRoleId(state, activeRole) === roleId
 }
 
 function ensureWorkspaceBox(state: any, activeRole: () => any, workspaceIdRaw: unknown, roleIdRaw?: unknown) {
@@ -127,11 +135,34 @@ export function createWorkspaceManager(deps: {
   activeWorkspace: () => any
   clearPendingWorkspaceChat: () => void
   removeLoadedChat?: (kind: 'role' | 'group' | 'workspace', targetId: string, chatId: string) => void
+  // 删除工作区 / 工作区会话时推进代数：在途列表与会话体不得回填。
+  sessionWrites?: SessionWriteGuard
+  onChatDeleted?: (kind: 'workspace', targetId: string, chatId: string) => void
+  onWorkspaceDeleted?: (workspaceId: string) => void
   cleanupFavoriteRefsForChat?: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget?: (targetKind: string, targetId: string) => void
 }) {
-  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
+  const { getState, netRequest, emit, render, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
   let workspaceMoveSeq = 0
+  // 列表刷新是「最后发起的请求获胜」：旧响应落地时序号已变，直接丢弃。
+  // 工作区列表与每个角色组合的会话列表各自一条序列。
+  let workspaceListSeq = 0
+  const workspaceChatListSeq = new Map<string, number>()
+
+  function beginLatest(map: Map<string, number>, key: string): number {
+    const next = (map.get(key) || 0) + 1
+    map.set(key, next)
+    return next
+  }
+
+  function isLatest(map: Map<string, number>, key: string, seq: number): boolean {
+    return map.get(key) === seq
+  }
+
+  function supersedeWorkspaceChatList(workspaceId: string, roleId: string) {
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    beginLatest(workspaceChatListSeq, targetId)
+  }
 
   function requireNetRequest() {
     if (typeof netRequest !== 'function') throw new Error('工作区请求通道不可用')
@@ -223,7 +254,13 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId) return null
     const request = requireNetRequest()
     const roleId = currentWorkspaceRoleId(state, activeRole)
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    const seq = beginLatest(workspaceChatListSeq, targetId)
+    const targetToken = sessionWrites?.capture('workspace', targetId, '') || null
     const summaries = await listWorkspaceSessionSummaries(request, workspaceId, roleId)
+    // 更新的列表请求已经发出 / 工作区已被删除：旧响应不得覆盖新事实。
+    if (!isLatest(workspaceChatListSeq, targetId, seq)) return null
+    if (sessionWrites && !sessionWrites.isCurrent(targetToken)) return null
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return null
     const metas = summaries.map(workspaceSessionSummaryToMeta).filter(Boolean)
@@ -238,7 +275,10 @@ export function createWorkspaceManager(deps: {
     const state = getState()
     if (!state?.data) return []
     const request = requireNetRequest()
+    const seq = ++workspaceListSeq
     const workspaces = await listWorkspacesDetailed(request)
+    // 删除工作区 / 更新的刷新已经发生：旧列表属于上一代。
+    if (seq !== workspaceListSeq) return []
     const next = syncWorkspaceListToState(workspaces, preferredWorkspaceId)
     const activeWorkspaceId = text((state.draft as any)?.activeWorkspaceId)
     if (activeWorkspaceId) await refreshActiveWorkspaceChats(activeWorkspaceId).catch(() => null)
@@ -257,8 +297,12 @@ export function createWorkspaceManager(deps: {
     const existing = (Array.isArray(box.chats) ? box.chats : []).find((chat: any) => text(chat?.id) === chatId && !chat?.runtimePartial) || null
     if (existing) return existing
     const request = requireNetRequest()
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    const writeToken = sessionWrites?.capture('workspace', targetId, chatId) || null
     const chat = await loadWorkspaceSession(request, workspaceId, roleId, chatId)
     if (!chat) return null
+    // 读取期间会话 / 工作区被删除：旧会话不得写回。
+    if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return null
     upsertWorkspaceChat(workspaceId, chat)
     return chat
   }
@@ -277,6 +321,9 @@ export function createWorkspaceManager(deps: {
     const ids = [readActiveChatSelection(box), ...(Array.isArray(box.chatMetas) ? box.chatMetas.map((meta: any) => text(meta?.id)) : [])]
       .filter((id, index, list) => !!id && list.indexOf(id) === index)
     for (const chatId of ids) {
+      // ids 是循环开始时的快照：期间可能已经删除。删除之后不得再写偏好，
+      // 也不得用「删除之后才发起」的加载把会话重新写回。
+      if (!boxHasChatRef(box, chatId)) continue
       writeActiveChatSelection(box, chatId)
       const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId)
       if (chat) return chat
@@ -512,6 +559,9 @@ export function createWorkspaceManager(deps: {
     if (!state?.data) return false
     const workspaceId = text(workspaceIdRaw)
     if (!workspaceId) return false
+    // 删除动作一开始就换代：在途工作区列表 / 会话加载不得把旧事实写回。
+    onWorkspaceDeleted?.(workspaceId)
+    workspaceListSeq += 1
     try {
       await deleteWorkspace(requireNetRequest(), workspaceId)
       cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
@@ -571,7 +621,12 @@ export function createWorkspaceManager(deps: {
       if (!box || !boxHasChatRef(box, chatId)) return
     }
     writeActiveChatSelection(box, chatId)
+    const requestToken = sessionWrites?.capture('workspace', workspaceRoleTargetId(workspaceId, roleId), chatId) || null
     const chat = await ensureWorkspaceChatLoaded(workspaceId, roleId, chatId).catch(() => null)
+    // 会话被删除：旧加载结果不得继续驱动选中 / 草稿 / 渲染。
+    if (sessionWrites && !sessionWrites.isCurrent(requestToken)) return
+    // 用户在等待期间切到了别的工作区 / 角色：这次选择的落点已经失效。
+    if (!isActiveWorkspaceRole(state, activeRole, workspaceId, roleId)) return
     if (text(chat?.roleId)) state.draft.activeRoleId = text(chat?.roleId)
     activateComposerDraftForCurrentSession(state)
     saveMeta().catch(() => {})
@@ -589,8 +644,11 @@ export function createWorkspaceManager(deps: {
     let nextTitle = text(title).replace(/\s+/g, ' ').trim()
     if (nextTitle.length > 80) nextTitle = nextTitle.slice(0, 80).trim()
     nextTitle = nextTitle || '工作区会话'
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    const writeToken = sessionWrites?.capture('workspace', targetId, chatId) || null
     try {
       await updateWorkspaceSessionTitle(requireNetRequest(), { workspaceId, roleId, sessionId: chatId, title: nextTitle })
+      if (sessionWrites && !sessionWrites.isCurrent(writeToken)) return false
       const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
       if (!box) return false
       const chat = (Array.isArray(box.chats) ? box.chats : []).find((item: any) => text(item?.id) === chatId) || null
@@ -627,6 +685,9 @@ export function createWorkspaceManager(deps: {
       showToast?.('该工作区会话有真实运行中的任务，不能删除', { kind: 'error' })
       return false
     }
+    // 先换代再删本地：在途会话体与列表刷新落地时都会被判成旧代。
+    onChatDeleted?.('workspace', targetId, chatId)
+    supersedeWorkspaceChatList(workspaceId, roleId)
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return false
     writeChatListProjection(box, { kind: 'remove', chatId, fallbackTitle: '工作区会话' })

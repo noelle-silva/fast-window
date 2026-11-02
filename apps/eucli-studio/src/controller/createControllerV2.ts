@@ -27,6 +27,7 @@ import { COMPOSER_REFRESH_SCOPE } from '../domain/uiRefreshScope'
 import { createStickerStorage } from '../storage/stickerStorage'
 import { createEmptyShellData, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
+import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { createProjectionPipeline } from './projectionPipeline'
 import { loadSessionEditSnapshot } from './sessionEditSnapshot'
@@ -102,6 +103,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 1. STATE
   const state = createInitialControllerState()
   let disposed = false
+  // 会话写回的代数守卫：删除会话 / target / 工作区时推进，
+  // 所有「await 之后写回会话」的路径都必须携带令牌校验。
+  const sessionWrites = createSessionWriteGuard()
 
   // ============================================================
   // 2. UI CORE
@@ -307,6 +311,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       load: (scope, chatId) => projectionPipeline.chatBodies.load(scope, chatId),
       invalidate: (scope, chatId) => projectionPipeline.invalidateChatBody(scope, chatId),
     },
+    sessionWrites,
   })
   const {
     loadShell,
@@ -321,6 +326,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const roleId = String(roleIdRaw || '').trim()
     const sessionId = String(sessionIdRaw || '').trim()
     if (!roleId || !sessionId) return null
+    const token = sessionWrites.capture('role', roleId, sessionId)
     // 写路径之后必须重取正文：reloadChatBody 内部先失效再重取首窗
     // （窗口模式保留已翻出的更早窗口），随后 loadStoredChat 直接命中新正文。
     //
@@ -330,6 +336,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const fresh = await projectionPipeline.reloadChatBody({ kind: 'role', targetId: roleId }, sessionId)
     const chat = fresh && typeof fresh === 'object' ? fresh : await loadStoredChat('role', roleId, sessionId)
     if (!chat) return null
+    // 读取期间会话被删除：这份正文属于上一代，不能写回。
+    if (!sessionWrites.isCurrent(token)) return null
     const loaded = upsertLoadedChat('role', roleId, chat)
     ebRunEvents.flushSession(roleId, sessionId)
     return loaded
@@ -339,9 +347,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const groupId = String(groupIdRaw || '').trim()
     const sessionId = String(sessionIdRaw || '').trim()
     if (!groupId || !sessionId) return null
+    const token = sessionWrites.capture('group', groupId, sessionId)
     const fresh = await projectionPipeline.reloadChatBody({ kind: 'group', targetId: groupId }, sessionId)
     const chat = fresh && typeof fresh === 'object' ? fresh : await loadStoredChat('group', groupId, sessionId)
     if (!chat) return null
+    if (!sessionWrites.isCurrent(token)) return null
     const loaded = upsertLoadedChat('group', groupId, chat)
     ebRunEvents.flushSession('group', groupId, sessionId)
     return loaded
@@ -354,10 +364,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (!workspaceId || !roleId || !sessionId) return null
     const request = capabilities.net?.request
     if (typeof request !== 'function') return null
+    const targetId = workspaceRoleTargetId(workspaceId, roleId)
+    const token = sessionWrites.capture('workspace', targetId, sessionId)
     const chat = await loadWorkspaceSession(request, workspaceId, roleId, sessionId)
     if (!chat) return null
+    if (!sessionWrites.isCurrent(token)) return null
     const loaded = upsertWorkspaceChat(workspaceId, chat)
-    ebRunEvents.flushSession('workspace', workspaceRoleTargetId(workspaceId, roleId), sessionId)
+    ebRunEvents.flushSession('workspace', targetId, sessionId)
     return loaded
   }
 
@@ -461,6 +474,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       }
       removeLoadedChat(kind as any, targetId, chatId)
     },
+    sessionWrites,
+    onChatDeleted: (kind, targetId, chatId) => {
+      sessionWrites.invalidateSession(kind, targetId, chatId)
+    },
+    onWorkspaceDeleted: (workspaceId) => {
+      sessionWrites.invalidateWorkspace(workspaceId)
+    },
     cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) =>
       favOps.cleanupFavoriteRefsForChat(targetKind, targetId, roleId, chatId),
     cleanupFavoriteRefsForTarget: (targetKind: string, targetId: string) => favOps.cleanupFavoriteRefsForTarget(targetKind, targetId),
@@ -513,7 +533,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (!targetId || !chatId) return false
     const scope = { kind, targetId } as const
     const before = Array.isArray((chat as any)?.messages) ? (chat as any).messages.length : 0
+    const token = sessionWrites.capture(kind, targetId, chatId)
     const merged = await projectionPipeline.loadOlderMessages(scope, chatId)
+    // 翻页期间会话被删除：旧页不得并回内存。
+    if (!sessionWrites.isCurrent(token)) return false
     const after = Array.isArray(merged?.messages) ? merged.messages.length : before
     if (after <= before) return false
     // 翻页结果并回内存：normalizeStoredChat 会补分支与消息字段。
@@ -639,6 +662,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     isActiveChatSettingsTarget,
     upsertWorkspaceChat,
     upsertLoadedChat,
+    sessionWrites,
   })
   const { applyChatSettingsAction, selectHookPromptForActiveChat } = chatSessionSettingsBridge
 
@@ -899,6 +923,19 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     setRoleActiveChatSelection: (roleId: string, chatId: string) => setActiveRoleChatSelection(roleId, chatId),
     setGroupActiveChatSelection: (groupId: string, chatId: string) => setActiveGroupChatSelection(groupId, chatId),
     removeLoadedChat,
+    sessionWrites,
+    onChatDeleted: (kind, targetId, chatId) => {
+      sessionWrites.invalidateSession(kind, targetId, chatId)
+      // 索引是 scope 级事实：删除一条会话必须让整个 scope 的索引换代，
+      // 否则在途的索引读取会把已删除的会话重新写回列表。
+      projectionPipeline.invalidateSessionIndex(kind, targetId)
+      projectionPipeline.invalidateChatSession({ kind, targetId }, chatId)
+    },
+    onTargetDeleted: (kind, targetId) => {
+      sessionWrites.invalidateTarget(kind, targetId)
+      projectionPipeline.invalidateSessionIndex(kind, targetId)
+      projectionPipeline.invalidateScopeSessions({ kind, targetId })
+    },
     cleanupFavoriteRefsForTarget: favOps.cleanupFavoriteRefsForTarget,
     cleanupFavoriteRefsForChat: favOps.cleanupFavoriteRefsForChat,
   })
@@ -986,6 +1023,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
     runProbe,
+    sessionWrites,
   })
   const {
     pickDraftImages,
@@ -1028,12 +1066,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     activeChatFromData,
     // 索引永远是权威读取：refreshChatIndex 绕过投影缓存确认服务端 revision。
     refreshChatIndex: (scope) => projectionPipeline.refreshChatIndex(scope),
+    isChatIndexSnapshotCurrent: (scope, snapshot) => projectionPipeline.isChatIndexSnapshotCurrent(scope, snapshot),
     // 正文永远是权威重取：reloadChatBody 先失效再取，绝不返回缓存旧正文。
     reloadChatBody: (scope, chatId) => projectionPipeline.reloadChatBody(scope, chatId),
     // 入状态统一走 upsertLoadedChat（会话进入内存状态的唯一入口）。
     upsertLoadedChat: (kind, targetId, chat) => upsertLoadedChat(kind, targetId, chat),
     // 版本门必须同时看代际：服务端重建后 revision 可能相同。
     getEpoch: () => projectionPipeline.versions().epoch,
+    sessionWrites,
   })
   const { startUiPollers, stopUiPollers } = uiPolling
 
