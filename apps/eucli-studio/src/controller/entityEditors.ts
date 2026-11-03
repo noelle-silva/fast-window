@@ -26,6 +26,7 @@ import {
   reconcileEntitySaveFailure,
 } from './entityWriteReconcile'
 import { reconcileProviderDeleteFailure, reconcileProviderSaveFailure } from './providerWriteReconcile'
+import { shouldNotifyEntityDelete, type EntityDeleteOptions } from './entityDeleteNotification'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -464,11 +465,12 @@ export function createEntityEditors(deps: {
     }
   }
 
-  async function deleteRole(roleId: any) {
+  async function deleteRole(roleId: any, options?: EntityDeleteOptions) {
     const state = getState()
     if (!state.data) return false
     const rid = String(roleId || '')
     if (!rid) return false
+    const notify = shouldNotifyEntityDelete(options)
     // 删除动作一开始就换代：服务端删除尚未返回时，在途读写已经在写旧事实。
     onTargetDeleted?.('role', rid)
     const previousRoles = Array.isArray(state.data.roles) ? state.data.roles.slice() : []
@@ -489,7 +491,7 @@ export function createEntityEditors(deps: {
       await removeRoleEntity?.(rid)
       showToast?.('角色已删除', { kind: 'success' })
       activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       const outcome = await reconcileEntityDeleteFailure({
@@ -501,7 +503,7 @@ export function createEntityEditors(deps: {
         // 后端已不存在：删除实际成功，本地保持移除。
         showToast?.('角色已删除（已通过回读确认）', { kind: 'success' })
         activateComposerDraftForCurrentSession(state)
-        notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
+        if (notify) notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
         return true
       }
       state.data.roles = previousRoles
@@ -511,7 +513,7 @@ export function createEntityEditors(deps: {
       ;(state.draft as any).activeGroupId = previousActiveGroupId
       showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '角色' }), { kind: 'error' })
       activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }
@@ -649,11 +651,12 @@ export function createEntityEditors(deps: {
     }
   }
 
-  async function deleteGroup(groupId: any) {
+  async function deleteGroup(groupId: any, options?: EntityDeleteOptions) {
     const state = getState()
     if (!state.data) return false
     const gid = String(groupId || '').trim()
     if (!gid) return false
+    const notify = shouldNotifyEntityDelete(options)
     const previousGroups = Array.isArray((state.data as any).groups) ? (state.data as any).groups.slice() : []
     const previousChatsByGroup = (state.data as any).chatsByGroup && typeof (state.data as any).chatsByGroup === 'object' ? { ...(state.data as any).chatsByGroup } : {}
     const previousActiveGroupId = String((state.draft as any).activeGroupId || '')
@@ -676,7 +679,7 @@ export function createEntityEditors(deps: {
       cleanupFavoriteRefsForTarget('group', gid)
       showToast?.('群组已删除', { kind: 'success' })
       activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       ;(state.data as any).groups = previousGroups
@@ -685,7 +688,7 @@ export function createEntityEditors(deps: {
       ;(state.draft as any).activeTargetKind = previousActiveTargetKind
       showToast?.(String(e?.message || e || '群组删除失败'), { kind: 'error' })
       activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('groups'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }
@@ -886,14 +889,15 @@ export function createEntityEditors(deps: {
     notifyScopes([refreshScopes.uiShell()])
   }
 
-  async function deleteProvider(providerId: any) {
+  async function deleteProvider(providerId: any, options?: EntityDeleteOptions) {
     const state = getState()
     if (!state.data) return false
     const pid = String(providerId || '')
     if (!pid) return false
+    const notify = shouldNotifyEntityDelete(options)
     if (pid === NEW_PROVIDER_ID) {
       state.draft.editProviderId = ''
-      notifyScopes([refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.uiShell()])
       return true
     }
     if (state.data.settings.providers.length <= 1) {
@@ -907,7 +911,7 @@ export function createEntityEditors(deps: {
     try {
       await removeProviderEntity?.(pid)
       showToast?.('供应商已删除', { kind: 'success' })
-    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
       const outcome = await reconcileProviderDeleteFailure({
@@ -918,12 +922,12 @@ export function createEntityEditors(deps: {
       if (outcome === 'applied') {
         // 后端已不存在：删除实际成功，本地保持移除。
         showToast?.('供应商已删除（已通过回读确认）', { kind: 'success' })
-        notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+        if (notify) notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
         return true
       }
       state.data.settings.providers = previousProviders
       showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '供应商' }), { kind: 'error' })
-    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return false
     }
   }

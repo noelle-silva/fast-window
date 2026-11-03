@@ -4,6 +4,7 @@ import { normalizeModelRef } from '../../domain/modelRefUtils'
 import { addRoleModelCandidate, modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates, removeRoleModelCandidate } from '../../domain/roleModelCandidates'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
+import { deleteConfirmationScopes, type EntityDeleteOptions } from '../entityDeleteNotification'
 
 export function createEntityActions(deps: {
   state: any
@@ -11,7 +12,7 @@ export function createEntityActions(deps: {
   saveMeta: () => Promise<any>
   showToast?: AiChatShowToast
   getProvider: (providerId: string) => any
-  closeModal: () => void
+  closeModal: (options?: { notify?: boolean }) => void
   reorderRoles: (roleIds: string[]) => Promise<void>
   reorderProviders: (providerIds: string[]) => Promise<void>
   moveWorkspace: (workspaceId: string, targetWorkspaceId: string, position: ListMovePosition) => Promise<void>
@@ -19,25 +20,25 @@ export function createEntityActions(deps: {
   openProviderInlineEditor: (providerId: string) => any
   saveProviderInlineEditor: () => any
   createProvider: () => any
-  deleteProvider: (providerId: string) => Promise<boolean>
+  deleteProvider: (providerId: string, options?: EntityDeleteOptions) => Promise<boolean>
   openRoleEditor: (roleId: string) => any
   openRoleEditorInPlace: (roleId: string) => any
   createRole: () => any
   createRoleInPlace: () => any
   saveRoleEditor: () => any
-  deleteRole: (roleId: string) => Promise<boolean>
+  deleteRole: (roleId: string, options?: EntityDeleteOptions) => Promise<boolean>
   openGroupEditor: (groupId: string) => any
   openGroupEditorInPlace: (groupId: string) => any
   createGroup: () => any
   createGroupInPlace: () => any
   saveGroupEditor: () => any
-  deleteGroup: (groupId: string) => Promise<boolean>
+  deleteGroup: (groupId: string, options?: EntityDeleteOptions) => Promise<boolean>
   openWorkspaceEditor: (workspaceId: string) => any
   openWorkspaceEditorInPlace: (workspaceId: string) => any
   openNewWorkspaceEditor: () => any
   createWorkspaceInPlace: () => any
   saveWorkspaceEditor: () => any
-  deleteWorkspaceEditor: (workspaceId: string) => Promise<boolean>
+  deleteWorkspaceEditor: (workspaceId: string, options?: EntityDeleteOptions) => Promise<boolean>
   addWorkspaceDirectory: () => any
   removeWorkspaceDirectory: (index: any) => any
   setWorkspaceDirectoryField: (index: any, field: any, value: any) => any
@@ -59,7 +60,7 @@ export function createEntityActions(deps: {
   let providerMoveSeq = 0
 
   function notifyScopes(scopes: readonly string[]) {
-    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
+    const addresses = new Set(scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE))
     for (const address of addresses) emitScope(address)
   }
 
@@ -184,22 +185,27 @@ export function createEntityActions(deps: {
       const wid = String((state.draft as any).deleteWorkspaceId || '')
       const pid = String(state.draft.deleteProviderId || '')
       const nextRenderSafetyPolicy = String((state.draft as any).renderSafetyPolicyTarget || '').trim() === 'unsafe' ? 'unsafe' : ''
+      const settingsChanged = Boolean(nextRenderSafetyPolicy && state.data)
       let ok = true
-      if (rid) ok = await deleteRole(rid)
-      if (gid) ok = await deleteGroup(gid)
-      if (wid) ok = await deleteWorkspaceEditor(wid)
-      if (pid) ok = await deleteProvider(pid)
-      if (nextRenderSafetyPolicy && state.data) {
+      if (rid) ok = await deleteRole(rid, { notify: false })
+      if (gid) ok = await deleteGroup(gid, { notify: false })
+      if (wid) ok = await deleteWorkspaceEditor(wid, { notify: false })
+      if (pid) ok = await deleteProvider(pid, { notify: false })
+      if (settingsChanged) {
         ;(state.data.settings as any).renderSafetyPolicy = nextRenderSafetyPolicy
         await saveMeta().catch((e: any) => {
           ok = false
           showToast?.(String(e?.message || e || '保存渲染安全策略失败'), { kind: 'error' })
         })
       }
-      if (ok) {
-        closeModal()
-      }
-      notifyScopes([refreshScopes.entities('roles'), refreshScopes.entities('groups'), refreshScopes.entities('workspaces'), refreshScopes.entities('providers'), refreshScopes.navigation(), refreshScopes.settings(), refreshScopes.uiShell()])
+      if (ok) closeModal({ notify: false })
+      notifyScopes(deleteConfirmationScopes({
+        role: Boolean(rid),
+        group: Boolean(gid),
+        workspace: Boolean(wid),
+        provider: Boolean(pid),
+        settingsChanged,
+      }))
     },
     renameChat: (roleId: any, chatId: any, title: any) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
     renameGroupChat: (groupId: any, chatId: any, title: any) => renameGroupChatTitle(String(groupId || ''), String(chatId || ''), String(title ?? '')),

@@ -20,6 +20,7 @@ import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { refreshScopes } from '../domain/uiRefreshScope'
 import type { EntityAuthorityReader } from './entityAuthority'
 import { saveEntityOrder } from './entityOrderBridge'
+import { shouldNotifyEntityDelete, type EntityDeleteOptions } from './entityDeleteNotification'
 import {
   entityWriteFailureMessage,
   reconcileEntityDeleteFailure,
@@ -613,13 +614,13 @@ export function createWorkspaceManager(deps: {
     notifyWorkspaceActivated(workspaceId)
   }
 
-  function finishWorkspaceDelete(state: any, workspaceId: string, confirmed: boolean) {
+  function finishWorkspaceDelete(state: any, workspaceId: string, confirmed: boolean, notify = true) {
     if (text((state.draft as any)?.activeWorkspaceId) === workspaceId) {
       ;(state.draft as any).activeWorkspaceId = text((state.data as any)?.workspaces?.[0]?.id)
     }
     showToast?.(`工作区已删除${confirmed ? '（已通过回读确认）' : ''}`, { kind: 'success' })
     activateComposerDraftForCurrentSession(state)
-    notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
+    if (notify) notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
   }
 
   async function saveWorkspaceEditor() {
@@ -670,11 +671,12 @@ export function createWorkspaceManager(deps: {
     }
   }
 
-  async function deleteWorkspaceEditor(workspaceIdRaw: unknown) {
+  async function deleteWorkspaceEditor(workspaceIdRaw: unknown, options?: EntityDeleteOptions) {
     const state = getState()
     if (!state?.data) return false
     const workspaceId = text(workspaceIdRaw)
     if (!workspaceId) return false
+    const notify = shouldNotifyEntityDelete(options)
     // 删除动作一开始就换代：在途工作区列表 / 会话加载不得把旧事实写回。
     onWorkspaceDeleted?.(workspaceId)
     workspaceListSeq += 1
@@ -682,7 +684,7 @@ export function createWorkspaceManager(deps: {
       await deleteWorkspace(requireNetRequest(), workspaceId)
       cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
       await refreshWorkspaces()
-      finishWorkspaceDelete(state, workspaceId, false)
+      finishWorkspaceDelete(state, workspaceId, false, notify)
       return true
     } catch (e: any) {
       const outcome = await reconcileEntityDeleteFailure({
@@ -695,11 +697,11 @@ export function createWorkspaceManager(deps: {
         removeWorkspaceFromState(state, workspaceId)
         cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
         await refreshWorkspaces().catch(() => {})
-        finishWorkspaceDelete(state, workspaceId, true)
+        finishWorkspaceDelete(state, workspaceId, true, notify)
         return true
       }
       showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '工作区' }), { kind: 'error' })
-      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      if (notify) notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
   }

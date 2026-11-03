@@ -150,6 +150,7 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
     modal: '',
   }
   const emitScope = vi.fn()
+  const showToast = vi.fn()
   const { closeModal } = createModalHelpers({ state, emitScope })
   const saveRoleEntity = vi.fn(async () => {
     if (options.failRoleSave) throw new Error('角色保存失败')
@@ -177,7 +178,7 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
     removeProviderEntity,
     emitScope,
     closeModal,
-    showToast: vi.fn(),
+    showToast,
     filesImages: {},
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},
@@ -185,6 +186,8 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
   return {
     state,
     emitScope,
+    closeModal,
+    showToast,
     editors,
     signals: () => readSignals(emitScope),
   }
@@ -339,6 +342,7 @@ function createWorkspaceHarness(options: WorkspaceHarnessOptions = {}) {
   }
   const emit = vi.fn()
   const emitScope = vi.fn()
+  const showToast = vi.fn()
   const { closeModal } = createModalHelpers({ state, emitScope })
   const manager = createWorkspaceManager({
     getState: () => state,
@@ -348,6 +352,7 @@ function createWorkspaceHarness(options: WorkspaceHarnessOptions = {}) {
     closeModal,
     saveMeta: async () => {},
     scrollToBottomSoon: () => {},
+    showToast,
     activeTargetKind: () => String(state.draft.activeTargetKind || 'role'),
     activeRole: () => state.data.roles.find((role: any) => String(role.id) === String(state.draft.activeRoleId)) || null,
     activeWorkspace: () =>
@@ -361,6 +366,8 @@ function createWorkspaceHarness(options: WorkspaceHarnessOptions = {}) {
     state,
     emit,
     emitScope,
+    closeModal,
+    showToast,
     manager,
     signals: () => readSignals(emitScope),
   }
@@ -373,6 +380,42 @@ async function workspaceSignals(
   const harness = createWorkspaceHarness(options)
   await run(harness)
   return harness.signals()
+}
+
+function createConfirmEntityActions(input: {
+  state: any
+  emitScope: (scope: string) => void
+  closeModal: (options?: { notify?: boolean }) => void
+  showToast: (message: string, options?: any) => void
+  deleteRole?: (roleId: string, options?: any) => Promise<boolean>
+  deleteGroup?: (groupId: string, options?: any) => Promise<boolean>
+  deleteProvider?: (providerId: string, options?: any) => Promise<boolean>
+  deleteWorkspaceEditor?: (workspaceId: string, options?: any) => Promise<boolean>
+}) {
+  return createEntityActions({
+    state: input.state,
+    emitScope: input.emitScope,
+    closeModal: input.closeModal,
+    showToast: input.showToast,
+    saveMeta: async () => {},
+    getProvider: () => null,
+    reorderRoles: async () => {},
+    reorderProviders: async () => {},
+    moveWorkspace: async () => {},
+    deleteRole: input.deleteRole || (async () => false),
+    deleteGroup: input.deleteGroup || (async () => false),
+    deleteProvider: input.deleteProvider || (async () => false),
+    deleteWorkspaceEditor: input.deleteWorkspaceEditor || (async () => false),
+  } as any)
+}
+
+function expectConfirmDeleteSignals(signals: string[], domain: string, navigationCount: number) {
+  expect(signals.filter((signal) => signal === uiShell)).toHaveLength(1)
+  expect(signals.filter((signal) => signal === entities(domain))).toHaveLength(1)
+  expect(signals.filter((signal) => signal.startsWith('entities:'))).toEqual([entities(domain)])
+  expect(signals.filter((signal) => signal === navigation)).toHaveLength(navigationCount)
+  expect(signals).not.toContain(refreshScopes.settings())
+  expect(signals).not.toContain(globalScope)
 }
 
 function editWorkspaceDraft(harness: ReturnType<typeof createWorkspaceHarness>) {
@@ -558,4 +601,111 @@ describe('动作 → 刷新信号矩阵', () => {
       }
     })
   }
+})
+
+describe('确认删除通知收口', () => {
+  it('确认删除角色成功：uiShell、角色域、导航各一次', async () => {
+    const harness = createEditorHarness()
+    harness.state.draft.deleteRoleId = 'role-b'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteRole: harness.editors.deleteRole,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'roles', 1)
+    expect(harness.state.data.roles.some((role: any) => role.id === 'role-b')).toBe(false)
+  })
+
+  it('确认删除角色失败：uiShell、角色域、导航各一次，保留失败提示', async () => {
+    const harness = createEditorHarness({ failRoleDelete: true })
+    harness.state.draft.deleteRoleId = 'role-b'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteRole: harness.editors.deleteRole,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'roles', 1)
+    expect(harness.state.data.roles.some((role: any) => role.id === 'role-b')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('角色删除失败', { kind: 'error' })
+  })
+
+  it('确认删除供应商成功：uiShell 与供应商域各一次，不发导航', async () => {
+    const harness = createEditorHarness()
+    harness.state.draft.deleteProviderId = 'provider-b'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteProvider: harness.editors.deleteProvider,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'providers', 0)
+    expect(harness.state.data.settings.providers.some((provider: any) => provider.id === 'provider-b')).toBe(false)
+  })
+
+  it('确认删除供应商失败：uiShell 与供应商域各一次，保留失败提示', async () => {
+    const harness = createEditorHarness({ failProviderDelete: true })
+    harness.state.draft.deleteProviderId = 'provider-b'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteProvider: harness.editors.deleteProvider,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'providers', 0)
+    expect(harness.state.data.settings.providers.some((provider: any) => provider.id === 'provider-b')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('供应商删除失败', { kind: 'error' })
+  })
+
+  it('确认删除工作区成功：uiShell、工作区域、导航各一次', async () => {
+    const harness = createWorkspaceHarness()
+    harness.state.draft.deleteWorkspaceId = 'ws-2'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteWorkspaceEditor: harness.manager.deleteWorkspaceEditor,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'workspaces', 1)
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-2')).toBe(false)
+  })
+
+  it('确认删除工作区失败：uiShell、工作区域、导航各一次，保留失败提示', async () => {
+    const harness = createWorkspaceHarness({ failDelete: true })
+    harness.state.draft.deleteWorkspaceId = 'ws-2'
+    const actions = createConfirmEntityActions({
+      state: harness.state,
+      emitScope: harness.emitScope,
+      closeModal: harness.closeModal,
+      showToast: harness.showToast,
+      deleteWorkspaceEditor: harness.manager.deleteWorkspaceEditor,
+    })
+
+    await actions.confirmDelete()
+
+    expectConfirmDeleteSignals(harness.signals(), 'workspaces', 1)
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-2')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('工作区删除失败', { kind: 'error' })
+  })
 })

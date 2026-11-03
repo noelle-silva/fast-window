@@ -24,7 +24,7 @@ export function fmtTime(ts: any) {
 export function createModalHelpers(deps: { state: any; emitScope: (scope: string) => void }) {
   const { state, emitScope } = deps
 
-  function closeModal() {
+  function closeModal(options?: { notify?: boolean }) {
     // cancelMermaidDrag handled by eventHandlers module
     state.modal = ''
     state.draft.deleteRoleId = ''
@@ -75,7 +75,8 @@ export function createModalHelpers(deps: { state: any; emitScope: (scope: string
       ;(state.draft as any).workspaceRegisteredRoleIds = []
     }
     // 关闭弹层只改变页面级 UI 状态：按 uiShell 通知，不整页广播。
-    emitScope(refreshScopes.uiShell())
+    // 调用方接管通知时可关闭本次发送，由外层统一合并地址。
+    if (options?.notify !== false) emitScope(refreshScopes.uiShell())
   }
 
   return { closeModal }
