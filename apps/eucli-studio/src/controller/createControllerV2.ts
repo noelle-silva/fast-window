@@ -49,6 +49,7 @@ import { createModelRefresh } from './modelRefresh'
 import { createModelGroupsController } from './modelGroups'
 import { createFavoritesOperations } from './favoritesOperations'
 import { createEntityEditors } from './entityEditors'
+import { createProviderAuthorityReader } from './providerAuthority'
 import { createChatOperations } from './chatOperations'
 import type { ChatOperationsDeps } from './chatOperationsShared'
 import { createPersistence } from './persistence'
@@ -878,6 +879,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 15. ENTITY EDITORS
   // ============================================================
+  // 写结果未知时只按实体地址回读一次权威供应商，不拉全量列表。
+  const readProviderEntity = createProviderAuthorityReader(capabilities.net?.request || ((() => Promise.resolve({})) as any))
   const entityEditors = createEntityEditors({
     getState: () => state,
     saveRoleEntity,
@@ -886,6 +889,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeGroupEntity,
     saveProviderEntity,
     removeProviderEntity,
+    readProviderEntity,
     save: savePreferences,
     emitScope,
     closeModal,

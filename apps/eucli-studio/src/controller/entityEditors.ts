@@ -11,8 +11,15 @@ import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { firstChatIdInBox, readActiveChatSelection, writeActiveChatSelection } from '../domain/activeChatSelection'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
-import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
 import { refreshScopes } from '../domain/uiRefreshScope'
+import {
+  normalizeProviderApiKeys,
+  normalizeProviderProtocol,
+  normalizeProviderRegisteredModels,
+  validateProviderRegisteredModels,
+} from '../domain/providerEntity'
+import type { ProviderAuthorityReader } from './providerAuthority'
+import { reconcileProviderDeleteFailure, reconcileProviderSaveFailure, type ProviderReconcileOutcome } from './providerWriteReconcile'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -97,6 +104,8 @@ export function createEntityEditors(deps: {
   removeGroupEntity?: (groupId: any) => Promise<void>
   saveProviderEntity?: (provider: any) => Promise<void>
   removeProviderEntity?: (providerId: any) => Promise<void>
+  // 写结果未知时读取后端权威供应商：404 映射为 null，其他读取失败继续抛出。
+  readProviderEntity?: ProviderAuthorityReader
   emitScope: (scope: string) => void
   closeModal: () => void
   showToast?: AiChatShowToast
@@ -118,7 +127,7 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -129,6 +138,21 @@ export function createEntityEditors(deps: {
     for (const scope of scopes) {
       if (scope) emitScope(scope)
     }
+  }
+
+  // providerWriteFailureMessage 把对账结论翻译成用户可理解的结果：
+  // 确定失败沿用原错误文案；只有「已回读确认」与「回读也失败」才追加限定语。
+  function providerWriteFailureMessage(action: 'save' | 'delete', outcome: ProviderReconcileOutcome, error: any) {
+    const reason = String(error?.message || error || (action === 'save' ? '供应商保存失败' : '供应商删除失败'))
+    if (outcome === 'unconfirmed') {
+      return action === 'save' ? `供应商保存结果未确认：${reason}` : `供应商删除结果未确认：${reason}`
+    }
+    if (outcome === 'not-applied') {
+      return action === 'save'
+        ? `供应商保存失败（已确认未写入）：${reason}`
+        : `供应商删除失败（已确认供应商仍存在）：${reason}`
+    }
+    return reason
   }
 
   function notifyChatSelected(kind: 'role' | 'group', targetId: string, chatId: string) {
@@ -755,7 +779,22 @@ export function createEntityEditors(deps: {
         showToast?.('供应商已保存', { kind: 'success' })
         notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       } catch (e: any) {
-        showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
+        const outcome = await reconcileProviderSaveFailure({
+          error: e,
+          providerId: provider.id,
+          intended: provider,
+          readProvider: readProviderEntity,
+        })
+        if (outcome === 'applied') {
+          if (!Array.isArray(state.data.settings.providers)) state.data.settings.providers = []
+          state.data.settings.providers.unshift(provider)
+          state.draft.editProviderId = provider.id
+          writeProviderDraft(state, { ...values, name: nextName })
+          showToast?.('供应商已保存（已通过回读确认）', { kind: 'success' })
+          notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+          return
+        }
+        showToast?.(providerWriteFailureMessage('save', outcome, e), { kind: 'error' })
         notifyScopes([refreshScopes.uiShell()])
       }
       return
@@ -779,8 +818,21 @@ export function createEntityEditors(deps: {
       showToast?.('供应商已保存', { kind: 'success' })
       notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     } catch (e: any) {
+      const outcome = await reconcileProviderSaveFailure({
+        error: e,
+        providerId: pid,
+        intended: provider,
+        readProvider: readProviderEntity,
+      })
+      if (outcome === 'applied') {
+        // 回读确认后端已是本次写入后的值：本地保留新值，不执行回滚。
+        writeProviderDraft(state, { ...values, name: nextName })
+        showToast?.('供应商已保存（已通过回读确认）', { kind: 'success' })
+        notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+        return
+      }
       Object.assign(provider, previous)
-      showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
+      showToast?.(providerWriteFailureMessage('save', outcome, e), { kind: 'error' })
       notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     }
   }
@@ -797,59 +849,6 @@ export function createEntityEditors(deps: {
     state.draft.providerApiKeys = []
     state.draft.providerRegisteredModels = []
     notifyScopes([refreshScopes.uiShell()])
-  }
-
-  function normalizeProviderProtocol(value: any) {
-    const protocol = String(value || '').trim()
-    return protocol === 'openai' || protocol === 'anthropic' ? protocol : ''
-  }
-
-  function normalizeProviderApiKeys(value: any) {
-    const list = Array.isArray(value) ? value : []
-    return list
-      .filter((key: any) => key && typeof key === 'object')
-      .map((key: any, index: number) => ({
-        id: String(key.id || uid('key')).trim(),
-        name: String(key.name || `Key ${index + 1}`).trim(),
-        key: String(key.key || '').trim(),
-        enabled: typeof key.enabled === 'boolean' ? key.enabled : true,
-        weight: Math.max(1, Math.round(Number(key.weight || 1))),
-      }))
-      .filter((key: any) => key.id && key.name && key.key)
-  }
-
-  function validateProviderRegisteredModels(value: any) {
-    const list = Array.isArray(value) ? value : []
-    const usedIds = new Map<string, number>()
-    for (let index = 0; index < list.length; index++) {
-      const model = list[index]
-      const line = index + 1
-      if (!model || typeof model !== 'object') return `登记模型第 ${line} 行数据无效，请删除该行后重试`
-      const id = String(model.id || '').trim()
-      const name = String(model.name || '').trim()
-      const sourceModelId = String(model.sourceModelId || '').trim()
-      if (!id) return `登记模型第 ${line} 行的「自定义模型 ID」未填写`
-      if (!name) return `登记模型第 ${line} 行的「显示名称」未填写`
-      if (!sourceModelId) return `登记模型第 ${line} 行的「映射原始模型」未选择`
-      const duplicateLine = usedIds.get(id)
-      if (duplicateLine !== undefined) return `登记模型第 ${line} 行的「自定义模型 ID」与第 ${duplicateLine} 行重复`
-      usedIds.set(id, line)
-    }
-    return ''
-  }
-
-  function normalizeProviderRegisteredModels(value: any) {
-    const list = Array.isArray(value) ? value : []
-    return list
-      .filter((model: any) => model && typeof model === 'object')
-      .map((model: any) => normalizeReasoningFields({
-        id: String(model.id || '').trim(),
-        name: String(model.name || model.id || '').trim(),
-        sourceModelId: String(model.sourceModelId || '').trim(),
-        supportsReasoning: !!model.supportsReasoning,
-        defaultReasoningEffort: normalizeReasoningEffort(model.defaultReasoningEffort),
-      }))
-      .filter((model: any) => model.id && model.sourceModelId)
   }
 
   async function deleteProvider(providerId: any) {
@@ -876,8 +875,19 @@ export function createEntityEditors(deps: {
     notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
+      const outcome = await reconcileProviderDeleteFailure({
+        error: e,
+        providerId: pid,
+        readProvider: readProviderEntity,
+      })
+      if (outcome === 'applied') {
+        // 后端已不存在：删除实际成功，本地保持移除。
+        showToast?.('供应商已删除（已通过回读确认）', { kind: 'success' })
+        notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+        return true
+      }
       state.data.settings.providers = previousProviders
-      showToast?.(String(e?.message || e || '供应商删除失败'), { kind: 'error' })
+      showToast?.(providerWriteFailureMessage('delete', outcome, e), { kind: 'error' })
     notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return false
     }

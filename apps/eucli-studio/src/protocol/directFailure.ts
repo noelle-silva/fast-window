@@ -54,6 +54,15 @@ export function isDirectFailure(error: unknown): error is DirectFailure {
   return error instanceof DirectFailure
 }
 
+// 写请求的「结果未知」只有两种：交互超时（indeterminate）与断线重连后无法判定
+// （reconnected-unknown）。transport / timeout 不在此列：它们发生在请求未发出或
+// 握手阶段，属于确定失败，绝不能触发「回读后当成成功」。
+const UNKNOWN_WRITE_OUTCOME_KINDS = new Set<DirectFailureKind>(['indeterminate', 'reconnectedUnknown'])
+
+export function isUnknownWriteOutcome(error: unknown): error is DirectFailure {
+  return isDirectFailure(error) && UNKNOWN_WRITE_OUTCOME_KINDS.has(error.kind)
+}
+
 const READ_METHODS = new Set<string>([
   AI_CHAT_DIRECT_METHOD.healthCheck,
   AI_CHAT_DIRECT_METHOD.storageGet,

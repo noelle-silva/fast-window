@@ -4,6 +4,7 @@ import {
   DIRECT_FAILURE,
   DirectFailure,
   isDirectFailure,
+  isUnknownWriteOutcome,
   keepsPromiseAfterInteractionTimeout,
   replayClassFor,
 } from './directFailure'
@@ -26,6 +27,19 @@ describe('DirectFailure 四态', () => {
 
   it('普通 Error 不被误判为 DirectFailure', () => {
     expect(isDirectFailure(new Error('boom'))).toBe(false)
+  })
+})
+
+describe('写结果未知的分类', () => {
+  it('只有 indeterminate / reconnected-unknown 属于结果未知', () => {
+    expect(isUnknownWriteOutcome(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))).toBe(true)
+    expect(isUnknownWriteOutcome(new DirectFailure('reconnectedUnknown', 'aiChat.storageSet', 'non-idempotent'))).toBe(true)
+  })
+
+  it('握手超时、传输层失败与普通错误都不属于结果未知', () => {
+    expect(isUnknownWriteOutcome(new DirectFailure('timeout', 'aiChat.storageSet', 'non-idempotent'))).toBe(false)
+    expect(isUnknownWriteOutcome(new DirectFailure('transport', 'aiChat.storageSet', 'non-idempotent'))).toBe(false)
+    expect(isUnknownWriteOutcome(new Error('disk full'))).toBe(false)
   })
 })
 

@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { NEW_PROVIDER_ID, NEW_ROLE_ID } from '../domain/constants'
 import { refreshScopes } from '../domain/uiRefreshScope'
+import { DirectFailure } from '../protocol/directFailure'
 import { createEntityEditors } from './entityEditors'
 
-function createHarness() {
+function createHarness(options: {
+  readProviderEntity?: (providerId: string, state: any) => Promise<any | null>
+} = {}) {
   const state: any = {
     data: {
       roles: [],
@@ -68,12 +71,16 @@ function createHarness() {
   const saveRoleEntity = vi.fn(async () => {})
   const saveProviderEntity = vi.fn(async () => {})
   const removeProviderEntity = vi.fn(async () => {})
+  const readProviderEntity = options.readProviderEntity
+    ? vi.fn((providerId: string) => options.readProviderEntity!(providerId, state))
+    : undefined
   const editors = createEntityEditors({
     getState: () => state,
     save: async () => {},
     saveRoleEntity,
     saveProviderEntity,
     removeProviderEntity,
+    readProviderEntity,
     emitScope,
     closeModal,
     showToast,
@@ -81,7 +88,7 @@ function createHarness() {
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},
   })
-  return { state, emitScope, closeModal, showToast, saveRoleEntity, saveProviderEntity, removeProviderEntity, editors }
+  return { state, emitScope, closeModal, showToast, saveRoleEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, editors }
 }
 
 describe('供应商实体通知', () => {
@@ -318,6 +325,183 @@ describe('供应商实体通知', () => {
       { id: 'model-2', name: '模型二', sourceModelId: 'raw-2' },
     ])
     expect(harness.showToast).toHaveBeenCalledWith('供应商已保存', { kind: 'success' })
+  })
+})
+
+describe('供应商写失败回读对账', () => {
+  function cloneProvider(provider: any) {
+    return JSON.parse(JSON.stringify(provider))
+  }
+
+  function startExistingProviderSave(harness: ReturnType<typeof createHarness>) {
+    harness.state.draft.editProviderId = 'provider-b'
+    harness.state.draft.providerName = '备用供应商（新）'
+    harness.state.draft.providerBaseUrl = 'https://b.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeyStrategy = 'sequential'
+    harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
+    harness.state.draft.providerRegisteredModels = []
+  }
+
+  it('保存结果未知且后端已是新值：不回滚，并提示回读确认', async () => {
+    const harness = createHarness({
+      readProviderEntity: async (providerId, state) => cloneProvider(
+        state.data.settings.providers.find((provider: any) => provider.id === providerId),
+      ),
+    })
+    startExistingProviderSave(harness)
+    harness.saveProviderEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+    harness.emitScope.mockClear()
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.readProviderEntity).toHaveBeenCalledTimes(1)
+    expect(harness.readProviderEntity).toHaveBeenCalledWith('provider-b')
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.name).toBe('备用供应商（新）')
+    expect(provider.apiKeys).toEqual([{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }])
+    expect(harness.state.draft.providerName).toBe('备用供应商（新）')
+    expect(harness.showToast).toHaveBeenCalledWith('供应商已保存（已通过回读确认）', { kind: 'success' })
+    expect(harness.emitScope.mock.calls.map((call) => call[0])).toEqual([
+      refreshScopes.entities('providers'),
+      refreshScopes.uiShell(),
+    ])
+  })
+
+  it('保存结果未知且后端仍是旧值：回滚本地并提示保存失败', async () => {
+    let remoteProvider: any = null
+    const harness = createHarness({ readProviderEntity: async () => cloneProvider(remoteProvider) })
+    remoteProvider = cloneProvider(harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b'))
+    startExistingProviderSave(harness)
+    harness.saveProviderEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.readProviderEntity).toHaveBeenCalledTimes(1)
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.name).toBe('备用供应商')
+    expect(provider.apiKeys).toEqual([{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }])
+    expect(harness.state.draft.providerName).toBe('备用供应商（新）')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('供应商保存失败（已确认未写入）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('确定失败不回读，直接回滚', async () => {
+    const harness = createHarness({ readProviderEntity: async () => null })
+    startExistingProviderSave(harness)
+    harness.saveProviderEntity.mockRejectedValueOnce(new Error('disk full'))
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.readProviderEntity).not.toHaveBeenCalled()
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.name).toBe('备用供应商')
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
+  })
+
+  it('保存结果未知且回读失败：回滚本地并明确提示未确认', async () => {
+    const harness = createHarness({ readProviderEntity: async () => { throw new Error('回读失败') } })
+    startExistingProviderSave(harness)
+    harness.saveProviderEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveProviderInlineEditor()
+
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.name).toBe('备用供应商')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('供应商保存结果未确认'),
+      { kind: 'error' },
+    )
+  })
+
+  it('新建供应商结果未知且后端已写入：补入列表并保留选中', async () => {
+    const harness = createHarness({
+      readProviderEntity: async (providerId) => ({
+        id: providerId,
+        name: '新供应商（OpenAI 兼容）',
+        baseUrl: 'https://new.example/v1',
+        protocol: 'openai',
+        apiKeyStrategy: 'sequential',
+        apiKeys: [{ id: 'key-new', name: 'Key New', key: 'sk-new', enabled: true, weight: 2 }],
+        registeredModels: [],
+      }),
+    })
+    harness.editors.createProvider()
+    harness.state.draft.providerBaseUrl = 'https://new.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-new', name: ' Key New ', key: ' sk-new ', enabled: true, weight: '2' }]
+    harness.saveProviderEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.state.data.settings.providers).toHaveLength(3)
+    const created = harness.state.data.settings.providers[0]
+    expect(created.name).toBe('新供应商（OpenAI 兼容）')
+    expect(created.apiKeys).toEqual([{ id: 'key-new', name: 'Key New', key: 'sk-new', enabled: true, weight: 2 }])
+    expect(harness.state.draft.editProviderId).toBe(created.id)
+    expect(harness.showToast).toHaveBeenCalledWith('供应商已保存（已通过回读确认）', { kind: 'success' })
+  })
+
+  it('新建供应商结果未知且后端未写入：不补入列表，草稿保留', async () => {
+    const harness = createHarness({ readProviderEntity: async () => null })
+    harness.editors.createProvider()
+    harness.state.draft.providerBaseUrl = 'https://new.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-new', name: 'Key New', key: 'sk-new', enabled: true, weight: 1 }]
+    harness.saveProviderEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.state.data.settings.providers).toHaveLength(2)
+    expect(harness.state.draft.editProviderId).toBe(NEW_PROVIDER_ID)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('供应商保存失败（已确认未写入）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除结果未知且后端已不存在：保留本地移除并提示回读确认', async () => {
+    const harness = createHarness({ readProviderEntity: async () => null })
+    harness.removeProviderEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageRemove', 'non-idempotent'))
+
+    const ok = await harness.editors.deleteProvider('provider-b')
+
+    expect(ok).toBe(true)
+    expect(harness.readProviderEntity).toHaveBeenCalledTimes(1)
+    expect(harness.readProviderEntity).toHaveBeenCalledWith('provider-b')
+    expect(harness.state.data.settings.providers.some((item: any) => item.id === 'provider-b')).toBe(false)
+    expect(harness.showToast).toHaveBeenCalledWith('供应商已删除（已通过回读确认）', { kind: 'success' })
+  })
+
+  it('删除结果未知且后端仍存在：恢复本地并提示删除失败', async () => {
+    let remoteProvider: any = null
+    const harness = createHarness({ readProviderEntity: async () => cloneProvider(remoteProvider) })
+    remoteProvider = cloneProvider(harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b'))
+    harness.removeProviderEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageRemove', 'non-idempotent'))
+
+    const ok = await harness.editors.deleteProvider('provider-b')
+
+    expect(ok).toBe(false)
+    expect(harness.readProviderEntity).toHaveBeenCalledTimes(1)
+    expect(harness.state.data.settings.providers.some((item: any) => item.id === 'provider-b')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('供应商删除失败（已确认供应商仍存在）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除确定失败不回读，直接恢复本地', async () => {
+    const harness = createHarness({ readProviderEntity: async () => null })
+    harness.removeProviderEntity.mockRejectedValueOnce(new Error('disk full'))
+
+    const ok = await harness.editors.deleteProvider('provider-b')
+
+    expect(ok).toBe(false)
+    expect(harness.readProviderEntity).not.toHaveBeenCalled()
+    expect(harness.state.data.settings.providers.some((item: any) => item.id === 'provider-b')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
   })
 })
 
