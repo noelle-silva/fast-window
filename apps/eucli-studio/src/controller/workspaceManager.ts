@@ -609,7 +609,7 @@ export function createWorkspaceManager(deps: {
     showToast?.(`${isNew ? '工作区已创建' : '工作区已保存'}${confirmed ? '（已通过回读确认）' : ''}`, { kind: 'success' })
     closeModal()
     activateComposerDraftForCurrentSession(state)
-    notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.uiShell()])
+    notifyScopes([refreshScopes.entities('workspaces')])
     notifyWorkspaceActivated(workspaceId)
   }
 

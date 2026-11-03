@@ -1,11 +1,13 @@
 // 动作 → 刷新信号行为矩阵。
 //
-// 每条动作只断言两件事：
+// 每条动作断言三件事：
 // 1. 至少发出约定地址（避免界面静默不更新）；
-// 2. 不发 global 广播（避免用一个全局地址掩盖缺失的精确地址）。
+// 2. uiShell 次数精确匹配（避免重复通知或漏发）；
+// 3. 不发 global 广播（避免用一个全局地址掩盖缺失的精确地址）。
 //
 // 矩阵按真实动作入口驱动，不读源码字符串；新增动作时直接往 SIGNAL_MATRIX 加一行。
 import { describe, expect, it, vi } from 'vitest'
+import { NEW_ROLE_ID } from '../domain/constants'
 import { refreshScopes } from '../domain/uiRefreshScope'
 import { createEntityActions } from './actions/entityActions'
 import { createModalHelpers } from './controllerHelpers'
@@ -16,6 +18,7 @@ type SignalResult = Promise<unknown> | unknown
 type MatrixRow = {
   action: string
   expected: readonly string[]
+  uiShellCount: number
   forbidden?: readonly string[]
   execute: () => Promise<string[]>
 }
@@ -80,8 +83,10 @@ function createProvider(id: string, name: string) {
 }
 
 type EditorHarnessOptions = {
+  failRoleSave?: boolean
   failRoleDelete?: boolean
   failGroupDelete?: boolean
+  failProviderSave?: boolean
   failProviderDelete?: boolean
 }
 
@@ -146,11 +151,17 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
   }
   const emitScope = vi.fn()
   const { closeModal } = createModalHelpers({ state, emitScope })
+  const saveRoleEntity = vi.fn(async () => {
+    if (options.failRoleSave) throw new Error('角色保存失败')
+  })
   const removeRoleEntity = vi.fn(async () => {
     if (options.failRoleDelete) throw new Error('角色删除失败')
   })
   const removeGroupEntity = vi.fn(async () => {
     if (options.failGroupDelete) throw new Error('群组删除失败')
+  })
+  const saveProviderEntity = vi.fn(async () => {
+    if (options.failProviderSave) throw new Error('供应商保存失败')
   })
   const removeProviderEntity = vi.fn(async () => {
     if (options.failProviderDelete) throw new Error('供应商删除失败')
@@ -158,11 +169,11 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
   const editors = createEntityEditors({
     getState: () => state,
     save: async () => {},
-    saveRoleEntity: vi.fn(async () => {}),
+    saveRoleEntity,
     removeRoleEntity,
     saveGroupEntity: vi.fn(async () => {}),
     removeGroupEntity,
-    saveProviderEntity: vi.fn(async () => {}),
+    saveProviderEntity,
     removeProviderEntity,
     emitScope,
     closeModal,
@@ -183,6 +194,29 @@ async function editorSignals(options: EditorHarnessOptions, run: (harness: Retur
   const harness = createEditorHarness(options)
   await run(harness)
   return harness.signals()
+}
+
+function editProviderDraft(harness: ReturnType<typeof createEditorHarness>) {
+  harness.state.draft.editProviderId = 'provider-b'
+  harness.state.draft.providerName = '供应商B改名'
+  harness.state.draft.providerBaseUrl = 'https://provider-b.example/v1'
+  harness.state.draft.providerProtocol = 'openai'
+  harness.state.draft.providerApiKeyStrategy = 'sequential'
+  harness.state.draft.providerApiKeys = [
+    { id: 'key-provider-b', name: 'Key', key: 'sk-provider-b', enabled: true, weight: 1 },
+  ]
+  harness.state.draft.providerRegisteredModels = []
+}
+
+function editRoleDraft(harness: ReturnType<typeof createEditorHarness>, roleId: string) {
+  harness.state.draft.editRoleId = roleId
+  harness.state.draft.roleName = '角色A改名'
+  harness.state.draft.roleSystemPrompt = '你是角色A'
+  harness.state.draft.roleModelCandidates = [
+    { kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' },
+  ]
+  harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
+  harness.state.draft.roleToolPolicy = { tools: [], nativeTools: [], runModes: {} }
 }
 
 type ActionHarnessOptions = {
@@ -242,6 +276,7 @@ function createWorkspaceRecord(id: string, name: string, registeredRoleIds: stri
 }
 
 type WorkspaceHarnessOptions = {
+  failSave?: boolean
   failDelete?: boolean
 }
 
@@ -263,6 +298,7 @@ function createWorkspaceHarness(options: WorkspaceHarnessOptions = {}) {
       return { body: workspace }
     }
     if (method === 'POST' && path === '/api/workspaces') {
+      if (options.failSave) throw new Error('工作区保存失败')
       store[String(req.body.id)] = { ...req.body }
       return { body: req.body }
     }
@@ -339,66 +375,103 @@ async function workspaceSignals(
   return harness.signals()
 }
 
+function editWorkspaceDraft(harness: ReturnType<typeof createWorkspaceHarness>) {
+  harness.state.draft.editWorkspaceId = 'ws-1'
+  harness.state.draft.workspaceName = '工作区一改名'
+  harness.state.draft.workspacePrompt = ''
+  harness.state.draft.workspaceDirectories = []
+  harness.state.draft.workspaceRegisteredRoleIds = ['role-a']
+}
+
 const SIGNAL_MATRIX: readonly MatrixRow[] = [
+  {
+    action: '新建供应商只建立草稿',
+    expected: [uiShell],
+    uiShellCount: 1,
+    forbidden: [globalScope, entities('providers')],
+    execute: () => editorSignals({}, (harness) => harness.editors.createProvider()),
+  },
   {
     action: '保存供应商成功',
     expected: [entities('providers'), uiShell],
+    uiShellCount: 1,
     execute: () =>
       editorSignals({}, (harness) => {
-        harness.state.draft.editProviderId = 'provider-b'
-        harness.state.draft.providerName = '供应商B改名'
-        harness.state.draft.providerBaseUrl = 'https://provider-b.example/v1'
-        harness.state.draft.providerProtocol = 'openai'
-        harness.state.draft.providerApiKeyStrategy = 'sequential'
-        harness.state.draft.providerApiKeys = [
-          { id: 'key-provider-b', name: 'Key', key: 'sk-provider-b', enabled: true, weight: 1 },
-        ]
-        harness.state.draft.providerRegisteredModels = []
+        editProviderDraft(harness)
+        return harness.editors.saveProviderInlineEditor()
+      }),
+  },
+  {
+    action: '保存供应商确定失败',
+    expected: [entities('providers'), uiShell],
+    uiShellCount: 1,
+    execute: () =>
+      editorSignals({ failProviderSave: true }, (harness) => {
+        editProviderDraft(harness)
         return harness.editors.saveProviderInlineEditor()
       }),
   },
   {
     action: '删除供应商成功',
     expected: [entities('providers'), uiShell],
+    uiShellCount: 1,
     execute: () => editorSignals({}, (harness) => harness.editors.deleteProvider('provider-b')),
   },
   {
     action: '删除供应商失败',
     expected: [entities('providers'), uiShell],
+    uiShellCount: 1,
     execute: () =>
       editorSignals({ failProviderDelete: true }, (harness) => harness.editors.deleteProvider('provider-b')),
+  },
+  {
+    action: '新建角色成功',
+    expected: [entities('roles'), uiShell],
+    uiShellCount: 1,
+    execute: () =>
+      editorSignals({}, (harness) => {
+        editRoleDraft(harness, NEW_ROLE_ID)
+        return harness.editors.saveRoleEditor()
+      }),
   },
   {
     action: '保存已有角色成功',
     // 保存已有角色成功会同时补发 entities:roles 与关闭弹层触发的 uiShell。
     expected: [entities('roles'), uiShell],
+    uiShellCount: 1,
     execute: () =>
       editorSignals({}, (harness) => {
-        harness.state.draft.editRoleId = 'role-a'
-        harness.state.draft.roleName = '角色A改名'
-        harness.state.draft.roleSystemPrompt = '你是角色A'
-        harness.state.draft.roleModelCandidates = [
-          { kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' },
-        ]
-        harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
-        harness.state.draft.roleToolPolicy = { tools: [], nativeTools: [], runModes: {} }
+        editRoleDraft(harness, 'role-a')
+        return harness.editors.saveRoleEditor()
+      }),
+  },
+  {
+    action: '保存已有角色确定失败',
+    expected: [entities('roles'), uiShell],
+    uiShellCount: 1,
+    execute: () =>
+      editorSignals({ failRoleSave: true }, (harness) => {
+        editRoleDraft(harness, 'role-a')
         return harness.editors.saveRoleEditor()
       }),
   },
   {
     action: '删除角色成功',
     expected: [entities('roles'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => editorSignals({}, (harness) => harness.editors.deleteRole('role-b')),
   },
   {
     action: '删除角色失败',
     expected: [entities('roles'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => editorSignals({ failRoleDelete: true }, (harness) => harness.editors.deleteRole('role-b')),
   },
   {
     action: '保存已有群组成功',
     // 保存已有群组成功会同时补发 entities:groups 与关闭弹层触发的 uiShell。
     expected: [entities('groups'), uiShell],
+    uiShellCount: 1,
     execute: () =>
       editorSignals({}, (harness) => {
         harness.state.draft.editGroupId = 'group-a'
@@ -416,44 +489,57 @@ const SIGNAL_MATRIX: readonly MatrixRow[] = [
   {
     action: '删除群组成功',
     expected: [entities('groups'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => editorSignals({}, (harness) => harness.editors.deleteGroup('group-b')),
   },
   {
     action: '删除群组失败',
     expected: [entities('groups'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => editorSignals({ failGroupDelete: true }, (harness) => harness.editors.deleteGroup('group-b')),
   },
   {
     action: '供应商排序 moveProvider',
     expected: [entities('providers')],
+    uiShellCount: 0,
     execute: () => actionSignals({}, (harness) => harness.actions.moveProvider('provider-a', 'provider-b', 'after')),
   },
   {
     action: '角色排序 moveRole',
     expected: [entities('roles')],
+    uiShellCount: 0,
     execute: () => actionSignals({}, (harness) => harness.actions.moveRole('role-a', 'role-b', 'after')),
   },
   {
     action: '保存工作区成功',
     expected: [entities('workspaces'), uiShell],
+    uiShellCount: 1,
     execute: () =>
       workspaceSignals({}, (harness) => {
-        harness.state.draft.editWorkspaceId = 'ws-1'
-        harness.state.draft.workspaceName = '工作区一改名'
-        harness.state.draft.workspacePrompt = ''
-        harness.state.draft.workspaceDirectories = []
-        harness.state.draft.workspaceRegisteredRoleIds = ['role-a']
+        editWorkspaceDraft(harness)
+        return harness.manager.saveWorkspaceEditor()
+      }),
+  },
+  {
+    action: '保存工作区失败',
+    expected: [uiShell],
+    uiShellCount: 1,
+    execute: () =>
+      workspaceSignals({ failSave: true }, (harness) => {
+        editWorkspaceDraft(harness)
         return harness.manager.saveWorkspaceEditor()
       }),
   },
   {
     action: '删除工作区成功',
     expected: [entities('workspaces'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => workspaceSignals({}, (harness) => harness.manager.deleteWorkspaceEditor('ws-2')),
   },
   {
     action: '删除工作区失败',
     expected: [entities('workspaces'), navigation, uiShell],
+    uiShellCount: 1,
     execute: () => workspaceSignals({ failDelete: true }, (harness) => harness.manager.deleteWorkspaceEditor('ws-2')),
   },
 ]
@@ -466,6 +552,7 @@ describe('动作 → 刷新信号矩阵', () => {
       for (const address of row.expected) {
         expect(signals, `${row.action} 缺少刷新地址 ${address}`).toContain(address)
       }
+      expect(signals.filter((signal) => signal === uiShell).length, `${row.action} 的 uiShell 次数`).toBe(row.uiShellCount)
       for (const address of row.forbidden ?? [globalScope]) {
         expect(signals, `${row.action} 不得发全局广播 ${address}`).not.toContain(address)
       }
