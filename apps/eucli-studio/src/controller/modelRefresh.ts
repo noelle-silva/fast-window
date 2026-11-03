@@ -5,6 +5,7 @@ export function createModelRefresh(deps: {
   getState: () => any
   getProvider: (pid: string) => any
   netRequest: (req: any) => Promise<any>
+  persistProvider: (provider: any) => Promise<void>
   emit: () => void
   showToast?: AiChatShowToast
 }) {
@@ -37,7 +38,16 @@ export function createModelRefresh(deps: {
 
       p.modelsCache = { items: ids, fetchedAt: now() }
       s.models = { loading: false, error: '', items: ids.slice(0, 300) }
-      deps.showToast?.(`模型已刷新（${ids.length}）`, { kind: 'success' })
+
+      // 刷新结果必须落盘：modelsCache 是供应商实体的一部分，重启后由它投影出
+      // Provider.models。保存失败时保留内存结果，但明确告知用户未持久化。
+      try {
+        await deps.persistProvider(p)
+        deps.showToast?.(`模型已刷新（${ids.length}）`, { kind: 'success' })
+      } catch (persistError: any) {
+        const reason = String(persistError?.message || persistError || '未知错误')
+        deps.showToast?.(`模型已刷新（${ids.length}），但保存失败：${reason}（仅保留在内存，重启后需重新刷新）`, { kind: 'error' })
+      }
     } catch (e: any) {
       s.models = { loading: false, error: String(e?.message || e || '获取模型失败'), items: [] }
       deps.showToast?.(s.models.error || '获取模型失败', { kind: 'error' })

@@ -709,6 +709,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     getProvider,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    persistProvider: saveProviderEntity,
     emit: emitEntity('providers'),
     showToast: api.ui?.showToast,
   })
