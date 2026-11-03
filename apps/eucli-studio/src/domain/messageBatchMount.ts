@@ -1,6 +1,5 @@
 export const MESSAGE_BATCH_INITIAL_SIZE = 5
 export const MESSAGE_BATCH_SIZE = 10
-export const MESSAGE_BATCH_YIELD_MS = 80
 
 export type MessageBatch = {
   key: string

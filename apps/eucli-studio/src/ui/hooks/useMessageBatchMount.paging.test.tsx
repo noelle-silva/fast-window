@@ -24,16 +24,49 @@ function batchIds(apiRef: React.MutableRefObject<any>) {
   }))
 }
 
+function immediateYield() {
+  return {
+    promise: Promise.resolve(),
+    cancel: () => {},
+  }
+}
+
+function controllableYield() {
+  let release: (() => void) | null = null
+  let auto = false
+  const yieldToMain = () => {
+    if (auto) return immediateYield()
+    const promise = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return {
+      promise,
+      cancel: () => {
+        release?.()
+      },
+    }
+  }
+  return {
+    yieldToMain,
+    auto: () => {
+      auto = true
+      release?.()
+    },
+  }
+}
+
 function Harness(props: {
   sessionKey: string
   messages: any[]
   scrollRef: React.RefObject<HTMLDivElement>
   apiRef: React.MutableRefObject<any>
+  frameBudget?: any
 }) {
   const mounted = useMessageBatchMount({
     sessionKey: props.sessionKey,
     messages: props.messages,
     scrollRef: props.scrollRef,
+    frameBudget: props.frameBudget ?? { yieldToMain: immediateYield },
   })
   props.apiRef.current = mounted
   return (
@@ -83,9 +116,17 @@ describe('useMessageBatchMount 窗口翻页', () => {
     vi.useRealTimers()
   })
 
-  async function render(sessionKey: string, list: any[]) {
+  async function render(sessionKey: string, list: any[], frameBudget?: any) {
     await act(async () => {
-      root.render(<Harness sessionKey={sessionKey} messages={list} scrollRef={scrollRef} apiRef={apiRef} />)
+      root.render(
+        <Harness
+          sessionKey={sessionKey}
+          messages={list}
+          scrollRef={scrollRef}
+          apiRef={apiRef}
+          frameBudget={frameBudget}
+        />,
+      )
     })
   }
 
@@ -191,5 +232,31 @@ describe('useMessageBatchMount 窗口翻页', () => {
     await advance(200)
     await advance(200)
     expect(batchIds(apiRef).length).toBe(before)
+  })
+
+  it('推进过程中翻页：更早历史直接可见，并排在尚未上屏的批次之前', async () => {
+    const yieldControl = controllableYield()
+    const frameBudget = { yieldToMain: yieldControl.yieldToMain }
+    const base = Array.from({ length: 25 }, (_, index) => message(`m-${index}`))
+
+    await render('chat-1', base, frameBudget)
+    await settleUntil(() => batchIds(apiRef).length === 1 && !!batchIds(apiRef)[0]?.revealed)
+    await advance(60)
+
+    await render('chat-1', [message('m-a'), message('m-b'), ...base], frameBudget)
+    const paged = batchIds(apiRef).find((batch: any) => batch.ids.includes('m-a'))
+    expect(paged?.revealed).toBe(true)
+
+    yieldControl.auto()
+    await settleUntil(() => {
+      const batches = batchIds(apiRef)
+      return batches.length === 3 && batches.every((batch: any) => batch.revealed)
+    })
+
+    expect(batchIds(apiRef)).toEqual([
+      { revealed: true, ids: ['m-a', 'm-b'] },
+      { revealed: true, ids: ['m-0', 'm-1', 'm-2', 'm-3', 'm-4', 'm-5', 'm-6', 'm-7', 'm-8', 'm-9'] },
+      { revealed: true, ids: ['m-10', 'm-11', 'm-12', 'm-13', 'm-14', 'm-15', 'm-16', 'm-17', 'm-18', 'm-19'] },
+    ])
   })
 })

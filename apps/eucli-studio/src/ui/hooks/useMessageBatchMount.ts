@@ -2,11 +2,12 @@ import * as React from 'react'
 import {
   MESSAGE_BATCH_INITIAL_SIZE,
   MESSAGE_BATCH_SIZE,
-  MESSAGE_BATCH_YIELD_MS,
   planMessageBatchMount,
   type MessageBatch,
   type MessageBatchGroup,
 } from '../../domain/messageBatchMount'
+import type { FrameBudgetOptions } from '../scheduling/frameBudget'
+import { runFrameSlicedQueue } from '../scheduling/frameSlicedQueue'
 
 type PlannedBatch = MessageBatch & { revealed: boolean }
 
@@ -16,7 +17,11 @@ type MountState = {
   anchorId: string
   anchorIndex: number
   batches: PlannedBatch[]
-  pending: MessageBatch[]
+  // pendingIds 是按「从新到旧」排列的待上屏历史消息。
+  // 切片器每次从这里取一段（最多一批），消费多少就移除多少。
+  pendingIds: string[]
+  // stagedSeq 保证每次切片的 React key 唯一（同 id 序列重复出现也不会撞 key）。
+  stagedSeq: number
   // plannedIds 是「这份计划已经覆盖过的消息集合」。
   // 消息窗口往前翻时列表会变长，必须据此补批次，
   // 否则新加载的更早消息不在任何批次里，会「加载了但不显示」。
@@ -29,7 +34,22 @@ type ScrollAnchor = {
   scrollHeight: number
 }
 
+type StagedMarker = {
+  sessionKey: string
+  key: string
+}
+
 const STAGING_SELECTOR = '[data-fw-message-batch="staging"]'
+
+function messageId(message: any) {
+  return String(message?.id || '').trim()
+}
+
+const PAGED_BATCH_PREFIX = 'message-batch:older:'
+
+function batchKey(seq: number, ids: readonly string[]): string {
+  return `message-batch:slice:${seq}:${ids.length}`
+}
 
 function createMountState(sessionKey: string, messages: any[], initialSize: number, batchSize: number): MountState {
   const plan = planMessageBatchMount(messages, { initialSize, batchSize })
@@ -44,7 +64,8 @@ function createMountState(sessionKey: string, messages: any[], initialSize: numb
     anchorId: plan.anchorId,
     anchorIndex: plan.anchorIndex,
     batches: [],
-    pending: plan.batches,
+    pendingIds: plan.batches.flatMap((batch) => batch.ids),
+    stagedSeq: 0,
     plannedIds,
   }
 }
@@ -94,20 +115,41 @@ function appendUnplannedBatches(state: MountState, sessionKey: string, messages:
   for (let end = missing.length; end > 0; end -= batchSize) {
     const start = Math.max(0, end - batchSize)
     const ids = missing.slice(start, end)
-    batches.push({ key: `message-batch:older:${ids[0]}:${ids[ids.length - 1]}`, ids, revealed: true })
+    batches.push({ key: `${PAGED_BATCH_PREFIX}${ids[0]}:${ids[ids.length - 1]}`, ids, revealed: true })
   }
   const plannedIds = new Set(state.plannedIds)
   for (const id of missing) plannedIds.add(id)
   return { ...state, batches, plannedIds }
 }
 
-function messageId(message: any) {
-  return String(message?.id || '').trim()
+// stageSlice 把切片器给出的一段消息整批挂到屏幕外。
+// 只有这段消息仍然是 pendingIds 的前缀时才接受，避免过期切片改到新会话的状态。
+function stageSlice(state: MountState, sessionKey: string, key: string, ids: readonly string[]): MountState {
+  if (state.sessionKey !== sessionKey || !ids.length) return state
+  for (let index = 0; index < ids.length; index++) {
+    if (state.pendingIds[index] !== ids[index]) return state
+  }
+  // batches 必须保持「从新到旧」：翻页补进来的更早历史直接落在数组末尾，
+  // 因此尚未上屏的计划切片要插在它们前面，而不是排在更老的历史之后。
+  const batches = state.batches.slice()
+  const pagedIndex = batches.findIndex((batch) => batch.key.startsWith(PAGED_BATCH_PREFIX))
+  batches.splice(pagedIndex < 0 ? batches.length : pagedIndex, 0, {
+    key,
+    ids: ids.slice(),
+    revealed: false,
+  })
+  return {
+    ...state,
+    batches,
+    pendingIds: state.pendingIds.slice(ids.length),
+    stagedSeq: state.stagedSeq + 1,
+  }
 }
 
-function revealLastBatch(state: MountState, sessionKey: string): MountState {
-  if (state.sessionKey !== sessionKey || !state.batches.length) return state
-  const index = state.batches.length - 1
+function revealBatch(state: MountState, sessionKey: string, key: string): MountState {
+  if (state.sessionKey !== sessionKey) return state
+  const index = state.batches.findIndex((batch) => batch.key === key)
+  if (index < 0) return state
   const batch = state.batches[index]
   if (batch.revealed) return state
   const batches = state.batches.slice()
@@ -115,44 +157,77 @@ function revealLastBatch(state: MountState, sessionKey: string): MountState {
   return { ...state, batches }
 }
 
-function stageNextBatch(state: MountState, sessionKey: string): MountState {
-  if (state.sessionKey !== sessionKey || !state.pending.length) return state
-  const [next, ...pending] = state.pending
-  return { ...state, pending, batches: [...state.batches, { ...next, revealed: false }] }
+// rollbackSlice 把「已挂到屏幕外但尚未揭示」的批次退回待上屏队列。
+// 推进被取消（隐藏页、切换会话、锚点失效）时调用，保证恢复可见后
+// 从原位置重新切片，而不是留一批半成品藏在 DOM 里。
+function rollbackSlice(state: MountState, sessionKey: string, key: string): MountState {
+  if (state.sessionKey !== sessionKey) return state
+  const index = state.batches.findIndex((batch) => batch.key === key)
+  if (index < 0) return state
+  const batch = state.batches[index]
+  if (batch.revealed) return state
+  const batches = state.batches.slice()
+  batches.splice(index, 1)
+  return { ...state, batches, pendingIds: [...batch.ids, ...state.pendingIds] }
 }
 
 export function useMessageBatchMount(options: {
   sessionKey: string
   messages: any[]
   scrollRef: React.RefObject<HTMLElement | null>
-  // pageActive：只有可见页允许推进分批上屏。
-  // 保活页（隐藏）不排队、不触发 setTimeout，切回时从原进度继续。
+  // active：只有可见页允许推进分批上屏。
+  // 保活页（隐藏）不排队、不采样帧长、不触发让出，切回时从原进度继续。
   active?: boolean
   initialSize?: number
   batchSize?: number
-  yieldMs?: number
+  // frameBudget：测试注入点（可控时钟与让出函数）；生产环境全部走默认实现。
+  frameBudget?: Omit<FrameBudgetOptions, 'maxTasksPerSlice'>
 }): { batchGroups: MessageBatchGroup[]; visibleMessages: any[] } {
   const { sessionKey, messages, scrollRef } = options
   const active = options.active !== false
   const initialSize = Math.max(1, Math.floor(Number(options.initialSize ?? MESSAGE_BATCH_INITIAL_SIZE) || 1))
   const batchSize = Math.max(1, Math.floor(Number(options.batchSize ?? MESSAGE_BATCH_SIZE) || 1))
-  const yieldMs = Math.max(0, Math.floor(Number(options.yieldMs ?? MESSAGE_BATCH_YIELD_MS) || 0))
 
   const messagesRef = React.useRef(messages)
   messagesRef.current = messages
 
   const [state, setState] = React.useState<MountState>(() => createMountState(sessionKey, messages, initialSize, batchSize))
   const [readyKey, setReadyKey] = React.useState('')
+  const [pumpVersion, setPumpVersion] = React.useState(0)
   const epochRef = React.useRef(0)
   const scrollAnchorRef = React.useRef<ScrollAnchor | null>(null)
+  const runRef = React.useRef<{ cancel: () => void } | null>(null)
+  const stagedRef = React.useRef<StagedMarker | null>(null)
+  const mountedRef = React.useRef(true)
+  const frameBudgetRef = React.useRef(options.frameBudget)
+  frameBudgetRef.current = options.frameBudget
 
   const sessionState = state.sessionKey === sessionKey ? state : createMountState(sessionKey, messages, initialSize, batchSize)
   const effectiveState = !sessionState.initialized && messages.length > 0
     ? createMountState(sessionKey, messages, initialSize, batchSize)
     : sessionState
 
-  React.useLayoutEffect(() => {
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const cancelProgression = React.useCallback(() => {
     epochRef.current += 1
+    const run = runRef.current
+    runRef.current = null
+    run?.cancel()
+    const staged = stagedRef.current
+    stagedRef.current = null
+    if (staged) {
+      setState((prev) => rollbackSlice(prev, staged.sessionKey, staged.key))
+    }
+  }, [])
+
+  React.useLayoutEffect(() => {
+    cancelProgression()
     const epoch = epochRef.current
     scrollAnchorRef.current = null
     setReadyKey('')
@@ -166,10 +241,10 @@ export function useMessageBatchMount(options: {
       setReadyKey(sessionKey)
     })
     return () => {
-      epochRef.current += 1
       cancelAnimationFrame(frame)
+      cancelProgression()
     }
-  }, [sessionKey, initialSize, batchSize, scrollRef])
+  }, [sessionKey, initialSize, batchSize, scrollRef, cancelProgression])
 
   React.useEffect(() => {
     if (state.sessionKey !== sessionKey || state.initialized) return
@@ -180,12 +255,12 @@ export function useMessageBatchMount(options: {
   const anchorPresent = !effectiveState.anchorId || messages.some((message) => messageId(message) === effectiveState.anchorId)
   React.useEffect(() => {
     if (!effectiveState.initialized || !effectiveState.anchorId || anchorPresent) return
-    epochRef.current += 1
+    cancelProgression()
     scrollAnchorRef.current = null
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
     setState(createMountState(sessionKey, messagesRef.current, initialSize, batchSize))
-  }, [sessionKey, effectiveState.initialized, effectiveState.anchorId, anchorPresent, initialSize, batchSize, scrollRef])
+  }, [sessionKey, effectiveState.initialized, effectiveState.anchorId, anchorPresent, initialSize, batchSize, scrollRef, cancelProgression])
 
   // 窗口往前翻页：只补历史区的批次，不重排已上屏内容（翻页不该闪烁）。
   React.useEffect(() => {
@@ -211,37 +286,62 @@ export function useMessageBatchMount(options: {
     }
   }, [scrollRef])
 
+  const startProgression = React.useCallback((pendingIds: readonly string[], stagedSeq: number) => {
+    if (runRef.current) return
+    const epoch = epochRef.current
+    const session = sessionKey
+    let sliceSeq = stagedSeq
+    const run = runFrameSlicedQueue<string>({
+      items: pendingIds.slice(),
+      maxItemsPerSlice: batchSize,
+      ratio: frameBudgetRef.current?.ratio,
+      frameLengthMs: frameBudgetRef.current?.frameLengthMs,
+      now: frameBudgetRef.current?.now,
+      yieldToMain: frameBudgetRef.current?.yieldToMain,
+      onSlice: async (ids, timing) => {
+        if (timing.isCancelled() || epoch !== epochRef.current) return
+        const key = batchKey(sliceSeq, ids)
+        sliceSeq += 1
+        stagedRef.current = { sessionKey: session, key }
+        setState((prev) => stageSlice(prev, session, key, ids))
+        if (!(await timing.nextFrame())) return
+        if (!(await timing.nextFrame())) return
+        if (timing.isCancelled() || epoch !== epochRef.current) return
+        captureScrollAnchor()
+        setState((prev) => revealBatch(prev, session, key))
+        if (stagedRef.current?.key === key) stagedRef.current = null
+        await timing.nextFrame()
+      },
+    })
+    const handle = { cancel: run.cancel }
+    runRef.current = handle
+    void run.done.then(
+      (reason) => {
+        if (runRef.current === handle) runRef.current = null
+        if (reason === 'completed' && mountedRef.current) setPumpVersion((version) => version + 1)
+      },
+      (error: unknown) => {
+        if (runRef.current === handle) runRef.current = null
+        cancelProgression()
+        if (typeof console !== 'undefined' && typeof console.error === 'function') {
+          console.error('[useMessageBatchMount] batch progression failed', error)
+        }
+      },
+    )
+  }, [batchSize, sessionKey, captureScrollAnchor, cancelProgression])
+
+  React.useEffect(() => {
+    if (!active) cancelProgression()
+  }, [active, cancelProgression])
+
   React.useEffect(() => {
     if (!active) return
     if (readyKey !== sessionKey) return
     if (state.sessionKey !== sessionKey || !state.initialized) return
-
-    const staging = state.batches.length ? state.batches[state.batches.length - 1] : null
-    if (staging && !staging.revealed) {
-      const epoch = epochRef.current
-      let secondFrame = 0
-      const firstFrame = requestAnimationFrame(() => {
-        if (epoch !== epochRef.current) return
-        secondFrame = requestAnimationFrame(() => {
-          if (epoch !== epochRef.current) return
-          captureScrollAnchor()
-          setState((prev) => revealLastBatch(prev, sessionKey))
-        })
-      })
-      return () => {
-        cancelAnimationFrame(firstFrame)
-        cancelAnimationFrame(secondFrame)
-      }
-    }
-
-    if (!state.pending.length) return
-    const epoch = epochRef.current
-    const timer = setTimeout(() => {
-      if (epoch !== epochRef.current) return
-      setState((prev) => stageNextBatch(prev, sessionKey))
-    }, yieldMs)
-    return () => clearTimeout(timer)
-  }, [active, readyKey, sessionKey, state, yieldMs, captureScrollAnchor])
+    if (runRef.current) return
+    if (!state.pendingIds.length) return
+    startProgression(state.pendingIds, state.stagedSeq)
+  }, [active, readyKey, sessionKey, state, pumpVersion, startProgression])
 
   React.useLayoutEffect(() => {
     const anchor = scrollAnchorRef.current

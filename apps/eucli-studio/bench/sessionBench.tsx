@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import {
   MESSAGE_BATCH_INITIAL_SIZE,
   MESSAGE_BATCH_SIZE,
-  MESSAGE_BATCH_YIELD_MS,
 } from '../src/domain/messageBatchMount'
 import { BenchChatList } from './chatTree'
 import { createBenchController, makeBenchMessages } from './controller'
@@ -61,11 +60,14 @@ function createTimeSliceStrategy(): WaitStrategy {
   }
 }
 
+// 旧实现的固定等待只保留为基准对照，不再进入生产代码。
+const LEGACY_FIXED_WAIT_MS = 80
+
 function fixedWaitStrategy(): WaitStrategy {
   return {
     name: '现有固定等待',
-    waitMode: `setTimeout(${MESSAGE_BATCH_YIELD_MS})`,
-    wait: () => new Promise<void>((resolve) => setTimeout(resolve, MESSAGE_BATCH_YIELD_MS)),
+    waitMode: `setTimeout(${LEGACY_FIXED_WAIT_MS})`,
+    wait: () => new Promise<void>((resolve) => setTimeout(resolve, LEGACY_FIXED_WAIT_MS)),
   }
 }
 
