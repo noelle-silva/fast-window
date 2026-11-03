@@ -30,18 +30,17 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
     controller.actions.refreshModelGroups?.(false)
   }, [controller])
 
-  const groupIds = React.useMemo(() => items.map((group: any) => String(group?.id || '')).filter(Boolean), [items])
+  // 列表由当前数组直接派生的 id 驱动：数据就地更新时数组引用不变，
+  // 任何以引用为失效依据的记忆化都会让新行停留在旧结果。
+  const groupIds = items.map((group: any) => String(group?.id || '')).filter(Boolean)
   const handleGroupMove = (activeId: string, overId: string) => {
     const position = resolveSortMovePosition(groupIds, activeId, overId)
     if (!position) return
     controller.actions.moveModelGroup?.(activeId, overId, position as SortMovePosition)
   }
 
-  React.useEffect(() => {
-    setSelectedGroupId((current) => (current && groupIds.includes(current) ? current : groupIds[0] || ''))
-  }, [groupIds])
-
-  const selectedGroup = items.find((group: any) => String(group?.id || '') === selectedGroupId) || null
+  const activeGroupId = selectedGroupId && groupIds.includes(selectedGroupId) ? selectedGroupId : groupIds[0] || ''
+  const selectedGroup = items.find((group: any) => String(group?.id || '') === activeGroupId) || null
 
   const createGroup = () => {
     const createdId = controller.actions.createModelGroup?.()
@@ -71,7 +70,7 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
                       {({ id: groupId, drag, shouldIgnoreClick }) => {
                         const group = items.find((item: any) => String(item?.id || '') === groupId) || null
                         if (!group) return null
-                        const selected = groupId === selectedGroupId
+                        const selected = groupId === activeGroupId
                         const modelCount = Array.isArray(group?.models) ? group.models.length : 0
                         return (
                           <Button
