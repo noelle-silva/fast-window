@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["./**/*.ts", "./**/*.tsx", "../src/vite-env.d.ts"],
+  "exclude": ["dist", "node_modules"]
+}
