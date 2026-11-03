@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { APP_ROOT_REFRESH_SCOPES } from '../domain/appRefreshScopes'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 const APP_SOURCE = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 const FAVORITE_FOLDERS_SOURCE = readFileSync(new URL('./hooks/useFavoriteFolders.tsx', import.meta.url), 'utf8')
@@ -41,13 +43,13 @@ describe('App 精准通知订阅', () => {
     expect(FAVORITE_FOLDERS_SOURCE).not.toContain('useUiDataVersion')
   })
 
-  it('订阅 settings、uiShell 与实体/库/插件地址，设置与实体变化不会漏刷', () => {
+  it('订阅 settings，并通过注册表订阅 uiShell 与实体/库/插件地址', () => {
     expect(APP_SOURCE).toContain('useScopedUiVersion(controller, refreshScopes.settings())')
-    expect(APP_SOURCE).toContain('useScopedUiVersions(controller, [')
-    expect(APP_SOURCE).toContain('refreshScopes.uiShell()')
-    expect(APP_SOURCE).toContain("refreshScopes.entities('roles')")
-    expect(APP_SOURCE).toContain("refreshScopes.entities('tools')")
-    expect(APP_SOURCE).toContain("refreshScopes.entities('plugins')")
+    expect(APP_SOURCE).toContain('useScopedUiVersions(controller, APP_ROOT_REFRESH_SCOPES)')
+    expect(APP_ROOT_REFRESH_SCOPES).toContain(refreshScopes.uiShell())
+    expect(APP_ROOT_REFRESH_SCOPES).toContain(refreshScopes.entities('roles'))
+    expect(APP_ROOT_REFRESH_SCOPES).toContain(refreshScopes.entities('tools'))
+    expect(APP_ROOT_REFRESH_SCOPES).toContain(refreshScopes.entities('plugins'))
   })
 
   it('订阅 runCards；composer 由输入区自订阅，App 不跟着重渲染', () => {

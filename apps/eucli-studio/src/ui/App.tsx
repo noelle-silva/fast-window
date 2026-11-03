@@ -31,6 +31,7 @@ import { useSidebarResize } from './hooks/useSidebarResize'
 import { clampNum } from './utils/numbers'
 import { GROUP_ENTRY_VISIBLE, TOPBAR_H } from './appConstants'
 import { messageRefreshScope, refreshScopes } from '../domain/uiRefreshScope'
+import { APP_ROOT_REFRESH_SCOPES } from '../domain/appRefreshScopes'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
@@ -122,23 +123,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   // 设置变化先在这里失效，再由稳定 props 分发给 ShellFrame / Surface。
   const settingsVersion = useScopedUiVersion(controller, refreshScopes.settings())
   // 实体 / 库 / 插件域与壳层路由：这些数据会被就地修改，必须用地址版本穿透 memo。
-  const domainVersion = useScopedUiVersions(controller, [
-    refreshScopes.uiShell(),
-    refreshScopes.entities('roles'),
-    refreshScopes.entities('groups'),
-    refreshScopes.entities('workspaces'),
-    refreshScopes.entities('providers'),
-    refreshScopes.entities('modelGroups'),
-    refreshScopes.entities('tools'),
-    refreshScopes.entities('hookPrompts'),
-    refreshScopes.entities('placeholders'),
-    refreshScopes.entities('plugins'),
-    refreshScopes.entities('accessSettings'),
-    refreshScopes.entities('requestRecords'),
-    refreshScopes.entities('modelRequestConfig'),
-    refreshScopes.entities('conversationImageConfig'),
-    refreshScopes.entities('toolWorkDirectory'),
-  ])
+  // 订阅清单只来自注册表，新增实体域不再需要在这里补数组。
+  const domainVersion = useScopedUiVersions(controller, APP_ROOT_REFRESH_SCOPES)
   const runCardsVersion = useScopedUiVersion(controller, refreshScopes.runCards())
 
   const colorThemePreset = resolveColorThemePreview(data?.settings?.colorTheme, (s.draft as any)?.colorThemeDraft)
