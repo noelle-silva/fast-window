@@ -1594,34 +1594,14 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [composerProps],
   )
 
+  // 设置页内容只依赖稳定入口：数据由各设置面板宿主按自己的刷新地址自订阅。
+  // 这里刻意不登记 roles / providers / groups 等实体，避免新增域时漏刷。
   const settingsContent = React.useMemo(() => (
     <PluginSettingsPage
       controller={controller}
-      loading={!!s.loading}
-      data={data}
-      roles={roles}
-      groups={groups}
-      workspaces={workspaces}
-      providers={providers}
-      modelGroups={(s as any).modelGroups}
-      models={s.models}
-      tools={(s as any).tools}
-      toolWorkDirectory={(s as any).toolWorkDirectory}
-      modelRequestConfig={(s as any).modelRequestConfig}
-      conversationImageConfig={(s as any).conversationImageConfig}
-      requestRecords={(s as any).requestRecords}
       bootstrap={bootstrap}
       releaseViews={releaseViews}
       onReleaseRefresh={onReleaseRefresh}
-      accessSettings={(s as any)?.accessSettings}
-      hookPrompts={hookPrompts}
-      placeholders={placeholders}
-      systemPlugins={systemPlugins}
-      draft={s.draft}
-      activeRoleId={String(s.draft?.activeRoleId || '')}
-      activeWorkspaceId={String((s.draft as any)?.activeWorkspaceId || '')}
-      activeGroupId={activeGroupId}
-      activeTargetKind={activeTargetKind}
       tab={settingsTab}
       onTabChange={setSettingsTab}
       dataDirectory={dataDirectory}
@@ -1629,38 +1609,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     />
   ), [
     controller,
-    s.loading,
-    data,
-    roles,
-    groups,
-    workspaces,
-    providers,
-    (s as any).modelGroups,
-    s.models,
-    (s as any).tools,
-    (s as any).toolWorkDirectory,
-    (s as any).modelRequestConfig,
-    (s as any).conversationImageConfig,
-    (s as any).requestRecords,
     bootstrap,
     releaseViews,
     onReleaseRefresh,
-    (s as any)?.accessSettings,
-    hookPrompts,
-    placeholders,
-    systemPlugins,
-    s.draft,
-    (s.draft as any)?.activeRoleId,
-    (s.draft as any)?.activeWorkspaceId,
-    activeGroupId,
-    activeTargetKind,
     settingsTab,
     setSettingsTab,
     dataDirectory,
     eucliBoxConnection,
-    settingsVersion,
-    domainVersion,
-    navigationVersion,
   ])
 
   const overlayImagePicker = React.useMemo(() => ({
