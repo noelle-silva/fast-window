@@ -6,11 +6,18 @@ import { clamp } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
 import type { AiChatShowToast } from '../gateway/capabilities'
 
+const DEAD_RENDER_ACTIONS = new Set([
+  'side-tab',
+  'pick-role',
+  'ask-delete-role',
+  'edit-provider',
+  'close-provider-editor',
+  'ask-delete-provider',
+])
+
 export function createEventHandlers(deps: {
   getState: () => any
   actions: Record<string, any>
-  emit: () => void
-  render: () => void
   showToast?: AiChatShowToast
   clipboard?: { writeText?: (text: string) => Promise<void>; writeImage?: (...args: any[]) => void; readText?: () => Promise<string> }
 }) {
@@ -59,6 +66,10 @@ export function createEventHandlers(deps: {
     }
     if (!t || !act) return
 
+    if (DEAD_RENDER_ACTIONS.has(act)) {
+      throw new Error(`事件动作 ${act} 依赖已删除的全局 render()，接线前必须改为域地址通知`)
+    }
+
     if (act === 'open-mermaid') {
       deps.actions.openMermaidViewer(t)
       return
@@ -87,14 +98,6 @@ export function createEventHandlers(deps: {
       return
     }
 
-    if (act === 'side-tab') {
-      const state = deps.getState()
-      const tab = String(t.getAttribute('data-tab') || '')
-      state.sideTab = tab === 'chats' ? 'chats' : 'roles'
-      deps.render()
-      return
-    }
-
     if (act === 'close-modal') {
       deps.actions.closeModal()
       return
@@ -112,22 +115,11 @@ export function createEventHandlers(deps: {
 
     if (act === 'edit-role-inline') return deps.actions.openRoleEditor(String(t.getAttribute('data-id') || ''))
 
-    if (act === 'pick-role') {
-      const state = deps.getState()
-      state.draft.activeRoleId = String(t.getAttribute('data-id') || '')
-      deps.actions.ensureChatsBox(state.draft.activeRoleId)
-      deps.actions.save().catch(() => {})
-      deps.render()
-      deps.actions.scrollToBottomSoon()
-      return
-    }
-
     if (act === 'pick-chat') return deps.actions.pickChatForActiveTarget(String(t.getAttribute('data-id') || ''))
 
     if (act === 'pick-images') return deps.actions.pickDraftImages?.()
     if (act === 'rm-draft-img') {
       deps.actions.removeDraftImage(String(t.getAttribute('data-id') || ''))
-      deps.actions.renderComposer()
       return
     }
 
@@ -135,43 +127,9 @@ export function createEventHandlers(deps: {
     if (act === 'refresh-models') return deps.actions.refreshModels(String(deps.getState().draft.roleProviderId || ''), true)
     if (act === 'save-role') return deps.actions.saveRoleEditor()
 
-    if (act === 'ask-delete-role') {
-      const state = deps.getState()
-      state.draft.deleteRoleId = String(t.getAttribute('data-id') || '')
-      state.draft.deleteProviderId = ''
-      state.modal = 'confirm'
-      deps.render()
-      return
-    }
-
     if (act === 'new-provider') return deps.actions.createProvider()
 
-    if (act === 'edit-provider') {
-      const state = deps.getState()
-      const pid = String(t.getAttribute('data-id') || '')
-      if (String(state.draft.editProviderId || '') === pid) state.draft.editProviderId = ''
-      else deps.actions.openProviderInlineEditor(pid)
-      deps.render()
-      return
-    }
-
-    if (act === 'close-provider-editor') {
-      const state = deps.getState()
-      state.draft.editProviderId = ''
-      deps.render()
-      return
-    }
-
     if (act === 'save-provider') return deps.actions.saveProviderInlineEditor()
-
-    if (act === 'ask-delete-provider') {
-      const state = deps.getState()
-      state.draft.deleteProviderId = String(t.getAttribute('data-id') || '')
-      state.draft.deleteRoleId = ''
-      state.modal = 'confirm'
-      deps.render()
-      return
-    }
 
     if (act === 'confirm-delete') {
       void deps.actions.confirmDelete?.()
