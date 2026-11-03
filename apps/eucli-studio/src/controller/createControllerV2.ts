@@ -10,19 +10,17 @@ import {
   DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
 } from '../domain/constants'
-import { removeDraftImage as removeDraftImageFromList } from '../domain/draftImageUtils'
+import { createDraftActions } from './actions/draftActions'
 import {
   activateComposerDraftForCurrentSession,
   readActiveComposerDraft,
-  setActiveComposerImages,
-  setActiveComposerInput,
 } from '../domain/sessionComposerDrafts'
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
-import { COMPOSER_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
@@ -1027,7 +1025,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     },
     render,
     renderComposer: renderAll,
-    emitComposerScope: () => emitScope(COMPOSER_REFRESH_SCOPE),
     emitScope,
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
@@ -1090,6 +1087,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // 19. EVENT HANDLERS
   // ============================================================
   // Build placeholder actions object for eventHandlers (circular dep)
+  const draftActionsPlaceholder = createDraftActions({ state, emitScope })
   const actionsPlaceholder: Record<string, any> = {
     emit,
     save: () => savePreferences(),
@@ -1116,30 +1114,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ensureGroupChatsBox: ensureGroupChatsBoxBare,
     clearPendingChat,
     clearPendingGroupChat,
-    setDraft: (key: any, value: any) => {
-      const k = String(key || '')
-      if (k === 'input') {
-        setActiveComposerInput(state, value)
-        return
-      }
-      if ((k === 'workspaceName' || k === 'workspacePrompt') && state.modal === 'workspace') {
-        ;(state.draft as any).workspaceActualPromptStale = true
-        ;(state.draft as any).workspaceActualPromptError = ''
-      }
-      if (k) (state.draft as any)[k] = value
-      emitScope(refreshScopes.uiShell())
-    },
+    ...draftActionsPlaceholder,
     // These will be filled by the full actions object
     openProvidersEditor: () => openProvidersEditor(),
     createRole: () => createRole(),
     createChatForActiveTarget: () => createChatForActiveTarget(),
     openRoleEditor: (id: string) => openRoleEditor(id),
     pickChatForActiveTarget: (id: string) => pickChatForActiveTarget(id),
-    removeDraftImage: (id: string) => {
-      const draft = activateComposerDraftForCurrentSession(state)
-      setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
-      emitScope(refreshScopes.composer())
-    },
     sendChat: () => sendChat(),
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: (files: any) => addDraftImagesFromFiles(Array.isArray(files) ? files : []),

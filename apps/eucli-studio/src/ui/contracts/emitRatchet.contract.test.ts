@@ -39,10 +39,13 @@ import {
 // 只有 createControllerV2 的 render/renderAll 两个别名仍保留全局通道，
 // 用于启动加载 / 整包换代 / 运行编排等无法按单一地址归类的路径。
 const EMIT_BASELINE = 159
-// scope 通知基线（当前 47 处）：上面各域的 emitScope/emitScopes 调用总和，
+// scope 通知基线（当前 44 处）：上面各域的 emitScope/emitScopes 调用总和，
 // 由 AST 规则在本次收口后算得。任何一处减少都会让下面的 `>= SCOPE_BASELINE`
 // 失败，防止有人回退成全局广播。
-const SCOPE_BASELINE = 47
+// 112 草稿写入收口：把 chatNavigationActions / createControllerV2 里重复的
+// composer 发射点合并进 draftActions，并删除已无消费者的 emitComposerScope 依赖；
+// 发射点从 47 降到 44，属于删除重复实现而不是回退全局广播。
+const SCOPE_BASELINE = 44
 
 // 内核实现文件：定义 emit / emitScope / emitScopes 并把空地址归一到全局通道。
 // 它的内部调用不是业务发射点，单独排除；其余任何文件都不得豁免。

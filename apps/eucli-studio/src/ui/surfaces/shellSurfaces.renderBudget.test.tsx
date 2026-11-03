@@ -69,7 +69,6 @@ const COMPOSER_STABLE_PROPS = {
   composerMinRows: 1,
   composerRadius: 16,
   composerModelShowProvider: false,
-  draft: { input: '' },
   activeSessionComposerDraftKey: 'role:role-1:__new__',
   composerInputRef: { current: null },
   activeTargetKind: 'role' as const,

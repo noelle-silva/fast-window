@@ -25,6 +25,7 @@ import { COMPOSER_SLASH_COMMANDS, findSlashCommandTrigger } from './composerSlas
 export function ComposerInputControls(props: {
   controller: any
   draftKey: string
+  draftRevision: number
   initialValue: string
   inputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   disabled: boolean
@@ -44,6 +45,7 @@ export function ComposerInputControls(props: {
   const {
     controller,
     draftKey,
+    draftRevision,
     initialValue,
     inputRef,
     disabled,
@@ -86,11 +88,17 @@ export function ComposerInputControls(props: {
     [inputRef],
   )
 
+  // 外部草稿变更以 composer 范围修订号为准，而不是比较 initialValue：
+  // 用户键入只更新本地值与草稿存储、不广播，父级可能从未用新文本重渲染；
+  // 此时清空草稿后 initialValue 仍是空串，只有修订号能证明“外部确实变了”。
   React.useEffect(() => {
     setValue(String(initialValue || ''))
+  }, [draftKey, initialValue, draftRevision])
+
+  React.useEffect(() => {
     setAtPicker(null)
     setSlashPicker(null)
-  }, [draftKey, initialValue])
+  }, [draftKey])
 
   const closeAtPicker = useEvent(() => setAtPicker(null))
   const closeSlashPicker = useEvent(() => setSlashPicker(null))
@@ -179,7 +187,7 @@ export function ComposerInputControls(props: {
 
   const setDraftInput = useEvent((next: string) => {
     setValue(next)
-    controller.actions.setDraft('input', next)
+    controller.actions.setComposerInput?.(next)
   })
 
   const sendSlashCommand = useEvent((command: string) => {

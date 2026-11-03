@@ -80,8 +80,16 @@ describe('会话目标切换通知', () => {
   it('输入框按键不广播，避免外部刷新重置输入区', () => {
     const harness = createHarness('role')
 
-    harness.actions.setDraft('input', '正在输入')
+    harness.actions.setComposerInput('正在输入')
 
     expect(harness.emitScope).not.toHaveBeenCalled()
+  })
+
+  it('外部程序化写入必须广播 composer，让输入区按修订号对账', () => {
+    const harness = createHarness('role')
+
+    harness.actions.setComposerInputExternal('外部写入')
+
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
   })
 })

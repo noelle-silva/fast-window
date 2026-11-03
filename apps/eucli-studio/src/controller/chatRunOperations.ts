@@ -17,7 +17,6 @@ import { pendingChatForTarget } from '../domain/pendingChat'
 import {
   activeComposerDraftKey,
   activateComposerDraftForCurrentSession,
-  clearComposerDraftByKey,
   readActiveComposerDraft,
   readComposerDraftByKey,
 } from '../domain/sessionComposerDrafts'
@@ -33,7 +32,7 @@ export function createChatRunOperations(
   shared: ReturnType<typeof createChatOperationsShared>,
   draftOperations: { buildRunImages: (draftImages: any[]) => any[] },
 ) {
-  const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, activateResolvedPendingSelection } = shared
+  const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, activateResolvedPendingSelection, consumeComposerDraft } = shared
   const { getState, netRequest, showToast, ensureActiveChatLoaded, render, renderComposer: renderAll, scrollToBottomSoon } = deps
   const { buildRunImages } = draftOperations
 
@@ -525,7 +524,7 @@ export function createChatRunOperations(
             acceptedRunId = String(run?.id || '').trim()
             syncEbRoleRunCard(run, { roleId, groupId, sessionId, anchorMessageId })
             if (clearDraftOnce) {
-              clearComposerDraftByKey(state, input.clearComposerDraftKey)
+              consumeComposerDraft(input.clearComposerDraftKey)
               clearDraftOnce = false
             }
             renderAll()
@@ -614,7 +613,7 @@ export function createChatRunOperations(
       await runRoleMessageViaEb({ roleId: rid, workspaceId, sessionId, message: input, attachments, parentMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId, stream }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
         syncEbRoleRunCard(run, { roleId: rid, workspaceId, sessionId, anchorMessageId: parentMessageId })
-        clearComposerDraftByKey(state, draftKey)
+        consumeComposerDraft(draftKey)
         state.branchDraft = null
         renderAll()
         render()

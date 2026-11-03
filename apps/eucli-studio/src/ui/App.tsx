@@ -1193,7 +1193,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     composerMinRows,
     composerRadius,
     composerModelShowProvider,
-    draft: s.draft,
     activeSessionComposerDraftKey: String((s as any).activeSessionComposerDraftKey || ''),
     composerInputRef,
     activeTargetKind,
@@ -1241,7 +1240,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   }), [
     controller,
     s.loading,
-    s.draft,
     (s as any).activeSessionComposerDraftKey,
     composerRef,
     onClickOpenImageViewer,

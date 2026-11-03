@@ -1,11 +1,9 @@
-import { removeDraftImage as removeDraftImageFromList } from '../../domain/draftImageUtils'
-import { COMPOSER_REFRESH_SCOPE, GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
+import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
 import {
   activateComposerDraftForCurrentSession,
   saveActiveComposerDraftMirror,
-  setActiveComposerImages,
-  setActiveComposerInput,
 } from '../../domain/sessionComposerDrafts'
+import { createDraftActions } from './draftActions'
 
 export function createChatNavigationActions(deps: {
   state: any
@@ -22,6 +20,7 @@ export function createChatNavigationActions(deps: {
   addDraftImagesFromFiles: (files: File[]) => any
 }) {
   const { state, emitScope, saveMeta, ensureActiveChatLoaded, ensureChatsBoxBare, ensureGroupChatsBoxBare, setActiveWorkspace, setWorkspaceRole, createChatForActiveTarget, pickChatForActiveTarget, pickDraftImages, addDraftImagesFromFiles } = deps
+  const draftActions = createDraftActions({ state, emitScope })
 
   function notifyScopes(scopes: readonly string[]) {
     const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
@@ -87,29 +86,7 @@ export function createChatNavigationActions(deps: {
     createChat: () => {
       return createChatForActiveTarget()
     },
-    setDraft: (key: any, value: any) => {
-      const k = String(key || '')
-      if (!k) return
-      if (k === 'input') {
-        // 输入草稿由输入区本地状态承载，这里只写数据不广播：
-        // 若在此广播，输入区每次按键都会被外部刷新重置，选择器会被顶掉。
-        setActiveComposerInput(state, value)
-        return
-      }
-      if ((k === 'workspaceName' || k === 'workspacePrompt') && state.modal === 'workspace') {
-        ;(state.draft as any).workspaceActualPromptStale = true
-        ;(state.draft as any).workspaceActualPromptError = ''
-      }
-      ;(state.draft as any)[k] = value
-      // 非输入草稿字段属于编辑器 / 弹层状态，归 uiShell。
-      emitScope(refreshScopes.uiShell())
-    },
-    removeDraftImage: (id: any) => {
-      const draft = activateComposerDraftForCurrentSession(state)
-      setActiveComposerImages(state, removeDraftImageFromList(draft.images, String(id || '')))
-      // 草稿图片只该动输入区，走 composer 范围，不惊动整页。
-      emitScope(COMPOSER_REFRESH_SCOPE)
-    },
+    ...draftActions,
     pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: async (files: any) => {
       await addDraftImagesFromFiles(Array.isArray(files) ? files : [])

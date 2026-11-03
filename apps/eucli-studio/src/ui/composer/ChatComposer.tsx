@@ -100,7 +100,6 @@ export function ChatComposer(props: {
   composerMinRows: number
   composerRadius: number
   composerModelShowProvider: boolean
-  draft: any
   activeSessionComposerDraftKey: string
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   activeTargetKind: 'role' | 'group' | 'workspace'
@@ -160,7 +159,6 @@ export function ChatComposer(props: {
     composerMinRows,
     composerRadius,
     composerModelShowProvider,
-    draft,
     activeSessionComposerDraftKey,
     composerInputRef,
     activeTargetKind,
@@ -208,8 +206,8 @@ export function ChatComposer(props: {
   } = props
 
   // 输入区独立更新：草稿图片变化走 composer 范围，只有本组件重渲染。
-  useScopedUiVersion(controller, COMPOSER_REFRESH_SCOPE)
-  const liveDraft = (controller?.getComposerDraft?.() as any) || draft
+  const composerRevision = useScopedUiVersion(controller, COMPOSER_REFRESH_SCOPE)
+  const liveDraft = controller.getComposerDraft()
   const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
   const sideInset = `${composerSideInsetPercent(composerWidthPercent)}%`
 
@@ -286,10 +284,11 @@ export function ChatComposer(props: {
         <ComposerInputControls
           controller={controller}
           draftKey={String(activeSessionComposerDraftKey || `${activeTargetKind}:${activeChatTargetId}:${activeChatId || '__new__'}`)}
-          initialValue={String(draft?.input || '')}
+          draftRevision={composerRevision}
+          initialValue={String(liveDraft?.input || '')}
           inputRef={composerInputRef}
           disabled={loading || !activeRole}
-          hasDraftNonText={!!(draft?.images || []).length}
+          hasDraftNonText={draftImages.length > 0}
           activeTargetKind={activeTargetKind}
           activeGroup={activeGroup}
           roles={roles}

@@ -121,7 +121,7 @@ export function installSmokeDiagnostics(deps: SmokeDiagnosticsDeps) {
     await runStep('新建会话并发送', async () => {
       controller.actions?.createChat?.()
       await delay(100)
-      controller.actions?.setDraft?.('input', `${marker} 第一条，只回复 OK`)
+      controller.actions?.setComposerInputExternal?.(`${marker} 第一条，只回复 OK`)
       await controller.actions?.send?.()
       let matched: any = null
       await waitFor(() => {
@@ -142,7 +142,7 @@ export function installSmokeDiagnostics(deps: SmokeDiagnosticsDeps) {
     await runStep('连续多轮', async () => {
       const chatBefore = activeChat()
       const beforeCount = messageCount(chatBefore)
-      controller.actions?.setDraft?.('input', `${marker} 第二条，只回复 OK`)
+      controller.actions?.setComposerInputExternal?.(`${marker} 第二条，只回复 OK`)
       await controller.actions?.send?.()
       const after = activeChat()
       const afterCount = messageCount(after)

@@ -249,7 +249,7 @@ export function createEventHandlers(deps: {
     if (!bind) return
     const state = deps.getState()
     if (bind === 'input') {
-      deps.actions.setDraft?.('input', t.value)
+      deps.actions.setComposerInput?.(t.value)
       return
     }
     state.draft[bind] = t.value
@@ -261,7 +261,7 @@ export function createEventHandlers(deps: {
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
     if (bind === 'input') {
-      deps.actions.setDraft?.('input', t.value)
+      deps.actions.setComposerInput?.(t.value)
       return
     }
     deps.getState().draft[bind] = t.value

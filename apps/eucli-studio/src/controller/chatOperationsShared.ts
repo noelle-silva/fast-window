@@ -9,7 +9,8 @@ import type { ModelRef } from '../domain/modelRefUtils'
 import type { EbRunState } from './ebRoleRun'
 import type { RunProbe } from './runProbe'
 import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
-import { refreshScopes } from '../domain/uiRefreshScope'
+import { COMPOSER_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
+import { createDraftActions } from './actions/draftActions'
 
 export type ChatTargetKind = 'role' | 'group' | 'workspace'
 
@@ -64,7 +65,6 @@ export type ChatOperationsDeps = {
   emitScope: (scope: string) => void
   render: () => void
   renderComposer: () => void
-  emitComposerScope?: () => void
   scrollToBottomSoon: () => void
   readImageFileAsDataUrl: (file: File) => Promise<string>
   // RunProbe：run 终态对账的唯一入口（取代 450ms 固定轮询）。
@@ -79,6 +79,12 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
   const sa = createStateAccessors({ getState })
   const cancelledRunIds = new Set<string>()
   const startingRoleRunKeys = new Set<string>()
+
+  // 输入草稿是输入区独占事实：任何发生在输入区之外的草稿变更
+  // （发送后清空、选择图片、删除图片）都必须只通过 composer 范围广播。
+  const draftActions = createDraftActions({ state: getState(), emitScope: deps.emitScope })
+  const notifyComposer = draftActions.notifyComposer
+  const consumeComposerDraft = draftActions.consumeComposerDraft
 
   function splitWorkspaceTargetId(targetIdRaw: unknown) {
     return parseWorkspaceRoleTargetId(targetIdRaw)
@@ -246,6 +252,8 @@ export function createChatOperationsShared(deps: ChatOperationsDeps) {
     cancelledRunIds,
     startingRoleRunKeys,
     splitWorkspaceTargetId,
+    notifyComposer,
+    consumeComposerDraft,
     invalidateChatBodyAfterWrite,
     persistActiveView,
     activateResolvedPendingSelection,

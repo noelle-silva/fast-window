@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { refreshScopes } from '../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { createChatOperationsShared } from './chatOperationsShared'
 
@@ -21,17 +22,30 @@ function createHarness() {
     roleId,
     messages: [],
   }))
+  const emitScope = vi.fn()
   const shared = createChatOperationsShared({
     getState: () => state,
-    emitScope: () => {},
+    emitScope,
     render: () => {},
     renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
     reloadWorkspaceSession,
   })
-  return { state, shared, reloadWorkspaceSession }
+  return { state, shared, reloadWorkspaceSession, emitScope }
 }
+
+describe('消费草稿是清空 + 广播的原子动作', () => {
+  it('consumeComposerDraft 同时清空草稿与广播 composer 范围', () => {
+    const harness = createHarness()
+    harness.state.sessionComposerDrafts = { 'role:role-a:new:__new__': { input: '待发送', images: [] } }
+
+    harness.shared.consumeComposerDraft('role:role-a:new:__new__')
+
+    expect(harness.state.sessionComposerDrafts['role:role-a:new:__new__']).toEqual({ input: '', images: [] })
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
+  })
+})
 
 describe('工作区会话刷新身份', () => {
   it('刷新会话时把工作区编号与角色编号分别交给业务端', async () => {

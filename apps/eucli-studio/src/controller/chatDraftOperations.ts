@@ -10,9 +10,8 @@ import {
 import type { createChatOperationsShared } from './chatOperationsShared'
 
 export function createChatDraftOperations(shared: ReturnType<typeof createChatOperationsShared>) {
-  const { deps } = shared
-  const { getState, pickImageFiles, showToast, renderComposer, emitComposerScope, readImageFileAsDataUrl } = deps
-  const notifyComposer = () => (emitComposerScope ? emitComposerScope() : renderComposer())
+  const { deps, notifyComposer } = shared
+  const { getState, pickImageFiles, showToast, readImageFileAsDataUrl } = deps
 
   function addDraftImage(name: any, dataUrl: any, draftKeyRaw?: any) {
     const state = getState()
