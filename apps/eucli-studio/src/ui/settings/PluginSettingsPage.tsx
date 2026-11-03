@@ -52,13 +52,14 @@ export function PluginSettingsPage(props: {
   draft: any
   activeRoleId: string
   activeWorkspaceId: string
+  activeGroupId?: string
   activeTargetKind: string
   tab: SettingsTabSelection
   onTabChange: (tab: SettingsTabValue) => void
   dataDirectory?: AiChatDataDirectory
   eucliBoxConnection?: AiChatEucliBoxConnection
 }) {
-  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, conversationImageConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
+  const { controller, loading, data, roles, groups, workspaces, providers, modelGroups, models, tools, toolWorkDirectory, modelRequestConfig, conversationImageConfig, requestRecords, bootstrap, releaseViews, onReleaseRefresh, accessSettings, hookPrompts, placeholders, systemPlugins, draft, activeRoleId, activeWorkspaceId, activeGroupId, activeTargetKind, tab, onTabChange, dataDirectory, eucliBoxConnection } = props
 
   const settingsNavOrder = (data?.settings as any)?.settingsNavOrder
   const transparentChatBg = isTransparentChatBg(data?.settings)
@@ -88,7 +89,7 @@ export function PluginSettingsPage(props: {
         groups={groups}
         roles={roles}
         draft={draft}
-        activeGroupId={String((draft as any)?.activeGroupId || '')}
+        activeGroupId={activeGroupId ?? String((draft as any)?.activeGroupId || '')}
         activeTargetKind={activeTargetKind}
       />
     )

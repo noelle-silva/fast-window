@@ -1620,6 +1620,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       draft={s.draft}
       activeRoleId={String(s.draft?.activeRoleId || '')}
       activeWorkspaceId={String((s.draft as any)?.activeWorkspaceId || '')}
+      activeGroupId={activeGroupId}
       activeTargetKind={activeTargetKind}
       tab={settingsTab}
       onTabChange={setSettingsTab}
@@ -1651,6 +1652,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     s.draft,
     (s.draft as any)?.activeRoleId,
     (s.draft as any)?.activeWorkspaceId,
+    activeGroupId,
     activeTargetKind,
     settingsTab,
     setSettingsTab,
@@ -1658,6 +1660,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     eucliBoxConnection,
     settingsVersion,
     domainVersion,
+    navigationVersion,
   ])
 
   const overlayImagePicker = React.useMemo(() => ({
