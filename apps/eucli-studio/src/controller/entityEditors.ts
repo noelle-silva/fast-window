@@ -3,7 +3,7 @@ import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRoleRunCards, activeEbRoleRunCardsForSession, activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { chatMetaFromChat } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
-import { NEW_GROUP_ID, NEW_ROLE_ID } from '../domain/constants'
+import { NEW_GROUP_ID, NEW_PROVIDER_ID, NEW_ROLE_ID } from '../domain/constants'
 import { emptyRoleToolPolicy, normalizeRoleToolPolicy } from '../domain/toolPolicy'
 import { modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates } from '../domain/roleModelCandidates'
 import { clearPendingChatForTarget, createPendingChatEntry } from '../domain/pendingChat'
@@ -659,63 +659,117 @@ export function createEntityEditors(deps: {
     notifyScopes([refreshScopes.uiShell()])
   }
 
+  const NEW_PROVIDER_DEFAULT_NAME = '新供应商（OpenAI 兼容）'
+
+  function nextProviderName(state: any, desiredRaw: any, currentName?: any) {
+    const desiredName = String(desiredRaw || '').replace(/\s+/g, ' ').trim() || '未命名供应商'
+    const used = new Set(
+      (state.data?.settings?.providers || [])
+        .filter((provider: any) => provider && typeof provider === 'object')
+        .map((provider: any) => String(provider.name || ''))
+        .filter(Boolean),
+    )
+    const current = String(currentName || '')
+    if (current) used.delete(current)
+    let name = desiredName
+    if (used.has(name)) {
+      let index = 2
+      while (used.has(`${desiredName}（${index}）`)) index++
+      name = `${desiredName}（${index}）`
+    }
+    return name
+  }
+
+  function readProviderDraft(state: any) {
+    return {
+      name: String(state.draft.providerName || ''),
+      baseUrl: String(state.draft.providerBaseUrl || '').trim() || 'http://',
+      protocol: normalizeProviderProtocol(state.draft.providerProtocol),
+      apiKeyStrategy: String(state.draft.providerApiKeyStrategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential',
+      apiKeys: normalizeProviderApiKeys(state.draft.providerApiKeys),
+      registeredModels: normalizeProviderRegisteredModels(state.draft.providerRegisteredModels),
+    }
+  }
+
+  function writeProviderDraft(state: any, values: any) {
+    state.draft.providerName = values.name
+    state.draft.providerBaseUrl = values.baseUrl
+    state.draft.providerApiKey = ''
+    state.draft.providerProtocol = values.protocol
+    state.draft.providerApiKeyStrategy = values.apiKeyStrategy
+    state.draft.providerApiKeys = values.apiKeys.map((key: any) => ({ ...key }))
+    state.draft.providerRegisteredModels = values.registeredModels.map((model: any) => ({ ...model }))
+  }
+
   async function saveProviderInlineEditor() {
     const state = getState()
+    if (!state.data) return
     const pid = String(state.draft.editProviderId || '')
-    const p = sa.getProvider(pid)
-    if (!p) return
+    const isNew = pid === NEW_PROVIDER_ID
+    const p = isNew ? null : sa.getProvider(pid)
+    if (!isNew && !p) return
 
-    const desiredName = String(state.draft.providerName || '').replace(/\s+/g, ' ').trim() || '未命名供应商'
-    const used = new Set((state.data?.settings?.providers || []).filter((x: any) => x && typeof x === 'object').map((x: any) => String(x.name || '')).filter(Boolean))
-    used.delete(String(p.name || ''))
-    let nextName = desiredName
-    if (used.has(nextName)) {
-      let i = 2
-      while (used.has(`${desiredName}（${i}）`)) i++
-      nextName = `${desiredName}（${i}）`
-    }
+    const values = readProviderDraft(state)
+    const nextName = nextProviderName(state, values.name, p?.name)
 
-    const oldBaseUrl = String(p.baseUrl || '').trim()
-    const nextBaseUrl = String(state.draft.providerBaseUrl || '').trim() || 'http://'
-    const nextApiKeyStrategy = String(state.draft.providerApiKeyStrategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential'
-    const nextApiKeys = normalizeProviderApiKeys(state.draft.providerApiKeys)
-    const nextRegisteredModels = normalizeProviderRegisteredModels(state.draft.providerRegisteredModels)
-    const nextProtocol = normalizeProviderProtocol(state.draft.providerProtocol)
-    const previous = { ...p, modelsCache: p.modelsCache && typeof p.modelsCache === 'object' ? { ...p.modelsCache } : p.modelsCache }
-
-    if (!nextProtocol) {
+    if (!values.protocol) {
       showToast?.('请选择供应商协议', { kind: 'error' })
       notifyScopes([refreshScopes.uiShell()])
       return
     }
-    if (!nextApiKeys.length) {
+    if (!values.apiKeys.length) {
       showToast?.('请至少填写一个供应商 Key', { kind: 'error' })
       notifyScopes([refreshScopes.uiShell()])
       return
     }
 
+    if (isNew) {
+      const provider = {
+        id: uid('p'),
+        name: nextName,
+        baseUrl: values.baseUrl,
+        apiKey: '',
+        protocol: values.protocol,
+        apiKeyStrategy: values.apiKeyStrategy,
+        apiKeys: values.apiKeys,
+        registeredModels: values.registeredModels,
+        modelsCache: { items: [], fetchedAt: 0 },
+      }
+      try {
+        if (typeof saveProviderEntity !== 'function') throw new Error('供应商保存通道不可用')
+        await saveProviderEntity(provider)
+        if (!Array.isArray(state.data.settings.providers)) state.data.settings.providers = []
+        state.data.settings.providers.unshift(provider)
+        state.draft.editProviderId = provider.id
+        writeProviderDraft(state, { ...values, name: nextName })
+        showToast?.('供应商已保存', { kind: 'success' })
+        notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+      } catch (e: any) {
+        showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
+        notifyScopes([refreshScopes.uiShell()])
+      }
+      return
+    }
+
+    const provider = p as any
+    const previous = { ...provider, modelsCache: provider.modelsCache && typeof provider.modelsCache === 'object' ? { ...provider.modelsCache } : provider.modelsCache }
+
     try {
-      p.name = nextName
-      p.baseUrl = nextBaseUrl
-      p.apiKey = ''
-      p.protocol = nextProtocol
-      p.apiKeyStrategy = nextApiKeyStrategy
-      p.apiKeys = nextApiKeys
-      p.registeredModels = nextRegisteredModels
-      if (oldBaseUrl !== nextBaseUrl) p.modelsCache = { items: [], fetchedAt: 0 }
-      await saveProviderEntity?.(p)
+      provider.name = nextName
+      provider.baseUrl = values.baseUrl
+      provider.apiKey = ''
+      provider.protocol = values.protocol
+      provider.apiKeyStrategy = values.apiKeyStrategy
+      provider.apiKeys = values.apiKeys
+      provider.registeredModels = values.registeredModels
+      if (String(previous.baseUrl || '').trim() !== values.baseUrl) provider.modelsCache = { items: [], fetchedAt: 0 }
+      await saveProviderEntity?.(provider)
       // 保留选中与编辑器：用归一化后的结果回写草稿，避免显示值与已保存值分叉。
-      state.draft.providerName = nextName
-      state.draft.providerBaseUrl = nextBaseUrl
-      state.draft.providerApiKey = ''
-      state.draft.providerProtocol = nextProtocol
-      state.draft.providerApiKeyStrategy = nextApiKeyStrategy
-      state.draft.providerApiKeys = nextApiKeys.map((key: any) => ({ ...key }))
-      state.draft.providerRegisteredModels = nextRegisteredModels.map((model: any) => ({ ...model }))
+      writeProviderDraft(state, { ...values, name: nextName })
       showToast?.('供应商已保存', { kind: 'success' })
       notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     } catch (e: any) {
-      Object.assign(p, previous)
+      Object.assign(provider, previous)
       showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
       notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     }
@@ -724,28 +778,15 @@ export function createEntityEditors(deps: {
   function createProvider() {
     const state = getState()
     if (!state.data) return
-    const desiredName = '新供应商（OpenAI 兼容）'
-    const used = new Set(state.data.settings.providers.map((p: any) => String(p?.name || '')).filter(Boolean))
-    let name = desiredName
-    if (used.has(name)) {
-      let i = 2
-      while (used.has(`${desiredName}（${i}）`)) i++
-      name = `${desiredName}（${i}）`
-    }
-    const pid = uid('p')
-    state.data.settings.providers.unshift({
-      id: pid,
-      name,
-      baseUrl: 'http://',
-      apiKey: '',
-      protocol: '',
-      apiKeyStrategy: 'sequential',
-      apiKeys: [],
-      registeredModels: [],
-      modelsCache: { items: [], fetchedAt: 0 },
-    })
-    if (!populateProviderDraft(pid)) return
-    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+    state.draft.editProviderId = NEW_PROVIDER_ID
+    state.draft.providerName = nextProviderName(state, NEW_PROVIDER_DEFAULT_NAME)
+    state.draft.providerBaseUrl = 'http://'
+    state.draft.providerApiKey = ''
+    state.draft.providerProtocol = ''
+    state.draft.providerApiKeyStrategy = 'sequential'
+    state.draft.providerApiKeys = []
+    state.draft.providerRegisteredModels = []
+    notifyScopes([refreshScopes.uiShell()])
   }
 
   function normalizeProviderProtocol(value: any) {
@@ -786,6 +827,11 @@ export function createEntityEditors(deps: {
     if (!state.data) return false
     const pid = String(providerId || '')
     if (!pid) return false
+    if (pid === NEW_PROVIDER_ID) {
+      state.draft.editProviderId = ''
+      notifyScopes([refreshScopes.uiShell()])
+      return true
+    }
     if (state.data.settings.providers.length <= 1) {
       showToast?.('至少保留一个供应商', { kind: 'error' })
       return false
