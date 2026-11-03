@@ -381,6 +381,7 @@ export function createEntityEditors(deps: {
         state.data.chatsByRole[newRid] = { activeChatId: '', chatMetas: [], chats: [] }
         state.draft.activeRoleId = newRid
         showToast?.('角色已保存', { kind: 'success' })
+        notifyScopes([refreshScopes.entities('roles')])
         closeModal()
       } catch (e: any) {
         showToast?.(String(e?.message || e || '角色保存失败'), { kind: 'error' })
@@ -641,10 +642,10 @@ export function createEntityEditors(deps: {
     notifyScopes([refreshScopes.uiShell()])
   }
 
-  function openProviderInlineEditor(providerId: any) {
+  function populateProviderDraft(providerId: any) {
     const state = getState()
     const p = sa.getProvider(providerId)
-    if (!p) return
+    if (!p) return false
     state.draft.editProviderId = String(p.id)
     state.draft.providerName = String(p.name || '')
     state.draft.providerBaseUrl = String(p.baseUrl || '')
@@ -654,6 +655,11 @@ export function createEntityEditors(deps: {
     state.draft.providerApiKeys = Array.isArray(p.apiKeys) ? p.apiKeys.map((key: any) => ({ ...key })) : []
     if (!state.draft.providerApiKeys.length && String(p.apiKey || '').trim()) state.draft.providerApiKeys = [{ id: 'legacy', name: '默认 Key', key: String(p.apiKey || ''), enabled: true, weight: 1 }]
     state.draft.providerRegisteredModels = Array.isArray(p.registeredModels) ? p.registeredModels.map((model: any) => ({ ...model })) : []
+    return true
+  }
+
+  function openProviderInlineEditor(providerId: any) {
+    if (!populateProviderDraft(providerId)) return
     notifyScopes([refreshScopes.uiShell()])
   }
 
@@ -683,12 +689,12 @@ export function createEntityEditors(deps: {
 
     if (!nextProtocol) {
       showToast?.('请选择供应商协议', { kind: 'error' })
-    notifyScopes([refreshScopes.uiShell()])
+      notifyScopes([refreshScopes.uiShell()])
       return
     }
     if (!nextApiKeys.length) {
       showToast?.('请至少填写一个供应商 Key', { kind: 'error' })
-    notifyScopes([refreshScopes.uiShell()])
+      notifyScopes([refreshScopes.uiShell()])
       return
     }
 
@@ -702,13 +708,20 @@ export function createEntityEditors(deps: {
       p.registeredModels = nextRegisteredModels
       if (oldBaseUrl !== nextBaseUrl) p.modelsCache = { items: [], fetchedAt: 0 }
       await saveProviderEntity?.(p)
-      state.draft.editProviderId = ''
+      // 保留选中与编辑器：用归一化后的结果回写草稿，避免显示值与已保存值分叉。
+      state.draft.providerName = nextName
+      state.draft.providerBaseUrl = nextBaseUrl
+      state.draft.providerApiKey = ''
+      state.draft.providerProtocol = nextProtocol
+      state.draft.providerApiKeyStrategy = nextApiKeyStrategy
+      state.draft.providerApiKeys = nextApiKeys.map((key: any) => ({ ...key }))
+      state.draft.providerRegisteredModels = nextRegisteredModels.map((model: any) => ({ ...model }))
       showToast?.('供应商已保存', { kind: 'success' })
-    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+      notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     } catch (e: any) {
       Object.assign(p, previous)
       showToast?.(String(e?.message || e || '供应商保存失败'), { kind: 'error' })
-    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
+      notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     }
   }
 
@@ -735,7 +748,8 @@ export function createEntityEditors(deps: {
       registeredModels: [],
       modelsCache: { items: [], fetchedAt: 0 },
     })
-    openProviderInlineEditor(pid)
+    if (!populateProviderDraft(pid)) return
+    notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
   }
 
   function normalizeProviderProtocol(value: any) {
