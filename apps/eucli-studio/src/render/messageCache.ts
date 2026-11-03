@@ -64,6 +64,9 @@ export type MessageCache = {
   invalidateScope: (scope: string) => void
   // 全局换代：引擎语义或渲染条件整体变化时使用。
   bumpGeneration: () => void
+  // 代际读数：后台预计算在启动时取快照，发现代际变化立即停止回填，
+  // 避免把旧条件的产物写入已经换代的缓存。
+  epoch: (scope: string) => number
   clear: () => void
   readonly size: number
   readonly bytes: number
@@ -157,6 +160,7 @@ export function createMessageCache(options?: {
     put,
     invalidateScope,
     bumpGeneration,
+    epoch: (scopeRaw: string) => generationOf(String(scopeRaw || '')),
     clear: () => {
       entries.clear()
       totalBytes = 0

@@ -6,7 +6,8 @@ import { createHtmlSanitizer, sanitizeSvg } from '../sanitize'
 import { createRefImageHydrator } from '../refImages'
 import { createMathRenderer } from '../mathRender'
 import { commitBlocks, commitHtml } from '../domCommit'
-import { messageCacheKey, messageHtmlCache } from '../messageCache'
+import { messageHtmlCache } from '../messageCache'
+import { assistantRenderCacheKey, normalizeRenderSafetyPolicy } from '../renderCacheKey'
 import { createRenderCapabilities } from '../capabilities'
 import type { BoolRef, RenderSafetyPolicy } from '../types'
 import type { RenderContext } from '../contract'
@@ -39,14 +40,6 @@ export type UnifiedRenderEngine = {
   sanitizeHtml: (html: unknown, policy?: RenderSafetyPolicy) => string
   sanitizeSvg: (svg: unknown, policy?: RenderSafetyPolicy) => string
   renderAssistantInto: (el: unknown, text: unknown, options?: UnifiedRenderOptions) => void
-}
-
-function normalizeRenderSafetyPolicy(options?: UnifiedRenderOptions): RenderSafetyPolicy {
-  return options?.renderSafetyPolicy === 'unsafe'
-    ? 'unsafe'
-    : options?.renderSafetyPolicy === 'baseline'
-      ? 'baseline'
-      : 'original'
 }
 
 export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilities): UnifiedRenderEngine {
@@ -106,7 +99,7 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
     const version = (versionByHost.get(host) || 0) + 1
     versionByHost.set(host, version)
 
-    const renderSafetyPolicy = normalizeRenderSafetyPolicy(options)
+    const renderSafetyPolicy = normalizeRenderSafetyPolicy(options?.renderSafetyPolicy)
     const getStickerPath = typeof options?.getStickerPath === 'function' ? options.getStickerPath : null
 
     pluginCtx.stickersEnabled = !!options?.stickersEnabled
@@ -136,14 +129,14 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
 
     // 消息级缓存：只缓存「已消毒的顶层块」。
     // 明确不缓存：流式中态、失败降级结果（下面 fail 分支直接跳过写入）。
-    const cacheKey = streaming || !cacheScope
-      ? ''
-      : messageCacheKey({
-          source,
-          policy: renderSafetyPolicy,
-          capsSignature: `${options?.stickersEnabled ? 1 : 0}:${getStickerPath ? 1 : 0}`,
-          scope: cacheScope,
-        })
+    const cacheKey = assistantRenderCacheKey({
+      source,
+      streaming,
+      scope: cacheScope,
+      policy: renderSafetyPolicy,
+      stickersEnabled: !!options?.stickersEnabled,
+      hasStickerPath: !!getStickerPath,
+    })
 
     markSwitchBoundary('frontend.enhanceStart')
 
