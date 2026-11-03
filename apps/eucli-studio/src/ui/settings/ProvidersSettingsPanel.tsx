@@ -2,7 +2,6 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
-import * as React from 'react'
 import { ProviderConfigEditor } from '../components/ProviderConfigEditor'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
@@ -24,18 +23,14 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
   const { controller, loading, providers, draft, models } = props
   const editingId = String(draft?.editProviderId || '')
   const selectedProvider = providers.find((provider: any) => String(provider?.id || '') === editingId) || null
-  const providerIds = React.useMemo(
-    () => providers.map((provider: any) => String(provider?.id || '').trim()).filter(Boolean),
-    [providers],
-  )
-  const handleMove = React.useCallback(
-    (activeId: string, overId: string) => {
-      const position = resolveSortMovePosition(providerIds, activeId, overId)
-      if (!position) return
-      controller.actions.moveProvider?.(activeId, overId, position as SortMovePosition)
-    },
-    [controller, providerIds],
-  )
+  // controller 就地修改 providers 数组（unshift / 改字段），数组引用不会变化；
+  // 编号清单必须每次渲染直接从当前数组派生，不能以引用作为记忆化依据。
+  const providerIds = providers.map((provider: any) => String(provider?.id || '').trim()).filter(Boolean)
+  const handleMove = (activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(providerIds, activeId, overId)
+    if (!position) return
+    controller.actions.moveProvider?.(activeId, overId, position as SortMovePosition)
+  }
 
   return (
     <SettingsSurface sx={{ height: '100%' }}>
@@ -62,7 +57,7 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
               <Typography variant="body2" sx={{ fontWeight: 900 }}>供应商列表</Typography>
               <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', ...customScrollbarHiddenSx }}>
                 <Stack spacing={1}>
-                  {providers.length ? (
+                  {providerIds.length ? (
                     <SortableList ids={providerIds} onMove={handleMove} disabled={loading}>
                       {({ id: pid, drag, shouldIgnoreClick }) => {
                         const provider = providers.find((item: any) => String(item?.id || '') === pid) || null
