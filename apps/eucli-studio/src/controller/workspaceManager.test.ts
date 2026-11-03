@@ -104,6 +104,10 @@ function boxOf(state: any, combinationId: string) {
   return state.data.chatsByWorkspace[combinationId]
 }
 
+function emittedScopes(emitScope: ReturnType<typeof vi.fn>) {
+  return emitScope.mock.calls.map((call) => String(call[0]))
+}
+
 describe('工作区角色组合会话加载', () => {
   it('进入工作区后切换角色：前后两个组合的会话列表与会话体都自动落到各自的数据盒', async () => {
     const harness = createHarness({
@@ -733,6 +737,76 @@ describe('工作区会话切换通知', () => {
     expect(emitScope).toHaveBeenCalledWith(refreshScopes.chatList('workspace', targetId))
     expect(emitScope).toHaveBeenCalledWith(refreshScopes.session('workspace', targetId, 'session-a1'))
     expect(harness.emit).not.toHaveBeenCalled()
+  })
+})
+
+describe('工作区激活通知收口', () => {
+  const targetA = workspaceRoleTargetId('ws-1', 'role-a')
+  const targetB = workspaceRoleTargetId('ws-1', 'role-b')
+
+  function seedActiveChat(state: any, targetId: string, chatId: string) {
+    const [workspaceId, roleId] = targetId.split('::')
+    state.data.chatsByWorkspace[targetId] = {
+      activeChatId: chatId,
+      chatMetas: [{ id: chatId }],
+      chats: [{ id: chatId, workspaceId, roleId, messages: [] }],
+    }
+  }
+
+  it('进入工作区：导航与输入区立即通知，列表与会话由加载完成各通知一次', async () => {
+    const harness = createHarness({
+      [targetA]: [{ id: 'session-a1', roleId: 'role-a', workspaceId: 'ws-1', title: 'A 的会话', messages: [] }],
+    })
+    seedActiveChat(harness.state, targetA, 'session-a1')
+    harness.emitScope.mockClear()
+
+    harness.manager.setActiveWorkspace('ws-1')
+
+    expect(emittedScopes(harness.emitScope)).toEqual([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+    ])
+
+    await vi.waitFor(() => {
+      const scopes = emittedScopes(harness.emitScope)
+      expect(scopes.filter((scope) => scope === refreshScopes.chatList('workspace', targetA))).toHaveLength(1)
+      expect(scopes.filter((scope) => scope === refreshScopes.session('workspace', targetA, 'session-a1'))).toHaveLength(1)
+    })
+  })
+
+  it('切换工作区角色：同一组合的列表与会话地址各通知一次', async () => {
+    const harness = createHarness({
+      [targetA]: [{ id: 'session-a1', roleId: 'role-a', workspaceId: 'ws-1', title: 'A 的会话', messages: [] }],
+      [targetB]: [{ id: 'session-b1', roleId: 'role-b', workspaceId: 'ws-1', title: 'B 的会话', messages: [] }],
+    })
+    seedActiveChat(harness.state, targetB, 'session-b1')
+    harness.manager.setActiveWorkspace('ws-1')
+    await vi.waitFor(() => {
+      expect(emittedScopes(harness.emitScope)).toContain(refreshScopes.session('workspace', targetA, 'session-a1'))
+    })
+    harness.emitScope.mockClear()
+
+    harness.manager.setWorkspaceRole('role-b')
+
+    expect(emittedScopes(harness.emitScope)).toEqual([
+      refreshScopes.navigation(),
+      refreshScopes.composer(),
+    ])
+
+    await vi.waitFor(() => {
+      const scopes = emittedScopes(harness.emitScope)
+      expect(scopes.filter((scope) => scope === refreshScopes.chatList('workspace', targetB))).toHaveLength(1)
+      expect(scopes.filter((scope) => scope === refreshScopes.session('workspace', targetB, 'session-b1'))).toHaveLength(1)
+    })
+  })
+
+  it('打开工作区编辑器只刷新壳层，不触发激活通知', () => {
+    const harness = createHarness({})
+    harness.emitScope.mockClear()
+
+    harness.manager.openWorkspaceEditorInPlace('ws-1')
+
+    expect(emittedScopes(harness.emitScope)).toEqual([refreshScopes.uiShell()])
   })
 })
 

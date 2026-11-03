@@ -208,17 +208,17 @@ export function createWorkspaceManager(deps: {
     if (chatId) notifyScopes([refreshScopes.session('workspace', targetId, chatId)])
   }
 
-  // 进入工作区 / 切换工作区角色：目标身份、草稿与列表是三个独立地址。
-  function notifyWorkspaceActivated(workspaceId: string) {
+  // 进入工作区 / 切换工作区角色：目标身份与草稿由激活通知负责，列表与当前会话交给目标通知。
+  // 激活后会立刻触发一次组合加载；由加载完成统一通知列表，避免同一事实发两次。
+  function notifyWorkspaceActivated(workspaceId: string, options?: { notifyTarget?: boolean }) {
     const state = getState()
     const roleId = currentWorkspaceRoleId(state, activeRole)
     const targetId = workspaceRoleTargetId(workspaceId, roleId)
     notifyScopes([
       refreshScopes.navigation(),
       refreshScopes.composer(),
-      ...(targetId ? [refreshScopes.chatList('workspace', targetId)] : []),
     ])
-    if (targetId) notifyWorkspaceTarget(targetId)
+    if (options?.notifyTarget !== false) notifyWorkspaceTarget(targetId)
   }
 
   function notifyWorkspaceCombination(workspaceId: string) {
@@ -431,7 +431,7 @@ export function createWorkspaceManager(deps: {
     activateComposerDraftForCurrentSession(state)
     loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
-    notifyWorkspaceActivated(workspaceId)
+    notifyWorkspaceActivated(workspaceId, { notifyTarget: false })
   }
 
   function setWorkspaceRole(roleIdRaw: unknown) {
@@ -446,7 +446,7 @@ export function createWorkspaceManager(deps: {
     activateComposerDraftForCurrentSession(state)
     if (workspaceId) loadWorkspaceRoleCombination(workspaceId)
     saveMeta().catch(() => {})
-    notifyWorkspaceActivated(workspaceId)
+    notifyWorkspaceActivated(workspaceId, { notifyTarget: false })
   }
 
   async function moveWorkspace(workspaceIdRaw: unknown, targetWorkspaceIdRaw: unknown, positionRaw: unknown) {
