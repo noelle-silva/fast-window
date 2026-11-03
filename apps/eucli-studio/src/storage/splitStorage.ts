@@ -27,6 +27,10 @@ import { chatIndexKeyFor, loadSplitMetaSnapshot, normalizeStoredChatIndex } from
 import { initializeStickerSettingsStorage } from './stickerSettingsPersistence'
 
 let splitMetaCache: any = null
+// splitMetaWriteGeneration 标识「内存事实已被写入推进」。
+// 读盘是异步的：若一次读取早于某次写入发起、晚于它完成，盘面可能更旧，
+// 此时绝不能用旧快照覆盖已经提交的内存缓存。
+let splitMetaWriteGeneration = 0
 // splitMetaBaseline 是「上次成功落盘的 ui + settings」的规范化指纹。
 // 它必须是不可变字符串，绝不能持有 state / 存储快照里的对象引用，
 // 否则内存一改，基线跟着变，「无变化不写盘」就会误判为相等。
@@ -164,13 +168,30 @@ export function createSplitStorage(deps: {
     splitMetaBaseline = meta ? preferenceFingerprint(meta.ui, meta.settings) : null
   }
 
+  // commitSplitMetaCache 是写入路径提交内存事实的唯一入口：
+  // 推进代数，让读取期间发起的旧盘面回填失效。
+  function commitSplitMetaCache(meta: any) {
+    splitMetaWriteGeneration += 1
+    splitMetaCache = meta
+  }
+
+  // getSplitMetaCache 是目录事实缓存的唯一读取入口。
+  // 缓存由本模块的 load / 实体写入两条路径共同维护，控制器与投影管线
+  // 只能通过它读取，禁止各自再维护一份可变副本。
+  function getSplitMetaCache() {
+    return splitMetaCache
+  }
+
   async function loadSplitMeta() {
+    const generation = splitMetaWriteGeneration
     const meta = await loadSplitMetaSnapshot(storage)
     // 目录 / 派生字段仍来自 meta；客户端偏好独立通道在读取边界叠加。
     // 叠加发生在 cache / 基线之前，所以「无变化不写盘」比较的是
     // 用户真正看到的偏好，而不是 meta 里可能为空的占位值。
     const preferences = meta ? await readClientPreferences(storage) : null
     const effective = meta ? { ...meta, ...overlayClientPreferences(meta, preferences) } : null
+    // 读取期间有写入落地：盘面属于上一代，返回已经提交的内存事实。
+    if (generation !== splitMetaWriteGeneration) return splitMetaCache
     rememberMetaSnapshot(effective)
     return effective
   }
@@ -270,7 +291,7 @@ export function createSplitStorage(deps: {
       await _syncGroupAvatarFile(folder, group)
       await writeRequired(storage, splitGroupsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), groupOrder, groupFolders })
 
-      splitMetaCache = { ...meta, groupOrder, groupFolders }
+      commitSplitMetaCache({ ...meta, groupOrder, groupFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -297,7 +318,7 @@ export function createSplitStorage(deps: {
 
       await writeRequired(storage, splitGroupsIndexKey(), { schemaVersion: SPLIT_SCHEMA_VERSION, updatedAt: now(), groupOrder, groupFolders })
       invalidateSessionIndex('group', groupId)
-      splitMetaCache = { ...meta, groupOrder, groupFolders }
+      commitSplitMetaCache({ ...meta, groupOrder, groupFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -319,7 +340,7 @@ export function createSplitStorage(deps: {
       await writeRequired(storage, splitRoleKey(folder), role)
       await _syncRoleAvatarFile(folder, role)
 
-      splitMetaCache = { ...meta, roleFolders }
+      commitSplitMetaCache({ ...meta, roleFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -344,7 +365,7 @@ export function createSplitStorage(deps: {
       for (const chatId of chatIds) await storage.remove(splitChatKey(folder, chatId)).catch(() => {})
 
       invalidateSessionIndex('role', roleId)
-      splitMetaCache = { ...meta, roleFolders }
+      commitSplitMetaCache({ ...meta, roleFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -369,7 +390,7 @@ export function createSplitStorage(deps: {
       // 收进投影配置，因此前端不再额外写 providers/index（那是一个无效写）。
       await writeRequired(storage, splitProviderKey(providerFolders[providerId]), provider)
 
-      splitMetaCache = { ...meta, providerOrder, providerFolders }
+      commitSplitMetaCache({ ...meta, providerOrder, providerFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -385,7 +406,7 @@ export function createSplitStorage(deps: {
       const { providerOrder, providerFolders, folder } = removeProviderFromCatalog(meta, providerId)
       if (folder) await removeRequired(storage, splitProviderKey(folder))
 
-      splitMetaCache = { ...meta, providerOrder, providerFolders }
+      commitSplitMetaCache({ ...meta, providerOrder, providerFolders })
       onCatalogInvalidated?.()
     })
   }
@@ -449,7 +470,7 @@ export function createSplitStorage(deps: {
       splitMetaBaseline = fingerprint
       if (splitMetaCache) {
         const effective = overlayClientPreferences(splitMetaCache, preferences)
-        splitMetaCache = { ...splitMetaCache, ui: effective.ui, settings: effective.settings }
+        commitSplitMetaCache({ ...splitMetaCache, ui: effective.ui, settings: effective.settings })
       }
     })
   }
@@ -469,6 +490,7 @@ export function createSplitStorage(deps: {
 
   return {
     loadSplitMeta,
+    getSplitMetaCache,
     withSplitMetaWrite,
     ensureSplitStoreReady,
     saveRoleEntity,

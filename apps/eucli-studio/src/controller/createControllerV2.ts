@@ -133,12 +133,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const emitEntity = (domain: string) => () => emitScope(refreshScopes.entities(domain))
 
   // ============================================================
-  // 3. SPLIT META CACHE (shared across modules)
-  // ============================================================
-  let splitMetaCache: any = null
-  let splitMetaLoadPromise: Promise<any> | null = null
-
-  // ============================================================
   // 4. ASSISTANT RENDERER
   // ============================================================
   const assistantRenderer = createUnifiedAssistantRenderEngine(capabilities)
@@ -213,7 +207,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   // 切换管线在 splitStore 之后装配（两者互相引用），这里先占位。
   // 用延迟引用而不是重排初始化顺序：splitStorage 需要「索引失效」与「偏好命令」
-  // 两个回调，而管线需要 splitStorage 暴露的 loadSplitMeta。
+  // 两个回调，而管线需要 splitStorage 暴露的 loadSplitMeta / getSplitMetaCache。
   let projectionPipelineRef: ReturnType<typeof createProjectionPipeline> | null = null
 
   const splitStore = createSplitStorage({
@@ -239,6 +233,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const {
     loadSplitMeta,
+    getSplitMetaCache,
     ensureSplitStoreReady,
     setActiveRoleChatSelection,
     removeRoleChatEntry,
@@ -254,30 +249,15 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeProviderEntity,
   } = splitStore
 
-  // Update splitMetaCache on loadSplitMeta (wrapper)
-  const loadSplitMetaCached = async () => {
-    if (splitMetaLoadPromise) return splitMetaLoadPromise
-    splitMetaLoadPromise = loadSplitMeta()
-      .then((meta) => {
-        if (meta) splitMetaCache = meta
-        return meta
-      })
-      .finally(() => {
-        splitMetaLoadPromise = null
-      })
-    return splitMetaLoadPromise
-  }
-
-  function getSplitMetaCache(): any {
-    return splitMetaCache
-  }
-
+  // 目录事实缓存由 splitStorage 独占：控制器和投影管线都只读同一份，
+  // 实体写入更新它之后再发 onCatalogInvalidated，读路径不会看到旧目录。
+  //
   // 切换管线：catalog + 每 target 一份 chatIndex + activeChatId 命令 + 会话正文单飞/LRU。
   // 会话索引已从 meta 剥离，读路径不再写盘，也不再拼 4 个 key 扇出。
   const projectionPipeline = createProjectionPipeline({
     storage,
     sessionSwitch: capabilities.sessionSwitch,
-    loadSplitMeta: loadSplitMetaCached,
+    loadSplitMeta,
     getSplitMetaCache,
     applyLocalSelection: (scope, chatId) => {
       const box =
@@ -309,7 +289,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const lazyChatStore = createLazyChatStore({
     storage,
     getState: () => state,
-    loadSplitMeta: loadSplitMetaCached,
+    loadSplitMeta,
     getSplitMetaCache,
     loadChatIndex: (scope) => projectionPipeline.loadChatIndex(scope),
     chatBodies: {
