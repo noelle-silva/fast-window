@@ -26,18 +26,6 @@ import {
 import { chatIndexKeyFor, loadSplitMetaSnapshot, normalizeStoredChatIndex } from './splitIndexes'
 import { initializeStickerSettingsStorage } from './stickerSettingsPersistence'
 
-let splitMetaCache: any = null
-// splitMetaWriteGeneration 标识「内存事实已被写入推进」。
-// 读盘是异步的：若一次读取早于某次写入发起、晚于它完成，盘面可能更旧，
-// 此时绝不能用旧快照覆盖已经提交的内存缓存。
-let splitMetaWriteGeneration = 0
-// splitMetaBaseline 是「上次成功落盘的 ui + settings」的规范化指纹。
-// 它必须是不可变字符串，绝不能持有 state / 存储快照里的对象引用，
-// 否则内存一改，基线跟着变，「无变化不写盘」就会误判为相等。
-let splitMetaBaseline: string | null = null
-let splitMetaWriteChain: Promise<void> = Promise.resolve()
-let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
-
 function stringList(value: any): string[] {
   return Array.isArray(value) ? value.map((item: any) => String(item || '').trim()).filter(Boolean) : []
 }
@@ -103,12 +91,10 @@ export function createEmptyShellData(preferences?: ClientPreferences | null) {
 
 // createEmptyShellDataFromStorage 只读客户端偏好通道，不触碰 meta/index，
 // 因此「未连接业务端」的启动路径不再依赖 eucli-box。
+// 这里只产出归一化后的外壳数据；偏好基线归各 splitStorage 实例所有，
+// 由 saveMetaOnly 在首次保存时按同一归一化形状重建。
 export async function createEmptyShellDataFromStorage(storage: ClientPreferencesStorage) {
-  const data = createEmptyShellData(await readClientPreferences(storage))
-  // 离线外壳的「当前视图」就是偏好基线：归一化补出的默认值不应在
-  // 第一次无改动保存时被误判成用户变更。
-  splitMetaBaseline = preferenceFingerprint(data.ui, data.settings)
-  return data
+  return createEmptyShellData(await readClientPreferences(storage))
 }
 
 // canonicalJson 递归排序对象键，保证「语义相同、键序不同」的两份偏好
@@ -160,6 +146,21 @@ export function createSplitStorage(deps: {
     onCatalogInvalidated,
     setActiveChatCommand,
   } = deps
+
+  // 以下状态由本实例独占：同一进程内可能同时存在多个 splitStorage
+  // （重连、测试、未来多窗口）。共享缓存会让一个实例的写入污染另一个
+  // 实例的目录事实，共享写链会让彼此互相阻塞。
+  let splitMetaCache: any = null
+  // splitMetaWriteGeneration 标识「本实例的内存事实已被写入推进」。
+  // 读盘是异步的：若一次读取早于某次写入发起、晚于它完成，盘面可能更旧，
+  // 此时绝不能用旧快照覆盖已经提交的内存缓存。
+  let splitMetaWriteGeneration = 0
+  // splitMetaBaseline 是「本实例上次成功落盘的 ui + settings」的规范化指纹。
+  // 它必须是不可变字符串，绝不能持有 state / 存储快照里的对象引用，
+  // 否则内存一改，基线跟着变，「无变化不写盘」就会误判为相等。
+  let splitMetaBaseline: string | null = null
+  let splitMetaWriteChain: Promise<void> = Promise.resolve()
+  let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
 
   // rememberMetaSnapshot 是「内存快照 + 落盘基线」的唯一入口：
   // 两者必须同时基于同一份已隔离的深拷贝更新。
@@ -457,10 +458,15 @@ export function createSplitStorage(deps: {
       const fingerprint = preferenceFingerprint(preferences.ui, preferences.settings)
 
       // 基线尚未建立时，本地读一次偏好通道（不读 meta、不需要业务连接）。
+      // 离线外壳的数据形状是 createEmptyShellData 归一化后的结果，基线必须
+      // 按同一形状重建，否则归一化补出的默认值会被误判成用户变更。
       // 通道缺失时基线保持 null：第一次保存必须落盘。
       if (splitMetaBaseline === null) {
         const persisted = await readClientPreferences(storage)
-        if (persisted) splitMetaBaseline = preferenceFingerprint(persisted.ui, persisted.settings)
+        if (persisted) {
+          const shell = createEmptyShellData(persisted)
+          splitMetaBaseline = preferenceFingerprint(shell.ui, shell.settings)
+        }
       }
       // 只有 ui / 投影自有 settings 真的变了才写盘。
       if (fingerprint === splitMetaBaseline) return
