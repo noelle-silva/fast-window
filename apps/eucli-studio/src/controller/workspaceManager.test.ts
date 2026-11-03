@@ -85,7 +85,6 @@ function createHarness(
     netRequest,
     emit,
     emitScope,
-    render: () => {},
     closeModal: () => {},
     saveMeta: async () => {},
     scrollToBottomSoon: () => {},

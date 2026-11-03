@@ -47,7 +47,6 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
   const updateRoleSessionMessage = vi.fn(async () => ({}))
   const deleteRoleSessionMessage = vi.fn(async () => ({}))
   const emitScope = vi.fn()
-  const render = vi.fn()
   const netRequest = vi.fn(async (req: any) => {
     if (String(req?.method || '').toUpperCase() === 'PATCH') return { status: 200, body: {} }
     return { status: 200, body: {} }
@@ -57,8 +56,6 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
     getState: () => state,
     emit: () => {},
     emitScope,
-    render,
-    renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
     netRequest,
@@ -77,7 +74,6 @@ function createHarness(options: { targetKind?: 'role' | 'group' } = {}) {
     deleteRoleSessionMessage,
     netRequest,
     emitScope,
-    render,
   }
 }
 
@@ -140,6 +136,5 @@ describe('消息结构变化通知', () => {
 
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-a', 'chat-1'))
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('role', 'role-a'))
-    expect(harness.render).not.toHaveBeenCalled()
   })
 })

@@ -32,8 +32,6 @@ function createHarness() {
   const shared = createChatOperationsShared({
     getState: () => state,
     emitScope: () => {},
-    render: () => {},
-    renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
     persistActiveChatSelection,

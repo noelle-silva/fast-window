@@ -28,7 +28,7 @@ type ReasoningCleanTarget = {
 // 只动思维链，正文与其他内容不碰；会话正在运行时拒绝清洗。
 export function createReasoningCleaningOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, activeTargetSessionMutationTarget, refreshTargetSession } = shared
-  const { getState, netRequest, showToast, render } = deps
+  const { getState, netRequest, showToast } = deps
 
   function sessionRunning(target: ReasoningCleanTarget) {
     return activeEbRunCardsForTarget(getState(), target.targetKind, target.targetId, target.sessionId).length > 0
@@ -48,7 +48,6 @@ export function createReasoningCleaningOperations(shared: ReturnType<typeof crea
 
   async function refreshAfterClean(target: ReasoningCleanTarget) {
     await refreshTargetSession(target.targetKind, target.targetId, target.sessionId, undefined, { activate: false })
-    render()
   }
 
   function resolveKeywords(keywordsRaw: unknown): string[] {
@@ -95,7 +94,6 @@ export function createReasoningCleaningOperations(shared: ReturnType<typeof crea
       replaceChatMessageById(target.chat, mid, beforeMessage)
       target.chat.updatedAt = beforeChatUpdatedAt
       showToast?.(String(e?.message || e || '思维链清洗失败'), { kind: 'error' })
-      render()
       return false
     }
     await refreshAfterClean(target)

@@ -12,7 +12,7 @@ import { firstChatIdInBox, readActiveChatSelection, writeActiveChatSelection } f
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import type { AiChatShowToast } from '../gateway/capabilities'
 import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
-import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../domain/uiRefreshScope'
+import { refreshScopes } from '../domain/uiRefreshScope'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -97,8 +97,7 @@ export function createEntityEditors(deps: {
   removeGroupEntity?: (groupId: any) => Promise<void>
   saveProviderEntity?: (provider: any) => Promise<void>
   removeProviderEntity?: (providerId: any) => Promise<void>
-  render: () => void
-  emitScope?: (scope: string) => void
+  emitScope: (scope: string) => void
   closeModal: () => void
   showToast?: AiChatShowToast
   pickImageFiles?: (maxCount?: number) => Promise<any[]>
@@ -119,7 +118,7 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, render, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -127,12 +126,9 @@ export function createEntityEditors(deps: {
   }
 
   function notifyScopes(scopes: readonly string[]) {
-    const addresses = scopes.filter((scope) => scope && scope !== GLOBAL_REFRESH_SCOPE)
-    if (emitScope && addresses.length) {
-      for (const address of addresses) emitScope(address)
-      return
+    for (const scope of scopes) {
+      if (scope) emitScope(scope)
     }
-    render()
   }
 
   function notifyChatSelected(kind: 'role' | 'group', targetId: string, chatId: string) {

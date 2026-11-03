@@ -10,24 +10,16 @@ import { deleteGroupSessionMessage, deleteGroupSessionMessageSubtree, deleteRole
 import type { createChatOperationsShared } from './chatOperationsShared'
 import { refreshScopes } from '../domain/uiRefreshScope'
 
-type MessageScopeDeps = {
-  emitScope?: (scope: string) => void
-}
-
 export function createChatMessageOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, refreshTargetSession, invalidateChatBodyAfterWrite, activeTargetSessionMutationTarget, ensureTargetSessionMessageMutationAllowed } = shared
-  const { getState, netRequest, showToast, render, loadEditSnapshot } = deps
-  const { emitScope } = deps as typeof deps & MessageScopeDeps
+  const { getState, netRequest, showToast, emitScope, loadEditSnapshot } = deps
 
   function notifyTargetStructure(target: { targetKind: 'role' | 'group' | 'workspace'; targetId: string; sessionId: string }) {
     const targetId = String(target?.targetId || '').trim()
     const sessionId = String(target?.sessionId || '').trim()
-    if (emitScope && targetId && sessionId) {
-      emitScope(refreshScopes.session(target.targetKind, targetId, sessionId))
-      emitScope(refreshScopes.chatList(target.targetKind, targetId))
-      return
-    }
-    render()
+    if (!targetId || !sessionId) return
+    emitScope(refreshScopes.session(target.targetKind, targetId, sessionId))
+    emitScope(refreshScopes.chatList(target.targetKind, targetId))
   }
 
   // 写路径快照：view 是被裁剪的视图（只发 content、不发 text part），

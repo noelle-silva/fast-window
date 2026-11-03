@@ -30,7 +30,7 @@ function buildShared(options: { running?: boolean } = {}) {
     getState: () => state,
     netRequest: vi.fn(async (_req: any) => ({ body: {} })),
     showToast: vi.fn(),
-    render: vi.fn(),
+    emitScope: vi.fn(),
   }
   const refreshTargetSession = vi.fn(async () => target.chat)
   const shared: any = {

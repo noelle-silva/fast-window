@@ -22,13 +22,11 @@ function createHarness(options: { loadError?: Error } = {}) {
     },
     draft: { activeTargetKind: 'role', activeRoleId: 'role-a', activeGroupId: '', activeWorkspaceId: '' },
   }
-  const render = vi.fn()
   const emitScope = vi.fn()
   const showToast = vi.fn()
   const editors = createEntityEditors({
     getState: () => state,
     save: async () => {},
-    render,
     emitScope,
     closeModal: () => {},
     showToast,
@@ -44,7 +42,7 @@ function createHarness(options: { loadError?: Error } = {}) {
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},
   })
-  return { state, render, emitScope, showToast, editors }
+  return { state, emitScope, showToast, editors }
 }
 
 describe('会话选择通知', () => {
@@ -59,7 +57,6 @@ describe('会话选择通知', () => {
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.navigation())
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.composer())
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('role', 'role-a'))
-    expect(harness.render).not.toHaveBeenCalled()
   })
 
   it('群组会话选中时使用群组地址，不产生全局广播', async () => {
@@ -74,7 +71,6 @@ describe('会话选择通知', () => {
 
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.navigation())
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.chatList('group', 'group-a'))
-    expect(harness.render).not.toHaveBeenCalled()
   })
 
   it('正文加载失败时仍只通知当前会话，不把整页拉回全局广播', async () => {
@@ -87,6 +83,5 @@ describe('会话选择通知', () => {
     await vi.waitFor(() => {
       expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-a', 'chat-b'))
     })
-    expect(harness.render).not.toHaveBeenCalled()
   })
 })

@@ -147,10 +147,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 5. INLINE HELPERS
 
-  function render() { emit() }
-  // 诚实命名：当前行为就是全局刷新，不再冒充“只刷新输入区”。
-  function renderAll() { emit() }
-
   function getControllerState() {
     // 纯读取：快照读取器不得修改 state（草稿镜像已在 emit 边界同步）。
     return state
@@ -465,7 +461,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     emit,
-    render,
     emitScope,
     closeModal,
     saveMeta: savePreferences,
@@ -911,7 +906,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveProviderEntity,
     removeProviderEntity,
     save: savePreferences,
-    render,
     emitScope,
     closeModal,
     showToast: api.ui?.showToast,
@@ -1023,8 +1017,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       projectionPipeline.invalidateSessionWindow({ kind, targetId }, chatId)
       projectionPipeline.invalidateChatBody({ kind, targetId }, chatId)
     },
-    render,
-    renderComposer: renderAll,
     emitScope,
     scrollToBottomSoon,
     readImageFileAsDataUrl: readFileAsDataUrl,
@@ -1089,13 +1081,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // Build placeholder actions object for eventHandlers (circular dep)
   const draftActionsPlaceholder = createDraftActions({ state, emitScope })
   const actionsPlaceholder: Record<string, any> = {
-    emit,
     save: () => savePreferences(),
-    render,
-    renderTop: render,
-    renderComposer: renderAll,
-    renderChat: render,
-    renderModal: render,
     scrollToBottomSoon,
     closeModal,
     applyMermaidScaleDom,
@@ -1139,8 +1125,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const eventHandlers = createEventHandlers({
     getState: () => state,
     actions: actionsPlaceholder,
-    emit,
-    render,
     showToast: api.ui?.showToast,
     clipboard: api.clipboard,
   })
@@ -1404,12 +1388,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     save: savePreferences,
     loadOlderMessages,
     loadSessionGraph,
-    render,
-    renderTop: render,
-    renderChat: render,
-    renderSide: render,
-    renderComposer: renderAll,
-    renderModal: render,
     scrollToBottomSoon,
     activeRole,
     activeChat,

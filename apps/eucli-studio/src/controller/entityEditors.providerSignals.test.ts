@@ -72,7 +72,6 @@ function createHarness() {
     save: async () => {},
     saveRoleEntity,
     saveProviderEntity,
-    render: vi.fn(),
     emitScope,
     closeModal,
     showToast,

@@ -63,8 +63,6 @@ export type ChatOperationsDeps = {
   // pending 会话落成真实会话后：把「用户选中了它」交给与普通点击相同的偏好持久化入口。
   persistActiveChatSelection?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<void>
   emitScope: (scope: string) => void
-  render: () => void
-  renderComposer: () => void
   scrollToBottomSoon: () => void
   readImageFileAsDataUrl: (file: File) => Promise<string>
   // RunProbe：run 终态对账的唯一入口（取代 450ms 固定轮询）。

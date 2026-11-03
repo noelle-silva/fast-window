@@ -11,23 +11,15 @@ import {
 import type { createChatOperationsShared } from './chatOperationsShared'
 import { refreshScopes } from '../domain/uiRefreshScope'
 
-type BranchScopeDeps = {
-  emitScope?: (scope: string) => void
-}
-
 export function createChatBranchOperations(shared: ReturnType<typeof createChatOperationsShared>) {
   const { deps, sa, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, persistActiveView } = shared
-  const { getState, showToast, ensureActiveChatLoaded, render, scrollToBottomSoon } = deps
-  const { emitScope } = deps as typeof deps & BranchScopeDeps
+  const { getState, showToast, ensureActiveChatLoaded, emitScope, scrollToBottomSoon } = deps
 
   function notifyActiveSession(chat: any) {
     const targetId = String(sa.activeRole()?.id || '').trim()
     const chatId = String(chat?.id || '').trim()
-    if (emitScope && targetId && chatId) {
-      emitScope(refreshScopes.session('role', targetId, chatId))
-      return
-    }
-    render()
+    if (!targetId || !chatId) return
+    emitScope(refreshScopes.session('role', targetId, chatId))
   }
 
   // 视图回写：本地分支状态已改，同时把它变成服务端事实。

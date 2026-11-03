@@ -28,8 +28,6 @@ function createOperations(activeRoleId: string) {
     getState: () => state,
     netRequest,
     emitScope: () => {},
-    render: () => {},
-    renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
   })

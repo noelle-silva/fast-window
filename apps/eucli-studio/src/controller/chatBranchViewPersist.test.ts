@@ -52,13 +52,10 @@ function makeHarness(options: { persist?: boolean; legacySave?: () => Promise<vo
 
   const persistSessionView = vi.fn(async () => {})
   const emitScope = vi.fn()
-  const render = vi.fn()
   const shared = createChatOperationsShared({
     getState: () => state,
     emit: () => {},
     emitScope,
-    render,
-    renderComposer: () => {},
     scrollToBottomSoon: () => {},
     readImageFileAsDataUrl: async () => '',
     ensureActiveChatLoaded: async () => chat,
@@ -67,7 +64,7 @@ function makeHarness(options: { persist?: boolean; legacySave?: () => Promise<vo
     // 断言分支切换不再调用它（防止回归）。
     ...(options.legacySave ? { save: options.legacySave } : {}),
   } as any)
-  return { state, chat, shared, persistSessionView, legacySave: options.legacySave, emitScope, render }
+  return { state, chat, shared, persistSessionView, legacySave: options.legacySave, emitScope }
 }
 
 describe('分支切换回写服务端视图（决策 3）', () => {
@@ -149,6 +146,5 @@ describe('分支切换通知', () => {
     await ops.setActiveBranch('alt')
 
     expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.session('role', 'role-1', 'chat-1'))
-    expect(harness.render).not.toHaveBeenCalled()
   })
 })
