@@ -62,6 +62,11 @@ export default defineConfig({
   worker: {
     // Worker 内使用 ESM，支持顶层 import 与代码分割。
     format: 'es',
+    // 关键：Vite 的 Worker 构建不会继承顶层 plugins。
+    // 必须在这里显式挂同一条解析修正，否则后台包会退回 browser 条件，
+    // 把 decode-named-character-reference/index.dom.js（顶层 document 调用）打进去。
+    // worker.plugins 必须是返回插件数组的函数。
+    plugins: () => [pureDecodeNamedCharacterReference()],
   },
   optimizeDeps: {
     esbuildOptions: {
@@ -77,5 +82,13 @@ export default defineConfig({
     target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      // workerEntry 是后台分块的构建入口：保证批量预计算所需的 Worker
+      // 始终随应用产出，即使当前尚未有运行时代码引用线程池。
+      input: {
+        main: 'index.html',
+        workerEntry: 'src/render/worker/workerEntry.ts',
+      },
+    },
   },
 })
