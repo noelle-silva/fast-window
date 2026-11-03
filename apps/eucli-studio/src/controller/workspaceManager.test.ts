@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { refreshScopes } from '../domain/uiRefreshScope'
+import { DirectFailure } from '../protocol/directFailure'
 import { createStateAccessors } from '../state/stateAccessors'
 import { createWorkspaceManager } from './workspaceManager'
 
@@ -80,6 +81,7 @@ function createHarness(
   let emitCount = 0
   const emit = vi.fn(() => { emitCount += 1 })
   const emitScope = vi.fn((_scope: string) => { emitCount += 1 })
+  const showToast = vi.fn()
   const manager = createWorkspaceManager({
     getState: () => state,
     netRequest,
@@ -88,13 +90,14 @@ function createHarness(
     closeModal: () => {},
     saveMeta: async () => {},
     scrollToBottomSoon: () => {},
+    showToast,
     activeTargetKind: () => String(state.draft.activeTargetKind || 'role'),
     activeRole: () => state.data.roles.find((role: any) => String(role.id) === String(state.draft.activeRoleId || state.data.ui.activeRoleId)) || null,
     activeWorkspace: () => state.data.workspaces.find((workspace: any) => String(workspace.id) === String(state.draft.activeWorkspaceId || state.data.ui.activeWorkspaceId)) || null,
     clearPendingWorkspaceChat: () => { state.pendingWorkspaceChat = null },
     ...extraDeps,
   })
-  return { state, manager, emits: () => emitCount, emit }
+  return { state, manager, emits: () => emitCount, emit, emitScope, showToast }
 }
 
 function boxOf(state: any, combinationId: string) {
@@ -730,5 +733,194 @@ describe('工作区会话切换通知', () => {
     expect(emitScope).toHaveBeenCalledWith(refreshScopes.chatList('workspace', targetId))
     expect(emitScope).toHaveBeenCalledWith(refreshScopes.session('workspace', targetId, 'session-a1'))
     expect(harness.emit).not.toHaveBeenCalled()
+  })
+})
+
+
+function cloneWorkspace(workspace: any) {
+  return JSON.parse(JSON.stringify(workspace))
+}
+
+function createReconcileStore() {
+  return {
+    'ws-1': { id: 'ws-1', name: '工作区一', directories: [], prompt: '', registeredRoleIds: ['role-a'], createdAt: 1, updatedAt: 1 },
+    'ws-2': { id: 'ws-2', name: '工作区二', directories: [], prompt: '', registeredRoleIds: ['role-c'], createdAt: 2, updatedAt: 2 },
+  } as Record<string, any>
+}
+
+function createReconcileNetRequest(store: Record<string, any>, onMutation: (req: any) => Error | null) {
+  const requests: any[] = []
+  const netRequest = vi.fn(async (req: any) => {
+    requests.push(req)
+    const method = String(req?.method || '')
+    const path = String(req?.path || '')
+    if (method === 'GET' && path === '/api/workspaces') {
+      return { body: Object.values(store).map((workspace) => ({ id: workspace.id })) }
+    }
+    const detailMatch = path.match(/^\/api\/workspaces\/([^/]+)$/)
+    if (method === 'GET' && detailMatch) {
+      return { body: store[decodeURIComponent(detailMatch[1])] }
+    }
+    if (method === 'GET' && /^\/api\/workspaces\/[^/]+\/roles\/[^/]+\/sessions$/.test(path)) {
+      return { body: [] }
+    }
+    if ((method === 'POST' && path === '/api/workspaces') || (method === 'DELETE' && detailMatch)) {
+      const error = onMutation(req)
+      if (error) throw error
+      return { body: req?.body || {} }
+    }
+    if (method === 'POST' && path === '/api/workspaces/prompt-preview') {
+      return { body: { actualPrompt: '' } }
+    }
+    throw new Error(`未预期的请求：${method} ${path}`)
+  })
+  return { netRequest, requests }
+}
+
+function openWorkspaceSave(harness: ReturnType<typeof createHarness>, name: string) {
+  harness.manager.openWorkspaceEditorInPlace('ws-1')
+  harness.state.draft.workspaceName = name
+}
+
+describe('工作区写失败回读对账', () => {
+  it('保存结果未知且后端已是新值：按成功收尾并提示回读确认', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => {
+      store['ws-1'] = { ...store['ws-1'], name: '工作区一（新）' }
+      return new DirectFailure('indeterminate', 'aiChat.netRequest', 'non-idempotent')
+    })
+    const readWorkspaceEntity = vi.fn(async (workspaceId: string) => cloneWorkspace(store[workspaceId]))
+    const harness = createHarness({}, netRequest, { readWorkspaceEntity })
+    harness.state.data.workspaces = Object.values(store)
+    openWorkspaceSave(harness, '工作区一（新）')
+
+    await harness.manager.saveWorkspaceEditor()
+
+    expect(readWorkspaceEntity).toHaveBeenCalledWith('ws-1')
+    expect(harness.state.data.workspaces.find((workspace: any) => workspace.id === 'ws-1').name).toBe('工作区一（新）')
+    expect(harness.state.draft.activeWorkspaceId).toBe('ws-1')
+    expect(harness.showToast).toHaveBeenCalledWith('工作区已保存（已通过回读确认）', { kind: 'success' })
+    expect(harness.emitScope).toHaveBeenCalledWith(refreshScopes.entities('workspaces'))
+  })
+
+  it('保存结果未知且后端仍是旧值：本地保持旧值并提示已确认失败', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new DirectFailure('indeterminate', 'aiChat.netRequest', 'non-idempotent'))
+    const readWorkspaceEntity = vi.fn(async (workspaceId: string) => cloneWorkspace(store[workspaceId]))
+    const harness = createHarness({}, netRequest, { readWorkspaceEntity })
+    harness.state.data.workspaces = Object.values(store)
+    openWorkspaceSave(harness, '工作区一（新）')
+
+    await harness.manager.saveWorkspaceEditor()
+
+    expect(readWorkspaceEntity).toHaveBeenCalledWith('ws-1')
+    expect(harness.state.data.workspaces.find((workspace: any) => workspace.id === 'ws-1').name).toBe('工作区一')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('工作区保存失败（已确认未写入）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('保存结果未知且回读失败：本地保持旧值并明确提示未确认', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new DirectFailure('reconnectedUnknown', 'aiChat.netRequest', 'non-idempotent'))
+    const harness = createHarness({}, netRequest, {
+      readWorkspaceEntity: async () => { throw new Error('回读失败') },
+    })
+    harness.state.data.workspaces = Object.values(store)
+    openWorkspaceSave(harness, '工作区一（新）')
+
+    await harness.manager.saveWorkspaceEditor()
+
+    expect(harness.state.data.workspaces.find((workspace: any) => workspace.id === 'ws-1').name).toBe('工作区一')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('工作区保存结果未确认'),
+      { kind: 'error' },
+    )
+  })
+
+  it('保存确定失败不回读，直接提示原错误', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new Error('disk full'))
+    const readWorkspaceEntity = vi.fn(async () => null)
+    const harness = createHarness({}, netRequest, { readWorkspaceEntity })
+    harness.state.data.workspaces = Object.values(store)
+    openWorkspaceSave(harness, '工作区一（新）')
+
+    await harness.manager.saveWorkspaceEditor()
+
+    expect(readWorkspaceEntity).not.toHaveBeenCalled()
+    expect(harness.state.data.workspaces.find((workspace: any) => workspace.id === 'ws-1').name).toBe('工作区一')
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
+  })
+
+  it('删除结果未知且后端已不存在：按成功收尾并提示回读确认', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => {
+      delete store['ws-1']
+      return new DirectFailure('indeterminate', 'aiChat.netRequest', 'non-idempotent')
+    })
+    const harness = createHarness({}, netRequest, {
+      readWorkspaceEntity: async (workspaceId: string) => store[workspaceId] || null,
+    })
+    harness.state.data.workspaces = Object.values(createReconcileStore())
+
+    const ok = await harness.manager.deleteWorkspaceEditor('ws-1')
+
+    expect(ok).toBe(true)
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-1')).toBe(false)
+    expect(harness.state.draft.activeWorkspaceId).toBe('ws-2')
+    expect(harness.showToast).toHaveBeenCalledWith('工作区已删除（已通过回读确认）', { kind: 'success' })
+  })
+
+  it('删除结果未知且后端仍存在：本地保持并提示已确认失败', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new DirectFailure('reconnectedUnknown', 'aiChat.netRequest', 'non-idempotent'))
+    const readWorkspaceEntity = vi.fn(async (workspaceId: string) => cloneWorkspace(store[workspaceId]))
+    const harness = createHarness({}, netRequest, { readWorkspaceEntity })
+    harness.state.data.workspaces = Object.values(store)
+
+    const ok = await harness.manager.deleteWorkspaceEditor('ws-1')
+
+    expect(ok).toBe(false)
+    expect(readWorkspaceEntity).toHaveBeenCalledWith('ws-1')
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-1')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('工作区删除失败（已确认工作区仍存在）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除结果未知且回读失败：本地保持并明确提示未确认', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new DirectFailure('reconnectedUnknown', 'aiChat.netRequest', 'non-idempotent'))
+    const harness = createHarness({}, netRequest, {
+      readWorkspaceEntity: async () => { throw new Error('回读失败') },
+    })
+    harness.state.data.workspaces = Object.values(store)
+
+    const ok = await harness.manager.deleteWorkspaceEditor('ws-1')
+
+    expect(ok).toBe(false)
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-1')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('工作区删除结果未确认'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除确定失败不回读，直接提示原错误', async () => {
+    const store = createReconcileStore()
+    const { netRequest } = createReconcileNetRequest(store, () => new Error('disk full'))
+    const readWorkspaceEntity = vi.fn(async () => null)
+    const harness = createHarness({}, netRequest, { readWorkspaceEntity })
+    harness.state.data.workspaces = Object.values(store)
+
+    const ok = await harness.manager.deleteWorkspaceEditor('ws-1')
+
+    expect(ok).toBe(false)
+    expect(readWorkspaceEntity).not.toHaveBeenCalled()
+    expect(harness.state.data.workspaces.some((workspace: any) => workspace.id === 'ws-1')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
   })
 })

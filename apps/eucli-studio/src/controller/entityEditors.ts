@@ -18,8 +18,14 @@ import {
   normalizeProviderRegisteredModels,
   validateProviderRegisteredModels,
 } from '../domain/providerEntity'
-import type { ProviderAuthorityReader } from './providerAuthority'
-import { reconcileProviderDeleteFailure, reconcileProviderSaveFailure, type ProviderReconcileOutcome } from './providerWriteReconcile'
+import { roleMatchesWrite } from '../domain/roleEntity'
+import type { EntityAuthorityReader } from './entityAuthority'
+import {
+  entityWriteFailureMessage,
+  reconcileEntityDeleteFailure,
+  reconcileEntitySaveFailure,
+} from './entityWriteReconcile'
+import { reconcileProviderDeleteFailure, reconcileProviderSaveFailure } from './providerWriteReconcile'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -104,8 +110,10 @@ export function createEntityEditors(deps: {
   removeGroupEntity?: (groupId: any) => Promise<void>
   saveProviderEntity?: (provider: any) => Promise<void>
   removeProviderEntity?: (providerId: any) => Promise<void>
-  // 写结果未知时读取后端权威供应商：404 映射为 null，其他读取失败继续抛出。
-  readProviderEntity?: ProviderAuthorityReader
+  // 写结果未知时读取后端权威实体：404 / *.not_found 映射为 null，
+  // 其他读取失败继续抛出，由对账层标记为结果未确认。
+  readProviderEntity?: EntityAuthorityReader
+  readRoleEntity?: EntityAuthorityReader
   emitScope: (scope: string) => void
   closeModal: () => void
   showToast?: AiChatShowToast
@@ -127,7 +135,7 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, readRoleEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -138,21 +146,6 @@ export function createEntityEditors(deps: {
     for (const scope of scopes) {
       if (scope) emitScope(scope)
     }
-  }
-
-  // providerWriteFailureMessage 把对账结论翻译成用户可理解的结果：
-  // 确定失败沿用原错误文案；只有「已回读确认」与「回读也失败」才追加限定语。
-  function providerWriteFailureMessage(action: 'save' | 'delete', outcome: ProviderReconcileOutcome, error: any) {
-    const reason = String(error?.message || error || (action === 'save' ? '供应商保存失败' : '供应商删除失败'))
-    if (outcome === 'unconfirmed') {
-      return action === 'save' ? `供应商保存结果未确认：${reason}` : `供应商删除结果未确认：${reason}`
-    }
-    if (outcome === 'not-applied') {
-      return action === 'save'
-        ? `供应商保存失败（已确认未写入）：${reason}`
-        : `供应商删除失败（已确认供应商仍存在）：${reason}`
-    }
-    return reason
   }
 
   function notifyChatSelected(kind: 'role' | 'group', targetId: string, chatId: string) {
@@ -358,6 +351,19 @@ export function createEntityEditors(deps: {
     return true
   }
 
+  function insertCreatedRole(state: any, role: any) {
+    state.data.roles.unshift(role)
+    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+    state.data.chatsByRole[role.id] = { activeChatId: '', chatMetas: [], chats: [] }
+    state.draft.activeRoleId = role.id
+  }
+
+  function finishRoleSave(confirmed: boolean) {
+    showToast?.(`角色已保存${confirmed ? '（已通过回读确认）' : ''}`, { kind: 'success' })
+    notifyScopes([refreshScopes.entities('roles')])
+    closeModal()
+  }
+
   async function saveRoleEditor() {
     const state = getState()
     if (!state.data) return
@@ -396,16 +402,23 @@ export function createEntityEditors(deps: {
       try {
         if (typeof saveRoleEntity !== 'function') throw new Error('角色保存通道不可用')
         await saveRoleEntity(role)
-        state.data.roles.unshift(role)
-        if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
-        state.data.chatsByRole[newRid] = { activeChatId: '', chatMetas: [], chats: [] }
-        state.draft.activeRoleId = newRid
-        showToast?.('角色已保存', { kind: 'success' })
-        notifyScopes([refreshScopes.entities('roles')])
-        closeModal()
+        insertCreatedRole(state, role)
+        finishRoleSave(false)
       } catch (e: any) {
-        showToast?.(String(e?.message || e || '角色保存失败'), { kind: 'error' })
-    notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
+        const outcome = await reconcileEntitySaveFailure({
+          error: e,
+          entityId: role.id,
+          intended: role,
+          readEntity: readRoleEntity,
+          matchesWrite: roleMatchesWrite,
+        })
+        if (outcome === 'applied') {
+          insertCreatedRole(state, role)
+          finishRoleSave(true)
+          return
+        }
+        showToast?.(entityWriteFailureMessage({ action: 'save', outcome, error: e, entityLabel: '角色' }), { kind: 'error' })
+        notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
       }
       return
     }
@@ -431,13 +444,23 @@ export function createEntityEditors(deps: {
 
     try {
       await saveRoleEntity?.(role)
-      showToast?.('角色已保存', { kind: 'success' })
-      notifyScopes([refreshScopes.entities('roles')])
-      closeModal()
+      finishRoleSave(false)
     } catch (e: any) {
+      const outcome = await reconcileEntitySaveFailure({
+        error: e,
+        entityId: rid,
+        intended: role,
+        readEntity: readRoleEntity,
+        matchesWrite: roleMatchesWrite,
+      })
+      if (outcome === 'applied') {
+        // 回读确认后端已是本次写入后的值：本地保留新值，不执行回滚。
+        finishRoleSave(true)
+        return
+      }
       Object.assign(role, previous)
-      showToast?.(String(e?.message || e || '角色保存失败'), { kind: 'error' })
-    notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
+      showToast?.(entityWriteFailureMessage({ action: 'save', outcome, error: e, entityLabel: '角色' }), { kind: 'error' })
+      notifyScopes([refreshScopes.entities('roles'), refreshScopes.uiShell()])
     }
   }
 
@@ -469,12 +492,24 @@ export function createEntityEditors(deps: {
       notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return true
     } catch (e: any) {
+      const outcome = await reconcileEntityDeleteFailure({
+        error: e,
+        entityId: rid,
+        readEntity: readRoleEntity,
+      })
+      if (outcome === 'applied') {
+        // 后端已不存在：删除实际成功，本地保持移除。
+        showToast?.('角色已删除（已通过回读确认）', { kind: 'success' })
+        activateComposerDraftForCurrentSession(state)
+        notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
+        return true
+      }
       state.data.roles = previousRoles
       state.data.chatsByRole = previousChatsByRole
       state.draft.activeRoleId = previousActiveRoleId
       ;(state.draft as any).activeTargetKind = previousActiveTargetKind
       ;(state.draft as any).activeGroupId = previousActiveGroupId
-      showToast?.(String(e?.message || e || '角色删除失败'), { kind: 'error' })
+      showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '角色' }), { kind: 'error' })
       activateComposerDraftForCurrentSession(state)
       notifyScopes([refreshScopes.entities('roles'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
@@ -794,7 +829,7 @@ export function createEntityEditors(deps: {
           notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
           return
         }
-        showToast?.(providerWriteFailureMessage('save', outcome, e), { kind: 'error' })
+        showToast?.(entityWriteFailureMessage({ action: 'save', outcome, error: e, entityLabel: '供应商' }), { kind: 'error' })
         notifyScopes([refreshScopes.uiShell()])
       }
       return
@@ -832,7 +867,7 @@ export function createEntityEditors(deps: {
         return
       }
       Object.assign(provider, previous)
-      showToast?.(providerWriteFailureMessage('save', outcome, e), { kind: 'error' })
+      showToast?.(entityWriteFailureMessage({ action: 'save', outcome, error: e, entityLabel: '供应商' }), { kind: 'error' })
       notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
     }
   }
@@ -887,7 +922,7 @@ export function createEntityEditors(deps: {
         return true
       }
       state.data.settings.providers = previousProviders
-      showToast?.(providerWriteFailureMessage('delete', outcome, e), { kind: 'error' })
+      showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '供应商' }), { kind: 'error' })
     notifyScopes([refreshScopes.entities('providers'), refreshScopes.uiShell()])
       return false
     }

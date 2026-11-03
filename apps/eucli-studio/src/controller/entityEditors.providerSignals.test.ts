@@ -6,6 +6,7 @@ import { createEntityEditors } from './entityEditors'
 
 function createHarness(options: {
   readProviderEntity?: (providerId: string, state: any) => Promise<any | null>
+  readRoleEntity?: (roleId: string, state: any) => Promise<any | null>
 } = {}) {
   const state: any = {
     data: {
@@ -47,9 +48,11 @@ function createHarness(options: {
       editRoleId: '',
       editProviderId: '',
       roleName: '',
+      roleAvatarImage: '',
       roleSystemPrompt: '',
       roleTemperature: '1',
       roleTemperatureEnabled: false,
+      roleHookPromptPresetId: '',
       roleModelCandidates: [],
       roleDefaultModelCandidateId: '',
       roleToolPolicy: { tools: [], nativeTools: [], runModes: {} },
@@ -69,18 +72,24 @@ function createHarness(options: {
   })
   const showToast = vi.fn()
   const saveRoleEntity = vi.fn(async () => {})
+  const removeRoleEntity = vi.fn(async () => {})
   const saveProviderEntity = vi.fn(async () => {})
   const removeProviderEntity = vi.fn(async () => {})
   const readProviderEntity = options.readProviderEntity
     ? vi.fn((providerId: string) => options.readProviderEntity!(providerId, state))
     : undefined
+  const readRoleEntity = options.readRoleEntity
+    ? vi.fn((roleId: string) => options.readRoleEntity!(roleId, state))
+    : undefined
   const editors = createEntityEditors({
     getState: () => state,
     save: async () => {},
     saveRoleEntity,
+    removeRoleEntity,
     saveProviderEntity,
     removeProviderEntity,
     readProviderEntity,
+    readRoleEntity,
     emitScope,
     closeModal,
     showToast,
@@ -88,7 +97,7 @@ function createHarness(options: {
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},
   })
-  return { state, emitScope, closeModal, showToast, saveRoleEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, editors }
+  return { state, emitScope, closeModal, showToast, saveRoleEntity, removeRoleEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, readRoleEntity, editors }
 }
 
 describe('供应商实体通知', () => {
@@ -523,5 +532,258 @@ describe('角色实体通知', () => {
       refreshScopes.uiShell(),
     ])
     expect(harness.state.data.roles[0]?.name).toBe('新角色')
+  })
+})
+
+function cloneRole(role: any) {
+  return JSON.parse(JSON.stringify(role))
+}
+
+function seedRole(state: any) {
+  const role = {
+    id: 'role-a',
+    name: '原角色',
+    avatarImage: '',
+    systemPrompt: '旧提示词',
+    temperature: 1,
+    temperatureEnabled: false,
+    hookPromptPresetId: '',
+    modelCandidates: [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }],
+    defaultModelCandidateId: 'provider:provider-a:gpt-4o',
+    toolPolicy: { tools: [], nativeTools: [], runModes: {} },
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  state.data.roles.push(role)
+  return role
+}
+
+function startExistingRoleSave(harness: ReturnType<typeof createHarness>) {
+  seedRole(harness.state)
+  harness.state.draft.editRoleId = 'role-a'
+  harness.state.draft.roleName = '新角色'
+  harness.state.draft.roleSystemPrompt = '新提示词'
+  harness.state.draft.roleModelCandidates = [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }]
+  harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
+}
+
+// 业务端原生角色形状：prompts + modelConfig，用于验证回读对账的字段翻译。
+function toBoxRole(role: any) {
+  const candidates = Array.isArray(role.modelCandidates) ? role.modelCandidates : []
+  const boxCandidates = candidates.map((candidate: any) => {
+    const id = candidate.kind === 'model_group' || candidate.groupId
+      ? `model_group:${candidate.groupId}:${candidate.modelId}`
+      : `provider:${candidate.providerId}:${candidate.modelId}`
+    return {
+      id,
+      coordinate: {
+        kind: candidate.kind,
+        groupId: candidate.groupId,
+        providerId: candidate.providerId,
+        modelId: candidate.modelId,
+      },
+    }
+  })
+  return {
+    id: role.id,
+    name: role.name,
+    hookPromptPresetId: role.hookPromptPresetId,
+    prompts: [{ id: 'system', role: 'system', content: role.systemPrompt }],
+    modelConfig: {
+      candidates: boxCandidates,
+      defaultCandidateId: role.defaultModelCandidateId,
+      temperature: role.temperature,
+      temperatureEnabled: role.temperatureEnabled,
+    },
+    toolPolicy: role.toolPolicy,
+  }
+}
+
+function newRoleRemote(roleId: string) {
+  return {
+    id: roleId,
+    name: '新角色',
+    avatarImage: '',
+    systemPrompt: '你是测试角色',
+    temperature: 1,
+    temperatureEnabled: false,
+    hookPromptPresetId: '',
+    modelCandidates: [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }],
+    defaultModelCandidateId: 'provider:provider-a:gpt-4o',
+    toolPolicy: { tools: [], nativeTools: [], runModes: {} },
+  }
+}
+
+describe('角色写失败回读对账', () => {
+  it('保存结果未知且后端已是新值：不回滚，并提示回读确认', async () => {
+    const harness = createHarness({
+      readRoleEntity: async (roleId, state) => toBoxRole(
+        state.data.roles.find((role: any) => role.id === roleId),
+      ),
+    })
+    startExistingRoleSave(harness)
+    harness.saveRoleEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveRoleEditor()
+
+    expect(harness.readRoleEntity).toHaveBeenCalledTimes(1)
+    expect(harness.readRoleEntity).toHaveBeenCalledWith('role-a')
+    const role = harness.state.data.roles.find((item: any) => item.id === 'role-a')
+    expect(role.name).toBe('新角色')
+    expect(role.systemPrompt).toBe('新提示词')
+    expect(harness.showToast).toHaveBeenCalledWith('角色已保存（已通过回读确认）', { kind: 'success' })
+    expect(harness.closeModal).toHaveBeenCalledTimes(1)
+  })
+
+  it('保存结果未知且后端仍是旧值：回滚本地并提示已确认失败', async () => {
+    let remoteRole: any = null
+    const harness = createHarness({ readRoleEntity: async () => toBoxRole(remoteRole) })
+    const role = seedRole(harness.state)
+    remoteRole = cloneRole(role)
+    harness.state.draft.editRoleId = 'role-a'
+    harness.state.draft.roleName = '新角色'
+    harness.state.draft.roleSystemPrompt = '新提示词'
+    harness.state.draft.roleModelCandidates = [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }]
+    harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
+    harness.saveRoleEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveRoleEditor()
+
+    expect(harness.readRoleEntity).toHaveBeenCalledTimes(1)
+    const restored = harness.state.data.roles.find((item: any) => item.id === 'role-a')
+    expect(restored.name).toBe('原角色')
+    expect(restored.systemPrompt).toBe('旧提示词')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('角色保存失败（已确认未写入）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('保存结果未知且回读失败：回滚本地并明确提示未确认', async () => {
+    const harness = createHarness({ readRoleEntity: async () => { throw new Error('回读失败') } })
+    startExistingRoleSave(harness)
+    harness.saveRoleEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveRoleEditor()
+
+    const role = harness.state.data.roles.find((item: any) => item.id === 'role-a')
+    expect(role.name).toBe('原角色')
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('角色保存结果未确认'),
+      { kind: 'error' },
+    )
+  })
+
+  it('保存确定失败不回读，直接回滚', async () => {
+    const harness = createHarness({ readRoleEntity: async () => null })
+    startExistingRoleSave(harness)
+    harness.saveRoleEntity.mockRejectedValueOnce(new Error('disk full'))
+
+    await harness.editors.saveRoleEditor()
+
+    expect(harness.readRoleEntity).not.toHaveBeenCalled()
+    const role = harness.state.data.roles.find((item: any) => item.id === 'role-a')
+    expect(role.name).toBe('原角色')
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
+  })
+
+  it('新建角色结果未知且后端已写入：补入列表并提示回读确认', async () => {
+    const harness = createHarness({
+      readRoleEntity: async (roleId) => toBoxRole(newRoleRemote(roleId)),
+    })
+    harness.state.draft.editRoleId = NEW_ROLE_ID
+    harness.state.draft.roleName = '新角色'
+    harness.state.draft.roleSystemPrompt = '你是测试角色'
+    harness.state.draft.roleModelCandidates = [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }]
+    harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
+    harness.saveRoleEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveRoleEditor()
+
+    expect(harness.state.data.roles).toHaveLength(1)
+    const created = harness.state.data.roles[0]
+    expect(created.name).toBe('新角色')
+    expect(harness.state.draft.activeRoleId).toBe(created.id)
+    expect(harness.state.data.chatsByRole[created.id]).toBeTruthy()
+    expect(harness.showToast).toHaveBeenCalledWith('角色已保存（已通过回读确认）', { kind: 'success' })
+  })
+
+  it('新建角色结果未知且后端未写入：不补入列表，草稿保留', async () => {
+    const harness = createHarness({ readRoleEntity: async () => null })
+    harness.state.draft.editRoleId = NEW_ROLE_ID
+    harness.state.draft.roleName = '新角色'
+    harness.state.draft.roleSystemPrompt = '你是测试角色'
+    harness.state.draft.roleModelCandidates = [{ kind: 'provider', providerId: 'provider-a', groupId: '', modelId: 'gpt-4o' }]
+    harness.state.draft.roleDefaultModelCandidateId = 'provider:provider-a:gpt-4o'
+    harness.saveRoleEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageSet', 'non-idempotent'))
+
+    await harness.editors.saveRoleEditor()
+
+    expect(harness.state.data.roles).toHaveLength(0)
+    expect(harness.state.draft.editRoleId).toBe(NEW_ROLE_ID)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('角色保存失败（已确认未写入）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除结果未知且后端已不存在：保留本地移除并提示回读确认', async () => {
+    const harness = createHarness({ readRoleEntity: async () => null })
+    seedRole(harness.state)
+    harness.removeRoleEntity.mockRejectedValueOnce(new DirectFailure('indeterminate', 'aiChat.storageRemove', 'non-idempotent'))
+
+    const ok = await harness.editors.deleteRole('role-a')
+
+    expect(ok).toBe(true)
+    expect(harness.readRoleEntity).toHaveBeenCalledTimes(1)
+    expect(harness.readRoleEntity).toHaveBeenCalledWith('role-a')
+    expect(harness.state.data.roles.some((item: any) => item.id === 'role-a')).toBe(false)
+    expect(harness.showToast).toHaveBeenCalledWith('角色已删除（已通过回读确认）', { kind: 'success' })
+  })
+
+  it('删除结果未知且后端仍存在：恢复本地并提示已确认失败', async () => {
+    let remoteRole: any = null
+    const harness = createHarness({ readRoleEntity: async () => cloneRole(remoteRole) })
+    const role = seedRole(harness.state)
+    remoteRole = cloneRole(role)
+    harness.removeRoleEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageRemove', 'non-idempotent'))
+
+    const ok = await harness.editors.deleteRole('role-a')
+
+    expect(ok).toBe(false)
+    expect(harness.readRoleEntity).toHaveBeenCalledTimes(1)
+    expect(harness.state.data.roles.some((item: any) => item.id === 'role-a')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('角色删除失败（已确认角色仍存在）'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除结果未知且回读失败：恢复本地并明确提示未确认', async () => {
+    const harness = createHarness({ readRoleEntity: async () => { throw new Error('回读失败') } })
+    seedRole(harness.state)
+    harness.removeRoleEntity.mockRejectedValueOnce(new DirectFailure('reconnectedUnknown', 'aiChat.storageRemove', 'non-idempotent'))
+
+    const ok = await harness.editors.deleteRole('role-a')
+
+    expect(ok).toBe(false)
+    expect(harness.state.data.roles.some((item: any) => item.id === 'role-a')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('角色删除结果未确认'),
+      { kind: 'error' },
+    )
+  })
+
+  it('删除确定失败不回读，直接恢复本地', async () => {
+    const harness = createHarness({ readRoleEntity: async () => null })
+    seedRole(harness.state)
+    harness.removeRoleEntity.mockRejectedValueOnce(new Error('disk full'))
+
+    const ok = await harness.editors.deleteRole('role-a')
+
+    expect(ok).toBe(false)
+    expect(harness.readRoleEntity).not.toHaveBeenCalled()
+    expect(harness.state.data.roles.some((item: any) => item.id === 'role-a')).toBe(true)
+    expect(harness.showToast).toHaveBeenCalledWith('disk full', { kind: 'error' })
   })
 })

@@ -50,6 +50,7 @@ import { createModelRefresh } from './modelRefresh'
 import { createModelGroupsController } from './modelGroups'
 import { createFavoritesOperations } from './favoritesOperations'
 import { createEntityEditors } from './entityEditors'
+import { createEntityAuthorityReader } from './entityAuthority'
 import { createProviderAuthorityReader } from './providerAuthority'
 import { createChatOperations } from './chatOperations'
 import type { ChatOperationsDeps } from './chatOperationsShared'
@@ -453,9 +454,26 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { savePreferences } = persistence
 
+  // 实体权威读取共用同一个通用工厂：路径与实体名称是唯一差异。
+  const entityNetRequest = capabilities.net?.request || ((() => Promise.resolve({})) as any)
+  const readProviderEntity = createProviderAuthorityReader(entityNetRequest)
+  const readRoleEntity = createEntityAuthorityReader({
+    netRequest: entityNetRequest,
+    resourcePath: '/api/roles',
+    entityLabel: '角色',
+  })
+  const readWorkspaceEntity = createEntityAuthorityReader({
+    netRequest: entityNetRequest,
+    resourcePath: '/api/workspaces',
+    entityLabel: '工作区',
+    // 工作区实体缺失时后端返回通用 storage.read_failed；用列表成员做仲裁。
+    listFallback: { path: '/api/workspaces' },
+  })
+
   const workspaceManager = createWorkspaceManager({
     getState: () => state,
-    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    netRequest: entityNetRequest,
+    readWorkspaceEntity,
     emit,
     emitScope,
     closeModal,
@@ -894,8 +912,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 15. ENTITY EDITORS
   // ============================================================
-  // 写结果未知时只按实体地址回读一次权威供应商，不拉全量列表。
-  const readProviderEntity = createProviderAuthorityReader(capabilities.net?.request || ((() => Promise.resolve({})) as any))
   const entityEditors = createEntityEditors({
     getState: () => state,
     saveRoleEntity,
@@ -905,6 +921,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveProviderEntity,
     removeProviderEntity,
     readProviderEntity,
+    readRoleEntity,
     save: savePreferences,
     emitScope,
     closeModal,

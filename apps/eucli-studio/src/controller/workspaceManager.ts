@@ -7,6 +7,7 @@ import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { clearPendingChatForTarget, createPendingChatEntry, pendingChatForTarget } from '../domain/pendingChat'
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import { workspaceRegisteredRoleIds, workspaceRolesInScope } from '../domain/workspaceRoleScope'
+import { normalizeWorkspaceRoleIds, workspaceMatchesWrite } from '../domain/workspaceEntity'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import {
   firstChatIdInBox,
@@ -17,7 +18,13 @@ import {
 import type { AiChatShowToast } from '../gateway/capabilities'
 import type { SessionWriteGuard } from '../storage/sessionWriteGuard'
 import { refreshScopes } from '../domain/uiRefreshScope'
+import type { EntityAuthorityReader } from './entityAuthority'
 import { saveEntityOrder } from './entityOrderBridge'
+import {
+  entityWriteFailureMessage,
+  reconcileEntityDeleteFailure,
+  reconcileEntitySaveFailure,
+} from './entityWriteReconcile'
 import {
   createWorkspaceSession,
   deleteWorkspace,
@@ -34,10 +41,6 @@ import {
 
 function text(value: unknown) {
   return String(value || '').trim()
-}
-
-function normalizeWorkspaceRoleIds(raw: unknown) {
-  return (Array.isArray(raw) ? raw : []).map((roleId) => text(roleId)).filter(Boolean)
 }
 
 function workspaceDraftDirectories(raw: unknown) {
@@ -125,6 +128,9 @@ function workspaceDraft(state: any): UiWorkspace {
 export function createWorkspaceManager(deps: {
   getState: () => any
   netRequest?: (req: any) => Promise<any>
+  // 写结果未知时读取后端权威工作区：404 / *.not_found 映射为 null，
+  // 其他读取失败继续抛出，由对账层标记为结果未确认。
+  readWorkspaceEntity?: EntityAuthorityReader
   emit: () => void
   emitScope: (scope: string) => void
   closeModal: () => void
@@ -143,7 +149,7 @@ export function createWorkspaceManager(deps: {
   cleanupFavoriteRefsForChat?: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget?: (targetKind: string, targetId: string) => void
 }) {
-  const { getState, netRequest, emit, emitScope, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
+  const { getState, netRequest, readWorkspaceEntity, emit, emitScope, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
   let workspaceMoveSeq = 0
   // 列表刷新是「最后发起的请求获胜」：旧响应落地时序号已变，直接丢弃。
   // 工作区列表与每个角色组合的会话列表各自一条序列。
@@ -575,6 +581,47 @@ export function createWorkspaceManager(deps: {
     notifyScopes([refreshScopes.uiShell()])
   }
 
+  // 回读确认写入已生效：先把权威结果落进本地列表，刷新失败也不会留下旧事实。
+  function commitWorkspaceToState(state: any, workspace: UiWorkspace) {
+    const data = ensureWorkspaceRoots(state)
+    if (!data) return
+    const workspaceId = text(workspace.id)
+    const index = (data as any).workspaces.findIndex((item: any) => text(item?.id) === workspaceId)
+    if (index >= 0) (data as any).workspaces[index] = { ...workspace }
+    else (data as any).workspaces.unshift({ ...workspace })
+  }
+
+  // 回读确认实体已不存在：同步移除本地实体与该工作区下的会话盒。
+  function removeWorkspaceFromState(state: any, workspaceId: string) {
+    const data = ensureWorkspaceRoots(state)
+    if (!data) return
+    ;(data as any).workspaces = (data as any).workspaces.filter((workspace: any) => text(workspace?.id) !== workspaceId)
+    const chatsByWorkspace = (data as any).chatsByWorkspace
+    for (const key of Object.keys(chatsByWorkspace)) {
+      const parsed = parseWorkspaceRoleTargetId(key)
+      if ((parsed.workspaceId || text(key)) === workspaceId) delete chatsByWorkspace[key]
+    }
+  }
+
+  function finishWorkspaceSave(state: any, workspaceId: string, isNew: boolean, confirmed: boolean) {
+    activateWorkspaceTarget(state, workspaceId)
+    saveMeta().catch(() => {})
+    showToast?.(`${isNew ? '工作区已创建' : '工作区已保存'}${confirmed ? '（已通过回读确认）' : ''}`, { kind: 'success' })
+    closeModal()
+    activateComposerDraftForCurrentSession(state)
+    notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.uiShell()])
+    notifyWorkspaceActivated(workspaceId)
+  }
+
+  function finishWorkspaceDelete(state: any, workspaceId: string, confirmed: boolean) {
+    if (text((state.draft as any)?.activeWorkspaceId) === workspaceId) {
+      ;(state.draft as any).activeWorkspaceId = text((state.data as any)?.workspaces?.[0]?.id)
+    }
+    showToast?.(`工作区已删除${confirmed ? '（已通过回读确认）' : ''}`, { kind: 'success' })
+    activateComposerDraftForCurrentSession(state)
+    notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
+  }
+
   async function saveWorkspaceEditor() {
     const state = getState()
     if (!state?.data) return
@@ -602,15 +649,23 @@ export function createWorkspaceManager(deps: {
     try {
       await saveWorkspace(requireNetRequest(), nextWorkspace)
       await refreshWorkspaces(workspaceId)
-      activateWorkspaceTarget(state, workspaceId)
-      saveMeta().catch(() => {})
-      showToast?.(isNew ? '工作区已创建' : '工作区已保存', { kind: 'success' })
-      closeModal()
-      activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.uiShell()])
-      notifyWorkspaceActivated(workspaceId)
+      finishWorkspaceSave(state, workspaceId, isNew, false)
     } catch (e: any) {
-      showToast?.(String(e?.message || e || '工作区保存失败'), { kind: 'error' })
+      const outcome = await reconcileEntitySaveFailure({
+        error: e,
+        entityId: workspaceId,
+        intended: nextWorkspace,
+        readEntity: readWorkspaceEntity,
+        matchesWrite: workspaceMatchesWrite,
+      })
+      if (outcome === 'applied') {
+        // 回读确认后端已是本次写入后的值：按成功收尾，刷新失败也不再改判。
+        commitWorkspaceToState(state, nextWorkspace)
+        await refreshWorkspaces(workspaceId).catch(() => {})
+        finishWorkspaceSave(state, workspaceId, isNew, true)
+        return
+      }
+      showToast?.(entityWriteFailureMessage({ action: 'save', outcome, error: e, entityLabel: '工作区' }), { kind: 'error' })
       notifyScopes([refreshScopes.uiShell()])
     }
   }
@@ -627,15 +682,23 @@ export function createWorkspaceManager(deps: {
       await deleteWorkspace(requireNetRequest(), workspaceId)
       cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
       await refreshWorkspaces()
-      if (text((state.draft as any)?.activeWorkspaceId) === workspaceId) {
-        ;(state.draft as any).activeWorkspaceId = text((state.data as any)?.workspaces?.[0]?.id)
-      }
-      showToast?.('工作区已删除', { kind: 'success' })
-      activateComposerDraftForCurrentSession(state)
-      notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
+      finishWorkspaceDelete(state, workspaceId, false)
       return true
     } catch (e: any) {
-      showToast?.(String(e?.message || e || '工作区删除失败'), { kind: 'error' })
+      const outcome = await reconcileEntityDeleteFailure({
+        error: e,
+        entityId: workspaceId,
+        readEntity: readWorkspaceEntity,
+      })
+      if (outcome === 'applied') {
+        // 后端已不存在：删除实际成功，刷新失败也不再改判。
+        removeWorkspaceFromState(state, workspaceId)
+        cleanupFavoriteRefsForTarget?.('workspace', workspaceId)
+        await refreshWorkspaces().catch(() => {})
+        finishWorkspaceDelete(state, workspaceId, true)
+        return true
+      }
+      showToast?.(entityWriteFailureMessage({ action: 'delete', outcome, error: e, entityLabel: '工作区' }), { kind: 'error' })
       notifyScopes([refreshScopes.entities('workspaces'), refreshScopes.navigation(), refreshScopes.uiShell()])
       return false
     }
