@@ -20,10 +20,21 @@ import {
 
 export type WorkerRequestHandler = (request: WorkerRequest) => WorkerResponse
 
+function createStickerPathLookup(paths: Record<string, string> | undefined) {
+  if (!paths) return undefined
+  return (category: string, name: string): string => {
+    const relPath = paths[`${category}/${name}`]
+    return typeof relPath === 'string' ? relPath : ''
+  }
+}
+
 export function createWorkerRequestHandler(computer: MarkdownComputer = createMarkdownComputer()): WorkerRequestHandler {
-  function parseItem(item: WorkerParseBatchItem): WorkerItemResult<WorkerParseResult> {
+  function parseItem(
+    item: WorkerParseBatchItem,
+    options?: { stickersEnabled: boolean; getStickerPath?: (category: string, name: string) => string },
+  ): WorkerItemResult<WorkerParseResult> {
     try {
-      return { key: item.key, ok: true, value: { html: computer.renderMarkdown(item.source) } }
+      return { key: item.key, ok: true, value: { html: computer.renderMarkdown(item.source, options) } }
     } catch (error) {
       return { key: item.key, ok: false, error: toWorkerError(error) }
     }
@@ -49,18 +60,33 @@ export function createWorkerRequestHandler(computer: MarkdownComputer = createMa
 
       case 'parse':
         try {
+          // 旧调用没有可选字段时，等价于只用 source 的既有行为。
+          const hasOptions = request.stickersEnabled !== undefined || request.stickerPaths !== undefined
+          const html = hasOptions
+            ? computer.renderMarkdown(request.source, {
+                stickersEnabled: !!request.stickersEnabled,
+                getStickerPath: createStickerPathLookup(request.stickerPaths),
+              })
+            : computer.renderMarkdown(request.source)
           return {
             id: request.id,
             type: 'parse',
             ok: true,
-            result: { html: computer.renderMarkdown(request.source) },
+            result: { html },
           }
         } catch (error) {
           return { id: request.id, ok: false, error: toWorkerError(error) }
         }
 
       case 'parse-batch': {
-        const result: WorkerParseBatchResult = { items: request.items.map(parseItem) }
+        const hasOptions = request.stickersEnabled !== undefined || request.stickerPaths !== undefined
+        const options = hasOptions
+          ? {
+              stickersEnabled: !!request.stickersEnabled,
+              getStickerPath: createStickerPathLookup(request.stickerPaths),
+            }
+          : undefined
+        const result: WorkerParseBatchResult = { items: request.items.map((item) => parseItem(item, options)) }
         return { id: request.id, type: 'parse-batch', ok: true, result }
       }
 

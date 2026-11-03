@@ -16,10 +16,10 @@ export type StickerPluginCtx = {
 
 const TOKEN = /\[\[\s*(?:sticker|表情包)\s*:\s*([^\]\n]{1,220}?)\s*\]\]/g
 
-type ParsedToken = { category: string; name: string; size: number }
+export type StickerToken = { category: string; name: string; size: number }
 
 // 与旧版 capabilities/sticker.ts 的解析语义完全一致。
-function parseToken(innerRaw: string): ParsedToken | null {
+export function parseStickerToken(innerRaw: string): StickerToken | null {
   const inner = String(innerRaw || '').trim()
   if (!inner) return null
 
@@ -47,6 +47,22 @@ function parseToken(innerRaw: string): ParsedToken | null {
   return { category, name, size }
 }
 
+// 主线程扫描：Worker 无法接收 getStickerPath 函数，预计算需要按文本里
+// 实际出现的令牌预先把路径解析成静态表。这里复用同一份令牌语法，
+// 保证「扫描到什么」与「渲染时认领什么」不会漂移。
+export function scanStickerTokens(source: unknown): StickerToken[] {
+  const text = String(source || '')
+  if (!text.includes('[[')) return []
+  const tokens: StickerToken[] = []
+  const token = new RegExp(TOKEN.source, 'g')
+  let match: RegExpExecArray | null = null
+  while ((match = token.exec(text))) {
+    const parsed = parseStickerToken(match[1])
+    if (parsed) tokens.push(parsed)
+  }
+  return tokens
+}
+
 function isInsideCode(parent: any): boolean {
   return parent?.type === 'element' && (parent.tagName === 'code' || parent.tagName === 'pre')
 }
@@ -69,7 +85,7 @@ export function rehypeSticker(options: { getCtx: () => StickerPluginCtx }) {
       let m: RegExpExecArray | null = null
 
       while ((m = TOKEN.exec(value))) {
-        const parsed = parseToken(m[1])
+        const parsed = parseStickerToken(m[1])
         if (!parsed) continue
 
         if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) })

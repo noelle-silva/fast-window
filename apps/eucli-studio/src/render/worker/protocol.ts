@@ -16,10 +16,17 @@ export type WorkerPingRequest = {
   type: 'ping'
 }
 
+// 贴纸路径无法把函数传进 Worker，因此由主线程按出现过的令牌解析成静态表。
+// 键为「分类/名称」，值为已经过主线程策略校验的相对路径。
+export type WorkerStickerPathMap = Record<string, string>
+
 export type WorkerParseRequest = {
   id: WorkerRequestId
   type: 'parse'
   source: string
+  // 以下字段均为向后兼容的可选扩展：旧调用只传 source 时行为不变。
+  stickersEnabled?: boolean
+  stickerPaths?: WorkerStickerPathMap
 }
 
 export type WorkerParseBatchItem = {
@@ -31,6 +38,9 @@ export type WorkerParseBatchRequest = {
   id: WorkerRequestId
   type: 'parse-batch'
   items: WorkerParseBatchItem[]
+  // 与单条 parse 一致的可选渲染条件：预计算批量解析同样需要贴纸能力。
+  stickersEnabled?: boolean
+  stickerPaths?: WorkerStickerPathMap
 }
 
 export type WorkerMathBatchItem = {
@@ -122,6 +132,14 @@ function isParseBatchItem(value: unknown): value is WorkerParseBatchItem {
   return isRecord(value) && typeof value.key === 'string' && typeof value.source === 'string'
 }
 
+function isStickerPathMap(value: unknown): value is WorkerStickerPathMap {
+  if (!isRecord(value)) return false
+  for (const key of Object.keys(value)) {
+    if (typeof value[key] !== 'string') return false
+  }
+  return true
+}
+
 function isMathBatchItem(value: unknown): value is WorkerMathBatchItem {
   return (
     isRecord(value) &&
@@ -139,9 +157,18 @@ export function isWorkerRequest(value: unknown): value is WorkerRequest {
     case 'ping':
       return true
     case 'parse':
-      return typeof value.source === 'string'
+      return (
+        typeof value.source === 'string' &&
+        (value.stickersEnabled === undefined || typeof value.stickersEnabled === 'boolean') &&
+        (value.stickerPaths === undefined || isStickerPathMap(value.stickerPaths))
+      )
     case 'parse-batch':
-      return Array.isArray(value.items) && value.items.every(isParseBatchItem)
+      return (
+        Array.isArray(value.items) &&
+        value.items.every(isParseBatchItem) &&
+        (value.stickersEnabled === undefined || typeof value.stickersEnabled === 'boolean') &&
+        (value.stickerPaths === undefined || isStickerPathMap(value.stickerPaths))
+      )
     case 'math-batch':
       return Array.isArray(value.items) && value.items.every(isMathBatchItem)
     default:
