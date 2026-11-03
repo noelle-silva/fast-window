@@ -71,6 +71,29 @@ export function SessionMessagePage(props: {
     [activeRunTailPendingMessage, visibleMessages],
   )
 
+  // 首屏提交且浏览器真正完成一次绘制（双 rAF）之后，再请求后台预计算：
+  // 首屏 5 条由同步引擎直接渲染，绝不等后台；预计算只负责把后续批次提前算好。
+  // 会话切换、页面隐藏/卸载时立即取消，旧会话的产物不会再写入缓存。
+  const messagesRef = React.useRef(messages)
+  messagesRef.current = messages
+  const prewarmRenderCache = messageListProps.controller?.actions?.prewarmRenderCache
+  React.useEffect(() => {
+    if (!pageActive || !sessionKey || !hasMessages) return
+    if (typeof prewarmRenderCache !== 'function') return
+    let handle: { cancel?: () => void } | null = null
+    let secondFrame = 0
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        handle = prewarmRenderCache({ sessionKey, messages: messagesRef.current }) || null
+      })
+    })
+    return () => {
+      cancelAnimationFrame(firstFrame)
+      cancelAnimationFrame(secondFrame)
+      handle?.cancel?.()
+    }
+  }, [pageActive, sessionKey, hasMessages, messages.length, prewarmRenderCache])
+
   // 切换观测的绘制三边界（design-5 P0）：
   //   第一次 commit 之后 → painted；
   //   首屏同步解析/装饰 → enhanceStart / enhanceEnd（并在此收尾 settled）。

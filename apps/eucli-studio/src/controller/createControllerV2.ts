@@ -1,5 +1,6 @@
 // eucli-studio V2 controller: DI assembled from extracted modules.
 import { createUnifiedAssistantRenderEngine } from '../render/unified/engine'
+import { createRenderPrewarmService } from './renderPrewarm'
 import type { AiChatCapabilities } from '../gateway/capabilities'
 import type { AiChatController } from './types'
 import type { AiChatAssistService } from '../protocol/aiChatProtocol'
@@ -139,6 +140,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const assistantRenderer = createUnifiedAssistantRenderEngine(capabilities)
   const { ensureRenderer, renderAssistantInto: renderAssistantIntoRaw, sanitizeSvg } = assistantRenderer
 
+  // 预计算缓存：线程池懒创建，渲染条件在每次调用时快照。
+  const renderPrewarm = createRenderPrewarmService({
+    sanitizeHtml: assistantRenderer.sanitizeHtml,
+    getPolicy: currentRenderSafetyPolicy,
+    getStickerSettings: currentStickerSettings,
+  })
+
   // ============================================================
   // 5. INLINE HELPERS
 
@@ -169,16 +177,23 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return relPath
   }
 
+  function currentStickerSettings() {
+    return {
+      enabled: !!state.data?.settings?.stickers?.enabled,
+      getStickerPath: getStickerRelPath,
+    }
+  }
+
   // ============================================================
   // 5.1. RENDER ASSISTANT (bridge from assistant renderer to state)
   // ============================================================
   function renderAssistantInto(el: unknown, text: unknown, options?: any) {
-    const enabled = !!state.data?.settings?.stickers?.enabled
+    const stickers = currentStickerSettings()
     const renderSafetyPolicy = currentRenderSafetyPolicy()
     renderAssistantIntoRaw(el, text, {
       ...(options || {}),
-      stickersEnabled: enabled,
-      getStickerPath: getStickerRelPath,
+      stickersEnabled: stickers.enabled,
+      getStickerPath: stickers.getStickerPath,
       renderSafetyPolicy,
     })
   }
@@ -1397,6 +1412,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     openWorkspaceEditorRaw: (wid: string) => openWorkspaceEditor(wid),
     createChatForActiveTargetRaw: () => createChatForActiveTarget(),
     pickChatForActiveTargetRaw: (cid: string) => pickChatForActiveTarget(cid),
+    // 会话首屏提交后调用：把当前窗口内尚未缓存的消息批量交给后台预计算。
+    prewarmRenderCache: (request: { sessionKey?: unknown; messages?: unknown }) => renderPrewarm.prewarm(request),
   }
 
   // ============================================================
@@ -1435,6 +1452,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     stopUiPollers()
     disposeToolCatalog()
     disposeSystemPluginController()
+    renderPrewarm.dispose()
     uiCore.dispose()
   }
 

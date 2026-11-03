@@ -170,3 +170,71 @@ describe('切换观测的绘制边界', () => {
     expect(marks.filter((mark) => mark.boundary === 'frontend.painted').length).toBe(painted)
   })
 })
+
+describe('渲染缓存预计算接线', () => {
+  let host: HTMLDivElement | null = null
+  let root: any = null
+
+  beforeEach(() => {
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root.unmount()
+      })
+      root = null
+    }
+    host?.remove()
+    host = null
+  })
+
+  function page(controller: any) {
+    return (
+      <SessionMessagePage
+        sessionKey="chat-1"
+        messages={[{ id: 'm-1', role: 'assistant', content: '你好' }]}
+        hasMessages
+        activeRunTailPendingMessage={null}
+        layoutSignature="layout-a"
+        messageOffscreenEnabled={false}
+        messageListProps={{ controller } as any}
+        emptyContent={null}
+        scrollHostSx={{}}
+        scrollSx={{}}
+      />
+    )
+  }
+
+  it('首屏提交后请求预计算，卸载时取消', async () => {
+    const cancel = vi.fn()
+    const prewarmRenderCache = vi.fn((request: any) => ({ cancel }))
+    await act(async () => {
+      root.render(page({ actions: { prewarmRenderCache } }))
+    })
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+    })
+
+    expect(prewarmRenderCache).toHaveBeenCalledTimes(1)
+    expect(prewarmRenderCache.mock.calls[0][0]).toMatchObject({ sessionKey: 'chat-1' })
+
+    await act(async () => {
+      root.unmount()
+    })
+    root = null
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('未接入预计算动作时页面照常渲染', async () => {
+    await act(async () => {
+      root.render(page({ actions: {} }))
+    })
+    expect(host!.querySelector('[data-testid="message-list"]')).not.toBeNull()
+  })
+})
