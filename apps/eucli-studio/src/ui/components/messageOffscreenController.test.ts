@@ -411,3 +411,196 @@ describe('message offscreen controller', () => {
     expect(offscreenState(slots[5].el).visibility).toBe('hidden')
   })
 })
+
+type Operation = { op: 'read' | 'write'; el: HTMLElement }
+type OperationLog = Operation[]
+
+function instrumentRectReads(el: HTMLElement, log: OperationLog): void {
+  const original = el.getBoundingClientRect.bind(el)
+  el.getBoundingClientRect = () => {
+    log.push({ op: 'read', el })
+    return original()
+  }
+}
+
+function instrumentWrites(el: HTMLElement, log: OperationLog): void {
+  const style = el.style as any
+  const setProperty = style.setProperty.bind(style)
+  const removeProperty = style.removeProperty.bind(style)
+  style.setProperty = (property: string, value: string | null) => {
+    log.push({ op: 'write', el })
+    setProperty(property, value)
+  }
+  style.removeProperty = (property: string) => {
+    log.push({ op: 'write', el })
+    return removeProperty(property)
+  }
+  const setAttribute = el.setAttribute.bind(el)
+  el.setAttribute = (name: string, value: string) => {
+    log.push({ op: 'write', el })
+    setAttribute(name, value)
+  }
+}
+
+function operationRuns(log: OperationLog) {
+  const runs: Array<{ op: 'read' | 'write'; count: number }> = []
+  for (const entry of log) {
+    const last = runs[runs.length - 1]
+    if (last && last.op === entry.op) last.count += 1
+    else runs.push({ op: entry.op, count: 1 })
+  }
+  return runs
+}
+
+describe('message offscreen controller batching', () => {
+  let scrollHost: ReturnType<typeof makeScroll>
+  let controller: MessageOffscreenController
+
+  beforeEach(() => {
+    FakeIntersectionObserver.instances = []
+    FakeResizeObserver.instances = []
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    messageHeightMemory.clear()
+    scrollHost = makeScroll()
+    controller = new MessageOffscreenController('layout-a')
+    controller.setScrollElement(scrollHost.el)
+  })
+
+  afterEach(() => {
+    controller.dispose()
+    scrollHost.el.remove()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('attaches offscreen entries without reading layout', () => {
+    controller.setEnabled(true)
+    const log: OperationLog = []
+    instrumentRectReads(scrollHost.el, log)
+    const count = 8
+    for (let index = 0; index < count; index++) {
+      const value = message(`m-${index}`)
+      const slot = makeSlot(scrollHost.el, value.id, { top: 1200 + index * 400, height: 200 })
+      instrumentRectReads(slot.el, log)
+      instrumentWrites(slot.el, log)
+      controller.attach(value.id, slot.el, meta(value))
+      expect(offscreenState(slot.el).visibility).toBe('hidden')
+    }
+    expect(log.filter((entry) => entry.op === 'read')).toHaveLength(0)
+    expect(log.filter((entry) => entry.op === 'write').length).toBeGreaterThanOrEqual(count * 3)
+  })
+
+  it('measures each newly rendered entry once per phase and groups all writes together', () => {
+    controller.setEnabled(true)
+    const log: OperationLog = []
+    instrumentRectReads(scrollHost.el, log)
+    const count = 6
+    const slots = Array.from({ length: count }, (_, index) => {
+      const value = message(`m-${index}`)
+      const slot = makeSlot(scrollHost.el, value.id, { top: 1200 + index * 600, height: 200 })
+      instrumentRectReads(slot.el, log)
+      instrumentWrites(slot.el, log)
+      controller.attach(value.id, slot.el, meta(value))
+      return slot
+    })
+    log.length = 0
+    const computedStyleSpy = vi.spyOn(globalThis, 'getComputedStyle')
+
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: true })))
+
+    // 预读：容器内容顶部 1 次 + 每个条目 1 次；写后为每个新渲染条目统一补采 1 次。
+    for (const slot of slots) {
+      const ownReads = log.filter((entry) => entry.op === 'read' && entry.el === slot.el)
+      expect(ownReads).toHaveLength(2)
+      expect(offscreenState(slot.el).visibility).toBe('visible')
+    }
+    expect(log.filter((entry) => entry.op === 'read' && entry.el === scrollHost.el)).toHaveLength(1)
+    expect(log.filter((entry) => entry.op === 'read')).toHaveLength(count * 2 + 1)
+
+    const writeRuns = operationRuns(log).filter((run) => run.op === 'write')
+    expect(writeRuns).toHaveLength(1)
+    expect(writeRuns[0].count).toBeGreaterThanOrEqual(count * 3)
+    const firstWrite = log.findIndex((entry) => entry.op === 'write')
+    const lastWrite = log.map((entry) => entry.op).lastIndexOf('write')
+    expect(log.slice(firstWrite, lastWrite + 1).every((entry) => entry.op === 'write')).toBe(true)
+
+    // 写入阶段结束后只允许一次成组的高度补采：每个新渲染条目恰好一次。
+    const postWriteReads = log.slice(lastWrite + 1).filter((entry) => entry.op === 'read')
+    expect(postWriteReads).toHaveLength(count)
+    expect(computedStyleSpy.mock.calls.length).toBeLessThanOrEqual(1)
+  })
+
+  it('does not measure unchanged offscreen placeholders during reconcile', () => {
+    const value = message('m-1')
+    const slot = makeSlot(scrollHost.el, 'm-1', { top: 1600, height: 300 })
+    controller.attach('m-1', slot.el, meta(value))
+    const log: OperationLog = []
+    instrumentRectReads(scrollHost.el, log)
+    instrumentRectReads(slot.el, log)
+    const computedStyleSpy = vi.spyOn(globalThis, 'getComputedStyle')
+
+    controller.setEnabled(true)
+
+    expect(log.filter((entry) => entry.op === 'read')).toHaveLength(0)
+    expect(computedStyleSpy).not.toHaveBeenCalled()
+    expect(offscreenState(slot.el).visibility).toBe('hidden')
+  })
+
+  it('compensates multiple above-viewport height changes with one measurement round', () => {
+    controller.setEnabled(true)
+    scrollHost.state.scrollTop = 2000
+    const values = [message('m-a'), message('m-b')]
+    const slots = values.map((value, index) =>
+      makeSlot(scrollHost.el, value.id, { top: -500 - index * 400, height: 300 }),
+    )
+    values.forEach((value, index) => controller.attach(value.id, slots[index].el, meta(value)))
+    const log: OperationLog = []
+    instrumentRectReads(scrollHost.el, log)
+    slots.forEach((slot) => {
+      instrumentRectReads(slot.el, log)
+      instrumentWrites(slot.el, log)
+    })
+
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: true })))
+    const estimate = estimateMessageHeight(values[0], 800)
+    expect(scrollHost.state.scrollTop).toBe(2000 + 2 * (300 - estimate))
+
+    slots.forEach((slot) => {
+      slot.state.height = 500
+    })
+    const beforeHide = scrollHost.state.scrollTop
+    log.length = 0
+    const computedStyleSpy = vi.spyOn(globalThis, 'getComputedStyle')
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: false })))
+
+    expect(scrollHost.state.scrollTop).toBe(beforeHide - 2 * (500 - 300))
+    slots.forEach((slot) => expect(offscreenState(slot.el).intrinsic).toBe('300px'))
+    expect(log.filter((entry) => entry.op === 'read')).toHaveLength(slots.length + 1)
+    expect(operationRuns(log).filter((run) => run.op === 'write')).toHaveLength(1)
+    expect(computedStyleSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps mixed above / visible / below decisions identical in one batch', () => {
+    controller.setEnabled(true)
+    const above = message('m-above')
+    const visible = message('m-visible')
+    const below = message('m-below')
+    const aboveSlot = makeSlot(scrollHost.el, above.id, { top: -400, height: 200 })
+    const visibleSlot = makeSlot(scrollHost.el, visible.id, { top: 100, height: 200 })
+    const belowSlot = makeSlot(scrollHost.el, below.id, { top: 2000, height: 200 })
+    const slots = [aboveSlot, visibleSlot, belowSlot]
+    const values = [above, visible, below]
+    values.forEach((value, index) => controller.attach(value.id, slots[index].el, meta(value)))
+
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: true })))
+    slots.forEach((slot) => expect(offscreenState(slot.el).visibility).toBe('visible'))
+
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: false })))
+    aboveSlot.state.height = 260
+    visibleSlot.state.height = 260
+    belowSlot.state.height = 260
+    latestIntersectionObserver().emit(slots.map((slot) => ({ target: slot.el, isIntersecting: false })))
+    slots.forEach((slot) => expect(offscreenState(slot.el).visibility).toBe('hidden'))
+  })
+})

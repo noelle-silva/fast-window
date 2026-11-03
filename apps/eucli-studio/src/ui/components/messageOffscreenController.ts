@@ -5,6 +5,7 @@ import {
   messageHeightMemory,
   messageLayoutKey,
 } from '../../domain/messageOffscreen'
+import { GeometryReader, type ScrollMetrics } from './messageOffscreenGeometry'
 
 export type MessageOffscreenSlotMeta = {
   pinned: boolean
@@ -23,6 +24,22 @@ type Entry = {
   measuredHeight: number
 }
 
+type VisibilityChange = {
+  entry: Entry
+  rendered: boolean
+}
+
+// 一轮判定的完整计划：所有几何值在写入前一次读齐，写入阶段只消费这些快照。
+type TransitionPlan = {
+  entry: Entry
+  rendered: boolean
+  wasRendered: boolean
+  wasAbove: boolean
+  rawHeight: number
+  oldHeight: number
+  nextHeight: number
+}
+
 const SLOT_ATTRIBUTE = 'data-fw-message-slot'
 const OFFSCREEN_ATTRIBUTE = 'data-fw-message-offscreen'
 const OFFSCREEN_ROOT_MARGIN = `${MESSAGE_OFFSCREEN_OVERSCAN_VIEWPORTS * 100}% 0px`
@@ -36,13 +53,6 @@ function blockHeight(el: HTMLElement): number {
 
 function normalizedHeight(value: number): number {
   return Math.max(1, Math.round(value * 100) / 100)
-}
-
-function scrollContentTop(el: HTMLElement): number {
-  const rect = el.getBoundingClientRect()
-  const style = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
-  const paddingTop = style ? Number.parseFloat(style.paddingTop) || 0 : 0
-  return rect.top + el.clientTop + paddingTop
 }
 
 // 屏外跳过控制器：直接管理消息外层节点的 content-visibility / contain-intrinsic-size。
@@ -118,8 +128,9 @@ export class MessageOffscreenController {
       this.intersectionObserver?.observe(el)
       this.resizeObserver?.observe(el)
     }
-    if (entry.rendered) this.applyRendered(entry)
-    else this.applyHidden(entry)
+    // 新条目的旧高度恒为 0，不可能需要滚动补偿：首次挂载只写样式，不做任何布局读取。
+    if (entry.rendered) this.renderFreshEntry(entry)
+    else this.writeHidden(entry, this.placeholderHeight(entry))
   }
 
   update(mid0: string, meta: MessageOffscreenSlotMeta): void {
@@ -135,18 +146,22 @@ export class MessageOffscreenController {
 
     if (meta.pinned && !previous.pinned) {
       entry.intersecting = true
-      this.applyRendered(entry)
+      this.applyVisibilityChanges([{ entry, rendered: true }])
       return
     }
     if (!meta.pinned && previous.pinned) {
-      if (entry.intersecting) this.applyRendered(entry)
-      else this.applyHidden(entry)
+      this.applyVisibilityChanges([{ entry, rendered: entry.intersecting }])
       return
     }
     if (contentChanged) {
-      // 内容变化：可见消息立即重测并换内容键；隐藏消息退回预估占位。
-      if (entry.rendered) this.applyRendered(entry)
-      else this.applyHidden(entry)
+      // 可见消息的内容变化已由 React 提交到 DOM，只需读取一次当前高度更新记忆。
+      if (entry.rendered) {
+        if (!entry.el.isConnected) return
+        const height = blockHeight(entry.el)
+        if (height > 0) this.remember(entry, height)
+      } else {
+        this.applyVisibilityChanges([{ entry, rendered: false }])
+      }
     }
   }
 
@@ -168,27 +183,28 @@ export class MessageOffscreenController {
     if (!target) return false
 
     target.forced = true
-    this.applyRendered(target)
+    this.applyVisibilityChanges([{ entry: target, rendered: true }], { stickToBottom: false })
 
+    const reader = new GeometryReader(this.scrollEl)
     const rootRect = this.scrollEl.getBoundingClientRect()
     const viewportHeight = this.scrollEl.clientHeight || rootRect.height || 0
     const overscan = Math.max(0, viewportHeight) * MESSAGE_OFFSCREEN_OVERSCAN_VIEWPORTS
-    const targetRect = target.el.getBoundingClientRect()
+    const targetRect = reader.rect(target.el)
     const minTop = targetRect.top - overscan
     const maxBottom = targetRect.bottom + overscan
 
-    const candidates: Entry[] = []
+    const changes: VisibilityChange[] = []
     const nodes = Array.from(this.scrollEl.querySelectorAll<HTMLElement>(`[${SLOT_ATTRIBUTE}]`))
     for (const el of nodes) {
       const entry = this.entryByElement.get(el)
       if (!entry || entry === target || entry.forced || entry.meta.pinned) continue
-      const rect = el.getBoundingClientRect()
-      if (rect.bottom >= minTop && rect.top <= maxBottom) candidates.push(entry)
+      const rect = reader.rect(el)
+      if (rect.bottom >= minTop && rect.top <= maxBottom) {
+        entry.forced = true
+        changes.push({ entry, rendered: true })
+      }
     }
-    for (const entry of this.orderByDocument(candidates)) {
-      entry.forced = true
-      this.applyRendered(entry)
-    }
+    this.applyVisibilityChanges(changes, { stickToBottom: false })
     return true
   }
 
@@ -198,32 +214,125 @@ export class MessageOffscreenController {
     this.disconnectObservers()
   }
 
-  private applyRendered(entry: Entry): void {
+  private renderFreshEntry(entry: Entry): void {
     if (!entry.el.isConnected) return
-    // 用变化前的矩形判定是否在视口上方：即使实际高度长入视口，也要按完整高度差补偿。
-    const wasAbove = this.isAboveContentTop(entry.el)
-    const oldHeight = entry.rendered ? blockHeight(entry.el) || entry.measuredHeight : entry.placeholderHeight
+    this.writeRendered(entry)
+    const height = blockHeight(entry.el)
+    if (height > 0) this.remember(entry, height)
+  }
+
+  private applyVisibilityChanges(
+    changes: VisibilityChange[],
+    options: { stickToBottom: boolean } = { stickToBottom: true },
+  ): void {
+    if (!changes.length) return
+    const reader = new GeometryReader(this.scrollEl)
+    // 读取阶段：滚动指标只读一次，各条目几何按需读取并缓存，此阶段结束后才开始写样式。
+    const metrics = reader.scrollMetrics(BOTTOM_EPSILON)
+    const plans = this.planTransitions(changes, reader)
+    if (plans.length) {
+      // 写入阶段：只消费读取阶段的快照，不做任何布局读取。
+      for (const plan of plans) {
+        if (plan.rendered) this.writeRendered(plan.entry)
+        else this.writeHidden(plan.entry, plan.nextHeight)
+      }
+      // 新一轮渲染后的高度只能由浏览器排版得出：统一再采样一次，仍然是批量读取。
+      this.measureRenderedHeights(plans)
+    }
+    this.commitScroll(plans, metrics, options.stickToBottom)
+  }
+
+  private planTransitions(changes: VisibilityChange[], reader: GeometryReader): TransitionPlan[] {
+    const plans: TransitionPlan[] = []
+    for (const change of this.orderChanges(changes)) {
+      const entry = change.entry
+      if (!this.entries.has(entry.mid)) continue
+      if (change.rendered && !entry.el.isConnected) continue
+      const wasRendered = entry.rendered
+      if (!change.rendered) {
+        const nextHeight = this.placeholderHeight(entry)
+        if (!wasRendered && entry.placeholderHeight === nextHeight) continue
+        const rawHeight = wasRendered ? reader.rect(entry.el).height : 0
+        const oldHeight = wasRendered ? rawHeight || entry.measuredHeight : entry.placeholderHeight
+        plans.push({
+          entry,
+          rendered: false,
+          wasRendered,
+          rawHeight,
+          oldHeight,
+          nextHeight,
+          wasAbove: oldHeight > 0 && nextHeight !== oldHeight && this.isAboveContentTop(entry, reader),
+        })
+        continue
+      }
+      const rawHeight = wasRendered ? reader.rect(entry.el).height : 0
+      const oldHeight = wasRendered ? rawHeight || entry.measuredHeight : entry.placeholderHeight
+      plans.push({
+        entry,
+        rendered: true,
+        wasRendered,
+        rawHeight,
+        oldHeight,
+        nextHeight: oldHeight,
+        wasAbove: !wasRendered && oldHeight > 0 && this.isAboveContentTop(entry, reader),
+      })
+    }
+    return plans
+  }
+
+  private measureRenderedHeights(plans: TransitionPlan[]): void {
+    let reader: GeometryReader | null = null
+    for (const plan of plans) {
+      if (!plan.rendered) continue
+      if (plan.wasRendered) {
+        // 已经是完整排版状态：写入不会改变高度，直接用读取阶段的实测值刷新记忆。
+        if (plan.rawHeight > 0) this.remember(plan.entry, plan.rawHeight)
+        continue
+      }
+      if (!reader) reader = new GeometryReader(this.scrollEl)
+      const height = reader.rect(plan.entry.el).height
+      plan.nextHeight = height
+      if (height > 0) this.remember(plan.entry, height)
+    }
+  }
+
+  private isAboveContentTop(entry: Entry, reader: GeometryReader): boolean {
+    return !!this.scrollEl && reader.isAboveContentTop(entry.el, ABOVE_VIEWPORT_EPSILON)
+  }
+
+  private commitScroll(plans: TransitionPlan[], metrics: ScrollMetrics, stickToBottom: boolean): void {
+    const el = this.scrollEl
+    if (!el) return
+    let totalDelta = 0
+    for (const plan of plans) totalDelta += plan.nextHeight - plan.oldHeight
+    if (stickToBottom && metrics.atBottom) {
+      // 底部吸附以初始滚动高度加上本轮总高度差计算，避免写后再读 scrollHeight。
+      el.scrollTop = Math.max(0, metrics.scrollHeight + totalDelta - metrics.clientHeight)
+      return
+    }
+    let scrollTop = metrics.scrollTop
+    for (const plan of plans) {
+      if (!plan.wasAbove || plan.oldHeight <= 0 || plan.nextHeight <= 0) continue
+      const delta = plan.nextHeight - plan.oldHeight
+      if (!delta) continue
+      scrollTop = Math.max(0, scrollTop + delta)
+    }
+    if (scrollTop !== metrics.scrollTop) el.scrollTop = scrollTop
+  }
+
+  private writeRendered(entry: Entry): void {
     entry.rendered = true
     entry.el.style.setProperty('content-visibility', 'visible')
     entry.el.style.removeProperty('contain-intrinsic-size')
     entry.el.setAttribute(OFFSCREEN_ATTRIBUTE, 'visible')
-    const height = blockHeight(entry.el)
-    if (height > 0) this.remember(entry, height)
-    if (oldHeight > 0 && height > 0) this.shiftScroll(wasAbove, height - oldHeight)
   }
 
-  private applyHidden(entry: Entry): void {
-    const height = this.placeholderHeight(entry)
-    if (!entry.rendered && entry.placeholderHeight === height) return
-    // 同样使用变化前的矩形：占位变长并跨过视口顶边时仍要补偿。
-    const wasAbove = this.isAboveContentTop(entry.el)
-    const oldHeight = entry.rendered ? blockHeight(entry.el) || entry.measuredHeight : entry.placeholderHeight
+  private writeHidden(entry: Entry, height: number): void {
     entry.rendered = false
     entry.placeholderHeight = height
     entry.el.style.setProperty('content-visibility', 'hidden')
     entry.el.style.setProperty('contain-intrinsic-size', `${height}px`)
     entry.el.setAttribute(OFFSCREEN_ATTRIBUTE, 'hidden')
-    if (oldHeight > 0) this.shiftScroll(wasAbove, height - oldHeight)
   }
 
   private placeholderHeight(entry: Entry): number {
@@ -238,21 +347,9 @@ export class MessageOffscreenController {
     messageHeightMemory.set(entry.mid, this.layoutKey, entry.meta.contentKey, next)
   }
 
-  private isAboveContentTop(el: HTMLElement): boolean {
-    const scrollEl = this.scrollEl
-    if (!scrollEl) return false
-    return el.getBoundingClientRect().bottom <= scrollContentTop(scrollEl) + ABOVE_VIEWPORT_EPSILON
-  }
-
-  private shiftScroll(wasAbove: boolean, delta: number): void {
-    const el = this.scrollEl
-    if (!el || !wasAbove || !delta) return
-    el.scrollTop = Math.max(0, el.scrollTop + delta)
-  }
-
   private handleIntersections(records: IntersectionObserverEntry[]): void {
     if (!this.enabled) return
-    const changes: Array<{ entry: Entry; rendered: boolean }> = []
+    const changes: VisibilityChange[] = []
     for (const record of records) {
       const entry = this.entryByElement.get(record.target as HTMLElement)
       if (!entry) continue
@@ -287,41 +384,31 @@ export class MessageOffscreenController {
       this.reconcileLayout()
       return
     }
+    const reader = new GeometryReader(this.scrollEl)
     for (const record of records) {
       if (record.target === this.scrollEl) continue
       const entry = this.entryByElement.get(record.target as HTMLElement)
       if (!entry || !entry.rendered) continue
-      const height = blockHeight(entry.el)
+      const height = reader.rect(entry.el).height
       if (height > 0) this.remember(entry, height)
     }
   }
 
-  private applyVisibilityChanges(changes: Array<{ entry: Entry; rendered: boolean }>): void {
-    if (!changes.length) return
-    const wasAtBottom = this.isAtBottom()
-    for (const change of this.orderChanges(changes)) {
-      if (!this.entries.has(change.entry.mid)) continue
-      if (change.rendered) this.applyRendered(change.entry)
-      else this.applyHidden(change.entry)
-    }
-    // 打开会话时位于底部：恢复附近排版后继续保持底部，避免首批实际高度撑开后退回中部。
-    if (wasAtBottom) this.scrollToBottom()
-  }
-
   private reconcileLayout(): void {
     if (!this.enabled) return
-    const changes: Array<{ entry: Entry; rendered: boolean }> = []
+    const reader = new GeometryReader(this.scrollEl)
+    const changes: VisibilityChange[] = []
     for (const entry of this.entries.values()) {
       if (entry.meta.pinned) {
         if (!entry.rendered) changes.push({ entry, rendered: true })
         else {
-          const height = blockHeight(entry.el)
+          const height = reader.rect(entry.el).height
           if (height > 0) this.remember(entry, height)
         }
         continue
       }
       if (entry.rendered) {
-        const height = blockHeight(entry.el)
+        const height = reader.rect(entry.el).height
         if (height > 0) this.remember(entry, height)
       } else {
         changes.push({ entry, rendered: false })
@@ -371,24 +458,8 @@ export class MessageOffscreenController {
     for (const entry of this.entries.values()) entry.forced = false
   }
 
-  private isAtBottom(): boolean {
-    const el = this.scrollEl
-    if (!el) return false
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_EPSILON
-  }
-
-  private scrollToBottom(): void {
-    const el = this.scrollEl
-    if (!el) return
-    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
-  }
-
-  private orderChanges(changes: Array<{ entry: Entry; rendered: boolean }>) {
+  private orderChanges(changes: VisibilityChange[]): VisibilityChange[] {
     return changes.slice().sort((a, b) => this.compareEntries(a.entry, b.entry))
-  }
-
-  private orderByDocument(entries: Entry[]): Entry[] {
-    return entries.slice().sort((a, b) => this.compareEntries(a, b))
   }
 
   private compareEntries(a: Entry, b: Entry): number {
