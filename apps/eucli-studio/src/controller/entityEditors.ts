@@ -725,6 +725,14 @@ export function createEntityEditors(deps: {
       return
     }
 
+    // 先校验用户原始草稿，再走 normalize：缺映射的行必须报错，不能被静默过滤。
+    const registeredModelsError = validateProviderRegisteredModels(state.draft.providerRegisteredModels)
+    if (registeredModelsError) {
+      showToast?.(registeredModelsError, { kind: 'error' })
+      notifyScopes([refreshScopes.uiShell()])
+      return
+    }
+
     if (isNew) {
       const provider = {
         id: uid('p'),
@@ -808,6 +816,26 @@ export function createEntityEditors(deps: {
         weight: Math.max(1, Math.round(Number(key.weight || 1))),
       }))
       .filter((key: any) => key.id && key.name && key.key)
+  }
+
+  function validateProviderRegisteredModels(value: any) {
+    const list = Array.isArray(value) ? value : []
+    const usedIds = new Map<string, number>()
+    for (let index = 0; index < list.length; index++) {
+      const model = list[index]
+      const line = index + 1
+      if (!model || typeof model !== 'object') return `登记模型第 ${line} 行数据无效，请删除该行后重试`
+      const id = String(model.id || '').trim()
+      const name = String(model.name || '').trim()
+      const sourceModelId = String(model.sourceModelId || '').trim()
+      if (!id) return `登记模型第 ${line} 行的「自定义模型 ID」未填写`
+      if (!name) return `登记模型第 ${line} 行的「显示名称」未填写`
+      if (!sourceModelId) return `登记模型第 ${line} 行的「映射原始模型」未选择`
+      const duplicateLine = usedIds.get(id)
+      if (duplicateLine !== undefined) return `登记模型第 ${line} 行的「自定义模型 ID」与第 ${duplicateLine} 行重复`
+      usedIds.set(id, line)
+    }
+    return ''
   }
 
   function normalizeProviderRegisteredModels(value: any) {

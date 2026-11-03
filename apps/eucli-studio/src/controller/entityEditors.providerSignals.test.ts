@@ -227,6 +227,98 @@ describe('供应商实体通知', () => {
     expect(provider.name).toBe('主供应商（2）')
     expect(provider.apiKeys).toHaveLength(1)
   })
+
+  it('已有供应商：登记模型缺少映射原始模型时拒绝保存并定位行号', async () => {
+    const harness = createHarness()
+    harness.state.draft.editProviderId = 'provider-b'
+    harness.state.draft.providerName = '备用供应商'
+    harness.state.draft.providerBaseUrl = 'https://b.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
+    harness.state.draft.providerRegisteredModels = [
+      { id: 'model-ok', name: '正常模型', sourceModelId: 'raw-ok' },
+      { id: 'model-broken', name: '缺映射模型', sourceModelId: '  ' },
+    ]
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.saveProviderEntity).not.toHaveBeenCalled()
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.registeredModels).toEqual([])
+    expect(harness.showToast).toHaveBeenCalledTimes(1)
+    expect(harness.showToast).toHaveBeenCalledWith('登记模型第 2 行的「映射原始模型」未选择', { kind: 'error' })
+  })
+
+  it('新建草稿：登记模型缺少映射原始模型时拒绝保存', async () => {
+    const harness = createHarness()
+    harness.editors.createProvider()
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-new', name: 'Key New', key: 'sk-new', enabled: true, weight: 1 }]
+    harness.state.draft.providerRegisteredModels = [{ id: 'model-new', name: '新模型', sourceModelId: '' }]
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.saveProviderEntity).not.toHaveBeenCalled()
+    expect(harness.state.data.settings.providers).toHaveLength(2)
+    expect(harness.state.draft.editProviderId).toBe(NEW_PROVIDER_ID)
+    expect(harness.showToast).toHaveBeenCalledWith('登记模型第 1 行的「映射原始模型」未选择', { kind: 'error' })
+  })
+
+  it('已有供应商：登记模型 ID 为空时拒绝保存', async () => {
+    const harness = createHarness()
+    harness.state.draft.editProviderId = 'provider-b'
+    harness.state.draft.providerName = '备用供应商'
+    harness.state.draft.providerBaseUrl = 'https://b.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
+    harness.state.draft.providerRegisteredModels = [{ id: '  ', name: '无 ID 模型', sourceModelId: 'raw-1' }]
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.saveProviderEntity).not.toHaveBeenCalled()
+    expect(harness.showToast).toHaveBeenCalledWith('登记模型第 1 行的「自定义模型 ID」未填写', { kind: 'error' })
+  })
+
+  it('已有供应商：登记模型 ID 重复时拒绝保存并指出重复行', async () => {
+    const harness = createHarness()
+    harness.state.draft.editProviderId = 'provider-b'
+    harness.state.draft.providerName = '备用供应商'
+    harness.state.draft.providerBaseUrl = 'https://b.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
+    harness.state.draft.providerRegisteredModels = [
+      { id: 'model-dup', name: '模型 A', sourceModelId: 'raw-a' },
+      { id: ' model-dup ', name: '模型 B', sourceModelId: 'raw-b' },
+    ]
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.saveProviderEntity).not.toHaveBeenCalled()
+    expect(harness.showToast).toHaveBeenCalledWith('登记模型第 2 行的「自定义模型 ID」与第 1 行重复', { kind: 'error' })
+  })
+
+  it('已有供应商：登记模型合法时保存成功并写入规范化结果', async () => {
+    const harness = createHarness()
+    harness.state.draft.editProviderId = 'provider-b'
+    harness.state.draft.providerName = '备用供应商'
+    harness.state.draft.providerBaseUrl = 'https://b.example/v1'
+    harness.state.draft.providerProtocol = 'openai'
+    harness.state.draft.providerApiKeys = [{ id: 'key-b', name: ' Key B ', key: ' sk-b ', enabled: true, weight: '1' }]
+    harness.state.draft.providerRegisteredModels = [
+      { id: ' model-1 ', name: ' 模型一 ', sourceModelId: ' raw-1 ', supportsReasoning: true, defaultReasoningEffort: 'high' },
+      { id: 'model-2', name: '模型二', sourceModelId: 'raw-2', supportsReasoning: false },
+    ]
+
+    await harness.editors.saveProviderInlineEditor()
+
+    expect(harness.saveProviderEntity).toHaveBeenCalledTimes(1)
+    const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
+    expect(provider.registeredModels).toEqual([
+      { id: 'model-1', name: '模型一', sourceModelId: 'raw-1', supportsReasoning: true, defaultReasoningEffort: 'high' },
+      { id: 'model-2', name: '模型二', sourceModelId: 'raw-2' },
+    ])
+    expect(harness.showToast).toHaveBeenCalledWith('供应商已保存', { kind: 'success' })
+  })
 })
 
 describe('角色实体通知', () => {

@@ -138,43 +138,51 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
             <Typography variant="caption" color="text.secondary">请先保存供应商 Key 后刷新模型列表，再从原始列表登记正式模型。</Typography>
           )}
 
-          {registeredModels.length ? registeredModels.map((item: any, index: number) => (
-            <Paper key={`${String(item?.id || '')}-${index}`} variant="outlined" sx={{ p: 1, bgcolor: 'grey.50' }}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
-                <TextField size="small" label="自定义模型 ID" value={String(item?.id || '')} onChange={(e) => updateRegisteredModel(index, { id: e.target.value })} sx={{ flex: 1 }} />
-                <TextField size="small" label="显示名称" value={String(item?.name || '')} onChange={(e) => updateRegisteredModel(index, { name: e.target.value })} sx={{ flex: 1 }} />
-                <FormControl size="small" sx={{ flex: 1, minWidth: 180 }}>
-                  <InputLabel>映射原始模型</InputLabel>
-                  <Select label="映射原始模型" value={String(item?.sourceModelId || '')} onChange={(e) => selectRegisteredModelSource(index, e.target.value)}>
-                    <MenuItem value=""><em>请选择模型</em></MenuItem>
-                    {rawModels.map((id: string) => <MenuItem key={id} value={id}>{id}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControlLabel control={<Switch checked={!!item?.supportsReasoning} onChange={(e) => updateRegisteredModel(index, { supportsReasoning: e.target.checked })} />} label="可推理" />
-                {item?.supportsReasoning ? (
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <InputLabel>默认思考</InputLabel>
-                    <Select label="默认思考" value={String(item?.defaultReasoningEffort || 'medium')} onChange={(e) => updateRegisteredModel(index, { defaultReasoningEffort: e.target.value })}>
-                      {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                ) : null}
-                <MoreActionsMenu
-                  items={[{
-                    key: 'delete',
-                    label: '删除',
-                    icon: <DeleteOutlineIcon fontSize="small" />,
-                    danger: true,
-                    confirm: {
-                      title: '确认删除登记模型？',
-                      description: `将移除「${String(item?.name || item?.id || '该模型')}」，保存供应商后生效。`,
-                    },
-                    onSelect: () => removeRegisteredModel(index),
-                  }]}
-                />
-              </Stack>
-            </Paper>
-          )) : (
+          {registeredModels.length ? registeredModels.map((item: any, index: number) => {
+            const missingSourceModel = !String(item?.sourceModelId || '').trim()
+            return (
+              <Paper key={`${String(item?.id || '')}-${index}`} variant="outlined" sx={{ p: 1, bgcolor: 'grey.50' }}>
+                <Stack spacing={0.75}>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
+                    <TextField size="small" label="自定义模型 ID" value={String(item?.id || '')} onChange={(e) => updateRegisteredModel(index, { id: e.target.value })} sx={{ flex: 1 }} />
+                    <TextField size="small" label="显示名称" value={String(item?.name || '')} onChange={(e) => updateRegisteredModel(index, { name: e.target.value })} sx={{ flex: 1 }} />
+                    <FormControl size="small" sx={{ flex: 1, minWidth: 180 }} error={missingSourceModel}>
+                      <InputLabel>映射原始模型</InputLabel>
+                      <Select label="映射原始模型" value={String(item?.sourceModelId || '')} onChange={(e) => selectRegisteredModelSource(index, e.target.value)}>
+                        <MenuItem value=""><em>请选择模型</em></MenuItem>
+                        {rawModels.map((id: string) => <MenuItem key={id} value={id}>{id}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <FormControlLabel control={<Switch checked={!!item?.supportsReasoning} onChange={(e) => updateRegisteredModel(index, { supportsReasoning: e.target.checked })} />} label="可推理" />
+                    {item?.supportsReasoning ? (
+                      <FormControl size="small" sx={{ minWidth: 140 }}>
+                        <InputLabel>默认思考</InputLabel>
+                        <Select label="默认思考" value={String(item?.defaultReasoningEffort || 'medium')} onChange={(e) => updateRegisteredModel(index, { defaultReasoningEffort: e.target.value })}>
+                          {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    ) : null}
+                    <MoreActionsMenu
+                      items={[{
+                        key: 'delete',
+                        label: '删除',
+                        icon: <DeleteOutlineIcon fontSize="small" />,
+                        danger: true,
+                        confirm: {
+                          title: '确认删除登记模型？',
+                          description: `将移除「${String(item?.name || item?.id || '该模型')}」，保存供应商后生效。`,
+                        },
+                        onSelect: () => removeRegisteredModel(index),
+                      }]}
+                    />
+                  </Stack>
+                  {missingSourceModel ? (
+                    <Typography variant="caption" color="error">未选择映射原始模型，保存前必须补全。</Typography>
+                  ) : null}
+                </Stack>
+              </Paper>
+            )
+          }) : (
             <Typography variant="body2" color="text.secondary">暂无登记模型。</Typography>
           )}
 
