@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CLIENT_PREFERENCES_KEY, SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
-import { createSplitStorage } from './splitStorage'
+import { createSplitStorage, removeProviderFromCatalog } from './splitStorage'
 
 function memoryStorage(initial: Record<string, any>) {
   const values = { ...initial }
@@ -273,6 +273,55 @@ describe('saveMetaOnly', () => {
     await store.saveMetaOnly()
     expect(storage.writes).toEqual([CLIENT_PREFERENCES_KEY])
     expect(storage.values[CLIENT_PREFERENCES_KEY].settings.streamEnabled).toBe(false)
+  })
+})
+
+describe('removeProviderEntity', () => {
+  it('删除没有目录记录的供应商成功，并从 providerOrder 移除', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const meta = {
+      ...metaDoc(ui),
+      providerOrder: ['ghost-provider', 'provider-1'],
+      providerFolders: { 'provider-1': '供应商一' },
+    }
+    const storage = memoryStorage({ [SPLIT_META_KEY]: meta })
+    let invalidated = 0
+    const store = createSplitStorage({
+      storage,
+      getState: () => makeState(ui),
+      onCatalogInvalidated: () => {
+        invalidated += 1
+      },
+    })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    await expect(store.removeProviderEntity('ghost-provider')).resolves.toBeUndefined()
+
+    expect(removeProviderFromCatalog(meta, 'ghost-provider').providerOrder).toEqual(['provider-1'])
+    expect(storage.writes).toEqual([])
+    expect(invalidated).toBe(1)
+  })
+
+  it('删除有目录记录的供应商仍然删除实体文件', async () => {
+    const ui = { activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: '', activeTargetKind: 'role' }
+    const meta = {
+      ...metaDoc(ui),
+      providerOrder: ['provider-1'],
+      providerFolders: { 'provider-1': '供应商一' },
+    }
+    const storage = memoryStorage({
+      [SPLIT_META_KEY]: meta,
+      'providers/供应商一/provider': { id: 'provider-1', name: '供应商一' },
+    })
+    const store = createSplitStorage({ storage, getState: () => makeState(ui) })
+    await store.loadSplitMeta()
+    storage.writes.length = 0
+
+    await store.removeProviderEntity('provider-1')
+
+    expect(storage.values['providers/供应商一/provider']).toBeUndefined()
+    expect(storage.writes).toEqual(['remove:providers/供应商一/provider'])
   })
 })
 

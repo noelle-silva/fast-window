@@ -49,6 +49,17 @@ function stringMap(value: any): Record<string, string> {
   return out
 }
 
+// 供应商目录是可选事实：历史草稿 / 幽灵条目可能只存在于 providerOrder，
+// 没有任何 folder 记录。删除时必须同样把它们从目录里摘掉，而不是抛错。
+export function removeProviderFromCatalog(meta: any, providerIdRaw: any) {
+  const providerId = String(providerIdRaw || '').trim()
+  const providerOrder = stringList(meta?.providerOrder).filter((id) => id !== providerId)
+  const providerFolders = stringMap(meta?.providerFolders)
+  const folder = String(providerFolders[providerId] || '').trim()
+  if (folder) delete providerFolders[providerId]
+  return { providerOrder, providerFolders, folder }
+}
+
 function uniqueFolder(baseRaw: string, used: Set<string>, id: string, prefix: string) {
   const base = String(baseRaw || prefix).trim() || prefix
   if (!used.has(base)) return base
@@ -371,13 +382,8 @@ export function createSplitStorage(deps: {
       const meta = (await loadSplitMeta()) || splitMetaCache
       if (!meta) throw new Error('存储未初始化')
 
-      const providerOrder = stringList((meta as any).providerOrder).filter((id) => id !== providerId)
-      const providerFolders = stringMap((meta as any).providerFolders)
-      const folder = providerFolders[providerId]
-      if (!folder) throw new Error('供应商不存在')
-      delete providerFolders[providerId]
-
-      await removeRequired(storage, splitProviderKey(folder))
+      const { providerOrder, providerFolders, folder } = removeProviderFromCatalog(meta, providerId)
+      if (folder) await removeRequired(storage, splitProviderKey(folder))
 
       splitMetaCache = { ...meta, providerOrder, providerFolders }
       onCatalogInvalidated?.()
