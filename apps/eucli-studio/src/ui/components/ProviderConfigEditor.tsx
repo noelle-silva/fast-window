@@ -17,7 +17,8 @@ type ProviderConfigEditorProps = {
 
 export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
   const { controller, draft, provider, loading, models } = props
-  const providerId = String(provider?.id || draft?.editProviderId || '')
+  // 身份只来自实体：草稿态没有 id 时，刷新模型等实体操作必须保持不可用。
+  const providerId = String(provider?.id || '')
   const apiKeys = Array.isArray(draft?.providerApiKeys) ? draft.providerApiKeys : []
   const registeredModels = Array.isArray(draft?.providerRegisteredModels) ? draft.providerRegisteredModels : []
   const rawModels = Array.isArray(provider?.modelsCache?.items) ? provider.modelsCache.items.map((item: any) => String(item || '')).filter(Boolean) : []
