@@ -1,13 +1,7 @@
 import * as React from 'react'
-import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import { Box, Button, Chip, Collapse, Paper, Stack, TextField, Typography } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import StorageIcon from '@mui/icons-material/Storage'
 import { EntityAvatar } from './avatar/EntityAvatar'
 import { isAssistantGenerating } from '../../domain/assistantRunState'
@@ -18,6 +12,7 @@ import type { MessageMutationOperation } from '../../domain/messageMutationConfl
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { LiveAssistantBody } from './LiveAssistantBody'
+import { MessageRowActionBar } from './MessageRowActionBar'
 import { RefImageThumb, StickerText } from './MessageMedia'
 import { formatDurationMs } from '../utils/time'
 import { useRenderProbe } from '../../diagnostics/renderProbe'
@@ -151,6 +146,18 @@ function MessageRowImpl(props: MessageRowProps) {
     onRegenerate,
     onDeleteMessage,
   } = actions
+
+  // 操作按钮按需挂载：鼠标悬停整行或键盘焦点进入行内（含按钮）时才创建。
+  const [isRowHovered, setIsRowHovered] = React.useState(false)
+  const [isRowFocusWithin, setIsRowFocusWithin] = React.useState(false)
+  const handleRowMouseEnter = React.useCallback(() => setIsRowHovered(true), [])
+  const handleRowMouseLeave = React.useCallback(() => setIsRowHovered(false), [])
+  const handleRowFocus = React.useCallback(() => setIsRowFocusWithin(true), [])
+  const handleRowBlur = React.useCallback((event: React.FocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget
+    if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) setIsRowFocusWithin(false)
+  }, [])
+  const actionBarRevealed = isRowHovered || isRowFocusWithin
 
   const content = messageVisibleText(m)
   const isAsyncToolResult = isAsyncToolResultMessage(m)
@@ -408,6 +415,11 @@ function MessageRowImpl(props: MessageRowProps) {
       <Paper
         elevation={0}
         data-mid={mid}
+        tabIndex={isEditing || isDisplayOnlyPendingRunTail ? undefined : 0}
+        onMouseEnter={handleRowMouseEnter}
+        onMouseLeave={handleRowMouseLeave}
+        onFocus={handleRowFocus}
+        onBlur={handleRowBlur}
         onContextMenu={isEditing || isDisplayOnlyPendingRunTail ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant')}
         sx={{
           width: isUser ? 'auto' : '100%',
@@ -548,116 +560,25 @@ function MessageRowImpl(props: MessageRowProps) {
             </Button>
           </Stack>
         ) : (
-          <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end" alignItems="center">
-            {actionMetaText ? (
-              <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', mr: 0.25 }}>
-                {actionMetaText}
-              </Typography>
-            ) : null}
-            {!isUser ? (
-              <>
-                <Tooltip title="上一个分支">
-                  <span>
-                    <IconButton
-                      aria-label="上一个分支"
-                      size="small"
-                      disabled={!canSwitchBranch || loading || uiBusy}
-                      onClick={() => {
-                        if (!canSwitchBranch) return
-                        const len = siblings.length
-                        if (!len) return
-                        const next = siblings[(branchIndex - 1 + len) % len]
-                        const nextMid = String(next?.id || '').trim()
-                        onSwitchBranchSibling(mid, -1, nextMid)
-                      }}
-                    >
-                      <ChevronLeftIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-
-                <Tooltip title="下一个分支">
-                  <span>
-                    <IconButton
-                      aria-label="下一个分支"
-                      size="small"
-                      disabled={!canSwitchBranch || loading || uiBusy}
-                      onClick={() => {
-                        if (!canSwitchBranch) return
-                        const len = siblings.length
-                        if (!len) return
-                        const next = siblings[(branchIndex + 1) % len]
-                        const nextMid = String(next?.id || '').trim()
-                        onSwitchBranchSibling(mid, 1, nextMid)
-                      }}
-                    >
-                      <ChevronRightIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </>
-            ) : null}
-
-            <Tooltip title="重新回复">
-              <span>
-                <IconButton
-                  aria-label="重新回复"
-                  size="small"
-                  disabled={!regenMid || loading || uiBusy || (regenRole === 'assistant' && regenBlocked)}
-                  onClick={() => {
-                    if (!regenMid) return
-                    onRegenerate(regenMid, regenRole)
-                  }}
-                >
-                  <RestartAltIcon fontSize="inherit" />
-                </IconButton>
-              </span>
-            </Tooltip>
-
-            {!isUser ? (
-              <>
-                <Tooltip title="编辑">
-                  <span>
-                    <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, content)}>
-                      <EditOutlinedIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-
-                <Tooltip title="复制">
-                  <IconButton aria-label="复制内容" size="small" disabled={!mid} onClick={() => onCopyMessageText(content)}>
-                    <ContentCopyIcon fontSize="inherit" />
-                  </IconButton>
-                </Tooltip>
-
-                <Tooltip title="删除">
-                  <span>
-                    <IconButton aria-label="删除消息" size="small" disabled={!canDeleteMessage} onClick={() => onDeleteMessage(mid, displayRole)}>
-                      <DeleteOutlineIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </>
-            ) : null}
-
-            {isUser ? (
-              <>
-                <Tooltip title="编辑">
-                  <span>
-                    <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, content)}>
-                      <EditOutlinedIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-
-                <Tooltip title="复制">
-                  <IconButton aria-label="复制内容" size="small" onClick={() => onCopyMessageText(content)}>
-                    <ContentCopyIcon fontSize="inherit" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            ) : null}
-          </Stack>
+          <MessageRowActionBar
+            revealed={actionBarRevealed}
+            metaText={actionMetaText}
+            isUser={isUser}
+            loading={loading}
+            uiBusy={uiBusy}
+            mid={mid}
+            content={content}
+            displayRole={displayRole}
+            canEdit={canEdit}
+            canDeleteMessage={canDeleteMessage}
+            canSwitchBranch={canSwitchBranch}
+            branchSiblings={siblings}
+            branchIndex={branchIndex}
+            regenMid={regenMid}
+            regenRole={regenRole}
+            regenBlocked={regenBlocked}
+            handlers={actions}
+          />
         )}
 
         {messageGenerating ? (
