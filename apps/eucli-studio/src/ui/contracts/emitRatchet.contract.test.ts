@@ -34,11 +34,11 @@ import {
 //   - uiPolling 对账、运行卡与列表元数据；
 //   - 运行事件的新消息挂载 / 终态 / 异步工具返回 → 该会话 session 地址。
 //
-// 剩余 159 处里绝大多数是 `deps.emit()`：它们在 createControllerV2 装配时
-// 注入的就是 emitSettings / emitEntity(...) 等域地址发射器，不是全局广播；
-// 只有 createControllerV2 的 render/renderAll 两个别名仍保留全局通道，
-// 用于启动加载 / 整包换代 / 运行编排等无法按单一地址归类的路径。
-const EMIT_BASELINE = 159
+// 剩余 157 处里绝大多数是 `deps.emit()`：它们在 createControllerV2 装配时
+// 注入的就是 emitSettings / emitEntity(...) 等域地址发射器，不是全局广播。
+// 113-04 删除了 createControllerV2 的 render/renderAll 别名与 actions 上的
+// render/renderTop/renderChat/renderSide 暴露，裸 emit 基线从 159 降到 157。
+const EMIT_BASELINE = 157
 // scope 通知基线（当前 44 处）：上面各域的 emitScope/emitScopes 调用总和，
 // 由 AST 规则在本次收口后算得。任何一处减少都会让下面的 `>= SCOPE_BASELINE`
 // 失败，防止有人回退成全局广播。
