@@ -1,6 +1,6 @@
 import { visit } from 'unist-util-visit'
-import { parseStickerSize } from '../../stickers'
-import { REF_IMG_PLACEHOLDER } from '../../refImages'
+import { parseStickerSize } from '../../stickerSize'
+import { REF_IMG_PLACEHOLDER } from '../../../domain/constants'
 
 // 表情包插件（rehype 层）：在 HTML 树的文本节点里认领 [[sticker:分类/名称(/尺寸)]]。
 //

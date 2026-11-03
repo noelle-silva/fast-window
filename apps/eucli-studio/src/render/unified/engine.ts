@@ -1,11 +1,4 @@
 import '../vendor'
-import { unified } from 'unified'
-import remarkParse from 'remark-parse'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import remarkRehype from 'remark-rehype'
-import rehypeRaw from 'rehype-raw'
-import rehypeStringify from 'rehype-stringify'
 
 import { esc } from '../../core/utils'
 import { markSwitchBoundary } from '../../domain/switchTrace'
@@ -15,13 +8,11 @@ import { createMathRenderer } from '../mathRender'
 import { commitBlocks, commitHtml } from '../domCommit'
 import { messageCacheKey, messageHtmlCache } from '../messageCache'
 import { createRenderCapabilities } from '../capabilities'
-import { preprocessHtmlIndentation } from '../markdown'
 import type { BoolRef, RenderSafetyPolicy } from '../types'
 import type { RenderContext } from '../contract'
 import type { AiChatCapabilities } from '../../gateway/capabilities'
-import { RENDER_PLUGINS } from './plugins/registry'
-import { protectMath, type MathClaim } from './mathProtect'
-import { protectHtmlBlocks, demoteOpenFences } from './htmlProtect'
+import { createUnifiedPipeline } from './pipeline'
+import type { RenderPluginContext } from './plugins/registry'
 
 // ============================================================================
 // unified 渲染引擎：以「解析成树 → 插件处理 → 序列化」为底座。
@@ -81,46 +72,16 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
   })
 
   // 每次渲染的可变上下文（processSync 是同步的，不存在交错）。
-  const pluginCtx = {
+  const pluginCtx: RenderPluginContext = {
     stickersEnabled: false,
-    getStickerPath: null as ((category: string, name: string) => string) | null,
-    mathClaims: [] as MathClaim[],
-    htmlBlocks: [] as string[],
+    getStickerPath: null,
+    mathClaims: [],
+    htmlBlocks: [],
   }
 
-  // 两条管线：只有内容里真的含 HTML 块时，才启用 rehype-raw。
-  //
-  // rehype-raw 会用 parse5 把整棵树重新解析一遍，是解析阶段最大的单点开销；
-  // 而绝大多数消息里根本没有 HTML 块。按需启用可在不损失能力的前提下省掉这笔钱。
-  // 主流程只负责「搭底座 + 按注册表跑插件」，不认识任何具体插件；
-  // 插件之间也互不认识——顺序由注册表数组决定，参数由上下文按需提供。
-  function applyPlugins(processor: any, phase: 'before-raw' | 'after-raw', withRaw: boolean) {
-    let p = processor
-    for (const entry of RENDER_PLUGINS) {
-      if (entry.phase !== phase) continue
-      if (entry.requiresRaw && !withRaw) continue
-      p = entry.options ? p.use(entry.plugin, entry.options(pluginCtx)) : p.use(entry.plugin)
-    }
-    return p
-  }
-
-  function createProcessor(withRaw: boolean) {
-    // 解析底座（固定）：Markdown 语法 + GFM 扩展 + 单换行语义。
-    let p = unified()
-      .use(remarkParse)
-      .use(remarkGfm)
-      .use(remarkBreaks)
-      .use(remarkRehype, { allowDangerousHtml: true })
-
-    p = applyPlugins(p, 'before-raw', withRaw)
-    if (withRaw) p = p.use(rehypeRaw)
-    p = applyPlugins(p, 'after-raw', withRaw)
-
-    return p.use(rehypeStringify, { allowDangerousHtml: true })
-  }
-
-  const processorWithRaw = createProcessor(true)
-  const processorNoRaw = createProcessor(false)
+  // 纯计算管线：预处理 → 保护 → 解析 → 序列化。
+  // 与 Worker 共用同一实现，主线程这里只负责失败降级与后续提交。
+  const pipeline = createUnifiedPipeline(pluginCtx)
 
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
@@ -207,22 +168,11 @@ export function createUnifiedAssistantRenderEngine(capabilities: AiChatCapabilit
       }
     }
 
-    // HTML 缩进去缩进：AI 输出的缩进 HTML 若保留 4 空格，会被 Markdown 当成代码块。
-    const noIndent = preprocessHtmlIndentation(source)
-    // 公式必须在 Markdown 解析前保护：否则 TeX 里的反斜杠命令（\, \\ \| 等）会被当成 Markdown 转义吃掉。
-    const mathProtected = protectMath(noIndent)
-    pluginCtx.mathClaims = mathProtected.claims
-    // HTML 块必须在 Markdown 解析前整块保护：块内空行会让 Markdown 提前结束该块，把 SVG 后半截拆出去。
-    const htmlProtected = protectHtmlBlocks(mathProtected.text)
-    pluginCtx.htmlBlocks = htmlProtected.blocks
-    // 未闭合围栏去掉语言标记，保持草稿态（不进入专用渲染）。
-    const finalSource = demoteOpenFences(htmlProtected.text)
-    // 有 HTML 块才启用 rehype-raw（parse5 重解析是解析阶段最大的单点开销）。
-    const processor = pluginCtx.htmlBlocks.length ? processorWithRaw : processorNoRaw
+    // HTML 缩进去缩进、公式与 HTML 块保护、解析、序列化全部由纯计算管线完成。
     let html = ''
     let degraded = false
     try {
-      html = String(processor.processSync(finalSource))
+      html = pipeline.render(source)
     } catch (_) {
       // 失败隔离：解析整体失败时降级为纯文本，不影响其余消息。
       // 降级结果不进入缓存：它代表失败，不应被当成正常成品复用。
