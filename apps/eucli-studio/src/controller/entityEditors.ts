@@ -408,6 +408,7 @@ export function createEntityEditors(deps: {
     try {
       await saveRoleEntity?.(role)
       showToast?.('角色已保存', { kind: 'success' })
+      notifyScopes([refreshScopes.entities('roles')])
       closeModal()
     } catch (e: any) {
       Object.assign(role, previous)
@@ -580,6 +581,7 @@ export function createEntityEditors(deps: {
     try {
       await saveGroupEntity?.(group)
       showToast?.('群组已保存', { kind: 'success' })
+      notifyScopes([refreshScopes.entities('groups')])
       closeModal()
     } catch (e: any) {
       Object.assign(group, previous)
