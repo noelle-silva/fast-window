@@ -5,6 +5,7 @@ import { chatMetaFromChat } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { appendChatMessage, ensureChatMessages } from '../domain/chatMessageCollection'
 import { writeChatMessageFields, type ChatMessageFields } from '../domain/chatMessageFields'
+import { markRuntimeMessageInFlight } from '../domain/runtimeMessageMarker'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, normalizeChatMessage, normalizeMessageParentMid, normalizeMessageParts } from '../domain/message'
 import { CHAT_DEFAULT_BRANCH_ID } from '../domain/constants'
 import { findEbRoleRunCard, isRunSettled, isTerminalEbRunStatus, registerEbRoleRunCard, updateEbRoleRunCard } from '../domain/activeRunCards'
@@ -268,9 +269,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     const isNewMessage = !message
     if (!message) {
       message = incomingMessage
-      // 运行期独占身份：存储快照还没有这条消息。它决定窗口刷新时是否保留，
-      // 与「是否还在生成」无关（终态收敛不能让它被丢弃）。
-      writeChatMessageFields(message, { runtimeOnly: true })
+      // 运行期独占标记：消息已进入前台生成，后台快照尚未确认。
+      markRuntimeMessageInFlight(message)
       appendChatMessage(chat, message)
     } else {
       const liveOutputs = collectPartLiveOutputs(message)
@@ -429,11 +429,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         streaming: !!delta.stream,
         content: '',
         parts: [],
-        // 运行期独占身份：与 update 事件同一条判据（见 chatStorageSync）。
-        // 只有「由事件新建」的消息才有这个身份；已存在的消息保持原样，
-        // 否则一条已落盘的消息被标记后，删除时会被本地重新捞回来。
-        runtimeOnly: true,
       })
+      markRuntimeMessageInFlight(message)
       appendChatMessage(chat, message)
     }
 
@@ -503,6 +500,7 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       }, findEbRoleRunCard(state, runId))
       scheduleRunCardsChanged()
     } else {
+      markRuntimeMessageInFlight(message)
       checkpointAssistantRun(message, message.content, message.updatedAt)
     }
 

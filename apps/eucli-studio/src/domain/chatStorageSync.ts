@@ -6,6 +6,7 @@ import {
   shouldPreserveRuntimeOnlyMessage,
 } from './chatBodyPrecedence'
 import { readChatRunStatus } from './chatSessionRunStatus'
+import { clearRuntimeMarkersConfirmedBySnapshot } from './runtimeMessageMarker'
 import { preserveSessionIdentity } from './sessionIdentity'
 
 function messageId(value: any) {
@@ -71,6 +72,8 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
   // 裁决全部交给会话正文的规则：服务端快照决定集合成员资格，
   // 同 id 消息按「运行期独占 / 落盘事实 / 运行态合并」判定；
   // 本地独有消息只有显式运行期独占才允许补入（删除不复活）。
+  // 后台快照一旦包含对应消息，运行期独占标记立即失效。
+  clearRuntimeMarkersConfirmedBySnapshot(currentMessages, nextMessages)
   const mergedMessages = resolveChatMessageCollectionFact({
     serverMessages: nextMessages,
     localMessages: currentMessages,

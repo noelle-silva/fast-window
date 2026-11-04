@@ -3,11 +3,11 @@ import { mergeChatFromStorage } from './chatStorageSync'
 import { setChatBranchHeadMid } from './branching'
 import { ASSISTANT_RUNNING_CONTENT, beginAssistantRun, finishAssistantRun } from './assistantRunState'
 
-// 回归：终态后「最终消息不丢失」。
+// 回归：运行期独占标记的覆盖范围。
 //
-// 现场故障：回复完成后内容消失，只剩「生成中（流式）」占位。
-// 原因是终态刷新与落盘并发，刷新读到的是保存前的页；旧合并规则把
-// 「已不再生成」的本地最终回复当成可丢弃的瞬时态，于是它被旧页覆盖掉。
+// 标记只覆盖「正在前台生成、尚未被后台快照确认」的消息：
+// 在途消息不被保存前的旧页覆盖；一旦生成收敛或后台快照确认，标记立即清除，
+// 后续正文与集合成员资格都回到后台事实。
 
 function chat(messages: any[], status = 'running') {
   return {
@@ -27,14 +27,11 @@ function storedAssistant(id: string, content: string, createdAt = 2) {
   return { id, role: 'assistant', type: 'assistant', content, branchId: 'main', parentMid: 'u1', createdAt, updatedAt: createdAt } as any
 }
 
-describe('终态刷新不丢最终回复', () => {
-  it('本地最终回复（已收敛）不被「保存前旧页」的占位覆盖', () => {
-    // 本地：运行期独占的最终回复已经收敛。
+describe('运行期独占标记下的正文优先级', () => {
+  it('在途消息不被「保存前旧页」的占位覆盖', () => {
     const local = storedAssistant('m2', '完整回复')
-    local.runtimeOnly = true
     local.updatedAt = 500
     beginAssistantRun(local, { generationId: 'run-1', stream: true, resetContent: false })
-    finishAssistantRun(local, '完整回复', 'succeeded', 500)
 
     // 存储：并发读到的旧页仍是占位文案。
     const current = chat([user('u1'), local], 'running')
@@ -48,7 +45,6 @@ describe('终态刷新不丢最终回复', () => {
 
   it('存储已含最终回复时以存储为准（不保留本地运行期身份）', () => {
     const local = storedAssistant('m2', '流式中的片段')
-    local.runtimeOnly = true
     local.updatedAt = 200
     beginAssistantRun(local, { generationId: 'run-1', stream: true, resetContent: false })
 
@@ -59,11 +55,10 @@ describe('终态刷新不丢最终回复', () => {
     expect(merged.messages.find((m: any) => m.id === 'm2').content).toBe('完整回复')
   })
 
-  it('存储里根本没有该消息时，运行期独占的最终回复被保留', () => {
+  it('存储里根本没有该消息时，带标记的在途回复被保留', () => {
     const local = storedAssistant('m3', '刚落盘的回复')
-    local.runtimeOnly = true
     local.updatedAt = 500
-    finishAssistantRun(local, '刚落盘的回复', 'succeeded', 500)
+    beginAssistantRun(local, { generationId: 'run-1', stream: true, resetContent: false })
 
     const current = chat([user('u1'), local])
     const next = chat([user('u1')])
@@ -104,10 +99,9 @@ describe('分支头只前进不后退', () => {
     expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')
   })
 
-  it('存储还没有该消息时，运行期头部仍然前推', () => {
+  it('存储还没有该消息时，在途运行期头部仍然前推', () => {
     const runtime = storedAssistant('m3', '刚落盘的回复', 500)
-    runtime.runtimeOnly = true
-    finishAssistantRun(runtime, '刚落盘的回复', 'succeeded', 500)
+    beginAssistantRun(runtime, { generationId: 'run-1', stream: true, resetContent: false })
 
     const current = chat([user('u1'), runtime])
     setChatBranchHeadMid(current, 'main', 'm3', { touchUpdatedAt: false })

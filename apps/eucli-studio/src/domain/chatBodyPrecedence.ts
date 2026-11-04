@@ -15,6 +15,7 @@ import {
   resolveAssistantMessageForMerge,
 } from './assistantRunState'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
+import { isRuntimeMessageInFlight } from './runtimeMessageMarker'
 
 function messageIdOf(message: any): string {
   return String(message?.id || '').trim()
@@ -37,16 +38,15 @@ function resolveMaterialIdentityConflict(currentMessage: any, storedMessage: any
 
 // shouldPreserveRuntimeOnlyMessage 判断一条本地消息是否必须保留。
 //
-// 「运行期独占」消息 = 由运行事件就地创建、存储快照里还没有的消息。
-// 判定必须基于这个显式身份（runtimeOnly），而不是「是否还在生成」：
-//   - 用 generating 判定：终态一收敛标记就关掉，窗口刷新若拿到落盘前的旧页，
-//     已显示的最终回复会凭空消失，只剩占位；
+// 运行期独占标记只表示：消息正在前台生成、尚未被后台快照确认。
+// 判定基于这个显式标记，而不是「是否还在生成」或「是否有可见产出」：
+//   - 标记在终态收敛与后台快照确认时清除，是唯一允许压过后台事实的本地临时态；
 //   - 用「有可见产出」判定：已删除的消息会被重新捞回来（复活）。
 export function shouldPreserveRuntimeOnlyMessage(message: any): boolean {
   const kind = chatMessageMaterialKind(message)
   if (kind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return true
   if (!isAssistantTextChatMessage(message)) return false
-  if (message?.runtimeOnly !== true) return false
+  if (!isRuntimeMessageInFlight(message)) return false
   if (hasAssistantVisibleOutput(message)) return true
   return !!(message?.error && typeof message.error === 'object')
 }
@@ -65,7 +65,7 @@ export type ChatMessageFactInput = {
 // 顺序与例外：
 //   - 材料身份冲突：异步工具结果优先，其余以服务端为准；
 //   - 非助手文本消息：以服务端为准；
-//   - 本地运行期独占消息：服务端若只是旧占位，本地保留；
+//   - 在途的运行期独占消息：服务端若只是旧占位，本地保留；
 //     服务端已完整且本地更旧，则服务端胜出；
 //   - 双方都已收敛：服务端胜出（落盘事实）；
 //   - 仍有一方在生成：交给运行态合并规则（同一 run 取更新者）。
@@ -79,7 +79,7 @@ export function resolveChatMessageFact(input: ChatMessageFactInput): any {
   }
   if (!isAssistantTextChatMessage(currentMessage) || !isAssistantTextChatMessage(storedMessage)) return storedMessage
 
-  if (currentMessage.runtimeOnly === true) {
+  if (isRuntimeMessageInFlight(currentMessage)) {
     const currentAt = Number(currentMessage.updatedAt || 0)
     const storedAt = Number(storedMessage.updatedAt || 0)
     // 服务端快照是否已经包含可用的最终产出。

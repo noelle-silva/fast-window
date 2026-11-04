@@ -1,6 +1,7 @@
 import { finishAssistantRun, isAssistantGenerating, normalizeAssistantRunState, type AssistantRunStatus } from './assistantRunState'
 import { markRunSettled, removeEbRoleRunCard, settledRunStatus, type EbRoleRunCard } from './activeRunCards'
 import { resolveFirstTerminalStatusFact, writeChatRunStatus } from './chatSessionRunStatus'
+import { clearRuntimeMessageMarker } from './runtimeMessageMarker'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 // 运行终态的单一收敛点。
@@ -87,8 +88,11 @@ export function settleAssistantMessagesForRun(
     const mid = String(message.id || '').trim()
     const belongs = generationId === runId || (!!mid && owned.has(mid))
     if (!belongs) continue
-    // 已落定：不改写。后到的终态（探针与事件措辞可能不同）不得翻案。
-    if (!isAssistantGenerating(message)) continue
+    // 已落定：不改写内容；但终态是标记的唯一收口点，迟到的标记也必须清掉。
+    if (!isAssistantGenerating(message)) {
+      if (clearRuntimeMessageMarker(message)) changed = true
+      continue
+    }
     if (finishAssistantRun(message, message.content, runStatus, at > 0 ? at : undefined)) changed = true
   }
   return changed

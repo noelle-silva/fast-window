@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createEbRunEventConsumer } from './ebRunEvents'
 import { activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../domain/assistantRunState'
+import { isRuntimeMessageInFlight } from '../domain/runtimeMessageMarker'
 
 // 回归：真实事件链路上的终态收敛。
 //
@@ -78,6 +79,7 @@ describe('事件链路的运行终态收敛', () => {
     const chat = harness.state.data.chatsByRole['role-1'].chats[0]
     const message = chat.messages.find((m: any) => m.id === 'm2')
     expect(isAssistantGenerating(message)).toBe(true)
+    expect(isRuntimeMessageInFlight(message)).toBe(true)
     expect(activeEbRunCardsForTarget(harness.state, 'role', 'role-1', 'chat-1')).toHaveLength(1)
 
     // 只有终态事件；没有后续 assistant_message_update。
@@ -94,6 +96,7 @@ describe('事件链路的运行终态收敛', () => {
 
     expect(activeEbRunCardsForTarget(harness.state, 'role', 'role-1', 'chat-1')).toHaveLength(0)
     expect(isAssistantGenerating(message)).toBe(false)
+    expect(isRuntimeMessageInFlight(message)).toBe(false)
     expect(message.content).toBe('完整回复')
   })
 

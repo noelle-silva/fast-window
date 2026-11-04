@@ -5,18 +5,16 @@ import {
   resolveChatMessageUnionFact,
   shouldPreserveRuntimeOnlyMessage,
 } from './chatBodyPrecedence'
-import { ASSISTANT_RUNNING_CONTENT, beginAssistantRun, finishAssistantRun } from './assistantRunState'
+import { ASSISTANT_RUNNING_CONTENT, beginAssistantRun } from './assistantRunState'
 
 function assistant(id: string, content: string, updatedAt = 100) {
   return { id, role: 'assistant', type: 'assistant', content, parentMid: '', createdAt: updatedAt, updatedAt } as any
 }
 
 describe('单条消息事实优先级', () => {
-  it('本地运行期最终回复不被更旧的存储占位覆盖', () => {
+  it('带运行期独占标记的在途消息不被更旧的存储占位覆盖', () => {
     const local = assistant('m1', '完整回复', 500)
-    local.runtimeOnly = true
     beginAssistantRun(local, { generationId: 'run-1', stream: true, resetContent: false })
-    finishAssistantRun(local, '完整回复', 'succeeded', 500)
 
     const stored = assistant('m1', ASSISTANT_RUNNING_CONTENT, 100)
     expect(resolveChatMessageFact({ serverMessage: stored, localMessage: local })).toBe(local)
@@ -24,7 +22,6 @@ describe('单条消息事实优先级', () => {
 
   it('存储已含最终回复时以存储为准', () => {
     const local = assistant('m1', '流式片段', 200)
-    local.runtimeOnly = true
     beginAssistantRun(local, { generationId: 'run-1', stream: true, resetContent: false })
 
     const stored = assistant('m1', '完整回复', 900)
@@ -62,10 +59,9 @@ describe('消息集合事实优先级', () => {
     expect(merged[0].content).toBe('保留')
   })
 
-  it('显式运行期独占消息允许补入集合末尾', () => {
+  it('带运行期独占标记的在途消息允许补入集合末尾', () => {
     const runtime = assistant('m2', '刚落盘')
-    runtime.runtimeOnly = true
-    finishAssistantRun(runtime, '刚落盘', 'succeeded', 500)
+    beginAssistantRun(runtime, { generationId: 'run-1', stream: true, resetContent: false })
 
     const merged = resolveChatMessageCollectionFact({
       serverMessages: [assistant('m1', '历史')],

@@ -1,5 +1,10 @@
 import { now, uid } from '../core/utils'
 import { writeChatMessageFields } from './chatMessageFields'
+import {
+  clearRuntimeMessageMarker,
+  isRuntimeMessageInFlight,
+  markRuntimeMessageInFlight,
+} from './runtimeMessageMarker'
 
 export const ASSISTANT_RUNNING_CONTENT = '（生成中…）'
 
@@ -224,6 +229,7 @@ export function beginAssistantRun(
   }
   if (options?.resetContent !== false) fields.content = ASSISTANT_RUNNING_CONTENT
   writeChatMessageFields(message, fields)
+  markRuntimeMessageInFlight(message)
   return run
 }
 
@@ -248,13 +254,16 @@ export function finishAssistantRun(message: any, content: unknown, status: Assis
   if (!message || typeof message !== 'object') return false
   const t = finiteTime(finishedAt, now())
   const text = String(content ?? '')
+  const hadRuntimeMarker = isRuntimeMessageInFlight(message)
   const changed =
     String(message.content ?? '') !== text ||
     message.pending !== false ||
     message.streaming !== false ||
+    hadRuntimeMarker ||
     normalizeAssistantRunState(message.assistantRun)?.status !== status
 
   const fields: Record<string, unknown> = { content: text, pending: false, streaming: false }
+  if (hadRuntimeMarker) fields.runtimeOnly = false
   const cur = normalizeAssistantRunState(message.assistantRun)
   if (cur) {
     fields.assistantRun = {
