@@ -82,3 +82,29 @@ export function removeRoleModelCandidate(candidates: unknown, id: unknown): Role
   if (!target) return normalizeRoleModelCandidates(candidates)
   return normalizeRoleModelCandidates(candidates).filter((candidate) => modelCandidateKey(candidate) !== target)
 }
+
+// moveRoleModelCandidate 在池内调整顺序：把 activeId 挪到 overId 之前或之后。
+// 只重排、不增删：池内条目集合保持原样，调用方按需重新归一默认引用。
+export function moveRoleModelCandidate(
+  candidates: unknown,
+  activeId: unknown,
+  overId: unknown,
+  position: 'before' | 'after',
+): RoleModelCandidate[] {
+  const list = normalizeRoleModelCandidates(candidates)
+  const activeKey = String(activeId ?? '').trim()
+  const overKey = String(overId ?? '').trim()
+  if (!activeKey || !overKey || activeKey === overKey) return list
+
+  const fromIndex = list.findIndex((candidate) => modelCandidateKey(candidate) === activeKey)
+  const overIndex = list.findIndex((candidate) => modelCandidateKey(candidate) === overKey)
+  if (fromIndex < 0 || overIndex < 0) return list
+
+  const next = list.slice()
+  const [moved] = next.splice(fromIndex, 1)
+  // 先摘出再算落点：向后拖时 over 的下标已经前移一位。
+  const anchorIndex = next.findIndex((candidate) => modelCandidateKey(candidate) === overKey)
+  if (anchorIndex < 0) return list
+  next.splice(position === 'after' ? anchorIndex + 1 : anchorIndex, 0, moved)
+  return next
+}

@@ -1,7 +1,7 @@
 import { NEW_ROLE_ID, NEW_GROUP_ID, NEW_WORKSPACE_ID } from '../../domain/constants'
 import { moveListItemById, type ListMovePosition } from '../../domain/listOrdering'
 import { normalizeModelRef } from '../../domain/modelRefUtils'
-import { addRoleModelCandidate, modelCandidateKey, normalizeDefaultCandidateId, normalizeRoleModelCandidates, removeRoleModelCandidate } from '../../domain/roleModelCandidates'
+import { addRoleModelCandidate, modelCandidateKey, moveRoleModelCandidate, normalizeDefaultCandidateId, normalizeRoleModelCandidates, removeRoleModelCandidate } from '../../domain/roleModelCandidates'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 import { GLOBAL_REFRESH_SCOPE, refreshScopes } from '../../domain/uiRefreshScope'
 import { deleteConfirmationScopes, type EntityDeleteOptions } from '../entityDeleteNotification'
@@ -263,6 +263,18 @@ export function createEntityActions(deps: {
       const target = String(id || '').trim()
       if (!next.some((candidate) => modelCandidateKey(candidate) === target)) return
       state.draft.roleDefaultModelCandidateId = target
+      notifyScopes([refreshScopes.uiShell()])
+    },
+    // 候选池排序只改草稿顺序：保存角色时随实体一起落库，不单发排序请求。
+    reorderRoleModelCandidates: (activeId: any, overId: any, position: any) => {
+      const next = moveRoleModelCandidate(
+        state.draft.roleModelCandidates,
+        activeId,
+        overId,
+        position === 'after' ? 'after' : 'before',
+      )
+      state.draft.roleModelCandidates = next
+      state.draft.roleDefaultModelCandidateId = normalizeDefaultCandidateId(state.draft.roleDefaultModelCandidateId, next)
       notifyScopes([refreshScopes.uiShell()])
     },
     pickRoleAvatarImage: () => pickRoleAvatarImage(),

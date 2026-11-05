@@ -3,6 +3,7 @@ import {
   addRoleModelCandidate,
   defaultRoleModelCandidate,
   modelCandidateKey,
+  moveRoleModelCandidate,
   normalizeDefaultCandidateId,
   normalizeRoleModelCandidates,
   normalizeRoleModelConfig,
@@ -78,5 +79,36 @@ describe('角色候选模型池', () => {
     expect(role.modelCandidates).toEqual([providerRef('openai', 'gpt-4.1')])
     expect(role.defaultModelCandidateId).toBe('provider:openai:gpt-4.1')
     expect(role.modelRef).toBeUndefined()
+  })
+})
+describe('moveRoleModelCandidate 池内排序', () => {
+  const a = providerRef('openai', 'gpt-4.1')
+  const b = providerRef('openai', 'gpt-4o')
+  const c = groupRef('main-group', 'balanced')
+  const key = (ref: any) => modelCandidateKey(ref)
+
+  it('向后拖：插到目标项之后', () => {
+    expect(moveRoleModelCandidate([a, b, c], key(a), key(b), 'after')).toEqual([b, a, c])
+  })
+
+  it('向前拖：插到目标项之前', () => {
+    expect(moveRoleModelCandidate([a, b, c], key(c), key(a), 'before')).toEqual([c, a, b])
+  })
+
+  it('拖到末尾：插到最后一项之后', () => {
+    expect(moveRoleModelCandidate([a, b, c], key(a), key(c), 'after')).toEqual([b, c, a])
+  })
+
+  it('只重排不增删：条目集合保持不变', () => {
+    const next = moveRoleModelCandidate([a, b, c], key(a), key(c), 'after')
+    expect(next).toHaveLength(3)
+    expect(new Set(next.map(key))).toEqual(new Set([a, b, c].map(key)))
+  })
+
+  it('标识缺失或相同：原样返回', () => {
+    expect(moveRoleModelCandidate([a, b, c], key(a), key(a), 'after')).toEqual([a, b, c])
+    expect(moveRoleModelCandidate([a, b, c], 'provider:absent:x', key(b), 'after')).toEqual([a, b, c])
+    expect(moveRoleModelCandidate([a, b, c], key(a), 'provider:absent:x', 'before')).toEqual([a, b, c])
+    expect(moveRoleModelCandidate([a, b, c], '', key(b), 'after')).toEqual([a, b, c])
   })
 })
