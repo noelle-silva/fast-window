@@ -1,4 +1,5 @@
 import { now, uid } from '../core/utils'
+import { workspaceIconImageSrc } from './workspaceIcon'
 
 export function favoriteChatRefKey(targetKind: any, targetId: any, roleId: any, chatId: any) {
   const kindText = String(targetKind || '').trim()
@@ -119,4 +120,29 @@ export function collectFavoriteFolderSubtreeIds(folders: any[], parentId: any): 
     }
   }
   return out
+}
+
+// 收藏条目的目标元信息：名字与头像都来自实体自身。
+// 工作区图标是独立资源（随列表读取挂在实体上），SVG 载体在这里统一转成可渲染地址，
+// 三种目标的出口只有这一处。
+export type FavoriteTargetMeta = { name: string; image: string }
+
+export function favoriteTargetMeta(
+  targetKind: any,
+  targetId: any,
+  sources: { roles?: any[]; groups?: any[]; workspaces?: any[] },
+): FavoriteTargetMeta | null {
+  const kind = String(targetKind || '')
+  const tid = String(targetId || '').trim()
+  if (!tid) return null
+  if (kind === 'group') {
+    const group = (sources.groups || []).find((it) => String(it?.id || '') === tid)
+    return group ? { name: String(group?.name || '群聊'), image: String(group?.avatarImage || '') } : null
+  }
+  if (kind === 'workspace') {
+    const workspace = (sources.workspaces || []).find((it) => String(it?.id || '') === tid)
+    return workspace ? { name: String(workspace?.name || '工作区'), image: workspaceIconImageSrc(workspace?.icon) } : null
+  }
+  const role = (sources.roles || []).find((it) => String(it?.id || '') === tid)
+  return role ? { name: String(role?.name || '角色'), image: String(role?.avatarImage || '') } : null
 }

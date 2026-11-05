@@ -12,6 +12,9 @@ import { workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth
 // 角色 / 工作区列表项：选择器浮层与侧边栏共用同一份渲染，
 // 差异只在「哪些算选中」「点选后做什么」以及是否启用整行拖拽排序。
 
+// 列表行头像尺寸：角色行与工作区行同尺寸，浮层与侧边栏共用。
+const ENTITY_ROW_AVATAR_SIZE = 42
+
 export type EntityListSortable = {
   onMove: (activeId: string, overId: string) => void
 }
@@ -69,7 +72,7 @@ export function RoleList(props: {
         sx={sortableRowSx(dragArgs, itemSx)}
       >
         <ListItemAvatar>
-          <EntityAvatar kind="role" image={String(role?.avatarImage || '')} size={42} />
+          <EntityAvatar kind="role" image={String(role?.avatarImage || '')} size={ENTITY_ROW_AVATAR_SIZE} />
         </ListItemAvatar>
         <ListItemText
           sx={{ minWidth: 0 }}
@@ -158,7 +161,7 @@ export function WorkspaceList(props: {
         sx={sortableRowSx(dragArgs, itemSx)}
       >
         <ListItemAvatar>
-          <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={28} />
+          <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={ENTITY_ROW_AVATAR_SIZE} />
         </ListItemAvatar>
         <ListItemText
           sx={{ minWidth: 0 }}

@@ -7,6 +7,7 @@ import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../co
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import { favoriteTargetMeta } from '../../domain/favorites'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
@@ -174,35 +175,9 @@ export function useFavoriteFolders(deps: {
   )
 
   const getFavoriteTargetMeta = React.useCallback(
-    (targetKind: TargetKind, targetId: string) => {
-      const tid = String(targetId || '')
-      if (!tid) return null
-      if (targetKind === 'group') {
-        const g = groups.find((it: any) => String(it?.id || '') === tid) || null
-        if (!g) return null
-        return {
-          name: String(g?.name || '群聊'),
-          image: String(g?.avatarImage || ''),
-        }
-      }
-      if (targetKind === 'workspace') {
-        const workspace = workspaces.find((it: any) => String(it?.id || '') === tid) || null
-        if (!workspace) return null
-        return {
-          name: String(workspace?.name || '工作区'),
-          image: '',
-        }
-      }
-      const r = roles.find((it: any) => String(it?.id || '') === tid) || null
-      if (!r) return null
-      return {
-        name: String(r?.name || '角色'),
-        image: String(r?.avatarImage || ''),
-      }
-    },
+    (targetKind: TargetKind, targetId: string) => favoriteTargetMeta(targetKind, targetId, { roles, groups, workspaces }),
     [groups, roles, workspaces],
   )
-
   const openCreateFavoriteFolder = useEvent((parentId = '') => {
     setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
   })
