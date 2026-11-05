@@ -93,6 +93,7 @@ function createHarness(options: {
     emitScope,
     closeModal,
     showToast,
+    shrinkImageDataUrl: async (dataUrl: string) => dataUrl,
     filesImages: {},
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},

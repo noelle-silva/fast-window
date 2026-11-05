@@ -10,6 +10,7 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { colorMixVar } from '../colorThemeStyles'
 import { workspaceDirectoryHealthLabel, workspaceDirectoryNeedsRepair, workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth'
+import { workspaceIconFromDraft, workspaceIconImageSrc } from '../../domain/workspaceIcon'
 
 export function WorkspaceEditorForm(props: { controller: any; draft: any; roles: any[] }) {
   const { controller, draft, roles } = props
@@ -31,6 +32,11 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any; roles:
   const actualPromptLoading = Boolean((draft as any)?.workspaceActualPromptLoading)
   const actualPromptStale = Boolean((draft as any)?.workspaceActualPromptStale)
   const actualPromptError = String((draft as any)?.workspaceActualPromptError || '')
+  const iconKind = String((draft as any)?.workspaceIconKind || '')
+  const iconSvg = String((draft as any)?.workspaceIconSvg || '')
+  const iconDataUrl = String((draft as any)?.workspaceIconDataUrl || '')
+  const icon = workspaceIconFromDraft(iconKind, iconSvg, iconDataUrl)
+  const iconSrc = workspaceIconImageSrc(icon)
 
   return (
     <Stack spacing={2}>
@@ -40,6 +46,41 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any; roles:
         onChange={(e) => controller.actions.setDraft?.('workspaceName', e.target.value)}
         fullWidth
       />
+
+      <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <EntityAvatar kind="workspace" image={iconSrc} size={44} />
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography sx={{ fontWeight: 900 }}>工作区图标</Typography>
+            <Typography variant="caption" color="text.secondary">
+              选择一张图片，或直接粘贴 SVG 源码；两种载体二选一，保存工作区时一起写入。
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+            <Button size="small" variant="outlined" onClick={() => controller.actions.pickWorkspaceIconImage?.()}>
+              选择图片
+            </Button>
+            <Button size="small" onClick={() => controller.actions.clearWorkspaceIcon?.()} disabled={!icon}>
+              清除
+            </Button>
+          </Stack>
+        </Stack>
+        <TextField
+          sx={{ mt: 1.25 }}
+          label="SVG 源码"
+          value={iconSvg}
+          onChange={(e) => controller.actions.setWorkspaceIconSvg?.(e.target.value)}
+          fullWidth
+          multiline
+          minRows={4}
+          placeholder={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">…</svg>'}
+          helperText={
+            iconKind === 'image'
+              ? '当前使用图片图标；输入 SVG 源码会切换为 SVG 图标。'
+              : '粘贴 SVG 源码即用图标；清空源码会去掉图标。'
+          }
+        />
+      </Box>
 
       <TextField
         label="工作区提示词"

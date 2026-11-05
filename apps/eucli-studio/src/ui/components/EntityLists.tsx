@@ -2,6 +2,7 @@ import * as React from 'react'
 import { IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Tooltip, Typography, type SxProps, type Theme } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { EntityAvatar } from './avatar/EntityAvatar'
+import { workspaceIconImageSrc } from '../../domain/workspaceIcon'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { useSortableClickGuard } from './useSortableClickGuard'
@@ -157,7 +158,7 @@ export function WorkspaceList(props: {
         sx={sortableRowSx(dragArgs, itemSx)}
       >
         <ListItemAvatar>
-          <EntityAvatar kind="workspace" size={28} />
+          <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={28} />
         </ListItemAvatar>
         <ListItemText
           sx={{ minWidth: 0 }}

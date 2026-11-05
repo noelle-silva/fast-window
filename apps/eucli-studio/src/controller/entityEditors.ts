@@ -1,4 +1,5 @@
 import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
+import { looksLikeImageDataUrl } from '../domain/textProcessing'
 import { createStateAccessors } from '../state/stateAccessors'
 import { activeEbRoleRunCards, activeEbRoleRunCardsForSession, activeEbRunCardsForTarget } from '../domain/activeRunCards'
 import { chatMetaFromChat } from '../domain/chatMeta'
@@ -27,52 +28,10 @@ import {
 } from './entityWriteReconcile'
 import { reconcileProviderDeleteFailure, reconcileProviderSaveFailure } from './providerWriteReconcile'
 import { shouldNotifyEntityDelete, type EntityDeleteOptions } from './entityDeleteNotification'
+import { pickShrunkImage } from './pickedImage'
 
-function looksLikeImageDataUrl(s: any): boolean {
-  const t = String(s || '')
-  return t.startsWith('data:image/')
-}
-
-function shrinkImageDataUrl(dataUrl: string, maxSide: number): Promise<string> {
-  return new Promise((resolve) => {
-    try {
-      const u = String(dataUrl || '').trim()
-      if (!looksLikeImageDataUrl(u)) return resolve('')
-
-      const max = clamp(Math.round(Number(maxSide || 0)), 64, 4096)
-      const img = new Image()
-      img.decoding = 'async'
-      img.onload = () => {
-        try {
-          const w0 = Number(img.naturalWidth || 0)
-          const h0 = Number(img.naturalHeight || 0)
-          if (!w0 || !h0) return resolve('')
-
-          const s = Math.min(1, max / Math.max(w0, h0))
-          const w = Math.max(1, Math.round(w0 * s))
-          const h = Math.max(1, Math.round(h0 * s))
-
-          const canvas = document.createElement('canvas')
-          canvas.width = w
-          canvas.height = h
-          const ctx = canvas.getContext('2d')
-          if (!ctx) return resolve('')
-          ctx.clearRect(0, 0, w, h)
-          ctx.drawImage(img, 0, 0, w, h)
-
-          const out = canvas.toDataURL('image/png')
-          resolve(looksLikeImageDataUrl(out) ? out : '')
-        } catch (_) {
-          resolve('')
-        }
-      }
-      img.onerror = () => resolve('')
-      img.src = u
-    } catch (_) {
-      resolve('')
-    }
-  })
-}
+// 头像按 44 像素显示，长边 1024 足够清晰，与工作区图标同一上限。
+const AVATAR_MAX_SIDE = 1024
 
 function roleSessionHasActiveRun(state: any, roleId: string, sessionId: string): boolean {
   return activeEbRoleRunCardsForSession(state, roleId, sessionId).length > 0
@@ -119,6 +78,8 @@ export function createEntityEditors(deps: {
   closeModal: () => void
   showToast?: AiChatShowToast
   pickImageFiles?: (maxCount?: number) => Promise<any[]>
+  // 缩图与工作区图标共用同一个通道（canvas 等比缩放），不在模块内自建一份。
+  shrinkImageDataUrl: (dataUrl: string, maxSide: number) => Promise<string>
   filesImages: { delete?: (req: any) => Promise<any> }
   ensureChatLoaded?: (rid: string, cid: string) => Promise<any>
   ensureGroupChatLoaded?: (gid: string, cid: string) => Promise<any>
@@ -136,7 +97,7 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
 }) {
-  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, readRoleEntity, emitScope, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, saveRoleEntity, removeRoleEntity, saveGroupEntity, removeGroupEntity, saveProviderEntity, removeProviderEntity, readProviderEntity, readRoleEntity, emitScope, closeModal, showToast, pickImageFiles, shrinkImageDataUrl, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, setRoleActiveChatSelection, setGroupActiveChatSelection, removeLoadedChat, onChatDeleted, onTargetDeleted, sessionWrites, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -192,21 +153,13 @@ export function createEntityEditors(deps: {
   async function pickRoleAvatarImage() {
     const state = getState()
     if (state.loading) return
-    if (typeof pickImageFiles !== 'function') return showToast?.('未授权：files.pickImages', { kind: 'error' })
-
     try {
-      const items = await pickImageFiles(1)
-      const list = Array.isArray(items) ? items : []
-      const it = list.length ? list[0] : null
-      const u0 = String(it?.dataUrl || '')
-      if (!looksLikeImageDataUrl(u0)) return showToast?.('未选择图片', { kind: 'error' })
-
-      const shrunk = await shrinkImageDataUrl(u0, 1024)
-      const u = shrunk || u0
-      if (!looksLikeImageDataUrl(u)) return showToast?.('头像图片无效', { kind: 'error' })
-
-      state.draft.roleAvatarImageCropSrc = u
-    notifyScopes([refreshScopes.uiShell()])
+      const picked = await pickShrunkImage({ pickImageFiles, shrinkImageDataUrl, maxSide: AVATAR_MAX_SIDE })
+      if (picked.kind === 'unavailable') return showToast?.('未授权：files.pickImages', { kind: 'error' })
+      if (picked.kind === 'cancelled') return showToast?.('未选择图片', { kind: 'error' })
+      if (picked.kind === 'invalid') return showToast?.('头像图片无效', { kind: 'error' })
+      state.draft.roleAvatarImageCropSrc = picked.dataUrl
+      notifyScopes([refreshScopes.uiShell()])
     } catch (e: any) {
       showToast?.(String(e?.message || e || '选择头像失败'), { kind: 'error' })
     }
@@ -222,21 +175,13 @@ export function createEntityEditors(deps: {
   async function pickGroupAvatarImage() {
     const state = getState()
     if (state.loading) return
-    if (typeof pickImageFiles !== 'function') return showToast?.('未授权：files.pickImages', { kind: 'error' })
-
     try {
-      const items = await pickImageFiles(1)
-      const list = Array.isArray(items) ? items : []
-      const it = list.length ? list[0] : null
-      const u0 = String(it?.dataUrl || '')
-      if (!looksLikeImageDataUrl(u0)) return showToast?.('未选择图片', { kind: 'error' })
-
-      const shrunk = await shrinkImageDataUrl(u0, 1024)
-      const u = shrunk || u0
-      if (!looksLikeImageDataUrl(u)) return showToast?.('头像图片无效', { kind: 'error' })
-
-      ;(state.draft as any).groupAvatarImageCropSrc = u
-    notifyScopes([refreshScopes.uiShell()])
+      const picked = await pickShrunkImage({ pickImageFiles, shrinkImageDataUrl, maxSide: AVATAR_MAX_SIDE })
+      if (picked.kind === 'unavailable') return showToast?.('未授权：files.pickImages', { kind: 'error' })
+      if (picked.kind === 'cancelled') return showToast?.('未选择图片', { kind: 'error' })
+      if (picked.kind === 'invalid') return showToast?.('头像图片无效', { kind: 'error' })
+      ;(state.draft as any).groupAvatarImageCropSrc = picked.dataUrl
+      notifyScopes([refreshScopes.uiShell()])
     } catch (e: any) {
       showToast?.(String(e?.message || e || '选择头像失败'), { kind: 'error' })
     }

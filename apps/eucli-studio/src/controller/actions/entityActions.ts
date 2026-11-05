@@ -43,6 +43,9 @@ export function createEntityActions(deps: {
   removeWorkspaceDirectory: (index: any) => any
   setWorkspaceDirectoryField: (index: any, field: any, value: any) => any
   setWorkspaceRoleRegistered: (roleId: any, registered: any) => any
+  setWorkspaceIconSvg: (svg: any) => any
+  pickWorkspaceIconImage: () => any
+  clearWorkspaceIcon: () => any
   refreshWorkspacePromptPreview: () => any
   pickRoleAvatarImage: () => any
   clearRoleAvatarImage: () => any
@@ -55,7 +58,7 @@ export function createEntityActions(deps: {
   deleteChatForGroup: (groupId: string, chatId: string) => any
   deleteChatForWorkspace: (workspaceId: string, roleId: string, chatId: string) => any
 }) {
-  const { state, emitScope, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
+  const { state, emitScope, saveMeta, showToast, getProvider, closeModal, reorderRoles, reorderProviders, moveWorkspace, openProvidersEditor, openProviderInlineEditor, saveProviderInlineEditor, createProvider, deleteProvider, openRoleEditor, openRoleEditorInPlace, createRole, createRoleInPlace, saveRoleEditor, deleteRole, openGroupEditor, openGroupEditorInPlace, createGroup, createGroupInPlace, saveGroupEditor, deleteGroup, openWorkspaceEditor, openWorkspaceEditorInPlace, openNewWorkspaceEditor, createWorkspaceInPlace, saveWorkspaceEditor, deleteWorkspaceEditor, addWorkspaceDirectory, removeWorkspaceDirectory, setWorkspaceDirectoryField, setWorkspaceRoleRegistered, setWorkspaceIconSvg, pickWorkspaceIconImage, clearWorkspaceIcon, refreshWorkspacePromptPreview, pickRoleAvatarImage, clearRoleAvatarImage, pickGroupAvatarImage, clearGroupAvatarImage, renameChatTitle, renameGroupChatTitle, renameWorkspaceChatTitle, deleteChatForRole, deleteChatForGroup, deleteChatForWorkspace } = deps
   let roleMoveSeq = 0
   let providerMoveSeq = 0
 
@@ -150,6 +153,9 @@ export function createEntityActions(deps: {
     removeWorkspaceDirectory: (index: any) => removeWorkspaceDirectory(index),
     setWorkspaceDirectoryField: (index: any, field: any, value: any) => setWorkspaceDirectoryField(index, field, value),
     setWorkspaceRoleRegistered: (roleId: any, registered: any) => setWorkspaceRoleRegistered(String(roleId || ''), Boolean(registered)),
+    setWorkspaceIconSvg: (svg: any) => setWorkspaceIconSvg(String(svg ?? '')),
+    pickWorkspaceIconImage: () => pickWorkspaceIconImage(),
+    clearWorkspaceIcon: () => clearWorkspaceIcon(),
     refreshWorkspacePromptPreview: () => refreshWorkspacePromptPreview(),
     askDeleteRole: (roleId: any) => {
       const rid = String(roleId || '')

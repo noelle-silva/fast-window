@@ -1,5 +1,6 @@
 import { applyLoadedSessionVersion } from '../domain/sessionVersion'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
+import { normalizeWorkspaceIcon, type UiWorkspaceIcon } from '../domain/workspaceIcon'
 import {
   workspaceDirectoryHealthByPath,
   type WorkspaceDirectoryHealth,
@@ -21,6 +22,8 @@ export type UiWorkspace = {
   prompt: string
   registeredRoleIds: string[]
   actualPrompt: string
+  /** 图标是独立资源：只有在列表读取时才会挂上，其余路径按「没有图标」处理。 */
+  icon?: UiWorkspaceIcon | null
   createdAt: number
   updatedAt: number
 }
@@ -92,6 +95,8 @@ export function normalizeWorkspace(raw: unknown): UiWorkspace | null {
     prompt: text(box.prompt),
     registeredRoleIds: textList(box.registeredRoleIds),
     actualPrompt: String(box.actualPrompt ?? ''),
+    // 图标是独立资源（GET /icon），不随工作区文档下发；由读取方按需挂上。
+    icon: null,
     createdAt,
     updatedAt,
   }
@@ -184,7 +189,10 @@ export async function listWorkspacesDetailed(netRequest: EbNetRequest) {
   const out: UiWorkspace[] = []
   for (const summary of items) {
     const workspace = await loadWorkspace(netRequest, text(object(summary).id)).catch(() => null)
-    if (workspace) out.push(workspace)
+    if (!workspace) continue
+    // 图标是装饰性资源：单个读取失败只让这一条没有图标，不影响工作区列表本身的权威性。
+    workspace.icon = await loadWorkspaceIcon(netRequest, workspace.id).catch(() => null)
+    out.push(workspace)
   }
   return out
 }
@@ -204,6 +212,33 @@ export async function deleteWorkspace(netRequest: EbNetRequest, workspaceId: str
   const id = text(workspaceId)
   if (!id) throw new Error('工作区无效')
   await netRequest({ method: 'DELETE', path: `/api/workspaces/${encodeURIComponent(id)}` })
+}
+
+// 工作区图标是独立资源：读写都不经过工作区文档，全量保存工作区不会碰到它。
+// 没有图标时后端以 404 表达，这里换算成 null。
+export async function loadWorkspaceIcon(netRequest: EbNetRequest, workspaceId: string): Promise<UiWorkspaceIcon | null> {
+  const id = text(workspaceId)
+  if (!id) return null
+  const response = await netRequest({ method: 'GET', path: `/api/workspaces/${encodeURIComponent(id)}/icon` })
+  const status = Number(response?.status || 0)
+  if (status === 404) return null
+  if (status && (status < 200 || status >= 300)) throw new Error(`读取工作区图标失败：HTTP ${status}`)
+  const icon = normalizeWorkspaceIcon(response?.body)
+  if (!icon) throw new Error('读取工作区图标失败：回执不是有效图标')
+  return icon
+}
+
+export async function saveWorkspaceIcon(netRequest: EbNetRequest, workspaceId: string, icon: UiWorkspaceIcon) {
+  const id = text(workspaceId)
+  if (!id) throw new Error('工作区无效')
+  const body = icon.kind === 'image' ? { kind: 'image', dataUrl: icon.dataUrl } : { kind: 'svg', svg: icon.svg }
+  await netRequest({ method: 'PUT', path: `/api/workspaces/${encodeURIComponent(id)}/icon`, body })
+}
+
+export async function deleteWorkspaceIcon(netRequest: EbNetRequest, workspaceId: string) {
+  const id = text(workspaceId)
+  if (!id) throw new Error('工作区无效')
+  await netRequest({ method: 'DELETE', path: `/api/workspaces/${encodeURIComponent(id)}/icon` })
 }
 
 export async function listWorkspaceSessionSummaries(netRequest: EbNetRequest, workspaceId: string, roleId: string) {

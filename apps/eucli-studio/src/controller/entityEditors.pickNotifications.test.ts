@@ -30,6 +30,7 @@ function createHarness(options: { loadError?: Error } = {}) {
     emitScope,
     closeModal: () => {},
     showToast,
+    shrinkImageDataUrl: async (dataUrl: string) => dataUrl,
     filesImages: {},
     ensureChatLoaded: async () => {
       if (options.loadError) throw options.loadError

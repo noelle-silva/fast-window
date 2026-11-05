@@ -31,17 +31,27 @@ import {
 import {
   createWorkspaceSession,
   deleteWorkspace,
+  deleteWorkspaceIcon,
   deleteWorkspaceSession,
   listWorkspaceSessionSummaries,
   listWorkspacesDetailed,
   loadWorkspaceSession,
   previewWorkspacePrompt,
   saveWorkspace,
+  saveWorkspaceIcon,
   updateWorkspaceSessionTitle,
   workspaceSessionSummaryToMeta,
   workspaceSessionVersions,
   type UiWorkspace,
 } from './workspaceBridge'
+import {
+  parseWorkspaceIconBaseline,
+  sameWorkspaceIcon,
+  workspaceIconBaseline,
+  workspaceIconFromDraft,
+  type UiWorkspaceIcon,
+} from '../domain/workspaceIcon'
+import { pickShrunkImage } from './pickedImage'
 
 function text(value: unknown) {
   return String(value || '').trim()
@@ -161,8 +171,14 @@ export function createWorkspaceManager(deps: {
   onWorkspaceDeleted?: (workspaceId: string) => void
   cleanupFavoriteRefsForChat?: (targetKind: string, targetId: string, roleId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget?: (targetKind: string, targetId: string) => void
+  // 工作区图标：取图与缩图能力由装配方注入，管理与保存逻辑在本模块，
+  // 与角色 / 群组头像共用同一条取图通道。
+  pickImageFiles?: (maxCount?: number) => Promise<any[]>
+  shrinkImageDataUrl: (dataUrl: string, maxSide: number) => Promise<string>
 }) {
-  const { getState, netRequest, readWorkspaceEntity, emit, emitScope, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget } = deps
+  const { getState, netRequest, readWorkspaceEntity, emit, emitScope, closeModal, saveMeta, scrollToBottomSoon, showToast, activeTargetKind, activeRole, activeWorkspace, clearPendingWorkspaceChat, removeLoadedChat, sessionWrites, onChatDeleted, onWorkspaceDeleted, cleanupFavoriteRefsForChat, cleanupFavoriteRefsForTarget, pickImageFiles, shrinkImageDataUrl } = deps
+  // 工作区图标的缩放上限与角色头像一致：图标按 44~64 像素显示，长边 1024 足够清晰。
+  const WORKSPACE_ICON_MAX_SIDE = 1024
   let workspaceMoveSeq = 0
   // 列表刷新是「最后发起的请求获胜」：旧响应落地时序号已变，直接丢弃。
   // 工作区列表与每个角色组合的会话列表各自一条序列。
@@ -505,6 +521,7 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = true
     ;(state.draft as any).workspaceActualPromptError = ''
+    applyWorkspaceIconDraft(state, null)
     return true
   }
 
@@ -553,7 +570,86 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceActualPromptLoading = false
     ;(state.draft as any).workspaceActualPromptStale = false
     ;(state.draft as any).workspaceActualPromptError = ''
+    // 图标是独立资源：草稿只认列表里带回的那份图标，暂时没有就按「无图标」处理。
+    applyWorkspaceIconDraft(state, workspace.icon || null)
     return true
+  }
+
+  // ===== 身份图标 =====
+  // 草稿里的图标只有三份载体字段：kind / SVG 源码 / 图像 data URL。
+  // 基线记录打开编辑器时的图标，保存时按「当前 vs 基线」决定不写 / 写入 / 删除，
+  // 不需要第三个脏标记。
+  function applyWorkspaceIconDraft(state: any, icon: UiWorkspaceIcon | null) {
+    state.draft.workspaceIconKind = icon ? icon.kind : ''
+    state.draft.workspaceIconSvg = icon ? icon.svg : ''
+    state.draft.workspaceIconDataUrl = icon ? icon.dataUrl : ''
+    state.draft.workspaceIconInitial = workspaceIconBaseline(icon)
+  }
+
+  function workspaceIconDraft(state: any): UiWorkspaceIcon | null {
+    return workspaceIconFromDraft(
+      state.draft?.workspaceIconKind,
+      state.draft?.workspaceIconSvg,
+      state.draft?.workspaceIconDataUrl,
+    )
+  }
+
+  function setWorkspaceIconSvg(valueRaw: unknown) {
+    const state = getState()
+    if (!state?.draft) return
+    const svg = String(valueRaw ?? '')
+    // 输入 SVG 源码即切换到 SVG 载体；清空源码等于去掉图标。
+    state.draft.workspaceIconSvg = svg
+    state.draft.workspaceIconKind = svg.trim() ? 'svg' : ''
+    state.draft.workspaceIconDataUrl = ''
+    notifyScopes([refreshScopes.uiShell()])
+  }
+
+  async function pickWorkspaceIconImage() {
+    const state = getState()
+    if (!state?.draft) return
+    try {
+      const picked = await pickShrunkImage({ pickImageFiles, shrinkImageDataUrl, maxSide: WORKSPACE_ICON_MAX_SIDE })
+      if (picked.kind === 'unavailable') return showToast?.('未授权：files.pickImages', { kind: 'error' })
+      if (picked.kind === 'cancelled') return showToast?.('未选择图片', { kind: 'error' })
+      if (picked.kind === 'invalid') return showToast?.('图片无效', { kind: 'error' })
+      state.draft.workspaceIconKind = 'image'
+      state.draft.workspaceIconDataUrl = picked.dataUrl
+      state.draft.workspaceIconSvg = ''
+      notifyScopes([refreshScopes.uiShell()])
+    } catch (e: any) {
+      showToast?.(String(e?.message || e || '选择图标失败'), { kind: 'error' })
+    }
+  }
+
+  function clearWorkspaceIcon() {
+    const state = getState()
+    if (!state?.draft) return
+    // 只清载体字段，基线保持打开编辑器时的图标：保存时才判定出「要删除」。
+    state.draft.workspaceIconKind = ''
+    state.draft.workspaceIconSvg = ''
+    state.draft.workspaceIconDataUrl = ''
+    notifyScopes([refreshScopes.uiShell()])
+  }
+
+  // 图标写盘只发生在草稿与基线不同时：没动过图标就不会重传。
+  // 失败如实上报，不把「工作区已保存」当成功收尾——否则用户会以为图标也存住了。
+  async function syncWorkspaceIcon(workspaceId: string): Promise<boolean> {
+    const state = getState()
+    const next = workspaceIconDraft(state)
+    const initial = parseWorkspaceIconBaseline(state.draft?.workspaceIconInitial)
+    if (sameWorkspaceIcon(next, initial)) return true
+    try {
+      const request = requireNetRequest()
+      if (!next) await deleteWorkspaceIcon(request, workspaceId)
+      else await saveWorkspaceIcon(request, workspaceId, next)
+      state.draft.workspaceIconInitial = workspaceIconBaseline(next)
+      return true
+    } catch (e: any) {
+      showToast?.(`工作区已保存，图标未保存：${String(e?.message || e || '未知错误')}`, { kind: 'error' })
+      notifyScopes([refreshScopes.uiShell()])
+      return false
+    }
   }
 
   function addWorkspaceDirectory() {
@@ -671,6 +767,12 @@ export function createWorkspaceManager(deps: {
     }
     try {
       await saveWorkspace(requireNetRequest(), nextWorkspace)
+      // 图标在实体落盘之后写：新建工作区必须先存在，图标才有归属。
+      // 图标没写下就不关窗，用户还能原地重试。
+      if (!(await syncWorkspaceIcon(workspaceId))) {
+        await refreshWorkspaces(workspaceId).catch(() => {})
+        return
+      }
       await refreshWorkspaces(workspaceId)
       finishWorkspaceSave(state, workspaceId, isNew, false)
     } catch (e: any) {
@@ -684,6 +786,10 @@ export function createWorkspaceManager(deps: {
       if (outcome === 'applied') {
         // 回读确认后端已是本次写入后的值：按成功收尾，刷新失败也不再改判。
         commitWorkspaceToState(state, nextWorkspace)
+        if (!(await syncWorkspaceIcon(workspaceId))) {
+          await refreshWorkspaces(workspaceId).catch(() => {})
+          return
+        }
         await refreshWorkspaces(workspaceId).catch(() => {})
         finishWorkspaceSave(state, workspaceId, isNew, true)
         return
@@ -874,6 +980,9 @@ export function createWorkspaceManager(deps: {
     removeWorkspaceDirectory,
     setWorkspaceDirectoryField,
     setWorkspaceRoleRegistered,
+    setWorkspaceIconSvg,
+    pickWorkspaceIconImage,
+    clearWorkspaceIcon,
     refreshWorkspacePromptPreview,
     saveWorkspaceEditor,
     deleteWorkspaceEditor,

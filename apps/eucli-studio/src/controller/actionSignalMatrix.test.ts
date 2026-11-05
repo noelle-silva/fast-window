@@ -179,6 +179,7 @@ function createEditorHarness(options: EditorHarnessOptions = {}) {
     emitScope,
     closeModal,
     showToast,
+    shrinkImageDataUrl: async (dataUrl: string) => dataUrl,
     filesImages: {},
     cleanupFavoriteRefsForTarget: () => {},
     cleanupFavoriteRefsForChat: () => {},
@@ -353,6 +354,7 @@ function createWorkspaceHarness(options: WorkspaceHarnessOptions = {}) {
     saveMeta: async () => {},
     scrollToBottomSoon: () => {},
     showToast,
+    shrinkImageDataUrl: async (dataUrl: string) => dataUrl,
     activeTargetKind: () => String(state.draft.activeTargetKind || 'role'),
     activeRole: () => state.data.roles.find((role: any) => String(role.id) === String(state.draft.activeRoleId)) || null,
     activeWorkspace: () =>
@@ -572,6 +574,21 @@ const SIGNAL_MATRIX: readonly MatrixRow[] = [
         editWorkspaceDraft(harness)
         return harness.manager.saveWorkspaceEditor()
       }),
+  },
+  {
+    action: '粘贴 SVG 图标源码只改草稿',
+    expected: [uiShell],
+    uiShellCount: 1,
+    execute: () =>
+      workspaceSignals({}, (harness) =>
+        harness.manager.setWorkspaceIconSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"/>'),
+      ),
+  },
+  {
+    action: '清除工作区图标只改草稿',
+    expected: [uiShell],
+    uiShellCount: 1,
+    execute: () => workspaceSignals({}, (harness) => harness.manager.clearWorkspaceIcon()),
   },
   {
     action: '删除工作区成功',

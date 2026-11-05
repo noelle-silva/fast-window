@@ -489,6 +489,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     listFallback: { path: '/api/workspaces' },
   })
 
+  // 取图与缩图是工作区图标、角色头像、群组头像共用的通道：
+  // 装配方只建一次，谁需要谁注入，不在各模块里各写一份 canvas 缩放。
+  const imageUtils = createImageUtils({
+    filesImagesRead: (api.files?.images?.read as any) || ((() => Promise.resolve('')) as any),
+    uiRefImgCache,
+    uiRefImgPending,
+  })
+  const { readFileAsDataUrl, hydrateRefImages } = imageUtils
+  const pickImageFiles = api.files?.pickImages as ((maxCount?: number) => Promise<any[]>) | undefined
+
   const workspaceManager = createWorkspaceManager({
     getState: () => state,
     netRequest: entityNetRequest,
@@ -498,6 +508,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     closeModal,
     saveMeta: savePreferences,
     scrollToBottomSoon,
+    pickImageFiles,
+    shrinkImageDataUrl: imageUtils.shrinkImageDataUrl,
     showToast: api.ui?.showToast,
     activeTargetKind,
     activeRole,
@@ -539,6 +551,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeWorkspaceDirectory,
     setWorkspaceDirectoryField,
     setWorkspaceRoleRegistered,
+    setWorkspaceIconSvg,
+    pickWorkspaceIconImage,
+    clearWorkspaceIcon,
     refreshWorkspacePromptPreview,
     saveWorkspaceEditor,
     deleteWorkspaceEditor,
@@ -745,17 +760,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   }
 
   // ============================================================
-  // 10. IMAGE UTILS
-  // ============================================================
-  const imageUtils = createImageUtils({
-    filesImagesRead: (api.files?.images?.read as any) || ((() => Promise.resolve('')) as any),
-    uiRefImgCache,
-    uiRefImgPending,
-  })
-  const { readFileAsDataUrl, hydrateRefImages } = imageUtils
-  const pickImageFiles = api.files?.pickImages as ((maxCount?: number) => Promise<any[]>) | undefined
-
-  // ============================================================
   // 11. MODEL REFRESH
   // ============================================================
   const modelRefresh = createModelRefresh({
@@ -946,6 +950,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     closeModal,
     showToast: api.ui?.showToast,
     pickImageFiles,
+    shrinkImageDataUrl: imageUtils.shrinkImageDataUrl,
     filesImages: api.files?.images as any,
     ensureChatLoaded: (rid: string, cid: string) => ensureChatLoaded('role', rid, cid),
     ensureGroupChatLoaded: (gid: string, cid: string) => ensureChatLoaded('group', gid, cid),
@@ -1253,6 +1258,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeWorkspaceDirectory,
     setWorkspaceDirectoryField,
     setWorkspaceRoleRegistered,
+    setWorkspaceIconSvg,
+    pickWorkspaceIconImage,
+    clearWorkspaceIcon,
     refreshWorkspacePromptPreview,
     pickRoleAvatarImage,
     clearRoleAvatarImage,

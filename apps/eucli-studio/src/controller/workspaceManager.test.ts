@@ -94,6 +94,7 @@ function createHarness(
     saveMeta: async () => {},
     scrollToBottomSoon: () => {},
     showToast,
+    shrinkImageDataUrl: async (dataUrl: string) => dataUrl,
     activeTargetKind: () => String(state.draft.activeTargetKind || 'role'),
     activeRole: () => state.data.roles.find((role: any) => String(role.id) === String(state.draft.activeRoleId || state.data.ui.activeRoleId)) || null,
     activeWorkspace: () => state.data.workspaces.find((workspace: any) => String(workspace.id) === String(state.draft.activeWorkspaceId || state.data.ui.activeWorkspaceId)) || null,

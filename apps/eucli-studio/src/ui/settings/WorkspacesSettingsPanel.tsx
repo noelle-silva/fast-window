@@ -1,7 +1,6 @@
 import { Box, Button, Stack, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import SaveIcon from '@mui/icons-material/Save'
 import * as React from 'react'
 import { NEW_WORKSPACE_ID } from '../../domain/constants'
@@ -10,10 +9,11 @@ import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
-import { colorMixVar } from '../colorThemeStyles'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { useSortableClickGuard } from '../components/useSortableClickGuard'
 import { workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth'
+import { workspaceIconImageSrc } from '../../domain/workspaceIcon'
+import { EntityAvatar } from '../components/avatar/EntityAvatar'
 
 type WorkspacesSettingsPanelProps = {
   controller: any
@@ -99,8 +99,8 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                                     opacity: isDragging ? 0.5 : 1,
                                   }}
                                 >
-                                  <Box sx={{ width: 24, height: 24, borderRadius: 1.5, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0, mr: 0.75 }}>
-                                    <FolderOutlinedIcon sx={{ fontSize: 16 }} />
+                                  <Box sx={{ flexShrink: 0, mr: 0.75, display: 'flex' }}>
+                                    <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={24} />
                                   </Box>
                                   <Box sx={{ minWidth: 0 }}>
                                     <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>

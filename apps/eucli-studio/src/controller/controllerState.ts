@@ -82,6 +82,11 @@ export function createInitialControllerState() {
       workspacePrompt: '',
       workspaceDirectories: [] as Array<{ path: string; alias: string; description: string }>,
       workspaceRegisteredRoleIds: [] as string[],
+      // 工作区身份图标草稿：kind 为空即「没有图标」，initial 是打开编辑器时的图标基线。
+      workspaceIconKind: '' as string,
+      workspaceIconSvg: '',
+      workspaceIconDataUrl: '',
+      workspaceIconInitial: '',
 
       editProviderId: '',
       providerName: '',
