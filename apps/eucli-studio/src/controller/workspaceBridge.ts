@@ -1,5 +1,9 @@
 import { applyLoadedSessionVersion } from '../domain/sessionVersion'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
+import {
+  workspaceDirectoryHealthByPath,
+  type WorkspaceDirectoryHealth,
+} from '../domain/workspaceHealth'
 
 type EbNetRequest = (req: any) => Promise<any>
 
@@ -7,6 +11,7 @@ type UiWorkspaceDirectory = {
   path: string
   alias: string
   description: string
+  health?: WorkspaceDirectoryHealth
 }
 
 export type UiWorkspace = {
@@ -65,18 +70,25 @@ function normalizeWorkspaceDirectory(raw: unknown): UiWorkspaceDirectory | null 
   }
 }
 
+function attachDirectoryHealth(directory: UiWorkspaceDirectory, healthByPath: Map<string, WorkspaceDirectoryHealth>): UiWorkspaceDirectory {
+  const health = healthByPath.get(directory.path)
+  return health ? { ...directory, health } : directory
+}
+
 export function normalizeWorkspace(raw: unknown): UiWorkspace | null {
   const box = object(raw)
   const id = text(box.id)
   if (!id) return null
   const createdAt = workspaceFallbackTime(box.createdAt)
   const updatedAt = timeMs(box.updatedAt, createdAt)
+  const healthByPath = workspaceDirectoryHealthByPath(object(box.health).directories)
   return {
     id,
     name: text(box.name) || '未命名工作区',
     directories: list(box.directories)
       .map(normalizeWorkspaceDirectory)
-      .filter(Boolean) as UiWorkspaceDirectory[],
+      .filter((directory): directory is UiWorkspaceDirectory => !!directory)
+      .map((directory) => attachDirectoryHealth(directory, healthByPath)),
     prompt: text(box.prompt),
     registeredRoleIds: textList(box.registeredRoleIds),
     actualPrompt: String(box.actualPrompt ?? ''),

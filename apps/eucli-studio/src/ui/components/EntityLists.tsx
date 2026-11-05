@@ -6,6 +6,7 @@ import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { useSortableClickGuard } from './useSortableClickGuard'
 import { roleDefaultModelRef } from '../../domain/roleModelCandidates'
+import { workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth'
 
 // 角色 / 工作区列表项：选择器浮层与侧边栏共用同一份渲染，
 // 差异只在「哪些算选中」「点选后做什么」以及是否启用整行拖拽排序。
@@ -134,6 +135,7 @@ export function WorkspaceList(props: {
   const renderWorkspace = (workspace: any, dragArgs: SortableItemRenderArgs | null) => {
     const workspaceId = String(workspace?.id || '')
     const directoryCount = Array.isArray(workspace?.directories) ? workspace.directories.length : 0
+    const unavailableDirectoryCount = workspaceUnavailableDirectoryCount(workspace)
     return (
       <ListItemButton
         key={workspaceId}
@@ -158,8 +160,10 @@ export function WorkspaceList(props: {
             </Typography>
           }
           secondary={
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {directoryCount ? `${directoryCount} 个目录` : '暂未登记目录'}
+            <Typography variant="caption" color={unavailableDirectoryCount ? 'error' : 'text.secondary'} noWrap>
+              {directoryCount
+                ? `${directoryCount} 个目录${unavailableDirectoryCount ? ` · ${unavailableDirectoryCount} 个失效` : ''}`
+                : '暂未登记目录'}
             </Typography>
           }
         />

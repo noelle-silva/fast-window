@@ -313,6 +313,24 @@ function createRegistrationNetRequest(store: Record<string, any>, sessionsByComb
   return { netRequest, requests }
 }
 
+describe('工作区目录健康状态', () => {
+  it('打开编辑器保留探测结果，只有修改路径才作废旧结论', () => {
+    const harness = createHarness({})
+    harness.state.data.workspaces[0].directories = [
+      { path: 'E:/old', alias: '旧目录', description: '', health: { status: 'missing' } },
+    ]
+
+    harness.manager.openWorkspaceEditorInPlace('ws-1')
+    expect(harness.state.draft.workspaceDirectories[0].health).toEqual({ status: 'missing' })
+
+    harness.manager.setWorkspaceDirectoryField(0, 'alias', '新别名')
+    expect(harness.state.draft.workspaceDirectories[0].health).toEqual({ status: 'missing' })
+
+    harness.manager.setWorkspaceDirectoryField(0, 'path', 'E:/new')
+    expect(harness.state.draft.workspaceDirectories[0].health).toBeUndefined()
+  })
+})
+
 describe('工作区角色注册', () => {
   it('新建工作区从空清单开始，打开已有工作区载入其清单', () => {
     const harness = createHarness({})

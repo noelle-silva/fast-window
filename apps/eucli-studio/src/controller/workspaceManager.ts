@@ -8,6 +8,7 @@ import { clearPendingChatForTarget, createPendingChatEntry, pendingChatForTarget
 import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror } from '../domain/sessionComposerDrafts'
 import { workspaceRegisteredRoleIds, workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { normalizeWorkspaceRoleIds, workspaceMatchesWrite } from '../domain/workspaceEntity'
+import { normalizeWorkspaceDirectoryHealth } from '../domain/workspaceHealth'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { applyLoadedSessionVersion, staleSessionPayload } from '../domain/sessionVersion'
 import {
@@ -57,10 +58,12 @@ function workspaceDraftDirectories(raw: unknown) {
   const list = Array.isArray(raw) ? raw : []
   return list.map((item) => {
     const box = item && typeof item === 'object' ? (item as any) : {}
+    const health = normalizeWorkspaceDirectoryHealth(box.health)
     return {
       path: text(box.path),
       alias: text(box.alias),
       description: text(box.description),
+      ...(health ? { health } : {}),
     }
   })
 }
@@ -543,7 +546,7 @@ export function createWorkspaceManager(deps: {
     ;(state.draft as any).workspaceName = text(workspace.name)
     ;(state.draft as any).workspacePrompt = String(workspace.prompt ?? '')
     ;(state.draft as any).workspaceDirectories = workspace.directories?.length
-      ? workspace.directories.map((directory: any) => ({ path: text(directory?.path), alias: text(directory?.alias), description: text(directory?.description) }))
+      ? workspaceDraftDirectories(workspace.directories)
       : [{ path: '', alias: '', description: '' }]
     ;(state.draft as any).workspaceRegisteredRoleIds = workspaceRegisteredRoleIds(workspace)
     ;(state.draft as any).workspaceActualPrompt = String(workspace.actualPrompt ?? '')
@@ -578,7 +581,10 @@ export function createWorkspaceManager(deps: {
     if (field !== 'path' && field !== 'alias' && field !== 'description') return
     const current = workspaceDraftDirectories((state.draft as any)?.workspaceDirectories)
     while (current.length <= index) current.push({ path: '', alias: '', description: '' })
-    current[index] = { ...current[index], [field]: String(value ?? '') }
+    const nextDirectory: any = { ...current[index], [field]: String(value ?? '') }
+    // 健康状态只对上次探测到的那个路径有效；路径一变就作废旧结论，等下次保存后重新探测。
+    if (field === 'path') delete nextDirectory.health
+    current[index] = nextDirectory
     ;(state.draft as any).workspaceDirectories = current
     markWorkspacePromptPreviewStale()
     notifyScopes([refreshScopes.uiShell()])

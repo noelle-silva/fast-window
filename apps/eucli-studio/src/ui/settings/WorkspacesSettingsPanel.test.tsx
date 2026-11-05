@@ -72,4 +72,19 @@ describe('工作区设置面板列表刷新', () => {
     expect(host!.textContent).toContain('工作区甲')
     expect(host!.textContent).toContain('工作区乙')
   })
+
+  it('目录健康状态为失效时，列表如实显示失效数量', () => {
+    const controller = createController()
+    const workspaces: any[] = [{
+      id: 'w1',
+      name: '工作区甲',
+      directories: [
+        { path: 'E:/project', alias: '可用', description: '', health: { status: 'available' } },
+        { path: 'E:/moved', alias: '已移动', description: '', health: { status: 'missing' } },
+      ],
+    }]
+
+    renderPanel(workspaces, controller)
+    expect(host!.textContent).toContain('2 个目录 · 1 个失效')
+  })
 })

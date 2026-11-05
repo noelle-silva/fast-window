@@ -13,6 +13,7 @@ import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from 
 import { colorMixVar } from '../colorThemeStyles'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { useSortableClickGuard } from '../components/useSortableClickGuard'
+import { workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth'
 
 type WorkspacesSettingsPanelProps = {
   controller: any
@@ -74,6 +75,7 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                         const selected = !!workspaceId && workspaceId === editingWorkspaceId && editorInPlace
                         const isActive = !!workspaceId && activeTargetKind === 'workspace' && workspaceId === activeWorkspaceId
                         const directories = Array.isArray(workspace?.directories) ? workspace.directories : []
+                        const unavailableDirectoryCount = workspaceUnavailableDirectoryCount(workspace)
                         return (
                           <SortableItem key={workspaceId} id={workspaceId}>
                             {({ setNodeRef, handleProps, isDragging, style }) => (
@@ -104,8 +106,10 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                                     <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>
                                       {String(workspace?.name || '未命名工作区')}{isActive ? ' · 当前' : ''}
                                     </Box>
-                                    <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'text.secondary' }}>
-                                      {directories.length ? `${directories.length} 个目录` : '暂未登记目录'}
+                                    <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: unavailableDirectoryCount ? 'error.main' : 'text.secondary' }}>
+                                      {directories.length
+                                        ? `${directories.length} 个目录${unavailableDirectoryCount ? ` · ${unavailableDirectoryCount} 个失效` : ''}`
+                                        : '暂未登记目录'}
                                     </Box>
                                   </Box>
                                 </Button>

@@ -9,12 +9,14 @@ import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { colorMixVar } from '../colorThemeStyles'
+import { workspaceDirectoryHealthLabel, workspaceDirectoryNeedsRepair, workspaceUnavailableDirectoryCount } from '../../domain/workspaceHealth'
 
 export function WorkspaceEditorForm(props: { controller: any; draft: any; roles: any[] }) {
   const { controller, draft, roles } = props
   const [roleSearchText, setRoleSearchText] = React.useState('')
 
   const directories = Array.isArray((draft as any)?.workspaceDirectories) ? (draft as any).workspaceDirectories : []
+  const unavailableDirectoryCount = workspaceUnavailableDirectoryCount({ directories })
   const registeredRoleIds = new Set(
     (Array.isArray((draft as any)?.workspaceRegisteredRoleIds) ? (draft as any).workspaceRegisteredRoleIds : [])
       .map((roleId: any) => String(roleId || '').trim())
@@ -172,7 +174,7 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any; roles:
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography sx={{ fontWeight: 900 }}>目录清单</Typography>
         <Typography variant="caption" color="text.secondary">
-          路径需要填写绝对路径，保存时会由后端做真实校验。
+          路径只校验格式；磁盘暂时失联不会影响保存，会被标记为需要修复。
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.addWorkspaceDirectory?.()}>
@@ -180,62 +182,82 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any; roles:
         </Button>
       </Stack>
 
+      {unavailableDirectoryCount ? (
+        <Alert severity="error">
+          检测到 {unavailableDirectoryCount} 个目录当前不可用。登记信息会原样保留，请修复路径后重新保存；其他工作区不受影响。
+        </Alert>
+      ) : null}
+
       <Divider />
 
       <Stack spacing={1.25}>
-        {(directories.length ? directories : [{ path: '', alias: '', description: '' }]).map((directory: any, index: number) => (
-          <Box key={`workspace-dir-${index}`} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.25 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <FolderOutlinedIcon fontSize="small" />
-                </Box>
-                <Typography sx={{ fontWeight: 900, minWidth: 0 }} noWrap>
-                  目录 {index + 1}
-                </Typography>
+        {(directories.length ? directories : [{ path: '', alias: '', description: '' }]).map((directory: any, index: number) => {
+          const needsRepair = workspaceDirectoryNeedsRepair(directory)
+          return (
+            <Box
+              key={`workspace-dir-${index}`}
+              sx={{
+                border: '1px solid',
+                borderColor: needsRepair ? 'error.main' : 'divider',
+                borderRadius: 2,
+                p: 1.25,
+                bgcolor: needsRepair ? 'rgba(211, 47, 47, 0.04)' : undefined,
+              }}
+            >
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                  <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: colorMixVar('--studio-primary', 10), color: 'primary.main', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <FolderOutlinedIcon fontSize="small" />
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, minWidth: 0 }} noWrap>
+                    目录 {index + 1}
+                  </Typography>
+                </Stack>
+                <MoreActionsMenu
+                  items={[{
+                    key: 'delete',
+                    label: '删除',
+                    icon: <DeleteOutlineIcon fontSize="small" />,
+                    danger: true,
+                    confirm: {
+                      title: '确认删除目录？',
+                      description: `将移除「${String(directory?.path || `目录 ${index + 1}`)}」，保存工作区后生效。`,
+                    },
+                    onSelect: () => controller.actions.removeWorkspaceDirectory?.(index),
+                  }]}
+                />
               </Stack>
-              <MoreActionsMenu
-                items={[{
-                  key: 'delete',
-                  label: '删除',
-                  icon: <DeleteOutlineIcon fontSize="small" />,
-                  danger: true,
-                  confirm: {
-                    title: '确认删除目录？',
-                    description: `将移除「${String(directory?.path || `目录 ${index + 1}`)}」，保存工作区后生效。`,
-                  },
-                  onSelect: () => controller.actions.removeWorkspaceDirectory?.(index),
-                }]}
-              />
-            </Stack>
 
-            <Stack spacing={1} sx={{ mt: 1 }}>
-              <TextField
-                label="绝对路径"
-                value={String(directory?.path || '')}
-                onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'path', e.target.value)}
-                fullWidth
-                placeholder="例如：E:\\project"
-              />
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Stack spacing={1} sx={{ mt: 1 }}>
                 <TextField
-                  label="别名"
-                  value={String(directory?.alias || '')}
-                  onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'alias', e.target.value)}
+                  label="绝对路径"
+                  value={String(directory?.path || '')}
+                  onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'path', e.target.value)}
                   fullWidth
-                  placeholder="例如：主仓库"
+                  placeholder="例如：E:\\project"
+                  error={needsRepair}
+                  helperText={needsRepair ? workspaceDirectoryHealthLabel(directory?.health) : undefined}
                 />
-                <TextField
-                  label="用途说明"
-                  value={String(directory?.description || '')}
-                  onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'description', e.target.value)}
-                  fullWidth
-                  placeholder="例如：前端主工程目录"
-                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    label="别名"
+                    value={String(directory?.alias || '')}
+                    onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'alias', e.target.value)}
+                    fullWidth
+                    placeholder="例如：主仓库"
+                  />
+                  <TextField
+                    label="用途说明"
+                    value={String(directory?.description || '')}
+                    onChange={(e) => controller.actions.setWorkspaceDirectoryField?.(index, 'description', e.target.value)}
+                    fullWidth
+                    placeholder="例如：前端主工程目录"
+                  />
+                </Stack>
               </Stack>
-            </Stack>
-          </Box>
-        ))}
+            </Box>
+          )
+        })}
       </Stack>
     </Stack>
   )
