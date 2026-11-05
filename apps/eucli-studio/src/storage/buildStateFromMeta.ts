@@ -4,7 +4,7 @@ import { normalizeFavorites } from '../domain/favorites'
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { readActiveChatSelection } from '../domain/activeChatSelection'
 import { splitGroupKey, splitRoleKey } from '../domain/storageKeys'
-import { overlayClientPreferences, readClientPreferences } from './clientPreferences'
+import { overlayClientPreferences, preferencesOfRead, readClientPreferences } from './clientPreferences'
 import { loadProvidersFromStorage } from './splitIndexes'
 import { loadStickerSettingsFromStorage } from './stickerSettingsPersistence'
 
@@ -49,9 +49,12 @@ export async function buildStateFromMeta(options: BuildStateFromMetaOptions): Pr
   }
 
   const providers = await loadProvidersFromStorage(storage, meta)
-  // 偏好通道是本地读：缺失 / 损坏都返回 null，回落到 meta 快照。
-  const preferences = await readClientPreferences(storage)
-  const preferencesView = overlayClientPreferences({ ui: meta.ui, settings: meta.settings }, preferences)
+  // 偏好通道是本地读：缺失 / 损坏 / 读取失败都只能回落到 meta 快照，
+  // 不得在这里把失败结果补成默认偏好。
+  const preferencesView = overlayClientPreferences(
+    { ui: meta.ui, settings: meta.settings },
+    preferencesOfRead(await readClientPreferences(storage)),
+  )
 
   const d: any = {
     version: VERSION,

@@ -138,6 +138,13 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const { controller, loading, data, draft } = props
   const settings = data?.settings
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
+  // 恢复默认是破坏性动作：必须连续两次点击，第二次才是显式意图。
+  const [resetArmed, setResetArmed] = React.useState(false)
+  React.useEffect(() => {
+    if (!resetArmed) return
+    const timer = window.setTimeout(() => setResetArmed(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [resetArmed])
   const chatFontSize = normalizeChatFontSize(settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(settings?.chatFontFamily)
   const chatLetterSpacing = normalizeChatLetterSpacing(settings?.chatLetterSpacing)
@@ -775,6 +782,41 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                   ? '当前是保留底线模式：会放宽表现，但仍保留脚本、事件属性、javascript: 链接等最小限制。'
                   : '当前是默认模式：回到添加这次策略分级前的原始渲染行为。'}
             </Typography>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1}>
+            <Typography sx={{ fontWeight: 900 }}>恢复默认</Typography>
+            <Typography variant="caption" color="text.secondary">
+              将聊天字体、背景、布局、配色、壁纸等全部客户端偏好恢复为出厂值。角色、会话、供应商等业务数据不受影响；此操作会覆盖已保存的本地偏好。
+            </Typography>
+            <Box>
+              <Button
+                size="small"
+                color="error"
+                variant={resetArmed ? 'contained' : 'text'}
+                disabled={loading}
+                onClick={() => {
+                  if (!resetArmed) {
+                    setResetArmed(true)
+                    return
+                  }
+                  setResetArmed(false)
+                  const reset = controller.actions.resetClientPreferences
+                  if (typeof reset === 'function') {
+                    Promise.resolve(reset()).catch((error: any) => {
+                      controller.capabilities?.ui?.showToast?.(
+                        String(error?.message || error || '恢复默认失败'),
+                        { kind: 'error' },
+                      )
+                    })
+                  }
+                }}
+              >
+                {resetArmed ? '再次点击确认恢复默认' : '恢复默认'}
+              </Button>
+            </Box>
           </Stack>
         </SettingsSection>
       </Stack>

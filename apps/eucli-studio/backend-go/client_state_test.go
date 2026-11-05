@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -82,5 +84,42 @@ func TestClientStateStorageWorksWithoutBusinessConnection(t *testing.T) {
 	}
 	if got != "ready" {
 		t.Fatalf("client state value = %#v", got)
+	}
+}
+
+// TestClientStateStorageReadFailureDoesNotBecomeEmpty 验证配置读取失败
+// （损坏 / 无法解析）会如实上报错误，绝不会被折叠成“没有偏好”，
+// 也不会让后续写入用默认值覆盖原文件。
+func TestClientStateStorageReadFailureDoesNotBecomeEmpty(t *testing.T) {
+	dir := t.TempDir()
+	store, err := newConfigStore(dir)
+	if err != nil {
+		t.Fatalf("newConfigStore() error = %v", err)
+	}
+	svc := newBusinessReadyTestService(store, nil)
+	ctx := context.Background()
+
+	path := filepath.Join(dir, configFileName)
+	corrupt := []byte("{not-json")
+	if err := os.WriteFile(path, corrupt, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	getPayload, _ := json.Marshal(map[string]any{"key": "client-state/preferences"})
+	if _, err := svc.dispatch(ctx, "aiChat.storageGet", getPayload); err == nil {
+		t.Fatal("client state storageGet must fail on unreadable config, got nil error")
+	}
+
+	setPayload, _ := json.Marshal(map[string]any{"key": "client-state/preferences", "value": map[string]any{}})
+	if _, err := svc.dispatch(ctx, "aiChat.storageSet", setPayload); err == nil {
+		t.Fatal("client state storageSet must fail instead of overwriting unreadable config")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() after write attempt error = %v", err)
+	}
+	if string(after) != string(corrupt) {
+		t.Fatalf("unreadable config was overwritten: %q", string(after))
 	}
 }

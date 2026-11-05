@@ -145,6 +145,21 @@ describe('buildStateFromMeta', () => {
     expect(data.settings.streamEnabled).toBe(true)
     expect(data.ui.activeRoleId).toBe('role-1')
   })
+
+  it('偏好通道读取失败时回落到 meta，不把失败折成默认偏好', async () => {
+    const storage = memoryStorage({
+      [CLIENT_PREFERENCES_KEY]: { ui: { sidebarWidth: 421 }, settings: { streamEnabled: false } },
+    })
+    const originalGet = storage.get.getMockImplementation()!
+    storage.get.mockImplementation(async (key: string) => {
+      if (key === CLIENT_PREFERENCES_KEY) throw new Error('file locked')
+      return originalGet(key)
+    })
+
+    const data = await buildStateFromMeta({ meta, storage, loadChatIndex: indexLoader() })
+    expect(data.settings.streamEnabled).toBe(true)
+    expect(data.ui.activeRoleId).toBe('role-1')
+  })
 })
 
 describe('loadShell 与 buildStateFromMeta 唯一组装路径', () => {

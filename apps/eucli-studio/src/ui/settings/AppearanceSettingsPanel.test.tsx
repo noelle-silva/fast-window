@@ -95,4 +95,30 @@ describe('外观设置消息屏外跳过', () => {
     })
     expect(setComposerModelShowProvider).toHaveBeenLastCalledWith(false)
   })
+
+  it('恢复默认必须二次点击才触发显式重置', async () => {
+    const resetClientPreferences = vi.fn()
+
+    await act(async () => {
+      root.render(renderPanel({}, { resetClientPreferences }))
+    })
+    const findButton = () => {
+      const button = Array.from(host!.querySelectorAll('button')).find((node) =>
+        String(node.textContent || '').includes('恢复默认'),
+      )
+      if (!button) throw new Error('reset button not found')
+      return button
+    }
+
+    await act(async () => {
+      findButton().click()
+    })
+    expect(resetClientPreferences).not.toHaveBeenCalled()
+    expect(findButton().textContent).toContain('再次点击确认恢复默认')
+
+    await act(async () => {
+      findButton().click()
+    })
+    expect(resetClientPreferences).toHaveBeenCalledTimes(1)
+  })
 })

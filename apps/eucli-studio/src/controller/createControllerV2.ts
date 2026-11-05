@@ -25,7 +25,7 @@ import { refreshScopes } from '../domain/uiRefreshScope'
 
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
-import { createEmptyShellDataFromStorage, createSplitStorage } from '../storage/splitStorage'
+import { createFactoryClientData, createSplitStorage } from '../storage/splitStorage'
 import { createLazyChatStore } from '../storage/lazyChatStore'
 import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
@@ -250,6 +250,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const {
     loadSplitMeta,
+    loadClientPreferencesShell,
     getSplitMetaCache,
     ensureSplitStoreReady,
     setActiveRoleChatSelection,
@@ -453,6 +454,24 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     saveMetaOnly,
   })
   const { savePreferences } = persistence
+
+  // resetClientPreferences 是「用户在设置页显式恢复默认」的唯一入口。
+  // 数据形状由 createFactoryClientData 统一生成：只重置客户端偏好，
+  // 业务派生的 providers / stickers 与 assist 视图原样保留。
+  async function resetClientPreferences() {
+    if (!state.data) return
+    const factory = createFactoryClientData(state.data)
+    state.data.ui = factory.ui
+    state.data.settings = factory.settings
+    state.draft.activeRoleId = ''
+    state.draft.activeGroupId = ''
+    ;(state.draft as any).activeWorkspaceId = ''
+    state.draft.activeTargetKind = 'role'
+    ;(state.draft as any).colorThemeDraft = null
+    // explicitReset 是唯一允许默认值覆盖历史偏好的显式意图。
+    await savePreferences({ explicitReset: true })
+    emitScope(refreshScopes.appData())
+  }
 
   // 实体权威读取共用同一个通用工厂：路径与实体名称是唯一差异。
   const entityNetRequest = capabilities.net?.request || ((() => Promise.resolve({})) as any)
@@ -1415,6 +1434,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     onMouseUpMermaid: mermaidMouseUp,
     // Internal helpers exposed as actions for eventHandlers
     save: savePreferences,
+    resetClientPreferences,
     loadOlderMessages,
     loadSessionGraph,
     scrollToBottomSoon,
@@ -1454,7 +1474,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     if (options?.businessAvailable === false) {
       // 未连接业务端：controller 只承载客户端外壳，不加载业务数据、不启动轮询与事件订阅。
       // 客户端偏好走 client-state/ 本地通道，离线外壳也能恢复外观 / 字体 / 布局等设置。
-      state.data = await createEmptyShellDataFromStorage(storage)
+      // 必须经 splitStore 的读取入口建立基线：读取失败时只形成暂行视图，
+      // 后续保存会被写入熔断闸门拦下。
+      state.data = await loadClientPreferencesShell()
       state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
       state.draft.activeGroupId = String((state.data?.ui as any)?.activeGroupId || '')
       ;(state.draft as any).activeWorkspaceId = String((state.data?.ui as any)?.activeWorkspaceId || '')

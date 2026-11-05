@@ -2,7 +2,11 @@ import { now, uid } from '../core/utils'
 import { VERSION, SPLIT_SCHEMA_VERSION, CLIENT_PREFERENCES_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
-import { projectionOwnedSettings } from '../domain/projectionSettings'
+import {
+  projectionOwnedSettings,
+  PROJECTION_ASSIST_SETTING_KEYS,
+  PROJECTION_TOP_LEVEL_NON_OWNED_SETTING_KEYS,
+} from '../domain/projectionSettings'
 import {
   splitRoleKey,
   splitChatKey,
@@ -17,10 +21,15 @@ import {
   providerFolderName,
 } from '../domain/storageKeys'
 import {
+  ClientPreferencesWriteBlockedError,
   createClientPreferencesSnapshot,
   overlayClientPreferences,
+  preferencesOfRead,
   readClientPreferences,
+  trustedClientPreferencesRead,
   type ClientPreferences,
+  type ClientPreferencesRead,
+  type ClientPreferencesReadStatus,
   type ClientPreferencesStorage,
 } from './clientPreferences'
 import { chatIndexKeyFor, loadSplitMetaSnapshot, normalizeStoredChatIndex } from './splitIndexes'
@@ -91,10 +100,35 @@ export function createEmptyShellData(preferences?: ClientPreferences | null) {
 
 // createEmptyShellDataFromStorage 只读客户端偏好通道，不触碰 meta/index，
 // 因此「未连接业务端」的启动路径不再依赖 eucli-box。
-// 这里只产出归一化后的外壳数据；偏好基线归各 splitStorage 实例所有，
-// 由 saveMetaOnly 在首次保存时按同一归一化形状重建。
+// 这里只产出归一化后的外壳数据；偏好基线与读取健康度归各 splitStorage
+// 实例所有，由 loadClientPreferencesShell 负责登记。
 export async function createEmptyShellDataFromStorage(storage: ClientPreferencesStorage) {
-  return createEmptyShellData(await readClientPreferences(storage))
+  return createEmptyShellData(preferencesOfRead(await readClientPreferences(storage)))
+}
+
+// createFactoryClientData 是「显式恢复默认」的唯一数据入口：
+//   - ui 与投影自有 settings 回出厂默认；
+//   - 业务派生的 providers / stickers 与 assist 视图原样保留，
+//     避免重置瞬间把业务事实闪空；
+//   - 角色 / 会话 / 收藏等业务数据完全不动。
+export function createFactoryClientData(current: any): any {
+  const source = current && typeof current === 'object' ? current : {}
+  const factory = createEmptyShellData()
+  const currentSettings =
+    source.settings && typeof source.settings === 'object' && !Array.isArray(source.settings) ? source.settings : {}
+  const nextSettings: Record<string, any> = { ...factory.settings }
+  for (const key of PROJECTION_TOP_LEVEL_NON_OWNED_SETTING_KEYS) {
+    if (currentSettings[key] !== undefined) nextSettings[key] = currentSettings[key]
+  }
+  const currentAiServices = currentSettings.aiServices
+  if (currentAiServices && typeof currentAiServices === 'object' && !Array.isArray(currentAiServices)) {
+    const nextAiServices: Record<string, any> = { ...(factory.settings.aiServices || {}) }
+    for (const key of PROJECTION_ASSIST_SETTING_KEYS) {
+      if (currentAiServices[key] !== undefined) nextAiServices[key] = currentAiServices[key]
+    }
+    nextSettings.aiServices = nextAiServices
+  }
+  return { ...source, ui: factory.ui, settings: nextSettings }
 }
 
 // canonicalJson 递归排序对象键，保证「语义相同、键序不同」的两份偏好
@@ -120,6 +154,55 @@ function canonicalJson(value: any): string {
 function preferenceFingerprint(ui: any, settings: any) {
   return `${canonicalJson(ui)}|${canonicalJson(projectionOwnedSettings(settings))}`
 }
+
+// factoryPreferenceSnapshot 是「出厂偏好视图」的写盘形状：
+// 必须与 saveMetaOnly 写前补全的 ui 键完全一致，否则默认值指纹会被
+// activeGroupId / activeWorkspaceId 这类空字段误判成「用户已修改」。
+let factoryPreferenceSnapshotCache: ClientPreferences | null = null
+function factoryPreferenceSnapshot(): ClientPreferences {
+  if (factoryPreferenceSnapshotCache === null) {
+    const shell = createEmptyShellData()
+    factoryPreferenceSnapshotCache = createClientPreferencesSnapshot(
+      {
+        ...shell.ui,
+        activeRoleId: '',
+        activeGroupId: '',
+        activeWorkspaceId: '',
+        activeTargetKind: 'role',
+      },
+      shell.settings,
+    )
+  }
+  return factoryPreferenceSnapshotCache
+}
+
+// factoryPreferenceFingerprint 用于识别「内存里只剩默认值」的静默写入。
+// 只计算一次：归一化结果不会被运行时修改。
+let factoryPreferenceFingerprintCache: string | null = null
+function factoryPreferenceFingerprint() {
+  if (factoryPreferenceFingerprintCache === null) {
+    const factory = factoryPreferenceSnapshot()
+    factoryPreferenceFingerprintCache = preferenceFingerprint(factory.ui, factory.settings)
+  }
+  return factoryPreferenceFingerprintCache
+}
+
+const PREFERENCE_SELECTION_UI_KEYS = new Set(['activeRoleId', 'activeGroupId', 'activeWorkspaceId', 'activeTargetKind'])
+
+// isFactoryPreferenceView 判断一份偏好是否「没有任何自定义内容」：
+//   - 完整默认视图（归一化后）算出厂视图；
+//   - 空 settings + 仅含默认选择键的空 ui 的暂行视图也算出厂视图。
+// 该判定只用于保险丝，不参与正常保存的「是否变化」比较。
+function isFactoryPreferenceView(preferences: ClientPreferences) {
+  if (preferenceFingerprint(preferences.ui, preferences.settings) === factoryPreferenceFingerprint()) return true
+  const ownedSettings = projectionOwnedSettings(preferences.settings)
+  if (Object.keys(ownedSettings).length > 0) return false
+  const uiKeys = Object.keys(preferences.ui)
+  if (!uiKeys.every((key) => PREFERENCE_SELECTION_UI_KEYS.has(key))) return false
+  const factory = factoryPreferenceSnapshot()
+  return uiKeys.every((key) => canonicalJson(preferences.ui[key]) === canonicalJson(factory.ui[key]))
+}
+
 
 export function createSplitStorage(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void>; remove: (k: string) => Promise<void> }
@@ -159,8 +242,18 @@ export function createSplitStorage(deps: {
   // 它必须是不可变字符串，绝不能持有 state / 存储快照里的对象引用，
   // 否则内存一改，基线跟着变，「无变化不写盘」就会误判为相等。
   let splitMetaBaseline: string | null = null
+  // preferenceReadState 记录「当前内存视图所依赖的那次读取」是否可信：
+  // failed / invalid 得到的只是暂行视图，绝不能反向落盘。
+  let preferenceReadState: ClientPreferencesReadStatus | 'unread' = 'unread'
   let splitMetaWriteChain: Promise<void> = Promise.resolve()
   let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
+
+  // trackPreferenceRead 是读取状态登记的唯一入口：
+  // 视图取值与健康度必须来自同一次读取结果。
+  function trackPreferenceRead(read: ClientPreferencesRead): ClientPreferences | null {
+    preferenceReadState = read.status
+    return preferencesOfRead(read)
+  }
 
   // rememberMetaSnapshot 是「内存快照 + 落盘基线」的唯一入口：
   // 两者必须同时基于同一份已隔离的深拷贝更新。
@@ -187,14 +280,29 @@ export function createSplitStorage(deps: {
     const generation = splitMetaWriteGeneration
     const meta = await loadSplitMetaSnapshot(storage)
     // 目录 / 派生字段仍来自 meta；客户端偏好独立通道在读取边界叠加。
-    // 叠加发生在 cache / 基线之前，所以「无变化不写盘」比较的是
-    // 用户真正看到的偏好，而不是 meta 里可能为空的占位值。
-    const preferences = meta ? await readClientPreferences(storage) : null
-    const effective = meta ? { ...meta, ...overlayClientPreferences(meta, preferences) } : null
+    // 读取结果同时登记健康度：failed / invalid 只允许形成暂行视图。
+    const preferencesRead = await readClientPreferences(storage)
     // 读取期间有写入落地：盘面属于上一代，返回已经提交的内存事实。
     if (generation !== splitMetaWriteGeneration) return splitMetaCache
+    const preferences = trackPreferenceRead(preferencesRead)
+    const effective = meta ? { ...meta, ...overlayClientPreferences(meta, preferences) } : null
     rememberMetaSnapshot(effective)
     return effective
+  }
+
+  // loadClientPreferencesShell 是离线 / 未连接业务端启动的唯一入口：
+  // 它和在线路径共享同一份读取状态与基线，因此失败读取只会得到暂行视图，
+  // 不会被随后的 saveMetaOnly 当成「用户选择了默认值」写回盘面。
+  async function loadClientPreferencesShell() {
+    const preferencesRead = await readClientPreferences(storage)
+    const preferences = trackPreferenceRead(preferencesRead)
+    const data = createEmptyShellData(preferences)
+    if (trustedClientPreferencesRead(preferencesRead)) {
+      splitMetaBaseline = preferenceFingerprint(data.ui, data.settings)
+    } else {
+      splitMetaBaseline = null
+    }
+    return data
   }
 
   function withSplitMetaWrite<T>(fn: () => Promise<T>): Promise<T> {
@@ -439,9 +547,15 @@ export function createSplitStorage(deps: {
   //   - 切换会话不再产生一次偏好写；
   //   - 通道走本地状态区，因此保存不要求 eucli-box 连接。
   //
+  // 写入遵循「基线双锁 + 空值保险丝」：
+  //   1. 基线锁：只有与上次可信读取 / 成功写入的指纹不同才写盘；
+  //   2. 读健康锁：本次内存视图若来自 failed / invalid 读取，禁止反向落盘；
+  //   3. 空值保险丝：内存是出厂默认值、盘面却有历史有效偏好时，必须由用户
+  //      在设置页显式「恢复默认」（explicitReset）才允许覆盖。
+  //
   // 整个「读状态 → 比较 → 写盘 → 更新基线」都放进单一写链：
   // 连续保存按调用顺序执行，后一次能看到前一次落盘后的基线。
-  async function saveMetaOnly() {
+  async function saveMetaOnly(options: { explicitReset?: boolean } = {}) {
     return withSplitMetaWrite(async () => {
       const state = getState?.()
       if (!state?.data) return
@@ -456,24 +570,58 @@ export function createSplitStorage(deps: {
       // providers / stickers / assist 子键都不进入偏好通道。
       const preferences = createClientPreferencesSnapshot(state.data.ui, state.data.settings)
       const fingerprint = preferenceFingerprint(preferences.ui, preferences.settings)
+      const explicitReset = options.explicitReset === true
 
-      // 基线尚未建立时，本地读一次偏好通道（不读 meta、不需要业务连接）。
-      // 离线外壳的数据形状是 createEmptyShellData 归一化后的结果，基线必须
-      // 按同一形状重建，否则归一化补出的默认值会被误判成用户变更。
-      // 通道缺失时基线保持 null：第一次保存必须落盘。
-      if (splitMetaBaseline === null) {
-        const persisted = await readClientPreferences(storage)
-        if (persisted) {
-          const shell = createEmptyShellData(persisted)
-          splitMetaBaseline = preferenceFingerprint(shell.ui, shell.settings)
+      // 只有 ui / 投影自有 settings 真的变了才写盘（显式重置也必须落盘）。
+      if (!explicitReset && fingerprint === splitMetaBaseline) return
+
+      if (!explicitReset) {
+        // 写前必须亲自确认盘面：不得拿「内存暂行视图」直接覆盖盘上历史数据。
+        const persistedRead = await readClientPreferences(storage)
+        const persisted = preferencesOfRead(persistedRead)
+        if (persistedRead.status === 'failed' || persistedRead.status === 'invalid') {
+          throw new ClientPreferencesWriteBlockedError(
+            '客户端偏好读取失败，已阻断覆盖写入以保护本地设置',
+          )
+        }
+
+        const persistedView = persisted ? createEmptyShellData(persisted) : null
+        if (persistedView) {
+          const persistedFingerprint = preferenceFingerprint(persistedView.ui, persistedView.settings)
+          // 内存与盘面语义等价：只是缺少基线，补齐即可，绝不产生写盘。
+          if (fingerprint === persistedFingerprint) {
+            splitMetaBaseline = fingerprint
+            preferenceReadState = 'loaded'
+            return
+          }
+        }
+
+        // 只有真正要写盘时才需要读健康锁：failed / invalid 的暂行视图禁止落盘。
+        if (preferenceReadState === 'failed' || preferenceReadState === 'invalid') {
+          throw new ClientPreferencesWriteBlockedError(
+            '客户端偏好尚未成功读取，已阻断用默认值覆盖本地设置',
+          )
+        }
+
+        if (persistedView) {
+          // 空值保险丝：默认值视图不得静默覆盖盘上历史偏好。
+          if (isFactoryPreferenceView(preferences) && !isFactoryPreferenceView(persistedView)) {
+            throw new ClientPreferencesWriteBlockedError(
+              '当前客户端偏好为出厂默认值，已阻断覆盖历史设置；请在设置页显式恢复默认',
+            )
+          }
+        } else if (isFactoryPreferenceView(preferences)) {
+          // 首次运行：盘面没有偏好，内存也只是默认值，无需制造一次写盘。
+          splitMetaBaseline = fingerprint
+          preferenceReadState = 'missing'
+          return
         }
       }
-      // 只有 ui / 投影自有 settings 真的变了才写盘。
-      if (fingerprint === splitMetaBaseline) return
 
       // 写失败必须抛给调用方：基线保持不变，下一次仍会重试。
       await storage.set(CLIENT_PREFERENCES_KEY, preferences)
       splitMetaBaseline = fingerprint
+      preferenceReadState = 'loaded'
       if (splitMetaCache) {
         const effective = overlayClientPreferences(splitMetaCache, preferences)
         commitSplitMetaCache({ ...splitMetaCache, ui: effective.ui, settings: effective.settings })
@@ -496,6 +644,7 @@ export function createSplitStorage(deps: {
 
   return {
     loadSplitMeta,
+    loadClientPreferencesShell,
     getSplitMetaCache,
     withSplitMetaWrite,
     ensureSplitStoreReady,

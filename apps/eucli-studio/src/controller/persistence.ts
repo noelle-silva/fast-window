@@ -1,6 +1,6 @@
 export function createPersistence(deps: {
   getState: () => any
-  saveMetaOnly: () => Promise<void>
+  saveMetaOnly: (options?: { explicitReset?: boolean }) => Promise<void>
 }) {
   const { getState, saveMetaOnly } = deps
 
@@ -18,10 +18,12 @@ export function createPersistence(deps: {
     return state
   }
 
-  async function savePreferences() {
+  // explicitReset 只能在用户点击设置页「恢复默认」时传 true：
+  // 它绕过「空值保险丝」，是默认值覆盖历史设置唯一被允许的入口。
+  async function savePreferences(options?: { explicitReset?: boolean }) {
     const state = syncPreferencesToData()
     if (!state) return
-    await saveMetaOnly()
+    await saveMetaOnly(options)
   }
 
   return {
