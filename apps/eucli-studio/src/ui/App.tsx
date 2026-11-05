@@ -315,6 +315,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [providers, modelGroups],
   )
 
+  // 收藏夹独立模态：顶栏星星按钮打开，原来的「聊天记录」浮层已下线。
+  const [favoritesOpen, setFavoritesOpen] = React.useState(false)
+
   const {
     favoriteFolders,
     collectFavoriteFolderSubtreeIds,
@@ -371,7 +374,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workspaces,
     clearChatSessionRunNotice,
     requestSwitch: chatSwitch.requestSwitch,
-    closeChatPicker: () => closeChatPicker(),
+    closeFavoritesDialog: () => setFavoritesOpen(false),
     chatSessionRunIndicatorKind,
     activeTargetKind,
     activeChatTargetId,
@@ -398,17 +401,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const {
     rolePickerEl,
     rolePickerView,
-    chatPickerEl,
-    chatPickerView,
-    setChatPickerView,
-    chatPickerSearchOpen,
-    setChatPickerSearchOpen,
-    chatPickerSearchText,
-    setChatPickerSearchText,
-    chatPickerSearchInputRef,
-    chatHistoryScrollRef,
-    onChatHistoryScrollPositionChange,
-    chatHistoryVisibleCount,
     chatMenu,
     closeChatMenu,
     onChatContextMenu,
@@ -419,8 +411,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     closeEditingChatTitle,
     saveEditingChatTitle,
     closeRolePicker,
-    openChatPicker,
-    closeChatPicker,
     openPluginSettings,
     closePluginSettings,
   } = useChatSessionPickers({
@@ -1098,7 +1088,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     canCreateChat,
     treeOpen,
     chatNav,
-    onOpenChatPicker: openChatPicker,
+    onOpenFavorites: () => setFavoritesOpen(true),
     onOpenRunningSessions,
     onCreateChat,
     onToggleTree,
@@ -1109,7 +1099,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     canCreateChat,
     treeOpen,
     chatNav,
-    openChatPicker,
     onOpenRunningSessions,
     onCreateChat,
     onToggleTree,
@@ -1796,78 +1785,29 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     domainVersion,
   ])
 
-  const overlayChatPicker = React.useMemo(() => ({
-    controller,
-    data,
-    chatPickerEl,
-    closeChatPicker,
-    chatPickerView,
-    setChatPickerView,
-    chatPickerSearchOpen,
-    setChatPickerSearchOpen,
-    chatPickerSearchText,
-    setChatPickerSearchText,
-    chatPickerSearchInputRef,
-    chatHistoryScrollRef,
-    onChatHistoryScrollPositionChange,
-    chatHistoryVisibleCount,
+  const overlayFavorites = React.useMemo(() => ({
+    open: favoritesOpen,
+    onClose: () => setFavoritesOpen(false),
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
     favoriteSearchOpen,
     setFavoriteSearchOpen,
     favoriteSearchText,
     setFavoriteSearchText,
     favoriteSearchInputRef,
-    favoriteFolders,
-    renderFavoriteFolderTree,
-    collapseAllFavoriteFolders,
-    openCreateFavoriteFolder,
-    activeTargetKind,
-    activeGroup,
-    activeWorkspace,
-    activeRole,
-    activeChatTargetId: String(activeChatTargetId || ''),
-    pendingGroupChat: (s as any)?.pendingGroupChat,
-    pendingWorkspaceChat: (s as any)?.pendingWorkspaceChat,
-    pendingRoleChat: (s as any)?.pendingChat,
-    chatSessionRunIndicatorKind,
-    clearChatSessionRunNotice,
-    requestSwitch: switchSession,
-    onChatContextMenu,
   }), [
-    controller,
-    data,
-    chatPickerEl,
-    closeChatPicker,
-    chatPickerView,
-    setChatPickerView,
-    chatPickerSearchOpen,
-    setChatPickerSearchOpen,
-    chatPickerSearchText,
-    setChatPickerSearchText,
-    chatPickerSearchInputRef,
-    chatHistoryScrollRef,
-    onChatHistoryScrollPositionChange,
-    chatHistoryVisibleCount,
+    favoritesOpen,
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
     favoriteSearchOpen,
     setFavoriteSearchOpen,
     favoriteSearchText,
     setFavoriteSearchText,
     favoriteSearchInputRef,
-    favoriteFolders,
-    renderFavoriteFolderTree,
-    collapseAllFavoriteFolders,
-    openCreateFavoriteFolder,
-    activeTargetKind,
-    activeGroup,
-    activeWorkspace,
-    activeRole,
-    activeChatTargetId,
-    (s as any)?.pendingGroupChat,
-    (s as any)?.pendingWorkspaceChat,
-    (s as any)?.pendingChat,
-    chatSessionRunIndicatorKind,
-    clearChatSessionRunNotice,
-    switchSession,
-    onChatContextMenu,
   ])
 
   const overlayContextMenus = React.useMemo(() => ({
@@ -2069,7 +2009,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
             messageMenus={overlayMessageMenus}
             composerControls={overlayComposerControls}
             rolePicker={overlayRolePicker}
-            chatPicker={overlayChatPicker}
+            favorites={overlayFavorites}
             contextMenus={overlayContextMenus}
             favoriteDialogs={overlayFavoriteDialogs}
             sessionDialogs={overlaySessionDialogs}

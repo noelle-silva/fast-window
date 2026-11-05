@@ -38,7 +38,7 @@ const STABLE_PROPS = {
     canCreateChat: true,
     treeOpen: false,
     chatNav: { olderId: null, newerId: null, lockedReason: '' },
-    onOpenChatPicker: () => {},
+    onOpenFavorites: () => {},
     onOpenRunningSessions: () => {},
     onCreateChat: () => {},
     onToggleTree: () => {},

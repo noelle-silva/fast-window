@@ -25,7 +25,7 @@ export function useFavoriteFolders(deps: {
   workspaces: any[]
   clearChatSessionRunNotice: (targetKind: TargetKind, targetId: string, chatId: string) => void
   requestSwitch: (chatId: any, opts?: any) => void
-  closeChatPicker: () => void
+  closeFavoritesDialog: () => void
   chatSessionRunIndicatorKind: (targetKind: TargetKind, targetId: string, chat: any, selected: boolean) => ChatSessionRunIndicatorKind | ''
   activeTargetKind: TargetKind
   activeChatTargetId: any
@@ -39,7 +39,7 @@ export function useFavoriteFolders(deps: {
     workspaces,
     clearChatSessionRunNotice,
     requestSwitch,
-    closeChatPicker,
+    closeFavoritesDialog,
     chatSessionRunIndicatorKind,
     activeTargetKind,
     activeChatTargetId,
@@ -345,7 +345,7 @@ export function useFavoriteFolders(deps: {
       controller.actions.setWorkspaceRole?.(rid)
     } else controller.actions.setActiveRole?.(tid)
     requestSwitch(cid, { force: true })
-    closeChatPicker()
+    closeFavoritesDialog()
   })
   const closeFavoriteChatMenu = useEvent(() => setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', roleId: '', chatId: '', title: '', x: 0, y: 0 }))
   const onFavoriteChatContextMenu = useEvent(

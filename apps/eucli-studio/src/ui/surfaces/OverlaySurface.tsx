@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useRenderProbe } from '../../diagnostics/renderProbe'
 import { ChatContextMenus } from '../dialogs/ChatContextMenus'
-import { ChatPickerPopover } from '../dialogs/ChatPickerPopover'
+import { FavoritesDialog } from '../dialogs/FavoritesDialog'
 import { ChatSessionDialogs } from '../dialogs/ChatSessionDialogs'
 import { FavoriteFoldersDialogs } from '../dialogs/FavoriteFoldersDialogs'
 import { MessageMenusDialogs } from '../dialogs/MessageMenusDialogs'
@@ -17,7 +17,7 @@ export type OverlaySurfaceProps = {
   messageMenus: React.ComponentProps<typeof MessageMenusDialogs>
   composerControls: React.ComponentProps<typeof ComposerControlsPopovers>
   rolePicker: React.ComponentProps<typeof RolePickerPopover>
-  chatPicker: React.ComponentProps<typeof ChatPickerPopover>
+  favorites: React.ComponentProps<typeof FavoritesDialog>
   contextMenus: React.ComponentProps<typeof ChatContextMenus>
   favoriteDialogs: React.ComponentProps<typeof FavoriteFoldersDialogs>
   sessionDialogs: React.ComponentProps<typeof ChatSessionDialogs>
@@ -33,7 +33,7 @@ export const OverlaySurface = React.memo(function OverlaySurface(props: OverlayS
       <MessageMenusDialogs {...props.messageMenus} />
       <ComposerControlsPopovers {...props.composerControls} />
       <RolePickerPopover {...props.rolePicker} />
-      <ChatPickerPopover {...props.chatPicker} />
+      <FavoritesDialog {...props.favorites} />
       <ChatContextMenus {...props.contextMenus} />
       <FavoriteFoldersDialogs {...props.favoriteDialogs} />
       <ChatSessionDialogs {...props.sessionDialogs} />

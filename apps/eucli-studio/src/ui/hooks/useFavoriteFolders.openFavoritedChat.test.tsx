@@ -33,7 +33,7 @@ function createDeps(controller: any) {
     workspaces,
     clearChatSessionRunNotice: vi.fn(),
     requestSwitch: vi.fn(),
-    closeChatPicker: vi.fn(),
+    closeFavoritesDialog: vi.fn(),
     chatSessionRunIndicatorKind: () => '' as const,
     activeTargetKind: 'role' as const,
     activeChatTargetId: '',

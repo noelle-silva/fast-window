@@ -22,15 +22,6 @@ const CASES = [
     scopes: ['refreshScopes.composer()'],
   },
   {
-    file: 'ChatPickerPopover.tsx',
-    source: () => source(OVERLAY_DIR, 'ChatPickerPopover.tsx'),
-    scopes: [
-      'refreshScopes.chatList(activeTargetKind, chatListTargetId)',
-      'refreshScopes.entities(entityDomain)',
-      "refreshScopes.entities('favorites')",
-    ],
-  },
-  {
     file: 'ChatContextMenus.tsx',
     source: () => source(OVERLAY_DIR, 'ChatContextMenus.tsx'),
     scopes: ['refreshScopes.uiShell()'],

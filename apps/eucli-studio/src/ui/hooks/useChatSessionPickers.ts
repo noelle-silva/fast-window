@@ -1,14 +1,7 @@
 import * as React from 'react'
-import { sortChatListItemsForDisplay } from '../../domain/chatListOrdering'
-import { refreshScopes } from '../../domain/uiRefreshScope'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
-import { chatHistoryMatchesSearch } from '../utils/text'
 import { useEvent } from './useEvent'
-import { useLazyListWindow } from './useLazyListWindow'
-import { useScopedUiVersion } from './useScopedUiVersion'
 
-const CHAT_HISTORY_PAGE_SIZE = 20
-const CHAT_HISTORY_BOTTOM_THRESHOLD_RATIO = 0.25
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -67,53 +60,6 @@ export function useChatSessionPickers(deps: {
   // 选择器只服务一个目标：角色按钮开角色列表，工作区按钮开工作区列表，
   // 工作区模式下的角色按钮走 workspaceRole（选中写进工作区角色）。
   const [rolePickerView, setRolePickerView] = React.useState<'role' | 'workspace' | 'workspaceRole'>('role')
-  const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
-  const [chatPickerView, setChatPickerView] = React.useState<'history' | 'favorites'>('history')
-  const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
-  const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
-  const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
-  // 会话列表条数的唯一失效依据：当前 target 的 chatList 与对应实体域。
-  // 会话数据可能异步后到并就地写入，不允许依赖 data / 目标对象的引用比对重算。
-  const chatListTargetId =
-    String(activeChatTargetId || '').trim() ||
-    (activeTargetKind === 'group'
-      ? String((activeGroup as any)?.id || '').trim()
-      : activeTargetKind === 'workspace'
-        ? workspaceRoleTargetId((activeWorkspace as any)?.id, (activeRole as any)?.id)
-        : String((activeRole as any)?.id || '').trim())
-  const entityDomain = activeTargetKind === 'group' ? 'groups' : activeTargetKind === 'workspace' ? 'workspaces' : 'roles'
-  const chatListVersion = useScopedUiVersion(
-    controller,
-    refreshScopes.chatList(activeTargetKind, chatListTargetId),
-    !!chatPickerEl && !!chatListTargetId,
-  )
-  const entitiesVersion = useScopedUiVersion(controller, refreshScopes.entities(entityDomain), !!chatPickerEl)
-  const chatHistoryTotal = React.useMemo(() => {
-    if (activeTargetKind === 'group') {
-      if (!activeGroup) return 0
-      const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
-      const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
-      return chats.filter((chat: any) => chatHistoryMatchesSearch(chat, '群聊', chatPickerSearchText)).length
-    }
-    if (activeTargetKind === 'workspace') {
-      if (!activeWorkspace) return 0
-      const box = (data as any)?.chatsByWorkspace?.[String(activeChatTargetId || '')]
-      const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
-      return chats.filter((chat: any) => chatHistoryMatchesSearch(chat, '工作区会话', chatPickerSearchText)).length
-    }
-    const role = activeRole
-    if (!role) return 0
-    const box = data?.chatsByRole?.[String(role.id)]
-    const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
-    return chats.filter((chat: any) => chatHistoryMatchesSearch(chat, '新聊天', chatPickerSearchText)).length
-  }, [data, chatListVersion, entitiesVersion, activeTargetKind, activeChatTargetId, activeGroup, activeWorkspace, activeRole, chatPickerSearchText])
-  const { scrollRef: chatHistoryScrollRef, onScrollPositionChange: onChatHistoryScrollPositionChange, visibleCount: chatHistoryVisibleCount } = useLazyListWindow({
-    resetKey: [chatPickerEl ? 'open' : 'closed', chatPickerView, activeTargetKind, activeChatTargetId, chatPickerSearchText].join(':'),
-    total: chatHistoryTotal,
-    pageSize: CHAT_HISTORY_PAGE_SIZE,
-    bottomThresholdRatio: CHAT_HISTORY_BOTTOM_THRESHOLD_RATIO,
-  })
-
   const [chatMenu, setChatMenu] = React.useState<{
     targetKind: TargetKind
     targetId: string
@@ -192,70 +138,18 @@ export function useChatSessionPickers(deps: {
     setRolePickerEl(null)
     setRolePickerView('role')
   })
-  const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
-    setChatPickerView('history')
-    setChatPickerEl(e.currentTarget)
-  })
-  const closeChatPicker = useEvent(() => {
-    setChatPickerEl(null)
-    setChatPickerView('history')
-    closeChatMenu()
-    closeFavoriteChatMenu()
-    closeFavoriteFolderMenu()
-    closeFavoriteDialog()
-    closeCreateFavoriteFolder()
-    closeRenameFavoriteFolder()
-    closeDeleteFavoriteFolderConfirm()
-    closeMoveFavoriteFolderContents()
-    closeMoveFavoriteFolderDialog()
-    closeConfirmClearFavoriteFolder()
-    setChatPickerSearchOpen(false)
-    setChatPickerSearchText('')
-    setFavoriteSearchOpen(false)
-    setFavoriteSearchText('')
-  })
-
   const openPluginSettings = useEvent(
     (tab?: any) => {
       setRolePickerEl(null)
-      setChatPickerEl(null)
-      setChatPickerSearchOpen(false)
-      setChatPickerSearchText('')
       // 仅当调用方显式指定分类时才改写当前分类；普通打开设置（不传参）要保留上次停留的分类。
       if (tab !== undefined) setSettingsTab(tab)
       setPage('settings')
     })
   const closePluginSettings = useEvent(() => setPage('chat'))
 
-  React.useEffect(() => {
-    if (!chatPickerEl) return
-    if (!chatPickerSearchOpen) return
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        const el = chatPickerSearchInputRef.current
-        if (!el) return
-        try {
-          el.focus?.()
-          el.select?.()
-        } catch (_) {}
-      }, 0)
-    })
-  }, [chatPickerEl, chatPickerSearchOpen])
-
   return {
     rolePickerEl,
     rolePickerView,
-    chatPickerEl,
-    chatPickerView,
-    setChatPickerView,
-    chatPickerSearchOpen,
-    setChatPickerSearchOpen,
-    chatPickerSearchText,
-    setChatPickerSearchText,
-    chatPickerSearchInputRef,
-    chatHistoryScrollRef,
-    onChatHistoryScrollPositionChange,
-    chatHistoryVisibleCount,
     chatMenu,
     closeChatMenu,
     onChatContextMenu,
@@ -269,8 +163,6 @@ export function useChatSessionPickers(deps: {
     openWorkspacePicker,
     openWorkspaceRolePicker,
     closeRolePicker,
-    openChatPicker,
-    closeChatPicker,
     openPluginSettings,
     closePluginSettings,
   }

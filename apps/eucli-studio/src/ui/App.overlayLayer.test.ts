@@ -16,7 +16,7 @@ const OVERLAY_COMPONENTS = [
   'MessageMenusDialogs',
   'ComposerControlsPopovers',
   'RolePickerPopover',
-  'ChatPickerPopover',
+  'FavoritesDialog',
   'ChatContextMenus',
   'FavoriteFoldersDialogs',
   'ChatSessionDialogs',

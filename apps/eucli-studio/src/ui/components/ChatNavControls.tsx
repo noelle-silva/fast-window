@@ -3,7 +3,7 @@ import { Box, IconButton, Tooltip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import HistoryIcon from '@mui/icons-material/History'
+import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -14,7 +14,7 @@ export type ChatNavControlsProps = {
   canCreateChat: boolean
   treeOpen: boolean
   chatNav: { olderId: any; newerId: any; lockedReason: any }
-  onOpenChatPicker: (e: React.MouseEvent<HTMLElement>) => void
+  onOpenFavorites: () => void
   onOpenRunningSessions: () => void
   onCreateChat: () => void
   onToggleTree: () => void
@@ -28,7 +28,7 @@ export function ChatNavControls(props: ChatNavControlsProps) {
     canCreateChat,
     treeOpen,
     chatNav,
-    onOpenChatPicker,
+    onOpenFavorites,
     onOpenRunningSessions,
     onCreateChat,
     onToggleTree,
@@ -70,12 +70,12 @@ export function ChatNavControls(props: ChatNavControlsProps) {
       onClick: () => onOpenRunningSessions(),
     },
     {
-      key: 'history',
-      icon: <HistoryIcon fontSize="small" />,
-      tooltip: '聊天记录',
-      aria: '聊天记录',
+      key: 'favorites',
+      icon: <StarBorderRoundedIcon fontSize="small" />,
+      tooltip: '收藏夹',
+      aria: '收藏夹',
       disabled: false,
-      onClick: (e) => onOpenChatPicker(e),
+      onClick: () => onOpenFavorites(),
     },
     {
       key: 'create',
