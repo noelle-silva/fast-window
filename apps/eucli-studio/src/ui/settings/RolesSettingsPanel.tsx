@@ -9,10 +9,9 @@ import { formatModelRefDisplayText } from '../../domain/modelRefUtils'
 import { roleDefaultModelRef } from '../../domain/roleModelCandidates'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 import { useSortableClickGuard } from '../components/useSortableClickGuard'
-import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
-import { RoleEditorForm } from '../dialogs/RoleEditorForm'
+import { RoleEditorForm } from '../dialogs/roleEditor/RoleEditorForm'
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -126,42 +125,41 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
             </Stack>
           </SettingsSection>
 
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
-              {editorOpen ? (
-                <Stack spacing={1.5}>
-                  <SettingsSection>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{editingRole ? '角色编辑' : '新建角色'}</Typography>
-                      {editingIsActive ? <SettingsPill tone="selected">当前角色</SettingsPill> : null}
-                      <Box sx={{ flex: 1 }} />
-                      {editingRole ? (
-                        <>
-                          <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveRole?.(editingRoleId)} disabled={editingIsActive}>
-                            设为当前
-                          </Button>
-                          <MoreActionsMenu
-                            items={[{
-                              key: 'delete',
-                              label: '删除角色',
-                              icon: <DeleteOutlineIcon fontSize="small" />,
-                              danger: true,
-                              onSelect: () => controller.actions.askDeleteRole?.(editingRoleId),
-                            }]}
-                          />
-                        </>
-                      ) : null}
-                    </Stack>
-                  </SettingsSection>
-
-                  <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} />
-                </Stack>
-              ) : (
-                <SettingsSection sx={{ p: 2 }}>
-                  <Typography variant="body2" color="text.secondary">选择一个角色查看和编辑。</Typography>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {editorOpen ? (
+              <Stack spacing={1.5} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                <SettingsSection sx={{ flexShrink: 0 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>{editingRole ? '角色编辑' : '新建角色'}</Typography>
+                    {editingIsActive ? <SettingsPill tone="selected">当前角色</SettingsPill> : null}
+                    <Box sx={{ flex: 1 }} />
+                    {editingRole ? (
+                      <>
+                        <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveRole?.(editingRoleId)} disabled={editingIsActive}>
+                          设为当前
+                        </Button>
+                        <MoreActionsMenu
+                          items={[{
+                            key: 'delete',
+                            label: '删除角色',
+                            icon: <DeleteOutlineIcon fontSize="small" />,
+                            danger: true,
+                            onSelect: () => controller.actions.askDeleteRole?.(editingRoleId),
+                          }]}
+                        />
+                      </>
+                    ) : null}
+                  </Stack>
                 </SettingsSection>
-              )}
-            </CustomScrollArea>
+
+                {/* 滚动交给 RoleEditorForm 自己，所以这里只做高度分配。 */}
+                <RoleEditorForm controller={controller} providers={providers} modelGroups={modelGroups} draft={draft} models={models} tools={tools} hookPrompts={hookPrompts} placeholders={placeholders} defaultCategory={editingRole ? undefined : 'other'} />
+              </Stack>
+            ) : (
+              <SettingsSection sx={{ p: 2 }}>
+                <Typography variant="body2" color="text.secondary">选择一个角色查看和编辑。</Typography>
+              </SettingsSection>
+            )}
           </Box>
         </Stack>
       </Stack>

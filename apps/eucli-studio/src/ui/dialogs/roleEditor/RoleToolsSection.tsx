@@ -17,10 +17,10 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import { normalizeRoleToolPolicy } from '../../domain/toolPolicy'
-import { toolCatalogByName, toolCatalogItems, toolDisplayName, type ToolCatalogItem } from '../../domain/toolCatalog'
-import { DependableDialog } from '../components/DependableOverlay'
-import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { normalizeRoleToolPolicy } from '../../../domain/toolPolicy'
+import { toolCatalogByName, toolCatalogItems, toolDisplayName, type ToolCatalogItem } from '../../../domain/toolCatalog'
+import { DependableDialog } from '../../components/DependableOverlay'
+import { MoreActionsMenu } from '../../components/MoreActionsMenu'
 
 type RoleToolsSectionProps = {
   controller: any

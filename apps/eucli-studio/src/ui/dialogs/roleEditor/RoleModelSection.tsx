@@ -2,10 +2,10 @@ import * as React from 'react'
 import { Button, Chip, IconButton, Stack, Typography } from '@mui/material'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
-import { normalizeModelRef } from '../../domain/modelRefUtils'
-import { modelCandidateKey, normalizeRoleModelCandidates } from '../../domain/roleModelCandidates'
-import { ModelSourcePicker } from '../components/ModelSourcePicker'
-import { RoleModelCandidateList } from '../components/RoleModelCandidateList'
+import { normalizeModelRef } from '../../../domain/modelRefUtils'
+import { modelCandidateKey, normalizeRoleModelCandidates } from '../../../domain/roleModelCandidates'
+import { ModelSourcePicker } from '../../components/ModelSourcePicker'
+import { RoleModelCandidateList } from '../../components/RoleModelCandidateList'
 
 // 角色模型区块：上半部分挑选并加入候选模型，下半部分是候选池与默认选择。
 // 候选池是角色模型的唯一事实源，默认选择只是池内一项的引用。
