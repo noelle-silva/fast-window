@@ -1,23 +1,18 @@
 import { preserveLocalBranchSelection, resolveBranchHeadFact, setChatBranchHeadMid } from './branching'
 import { replaceChatMessages } from './chatMessageCollection'
-import {
-  resolveChatMessageCollectionFact,
-  resolveChatMessageFact,
-  shouldPreserveRuntimeOnlyMessage,
-} from './chatBodyPrecedence'
-import { readChatRunStatus } from './chatSessionRunStatus'
+import { resolveChatMessageCollectionFact, shouldPreserveRuntimeOnlyMessage } from './chatBodyPrecedence'
+import { readChatRunStatus, normalizeChatSessionRunStatus } from './chatSessionRunStatus'
 import { clearRuntimeMarkersConfirmedBySnapshot } from './runtimeMessageMarker'
 import { preserveSessionIdentity } from './sessionIdentity'
 
-function messageId(value: any) {
-  return String(value?.id || '').trim()
+function serverRunActive(chat: any): boolean {
+  const status = readChatRunStatus(chat)
+  // 窗口切片可能不带会话状态：未知不算收口，在途临时状态继续保留。
+  return !status || normalizeChatSessionRunStatus(status) === 'running'
 }
 
-function setBranchHeadMid(chat: any, branchId: string, headMid: string) {
-  const branches = Array.isArray(chat?.branching?.branches) ? chat.branching.branches : []
-  const branch = branches.find((item: any) => String(item?.id || '').trim() === branchId) || null
-  if (!branch) return
-  setChatBranchHeadMid(chat, branchId, headMid, { updatedAt: Number(chat?.updatedAt || branch.updatedAt || 0) })
+function messageId(value: any) {
+  return String(value?.id || '').trim()
 }
 
 function messageTime(message: any) {
@@ -25,6 +20,9 @@ function messageTime(message: any) {
   return Number.isFinite(value) && value > 0 ? value : 0
 }
 
+// preserveRuntimeBranchHeads 是视窗偏好的保护，不是消息事实裁决：
+// 用户正在看一条「回复生成期间的在途消息」时，后台旧页不得把视图拉回旧节点。
+// 分支头只写在内存视图里，不参与消息存留、顺序或父子拓扑的判定。
 function preserveRuntimeBranchHeads(nextChat: any, currentChat: any) {
   const nextMessages = Array.isArray(nextChat?.messages) ? nextChat.messages : []
   const nextIds = new Set(nextMessages.map((message: any) => messageId(message)).filter(Boolean))
@@ -49,18 +47,15 @@ function preserveRuntimeBranchHeads(nextChat: any, currentChat: any) {
     const nextBranch = (Array.isArray(nextChat?.branching?.branches) ? nextChat.branching.branches : []).find(
       (item: any) => String(item?.id || '').trim() === branchId,
     ) || null
-    // 分支头规则统一裁决「运行期旧头 vs 服务端新头」：
-    // 默认运行期优先，但服务端头部更新时只能前进、不能回退。
+    // 分支头只前进：服务端头部更新时以服务端为准，视图偏好不把它拉回去。
     const resolvedHeadMid = resolveBranchHeadFact({
       runtimeHead: headMid,
       serverHead: nextBranch?.headMid,
       isAvailable: (mid) => nextIds.has(mid),
-      // 运行期头的时间取本地对象，服务端头的时间取快照对象：
-      // 同一个 id 在两边可能有不同的 updatedAt。
       timeOf: (mid, side) => messageTime(side === 'runtime' ? currentById.get(mid) : nextById.get(mid)),
     })
     if (resolvedHeadMid !== headMid) continue
-    setBranchHeadMid(nextChat, branchId, headMid)
+    setChatBranchHeadMid(nextChat, branchId, headMid)
   }
 }
 
@@ -69,23 +64,15 @@ function mergeMessagesFromStorage(nextChat: any, currentChat: any) {
   const currentMessages = Array.isArray(currentChat?.messages) ? currentChat.messages : null
   if (!nextMessages || !currentMessages || !currentMessages.length) return
 
-  // 裁决全部交给会话正文的规则：服务端快照决定集合成员资格，
-  // 同 id 消息按「运行期独占 / 落盘事实 / 运行态合并」判定；
-  // 本地独有消息只有显式运行期独占才允许补入（删除不复活）。
-  // 后台快照一旦包含对应消息，运行期独占标记立即失效。
-  clearRuntimeMarkersConfirmedBySnapshot(currentMessages, nextMessages)
-  const mergedMessages = resolveChatMessageCollectionFact({
+  // 后台快照是消息事实的唯一权威：集合成员资格与顺序整体由快照决定，
+  // 同 id 消息直接以后台版本覆盖前端视图。
+  // 前端只保留回复生成期间的在途临时状态作为最上层遮罩：
+  // 后台仍在生成时，旧页不得提前终结遮罩；会话收口后标记立即失效。
+  clearRuntimeMarkersConfirmedBySnapshot(currentMessages, nextMessages, { serverRunActive: serverRunActive(nextChat) })
+  replaceChatMessages(nextChat, resolveChatMessageCollectionFact({
     serverMessages: nextMessages,
     localMessages: currentMessages,
-    resolveMessage: (storedMessage: any, currentMessage: any) =>
-      resolveChatMessageFact({
-        serverMessage: storedMessage,
-        localMessage: currentMessage,
-        storedChatStatus: readChatRunStatus(nextChat),
-      }),
-    shouldKeepLocalMessage: shouldPreserveRuntimeOnlyMessage,
-  })
-  replaceChatMessages(nextChat, mergedMessages)
+  }))
   preserveRuntimeBranchHeads(nextChat, currentChat)
 }
 
@@ -99,12 +86,4 @@ export function mergeChatFromStorage(nextChat: any, currentChat: any) {
   if ((next as any).windowPartial === true) preserveSessionIdentity(next, currentChat)
   if ((next as any).runtimePartial) delete (next as any).runtimePartial
   return next
-}
-
-export function isStoredChatNewerThanCurrent(storedUpdatedAtRaw: any, currentUpdatedAtRaw: any) {
-  const storedUpdatedAt = Number(storedUpdatedAtRaw || 0)
-  const currentUpdatedAt = Number(currentUpdatedAtRaw || 0)
-  if (!Number.isFinite(storedUpdatedAt) || storedUpdatedAt <= 0) return false
-  if (!Number.isFinite(currentUpdatedAt) || currentUpdatedAt <= 0) return true
-  return storedUpdatedAt > currentUpdatedAt
 }

@@ -14,6 +14,7 @@ type WorkspaceSession = {
   workspaceId: string
   title: string
   messages: any[]
+  version?: number
 }
 
 function createNetRequestStub(sessionsByCombination: Record<string, WorkspaceSession[]>) {
@@ -32,6 +33,7 @@ function createNetRequestStub(sessionsByCombination: Record<string, WorkspaceSes
           title: session.title,
           createdAt: 1000,
           updatedAt: 1000,
+          version: session.version,
         })),
       }
     }
@@ -49,6 +51,7 @@ function createNetRequestStub(sessionsByCombination: Record<string, WorkspaceSes
           title: session.title,
           createdAt: 1000,
           updatedAt: 1000,
+          version: session.version,
           messages: session.messages,
         },
       }
@@ -135,6 +138,60 @@ describe('工作区角色组合会话加载', () => {
     const boxB = boxOf(harness.state, workspaceRoleTargetId('ws-1', 'role-b'))
     expect(boxA.chats[0].messages.map((message: any) => message.id)).toEqual(['message-a1'])
     expect(boxB.chats[0].messages.map((message: any) => message.id)).toEqual(['message-b1'])
+  })
+
+  it('工作区会话载荷的版本进入内存，迟到的旧版本不得覆盖新正文', async () => {
+    const combinationId = workspaceRoleTargetId('ws-1', 'role-a')
+    const harness = createHarness({
+      [combinationId]: [{
+        id: 'session-a1',
+        roleId: 'role-a',
+        workspaceId: 'ws-1',
+        title: 'A 的会话',
+        version: 4,
+        messages: [{ id: 'message-a1', role: 'user', content: '新正文' }],
+      }],
+    })
+
+    const loaded = await harness.manager.ensureWorkspaceChatLoaded('ws-1', 'role-a', 'session-a1')
+    expect(loaded?.sessionVersion).toBe(4)
+
+    const stale = harness.manager.upsertWorkspaceChat('ws-1', {
+      id: 'session-a1',
+      roleId: 'role-a',
+      title: 'A 的会话',
+      sessionVersion: 3,
+      messages: [{ id: 'message-old', role: 'user', content: '旧正文' }],
+    })
+    expect(stale?.sessionVersion).toBe(4)
+    expect(stale?.messages.map((message: any) => message.id)).toEqual(['message-a1'])
+  })
+
+  it('权威列表刷新同时返回摘要版本，并按成员收敛已加载会话', async () => {
+    const combinationId = workspaceRoleTargetId('ws-1', 'role-a')
+    const sessionsByCombination: Record<string, WorkspaceSession[]> = {
+      [combinationId]: [
+        { id: 'session-a1', roleId: 'role-a', workspaceId: 'ws-1', title: '会话一', version: 4, messages: [] },
+        { id: 'session-a2', roleId: 'role-a', workspaceId: 'ws-1', title: '会话二', version: 7, messages: [] },
+      ],
+    }
+    const harness = createHarness(sessionsByCombination)
+    const box = (harness.state.data.chatsByWorkspace[combinationId] = {
+      activeChatId: 'session-a1',
+      chatMetas: [{ id: 'session-a1' }, { id: 'session-a2' }],
+      chats: [{ id: 'session-a1' }, { id: 'session-a2' }],
+    })
+
+    const first = await harness.manager.refreshActiveWorkspaceChats('ws-1', 'role-a')
+    expect(first?.versions).toEqual({ 'session-a1': 4, 'session-a2': 7 })
+    expect(first?.box.chatMetas.map((meta: any) => meta.id)).toEqual(['session-a1', 'session-a2'])
+
+    // 外部删除会话：下一次权威列表刷新必须把它从列表与会话体一起收敛掉。
+    sessionsByCombination[combinationId].splice(1, 1)
+    const second = await harness.manager.refreshActiveWorkspaceChats('ws-1', 'role-a')
+    expect(second?.versions).toEqual({ 'session-a1': 4 })
+    expect(box.chatMetas.map((meta: any) => meta.id)).toEqual(['session-a1'])
+    expect(box.chats.map((chat: any) => chat.id)).toEqual(['session-a1'])
   })
 
   it('切换到没有会话的角色：目标组合呈现空数据盒，且不伪造草稿会话', async () => {
@@ -246,6 +303,7 @@ function createRegistrationNetRequest(store: Record<string, any>, sessionsByComb
           title: session.title,
           createdAt: 1000,
           updatedAt: 1000,
+          version: session.version,
           messages: session.messages,
         },
       }

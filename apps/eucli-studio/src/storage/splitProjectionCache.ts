@@ -35,6 +35,8 @@ export type ChatIndexSnapshot = {
   activeChatId: string
   chatIds: string[]
   chatUpdatedAt: Record<string, number>
+  // 会话事实版本号：断线恢复时先核对版本，落后才发起权威拉取。
+  chatVersions: Record<string, number>
   chatMetas: ChatMeta[]
   updatedAt: number
   revision: number
@@ -67,6 +69,17 @@ function normalizeStringList(value: unknown): string[] {
     if (!id || seen.has(id)) continue
     seen.add(id)
     out.push(id)
+  }
+  return out
+}
+
+function normalizeNumberMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, number> = {}
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const id = String(key || '').trim()
+    const number = Number(raw || 0)
+    if (id && Number.isFinite(number)) out[id] = number
   }
   return out
 }
@@ -128,6 +141,7 @@ export function normalizeChatIndexSnapshot(raw: any, scope: ProjectionScope): Ch
     activeChatId: normalizeActiveChatId((raw as any).activeChatId),
     chatIds: ids,
     chatUpdatedAt,
+    chatVersions: normalizeNumberMap((raw as any).chatVersions),
     chatMetas,
     updatedAt: Number((raw as any).updatedAt || 0),
     revision: Number((raw as any).revision || 0),

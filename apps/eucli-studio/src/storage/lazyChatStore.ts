@@ -4,6 +4,7 @@ import { buildStateFromMeta } from './buildStateFromMeta'
 import { normalizeStoredChat } from './normalizeStoredChat'
 import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
+import { applyLoadedSessionVersion, staleSessionPayload } from '../domain/sessionVersion'
 import type { SessionWriteGuard, SessionWriteToken } from './sessionWriteGuard'
 import {
   firstChatIdInBox,
@@ -143,8 +144,10 @@ export function createLazyChatStore(deps: {
         return null
       }
 
+      if (staleSessionPayload(raw, existing)) return existing
       const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
-      return writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle })?.chat || null
+      const written = writeChatListProjection(box, { kind: 'upsert', chat, fallbackTitle })
+      return applyLoadedSessionVersion(written?.chat, raw, existing) || null
     })()
     loadingChats.set(pendingKey, { token, promise: run })
     try {
@@ -217,11 +220,17 @@ export function createLazyChatStore(deps: {
     if (!chatId) return null
     const box = targetBox(state.data, kind, targetId)
     if (!box) return null
-    return writeChatListProjection(box, {
+    const existing = Array.isArray(box.chats)
+      ? box.chats.find((item: any) => String(item?.id || '').trim() === chatId) || null
+      : null
+    // 迟到的旧正文不得把已经应用的新视图覆盖回去。
+    if (staleSessionPayload(chatRaw, existing)) return existing
+    const written = writeChatListProjection(box, {
       kind: 'upsert',
       chat,
       fallbackTitle: kind === 'group' ? '群聊' : '新聊天',
-    })?.chat || null
+    })
+    return applyLoadedSessionVersion(written?.chat, chatRaw, existing) || null
   }
 
   function removeLoadedChat(kind: LazyChatKind, targetIdRaw: any, chatIdRaw: any) {

@@ -56,11 +56,6 @@ export function normalizeMessageParentMid(message: any) {
   return String(message?.parentMid || message?.parentMessageId || '').trim()
 }
 
-export function hasExplicitMessageParentLinks(messages: any[]) {
-  const list = Array.isArray(messages) ? messages : []
-  return list.some((message: any) => !!normalizeMessageParentMid(message))
-}
-
 export function normalizeChatMessage(input: any, options?: { activeBranchId?: unknown; toolMessagesAsAssistant?: boolean }) {
   const m = input && typeof input === 'object' ? input : {}
   const messageType = normalizeChatMessageType((m as any).type || (m as any).role)

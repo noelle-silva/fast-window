@@ -105,6 +105,7 @@ describe('并发竞态：删除后旧请求不得回填', () => {
       activeChatId: 'chat-race',
       chatIds: ['chat-race'],
       chatUpdatedAt: { 'chat-race': 300 },
+      chatVersions: { 'chat-race': 3 },
       chatMetas: [
         {
           id: 'chat-race',

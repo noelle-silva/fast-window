@@ -54,21 +54,28 @@ export function buildChatListIndex(input: {
     if (index >= 0) branchIndexByMid.set(mid, index)
   }
 
+  // 重新回复目标只由后台父子拓扑决定：用户消息的直接助手子节点中最早的一条。
+  // 不再按数组顺序寻找「下一条消息」。
   const nextAssistantMidByUserMid = new Map<string, string>()
   const raw = Array.isArray(chatAllMessagesRaw) ? chatAllMessagesRaw : []
-  // 与既有语义严格一致：从用户消息往后看，遇到第一条有效消息；
-  // 是 AI → 它是重新回复目标；是用户 → 没有目标（保持以本条为落点）。
-  for (let i = 0; i < raw.length; i++) {
-    const message = raw[i]
-    if (!message || message.role !== 'user') continue
-    const userMid = messageId(message)
-    if (!userMid) continue
-    for (let j = i + 1; j < raw.length; j++) {
-      const next = raw[j]
-      if (!next) continue
-      if (next.role === 'assistant') nextAssistantMidByUserMid.set(userMid, messageId(next))
-      break
-    }
+  const assistantChildrenByParent = new Map<string, any[]>()
+  for (const message of raw) {
+    if (!message || message.role !== 'assistant') continue
+    const parentMid = String((message as any)?.parentMid || '').trim()
+    if (!parentMid) continue
+    const list = assistantChildrenByParent.get(parentMid) || []
+    list.push(message)
+    assistantChildrenByParent.set(parentMid, list)
+  }
+  for (const [userMid, children] of assistantChildrenByParent.entries()) {
+    children.sort((left: any, right: any) => {
+      const l = Number(left?.createdAt || 0)
+      const r = Number(right?.createdAt || 0)
+      if (l !== r) return l - r
+      return messageId(left).localeCompare(messageId(right))
+    })
+    const first = children[0]
+    if (first) nextAssistantMidByUserMid.set(userMid, messageId(first))
   }
 
   return { runCardByMid, branchSiblingsByMid, branchIndexByMid, nextAssistantMidByUserMid }

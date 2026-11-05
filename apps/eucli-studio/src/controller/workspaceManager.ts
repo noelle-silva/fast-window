@@ -9,6 +9,7 @@ import { activateComposerDraftForCurrentSession, saveActiveComposerDraftMirror }
 import { workspaceRegisteredRoleIds, workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { normalizeWorkspaceRoleIds, workspaceMatchesWrite } from '../domain/workspaceEntity'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { applyLoadedSessionVersion, staleSessionPayload } from '../domain/sessionVersion'
 import {
   firstChatIdInBox,
   readActiveChatSelection,
@@ -37,11 +38,19 @@ import {
   saveWorkspace,
   updateWorkspaceSessionTitle,
   workspaceSessionSummaryToMeta,
+  workspaceSessionVersions,
   type UiWorkspace,
 } from './workspaceBridge'
 
 function text(value: unknown) {
   return String(value || '').trim()
+}
+
+// 一次权威列表刷新同时带回会话版本表：
+// 列表成员（新增 / 删除）与版本（正文新旧）来自同一份后台事实，不能分两次读取。
+export type WorkspaceChatListRefresh = {
+  box: any
+  versions: Record<string, number>
 }
 
 function workspaceDraftDirectories(raw: unknown) {
@@ -307,19 +316,26 @@ export function createWorkspaceManager(deps: {
     if (!workspaceId || !roleId || !chatId) return null
     const box = ensureWorkspaceBox(state, activeRole, workspaceId, roleId)
     if (!box) return null
+    const existing = (Array.isArray(box.chats) ? box.chats : []).find((item: any) => text(item?.id) === chatId) || null
+    // 迟到的旧正文不得把已经应用的新视图覆盖回去。
+    if (staleSessionPayload(chatRaw, existing)) return existing
     const nextChat = writeChatListProjection(box, { kind: 'upsert', chat: chatRaw, fallbackTitle: '工作区会话' })?.chat || null
     if (!nextChat) return null
+    const applied = applyLoadedSessionVersion(nextChat, chatRaw, existing)
     if (!readActiveChatSelection(box)) writeActiveChatSelection(box, chatId)
-    return nextChat
+    return applied
   }
 
-  async function refreshActiveWorkspaceChats(workspaceIdRaw?: unknown) {
+  async function refreshActiveWorkspaceChats(
+    workspaceIdRaw?: unknown,
+    roleIdRaw?: unknown,
+  ): Promise<WorkspaceChatListRefresh | null> {
     const state = getState()
     if (!state?.data) return null
     const workspaceId = text(workspaceIdRaw) || text(activeWorkspace()?.id || (state.draft as any)?.activeWorkspaceId || (state.data.ui as any)?.activeWorkspaceId)
     if (!workspaceId) return null
     const request = requireNetRequest()
-    const roleId = currentWorkspaceRoleId(state, activeRole)
+    const roleId = text(roleIdRaw) || currentWorkspaceRoleId(state, activeRole)
     const targetId = workspaceRoleTargetId(workspaceId, roleId)
     const seq = beginLatest(workspaceChatListSeq, targetId)
     const targetToken = sessionWrites?.capture('workspace', targetId, '') || null
@@ -334,7 +350,7 @@ export function createWorkspaceManager(deps: {
     const chats = (Array.isArray(box.chats) ? box.chats : []).filter((chat: any) => metaIds.has(text(chat?.id)))
     writeChatListProjection(box, { kind: 'replace', chats, chatMetas: metas })
     reconcileActiveChatSelection(box)
-    return box
+    return { box, versions: workspaceSessionVersions(summaries) }
   }
 
   async function refreshWorkspaces(preferredWorkspaceId?: string) {

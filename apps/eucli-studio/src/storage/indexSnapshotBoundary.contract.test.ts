@@ -80,6 +80,7 @@ describe('契约·边界四：索引快照 → 列表', () => {
     expect(box.chatMetas.some((meta: any) => meta.id === 'chat-ghost')).toBe(false)
     // 本窗口用户选中的 A 是用户意图，服务端索引偏好 B 不能把它抢走。
     expect(box.activeChatId).toBe(BOUNDARY_CHAT_ID)
+    // 索引时间与本地一致：后台没有新事实，不需要重复取正文。
     expect(reloadChatBody).not.toHaveBeenCalled()
   })
 
@@ -113,7 +114,7 @@ describe('契约·边界四：索引快照 → 列表', () => {
 
     await sync.syncTargetChats(roleScope, snapshot())
 
-    expect(reloadChatBody).toHaveBeenCalledWith(roleScope, BOUNDARY_CHAT_ID)
+    expect(reloadChatBody).toHaveBeenCalledWith(roleScope, BOUNDARY_CHAT_ID, { authoritative: true })
     const chat = state.data.chatsByRole[BOUNDARY_ROLE_ID].chats.find((item: any) => item.id === BOUNDARY_CHAT_ID)
     expect(chat.messages.find((message: any) => message.id === SECOND_USER_MESSAGE_ID)?.parentMid).toBe(
       'message-1793460445487972300-17745',

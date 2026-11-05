@@ -99,7 +99,7 @@ describe('分支头只前进不后退', () => {
     expect(merged.branching.branches.find((b: any) => b.id === 'main').headMid).toBe('m3')
   })
 
-  it('存储还没有该消息时，在途运行期头部仍然前推', () => {
+  it('存储还没有该消息时，在途运行期头部仍然前推（视窗偏好）', () => {
     const runtime = storedAssistant('m3', '刚落盘的回复', 500)
     beginAssistantRun(runtime, { generationId: 'run-1', stream: true, resetContent: false })
 

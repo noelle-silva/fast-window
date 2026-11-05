@@ -30,6 +30,7 @@ function chatIndex(scopeKey: string, ids: string[], activeChatId = ''): ChatInde
     activeChatId,
     chatIds: ids,
     chatUpdatedAt: Object.fromEntries(ids.map((id, index) => [id, 1000 + index])),
+    chatVersions: {},
     chatMetas: ids.map((id, index) => ({
       id,
       title: `会话${id}`,

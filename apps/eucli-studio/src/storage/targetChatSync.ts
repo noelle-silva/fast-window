@@ -1,12 +1,12 @@
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
-import { isStoredChatNewerThanCurrent } from '../domain/chatStorageSync'
 import {
   readActiveChatSelection,
   reconcileActiveChatSelectionFact,
   resolveActiveChatSelectionFact,
 } from '../domain/activeChatSelection'
 import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from './splitProjectionCache'
+import type { SessionWindowRefreshOptions } from './sessionWindowLoader'
 import type { SessionWriteGuard } from './sessionWriteGuard'
 
 // 目标会话对账：角色 / 群聊共用一套实现。
@@ -28,10 +28,11 @@ export type TargetChatScope = ProjectionScope & { kind: 'role' | 'group' }
 export type TargetChatSyncDeps = {
   getState: () => any
   // 权威正文重取（不是缓存命中）：角色 / 群聊必须走同一个入口。
-  reloadChatBody: (scope: ProjectionScope, chatId: string) => Promise<any>
+  // 对账路径一律带 authoritative：本地视窗 head 不得挡住后台新增事实。
+  reloadChatBody: (scope: ProjectionScope, chatId: string, options?: SessionWindowRefreshOptions) => Promise<any>
   // 会话进入内存状态的唯一入口：负责归一化 + 合并 + 写 meta。
   upsertLoadedChat: (kind: 'role' | 'group', targetId: string, chat: any) => any
-  // 运行中的会话以内存为准，对账不得覆盖它。
+  // 索引级对账不覆盖运行中的会话：它只负责列表事实，正文由事件路径负责。
   hasActiveRun: (scope: ProjectionScope, chatId: string) => boolean
   // 连接 / 投影代际：正文重取期间换代，旧快照不得写回。
   getEpoch?: () => number
@@ -62,6 +63,9 @@ function ensureChatsBox(state: any, scope: TargetChatScope) {
 export function createTargetChatSync(deps: TargetChatSyncDeps) {
   // 并发保护按 scope 分桶：不同 target 的对账互不阻塞。
   const syncingScopes = new Set<string>()
+  // 单条会话的权威重取同样单飞：事件与通知可能同时指向同一条会话，
+  // 共享一次拉取即可，绝不并发重取制造背压。
+  const syncingChats = new Map<string, Promise<boolean>>()
 
   function epochSnapshot(): number | null {
     if (typeof deps.getEpoch !== 'function') return null
@@ -79,7 +83,7 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
   async function syncTargetChats(
     scope: TargetChatScope,
     snapshot: ChatIndexSnapshot,
-    options?: { force?: boolean; isCurrent?: () => boolean },
+    options?: { force?: boolean; isCurrent?: () => boolean; skipReloadChatIds?: Set<string> },
   ): Promise<boolean> {
     const state = deps.getState()
     if (!state.data) return false
@@ -119,9 +123,8 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         const cur = curById.get(chatId) || null
         if (!cur) continue
         const metaUpdatedAt = Number(wantUpdatedAt[chatId] || 0)
-        if (metaUpdatedAt && chatId !== activeChatId && isStoredChatNewerThanCurrent(metaUpdatedAt, cur.updatedAt)) {
-          cur.updatedAt = metaUpdatedAt
-        }
+        // 索引是列表事实的唯一来源：后台时间直接覆盖本地投影，不做本地时间裁决。
+        if (metaUpdatedAt && chatId !== activeChatId) cur.updatedAt = metaUpdatedAt
         nextChats.push(cur)
       }
       writeChatListProjection(box, { kind: 'replace', chats: nextChats, chatMetas })
@@ -130,11 +133,15 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
         const metaUpdatedAt = Number(wantUpdatedAt[activeChatId] || 0)
         const cur = curById.get(activeChatId) || null
         const curUpdatedAt = Number(cur?.updatedAt || 0)
-        // force：本地时间戳不可信（断线 / 服务端重建），必须取回权威正文。
-        const mustReload = options?.force === true || isStoredChatNewerThanCurrent(metaUpdatedAt, curUpdatedAt)
+        // 后台事实整体覆盖前端视图：索引时间与本地不一致就重取权威正文，
+        // 不判断「谁更新」——本地状态不得压过后台事实。
+        // force：连索引时间都不可信（断线 / 服务端重建），必须无条件重取。
+        // 版本已经核对过的会话不再用索引时间二次判定：版本相等即证明本地正文最新。
+        const versionGuarded = options?.skipReloadChatIds?.has(activeChatId) === true
+        const mustReload = !versionGuarded && (options?.force === true || (metaUpdatedAt > 0 && metaUpdatedAt !== curUpdatedAt))
         if (mustReload) {
           const token = deps.sessionWrites?.capture(scope.kind, scope.targetId, activeChatId) || null
-          const raw = await deps.reloadChatBody(scope, activeChatId)
+          const raw = await deps.reloadChatBody(scope, activeChatId, { authoritative: true })
           // 读取期间换代 / 会话被删除：旧正文不得写回，整次对账也不得推进版本门。
           if (!epochIsCurrent(epoch)) return false
           if (deps.sessionWrites && !deps.sessionWrites.isCurrent(token)) return false
@@ -158,17 +165,33 @@ export function createTargetChatSync(deps: TargetChatSyncDeps) {
   }
 
   // syncChatById 是「事件通知指向某条会话」的唯一入口：
-  // 同样只通过 reloadChatBody 取权威正文，不区分角色 / 群聊。
-  async function syncChatById(scope: TargetChatScope, chatIdRaw: string): Promise<boolean> {
+  // 只通过 reloadChatBody 取权威正文，并且不走本地视窗 head。
+  // 事件在后台写盘之后才发出，属于已落盘事实：本地运行卡不能让它跳过；
+  // 运行期间尚未落盘的消息由消息层的「在途遮罩」保留，不由拉取层裁决。
+  // 同一会话的并发请求共享一次拉取；返回值表示这次事实是否已落地。
+  function syncChatById(scope: TargetChatScope, chatIdRaw: string): Promise<boolean> {
+    const chatId = String(chatIdRaw || '').trim()
+    if (!chatId) return Promise.resolve(false)
+    const key = `${projectionScopeKey(scope)}:${chatId}`
+    const pending = syncingChats.get(key)
+    if (pending) return pending
+
+    const promise = syncChatByIdOnce(scope, chatId).finally(() => {
+      if (syncingChats.get(key) === promise) syncingChats.delete(key)
+    })
+    syncingChats.set(key, promise)
+    return promise
+  }
+
+  async function syncChatByIdOnce(scope: TargetChatScope, chatId: string): Promise<boolean> {
     const state = deps.getState()
     if (!state.data) return false
-    const chatId = String(chatIdRaw || '').trim()
-    if (!chatId) return false
-    if (deps.hasActiveRun(scope, chatId)) return false
+    // 会话变更事件在后台写盘之后才发出，是已落盘事实，不因本地有运行卡而跳过。
+    // 运行期间尚未落盘的临时消息由「在途遮罩」在合并层保留，不由拉取层裁决。
 
     const epoch = epochSnapshot()
     const token = deps.sessionWrites?.capture(scope.kind, scope.targetId, chatId) || null
-    const raw = await deps.reloadChatBody(scope, chatId)
+    const raw = await deps.reloadChatBody(scope, chatId, { authoritative: true })
     if (!epochIsCurrent(epoch)) return false
     if (deps.sessionWrites && !deps.sessionWrites.isCurrent(token)) return false
     if (!raw || typeof raw !== 'object') return false

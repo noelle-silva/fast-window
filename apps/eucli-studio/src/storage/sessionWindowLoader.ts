@@ -63,13 +63,20 @@ function settled(state: SessionWindowState): WindowReadResult {
 
 const STALE: WindowReadResult = { stale: true, state: null }
 
+export type SessionWindowRefreshOptions = {
+  // authoritative：这次刷新由后台事实驱动（事件 / 版本对账），
+  // 不携带本地视窗 head。本地的旧 head 只能表达「用户在看哪条路径」，
+  // 无法表达后台已经新增的消息；用旧 head 取窗会把新事实挡在窗外。
+  authoritative?: boolean
+}
+
 export type SessionWindowLoader = {
   // load 取首屏（或已缓存的首屏）。
   load: (scope: SessionScope, chatId: string) => Promise<any>
   // loadOlder 往前翻一窗，并把结果并回同一份会话文档。
   loadOlder: (scope: SessionScope, chatId: string) => Promise<any | null>
   // refresh 重取首窗并并回已加载的历史：写路径之后的刷新不能把更早的窗口丢掉。
-  refresh: (scope: SessionScope, chatId: string) => Promise<any>
+  refresh: (scope: SessionScope, chatId: string, options?: SessionWindowRefreshOptions) => Promise<any>
   peek: (scope: SessionScope, chatId: string) => SessionWindowState | null
   invalidate: (scope: SessionScope, chatId: string) => void
   invalidateScope: (scope: SessionScope) => void
@@ -212,6 +219,15 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
 
   async function requestPage(scope: SessionScope, chatId: string, options: SessionWindowRequest) {
     return sessionSwitch.sessionWindow(scope, chatId, windowOptions(options))
+  }
+
+  // requestFactPage 是「后台事实驱动」的首窗请求：不带本地 head。
+  // 后台默认路径就是当前事实的头部；这样新增消息不会被本地旧 head 挡掉。
+  async function requestFactPage(scope: SessionScope, chatId: string) {
+    const switchId = resolveSwitchID(scope, chatId)
+    const extra: SessionWindowRequest = {}
+    if (switchId) extra.switchId = switchId
+    return requestPage(scope, chatId, extra)
   }
 
   // requestHeadPage 是「首窗」请求：显式带上 head，实现「按 head 看路径」。
@@ -371,20 +387,27 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   //
   // 关键：首窗范围内以新页为权威——不能用按 id 并集，
   // 否则从首窗删掉的消息会被旧文档重新捞回来（已删消息复活）。
-  async function refresh(scope: SessionScope, chatIdRaw: string) {
+  async function refresh(scope: SessionScope, chatIdRaw: string, options?: SessionWindowRefreshOptions) {
     const chatId = String(chatIdRaw || '').trim()
     if (!chatId) return null
     if (!supportsWindow()) throw new Error('后端不支持 session.window')
     const key = windowKey(scope, chatId)
-    const result = await readWithGeneration(key, () => refreshOnce(key, scope, chatId))
+    const result = await readWithGeneration(key, () => refreshOnce(key, scope, chatId, options))
     return result.state ? result.state.chat : null
   }
 
-  async function refreshOnce(key: string, scope: SessionScope, chatId: string): Promise<WindowReadResult> {
+  async function refreshOnce(
+    key: string,
+    scope: SessionScope,
+    chatId: string,
+    options?: SessionWindowRefreshOptions,
+  ): Promise<WindowReadResult> {
     // previous 必须取「本次请求所属代」的基线；落地前再确认它没有被别的写入替换。
     const previous = states.get(key) || null
     const generation = guard.current(key)
-    const page = await requestHeadPage(scope, chatId)
+    const page = options?.authoritative
+      ? await requestFactPage(scope, chatId)
+      : await requestHeadPage(scope, chatId)
     // 失效发生在重取途中：旧首窗会把已删消息 / 旧正文带回来，绝不能落缓存。
     if (!guard.isCurrent(key, generation)) return STALE
     const merged = previous ? mergeRefreshedPage(previous.chat, page) : mergeWindowPage(page, page)

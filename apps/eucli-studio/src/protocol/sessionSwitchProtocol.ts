@@ -13,6 +13,7 @@ export type SessionIndexSnapshot = {
   activeChatId: string
   chatIds: string[]
   chatUpdatedAt: Record<string, number>
+  chatVersions: Record<string, number>
   chatMetas: any[]
   updatedAt: number
   revision: number
@@ -104,11 +105,19 @@ export function normalizeSessionIndexSnapshot(raw: any, fallbackScope = ''): Ses
     const number = Number(value || 0)
     if (key && Number.isFinite(number)) chatUpdatedAt[key] = number
   }
+  const versionsRaw = (raw as any).chatVersions && typeof (raw as any).chatVersions === 'object' ? (raw as any).chatVersions : {}
+  const chatVersions: Record<string, number> = {}
+  for (const [id, value] of Object.entries(versionsRaw)) {
+    const key = String(id || '').trim()
+    const number = Number(value || 0)
+    if (key && Number.isFinite(number) && number > 0) chatVersions[key] = number
+  }
   return {
     scope,
     activeChatId: String((raw as any).activeChatId || ''),
     chatIds,
     chatUpdatedAt,
+    chatVersions,
     chatMetas: Array.isArray((raw as any).chatMetas) ? (raw as any).chatMetas : [],
     updatedAt: Number((raw as any).updatedAt || 0),
     revision: Number((raw as any).revision || 0),

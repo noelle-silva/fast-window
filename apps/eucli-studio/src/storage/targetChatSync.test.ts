@@ -10,6 +10,7 @@ function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndex
     activeChatId,
     chatIds: ids,
     chatUpdatedAt: Object.fromEntries(ids.map((id, index) => [id, 1000 + index])),
+    chatVersions: {},
     chatMetas: ids.map((id, index) => ({
       id,
       title: `会话${id}`,
@@ -94,11 +95,11 @@ describe('syncTargetChats', () => {
     })
 
     await sync.syncTargetChats(groupScope, snapshot(1, ['chat-1'], 'chat-1'), { force: true })
-    expect(reloadChatBody).toHaveBeenCalledWith(groupScope, 'chat-1')
+    expect(reloadChatBody).toHaveBeenCalledWith(groupScope, 'chat-1', { authoritative: true })
     expect(state.data.chatsByGroup['group-1'].chats[0].messages[0].content).toBe('权威正文')
   })
 
-  it('非 force 且索引时间戳没有更新时不重取正文', async () => {
+  it('索引时间与本地不一致时以后台事实为准重取正文（不判断谁更新）', async () => {
     const { sync, state, reloadChatBody } = makeHarness({ body: { id: 'chat-1', messages: [] } })
     writeChatListProjection(state.data.chatsByRole['role-1'], {
       kind: 'replace',
@@ -107,7 +108,7 @@ describe('syncTargetChats', () => {
     })
 
     await sync.syncTargetChats(roleScope, snapshot(1, ['chat-1'], 'chat-1'))
-    expect(reloadChatBody).not.toHaveBeenCalled()
+    expect(reloadChatBody).toHaveBeenCalledWith(roleScope, 'chat-1', { authoritative: true })
   })
 
   it('运行中的会话不被对账覆盖', async () => {
@@ -136,14 +137,32 @@ describe('syncChatById', () => {
       body: { id: 'chat-1', title: '会话', updatedAt: 1, messages: [{ id: 'm1', content: '新正文' }] },
     })
     await sync.syncChatById(groupScope, 'chat-1')
-    expect(reloadChatBody).toHaveBeenCalledWith(groupScope, 'chat-1')
+    expect(reloadChatBody).toHaveBeenCalledWith(groupScope, 'chat-1', { authoritative: true })
     expect(state.data.chatsByGroup['group-1'].chats[0].messages[0].content).toBe('新正文')
   })
 
-  it('运行中的会话不重取', async () => {
-    const { sync, reloadChatBody } = makeHarness({ hasActiveRun: true, body: { id: 'chat-1', messages: [] } })
-    expect(await sync.syncChatById(roleScope, 'chat-1')).toBe(false)
-    expect(reloadChatBody).not.toHaveBeenCalled()
+  it('事件驱动的会话变更不因本地运行卡而跳过：后台落盘事实必须落地', async () => {
+    const { sync, state, reloadChatBody } = makeHarness({
+      hasActiveRun: true,
+      body: { id: 'chat-1', updatedAt: 2, messages: [{ id: 'u1', content: '外部用户消息' }, { id: 'a1', parentMessageId: 'u1', content: '回复' }] },
+    })
+    expect(await sync.syncChatById(roleScope, 'chat-1')).toBe(true)
+    expect(reloadChatBody).toHaveBeenCalledWith(roleScope, 'chat-1', { authoritative: true })
+    expect(state.data.chatsByRole['role-1'].chats[0].messages.map((message: any) => message.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('同一会话并发重取共享一次权威拉取', async () => {
+    let release: (value: any) => void = () => {}
+    const gate = new Promise((resolve) => { release = resolve })
+    const { sync, reloadChatBody } = makeHarness({ reload: () => gate })
+
+    const first = sync.syncChatById(roleScope, 'chat-1')
+    const second = sync.syncChatById(roleScope, 'chat-1')
+    release({ id: 'chat-1', updatedAt: 2, messages: [{ id: 'm1', content: '权威正文' }] })
+
+    expect(await first).toBe(true)
+    expect(await second).toBe(true)
+    expect(reloadChatBody).toHaveBeenCalledTimes(1)
   })
 
   it('正文重取期间会话被删除：旧正文不回填内存', async () => {

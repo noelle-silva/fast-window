@@ -34,52 +34,25 @@ export function useChatMessageIndex(deps: {
     }
     return m
   }, [chatAllMessagesRaw, chatAllMessagesRaw.length, Number((renderChat as any)?.updatedAt || 0)])
+  // 上一轮助手只按后台父子拓扑回溯：
+  // assistant.parentMid 指向用户消息，用户消息的 parentMid 才是上一轮助手。
+  // 禁止用数组顺序推断「上一个 AI 消息」，那是第二套拓扑。
   const prevAiMidByAssistantId = React.useMemo(() => {
     const out = new Map<string, string>()
-    const msgs = chatAllMessagesRaw
-
-    const findPrevAi = (assistantMid: string) => {
-      const aiIndex = chatAllIndexById.get(assistantMid)
-      if (aiIndex == null || aiIndex < 0) return ''
-      const target = msgs[aiIndex]
-      if (!target || target.role !== 'assistant') return ''
-
-      let userMid = String((target as any)?.parentMid || '').trim()
-      let userMsg = userMid ? (chatAllById.get(userMid) || null) : null
-      if (!userMsg || userMsg.role !== 'user') {
-        for (let i = aiIndex - 1; i >= 0; i--) {
-          const m = msgs[i]
-          if (m && m.role === 'user') {
-            userMsg = m
-            userMid = String(m?.id || '').trim()
-            break
-          }
-          if (m && m.role === 'assistant') break
-        }
-      }
-      if (!userMsg || userMsg.role !== 'user') return ''
-
-      const p0 = String((userMsg as any)?.parentMid || '').trim()
-      const pMsg = p0 ? (chatAllById.get(p0) || null) : null
-      if (pMsg && pMsg.role === 'assistant') return String(pMsg?.id || '').trim()
-
-      const uidx = userMid ? (chatAllIndexById.get(userMid) ?? -1) : -1
-      const start = uidx >= 0 ? uidx - 1 : aiIndex - 1
-      for (let i = start; i >= 0; i--) {
-        const m = msgs[i]
-        if (m && m.role === 'assistant') return String(m?.id || '').trim()
-      }
-      return ''
-    }
-
-    for (const m of msgs) {
-      if (!m || m.role !== 'assistant') continue
-      const mid = String(m?.id || '').trim()
+    for (const message of chatAllMessagesRaw) {
+      if (!message || message.role !== 'assistant') continue
+      const mid = String(message?.id || '').trim()
       if (!mid || out.has(mid)) continue
-      out.set(mid, findPrevAi(mid))
+      const userMid = String((message as any)?.parentMid || '').trim()
+      const userMessage = userMid ? chatAllById.get(userMid) || null : null
+      if (!userMessage || userMessage.role !== 'user') continue
+      const prevAiMid = String((userMessage as any)?.parentMid || '').trim()
+      const prevAi = prevAiMid ? chatAllById.get(prevAiMid) || null : null
+      if (!prevAi || prevAi.role !== 'assistant') continue
+      out.set(mid, prevAiMid)
     }
     return out
-  }, [chatAllMessagesRaw, chatAllMessagesRaw.length, Number((renderChat as any)?.updatedAt || 0), chatAllById, chatAllIndexById])
+  }, [chatAllMessagesRaw, chatAllMessagesRaw.length, Number((renderChat as any)?.updatedAt || 0), chatAllById])
   const activeSessionRunCards = readActiveEbRunCardsForTarget(s, activeTargetKind, String(activeChatTargetId || ''), renderChatId)
   const activeSessionRunCardsKey = activeSessionRunCards
     .map((card: any) => `${String(card?.runId || '')}:${String(card?.lastMessageId || '')}:${String(card?.status || '')}:${String(card?.retry?.attempt || '')}:${String(card?.retry?.retryAt || '')}:${String(card?.retry?.failure?.message || '')}:${Number(card?.updatedAt || 0)}`)

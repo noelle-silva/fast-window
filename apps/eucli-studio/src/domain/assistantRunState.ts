@@ -30,10 +30,6 @@ export type AssistantRunSignal = {
   expiresAt?: number
 }
 
-export type AssistantMessageMergeOptions = {
-  storedChatStatus?: unknown
-}
-
 function normalizeRunStatus(value: unknown): AssistantRunStatus {
   const s = String(value || '').trim()
   if (s === 'queued' || s === 'running' || s === 'succeeded' || s === 'failed' || s === 'canceled') return s
@@ -49,11 +45,6 @@ function normalizeRunMode(value: unknown): AssistantRunMode {
 function finiteTime(value: unknown, fallback: number) {
   const n = Number(value)
   return isFinite(n) && n > 0 ? n : fallback
-}
-
-function isTerminalStoredChatStatus(value: unknown) {
-  const status = String(value || '').trim().toLowerCase()
-  return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'canceled'
 }
 
 function isTerminalToolPartState(value: unknown) {
@@ -73,24 +64,6 @@ export function hasSettledAssistantToolParts(message: unknown) {
     hasSettledPart = true
   }
   return hasSettledPart
-}
-
-function storedMessageSettlesActiveRun(stored: any, options?: AssistantMessageMergeOptions) {
-  if (isTerminalStoredChatStatus(options?.storedChatStatus)) return true
-  if (stored?.error && typeof stored.error === 'object') return true
-  return hasSettledAssistantToolParts(stored)
-}
-
-// isPlaceholderOnly 判断一条助手消息是否只是 UI 占位哨兵：
-// 正文是占位文案、没有 parts、没有错误、也没有可见产出。
-// 这种消息不承载任何事实，合并时必须让位给真实数据。
-export function isPlaceholderOnly(message: unknown) {
-  const m = message && typeof message === 'object' ? (message as any) : null
-  if (!m || m.role !== 'assistant') return false
-  if (String(m.content ?? '').trim() !== ASSISTANT_RUNNING_CONTENT) return false
-  if (Array.isArray(m.parts) && m.parts.length) return false
-  if (m.error && typeof m.error === 'object') return false
-  return true
 }
 
 export function normalizeAssistantRunState(raw: unknown): AssistantRunState | null {
@@ -134,21 +107,6 @@ export function isAssistantRunInterrupted(message: unknown) {
   const run = normalizeAssistantRunState(m.assistantRun)
   if (run && (run.status === 'failed' || run.status === 'canceled')) return true
   return !!(m.error && typeof m.error === 'object')
-}
-
-export function hasAssistantVisibleOutput(message: unknown) {
-  const m = message && typeof message === 'object' ? (message as any) : null
-  if (!m || m.role !== 'assistant') return false
-  const content = String(m.content ?? '').trim()
-  if (content && content !== ASSISTANT_RUNNING_CONTENT) return true
-  const parts = Array.isArray(m.parts) ? m.parts : []
-  return parts.some((part: any) => {
-    if (!part || typeof part !== 'object') return false
-    const type = String(part.type || '').trim()
-    if (type === 'text') return !!String(part.text || '').trim()
-    if (type === 'reasoning') return !!String(part.text || '').trim()
-    return type === 'tool'
-  })
 }
 
 export function hasAssistantPrimaryOutput(message: unknown) {
@@ -275,38 +233,4 @@ export function finishAssistantRun(message: any, content: unknown, status: Assis
   }
   writeChatMessageFields(message, fields)
   return changed
-}
-
-export function resolveAssistantMessageForMerge(localMessage: any, storedMessage: any, options?: AssistantMessageMergeOptions) {
-  const local = localMessage && typeof localMessage === 'object' ? localMessage : null
-  const stored = storedMessage && typeof storedMessage === 'object' ? storedMessage : null
-  if (!local || !stored) return localMessage
-  if (local.role !== 'assistant' || stored.role !== 'assistant') return localMessage
-
-  const localRun = normalizeAssistantRunState(local.assistantRun)
-  const storedRun = normalizeAssistantRunState(stored.assistantRun)
-  const localActive = isAssistantGenerating(local)
-  const storedActive = isAssistantGenerating(stored)
-
-  if (localRun && storedRun && localRun.generationId === storedRun.generationId) {
-    if (!storedActive && localActive) return stored
-    if (!localActive && storedActive) return local
-    return Number(storedRun.updatedAt || 0) > Number(localRun.updatedAt || 0) ? stored : local
-  }
-
-  if (localRun && storedRun && localRun.generationId !== storedRun.generationId) {
-    return Number(storedRun.startedAt || 0) > Number(localRun.startedAt || 0) ? stored : local
-  }
-
-  if (localActive && !storedActive) {
-    if (!localRun) return stored
-    // 本地只有占位、存储已有真实产出：占位是 UI 哨兵，不承载任何事实，
-    // 必须让位给真实正文（窗口刷新不带会话状态时也会走到这里）。
-    if (isPlaceholderOnly(local) && hasAssistantVisibleOutput(stored)) return stored
-    if (storedMessageSettlesActiveRun(stored, options)) return stored
-    return local
-  }
-  if (!localActive && storedActive) return local
-
-  return local
 }

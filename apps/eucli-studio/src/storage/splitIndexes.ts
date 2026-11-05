@@ -81,6 +81,7 @@ export type StoredChatIndex = {
   activeChatId: string
   chatIds: string[]
   chatUpdatedAt: Record<string, number>
+  chatVersions: Record<string, number>
   chatMetas: ChatMeta[]
   updatedAt: number
   revision: number
@@ -106,6 +107,7 @@ export function normalizeStoredChatIndex(raw: any, scope: ProjectionScope, fallb
     activeChatId: String(index.activeChatId || ''),
     chatIds: chatIds.length ? chatIds : chatMetas.map((meta) => meta.id),
     chatUpdatedAt: numberMap(index.chatUpdatedAt),
+    chatVersions: numberMap(index.chatVersions),
     chatMetas,
     updatedAt: Number(index.updatedAt || 0),
     revision: Number(index.revision || 0),

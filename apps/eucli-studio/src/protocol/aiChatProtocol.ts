@@ -72,6 +72,8 @@ export const AI_CHAT_DIRECT_EVENT = {
   runFinal: 'aiChat.run.final',
   chatUpdated: 'aiChat.chat.updated',
   eucliBoxRunEvent: 'eucliBox.run.event',
+  // 会话变更广播：载荷携带 version，客户端据此判定事实新旧。
+  eucliBoxSessionChange: 'eucliBox.session.change',
 } as const
 
 export type AiChatDirectMethod = (typeof AI_CHAT_DIRECT_METHOD)[keyof typeof AI_CHAT_DIRECT_METHOD]

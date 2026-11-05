@@ -1,54 +1,44 @@
 // 「会话正文」的事实优先级规则。
 //
-// 会话正文有两层事实：
-//   1. 单条消息：同 id 的存储快照（server-fact）与本地运行期消息
-//      （runtime-transient）冲突时，谁代表更新的事实；
-//   2. 消息集合：哪些消息允许存在，删除的消息不能被旧快照复活。
+// 消息事实只有一个权威来源：后台快照（server-fact）。
+// 前端视图 = 后台快照整体覆盖 + 最上层「回复生成期间的临时遮罩」。
+//
+//   - 同 id 冲突：后台消息整体覆盖本地消息，不逐字段对账、不做本地胜负裁决；
+//   - 临时遮罩：仅当本地消息仍处于回复生成期间（runtimeOnly），才允许覆盖显示字段；
+//     消息身份、顺序与父子拓扑字段仍取后台消息；
+//   - 消息集合：成员资格与顺序只由后台快照决定；后台还没有的在途消息
+//     只是遮罩补入显示，不构成事实（删除不会因为本地在途而复活）。
 //
 // 字段层（content / parts / assistantRun ...）没有独立的跨来源优先级：
 // 整条消息的归属先在这里裁定，写入统一走 chatMessageFields。
-// 因此本模块不提供「字段级 LWW」，字段写入只允许幂等补丁。
 
-import {
-  hasAssistantVisibleOutput,
-  isAssistantGenerating,
-  resolveAssistantMessageForMerge,
-} from './assistantRunState'
-import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, chatMessageMaterialKind, isAssistantTextChatMessage } from './message'
 import { isRuntimeMessageInFlight } from './runtimeMessageMarker'
 
 function messageIdOf(message: any): string {
   return String(message?.id || '').trim()
 }
 
-function hasSameMaterialKind(left: any, right: any) {
-  return chatMessageMaterialKind(left) === chatMessageMaterialKind(right)
+// 临时遮罩不得改写后台事实里的身份、顺序与父子拓扑。
+const RUNTIME_OVERLAY_TOPOLOGY_FIELDS = new Set(['id', 'parentMid', 'branchId', 'createdAt'])
+
+// applyRuntimeMessageOverlay 把在途临时状态叠到后台消息之上：
+// 显示字段取本地在途值，身份 / 顺序 / 拓扑仍取后台快照。
+function applyRuntimeMessageOverlay(serverMessage: any, localMessage: any): any {
+  const out = { ...serverMessage }
+  const source = localMessage && typeof localMessage === 'object' ? localMessage : {}
+  for (const key of Object.keys(source)) {
+    if (RUNTIME_OVERLAY_TOPOLOGY_FIELDS.has(key)) continue
+    out[key] = source[key]
+  }
+  return out
 }
 
-// 材料身份冲突（普通消息 vs 异步工具结果）只有一个方向：
-// 双方谁都不是对方可替代的投影，异步工具结果是更强的产物，保留它；
-// 否则以服务端快照为准。
-function resolveMaterialIdentityConflict(currentMessage: any, storedMessage: any) {
-  const currentKind = chatMessageMaterialKind(currentMessage)
-  const storedKind = chatMessageMaterialKind(storedMessage)
-  if (currentKind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return currentMessage
-  if (storedKind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return storedMessage
-  return storedMessage
-}
-
-// shouldPreserveRuntimeOnlyMessage 判断一条本地消息是否必须保留。
+// shouldPreserveRuntimeOnlyMessage 判断一条本地消息能否作为临时遮罩补入视图。
 //
-// 运行期独占标记只表示：消息正在前台生成、尚未被后台快照确认。
-// 判定基于这个显式标记，而不是「是否还在生成」或「是否有可见产出」：
-//   - 标记在终态收敛与后台快照确认时清除，是唯一允许压过后台事实的本地临时态；
-//   - 用「有可见产出」判定：已删除的消息会被重新捞回来（复活）。
+// 判据只有「回复生成期间」这一条：在途标记在终态收敛与后台快照确认时清除。
+// 遮罩不构成事实，因此不按来源、材料类型或可见产出另设保留条件。
 export function shouldPreserveRuntimeOnlyMessage(message: any): boolean {
-  const kind = chatMessageMaterialKind(message)
-  if (kind === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT) return true
-  if (!isAssistantTextChatMessage(message)) return false
-  if (!isRuntimeMessageInFlight(message)) return false
-  if (hasAssistantVisibleOutput(message)) return true
-  return !!(message?.error && typeof message.error === 'object')
+  return isRuntimeMessageInFlight(message)
 }
 
 export type ChatMessageFactInput = {
@@ -56,62 +46,30 @@ export type ChatMessageFactInput = {
   serverMessage: any
   // 本地内存里的同一 id 消息（可能是 runtime-transient）。
   localMessage: any
-  // 存储会话的原始状态，用于判断服务端是否已经收口。
-  storedChatStatus?: unknown
 }
 
-// resolveChatMessageFact 是「同 id 单条消息」的唯一裁决规则。
-//
-// 顺序与例外：
-//   - 材料身份冲突：异步工具结果优先，其余以服务端为准；
-//   - 非助手文本消息：以服务端为准；
-//   - 在途的运行期独占消息：服务端若只是旧占位，本地保留；
-//     服务端已完整且本地更旧，则服务端胜出；
-//   - 双方都已收敛：服务端胜出（落盘事实）；
-//   - 仍有一方在生成：交给运行态合并规则（同一 run 取更新者）。
+// resolveChatMessageFact 是「同 id 单条消息」的唯一裁决规则：
+// 后台消息整体覆盖本地视图；唯一例外是在途临时遮罩。
 export function resolveChatMessageFact(input: ChatMessageFactInput): any {
-  const currentMessage = input.localMessage
-  const storedMessage = input.serverMessage
-  if (!currentMessage) return storedMessage
-  if (!storedMessage) return currentMessage
-  if (!hasSameMaterialKind(currentMessage, storedMessage)) {
-    return resolveMaterialIdentityConflict(currentMessage, storedMessage)
-  }
-  if (!isAssistantTextChatMessage(currentMessage) || !isAssistantTextChatMessage(storedMessage)) return storedMessage
-
-  if (isRuntimeMessageInFlight(currentMessage)) {
-    const currentAt = Number(currentMessage.updatedAt || 0)
-    const storedAt = Number(storedMessage.updatedAt || 0)
-    // 服务端快照是否已经包含可用的最终产出。
-    const storedComplete =
-      hasAssistantVisibleOutput(storedMessage) || !!(storedMessage?.error && typeof storedMessage.error === 'object')
-    if (!storedComplete) return currentMessage
-    if (currentAt > storedAt) return currentMessage
-  }
-
-  if (!isAssistantGenerating(currentMessage) && !isAssistantGenerating(storedMessage)) return storedMessage
-  return resolveAssistantMessageForMerge(currentMessage, storedMessage, {
-    storedChatStatus: input.storedChatStatus,
-  })
+  const serverMessage = input.serverMessage
+  const localMessage = input.localMessage
+  if (!localMessage) return serverMessage
+  if (!serverMessage) return localMessage
+  if (!isRuntimeMessageInFlight(localMessage)) return serverMessage
+  return applyRuntimeMessageOverlay(serverMessage, localMessage)
 }
 
 export type ChatMessageCollectionFactInput = {
-  // 服务端快照消息（集合成员资格的权威来源）。
+  // 服务端快照消息（集合成员资格与顺序的权威来源）。
   serverMessages: any[]
-  // 本地已知消息（运行期合并时会包含尚未落盘的消息）。
+  // 本地已知消息（可能包含尚未落盘的在途临时状态）。
   localMessages: any[]
-  // 同 id 消息的裁决函数；缺省走 resolveChatMessageFact。
-  resolveMessage?: (serverMessage: any, localMessage: any) => any
-  // 本地独有消息是否允许补入集合；缺省不允许。
-  shouldKeepLocalMessage?: (message: any) => boolean
 }
 
-// resolveChatMessageCollectionFact 是「消息集合」的唯一裁决规则。
-//
-//   - 集合成员资格以服务端为准：本地有、服务端没有的消息默认不保留
-//     （删除不会因为一份旧本地文档而复活）；
-//   - 只有显式运行期独占的消息才允许补入集合；
-//   - 顺序以服务端快照为主，补入的本地消息追加在末尾。
+// resolveChatMessageCollectionFact 是「消息集合」的唯一裁决规则：
+//   - 成员资格与顺序以服务端快照为准；
+//   - 同 id 消息按 resolveChatMessageFact 裁决（后台覆盖 / 在途遮罩）；
+//   - 服务端还没有的在途消息才允许遮罩补入，追加在末尾。
 export function resolveChatMessageCollectionFact(input: ChatMessageCollectionFactInput): any[] {
   const serverMessages = Array.isArray(input.serverMessages) ? input.serverMessages : []
   const localMessages = Array.isArray(input.localMessages) ? input.localMessages : []
@@ -121,19 +79,16 @@ export function resolveChatMessageCollectionFact(input: ChatMessageCollectionFac
     if (id && !localById.has(id)) localById.set(id, message)
   }
 
-  const resolveMessage = input.resolveMessage
-    || ((serverMessage: any, localMessage: any) => resolveChatMessageFact({ serverMessage, localMessage }))
-
   const merged = serverMessages.map((serverMessage: any) => {
     const localMessage = localById.get(messageIdOf(serverMessage)) || null
-    return localMessage ? resolveMessage(serverMessage, localMessage) : serverMessage
+    return localMessage ? resolveChatMessageFact({ serverMessage, localMessage }) : serverMessage
   })
 
   const ids = new Set(merged.map(messageIdOf).filter(Boolean))
   for (const localMessage of localMessages) {
     const id = messageIdOf(localMessage)
     if (!id || ids.has(id)) continue
-    if (input.shouldKeepLocalMessage && !input.shouldKeepLocalMessage(localMessage)) continue
+    if (!shouldPreserveRuntimeOnlyMessage(localMessage)) continue
     merged.push(localMessage)
     ids.add(id)
   }

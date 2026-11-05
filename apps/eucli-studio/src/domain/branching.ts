@@ -66,31 +66,6 @@ export function normalizeChatBranching(raw: any, fallbackHeadMid: string, create
   return { schemaVersion: CHAT_BRANCHING_SCHEMA_VERSION, activeBranchId, branches: Array.from(byId.values()).slice(0, 200) }
 }
 
-export function rebuildLinearBranchingMessages(messages: any[], branchId: string) {
-  const bid = normalizeBranchId(branchId)
-  const list = Array.isArray(messages) ? messages : []
-  let prev = ''
-  for (const m of list) {
-    if (!m || typeof m !== 'object') continue
-    ;(m as any).branchId = bid
-    ;(m as any).parentMid = prev
-    prev = String((m as any).id || '')
-  }
-  return prev
-}
-
-export function fillMissingBranchIdsOnly(messages: any[], branchId: string) {
-  const bid = normalizeBranchId(branchId)
-  const list = Array.isArray(messages) ? messages : []
-  let last = ''
-  for (const m of list) {
-    if (!m || typeof m !== 'object') continue
-    if (!String((m as any).branchId || '').trim()) (m as any).branchId = bid
-    last = String((m as any).id || '')
-  }
-  return last
-}
-
 type ChatBranchHeadWrite = {
   branchId: string
   headMid: string
@@ -149,35 +124,6 @@ export function touchActiveBranchHead(chat: any) {
   const branching = normalizeChatBranching((c as any).branching, lastMid, createdAt, updatedAt)
   const bid = normalizeBranchId((branching as any).activeBranchId)
   writeChatBranchingState(c, { heads: [{ branchId: bid, headMid: lastMid, updatedAt }] })
-}
-
-export function repairChatLinearBranching(chat: any) {
-  const c = chat && typeof chat === 'object' ? chat : null
-  if (!c) return
-  const msgs = Array.isArray((c as any).messages) ? (c as any).messages : []
-  const createdAt = Number((c as any).createdAt || now())
-  const updatedAt = Number((c as any).updatedAt || createdAt || now())
-  const lastMid0 = msgs.length ? String((msgs[msgs.length - 1] as any)?.id || '') : ''
-  const branching = normalizeChatBranching((c as any).branching, lastMid0, createdAt, updatedAt)
-  const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
-  const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
-  const idSet = new Set<string>()
-  for (const b of branches) {
-    const id = normalizeBranchId((b as any)?.id)
-    if (id) idSet.add(id)
-    if (idSet.size >= 2) break
-  }
-  let headMid = ''
-  if (idSet.size >= 2) {
-    fillMissingBranchIdsOnly(msgs, activeBranchId)
-    const b0 = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
-    const curHead = String((b0 as any)?.headMid || '').trim()
-    const exists = !!curHead && msgs.some((m: any) => String(m?.id || '') === curHead)
-    headMid = exists ? curHead : lastMid0
-  } else {
-    headMid = rebuildLinearBranchingMessages(msgs, activeBranchId)
-  }
-  writeChatBranchingState(c, { heads: [{ branchId: activeBranchId, headMid, updatedAt }] })
 }
 
 export function ensureChatBranching(chat: any) {
@@ -498,46 +444,25 @@ export function findChatMessageById(chat: any, messageId: any) {
   return msgs.find((m: any) => m && typeof m === 'object' && String(m?.id || '') === mid) || null
 }
 
+// findPrevAssistantMidForAssistant 只按后台父子拓扑回溯上一轮助手消息：
+// assistant.parentMid 指向用户消息，用户消息的 parentMid 才是上一轮助手。
+// 绝不按数组顺序推断拓扑。
 export function findPrevAssistantMidForAssistant(chat: any, assistantMid: any) {
   const mid = String(assistantMid || '').trim()
   if (!mid) return ''
   const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-  const aiIndex = msgs.findIndex((m: any) => String(m?.id || '') === mid)
-  if (aiIndex < 0) return ''
-  const target = msgs[aiIndex]
+  const byId = new Map<string, any>()
+  for (const m of msgs) {
+    const id = String(m?.id || '').trim()
+    if (id && !byId.has(id)) byId.set(id, m)
+  }
+  const target = byId.get(mid) || null
   if (!target || String(target?.role || '') !== 'assistant') return ''
-  let userMid = String((target as any)?.parentMid || '').trim()
-  let userMsg = userMid ? (msgs.find((m: any) => String(m?.id || '') === userMid) || null) : null
-  if (!userMsg || String(userMsg?.role || '') !== 'user') {
-    for (let i = aiIndex - 1; i >= 0; i--) {
-      const m = msgs[i]
-      if (m && m.role === 'user') { userMsg = m; userMid = String(m?.id || '').trim(); break }
-      if (m && m.role === 'assistant') break
-    }
-  }
-  if (!userMsg || String(userMsg?.role || '') !== 'user') return ''
-  const p0 = String((userMsg as any)?.parentMid || '').trim()
-  const pMsg = p0 ? (msgs.find((m: any) => String(m?.id || '') === p0) || null) : null
-  if (pMsg && pMsg.role === 'assistant') return String(pMsg.id || '').trim()
-  const uidx = userMid ? msgs.findIndex((m: any) => String(m?.id || '') === userMid) : -1
-  const start = uidx >= 0 ? uidx - 1 : aiIndex - 1
-  for (let i = start; i >= 0; i--) {
-    const m = msgs[i]
-    if (m && m.role === 'assistant') return String(m?.id || '').trim()
-  }
-  return ''
+  const userMid = String((target as any)?.parentMid || '').trim()
+  const userMessage = userMid ? byId.get(userMid) || null : null
+  if (!userMessage || String(userMessage?.role || '') !== 'user') return ''
+  const prevAiMid = String((userMessage as any)?.parentMid || '').trim()
+  const prevAi = prevAiMid ? byId.get(prevAiMid) || null : null
+  return prevAi && String(prevAi?.role || '') === 'assistant' ? prevAiMid : ''
 }
 
-export function findAssistantSiblingsByUserMid(chat: any, userMid: string) {
-  const uid0 = String(userMid || '').trim()
-  if (!uid0) return []
-  const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-  const list = msgs.filter((m: any) => m && m.role === 'assistant' && String(m?.parentMid || '').trim() === uid0)
-  list.sort((a: any, b: any) => {
-    const da = Number(a?.createdAt || 0)
-    const db = Number(b?.createdAt || 0)
-    if (da !== db) return da - db
-    return String(a?.id || '').localeCompare(String(b?.id || ''))
-  })
-  return list
-}

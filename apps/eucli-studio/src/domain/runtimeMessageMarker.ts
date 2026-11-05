@@ -18,10 +18,16 @@ function messageIdOf(message: any): string {
   return String(message?.id || '').trim()
 }
 
+// clearRuntimeMarkersConfirmedBySnapshot 让「后台已收口」的在途标记失效。
+//
+// 在途临时状态只在回复生成期间保留：后台快照的会话仍在生成时，
+// 快照里的旧页不得提前终结遮罩；只有会话已收口，标记才退出。
 export function clearRuntimeMarkersConfirmedBySnapshot(
   localMessages: readonly any[],
   serverMessages: readonly any[],
+  options?: { serverRunActive?: boolean },
 ): boolean {
+  if (options?.serverRunActive) return false
   const serverIds = new Set<string>()
   for (const message of serverMessages || []) {
     const id = messageIdOf(message)

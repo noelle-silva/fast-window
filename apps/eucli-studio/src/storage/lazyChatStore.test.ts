@@ -146,4 +146,34 @@ describe('upsertLoadedChat 是会话入状态的唯一入口', () => {
     expect(second?.messages.map((m: any) => [m.id, m.parentMid])).toEqual(first?.messages.map((m: any) => [m.id, m.parentMid]))
     expect(harness.state.data.chatsByRole['role-1'].chats).toHaveLength(1)
   })
+
+  it('权威会话版本进入内存，重新入状态不丢失、不回退', () => {
+    const harness = createHarness()
+    const first = harness.store.upsertLoadedChat('role', 'role-1', { ...rawSession, version: 4 })
+    expect(first?.sessionVersion).toBe(4)
+
+    // 已归一化会话再次入状态（没有 version 字段）：既有版本必须保留。
+    const second = harness.store.upsertLoadedChat('role', 'role-1', { ...first })
+    expect(second?.sessionVersion).toBe(4)
+
+    // 迟到的旧版本不得把本地已知版本回退。
+    const older = harness.store.upsertLoadedChat('role', 'role-1', { ...rawSession, version: 3 })
+    expect(older?.sessionVersion).toBe(4)
+  })
+
+  it('迟到的旧版本正文整体不得覆盖本地视图', () => {
+    const harness = createHarness()
+    const newer = harness.store.upsertLoadedChat('role', 'role-1', { ...rawSession, title: '新标题', version: 4 })
+    const stale = harness.store.upsertLoadedChat('role', 'role-1', {
+      ...rawSession,
+      title: '旧标题',
+      version: 3,
+      messages: [{ id: 'old', type: 'user', content: '旧正文', branchId: 'main', createdAt: rawSession.createdAt, updatedAt: rawSession.updatedAt }],
+    })
+
+    expect(stale).toBe(newer)
+    expect(stale?.title).toBe('新标题')
+    expect(stale?.messages.some((message: any) => message.id === 'old')).toBe(false)
+    expect(stale?.sessionVersion).toBe(4)
+  })
 })

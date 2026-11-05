@@ -54,23 +54,8 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     const userMsg = userMid0 ? msgs.find((m: any) => String(m?.id || '') === userMid0) || null : null
     if (!userMsg || userMsg.role !== 'user') return showToast?.('未找到对应的用户消息', { kind: 'error' })
 
-    let prevAiMid = ''
-    const p0 = String((userMsg as any)?.parentMid || '').trim()
-    const pMsg = p0 ? msgs.find((m: any) => String(m?.id || '') === p0) || null : null
-    if (pMsg && pMsg.role === 'assistant') prevAiMid = String(pMsg.id || '')
-    else {
-      const idx = msgs.findIndex((m: any) => String(m?.id || '') === userMid0)
-      if (idx >= 0) {
-        for (let i = idx - 1; i >= 0; i--) {
-          const m = msgs[i]
-          if (m && m.role === 'assistant') {
-            prevAiMid = String(m.id || '')
-            break
-          }
-        }
-      }
-    }
-
+    // 上一轮助手只由后台父子拓扑回溯；不再按数组顺序补造锚点。
+    const prevAiMid = findPrevAssistantMidForAssistant(chat, mid)
     if (!prevAiMid) return showToast?.('未找到上一条 AI 消息，无法新建分支', { kind: 'error' })
 
     state.branchDraft = {
@@ -105,38 +90,11 @@ export function createChatBranchOperations(shared: ReturnType<typeof createChatO
     if (!prevAiMid) return
 
     const msgs = Array.isArray((chat as any)?.messages) ? (chat as any).messages : []
-    const byId = new Map<string, any>()
-    for (const m of msgs) {
-      const id = String(m?.id || '').trim()
-      if (!id || byId.has(id)) continue
-      byId.set(id, m)
-    }
 
-    let sibs = msgs.filter((m: any) => {
+    const sibs = msgs.filter((m: any) => {
       if (!m || m.role !== 'assistant') return false
-      const userMid = String((m as any)?.parentMid || '').trim()
-      if (!userMid) return false
-      const u = byId.get(userMid) || null
-      if (!u || u.role !== 'user') return false
-      const p = String((u as any)?.parentMid || '').trim()
-      if (!p) return false
-      const pa = byId.get(p) || null
-      if (!pa || pa.role !== 'assistant') return false
-      return String(pa?.id || '').trim() === prevAiMid
+      return findPrevAssistantMidForAssistant(chat, String(m?.id || '')) === prevAiMid
     })
-
-    if (sibs.length < 2) {
-      const alt: any[] = []
-      for (const m of msgs) {
-        if (!m || m.role !== 'assistant') continue
-        const id = String(m?.id || '').trim()
-        if (!id) continue
-        const p = findPrevAssistantMidForAssistant(chat, id)
-        if (p && p === prevAiMid) alt.push(m)
-        if (alt.length >= 80) break
-      }
-      sibs = alt
-    }
 
     sibs.sort((a: any, b: any) => {
       const da = Number(a?.createdAt || 0)

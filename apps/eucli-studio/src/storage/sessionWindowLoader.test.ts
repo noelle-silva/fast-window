@@ -223,6 +223,20 @@ describe('createSessionWindowLoader', () => {
     expect(refreshOptions.head).toBe('m-head')
   })
 
+  it('authoritative 刷新不带本地 head：后台新增消息不能被旧视窗挡住', async () => {
+    const client = fakeSwitch([page([msg('m1', 1)], 'c2'), page([msg('m1', 1), msg('u-new', 2), msg('a-new', 3)], 'c2')])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      headFor: () => 'm1',
+    })
+    await loader.load(scope, 'chat-1')
+    const refreshed = await loader.refresh(scope, 'chat-1', { authoritative: true })
+
+    const refreshOptions = client.sessionWindow.mock.calls[1][2] as any
+    expect(refreshOptions).not.toHaveProperty('head')
+    expect(refreshed.messages.map((message: any) => message.id)).toEqual(['m1', 'u-new', 'a-new'])
+  })
+
   it('headFor 抛错时退化为不带 head（观测不改变行为分支）', async () => {
     const client = fakeSwitch([page([msg('m1', 1)], '')])
     const loader = createSessionWindowLoader({

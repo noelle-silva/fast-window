@@ -1083,9 +1083,21 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     refreshChatIndex: (scope) => projectionPipeline.refreshChatIndex(scope),
     isChatIndexSnapshotCurrent: (scope, snapshot) => projectionPipeline.isChatIndexSnapshotCurrent(scope, snapshot),
     // 正文永远是权威重取：reloadChatBody 先失效再取，绝不返回缓存旧正文。
-    reloadChatBody: (scope, chatId) => projectionPipeline.reloadChatBody(scope, chatId),
+    // 事件 / 版本对账会带 authoritative，跳过本地视窗 head。
+    reloadChatBody: (scope, chatId, options) => projectionPipeline.reloadChatBody(scope, chatId, options),
     // 入状态统一走 upsertLoadedChat（会话进入内存状态的唯一入口）。
     upsertLoadedChat: (kind, targetId, chat) => upsertLoadedChat(kind, targetId, chat),
+    // 工作区会话与角色 / 群聊共用事件版本对账：拉取后仍走 workspace 的入状态入口。
+    syncWorkspaceChatById: async (workspaceId, roleId, chatId) => {
+      const loaded = await reloadWorkspaceSession(workspaceId, roleId, chatId)
+      return !!loaded
+    },
+    // 断线恢复：工作区权威列表与摘要版本来自同一次读取，
+    // 列表成员（新增 / 删除）与正文版本一起收敛。
+    refreshWorkspaceChats: async (workspaceId, roleId) => {
+      const facts = await workspaceManager.refreshActiveWorkspaceChats(workspaceId, roleId)
+      return facts ? { chatVersions: facts.versions } : null
+    },
     // 版本门必须同时看代际：服务端重建后 revision 可能相同。
     getEpoch: () => projectionPipeline.versions().epoch,
     sessionWrites,

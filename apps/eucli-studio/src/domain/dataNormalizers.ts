@@ -14,12 +14,10 @@ import {
   normalizeBranchId,
   createDefaultChatBranching,
   normalizeChatBranching,
-  rebuildLinearBranchingMessages,
-  fillMissingBranchIdsOnly,
   resolveBranchHeadFact,
   setChatBranchHeadMid,
 } from './branching'
-import { hasExplicitMessageParentLinks, normalizeChatMessage } from './message'
+import { normalizeChatMessage } from './message'
 import { normalizeFavorites } from './favorites'
 import { chatMetasFromBox } from './chatMeta'
 import { writeChatListProjection } from './chatListProjection'
@@ -376,7 +374,6 @@ export function normalizeData(raw: any) {
         const createdAt = normalizeTimeMs(cc.createdAt, now())
         const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
         const messages = Array.isArray(cc.messages) ? cc.messages : []
-        const hasMessageTree = hasExplicitMessageParentLinks(messages)
         const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
         const hasBranching = hasStoredBranching((cc as any).branching)
         const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
@@ -397,20 +394,8 @@ export function normalizeData(raw: any) {
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 
-		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-        const idSet = new Set<string>()
-        for (const b of branches0) {
-          const id = normalizeBranchId((b as any)?.id)
-          if (id) idSet.add(id)
-          if (idSet.size >= 2) break
-        }
-        let headMid = ''
-        if (idSet.size >= 2 || hasMessageTree) {
-          fillMissingBranchIdsOnly(out.messages, activeBranchId)
-          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
-        } else {
-          headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
-        }
+        // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
+        const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
         try {
           setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}
@@ -492,7 +477,6 @@ export function normalizeData(raw: any) {
         const createdAt = normalizeTimeMs(cc.createdAt, now())
         const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
         const messages = Array.isArray(cc.messages) ? cc.messages : []
-        const hasMessageTree = hasExplicitMessageParentLinks(messages)
         const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
         const hasBranching = hasStoredBranching((cc as any).branching)
         const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
@@ -514,20 +498,8 @@ export function normalizeData(raw: any) {
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 
-		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-        const idSet = new Set<string>()
-        for (const b of branches0) {
-          const id = normalizeBranchId((b as any)?.id)
-          if (id) idSet.add(id)
-          if (idSet.size >= 2) break
-        }
-        let headMid = ''
-        if (idSet.size >= 2 || hasMessageTree) {
-          fillMissingBranchIdsOnly(out.messages, activeBranchId)
-          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
-        } else {
-          headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
-        }
+        // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
+        const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
         try {
           setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}
@@ -586,7 +558,6 @@ export function normalizeData(raw: any) {
         const createdAt = normalizeTimeMs(cc.createdAt, now())
         const updatedAt = normalizeTimeMs(cc.updatedAt, createdAt)
         const messages = Array.isArray(cc.messages) ? cc.messages : []
-        const hasMessageTree = hasExplicitMessageParentLinks(messages)
         const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
         const hasBranching = hasStoredBranching((cc as any).branching)
         const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
@@ -609,20 +580,8 @@ export function normalizeData(raw: any) {
 		Object.assign(out, normalizeSessionFacts(cc))
 		applySessionUsage(out, cc)
 
-		const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
-        const idSet = new Set<string>()
-        for (const b of branches0) {
-          const id = normalizeBranchId((b as any)?.id)
-          if (id) idSet.add(id)
-          if (idSet.size >= 2) break
-        }
-        let headMid = ''
-        if (idSet.size >= 2 || hasMessageTree) {
-          fillMissingBranchIdsOnly(out.messages, activeBranchId)
-          headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
-        } else {
-          headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
-        }
+        // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
+        const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
         try {
           setChatBranchHeadMid(out, activeBranchId, headMid, { updatedAt })
         } catch (_) {}

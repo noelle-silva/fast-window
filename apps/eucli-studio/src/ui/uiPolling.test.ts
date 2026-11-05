@@ -6,12 +6,19 @@ import { projectionScopeKey, type ChatIndexSnapshot, type ProjectionScope } from
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { AI_CHAT_DIRECT_EVENT } from '../protocol/aiChatProtocol'
 
-function snapshot(revision: number, ids: string[], activeChatId = '', scopeKey = 'role:role-1'): ChatIndexSnapshot {
+function snapshot(
+  revision: number,
+  ids: string[],
+  activeChatId = '',
+  scopeKey = 'role:role-1',
+  versions: Record<string, number> = {},
+): ChatIndexSnapshot {
   return {
     scope: scopeKey,
     activeChatId,
     chatIds: ids,
     chatUpdatedAt: Object.fromEntries(ids.map((id, index) => [id, 1000 + index])),
+    chatVersions: versions,
     chatMetas: ids.map((id, index) => ({
       id,
       title: `会话${id}`,
@@ -58,6 +65,8 @@ type HarnessOptions = {
   kind?: 'role' | 'group'
   revisions: number[]
   ids?: string[]
+  // 索引摘要携带的会话版本：断线恢复只比较它，不猜时间。
+  versions?: Record<string, number>
   // 每次 refresh 之后 epoch 取这个函数的值（模拟服务端换代）。
   epoch?: () => number
   bodies?: Record<string, any>
@@ -76,7 +85,7 @@ function makeHarness(options: HarnessOptions) {
   const refreshChatIndex = vi.fn(async () => {
     const revision = options.revisions[Math.min(call, options.revisions.length - 1)]
     call += 1
-    return snapshot(revision, options.ids || ['chat-1', 'chat-2'], 'chat-1', scopeKey)
+    return snapshot(revision, options.ids || ['chat-1', 'chat-2'], 'chat-1', scopeKey, options.versions || {})
   })
   const reloadChatBody = vi.fn(async (requested: ProjectionScope, chatId: string) => {
     const body = options.bodies?.[chatId]
@@ -104,6 +113,8 @@ function makeHarness(options: HarnessOptions) {
     isChatIndexSnapshotCurrent: options.isChatIndexSnapshotCurrent,
     reloadChatBody,
     upsertLoadedChat,
+    syncWorkspaceChatById: vi.fn(async () => false),
+    refreshWorkspaceChats: vi.fn(async () => null),
     getEpoch: options.epoch,
   })
   return { polling, state, scope, emit, refreshChatIndex, reloadChatBody, upsertLoadedChat }
@@ -272,7 +283,7 @@ describe('uiPolling 对账取回权威正文', () => {
     })
     await polling.uiPollTick()
     // 索引里 chat-1 的 updatedAt 是 1000，本地没有会话 → 必须取回正文。
-    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1')
+    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1', { authoritative: true })
   })
 
   it('运行中的会话不被对账覆盖', async () => {
@@ -425,8 +436,424 @@ describe('uiPolling notice 对账', () => {
 
     const applied = await polling.applyChatUpdatedNoticeOnce({ id: 'n1', targetKind: 'role', targetId: 'role-1', chatId: 'chat-1', updatedAt: 9000 })
     expect(applied).toBe(true)
-    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1')
+    expect(reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1', { authoritative: true })
     expect(roleBox.chats[0].messages[0].content).toBe('通知后的正文')
+  })
+})
+
+function sessionChangePayload(overrides: Record<string, any> = {}) {
+  return {
+    targetKind: 'message',
+    location: { kind: 'role', roleId: 'role-1', groupId: '', workspaceId: '', sessionId: 'chat-1' },
+    changeType: 'message_added',
+    version: 3,
+    occurredAt: '2026-06-03T10:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function emitSessionChange(listener: (event: any) => void, overrides: Record<string, any> = {}) {
+  listener({ name: AI_CHAT_DIRECT_EVENT.eucliBoxSessionChange, payload: sessionChangePayload(overrides) })
+}
+
+function seedLoadedChat(harness: ReturnType<typeof makeHarness>, chat: any) {
+  const box = harness.state.data.chatsByRole['role-1']
+  writeChatListProjection(box, {
+    kind: 'replace',
+    chats: [chat],
+    chatMetas: [{ id: chat.id, title: chat.title || '会话', updatedAt: Number(chat.updatedAt || 0) }],
+  })
+  writeActiveChatSelection(box, chat.id)
+  return box
+}
+
+describe('uiPolling 会话变更广播', () => {
+  it('版本更高时按事件指向权威重取对应会话', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', version: 3, messages: [{ id: 'm1', content: '新正文' }], updatedAt: 3000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    const box = seedLoadedChat(harness, { id: 'chat-1', title: '会话', updatedAt: 1000, sessionVersion: 2, messages: [] })
+    harness.polling.startUiPollers()
+
+    emitSessionChange(listener!, { version: 3 })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.reloadChatBody).toHaveBeenCalledWith({ kind: 'role', targetId: 'role-1' }, 'chat-1', { authoritative: true })
+    expect(box.chats[0].messages[0].content).toBe('新正文')
+    expect(box.chats[0].sessionVersion).toBe(3)
+    expect(harness.emit.mock.calls.map((call: any[]) => call[0])).toContain('session:role:role-1:chat-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('版本不高于本地已知版本时忽略，不使视图倒退', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', version: 2, messages: [{ id: 'm1', content: '旧正文' }], updatedAt: 1000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    seedLoadedChat(harness, { id: 'chat-1', title: '会话', updatedAt: 2000, sessionVersion: 5, messages: [] })
+    harness.polling.startUiPollers()
+
+    emitSessionChange(listener!, { version: 5 })
+    emitSessionChange(listener!, { version: 4 })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.reloadChatBody).not.toHaveBeenCalled()
+    expect(harness.emit).not.toHaveBeenCalled()
+    harness.polling.stopUiPollers()
+  })
+
+  it('推送在拉取期间继续到达时只追加一次最新版本拉取', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', version: 2, messages: [{ id: 'm1', content: '正文' }], updatedAt: 2000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    seedLoadedChat(harness, { id: 'chat-1', title: '会话', updatedAt: 1000, sessionVersion: 1, messages: [] })
+    let pulls = 0
+    harness.reloadChatBody.mockImplementation(async (_scope: ProjectionScope, chatId: string) => {
+      pulls += 1
+      return {
+        id: chatId,
+        title: '会话',
+        version: pulls === 1 ? 2 : 3,
+        messages: [{ id: `m${pulls}`, content: '正文' }],
+        updatedAt: 2000 + pulls,
+      }
+    })
+    harness.polling.startUiPollers()
+
+    emitSessionChange(listener!, { version: 2 })
+    emitSessionChange(listener!, { version: 3 })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(harness.reloadChatBody.mock.calls.length).toBeLessThanOrEqual(2)
+    expect(harness.state.data.chatsByRole['role-1'].chats[0].sessionVersion).toBe(3)
+    harness.polling.stopUiPollers()
+  })
+
+  it('其他视窗的会话变更不影响当前视窗', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-1': { title: '会话', version: 9, messages: [], updatedAt: 3000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    seedLoadedChat(harness, { id: 'chat-1', title: '会话', updatedAt: 1000, sessionVersion: 1, messages: [] })
+    harness.polling.startUiPollers()
+
+    emitSessionChange(listener!, {
+      location: { kind: 'group', roleId: '', groupId: 'group-1', workspaceId: '', sessionId: 'chat-1' },
+      version: 9,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.reloadChatBody).not.toHaveBeenCalled()
+    harness.polling.stopUiPollers()
+  })
+
+  it('非当前目标但已加载的会话静默刷新，不打扰当前视窗', async () => {
+    let listener: ((event: any) => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      bodies: { 'chat-g': { title: '群聊会话', version: 4, messages: [{ id: 'm1', content: '后台新正文' }], updatedAt: 4000 } },
+      emitOnSubscribe: (fn) => { listener = fn },
+    })
+    const groupBox = (harness.state.data.chatsByGroup['group-1'] ||= { activeChatId: 'chat-g', chatMetas: [], chats: [] })
+    writeChatListProjection(groupBox, {
+      kind: 'replace',
+      chats: [{ id: 'chat-g', title: '群聊会话', updatedAt: 1000, sessionVersion: 3, messages: [] }],
+      chatMetas: [{ id: 'chat-g', title: '群聊会话', updatedAt: 1000 }],
+    })
+    harness.polling.startUiPollers()
+
+    emitSessionChange(listener!, {
+      location: { kind: 'group', roleId: '', groupId: 'group-1', workspaceId: '', sessionId: 'chat-g' },
+      version: 4,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.reloadChatBody).toHaveBeenCalledWith({ kind: 'group', targetId: 'group-1' }, 'chat-g', { authoritative: true })
+    expect(groupBox.chats[0].sessionVersion).toBe(4)
+    expect(harness.emit).not.toHaveBeenCalled()
+    harness.polling.stopUiPollers()
+  })
+})
+
+function makeWorkspaceHarness() {
+  const state: any = {
+    loading: false,
+    data: {
+      ui: { activeTargetKind: 'workspace', activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: 'ws-1' },
+      chatsByWorkspace: {
+        'ws-1::role-1': {
+          activeChatId: 'chat-1',
+          chatMetas: [{ id: 'chat-1', title: '工作区会话', createdAt: 1000, updatedAt: 1000 }],
+          chats: [{ id: 'chat-1', title: '工作区会话', createdAt: 1000, updatedAt: 1000, sessionVersion: 3, messages: [{ id: 'm1', content: '旧正文' }] }],
+        },
+      },
+    },
+    draft: { activeTargetKind: 'workspace', activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: 'ws-1' },
+  }
+  let listener: ((event: any) => void) | null = null
+  const syncWorkspaceChatById = vi.fn(async (_workspaceId: string, _roleId: string, chatId: string) => {
+    const box = state.data.chatsByWorkspace['ws-1::role-1']
+    writeChatListProjection(box, {
+      kind: 'upsert',
+      chat: { id: chatId, title: '工作区会话', updatedAt: 4000, messages: [{ id: 'm1', content: '外部编辑后的正文' }] },
+      fallbackTitle: '工作区会话',
+    })
+    box.chats[0].sessionVersion = 4
+    return true
+  })
+  const emit = vi.fn()
+  const polling = createUiPolling({
+    getState: () => state,
+    emitScope: emit,
+    subscribeDirectEvents: (next) => {
+      listener = next
+      return () => {}
+    },
+    activeTargetKind: () => 'workspace',
+    activeChatFromData: () => state.data.chatsByWorkspace['ws-1::role-1'].chats[0] || null,
+    refreshChatIndex: vi.fn(async () => null),
+    reloadChatBody: vi.fn(async () => null),
+    upsertLoadedChat: vi.fn(),
+    syncWorkspaceChatById,
+    refreshWorkspaceChats: vi.fn(async () => ({ chatVersions: {} })),
+  })
+  return { polling, state, emit, syncWorkspaceChatById, emitEvent: (event: any) => listener!(event) }
+}
+
+describe('uiPolling 工作区会话变更广播', () => {
+  function workspaceChange(version: number) {
+    return {
+      name: AI_CHAT_DIRECT_EVENT.eucliBoxSessionChange,
+      payload: {
+        targetKind: 'message',
+        location: { kind: 'workspace', roleId: 'role-1', groupId: '', workspaceId: 'ws-1', sessionId: 'chat-1' },
+        changeType: 'message_edited',
+        version,
+        occurredAt: '2026-06-03T10:00:00.000Z',
+      },
+    }
+  }
+
+  it('外部编辑后按版本权威重取工作区会话并实时刷新当前视窗', async () => {
+    const harness = makeWorkspaceHarness()
+    harness.polling.startUiPollers()
+
+    harness.emitEvent(workspaceChange(4))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.syncWorkspaceChatById).toHaveBeenCalledWith('ws-1', 'role-1', 'chat-1')
+    const chat = harness.state.data.chatsByWorkspace['ws-1::role-1'].chats[0]
+    expect(chat.messages[0].content).toBe('外部编辑后的正文')
+    expect(chat.sessionVersion).toBe(4)
+    expect(harness.emit.mock.calls.map((call: any[]) => call[0])).toContain('session:workspace:ws-1::role-1:chat-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('版本不高于本地已知版本时忽略工作区会话变更', async () => {
+    const harness = makeWorkspaceHarness()
+    harness.polling.startUiPollers()
+
+    harness.emitEvent(workspaceChange(3))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(harness.syncWorkspaceChatById).not.toHaveBeenCalled()
+    expect(harness.emit).not.toHaveBeenCalled()
+    harness.polling.stopUiPollers()
+  })
+})
+
+describe('uiPolling 工作区断线恢复版本核对', () => {
+  function makeWorkspaceReconnectHarness(options: {
+    localVersion: number
+    serverVersion: number
+    messages?: any[]
+  }) {
+    let reconnectListener: (() => void) | null = null
+    const state: any = {
+      loading: false,
+      data: {
+        ui: { activeTargetKind: 'workspace', activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: 'ws-1' },
+        chatsByWorkspace: {
+          'ws-1::role-1': {
+            activeChatId: 'chat-1',
+            chatMetas: [{ id: 'chat-1', title: '工作区会话', createdAt: 1000, updatedAt: 1000 }],
+            chats: [{ id: 'chat-1', title: '工作区会话', createdAt: 1000, updatedAt: 1000, sessionVersion: options.localVersion, messages: [{ id: 'm1', content: '旧正文' }] }],
+          },
+        },
+      },
+      draft: { activeTargetKind: 'workspace', activeRoleId: 'role-1', activeGroupId: '', activeWorkspaceId: 'ws-1' },
+    }
+    const refreshWorkspaceChats = vi.fn(async () => ({
+      chatVersions: { 'chat-1': options.serverVersion },
+    }))
+    const syncWorkspaceChatById = vi.fn(async (_workspaceId: string, _roleId: string, chatId: string) => {
+      const box = state.data.chatsByWorkspace['ws-1::role-1']
+      writeChatListProjection(box, {
+        kind: 'upsert',
+        chat: {
+          id: chatId,
+          title: '工作区会话',
+          updatedAt: 4000,
+          version: options.serverVersion,
+          messages: options.messages || [],
+        },
+        fallbackTitle: '工作区会话',
+      })
+      box.chats[0].sessionVersion = options.serverVersion
+      return true
+    })
+    const emit = vi.fn()
+    const polling = createUiPolling({
+      getState: () => state,
+      emitScope: emit,
+      subscribeDirectEvents: () => () => {},
+      onReconnected: (listener) => {
+        reconnectListener = listener
+        return () => { reconnectListener = null }
+      },
+      activeTargetKind: () => 'workspace',
+      activeChatFromData: () => state.data.chatsByWorkspace['ws-1::role-1'].chats[0] || null,
+      refreshChatIndex: vi.fn(async () => null),
+      reloadChatBody: vi.fn(async () => null),
+      upsertLoadedChat: vi.fn(),
+      syncWorkspaceChatById,
+      refreshWorkspaceChats,
+    })
+    return { polling, state, emit, refreshWorkspaceChats, syncWorkspaceChatById, reconnect: () => reconnectListener!() }
+  }
+
+  it('重连后按摘要版本拉回工作区正文，外部新增与删除一起收敛', async () => {
+    const harness = makeWorkspaceReconnectHarness({
+      localVersion: 3,
+      serverVersion: 4,
+      messages: [{ id: 'm2', content: '外部新增的正文' }],
+    })
+    harness.polling.startUiPollers()
+
+    harness.reconnect()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(harness.refreshWorkspaceChats).toHaveBeenCalledWith('ws-1', 'role-1')
+    expect(harness.syncWorkspaceChatById).toHaveBeenCalledTimes(1)
+    expect(harness.syncWorkspaceChatById).toHaveBeenCalledWith('ws-1', 'role-1', 'chat-1')
+    const chat = harness.state.data.chatsByWorkspace['ws-1::role-1'].chats[0]
+    expect(chat.messages.map((message: any) => message.id)).toEqual(['m2'])
+    expect(chat.sessionVersion).toBe(4)
+    const scopes = harness.emit.mock.calls.map((call: any[]) => call[0])
+    expect(scopes).toContain('chatList:workspace:ws-1::role-1')
+    expect(scopes).toContain('session:workspace:ws-1::role-1:chat-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('摘要版本与本地一致时不重复拉取工作区正文，但列表仍按权威事实收敛', async () => {
+    const harness = makeWorkspaceReconnectHarness({ localVersion: 4, serverVersion: 4 })
+    harness.polling.startUiPollers()
+
+    harness.reconnect()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(harness.refreshWorkspaceChats).toHaveBeenCalledTimes(1)
+    expect(harness.syncWorkspaceChatById).not.toHaveBeenCalled()
+    expect(harness.emit.mock.calls.map((call: any[]) => call[0])).toContain('chatList:workspace:ws-1::role-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('多个工作区恢复信号合并为一条核对链，不并发重取', async () => {
+    const harness = makeWorkspaceReconnectHarness({
+      localVersion: 3,
+      serverVersion: 4,
+      messages: [{ id: 'm2', content: '外部新增的正文' }],
+    })
+    harness.polling.startUiPollers()
+
+    harness.reconnect()
+    harness.reconnect()
+    harness.reconnect()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+
+    expect(harness.syncWorkspaceChatById).toHaveBeenCalledTimes(1)
+    harness.polling.stopUiPollers()
+  })
+})
+
+describe('uiPolling 断线恢复版本核对', () => {
+  function makeReconnectHarness(options: { localVersion: number; serverVersion: number }) {
+    let listener: (() => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      versions: { 'chat-1': options.serverVersion },
+      bodies: { 'chat-1': { title: '会话', version: options.serverVersion, messages: [{ id: 'm1', content: '权威正文' }], updatedAt: 3000 } },
+      onReconnected: (fn) => {
+        listener = fn
+        return () => { listener = null }
+      },
+    })
+    seedLoadedChat(harness, {
+      id: 'chat-1',
+      title: '会话',
+      updatedAt: 3000,
+      sessionVersion: options.localVersion,
+      messages: [{ id: 'm0', content: '本地正文' }],
+    })
+    harness.polling.startUiPollers()
+    return { harness, reconnect: () => listener!() }
+  }
+
+  it('索引版本更高时发起一次权威拉取并整体替换视图', async () => {
+    const { harness, reconnect } = makeReconnectHarness({ localVersion: 2, serverVersion: 3 })
+    reconnect()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(harness.reloadChatBody).toHaveBeenCalledTimes(1)
+    const chat = harness.state.data.chatsByRole['role-1'].chats[0]
+    expect(chat.messages[0].content).toBe('权威正文')
+    expect(chat.sessionVersion).toBe(3)
+    expect(harness.emit.mock.calls.map((call: any[]) => call[0])).toContain('chatList:role:role-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('索引版本与本地一致时不重复拉取正文', async () => {
+    const { harness, reconnect } = makeReconnectHarness({ localVersion: 3, serverVersion: 3 })
+    reconnect()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    expect(harness.reloadChatBody).not.toHaveBeenCalled()
+    expect(harness.refreshChatIndex).toHaveBeenCalledTimes(1)
+    expect(harness.emit.mock.calls.map((call: any[]) => call[0])).toContain('chatList:role:role-1')
+    harness.polling.stopUiPollers()
+  })
+
+  it('多个恢复信号合并为一条核对链，不重复拉取', async () => {
+    let signal: (() => void) | null = null
+    const harness = makeHarness({
+      revisions: [7],
+      versions: { 'chat-1': 3 },
+      bodies: { 'chat-1': { title: '会话', version: 3, messages: [{ id: 'm1', content: '权威正文' }], updatedAt: 3000 } },
+      onReconnected: (fn) => {
+        signal = fn
+        return () => { signal = null }
+      },
+    })
+    seedLoadedChat(harness, { id: 'chat-1', title: '会话', updatedAt: 3000, sessionVersion: 2, messages: [] })
+    harness.polling.startUiPollers()
+
+    signal!()
+    signal!()
+    signal!()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+
+    expect(harness.reloadChatBody).toHaveBeenCalledTimes(1)
+    harness.polling.stopUiPollers()
   })
 })
 

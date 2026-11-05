@@ -1,3 +1,4 @@
+import { applyLoadedSessionVersion } from '../domain/sessionVersion'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 
 type EbNetRequest = (req: any) => Promise<any>
@@ -101,7 +102,8 @@ export function workspaceSessionToChat(raw: unknown) {
     updatedAt,
     messages: list(session.messages).map((message) => ({ ...object(message) })),
   }
-  return normalizeStoredChat(chat, 'workspace')
+  // 会话版本是事件新旧的本地判据：归一化会丢掉原始载荷字段，必须在出口处保留。
+  return applyLoadedSessionVersion(normalizeStoredChat(chat, 'workspace'), session, null)
 }
 
 export function workspaceSessionSummaryToMeta(raw: unknown) {
@@ -123,6 +125,20 @@ export function workspaceSessionSummaryToMeta(raw: unknown) {
     runStatus: status === 'running' || status === 'waiting_confirmation' ? 'running' : 'idle',
     runStatusChangedAt: updatedAt,
   }
+}
+
+// 工作区会话摘要的 version 是断线恢复的版本指纹。
+// 版本表与列表来自同一次权威读取，调用方不得用本地时间推断新旧。
+export function workspaceSessionVersions(summariesRaw: unknown): Record<string, number> {
+  const versions: Record<string, number> = {}
+  for (const summaryRaw of list(summariesRaw)) {
+    const summary = object(summaryRaw)
+    const id = text(summary.id)
+    const version = Number(summary.version)
+    if (!id || !Number.isFinite(version) || version <= 0) continue
+    versions[id] = Math.floor(version)
+  }
+  return versions
 }
 
 function workspaceToWire(workspace: UiWorkspace) {

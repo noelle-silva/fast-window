@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { buildChatListIndex } from './ChatListIndex'
 
-function msg(id: string, role: 'user' | 'assistant') {
-  return { id, role, content: id }
+function msg(id: string, role: 'user' | 'assistant', parentMid = '') {
+  return { id, role, content: id, parentMid }
 }
 
 describe('chat list index', () => {
   it('maps run cards by message id', () => {
-    const assistant = { ...msg('a1', 'assistant'), assistantRun: { generationId: 'run-1', status: 'running' } }
+    const assistant = { ...msg('a1', 'assistant', 'u1'), assistantRun: { generationId: 'run-1', status: 'running' } }
     const card = { runId: 'run-1', lastMessageId: 'a1', status: 'running' }
     const index = buildChatListIndex({
       messages: [assistant],
@@ -20,8 +20,8 @@ describe('chat list index', () => {
   })
 
   it('precomputes branch siblings and their index', () => {
-    const s1 = msg('a1', 'assistant')
-    const s2 = msg('a2', 'assistant')
+    const s1 = msg('a1', 'assistant', 'u1')
+    const s2 = msg('a2', 'assistant', 'u1')
     const siblings = [s1, s2]
     const index = buildChatListIndex({
       messages: [s1, s2],
@@ -35,13 +35,14 @@ describe('chat list index', () => {
     expect(index.branchIndexByMid.get('a2')).toBe(1)
   })
 
-  it('precomputes the next assistant message for each user message', () => {
+  it('precomputes the next assistant message from the server parent topology', () => {
     const messages = [
-      msg('u1', 'user'),
-      msg('a1', 'assistant'),
-      msg('u2', 'user'),
-      msg('u3', 'user'),
-      msg('a3', 'assistant'),
+      msg('u1', 'user', ''),
+      msg('a1', 'assistant', 'u1'),
+      msg('u2', 'user', 'a1'),
+      // u2 没有助手子节点：与后台拓扑一致，没有重新回复目标。
+      msg('u3', 'user', 'a1'),
+      msg('a3', 'assistant', 'u3'),
     ]
     const index = buildChatListIndex({
       messages,
@@ -51,13 +52,25 @@ describe('chat list index', () => {
       assistantSiblingsByPrevAiMid: new Map(),
     })
     expect(index.nextAssistantMidByUserMid.get('u1')).toBe('a1')
-    // u2 后面紧跟另一条用户消息（u3）：与既有语义一致，没有重新回复目标。
     expect(index.nextAssistantMidByUserMid.get('u2')).toBeUndefined()
     expect(index.nextAssistantMidByUserMid.get('u3')).toBe('a3')
   })
 
   it('is O(n): index lookups do not scale with message count', () => {
-    const messages = Array.from({ length: 200 }, (_, i) => msg(`m-${i}`, i % 2 === 0 ? 'user' : 'assistant'))
+    const messages: any[] = []
+    let lastUserId = ''
+    let lastAssistantId = ''
+    for (let i = 0; i < 200; i++) {
+      if (i % 2 === 0) {
+        const id = `m-${i}`
+        messages.push(msg(id, 'user', lastAssistantId))
+        lastUserId = id
+      } else {
+        const id = `m-${i}`
+        messages.push(msg(id, 'assistant', lastUserId))
+        lastAssistantId = id
+      }
+    }
     const index = buildChatListIndex({
       messages,
       chatAllMessagesRaw: messages,

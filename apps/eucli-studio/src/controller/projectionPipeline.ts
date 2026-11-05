@@ -10,7 +10,7 @@ import {
 } from '../storage/splitProjectionCache'
 import { createActiveSelectionWriter, type ActiveSelectionWriter } from '../storage/activeSelectionWriter'
 import { createChatBodyLoader, type ChatBodyLoader } from '../storage/chatBodyLoader'
-import { createSessionWindowLoader, type SessionWindowLoader } from '../storage/sessionWindowLoader'
+import { createSessionWindowLoader, type SessionWindowLoader, type SessionWindowRefreshOptions } from '../storage/sessionWindowLoader'
 import { sessionIdentityFromMeta } from '../domain/sessionIdentity'
 import { normalizeStoredChatIndex } from '../storage/splitIndexes'
 import { splitChatKey, splitGroupChatIndexKey, splitGroupChatKey, splitRoleChatIndexKey } from '../domain/storageKeys'
@@ -60,7 +60,7 @@ export type ProjectionPipeline = {
   // 版本门守卫：只有仍被缓存承认的快照才允许驱动对账。
   isChatIndexSnapshotCurrent: (scope: ProjectionScope, snapshot: ChatIndexSnapshot | null) => boolean
   loadOlderMessages: (scope: ProjectionScope, chatId: string) => Promise<any>
-  reloadChatBody: (scope: ProjectionScope, chatId: string) => Promise<any>
+  reloadChatBody: (scope: ProjectionScope, chatId: string, options?: SessionWindowRefreshOptions) => Promise<any>
   invalidateSessionIndex: (kind: 'role' | 'group', targetId: string) => void
   invalidateCatalog: () => void
   invalidateChatBody: (scope: ProjectionScope, chatId: string) => void
@@ -155,6 +155,7 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
       activeChatId: stored.activeChatId,
       chatIds: stored.chatIds,
       chatUpdatedAt: stored.chatUpdatedAt,
+      chatVersions: stored.chatVersions,
       chatMetas: stored.chatMetas,
       updatedAt: stored.updatedAt || now(),
       revision: stored.revision,
@@ -175,6 +176,7 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
             activeChatId: snapshot.activeChatId,
             chatIds: snapshot.chatIds,
             chatUpdatedAt: snapshot.chatUpdatedAt,
+            chatVersions: snapshot.chatVersions,
             chatMetas: snapshot.chatMetas as any,
             updatedAt: snapshot.updatedAt,
             revision: snapshot.revision,
@@ -224,6 +226,7 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
       activeChatId: item.activeChatId,
       chatIds: item.chatIds,
       chatUpdatedAt: item.chatUpdatedAt,
+      chatVersions: item.chatVersions,
       chatMetas: item.chatMetas,
       updatedAt: item.updatedAt,
       revision: item.revision,
@@ -357,9 +360,9 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
   // reloadChatBody 是「写路径之后的重读」：
   //   - 窗口模式：重取首窗并保留已翻出的更早窗口，否则一次编辑就把长会话缩回首屏；
   //   - 整份模式：先失效缓存，再走一次正常 load（不能只失效就返回 null）。
-  async function reloadChatBody(scope: ProjectionScope, chatId: string) {
+  async function reloadChatBody(scope: ProjectionScope, chatId: string, options?: SessionWindowRefreshOptions) {
     if (sessionSwitch?.hasFeature('session.window')) {
-      const chat = await sessionWindows.refresh(scope, chatId)
+      const chat = await sessionWindows.refresh(scope, chatId, options)
       if (chat) chatBodies.remember(scope, chatId, chat)
       return chat
     }
