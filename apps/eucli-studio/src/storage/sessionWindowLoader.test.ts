@@ -237,6 +237,32 @@ describe('createSessionWindowLoader', () => {
     expect(refreshed.messages.map((message: any) => message.id)).toEqual(['m1', 'u-new', 'a-new'])
   })
 
+  it('head 解析为空页时按事实返回，不再退默认路径', async () => {
+    const client = fakeSwitch([page([], '')])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      headFor: () => 'missing-mid',
+    })
+    const chat = await loader.load(scope, 'chat-1')
+
+    expect(chat.messages).toEqual([])
+    expect(client.sessionWindow).toHaveBeenCalledTimes(1)
+    expect((client.sessionWindow.mock.calls[0][2] as any).head).toBe('missing-mid')
+  })
+
+  it('authoritative 刷新拿到空页时按空页事实收敛，不保留旧消息', async () => {
+    const client = fakeSwitch([page([msg('m1', 1)], ''), page([], '')])
+    const loader = createSessionWindowLoader({
+      sessionSwitch: client,
+      headFor: () => 'm-head',
+    })
+    await loader.load(scope, 'chat-1')
+    const refreshed = await loader.refresh(scope, 'chat-1', { authoritative: true })
+
+    expect(refreshed.messages).toEqual([])
+    expect(client.sessionWindow).toHaveBeenCalledTimes(2)
+  })
+
   it('headFor 抛错时退化为不带 head（观测不改变行为分支）', async () => {
     const client = fakeSwitch([page([msg('m1', 1)], '')])
     const loader = createSessionWindowLoader({
