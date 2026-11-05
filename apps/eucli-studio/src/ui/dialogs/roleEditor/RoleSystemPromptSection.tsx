@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, Stack, Typography } from '@mui/material'
+import { Button, Stack, Typography } from '@mui/material'
 import { placeholderProblemLabel, type PlaceholderDependencyNode, type PlaceholderProblem } from '../../../domain/placeholder'
 import { PlaceholderDependencyGraph } from '../../components/PlaceholderDependencyGraph'
 import { useEvent } from '../../hooks/useEvent'
@@ -7,7 +7,6 @@ import { PlaceholderEditorDialog } from '../PlaceholderEditorDialog'
 import { RoleFillTextarea } from './RoleFillTextarea'
 
 const PREVIEW_DEBOUNCE_MS = 240
-const DEPENDENCY_TREE_HEIGHT = 480
 
 type RoleSystemPromptSectionProps = {
   controller: any
@@ -82,25 +81,27 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
         </Button>
       </Stack>
       {treeOpen ? (
-        <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', pr: 0.5 }}>
-          <Stack spacing={0.75}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符依赖树</Typography>
-              {treeBusy ? <Typography variant="caption" color="text.secondary">生成中…</Typography> : null}
-            </Stack>
-            {treeError ? <Typography variant="body2" color="error.main">{`生成依赖树失败：${treeError}`}</Typography> : null}
-            {tree && !treeChildren.length ? (
-              <Typography variant="body2" color="text.secondary">系统提示词里还没有引用占位符。</Typography>
-            ) : tree ? (
-              <>
-                <PlaceholderDependencyGraph tree={tree} rootLabel={rootLabel} height={DEPENDENCY_TREE_HEIGHT} onNodeClick={setDetailName} />
-                <Typography variant="caption" color="text.secondary">拖拽移动，滚轮缩放；点击占位符节点可编辑并保存。</Typography>
-              </>
-            ) : (
-              <Typography variant="caption" color="text.secondary">{treeBusy ? '正在生成依赖树…' : '暂无依赖树数据。'}</Typography>
-            )}
+        <Stack spacing={0.75} sx={{ flex: '1 1 auto', minHeight: 0 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>占位符依赖树</Typography>
+            {treeBusy ? <Typography variant="caption" color="text.secondary">生成中…</Typography> : null}
           </Stack>
-        </Box>
+          {treeError ? (
+            <Typography variant="body2" color="error.main" sx={{ flexShrink: 0 }}>{`生成依赖树失败：${treeError}`}</Typography>
+          ) : null}
+          {tree && !treeChildren.length ? (
+            <Typography variant="body2" color="text.secondary">系统提示词里还没有引用占位符。</Typography>
+          ) : tree ? (
+            <>
+              <PlaceholderDependencyGraph tree={tree} rootLabel={rootLabel} onNodeClick={setDetailName} />
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                拖拽移动，滚轮缩放；点击占位符节点可编辑并保存。
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="caption" color="text.secondary">{treeBusy ? '正在生成依赖树…' : '暂无依赖树数据。'}</Typography>
+          )}
+        </Stack>
       ) : (
         <Stack
           direction={{ xs: 'column', md: previewOpen ? 'row' : 'column' }}

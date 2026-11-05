@@ -15,12 +15,15 @@ const NODE_ID_PATTERN = /(?:^|[^A-Za-z0-9_])n(\d+)(?![0-9])/
 type PlaceholderDependencyGraphProps = {
   tree: PlaceholderDependencyNode | null | undefined
   rootLabel?: string
-  height?: number
   onNodeClick?: (name: string) => void
 }
 
+/**
+ * 依赖图固定吃掉父级给的高度，自己不产生滚动条（缩放/拖拽在内部完成）。
+ * 调用方要给一个高度确定的 flex 列容器。
+ */
 export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProps) {
-  const { tree, rootLabel, height = 360, onNodeClick } = props
+  const { tree, rootLabel, onNodeClick } = props
   const colors = useThemeColors()
 
   const plan = React.useMemo(
@@ -91,7 +94,9 @@ export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProp
     <Box
       sx={{
         position: 'relative',
-        height,
+        flex: '1 1 auto',
+        minWidth: 0,
+        minHeight: 0,
         borderRadius: 2,
         border: '1px solid',
         borderColor: 'divider',
