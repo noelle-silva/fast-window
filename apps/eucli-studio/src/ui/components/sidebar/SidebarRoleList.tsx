@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import { RoleList } from '../EntityLists'
+import { SIDEBAR_ITEM_SX } from '../../softPopoverStyles'
 import { SidebarEmptyHint } from './SidebarSection'
 
 // 角色 / 工作区两个侧边栏视图共用的角色列表：
@@ -61,6 +62,7 @@ export function SidebarRoleList(props: {
       onOpenEditor={onOpenEditor}
       formatModelRefText={formatModelRefText}
       sortable={{ onMove }}
+      itemSx={SIDEBAR_ITEM_SX}
     />
   )
 }

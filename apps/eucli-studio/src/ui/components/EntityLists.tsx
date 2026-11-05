@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Tooltip, Typography } from '@mui/material'
+import { IconButton, List, ListItemAvatar, ListItemButton, ListItemText, Tooltip, Typography, type SxProps, type Theme } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { EntityAvatar } from './avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
@@ -15,16 +15,19 @@ export type EntityListSortable = {
   onMove: (activeId: string, overId: string) => void
 }
 
-function sortableRowSx(args: SortableItemRenderArgs | null) {
-  if (!args) return SOFT_POPOVER_ITEM_SX
-  return [
-    SOFT_POPOVER_ITEM_SX,
-    {
+// 条目样式 = 浮层共用样式 + 调用方的覆盖（侧边栏用它收小圆角）+ 拖拽态。
+// MUI 的 SxProps 对嵌套数组的类型推断很挑剔，这里按运行时允许的形状组装后统一收口。
+function sortableRowSx(args: SortableItemRenderArgs | null, itemSx?: SxProps<Theme>): SxProps<Theme> {
+  const parts: unknown[] = [SOFT_POPOVER_ITEM_SX]
+  if (itemSx) parts.push(itemSx)
+  if (args) {
+    parts.push({
       cursor: args.isDragging ? 'grabbing' : 'grab',
       opacity: args.isDragging ? 0.6 : 1,
       touchAction: 'pan-y',
-    },
-  ]
+    })
+  }
+  return parts as SxProps<Theme>
 }
 
 function stopPointerPropagation(event: React.PointerEvent) {
@@ -38,8 +41,10 @@ export function RoleList(props: {
   onOpenEditor: (roleId: string) => void
   formatModelRefText: (modelRef: any) => string
   sortable?: EntityListSortable
+  /** 条目样式覆盖：侧边栏用它把圆角收小，浮层沿用默认。 */
+  itemSx?: SxProps<Theme>
 }) {
-  const { roles, isSelected, onSelect, onOpenEditor, formatModelRefText, sortable } = props
+  const { roles, isSelected, onSelect, onOpenEditor, formatModelRefText, sortable, itemSx } = props
   const clickGuard = useSortableClickGuard()
   const roleIds = React.useMemo(
     () => roles.map((role: any) => String(role?.id || '').trim()).filter(Boolean),
@@ -60,7 +65,7 @@ export function RoleList(props: {
           onSelect(roleId)
         }}
         {...(dragArgs?.handleProps || {})}
-        sx={sortableRowSx(dragArgs)}
+        sx={sortableRowSx(dragArgs, itemSx)}
       >
         <ListItemAvatar>
           <EntityAvatar kind="role" image={String(role?.avatarImage || '')} size={42} />
@@ -124,8 +129,10 @@ export function WorkspaceList(props: {
   onSelect: (workspaceId: string) => void
   onOpenEditor: (workspaceId: string) => void
   sortable?: EntityListSortable
+  /** 条目样式覆盖：侧边栏用它把圆角收小，浮层沿用默认。 */
+  itemSx?: SxProps<Theme>
 }) {
-  const { workspaces, isSelected, onSelect, onOpenEditor, sortable } = props
+  const { workspaces, isSelected, onSelect, onOpenEditor, sortable, itemSx } = props
   const clickGuard = useSortableClickGuard()
   const workspaceIds = React.useMemo(
     () => workspaces.map((workspace: any) => String(workspace?.id || '').trim()).filter(Boolean),
@@ -147,7 +154,7 @@ export function WorkspaceList(props: {
           onSelect(workspaceId)
         }}
         {...(dragArgs?.handleProps || {})}
-        sx={sortableRowSx(dragArgs)}
+        sx={sortableRowSx(dragArgs, itemSx)}
       >
         <ListItemAvatar>
           <EntityAvatar kind="workspace" size={28} />

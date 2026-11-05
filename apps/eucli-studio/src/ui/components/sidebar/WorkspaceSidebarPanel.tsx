@@ -8,6 +8,7 @@ import { WorkspaceList } from '../EntityLists'
 import { SidebarSessionList, type SidebarSessionTargetKind } from '../SidebarSessionList'
 import { SidebarRoleList } from './SidebarRoleList'
 import { SidebarScrollArea } from './SidebarScrollArea'
+import { SIDEBAR_ITEM_SX } from '../../softPopoverStyles'
 import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
 
 export function WorkspaceSidebarPanel(props: {
@@ -63,6 +64,7 @@ export function WorkspaceSidebarPanel(props: {
             onSelect={props.onSelectWorkspace}
             onOpenEditor={props.onOpenWorkspaceEditor}
             sortable={{ onMove: props.onMoveWorkspace }}
+            itemSx={SIDEBAR_ITEM_SX}
           />
         ) : (
           <Box sx={{ px: 1.5, py: 1 }}>

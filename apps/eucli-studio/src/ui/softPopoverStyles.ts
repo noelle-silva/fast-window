@@ -66,3 +66,8 @@ export const SOFT_POPOVER_ITEM_TOP_SX = {
   ...SOFT_POPOVER_ITEM_SX,
   alignItems: 'flex-start',
 }
+// 侧边栏条目比浮层条目更方正：两者共用上面那套条目样式，
+// 这里只覆盖圆角，避免把浮层里的条目也一起改扁。
+export const SIDEBAR_ITEM_SX = {
+  borderRadius: 1,
+}

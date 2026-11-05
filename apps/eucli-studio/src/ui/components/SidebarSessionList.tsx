@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, List, ListItemAvatar, ListItemButton, ListItemText, Stack, Typography } from '@mui/material'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { EntityAvatar } from './avatar/EntityAvatar'
-import { SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
+import { SIDEBAR_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX } from '../softPopoverStyles'
 import { chatHistoryMatchesSearch } from '../utils/text'
 import { useLazyListWindow } from '../hooks/useLazyListWindow'
 import { SidebarScrollArea } from './sidebar/SidebarScrollArea'
@@ -113,7 +113,7 @@ export function SidebarSessionList(props: {
       ) : (
         <List dense sx={SOFT_POPOVER_LIST_SX}>
           {hasPending ? (
-            <ListItemButton selected sx={SOFT_POPOVER_ITEM_TOP_SX}>
+            <ListItemButton selected sx={[SOFT_POPOVER_ITEM_TOP_SX, SIDEBAR_ITEM_SX]}>
               <ListItemAvatar sx={{ alignSelf: 'center' }}>
                 <EntityAvatar kind="role" image={roleAvatarImage} size={42} />
               </ListItemAvatar>
@@ -143,7 +143,7 @@ export function SidebarSessionList(props: {
                   chatId,
                   String(chat?.title || pendingTitle),
                 )}
-                sx={SOFT_POPOVER_ITEM_TOP_SX}
+                sx={[SOFT_POPOVER_ITEM_TOP_SX, SIDEBAR_ITEM_SX]}
               >
                 <ListItemAvatar sx={{ alignSelf: 'center' }}>
                   <EntityAvatar kind="role" image={roleAvatarImage} size={42} />
