@@ -139,6 +139,7 @@ function workspaceDraft(state: any): UiWorkspace {
   return {
     id: editWorkspaceId,
     name: text((state.draft as any)?.workspaceName) || '未命名工作区',
+    description: String((state.draft as any)?.workspaceDescription ?? ''),
     directories: workspaceDraftDirectories((state.draft as any)?.workspaceDirectories).filter((directory) => directory.path || directory.alias || directory.description),
     prompt: String((state.draft as any)?.workspacePrompt ?? ''),
     registeredRoleIds: normalizeWorkspaceRoleIds((state.draft as any)?.workspaceRegisteredRoleIds),
@@ -514,6 +515,7 @@ export function createWorkspaceManager(deps: {
     if (!state?.data) return false
     ;(state.draft as any).editWorkspaceId = NEW_WORKSPACE_ID
     ;(state.draft as any).workspaceName = '新工作区'
+    ;(state.draft as any).workspaceDescription = ''
     ;(state.draft as any).workspacePrompt = ''
     ;(state.draft as any).workspaceDirectories = [{ path: '', alias: '', description: '' }]
     ;(state.draft as any).workspaceRegisteredRoleIds = []
@@ -561,6 +563,7 @@ export function createWorkspaceManager(deps: {
     if (!workspace) return false
     ;(state.draft as any).editWorkspaceId = workspaceId
     ;(state.draft as any).workspaceName = text(workspace.name)
+    ;(state.draft as any).workspaceDescription = String(workspace.description ?? '')
     ;(state.draft as any).workspacePrompt = String(workspace.prompt ?? '')
     ;(state.draft as any).workspaceDirectories = workspace.directories?.length
       ? workspaceDraftDirectories(workspace.directories)
@@ -748,6 +751,7 @@ export function createWorkspaceManager(deps: {
     const isNew = editWorkspaceId === NEW_WORKSPACE_ID
     const workspaceId = isNew ? uid('w') : editWorkspaceId
     const name = text((state.draft as any)?.workspaceName) || '未命名工作区'
+    const description = text((state.draft as any)?.workspaceDescription)
     const prompt = String((state.draft as any)?.workspacePrompt ?? '')
     const directories = workspaceDraftDirectories((state.draft as any)?.workspaceDirectories)
       .filter((directory) => directory.path || directory.alias || directory.description)
@@ -758,6 +762,7 @@ export function createWorkspaceManager(deps: {
     const nextWorkspace: UiWorkspace = {
       id: workspaceId,
       name,
+      description,
       prompt,
       registeredRoleIds: normalizeWorkspaceRoleIds((state.draft as any)?.workspaceRegisteredRoleIds),
       actualPrompt: '',

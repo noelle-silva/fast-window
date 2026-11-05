@@ -47,6 +47,7 @@ export function createInitialControllerState() {
 
       editRoleId: '',
       roleName: '',
+      roleDescription: '',
       roleAvatarImage: '',
       roleAvatarImageCropSrc: '',
       roleSystemPrompt: '',
@@ -79,6 +80,7 @@ export function createInitialControllerState() {
 
       editWorkspaceId: '',
       workspaceName: '',
+      workspaceDescription: '',
       workspacePrompt: '',
       workspaceDirectories: [] as Array<{ path: string; alias: string; description: string }>,
       workspaceRegisteredRoleIds: [] as string[],

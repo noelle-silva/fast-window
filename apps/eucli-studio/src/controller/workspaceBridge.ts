@@ -18,6 +18,8 @@ type UiWorkspaceDirectory = {
 export type UiWorkspace = {
   id: string
   name: string
+  /** 描述是给人看的备注：随工作区文档存取，不参与提示词，也不发给模型。 */
+  description: string
   directories: UiWorkspaceDirectory[]
   prompt: string
   registeredRoleIds: string[]
@@ -88,6 +90,7 @@ export function normalizeWorkspace(raw: unknown): UiWorkspace | null {
   return {
     id,
     name: text(box.name) || '未命名工作区',
+    description: text(box.description),
     directories: list(box.directories)
       .map(normalizeWorkspaceDirectory)
       .filter((directory): directory is UiWorkspaceDirectory => !!directory)
@@ -164,6 +167,7 @@ function workspaceToWire(workspace: UiWorkspace) {
   return {
     id: text(workspace.id),
     name: text(workspace.name) || '未命名工作区',
+    description: text(workspace.description),
     directories: workspace.directories.map((directory) => ({
       path: text(directory.path),
       alias: text(directory.alias),

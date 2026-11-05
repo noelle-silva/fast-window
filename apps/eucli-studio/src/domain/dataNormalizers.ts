@@ -346,6 +346,9 @@ export function normalizeData(raw: any) {
     if (!r || typeof r !== 'object') continue
     if (!r.id) r.id = uid('r')
     if (typeof r.name !== 'string' || !r.name.trim()) r.name = '未命名角色'
+    // 描述是给人看的备注：只做首尾空白规范化，不参与提示词组装。
+    if (typeof r.description !== 'string') r.description = ''
+    r.description = r.description.trim()
     if (typeof r.avatarImage !== 'string') r.avatarImage = ''
     if (r.avatarImage && !looksLikeImageDataUrl(r.avatarImage)) r.avatarImage = ''
     if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
@@ -517,6 +520,8 @@ export function normalizeData(raw: any) {
     .map((workspace: any) => {
       const id = String(workspace.id || uid('w'))
       const name = typeof workspace.name === 'string' && workspace.name.trim() ? String(workspace.name || '').trim() : '未命名工作区'
+      // 描述是给人看的备注：只做首尾空白规范化，不参与提示词组装。
+      const description = typeof workspace.description === 'string' ? String(workspace.description || '').trim() : ''
       const prompt = typeof workspace.prompt === 'string' ? String(workspace.prompt || '') : ''
       const directories0 = Array.isArray(workspace.directories) ? workspace.directories : []
       const directories = directories0
@@ -530,6 +535,7 @@ export function normalizeData(raw: any) {
       return {
         id,
         name,
+        description,
         prompt,
         directories,
         createdAt: Number(workspace.createdAt || now()),

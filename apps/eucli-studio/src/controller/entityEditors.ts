@@ -203,6 +203,7 @@ export function createEntityEditors(deps: {
 
     state.draft.editRoleId = NEW_ROLE_ID
     state.draft.roleName = '新角色'
+    state.draft.roleDescription = ''
     state.draft.roleAvatarImage = ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = ''
@@ -267,6 +268,7 @@ export function createEntityEditors(deps: {
 
     state.draft.editRoleId = rid
     state.draft.roleName = String(role.name || '')
+    state.draft.roleDescription = String(role.description || '')
     state.draft.roleAvatarImage = looksLikeImageDataUrl(role.avatarImage) ? String(role.avatarImage || '') : ''
     state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = String(role.systemPrompt || '')
@@ -316,6 +318,7 @@ export function createEntityEditors(deps: {
     const rid = String(state.draft.editRoleId || '')
 
     const name = String(state.draft.roleName || '').trim() || '未命名角色'
+    const description = String(state.draft.roleDescription || '').trim()
     const avatarImage = looksLikeImageDataUrl(state.draft.roleAvatarImage) ? String(state.draft.roleAvatarImage || '') : ''
     const sys = String(state.draft.roleSystemPrompt || '').trim()
     const temperature = clampTemp(state.draft.roleTemperature)
@@ -334,6 +337,7 @@ export function createEntityEditors(deps: {
       const role = {
         id: newRid,
         name,
+        description,
         avatarImage,
         systemPrompt: sys,
         temperature,
@@ -378,6 +382,7 @@ export function createEntityEditors(deps: {
     }
 
     role.name = name
+    role.description = description
     role.avatarImage = avatarImage
     role.systemPrompt = sys
     role.temperature = temperature

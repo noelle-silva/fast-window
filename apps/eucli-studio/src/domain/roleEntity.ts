@@ -88,6 +88,7 @@ function roleUiShape(role: any): any {
   return {
     id: textField(source, 'id'),
     name: textField(source, 'name') || '未命名角色',
+    description: String(source.description ?? ''),
     hookPromptPresetId: textField(source, 'hookPromptPresetId'),
     systemPrompt: promptText(objectList(source.prompts)),
     temperature: numberField(modelConfig, 'temperature', 1),
@@ -107,6 +108,7 @@ function roleWriteSnapshot(role: any) {
   return {
     id: String(source?.id || ''),
     name: String(source?.name || ''),
+    description: String(source?.description || '').trim(),
     systemPrompt: String(source?.systemPrompt || ''),
     temperature: clampTemp(source?.temperature),
     temperatureEnabled: source?.temperatureEnabled === true,

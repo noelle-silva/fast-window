@@ -74,4 +74,24 @@ describe('角色信息：角色 ID', () => {
     expect(host!.textContent).toContain('保存角色后生成')
     expect(copyButton().disabled).toBe(true)
   })
+
+  // 描述是给人看的备注：输入直接进草稿，界面上明确写清它不进提示词。
+  it('描述是备注字段：输入交给 setDraft，并说明不参与提示词', async () => {
+    const setDraft = vi.fn()
+    const controller = { actions: { setDraft }, capabilities: { clipboard: { writeText: vi.fn() }, ui: { showToast: vi.fn() } } } as any
+    renderSection(controller, { editRoleId: 'role-1a2b', roleName: '晶晶', roleDescription: '专门改文案' })
+
+    const textarea = host!.querySelector('textarea') as HTMLTextAreaElement | null
+    if (!textarea) throw new Error('没有找到描述输入框')
+    expect(textarea.value).toBe('专门改文案')
+    expect(host!.textContent).toContain('不参与提示词')
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+      setValue.call(textarea, '专门改文案，别用来写代码')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    expect(setDraft).toHaveBeenCalledWith('roleDescription', '专门改文案，别用来写代码')
+  })
 })

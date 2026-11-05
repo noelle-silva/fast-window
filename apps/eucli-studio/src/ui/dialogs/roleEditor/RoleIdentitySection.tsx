@@ -30,12 +30,23 @@ export function RoleIdentitySection(props: { controller: any; draft: any }) {
   }
 
   return (
-    <RoleEditorSection title="角色信息" description="角色名用于会话标题与依赖树根节点；头像可选。">
+    <RoleEditorSection title="角色信息" description="角色名用于会话标题与依赖树根节点；头像与描述可选。">
       <TextField
         label="角色名"
         value={String(draft?.roleName || '')}
         onChange={(event) => controller.actions.setDraft('roleName', event.target.value)}
         fullWidth
+      />
+
+      <TextField
+        label="描述（备注）"
+        value={String(draft?.roleDescription || '')}
+        onChange={(event) => controller.actions.setDraft('roleDescription', event.target.value)}
+        fullWidth
+        multiline
+        minRows={3}
+        placeholder="这个角色是干什么用的？写给自己看的备忘。"
+        helperText="只是备注：不参与提示词，不会发给模型。想影响模型请写系统提示词。"
       />
 
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>

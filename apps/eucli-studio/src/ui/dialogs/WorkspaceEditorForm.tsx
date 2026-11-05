@@ -47,6 +47,17 @@ export function WorkspaceEditorForm(props: { controller: any; draft: any; roles:
         fullWidth
       />
 
+      <TextField
+        label="描述（备注）"
+        value={String((draft as any)?.workspaceDescription || '')}
+        onChange={(e) => controller.actions.setDraft?.('workspaceDescription', e.target.value)}
+        fullWidth
+        multiline
+        minRows={3}
+        placeholder="这个工作区是干什么用的？写给自己看的备忘。"
+        helperText="只是备注：不参与提示词，不会发给模型。想影响模型请写工作区提示词。"
+      />
+
       <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <EntityAvatar kind="workspace" image={iconSrc} size={44} />

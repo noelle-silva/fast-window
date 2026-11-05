@@ -40,6 +40,7 @@ export function createModalHelpers(deps: { state: any; emitScope: (scope: string
     if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
       state.draft.editRoleId = ''
       state.draft.roleName = ''
+      state.draft.roleDescription = ''
       state.draft.roleAvatarImage = ''
       state.draft.roleAvatarImageCropSrc = ''
       state.draft.roleSystemPrompt = ''
@@ -70,6 +71,7 @@ export function createModalHelpers(deps: { state: any; emitScope: (scope: string
     if (String((state.draft as any).editWorkspaceId || '') === NEW_WORKSPACE_ID) {
       ;(state.draft as any).editWorkspaceId = ''
       ;(state.draft as any).workspaceName = ''
+      ;(state.draft as any).workspaceDescription = ''
       ;(state.draft as any).workspacePrompt = ''
       ;(state.draft as any).workspaceDirectories = []
       ;(state.draft as any).workspaceRegisteredRoleIds = []

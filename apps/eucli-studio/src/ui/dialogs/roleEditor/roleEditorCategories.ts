@@ -38,7 +38,7 @@ export const ROLE_EDITOR_CATEGORIES: RoleEditorCategory[] = [
   {
     id: 'other',
     label: '其他配置',
-    hint: '角色名与头像、温度、默认 hook 提示词、占位符。',
+    hint: '角色名、头像与描述备注、温度、默认 hook 提示词、占位符。',
     icon: TuneOutlinedIcon,
   },
 ]

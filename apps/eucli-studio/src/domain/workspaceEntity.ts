@@ -25,6 +25,7 @@ function workspaceWriteSnapshot(workspace: any) {
   return {
     id: text(workspace?.id),
     name: text(workspace?.name) || '未命名工作区',
+    description: text(workspace?.description),
     prompt: text(workspace?.prompt),
     directories: normalizeWorkspaceDirectories(workspace?.directories),
     registeredRoleIds: normalizeWorkspaceRoleIds(workspace?.registeredRoleIds),
