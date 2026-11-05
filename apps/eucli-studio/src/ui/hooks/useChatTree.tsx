@@ -588,54 +588,15 @@ export function useChatTree(deps: {
     const mid = String(mid0 || '').trim()
     if (!mid) return
     if (!activeChat) return
-    const msg = chatAllById.get(mid) || null
-    if (!msg) return
-    // 切换节点的动作发生：交给唯一入口判定意图（叶子→跟随最新，否则→锚定）。
+    if (!chatAllById.get(mid)) return
+    // 切换节点的动作只改视窗偏好：不碰活动分支、分支头或任何消息事实。
+    // 交给唯一入口判定意图（跟随目标→跟随最新，否则→锚定）。
     setViewIntentFromNodeClick(mid)
     setTreeFollowTick((t) => t + 1)
-
-    const branching = (activeChat as any)?.branching
-    const curBid = String(branching?.activeBranchId || 'main').trim() || 'main'
-    const branches = Array.isArray(branching?.branches) ? branching.branches : []
-
-    const containsMid = (headMid0: any) => {
-      let cur = String(headMid0 || '').trim()
-      const seen = new Set<string>()
-      let guard = 0
-      while (cur && !seen.has(cur) && guard < 6000) {
-        guard++
-        seen.add(cur)
-        if (cur === mid) return true
-        const m = chatAllById.get(cur) || null
-        if (!m) break
-        cur = String((m as any)?.parentMid || '').trim()
-      }
-      return false
-    }
-
-    const rawBid = String((msg as any)?.branchId || '').trim()
-    let bid = rawBid || curBid || 'main'
-
-    const curBranch = branches.find((b: any) => String(b?.id || '').trim() === curBid) || null
-    const curHead = String((curBranch as any)?.headMid || '').trim()
-    if (curHead && containsMid(curHead)) bid = curBid || bid
-    else {
-      let picked = ''
-      for (const b of branches) {
-        const id = String(b?.id || '').trim()
-        const head = String((b as any)?.headMid || '').trim()
-        if (!id || !head) continue
-        if (!containsMid(head)) continue
-        picked = id
-        break
-      }
-      if (picked) bid = picked
-    }
 
     stickToBottomRef.current = false
     autoScrollBlockUntilRef.current = Date.now() + 1200
     setBranchNav({ mid, at: Date.now() })
-    if (bid && bid !== curBid) controller.actions.setActiveBranch?.(bid)
   })
 
   // 选中节点 → 视角自动追踪到中心（可开关，全局持久化）

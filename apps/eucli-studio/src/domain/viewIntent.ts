@@ -34,14 +34,19 @@ export type ViewFocusContext = {
   chat?: any
 }
 
-// 视图意图状态：意图 + 空窗期临时分叉点。
+// 视图意图状态：意图 + 空窗期临时分叉点 + 锚定节点的最近祖先链。
+//
+// anchorTrail 只服务于「选中节点失效后的收敛」，不参与任何会话事实判定：
+// 它来自点击时后台拓扑的快照，节点被删除后仍能沿当时已知的祖先找回最近有效落点。
+// 跟随态没有固定选中节点，因此 trail 始终为空。
 export type ViewIntentState = {
   intent: ViewIntent
   pendingRunAnchorMid: string
+  anchorTrail: string[]
 }
 
 export function initialViewIntentState(): ViewIntentState {
-  return { intent: { kind: 'follow' }, pendingRunAnchorMid: '' }
+  return { intent: { kind: 'follow' }, pendingRunAnchorMid: '', anchorTrail: [] }
 }
 
 export function followLatestIntent(): ViewIntent {
@@ -111,21 +116,42 @@ export function resolveViewFocusMid(intent: ViewIntent, context: ViewFocusContex
   return resolveFollowTargetMid(context)
 }
 
+function normalizeTrail(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    const mid = String(item || '').trim()
+    if (!mid || seen.has(mid)) continue
+    seen.add(mid)
+    out.push(mid)
+  }
+  return out
+}
+
 // onRunStarted 是“发起运行”的状态转移：回到跟随最新，并记下空窗期分叉点。
 export function onRunStarted(state: ViewIntentState, anchorMidRaw: unknown): ViewIntentState {
-  return { intent: followLatestIntent(), pendingRunAnchorMid: String(anchorMidRaw || '').trim() }
+  return { intent: followLatestIntent(), pendingRunAnchorMid: String(anchorMidRaw || '').trim(), anchorTrail: [] }
 }
 
 // onNodeClicked 是“切换节点”动作的唯一意图转移：
 // 点中跟随目标 → 跟随最新；点其它任何节点（含上游、同级分支）→ 锚定该节点。
 // 不动空窗期分叉点：锚定态本就不受它影响；跟随态保留它可让“点回目标”稳定停在原目标，
 // 不会因清掉分叉点而跳到别的旧运行产出。
-export function onNodeClicked(state: ViewIntentState, clickedMidRaw: unknown, followTargetMidRaw: unknown): ViewIntentState {
+//
+// ancestorTrail 是点击瞬间从后台拓扑捕获的最近祖先链（由调用方提供）。
+// 它只用于今后节点失效时收敛，不参与本次选中判定。
+export function onNodeClicked(
+  state: ViewIntentState,
+  clickedMidRaw: unknown,
+  followTargetMidRaw: unknown,
+  ancestorTrailRaw?: unknown,
+): ViewIntentState {
   const clicked = String(clickedMidRaw || '').trim()
   const target = String(followTargetMidRaw || '').trim()
   if (!clicked) return state
-  const intent = clicked === target ? followLatestIntent() : anchorViewIntent(clicked)
-  return { ...state, intent }
+  if (clicked === target) return { ...state, intent: followLatestIntent(), anchorTrail: [] }
+  return { ...state, intent: anchorViewIntent(clicked), anchorTrail: normalizeTrail(ancestorTrailRaw) }
 }
 
 // onRunRegistered 在运行被登记后清掉空窗期临时分叉点（仅当锚点匹配）。

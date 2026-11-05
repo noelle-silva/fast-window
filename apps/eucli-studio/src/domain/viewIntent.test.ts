@@ -317,6 +317,20 @@ describe('viewIntent 场景模拟', () => {
     expect(focus(sim)).toBe('a1-new2')
   })
 
+  it('锚定时记录祖先链；回到跟随或发起运行时清空', () => {
+    let state = initialViewIntentState()
+
+    state = onNodeClicked(state, 'a1', 'a2', ['u1'])
+    expect(state.anchorTrail).toEqual(['u1'])
+
+    state = onNodeClicked(state, 'a2', 'a2', ['u2'])
+    expect(state.anchorTrail).toEqual([])
+
+    state = onNodeClicked(state, 'a1', 'a2', ['u1'])
+    state = onRunStarted(state, 'a1')
+    expect(state.anchorTrail).toEqual([])
+  })
+
   it('selectFollowRun 取发起时间最晚者', () => {
     const runs: RunViewFact[] = [
       { runId: 'a', anchorMid: 'u1', outputMid: 'x', createdAt: 100 },

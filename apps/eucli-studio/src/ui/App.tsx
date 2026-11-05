@@ -19,6 +19,11 @@ import {
   type ViewIntentState,
   type ViewFocusContext,
 } from '../domain/viewIntent'
+import {
+  branchViewAncestorTrail,
+  branchViewTopologyFromChat,
+  convergeViewIntentState,
+} from '../domain/branchViewPreference'
 import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
@@ -542,22 +547,36 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     () => runViewFactsFromCards(activeSessionRunCards),
     [activeSessionRunCardsKey],
   )
+  // 分支视图偏好的有效性只按后台会话拓扑核对；拓扑本身绝不因偏好而增删节点。
+  const viewIntentTopology = React.useMemo(
+    () => branchViewTopologyFromChat(activeChat),
+    [activeChat, chatAllMessagesRaw, chatAllMessagesRaw.length, Number((activeChat as any)?.updatedAt || 0), activeSessionVersion],
+  )
+  // 渲染期先得到「已收敛」的偏好：失效选中的那一帧也不会拿悬空 id 去解析视图。
+  const effectiveViewIntentState = React.useMemo(
+    () => convergeViewIntentState(viewIntentState, viewIntentTopology),
+    [viewIntentState, viewIntentTopology],
+  )
+  React.useEffect(() => {
+    if (effectiveViewIntentState !== viewIntentState) setViewIntentState(effectiveViewIntentState)
+  }, [effectiveViewIntentState, viewIntentState])
+
   const viewFocusContext: ViewFocusContext = React.useMemo(
     () => ({
-      pendingRunAnchorMid: viewIntentState.pendingRunAnchorMid,
+      pendingRunAnchorMid: effectiveViewIntentState.pendingRunAnchorMid,
       runs: runViewFacts,
       branchHeadMid: activeBranchHeadMid,
       chat: activeChat,
     }),
-    [viewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid, activeChat],
+    [effectiveViewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid, activeChat],
   )
   // “最新节点”就是跟随目标本身：点中它→跟随，点其它任何节点（含同级分支）→锚定。
   const followTargetMid = React.useMemo(() => resolveFollowTargetMid(viewFocusContext), [viewFocusContext])
   const viewFocusMid = React.useMemo(
-    () => resolveViewFocusMid(viewIntentState.intent, viewFocusContext),
-    [viewIntentState.intent, viewFocusContext],
+    () => resolveViewFocusMid(effectiveViewIntentState.intent, viewFocusContext),
+    [effectiveViewIntentState.intent, viewFocusContext],
   )
-  const viewAnchorMid = viewIntentState.intent.kind === 'anchor' ? viewIntentState.intent.mid : ''
+  const viewAnchorMid = effectiveViewIntentState.intent.kind === 'anchor' ? effectiveViewIntentState.intent.mid : ''
 
   // 这次运行被登记后，空窗期的临时跟随目标即失效；切换会话时重置。
   React.useEffect(() => {
@@ -624,7 +643,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     viewFocusMid,
     viewAnchorMid,
     // 点中“跟随目标”才进入跟随；点其它任何节点（含同级分支）都锚定。
-    setViewIntentFromNodeClick: (mid: string) => setViewIntentState((prev) => onNodeClicked(prev, mid, followTargetMid)),
+    // 同时捕获点击瞬间的祖先链：节点被后台删除后，偏好据此收敛到最近有效祖先。
+    setViewIntentFromNodeClick: (mid: string) => {
+      const trail = branchViewAncestorTrail(viewIntentTopology, mid)
+      setViewIntentState((prev) => onNodeClicked(prev, mid, followTargetMid, trail))
+    },
     branchDraft,
     branchDraftKey,
     stickToBottomRef,
