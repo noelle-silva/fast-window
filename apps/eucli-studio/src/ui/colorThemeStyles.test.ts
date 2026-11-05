@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, Popover } from '@mui/material'
 import { describe, expect, it } from 'vitest'
 import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTheme'
-import { createStudioMuiTheme } from './colorThemeStyles'
+import { createStudioMuiTheme, placeholderDiagramColors } from './colorThemeStyles'
 import { OVERLAY_TRANSITION_DURATION, OVERLAY_UNMOUNT_DELAY_MS } from './overlayTransition'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -53,6 +53,20 @@ describe('createStudioMuiTheme 弹层过渡时长', () => {
       })
       host.remove()
       anchor.remove()
+    }
+  })
+})
+
+// 回归测试：依赖图配色交给 mermaid 的 classDef，必须全是实色。
+// 主题里的软背景是 rgba(…) 半透明色，直接把 rgba 写进 classDef 会让整张图解析失败，
+// 所以 placeholderDiagramColors 必须先按图表底色合成成不透明 hex。
+describe('placeholderDiagramColors 输出 mermaid 可用的实色', () => {
+  it('内置主题的每个颜色都不是函数色', () => {
+    const colors = getColorThemeColors(resolveColorThemePreview(undefined, null))
+    const diagramColors = placeholderDiagramColors(colors)
+    for (const [key, value] of Object.entries(diagramColors)) {
+      expect(value, key).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(value, key).not.toMatch(/rgba?\(|color-mix/i)
     }
   })
 })

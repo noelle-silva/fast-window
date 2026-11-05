@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCssColor, parseCssColor } from './cssColor'
+import { flattenCssColor, formatCssColor, parseCssColor } from './cssColor'
 
 describe('parseCssColor', () => {
   it('parses 3-digit hex', () => {
@@ -53,5 +53,21 @@ describe('formatCssColor', () => {
       expect(parsed).not.toBeNull()
       expect(parseCssColor(formatCssColor(parsed!))).toEqual(parsed)
     }
+  })
+})
+describe('flattenCssColor 半透明色合成', () => {
+  it('把 rgba 叠到底色上，输出不透明 hex', () => {
+    expect(flattenCssColor('rgba(37,99,235,.12)', '#ffffff')).toBe('#e5ecfd')
+    expect(flattenCssColor('rgba(0,0,0,0.5)', '#ffffff')).toBe('#808080')
+  })
+
+  it('不透明颜色规范化成 hex，不受底色影响', () => {
+    expect(flattenCssColor('#4F72B8', '#000000')).toBe('#4f72b8')
+    expect(flattenCssColor('rgb(18,52,86)', '#ffffff')).toBe('#123456')
+  })
+
+  it('无法解析时直接报错，不做静默兜底', () => {
+    expect(() => flattenCssColor('not-a-color', '#ffffff')).toThrow()
+    expect(() => flattenCssColor('rgba(0,0,0,.5)', 'not-a-color')).toThrow()
   })
 })

@@ -137,3 +137,35 @@ export function formatHsla(color: Color): CssHsla | null {
     a: hsl.alpha ?? 1,
   }
 }
+
+function rgbOf(value: unknown) {
+  const parsed = parseColor(String(value ?? '').trim())
+  if (!parsed) return null
+  const rgb = toRgb(parsed)
+  return rgb || null
+}
+
+/**
+ * 把可能带透明度的颜色合成到不透明底色上，输出实色 hex。
+ *
+ * 有些下游语法只认实色，例如 mermaid 的 classDef：它按逗号切分属性，
+ * rgba(…)／color-mix(…) 这类函数色会被解析成语法错误。
+ * 主题里的软背景（primarySoft 等）都是 withAlpha(…, 0.12) 的半透明色，
+ * 想交给这类语法必须先按容器底色合成，视觉才等效。
+ */
+export function flattenCssColor(color: unknown, background: unknown): string {
+  const foreground = rgbOf(color)
+  if (!foreground) throw new Error(`无法解析的颜色值：${String(color ?? '')}`)
+  const alpha = clamp(foreground.alpha ?? 1, 0, 1)
+  if (alpha >= 1) return formatHex(foreground) || '#000000'
+
+  const backdrop = rgbOf(background)
+  if (!backdrop) throw new Error(`无法解析的底色值：${String(background ?? '')}`)
+  const merged = {
+    mode: 'rgb' as const,
+    r: (foreground.r ?? 0) * alpha + (backdrop.r ?? 0) * (1 - alpha),
+    g: (foreground.g ?? 0) * alpha + (backdrop.g ?? 0) * (1 - alpha),
+    b: (foreground.b ?? 0) * alpha + (backdrop.b ?? 0) * (1 - alpha),
+  }
+  return formatHex(merged) || '#000000'
+}

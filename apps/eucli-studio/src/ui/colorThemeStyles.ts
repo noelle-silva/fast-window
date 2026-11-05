@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material'
+import { flattenCssColor } from '../domain/cssColor'
 import type { ColorThemeColors, ColorThemeMode } from '../domain/colorTheme'
 import type { PlaceholderDiagramColors } from '../render/placeholderDiagram'
 import { OVERLAY_TRANSITION_DURATION } from './overlayTransition'
@@ -125,17 +126,20 @@ export function colorMixVar(cssVar: string, percent: number) {
 }
 
 // Mermaid 依赖图（拿不到 CSS 变量，需真实色值）与主题色之间的唯一映射。
+// 注意：mermaid 的 classDef 按逗号切分属性，rgba(…)／color-mix(…) 这类函数色会直接解析失败，
+// 所以这里必须把主题里的半透明软背景按图表底色合成成不透明实色。
 export function placeholderDiagramColors(colors: ColorThemeColors): PlaceholderDiagramColors {
+  const solid = (value: string) => flattenCssColor(value, colors.field)
   return {
-    rootNodeFill: colors.primarySoft,
-    rootNodeStroke: colors.primary,
-    rootNodeText: colors.textPrimary,
-    missingNodeFill: colors.dangerBg,
-    missingNodeStroke: colors.danger,
-    missingNodeText: colors.dangerText,
-    cycleNodeFill: colors.warningBg,
-    cycleNodeStroke: colors.warning,
-    cycleNodeText: colors.warningText,
+    rootNodeFill: solid(colors.primarySoft),
+    rootNodeStroke: solid(colors.primary),
+    rootNodeText: solid(colors.textPrimary),
+    missingNodeFill: solid(colors.dangerBg),
+    missingNodeStroke: solid(colors.danger),
+    missingNodeText: solid(colors.dangerText),
+    cycleNodeFill: solid(colors.warningBg),
+    cycleNodeStroke: solid(colors.warning),
+    cycleNodeText: solid(colors.warningText),
   }
 }
 

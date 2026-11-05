@@ -34,7 +34,7 @@ export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProp
   const nodeById = React.useMemo(() => new Map(plan.nodes.map((node) => [node.id, node])), [plan.nodes])
 
   const [svg, setSvg] = React.useState('')
-  const [failed, setFailed] = React.useState(false)
+  const [failure, setFailure] = React.useState('')
 
   const {
     setStageRef,
@@ -50,19 +50,20 @@ export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProp
     let cancelled = false
     if (!plan.source) {
       setSvg('')
-      setFailed(false)
+      setFailure('')
       return
     }
     void renderMermaidSvg(plan.source)
       .then((next) => {
         if (cancelled) return
         setSvg(next)
-        setFailed(false)
+        setFailure('')
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        // 失败原因必须带出来：这里吞掉错误的话，界面上只剩“渲染失败”，排查只能靠猜。
         if (cancelled) return
         setSvg('')
-        setFailed(true)
+        setFailure(String((error as any)?.message || error || '未知错误'))
       })
     return () => {
       cancelled = true
@@ -127,7 +128,9 @@ export function PlaceholderDependencyGraph(props: PlaceholderDependencyGraphProp
           </Box>
         ) : (
           <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-            <Typography variant="caption" color="text.secondary">{failed ? '依赖树渲染失败' : '正在生成依赖树…'}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 2, textAlign: 'center' }}>
+              {failure ? `依赖树渲染失败：${failure}` : '正在生成依赖树…'}
+            </Typography>
           </Box>
         )}
       </Box>

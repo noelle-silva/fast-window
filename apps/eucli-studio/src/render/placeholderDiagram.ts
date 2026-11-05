@@ -12,6 +12,8 @@ export type PlaceholderDiagramPlan = {
 }
 
 export type PlaceholderDiagramColors = {
+  // 逐项都必须能被 mermaid 的 classDef 直接消费（实色，通常是 hex）。
+  // rgba(…)／color-mix(…) 这类带逗号的函数色会让整张图解析失败。
   rootNodeFill: string
   rootNodeStroke: string
   rootNodeText: string
