@@ -484,6 +484,7 @@ func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpda
 	indexUpdatedAt := stableUpdatedAt(baseUpdatedAt)
 	chatIDs := []string{}
 	chatUpdatedAt := map[string]any{}
+	chatVersions := map[string]any{}
 	chatMetas := []any{}
 	for _, session := range sessions {
 		id := stringField(session, "id")
@@ -499,10 +500,15 @@ func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpda
 		}
 		chatIDs = append(chatIDs, id)
 		chatUpdatedAt[id] = updatedAt
+		// 版本号是会话事实的新旧指纹：列表与索引必须一起携带它，
+		// 客户端才能在断线恢复时只核对版本、不盲拉正文。
+		if version := uint64FromAnyOrZero(session["version"]); version > 0 {
+			chatVersions[id] = version
+		}
 		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), fallbackTitle), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": createdAt})
 		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
 	}
-	return map[string]any{"chatIds": chatIDs, "chatUpdatedAt": chatUpdatedAt, "chatMetas": chatMetas, "updatedAt": indexUpdatedAt}
+	return map[string]any{"chatIds": chatIDs, "chatUpdatedAt": chatUpdatedAt, "chatVersions": chatVersions, "chatMetas": chatMetas, "updatedAt": indexUpdatedAt}
 }
 
 // meta 是纯组装：不读盘、不发请求、不写状态。
@@ -603,7 +609,7 @@ func (p *projectionService) meta() (any, error) {
 
 // composeSessionIndex 把「数据快照」与「UI 偏好」组装成旧 storage key 的对外形状。
 // 快照缺席时返回空索引：meta() 绝不为了补一个 scope 去发请求。
-// 返回形状与旧实现逐字段一致，不夹带版本字段。
+// 返回形状与旧实现逐字段一致，只额外携带会话版本指纹。
 func (p *projectionService) composeSessionIndex(scope sessionScope, preferredActive string) map[string]any {
 	return p.sessionIndexView(scope, p.model.sessions.peek(scope), preferredActive)
 }
@@ -623,7 +629,7 @@ func (p *projectionService) composeSessionIndexWithSnapshot(scope sessionScope, 
 
 func (p *projectionService) sessionIndexView(scope sessionScope, snapshot *sessionIndexSnapshot, preferredActive string) map[string]any {
 	if snapshot == nil {
-		return map[string]any{"activeChatId": "", "chatIds": []any{}, "chatUpdatedAt": map[string]any{}, "chatMetas": []any{}, "updatedAt": 1}
+		return map[string]any{"activeChatId": "", "chatIds": []any{}, "chatUpdatedAt": map[string]any{}, "chatVersions": map[string]any{}, "chatMetas": []any{}, "updatedAt": 1}
 	}
 	index := snapshot.index
 	chatIDs := stringSlice(index["chatIds"])
@@ -638,6 +644,7 @@ func (p *projectionService) sessionIndexView(scope sessionScope, snapshot *sessi
 		"activeChatId":  active,
 		"chatIds":       chatIDs,
 		"chatUpdatedAt": index["chatUpdatedAt"],
+		"chatVersions":  index["chatVersions"],
 		"chatMetas":     index["chatMetas"],
 		"updatedAt":     index["updatedAt"],
 	}

@@ -259,6 +259,26 @@ func millisFromAnyOrZero(value any) int64 {
 	}
 	return 0
 }
+func uint64FromAnyOrZero(value any) uint64 {
+	switch typed := value.(type) {
+	case float64:
+		if typed > 0 {
+			return uint64(typed)
+		}
+	case int64:
+		if typed > 0 {
+			return uint64(typed)
+		}
+	case int:
+		if typed > 0 {
+			return uint64(typed)
+		}
+	case uint64:
+		return typed
+	}
+	return 0
+}
+
 func timeFromMillis(value any) string {
 	ms := millisFromAny(value)
 	return time.UnixMilli(ms).UTC().Format(time.RFC3339)

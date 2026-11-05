@@ -88,6 +88,8 @@ func toStringValue(value any) string {
 		return typed
 	case int64:
 		return strconv.FormatInt(typed, 10)
+	case uint64:
+		return strconv.FormatUint(typed, 10)
 	case int:
 		return strconv.Itoa(typed)
 	case float64:
@@ -314,7 +316,7 @@ func parseSessionScope(raw any) (sessionScope, bool) {
 }
 
 type sessionIndexSnapshot struct {
-	// index 只承载数据事实（chatIds / chatUpdatedAt / chatMetas / updatedAt）。
+	// index 只承载数据事实（chatIds / chatUpdatedAt / chatVersions / chatMetas / updatedAt）。
 	// activeChatId 是 UI 偏好，由读取方按当前偏好现场组装。
 	index    map[string]any
 	revision int64
@@ -323,10 +325,10 @@ type sessionIndexSnapshot struct {
 
 func sessionIndexRevision(index map[string]any) int64 {
 	values := []any{}
+	updated := objectMap(index["chatUpdatedAt"])
+	versions := objectMap(index["chatVersions"])
 	for _, id := range stringSlice(index["chatIds"]) {
-		values = append(values, id)
-		updated := objectMap(index["chatUpdatedAt"])
-		values = append(values, toStringValue(updated[id]))
+		values = append(values, id, toStringValue(updated[id]), toStringValue(versions[id]))
 	}
 	for _, meta := range objectList(index["chatMetas"]) {
 		values = append(values, stringField(meta, "title"), stringField(meta, "lastMessagePreview"))
@@ -464,6 +466,18 @@ func (c *sessionIndexCache) invalidate(scope sessionScope) {
 	}
 	entry.invalidate()
 	c.bumpDataRevision()
+}
+
+// invalidateScopes 是「事件通道中断」语义：清空所有 scope 的快照但保留 epoch。
+// 断线期间可能漏掉会话变更，重连后的版本核对必须重新向业务端确认索引；
+// 连接身份没有变化，因此不能象重建那样推进 epoch 让前端整份换代。
+func (c *sessionIndexCache) invalidateScopes() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, entry := range c.scopes {
+		entry.invalidate()
+	}
+	c.dataRev++
 }
 
 // invalidateAll 是「索引重建」语义：清空所有 scope 并推进 epoch。

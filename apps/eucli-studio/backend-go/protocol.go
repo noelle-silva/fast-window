@@ -10,6 +10,7 @@ const directProtocolVersion = 2
 
 const directEventChatUpdated = "aiChat.chat.updated"
 const directEventEucliBoxRun = "eucliBox.run.event"
+const directEventSessionChange = "eucliBox.session.change"
 
 type requestFrame struct {
 	ID     string          `json:"id"`

@@ -136,6 +136,9 @@ func (b *eventBridge) run(ctx context.Context) {
 		case err := <-done:
 			cancel()
 			if err != nil && ctx.Err() == nil {
+				// 事件通道断开：断线期间的会话变更已经丢失，索引快照不能再被信任。
+				// 清空 scope 快照但保留 epoch，重连后的版本核对会重新读取业务端事实。
+				b.service.invalidateSessionIndexesAfterEventGap()
 				log.Printf("event bridge: %v", err)
 			}
 		}
@@ -190,6 +193,15 @@ func (b *eventBridge) connectOnce(ctx context.Context) error {
 		// 事件帧只做字节透传：不 decode、不 encode，
 		// 每个连接拿到的是同一份已编码载荷。
 		if !json.Valid(payload) {
+			continue
+		}
+		// 会话变更与运行事件是两条事实流：前者按自身事件名透传，后者保持原名。
+		// 两者都只在需要判断 scope 时读取最小字段，载荷本身仍是字节透传。
+		if change, isSession := readSessionChangeFrame(payload); isSession {
+			if change.valid() {
+				b.service.noteSessionChangeForSessionIndex(change)
+				b.hub.broadcastRaw(directEventSessionChange, payload)
+			}
 			continue
 		}
 		// 会话索引缓存只在这里跟随运行生命周期失效，之后仍是纯字节透传。
