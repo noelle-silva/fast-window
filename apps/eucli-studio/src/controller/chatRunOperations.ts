@@ -164,7 +164,9 @@ export function createChatRunOperations(
     return ids
   }
 
-  function syncEbRoleRunCard(run: EbRunState, fallback: { roleId: string; groupId?: string; workspaceId?: string; sessionId?: string; lastMessageId?: string; anchorMessageId?: string; dependencyMessageIds?: string[]; startedFromPending?: boolean; pendingChatId?: string }) {
+  // noteRunFollowIntent 只记录本地的「跟随意图」：运行卡是后台事实，由运行事件登记，
+  // 发送流程不再顺手在本地建卡——同一件事不允许有两个来源。
+  function noteRunFollowIntent(run: EbRunState, fallback: { roleId: string; groupId?: string; workspaceId?: string; sessionId?: string; startedFromPending?: boolean; pendingChatId?: string }) {
     const runId = String(run?.id || '').trim()
     const state = getState()
     if (!runId) return null
@@ -177,23 +179,6 @@ export function createChatRunOperations(
     const targetKind: ChatTargetKind = workspaceId ? 'workspace' : groupId ? 'group' : 'role'
     const targetId = workspaceId ? workspaceTargetId(workspaceId, roleId) : groupId || roleId
     if (fallback.startedFromPending && targetId && sessionId) void activateResolvedPendingSelection(targetKind, targetId, sessionId, fallback.pendingChatId)
-    const inputMessageId = String(run?.inputMessageId || current?.inputMessageId || '').trim()
-    const lastMessageId = String(run?.lastMessageId || fallback.lastMessageId || current?.lastMessageId || inputMessageId || '').trim()
-    return registerEbRoleRunCard(state, {
-      runId: runId || String(current?.runId || '').trim(),
-      roleId,
-      groupId,
-      workspaceId,
-      sessionId,
-      inputMessageId,
-      lastMessageId,
-      anchorMessageId: String(fallback.anchorMessageId || current?.anchorMessageId || inputMessageId || '').trim(),
-      dependencyMessageIds: run?.dependencyMessageIds?.length ? run.dependencyMessageIds : Array.isArray(fallback.dependencyMessageIds) ? fallback.dependencyMessageIds : current?.dependencyMessageIds || [],
-      status: String(run?.status || current?.status || 'running').trim(),
-      stream: !!run?.stream,
-      retry: run?.retry,
-      cancelledByUser: !!current?.cancelledByUser,
-    })
   }
 
   function isCurrentRoleSession(roleId: string, sessionId: string) {
@@ -323,7 +308,7 @@ export function createChatRunOperations(
     let followMessageId = String(state.lastMessageId || '').trim()
     const runAnchorMessageId = String(follow?.ancestorMessageId || input.contextMessageId || input.userMessageId || input.parentMessageId || '').trim()
     const dependencyMessageIds = dependencyMessageIdsForRunStart(sa.activeChatFromData(), runAnchorMessageId)
-    syncEbRoleRunCard(state, { roleId: input.roleId, groupId, workspaceId, sessionId, lastMessageId: followMessageId, anchorMessageId: runAnchorMessageId, dependencyMessageIds, startedFromPending, pendingChatId: startedFromPendingChatId })
+    noteRunFollowIntent(state, { roleId: input.roleId, groupId, workspaceId, sessionId, startedFromPending, pendingChatId: startedFromPendingChatId })
     onState?.(state)
     let runSessionLoadedOnce = false
 
@@ -359,7 +344,7 @@ export function createChatRunOperations(
     state = await probe.track(state, (nextState) => {
       state = nextState
       followMessageId = String(state.lastMessageId || followMessageId || '').trim()
-      syncEbRoleRunCard(state, { roleId: input.roleId, groupId, workspaceId, sessionId, lastMessageId: followMessageId, anchorMessageId: runAnchorMessageId, dependencyMessageIds, startedFromPending, pendingChatId: startedFromPendingChatId })
+      noteRunFollowIntent(state, { roleId: input.roleId, groupId, workspaceId, sessionId, startedFromPending, pendingChatId: startedFromPendingChatId })
       onState?.(state)
       const nextSessionId = String(state.sessionId || sessionId || '').trim()
       if (nextSessionId) {
@@ -430,7 +415,7 @@ export function createChatRunOperations(
       const hookSelection = chatHookPromptSelection(sa.activeChatFromData())
       await runRoleMessageViaEb({ roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, userMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
-        syncEbRoleRunCard(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, anchorMessageId: userMessageId })
+        noteRunFollowIntent(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId })
       }, { previousMessageIds, ancestorMessageId: userMessageId }, (run) => opts?.onRunState?.(run))
       return true
     } catch (e) {
@@ -458,7 +443,7 @@ export function createChatRunOperations(
       const hookSelection = chatHookPromptSelection(sa.activeChatFromData())
       await runRoleMessageViaEb({ roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, contextMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
-        syncEbRoleRunCard(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId, anchorMessageId: contextMessageId })
+        noteRunFollowIntent(run, { roleId: input.roleId, workspaceId: input.workspaceId, sessionId: input.sessionId })
       }, { previousMessageIds, ancestorMessageId: contextMessageId }, (run) => opts?.onRunState?.(run))
       return true
     } catch (e) {
@@ -515,7 +500,7 @@ export function createChatRunOperations(
         try {
           const nextSessionId = await runRoleMessageViaEb(runInput, (run) => {
             acceptedRunId = String(run?.id || '').trim()
-            syncEbRoleRunCard(run, { roleId, groupId, sessionId, anchorMessageId })
+            noteRunFollowIntent(run, { roleId, groupId, sessionId })
             if (clearDraftOnce) {
               consumeComposerDraft(input.clearComposerDraftKey)
               clearDraftOnce = false
@@ -602,7 +587,7 @@ export function createChatRunOperations(
       const reasoningEffort = chatReasoningEffort(pendingChat || currentChat)
       await runRoleMessageViaEb({ roleId: rid, workspaceId, sessionId, message: input, attachments, parentMessageId, reasoningEffort, modelOverride, hookPromptMode: hookSelection.mode, hookPromptPresetId: hookSelection.presetId, stream }, (run) => {
         acceptedRunId = String(run?.id || '').trim()
-        syncEbRoleRunCard(run, { roleId: rid, workspaceId, sessionId, anchorMessageId: parentMessageId })
+        noteRunFollowIntent(run, { roleId: rid, workspaceId, sessionId })
         consumeComposerDraft(draftKey)
         state.branchDraft = null
       }, { previousMessageIds, ancestorMessageId: parentMessageId }, (run) => opts?.onRunState?.(run))
