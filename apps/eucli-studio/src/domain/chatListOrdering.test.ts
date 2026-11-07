@@ -5,14 +5,15 @@ function userMessage(id: string, createdAt: number) {
   return { id, role: 'user', createdAt, updatedAt: createdAt }
 }
 
-// 一个正在输出的会话：updatedAt 随每次 delta 推进，run 的 startedAt 不变。
-function streamingChat(id: string, options: { createdAt: number; startedAt: number; updatedAt: number }) {
+// 一个正在输出的会话：updatedAt 随每次 delta 推进，锚点停在用户消息时间。
+function streamingChat(id: string, options: { createdAt: number; userSentAt: number; startedAt: number; updatedAt: number }) {
   return {
     id,
+    status: 'running',
     createdAt: options.createdAt,
     updatedAt: options.updatedAt,
     messages: [
-      userMessage(`${id}-m1`, options.createdAt),
+      userMessage(`${id}-m1`, options.userSentAt),
       {
         id: `${id}-m2`,
         role: 'assistant',
@@ -36,15 +37,64 @@ function idsOf(items: any[]) {
 describe('sortChatListItemsForDisplay 位置稳定性', () => {
   it('多个会话并发输出时，输出进度不会改变列表顺序', () => {
     const snapshot = (tick: number) => [
-      streamingChat('chat-a', { createdAt: 1000, startedAt: 1500, updatedAt: tick }),
-      streamingChat('chat-b', { createdAt: 1100, startedAt: 1400, updatedAt: tick + 1 }),
+      streamingChat('chat-a', { createdAt: 1000, userSentAt: 1000, startedAt: 1500, updatedAt: tick }),
+      streamingChat('chat-b', { createdAt: 1100, userSentAt: 1100, startedAt: 1400, updatedAt: tick + 1 }),
       { id: 'chat-c', createdAt: 1200, updatedAt: 1200, messages: [] },
     ]
 
     const first = idsOf(snapshot(1600))
     const later = idsOf(snapshot(50000))
     expect(later).toEqual(first)
-    expect(first).toEqual(['chat-a', 'chat-b', 'chat-c'])
+    expect(first).toEqual(['chat-c', 'chat-b', 'chat-a'])
+  })
+
+  it('工具往返回合里连续起 run，位置一次都不动', () => {
+    // 一轮工具调用会产生多个 run：前一个终态、后一个启动。
+    // 会话仍在运行，所有这些时间都不该影响位置。
+    const round = (runStatus: string, finishedAt: number) => [
+      {
+        id: 'chat-a',
+        status: 'running',
+        createdAt: 1000,
+        updatedAt: finishedAt + 500,
+        messages: [
+          userMessage('a-m1', 1000),
+          {
+            id: 'a-m2',
+            role: 'assistant',
+            assistantRun: {
+              generationId: 'gen-a1',
+              mode: 'new',
+              stream: true,
+              status: 'succeeded',
+              startedAt: 1100,
+              updatedAt: finishedAt,
+              finishedAt,
+            },
+          },
+          {
+            id: 'a-m3',
+            role: 'assistant',
+            assistantRun: {
+              generationId: 'gen-a2',
+              mode: 'new',
+              stream: true,
+              status: runStatus,
+              startedAt: finishedAt + 10,
+              updatedAt: finishedAt + 500,
+            },
+          },
+        ],
+      },
+      { id: 'chat-b', createdAt: 1200, updatedAt: 1300, listAnchorAt: 1300 },
+    ]
+
+    const first = idsOf(round('running', 1400))
+    const second = idsOf(round('running', 1700))
+    const third = idsOf(round('running', 2100))
+    expect(first).toEqual(['chat-b', 'chat-a'])
+    expect(second).toEqual(first)
+    expect(third).toEqual(first)
   })
 
   it('会话按锚点排序，不看 updatedAt 的活跃度', () => {

@@ -16,28 +16,43 @@ describe('chatListAnchor 位置锚点', () => {
       createdAt: 1000,
       updatedAt,
       messages: [
-        userMessage('m1', 1000),
-        assistantMessage('m2', { status: 'running', startedAt: 1200, updatedAt }),
+        userMessage('m1', 1200),
+        assistantMessage('m2', { status: 'running', startedAt: 1300, updatedAt }),
       ],
     })
 
-    expect(chatListAnchorForChat(chat(1300))).toBe(1200)
+    expect(chatListAnchorForChat(chat(1400))).toBe(1200)
     expect(chatListAnchorForChat(chat(999999))).toBe(1200)
   })
 
-  it('run 到达终态推进一次锚点，之后的输出不再推进', () => {
-    const settled = (updatedAt: number) => ({
+  it('工具往返产生的中间 run 起落不改变锚点', () => {
+    // 一轮工具调用：前一个 run 终态、工具返回、后一个 run 启动。
+    // 这些时间都是过程，锚点必须钉在用户消息时间上。
+    const chat = {
       id: 'chat-a',
       createdAt: 1000,
-      updatedAt,
+      updatedAt: 9999,
       messages: [
-        userMessage('m1', 1000),
-        assistantMessage('m2', { status: 'succeeded', startedAt: 1200, updatedAt, finishedAt: 1800 }),
+        userMessage('m1', 1200),
+        assistantMessage('m2', { status: 'succeeded', startedAt: 1300, updatedAt: 1400, finishedAt: 1400 }),
+        assistantMessage('m3', { status: 'succeeded', startedAt: 1500, updatedAt: 1700, finishedAt: 1700 }),
+        assistantMessage('m4', { status: 'running', startedAt: 1800, updatedAt: 9999 }),
       ],
-    })
+    }
+    expect(chatListAnchorForChat(chat)).toBe(1200)
+  })
 
-    expect(chatListAnchorForChat(settled(1800))).toBe(1800)
-    expect(chatListAnchorForChat(settled(999999))).toBe(1800)
+  it('整轮结束后锚点仍停在用户消息时间，不因完成而上浮', () => {
+    const chat = {
+      id: 'chat-a',
+      createdAt: 1000,
+      updatedAt: 999999,
+      messages: [
+        userMessage('m1', 1200),
+        assistantMessage('m2', { status: 'succeeded', startedAt: 1300, updatedAt: 1800, finishedAt: 1800 }),
+      ],
+    }
+    expect(chatListAnchorForChat(chat)).toBe(1200)
   })
 
   it('用户新消息推进锚点', () => {
@@ -50,19 +65,14 @@ describe('chatListAnchor 位置锚点', () => {
     expect(chatListAnchorForChat(chat)).toBe(4000)
   })
 
-  it('末尾消息没有 run 时仍取到更早那次 run 的终态时间', () => {
+  it('没有用户消息的会话以创建时间为锚点', () => {
     const chat = {
       id: 'chat-a',
       createdAt: 1000,
-      updatedAt: 9000,
-      messages: [
-        userMessage('m1', 1000),
-        assistantMessage('m2', { status: 'succeeded', startedAt: 1200, updatedAt: 1800, finishedAt: 1800 }),
-        { id: 'm3', role: 'assistant', content: '旧的 assistant 记录' },
-        userMessage('m4', 2500),
-      ],
+      updatedAt: 8000,
+      messages: [assistantMessage('m1', { status: 'succeeded', startedAt: 1200, updatedAt: 1800, finishedAt: 1800 })],
     }
-    expect(chatListAnchorForChat(chat)).toBe(2500)
+    expect(chatListAnchorForChat(chat)).toBe(1000)
   })
 
   it('索引会话以最后落盘的活动时间作为锚点初值', () => {
