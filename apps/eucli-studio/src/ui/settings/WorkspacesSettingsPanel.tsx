@@ -4,8 +4,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SaveIcon from '@mui/icons-material/Save'
 import * as React from 'react'
 import { NEW_WORKSPACE_ID } from '../../domain/constants'
-import { WorkspaceEditorForm } from '../dialogs/WorkspaceEditorForm'
-import { CustomScrollArea } from '../components/CustomScrollArea'
+import { WorkspaceEditorForm } from '../dialogs/workspaceEditor/WorkspaceEditorForm'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { customScrollbarHiddenSx } from '../scroll/customScrollbars'
 import { SettingsHeading, SettingsPill, SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -79,7 +78,19 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                         return (
                           <SortableItem key={workspaceId} id={workspaceId}>
                             {({ setNodeRef, handleProps, isDragging, style }) => (
-                              <Box ref={setNodeRef} style={style} {...handleProps} sx={{ touchAction: 'pan-y' }}>
+                              <Box
+                                ref={setNodeRef}
+                                style={style}
+                                {...handleProps}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.25,
+                                  cursor: isDragging ? 'grabbing' : 'grab',
+                                  opacity: isDragging ? 0.5 : 1,
+                                  touchAction: 'pan-y',
+                                }}
+                              >
                                 <Button
                                   variant={selected ? 'contained' : 'text'}
                                   color={selected ? 'primary' : 'inherit'}
@@ -88,20 +99,9 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
                                     controller.actions.openWorkspaceEditorInPlace?.(workspaceId)
                                   }}
                                   disabled={!workspaceId}
-                                  sx={{
-                                    justifyContent: 'flex-start',
-                                    minWidth: 0,
-                                    width: '100%',
-                                    px: 1,
-                                    textTransform: 'none',
-                                    textAlign: 'left',
-                                    cursor: isDragging ? 'grabbing' : 'grab',
-                                    opacity: isDragging ? 0.5 : 1,
-                                  }}
+                                  sx={{ justifyContent: 'flex-start', minWidth: 0, flex: 1, px: 1, textTransform: 'none', textAlign: 'left' }}
                                 >
-                                  <Box sx={{ flexShrink: 0, mr: 0.75, display: 'flex' }}>
-                                    <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={24} />
-                                  </Box>
+                                  <EntityAvatar kind="workspace" image={workspaceIconImageSrc(workspace?.icon)} size={24} sx={{ mr: 0.75 }} />
                                   <Box sx={{ minWidth: 0 }}>
                                     <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>
                                       {String(workspace?.name || '未命名工作区')}{isActive ? ' · 当前' : ''}
@@ -125,42 +125,41 @@ export function WorkspacesSettingsPanel(props: WorkspacesSettingsPanelProps) {
             </Stack>
           </SettingsSection>
 
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-            <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
-              {editorOpen ? (
-                <Stack spacing={1.5}>
-                  <SettingsSection>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{editingWorkspace ? '工作区编辑' : '新建工作区'}</Typography>
-                      {editingIsActive ? <SettingsPill tone="selected">当前工作区</SettingsPill> : null}
-                      <Box sx={{ flex: 1 }} />
-                      {editingWorkspace ? (
-                        <>
-                          <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveWorkspace?.(editingWorkspaceId)} disabled={editingIsActive}>
-                            进入工作区
-                          </Button>
-                          <MoreActionsMenu
-                            items={[{
-                              key: 'delete',
-                              label: '删除工作区',
-                              icon: <DeleteOutlineIcon fontSize="small" />,
-                              danger: true,
-                              onSelect: () => controller.actions.askDeleteWorkspace?.(editingWorkspaceId),
-                            }]}
-                          />
-                        </>
-                      ) : null}
-                    </Stack>
-                  </SettingsSection>
-
-                  <WorkspaceEditorForm controller={controller} draft={draft} roles={roles} />
-                </Stack>
-              ) : (
-                <SettingsSection sx={{ p: 2 }}>
-                  <Typography variant="body2" color="text.secondary">选择一个工作区查看和编辑。</Typography>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {editorOpen ? (
+              <Stack spacing={1.5} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                <SettingsSection sx={{ flexShrink: 0 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>{editingWorkspace ? '工作区编辑' : '新建工作区'}</Typography>
+                    {editingIsActive ? <SettingsPill tone="selected">当前工作区</SettingsPill> : null}
+                    <Box sx={{ flex: 1 }} />
+                    {editingWorkspace ? (
+                      <>
+                        <Button size="small" variant="outlined" onClick={() => controller.actions.setActiveWorkspace?.(editingWorkspaceId)} disabled={editingIsActive}>
+                          进入工作区
+                        </Button>
+                        <MoreActionsMenu
+                          items={[{
+                            key: 'delete',
+                            label: '删除工作区',
+                            icon: <DeleteOutlineIcon fontSize="small" />,
+                            danger: true,
+                            onSelect: () => controller.actions.askDeleteWorkspace?.(editingWorkspaceId),
+                          }]}
+                        />
+                      </>
+                    ) : null}
+                  </Stack>
                 </SettingsSection>
-              )}
-            </CustomScrollArea>
+
+                {/* 滚动交给各分类面板自己，所以这里只做高度分配。 */}
+                <WorkspaceEditorForm controller={controller} draft={draft} roles={roles} />
+              </Stack>
+            ) : (
+              <SettingsSection sx={{ p: 2 }}>
+                <Typography variant="body2" color="text.secondary">选择一个工作区查看和编辑。</Typography>
+              </SettingsSection>
+            )}
           </Box>
         </Stack>
       </Stack>
