@@ -243,6 +243,7 @@ export function createSessionFactsBackend() {
           hasPending: false,
           runStatus: 'idle',
           runStatusChangedAt: 0,
+          listAnchorAt: session.updatedAt,
         },
       ],
       updatedAt: session.updatedAt,

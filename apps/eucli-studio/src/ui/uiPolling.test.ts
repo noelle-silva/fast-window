@@ -29,6 +29,7 @@ function snapshot(
       hasPending: false,
       runStatus: 'idle',
       runStatusChangedAt: 0,
+      listAnchorAt: 1000 + index,
     })),
     updatedAt: 5000,
     revision,

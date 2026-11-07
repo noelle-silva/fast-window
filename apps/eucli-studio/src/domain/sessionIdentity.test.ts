@@ -26,7 +26,7 @@ describe('会话级事实的归并规则', () => {
   })
 
   it('chatMeta 转事实时保留正数时间', () => {
-    expect(sessionIdentityFromMeta({ id: 'c1', title: '标题', createdAt: 1, updatedAt: 2, lastMessagePreview: '', messageCount: 0, hasPending: false, runStatus: 'idle', runStatusChangedAt: 0 }))
+    expect(sessionIdentityFromMeta({ id: 'c1', title: '标题', createdAt: 1, updatedAt: 2, lastMessagePreview: '', messageCount: 0, hasPending: false, runStatus: 'idle', runStatusChangedAt: 0, listAnchorAt: 2 }))
       .toEqual({ title: '标题', createdAt: 1, updatedAt: 2 })
   })
 

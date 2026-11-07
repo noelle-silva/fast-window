@@ -61,6 +61,7 @@ describe('chatMeta 事实优先级', () => {
       hasPending: false,
       runStatus: 'idle',
       runStatusChangedAt: 0,
+      listAnchorAt: 1,
       ...partial,
     }
   }
@@ -83,6 +84,7 @@ describe('chatMeta 事实优先级', () => {
     const incoming = meta({ partial: true, title: '后到' })
     expect(resolveChatMetaFact(existing, incoming)).toBe(existing)
   })
+
 })
 
 describe('chatMeta 时间归一化', () => {

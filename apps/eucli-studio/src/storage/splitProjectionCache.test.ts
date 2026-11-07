@@ -41,6 +41,7 @@ function chatIndex(scopeKey: string, ids: string[], activeChatId = ''): ChatInde
       hasPending: false,
       runStatus: 'idle',
       runStatusChangedAt: 0,
+      listAnchorAt: 1000 + index,
     })),
     updatedAt: 2000,
     revision: 7,

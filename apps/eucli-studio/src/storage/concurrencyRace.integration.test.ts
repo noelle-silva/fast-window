@@ -117,6 +117,7 @@ describe('并发竞态：删除后旧请求不得回填', () => {
           hasPending: false,
           runStatus: 'completed',
           runStatusChangedAt: 300,
+          listAnchorAt: 300,
         },
       ],
       updatedAt: 300,
