@@ -1,11 +1,6 @@
 import * as React from 'react'
 import { Box, Stack, Tab, Tabs, Typography } from '@mui/material'
-import {
-  ROLE_EDITOR_CATEGORIES,
-  roleEditorPanelDomId,
-  roleEditorTabDomId,
-  type RoleEditorCategoryId,
-} from './roleEditorCategories'
+import type { CategoryEditorCategory } from './categoryEditorTypes'
 
 const tabBarSx = {
   minHeight: 40,
@@ -37,36 +32,40 @@ const tabBarSx = {
 
 /**
  * 分类切换栏：编辑器里固定不滚动的一层，下面跟一行当前分类说明。
- * attentionCategories 用来标记需要处理但不方便自动跳过去的分类（例如待裁剪的头像）。
+ * attentionIds 用来标记需要处理但不方便自动跳过去的分类（例如待裁剪的头像）。
  */
-export function RoleEditorTabBar(props: {
-  value: RoleEditorCategoryId
-  onChange: (next: RoleEditorCategoryId) => void
-  attentionCategories?: RoleEditorCategoryId[]
+export function CategoryEditorTabBar<Id extends string>(props: {
+  categories: readonly CategoryEditorCategory<Id>[]
+  value: Id
+  onChange: (next: Id) => void
+  ariaLabel: string
+  tabId: (categoryId: Id) => string
+  panelId: (categoryId: Id) => string
+  attentionIds?: Id[]
 }) {
-  const { value, onChange, attentionCategories } = props
-  const attention = new Set<RoleEditorCategoryId>(attentionCategories || [])
-  const active = ROLE_EDITOR_CATEGORIES.find((item) => item.id === value) || ROLE_EDITOR_CATEGORIES[0]
+  const { categories, value, onChange, ariaLabel, tabId, panelId, attentionIds } = props
+  const attention = new Set<Id>(attentionIds || [])
+  const active = categories.find((item) => item.id === value) || categories[0]
 
   return (
     <Box sx={{ flexShrink: 0 }}>
       <Tabs
         value={value}
-        onChange={(_event, next) => onChange(next as RoleEditorCategoryId)}
+        onChange={(_event, next) => onChange(next as Id)}
         variant="fullWidth"
-        aria-label="角色编辑分类"
+        aria-label={ariaLabel}
         sx={tabBarSx}
       >
-        {ROLE_EDITOR_CATEGORIES.map((item) => {
+        {categories.map((item) => {
           const Icon = item.icon
           return (
             <Tab
               key={item.id}
               value={item.id}
-              id={roleEditorTabDomId(item.id)}
-              aria-controls={roleEditorPanelDomId(item.id)}
+              id={tabId(item.id)}
+              aria-controls={panelId(item.id)}
               disableRipple
-              label={(
+              label={
                 <Stack direction="row" spacing={0.75} alignItems="center">
                   <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
                     <Icon sx={{ fontSize: 16 }} />
@@ -82,7 +81,7 @@ export function RoleEditorTabBar(props: {
                     />
                   ) : null}
                 </Stack>
-              )}
+              }
             />
           )
         })}

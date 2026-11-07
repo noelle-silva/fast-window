@@ -4,7 +4,7 @@ import { placeholderProblemLabel, type PlaceholderDependencyNode, type Placehold
 import { PlaceholderDependencyGraph } from '../../components/PlaceholderDependencyGraph'
 import { useEvent } from '../../hooks/useEvent'
 import { PlaceholderEditorDialog } from '../PlaceholderEditorDialog'
-import { RoleFillTextarea } from './RoleFillTextarea'
+import { FillTextarea } from '../../components/FillTextarea'
 
 const PREVIEW_DEBOUNCE_MS = 240
 
@@ -109,7 +109,7 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
           alignItems="stretch"
           sx={{ flex: '1 1 auto', minHeight: 0 }}
         >
-          <RoleFillTextarea
+          <FillTextarea
             label="系统提示词"
             value={value}
             onChange={onChange}
@@ -117,7 +117,7 @@ export function RoleSystemPromptSection(props: RoleSystemPromptSectionProps) {
           />
           {previewOpen ? (
             <Stack spacing={0.75} sx={{ flex: '1 1 0', minWidth: 0, minHeight: 0 }}>
-              <RoleFillTextarea
+              <FillTextarea
                 label="解析预览"
                 value={String(preview?.text ?? '')}
                 placeholder="这里显示占位符替换后的结果…"

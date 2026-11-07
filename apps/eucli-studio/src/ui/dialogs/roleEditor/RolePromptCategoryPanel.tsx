@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { RoleEditorSection } from './RoleEditorLayout'
+import { CategoryEditorSection } from '../../components/categoryEditor/CategoryEditorSection'
 import { RoleSystemPromptSection } from './RoleSystemPromptSection'
 
 /**
@@ -9,7 +9,7 @@ import { RoleSystemPromptSection } from './RoleSystemPromptSection'
 export function RolePromptCategoryPanel(props: { controller: any; draft: any; placeholders?: any; systemPlugins?: any }) {
   const { controller, draft, placeholders, systemPlugins } = props
   return (
-    <RoleEditorSection fill title="系统提示词" description="支持 {{占位符}}；解析预览只读，不会改动保存的原文。">
+    <CategoryEditorSection fill title="系统提示词" description="支持 {{占位符}}；解析预览只读，不会改动保存的原文。">
       <RoleSystemPromptSection
         controller={controller}
         roleName={String(draft?.roleName || '')}
@@ -18,6 +18,6 @@ export function RolePromptCategoryPanel(props: { controller: any; draft: any; pl
         placeholders={placeholders}
         systemPlugins={systemPlugins}
       />
-    </RoleEditorSection>
+    </CategoryEditorSection>
   )
 }

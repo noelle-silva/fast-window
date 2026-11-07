@@ -1,8 +1,14 @@
 import * as React from 'react'
 import { Box, Stack } from '@mui/material'
-import { DEFAULT_ROLE_EDITOR_CATEGORY, type RoleEditorCategoryId } from './roleEditorCategories'
-import { RoleEditorCategoryPanel } from './RoleEditorLayout'
-import { RoleEditorTabBar } from './RoleEditorTabBar'
+import { CategoryEditorPanel } from '../../components/categoryEditor/CategoryEditorPanel'
+import { CategoryEditorTabBar } from '../../components/categoryEditor/CategoryEditorTabBar'
+import {
+  DEFAULT_ROLE_EDITOR_CATEGORY,
+  ROLE_EDITOR_CATEGORIES,
+  roleEditorPanelDomId,
+  roleEditorTabDomId,
+  type RoleEditorCategoryId,
+} from './roleEditorCategories'
 import { RoleModelCategoryPanel } from './RoleModelCategoryPanel'
 import { RoleOtherCategoryPanel } from './RoleOtherCategoryPanel'
 import { RolePromptCategoryPanel } from './RolePromptCategoryPanel'
@@ -22,9 +28,29 @@ export type RoleEditorFormProps = {
   defaultCategory?: RoleEditorCategoryId
 }
 
+/** 把通用面板容器绑定到角色分类的 DOM id 上。 */
+function RoleCategoryPanel(props: {
+  categoryId: RoleEditorCategoryId
+  active: boolean
+  scroll?: boolean
+  children: React.ReactNode
+}) {
+  const { categoryId, active, scroll, children } = props
+  return (
+    <CategoryEditorPanel
+      active={active}
+      scroll={scroll}
+      tabId={roleEditorTabDomId(categoryId)}
+      panelId={roleEditorPanelDomId(categoryId)}
+    >
+      {children}
+    </CategoryEditorPanel>
+  )
+}
+
 /**
  * 角色编辑外壳：顶部切换栏固定，下面是一个高度受约束的面板槽。
- * 滚动权在各自的面板里（见 RoleEditorCategoryPanel），
+ * 滚动权在各自的面板里（见 CategoryEditorPanel），
  * 所以「提示词编辑」这类面板可以把高度锁死、让内容自己适配剩余空间。
  * 高度全部由 flex 分配（不用百分比高度），调用方只需给一个高度确定的列容器。
  */
@@ -41,10 +67,18 @@ export function RoleEditorForm(props: RoleEditorFormProps) {
 
   return (
     <Stack spacing={1.5} sx={{ flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
-      <RoleEditorTabBar value={category} onChange={setCategory} attentionCategories={attentionCategories} />
+      <CategoryEditorTabBar
+        categories={ROLE_EDITOR_CATEGORIES}
+        value={category}
+        onChange={setCategory}
+        ariaLabel="角色编辑分类"
+        tabId={roleEditorTabDomId}
+        panelId={roleEditorPanelDomId}
+        attentionIds={attentionCategories}
+      />
 
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, minWidth: 0 }}>
-        <RoleEditorCategoryPanel categoryId="model" active={category === 'model'}>
+        <RoleCategoryPanel categoryId="model" active={category === 'model'}>
           <RoleModelCategoryPanel
             controller={controller}
             providers={providers}
@@ -52,23 +86,23 @@ export function RoleEditorForm(props: RoleEditorFormProps) {
             draft={draft}
             models={models}
           />
-        </RoleEditorCategoryPanel>
+        </RoleCategoryPanel>
 
         {/* 提示词面板锁死高度：外层不滚，滚动只发生在系统提示词文本框内部。 */}
-        <RoleEditorCategoryPanel categoryId="prompt" active={category === 'prompt'} scroll={false}>
+        <RoleCategoryPanel categoryId="prompt" active={category === 'prompt'} scroll={false}>
           <RolePromptCategoryPanel
             controller={controller}
             draft={draft}
             placeholders={placeholders}
             systemPlugins={systemPlugins}
           />
-        </RoleEditorCategoryPanel>
+        </RoleCategoryPanel>
 
-        <RoleEditorCategoryPanel categoryId="tools" active={category === 'tools'}>
+        <RoleCategoryPanel categoryId="tools" active={category === 'tools'}>
           <RoleToolsCategoryPanel controller={controller} draft={draft} tools={tools} />
-        </RoleEditorCategoryPanel>
+        </RoleCategoryPanel>
 
-        <RoleEditorCategoryPanel categoryId="other" active={category === 'other'}>
+        <RoleCategoryPanel categoryId="other" active={category === 'other'}>
           <RoleOtherCategoryPanel
             controller={controller}
             draft={draft}
@@ -76,7 +110,7 @@ export function RoleEditorForm(props: RoleEditorFormProps) {
             placeholders={placeholders}
             systemPlugins={systemPlugins}
           />
-        </RoleEditorCategoryPanel>
+        </RoleCategoryPanel>
       </Box>
     </Stack>
   )

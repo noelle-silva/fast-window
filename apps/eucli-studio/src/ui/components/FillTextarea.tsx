@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, TextField } from '@mui/material'
-import { CustomScrollbarThumbs, useCustomScrollbar } from '../../scroll/CustomScrollbar'
-import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../../scroll/customScrollbars'
+import { CustomScrollbarThumbs, useCustomScrollbar } from '../scroll/CustomScrollbar'
+import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../scroll/customScrollbars'
 
 // 撑满父级高度的多行输入：外层给多少高度就吃多少，再多内容也只在框内滚。
 // 两条硬约束：
@@ -30,7 +30,7 @@ const fillTextareaSx = {
 } as const
 
 /** 吃掉剩余高度、内部自滚的多行输入框。 */
-export function RoleFillTextarea(props: {
+export function FillTextarea(props: {
   label: string
   value: string
   placeholder?: string

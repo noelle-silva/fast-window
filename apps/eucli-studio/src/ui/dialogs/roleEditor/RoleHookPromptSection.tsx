@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { FormControl, InputLabel, MenuItem, Select } from '@mui/material'
-import { RoleEditorSection } from './RoleEditorLayout'
+import { CategoryEditorSection } from '../../components/categoryEditor/CategoryEditorSection'
 
 /** 角色的默认 hook 提示词：会话没有单独指定时沿用这里的预设。 */
 export function RoleHookPromptSection(props: { controller: any; draft: any; hookPrompts?: any }) {
@@ -9,7 +9,7 @@ export function RoleHookPromptSection(props: { controller: any; draft: any; hook
   const presets = Array.isArray(hookPrompts?.library?.presets) ? hookPrompts.library.presets : []
 
   return (
-    <RoleEditorSection title="默认 hook 提示词" description="会话内单独指定 hook 提示词时，以会话设置为准。">
+    <CategoryEditorSection title="默认 hook 提示词" description="会话内单独指定 hook 提示词时，以会话设置为准。">
       <FormControl fullWidth>
         <InputLabel>默认 hook 提示词</InputLabel>
         <Select
@@ -29,6 +29,6 @@ export function RoleHookPromptSection(props: { controller: any; draft: any; hook
           })}
         </Select>
       </FormControl>
-    </RoleEditorSection>
+    </CategoryEditorSection>
   )
 }

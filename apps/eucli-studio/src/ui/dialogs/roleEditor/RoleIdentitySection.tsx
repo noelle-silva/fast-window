@@ -4,7 +4,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { NEW_ROLE_ID } from '../../../domain/constants'
 import { EntityAvatar } from '../../components/avatar/EntityAvatar'
 import { RoleAvatarCropper } from '../../components/avatar/RoleAvatarCropper'
-import { RoleEditorSection } from './RoleEditorLayout'
+import { CategoryEditorSection } from '../../components/categoryEditor/CategoryEditorSection'
 
 /**
  * 角色身份：角色名 + 角色 ID + 头像。
@@ -30,7 +30,7 @@ export function RoleIdentitySection(props: { controller: any; draft: any }) {
   }
 
   return (
-    <RoleEditorSection title="角色信息" description="角色名用于会话标题与依赖树根节点；头像与描述可选。">
+    <CategoryEditorSection title="角色信息" description="角色名用于会话标题与依赖树根节点；头像与描述可选。">
       <TextField
         label="角色名"
         value={String(draft?.roleName || '')}
@@ -98,6 +98,6 @@ export function RoleIdentitySection(props: { controller: any; draft: any }) {
       </Stack>
 
       {avatarCropSrc ? <RoleAvatarCropper controller={controller} src={avatarCropSrc} /> : null}
-    </RoleEditorSection>
+    </CategoryEditorSection>
   )
 }

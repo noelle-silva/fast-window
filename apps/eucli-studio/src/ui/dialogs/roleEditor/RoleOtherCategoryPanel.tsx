@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Stack } from '@mui/material'
 import { PlaceholderSearchSection } from '../PlaceholderSearchSection'
-import { RoleEditorSection } from './RoleEditorLayout'
+import { CategoryEditorSection } from '../../components/categoryEditor/CategoryEditorSection'
 import { RoleHookPromptSection } from './RoleHookPromptSection'
 import { RoleIdentitySection } from './RoleIdentitySection'
 import { RoleTemperatureSection } from './RoleTemperatureSection'
@@ -20,9 +20,9 @@ export function RoleOtherCategoryPanel(props: {
       <RoleIdentitySection controller={controller} draft={draft} />
       <RoleTemperatureSection controller={controller} draft={draft} />
       <RoleHookPromptSection controller={controller} draft={draft} hookPrompts={hookPrompts} />
-      <RoleEditorSection title="占位符" description="搜索后点击条目即可编辑内容并保存，复制按钮给你 {{名称}} 形式的写法。">
+      <CategoryEditorSection title="占位符" description="搜索后点击条目即可编辑内容并保存，复制按钮给你 {{名称}} 形式的写法。">
         <PlaceholderSearchSection controller={controller} placeholders={placeholders} systemPlugins={systemPlugins} />
-      </RoleEditorSection>
+      </CategoryEditorSection>
     </Stack>
   )
 }

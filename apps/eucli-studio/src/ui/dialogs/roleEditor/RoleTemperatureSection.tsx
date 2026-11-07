@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Slider, Stack, Switch, Typography } from '@mui/material'
-import { RoleEditorSection } from './RoleEditorLayout'
+import { CategoryEditorSection } from '../../components/categoryEditor/CategoryEditorSection'
 
 /** 温度：关闭后请求不带 temperature，走模型默认值。 */
 export function RoleTemperatureSection(props: { controller: any; draft: any }) {
@@ -10,7 +10,7 @@ export function RoleTemperatureSection(props: { controller: any; draft: any }) {
   const temperature = Number.isFinite(rawTemperature) ? rawTemperature : 1
 
   return (
-    <RoleEditorSection title="温度">
+    <CategoryEditorSection title="温度">
       <Stack direction="row" spacing={1} alignItems="center">
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 900 }}>
@@ -36,6 +36,6 @@ export function RoleTemperatureSection(props: { controller: any; draft: any }) {
         step={0.05}
         onChange={(_event, next) => controller.actions.setDraft('roleTemperature', String(next))}
       />
-    </RoleEditorSection>
+    </CategoryEditorSection>
   )
 }
