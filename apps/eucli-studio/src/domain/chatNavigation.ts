@@ -1,4 +1,4 @@
-import { sortChatListItemsForDisplay } from './chatListOrdering'
+import { sortChatListItemsOfBox } from './chatListOrdering'
 import { pendingChatForTarget } from './pendingChat'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
@@ -78,7 +78,7 @@ export function resolveActiveChatNav(input: {
     : kind === 'workspace'
       ? input.data?.chatsByWorkspace?.[targetId]
       : input.data?.chatsByRole?.[targetId]
-  const chats = sortChatListItemsForDisplay(Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas : Array.isArray(box?.chats) ? box.chats : [])
+  const chats = sortChatListItemsOfBox(box)
   const pendingChat = pendingChatForTarget(input.state, kind, targetId)
   const currentChatId = String(input.activeChat?.id || box?.activeChatId || String(chats[0]?.id || '') || '')
   return chatNavigationFromOrderedChats({ orderedChats: chats, activeChatId: currentChatId, pendingChat })

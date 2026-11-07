@@ -1,4 +1,4 @@
-import { sortChatListItemsForDisplay } from './chatListOrdering'
+import { sortChatListItemsOfBox } from './chatListOrdering'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 function text(value: unknown) {
@@ -6,13 +6,8 @@ function text(value: unknown) {
 }
 
 function boxSessions(box: any) {
-  const raw = Array.isArray(box?.chatMetas) && box.chatMetas.length
-    ? box.chatMetas
-    : Array.isArray(box?.chats)
-      ? box.chats
-      : []
   return {
-    sessions: sortChatListItemsForDisplay(raw),
+    sessions: sortChatListItemsOfBox(box),
     activeChatId: text(box?.activeChatId),
   }
 }

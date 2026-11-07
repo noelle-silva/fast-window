@@ -144,6 +144,8 @@ export function workspaceSessionSummaryToMeta(raw: unknown) {
     hasPending: status === 'running' || status === 'waiting_confirmation',
     runStatus: status === 'running' || status === 'waiting_confirmation' ? 'running' : 'idle',
     runStatusChangedAt: updatedAt,
+    // 摘要没有消息级事件，锚点只能取最后落盘的活动时间：它是静止快照。
+    listAnchorAt: updatedAt,
   }
 }
 

@@ -1,4 +1,5 @@
 import { normalizeTimeMs, now } from '../core/utils'
+import { chatListAnchorForChat, chatListAnchorForIndex } from './chatListAnchor'
 import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
 import { factSourceRank, type FactSource } from './factPrecedence'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
@@ -13,6 +14,9 @@ export type ChatMeta = {
   hasPending: boolean
   runStatus: ChatSessionRunStatus
   runStatusChangedAt: number
+  // listAnchorAt 是侧边栏排序的唯一位置事实：只随「创建 / 用户发消息 /
+  // run 开始 / run 终态」推进，不随流式输出推进。合并时只前进不后退。
+  listAnchorAt: number
   // partial 表示这份 meta 来自「消息窗口」而不是整份会话：
   // 条数与摘要都是窗口切片的事实，绝不能拿来覆盖索引里的列表事实。
   partial?: boolean
@@ -132,6 +136,7 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
     hasPending,
     runStatus: hasPending ? 'running' : runSummary.status,
     runStatusChangedAt: Number(runSummary.changedAt || updatedAt || createdAt || 0),
+    listAnchorAt: chatListAnchorForChat(chat),
     ...(chat.windowPartial === true ? { partial: true } : {}),
   }
 }
@@ -154,6 +159,7 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
     hasPending,
     runStatus: hasPending ? 'running' : runStatus,
     runStatusChangedAt: Number((obj as any).runStatusChangedAt || (obj as any).statusChangedAt || updatedAt || createdAt || 0) || updatedAt,
+    listAnchorAt: chatListAnchorForIndex(obj, createdAt, updatedAt),
     ...((obj as any).partial === true ? { partial: true } : {}),
   }
 }
