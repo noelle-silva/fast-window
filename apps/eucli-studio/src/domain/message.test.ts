@@ -34,6 +34,28 @@ describe('message timing normalization', () => {
   })
 })
 
+describe('message usage facts normalization', () => {
+  it('keeps cache rate and context tokens from upstream truth', () => {
+    const message = normalizeChatMessage({
+      id: 'm3',
+      type: 'assistant',
+      content: '回答',
+      cacheRate: 0.857,
+      contextTokens: 32000,
+    })
+
+    expect(message.cacheRate).toBe(0.857)
+    expect(message.contextTokens).toBe(32000)
+  })
+
+  it('drops an out-of-range cache rate and normalizes a missing context to zero', () => {
+    const message = normalizeChatMessage({ id: 'm4', type: 'assistant', content: '回答', cacheRate: 1.5, contextTokens: -5 })
+
+    expect(message).not.toHaveProperty('cacheRate')
+    expect(message.contextTokens).toBe(0)
+  })
+})
+
 describe('tool produced image routing', () => {
   it('routes assistant attachments into toolImages', () => {
     const message = normalizeChatMessage({

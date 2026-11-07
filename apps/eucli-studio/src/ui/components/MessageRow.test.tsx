@@ -144,6 +144,20 @@ describe('MessageRow 操作按钮按需渲染', () => {
     expect(host!.querySelector('button[aria-label="删除消息"]')).toBeNull()
   })
 
+  it('AI 消息的元信息行并排显示缓存率、上下文、时间与耗时', () => {
+    const withTruth = renderRow({
+      mid: 'a-1',
+      message: assistantMessage({ cacheRate: 0.857, contextTokens: 32000, modelDurationMs: 12500 }),
+    })
+    expect(withTruth.bar?.textContent).toContain('85.7% · 32k · t2000 · 12.5 秒')
+    act(() => root.unmount())
+    root = null
+    host!.remove()
+
+    const withoutTruth = renderRow({ mid: 'a-1', message: assistantMessage() })
+    expect(withoutTruth.bar?.textContent).toContain('? · ? · t2000')
+  })
+
   it('鼠标移入整行后按钮出现，移出后按钮消失', () => {
     const { row } = renderRow()
     expect(row).not.toBeNull()

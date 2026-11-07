@@ -3,6 +3,7 @@ import { CHAT_DEFAULT_BRANCH_ID, CHAT_MSG_GROUP_ROLES } from './constants'
 import { normalizeBranchId } from './branching'
 import { normalizeMessageModelRef } from './modelRefUtils'
 import { normalizeDurationMs } from './messageTiming'
+import { normalizeCacheRate } from './sessionCacheRate'
 import { normalizeErrorPayload } from './errorPayload'
 
 export function normalizeMessageError(input: any) {
@@ -97,6 +98,7 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
     toolImages,
     tokenEstimate: normalizeMessageTokenEstimate((m as any).tokenEstimate),
     modelDurationMs: normalizeDurationMs((m as any).modelDurationMs),
+    contextTokens: normalizeMessageContextTokens((m as any).contextTokens),
     ...normalizeMessageGroup(m),
     branchId: normalizeBranchId((m as any).branchId || options?.activeBranchId || CHAT_DEFAULT_BRANCH_ID),
     parentMid: normalizeMessageParentMid(m),
@@ -104,6 +106,9 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
     updatedAt,
     modelRef: normalizeMessageModelRef(m),
   }
+  // 缓存率是上游真值：拿不到真值时整项不落地，展示层按「无值」显示问号，绝不补 0。
+  const cacheRate = normalizeCacheRate((m as any).cacheRate)
+  if (cacheRate !== null) out.cacheRate = cacheRate
   if (typeof (m as any).pending === 'boolean') out.pending = !!(m as any).pending
   if (typeof (m as any).streaming === 'boolean') out.streaming = !!(m as any).streaming
   const control = normalizeMessageControl((m as any).control)
@@ -155,7 +160,18 @@ export function isCompressionSummaryMessage(message: any) {
   return isSystemControlMessage(message) && String(message?.control?.kind || '').trim() === 'compression_summary'
 }
 
+// normalizeMessageTokenEstimate / normalizeMessageContextTokens 都是消息上的 token 计数：
+// 非负整数，缺失或非法一律归 0，由展示层按「0 即无真值」处理。
 export function normalizeMessageTokenEstimate(input: any) {
+  return normalizeMessageTokenCount(input)
+}
+
+// normalizeMessageContextTokens 归一化「这轮发给模型的上下文规模」真值，0 表示上游没给。
+export function normalizeMessageContextTokens(input: any) {
+  return normalizeMessageTokenCount(input)
+}
+
+function normalizeMessageTokenCount(input: any) {
   const value = Math.max(0, Math.floor(Number(input || 0)))
   return Number.isFinite(value) ? value : 0
 }
