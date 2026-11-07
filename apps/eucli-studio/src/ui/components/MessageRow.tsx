@@ -8,7 +8,7 @@ import { isAssistantGenerating } from '../../domain/assistantRunState'
 import { messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import { resolveReplyDurationMs } from '../../domain/messageTiming'
-import { buildAssistantMetaLine } from '../../domain/messageMetaLine'
+import { buildAssistantMetaLine, buildUserMetaLine } from '../../domain/messageMetaLine'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
@@ -375,9 +375,9 @@ function MessageRowImpl(props: MessageRowProps) {
   const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
   const replyDurationText = !isUser ? formatDurationMs(resolveReplyDurationMs(m)) : ''
   const time = controller.fmtTime(Number(m?.createdAt || 0))
-  // 元信息行在操作按钮左侧：AI 消息并排「缓存率 · 上下文 · 时间 · 耗时」，用户消息只显示时间。
+  // 元信息行在操作按钮左侧：用户消息是「上下文 · 时间」，AI 消息是「缓存率 · 上下文 · 时间 · 耗时」。
   const actionMetaText = isUser
-    ? time
+    ? buildUserMetaLine({ contextTokens: (m as any)?.contextTokens, timeText: time })
     : buildAssistantMetaLine({
         cacheRate: (m as any)?.cacheRate,
         contextTokens: (m as any)?.contextTokens,

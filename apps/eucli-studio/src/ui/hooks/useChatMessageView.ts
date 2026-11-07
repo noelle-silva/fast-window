@@ -2,7 +2,8 @@ import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText, shouldShowActiveRunTailPending } from '../../domain/chatMessageDisplay'
-import { formatTokenUsage, formatTokenUsageShort } from '../../domain/messageTokenUsage'
+import { latestContextTokens } from '../../domain/message'
+import { formatContextTokens } from '../../domain/messageMetaLine'
 import { formatCacheRate } from '../../domain/sessionCacheRate'
 
 type TargetKind = 'role' | 'group' | 'workspace'
@@ -150,8 +151,9 @@ export function useChatMessageView(deps: {
       },
     }
   }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind])
-  const activeContextTokenUsageText = React.useMemo(() => formatTokenUsage(activeChat?.tokenUsage), [activeChat?.tokenUsage])
-  const activeContextTokenUsageShortText = React.useMemo(() => formatTokenUsageShort(activeChat?.tokenUsage), [activeChat?.tokenUsage])
+  // 输入框旁的上下文规模取最后一条带真值的消息：与消息行同一个字段，两处数字必然一致。
+  const activeContextTokenUsageText = React.useMemo(() => formatContextTokens(latestContextTokens(renderMessages)), [renderMessages])
+  const activeContextTokenUsageShortText = activeContextTokenUsageText
   const activeCacheRateText = React.useMemo(() => formatCacheRate(activeChat?.cacheRate), [activeChat?.cacheRate])
   const activeAsyncToolTasks = React.useMemo(() => (Array.isArray((activeChat as any)?.asyncToolTasks) ? (activeChat as any).asyncToolTasks : []), [activeChat, Number((activeChat as any)?.updatedAt || 0)])
   const activeAsyncToolTaskRunningCount = activeAsyncToolTasks.filter((task: any) => String(task?.status || '').trim() === 'running').length

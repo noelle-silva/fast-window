@@ -158,6 +158,11 @@ describe('MessageRow 操作按钮按需渲染', () => {
     expect(withoutTruth.bar?.textContent).toContain('? · ? · t2000')
   })
 
+  it('用户消息的元信息行显示发出去那一刻的上下文与时间', () => {
+    const { bar } = renderRow({ message: userMessage({ contextTokens: 32000 }) })
+    expect(bar?.textContent).toContain('32k · t1000')
+  })
+
   it('鼠标移入整行后按钮出现，移出后按钮消失', () => {
     const { row } = renderRow()
     expect(row).not.toBeNull()

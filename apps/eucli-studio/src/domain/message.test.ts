@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeChatMessage } from './message'
+import { latestContextTokens, normalizeChatMessage } from './message'
 
 describe('message timing normalization', () => {
   it('keeps duration fields on parts and tool results', () => {
@@ -35,6 +35,13 @@ describe('message timing normalization', () => {
 })
 
 describe('message usage facts normalization', () => {
+  it('derives the session context from the last message that carries truth', () => {
+    expect(latestContextTokens([{ contextTokens: 1000 }, { contextTokens: 0 }, { contextTokens: 32000 }])).toBe(32000)
+    expect(latestContextTokens([{ contextTokens: 1000 }])).toBe(1000)
+    expect(latestContextTokens([])).toBe(0)
+    expect(latestContextTokens(null as any)).toBe(0)
+  })
+
   it('keeps cache rate and context tokens from upstream truth', () => {
     const message = normalizeChatMessage({
       id: 'm3',

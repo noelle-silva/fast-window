@@ -166,9 +166,20 @@ export function normalizeMessageTokenEstimate(input: any) {
   return normalizeMessageTokenCount(input)
 }
 
-// normalizeMessageContextTokens 归一化「这轮发给模型的上下文规模」真值，0 表示上游没给。
+// normalizeMessageContextTokens 归一化「到这条消息为止的上下文规模」真值，0 表示上游没给。
 export function normalizeMessageContextTokens(input: any) {
   return normalizeMessageTokenCount(input)
+}
+
+// latestContextTokens 返回会话当前的上下文规模：取最后一条带真值的消息。
+// 消息行与输入框都读这一份，两处数字必然一致。
+export function latestContextTokens(messages: any[]) {
+  const list = Array.isArray(messages) ? messages : []
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const value = normalizeMessageContextTokens(list[index]?.contextTokens)
+    if (value > 0) return value
+  }
+  return 0
 }
 
 function normalizeMessageTokenCount(input: any) {

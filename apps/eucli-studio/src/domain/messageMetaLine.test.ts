@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildAssistantMetaLine, formatContextTokens } from './messageMetaLine'
+import { buildAssistantMetaLine, buildUserMetaLine, formatContextTokens } from './messageMetaLine'
 
 describe('messageMetaLine', () => {
+  it('shows the context the model had read when the user message was sent', () => {
+    expect(buildUserMetaLine({ contextTokens: 32000, timeText: '15:30' })).toBe('32k · 15:30')
+    expect(buildUserMetaLine({ contextTokens: 0, timeText: '15:30' })).toBe('? · 15:30')
+  })
   it('orders cache rate, context, time and duration', () => {
     expect(
       buildAssistantMetaLine({ cacheRate: 0.857, contextTokens: 32000, timeText: '15:30', durationText: '3.2s' }),
