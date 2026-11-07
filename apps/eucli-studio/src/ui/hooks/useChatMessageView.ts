@@ -2,9 +2,9 @@ import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
 import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText, shouldShowActiveRunTailPending } from '../../domain/chatMessageDisplay'
-import { latestContextTokens } from '../../domain/message'
+import { latestCacheRate, latestContextTokens } from '../../domain/message'
 import { formatContextTokens } from '../../domain/messageMetaLine'
-import { formatCacheRate } from '../../domain/sessionCacheRate'
+import { formatCacheRate } from '../../domain/cacheRate'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -151,10 +151,11 @@ export function useChatMessageView(deps: {
       },
     }
   }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind])
-  // 输入框旁的上下文规模取最后一条带真值的消息：与消息行同一个字段，两处数字必然一致。
+  // 输入框旁的上下文规模与缓存率都取当前分支最后一条带真值的消息：
+  // 与消息行同一个字段，两处数字必然一致。
   const activeContextTokenUsageText = React.useMemo(() => formatContextTokens(latestContextTokens(renderMessages)), [renderMessages])
   const activeContextTokenUsageShortText = activeContextTokenUsageText
-  const activeCacheRateText = React.useMemo(() => formatCacheRate(activeChat?.cacheRate), [activeChat?.cacheRate])
+  const activeCacheRateText = React.useMemo(() => formatCacheRate(latestCacheRate(renderMessages)), [renderMessages])
   const activeAsyncToolTasks = React.useMemo(() => (Array.isArray((activeChat as any)?.asyncToolTasks) ? (activeChat as any).asyncToolTasks : []), [activeChat, Number((activeChat as any)?.updatedAt || 0)])
   const activeAsyncToolTaskRunningCount = activeAsyncToolTasks.filter((task: any) => String(task?.status || '').trim() === 'running').length
 

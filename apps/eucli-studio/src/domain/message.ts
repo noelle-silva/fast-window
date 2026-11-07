@@ -3,7 +3,7 @@ import { CHAT_DEFAULT_BRANCH_ID, CHAT_MSG_GROUP_ROLES } from './constants'
 import { normalizeBranchId } from './branching'
 import { normalizeMessageModelRef, normalizeRequestModel } from './modelRefUtils'
 import { normalizeDurationMs } from './messageTiming'
-import { normalizeCacheRate } from './sessionCacheRate'
+import { normalizeCacheRate } from './cacheRate'
 import { normalizeErrorPayload } from './errorPayload'
 
 export function normalizeMessageError(input: any) {
@@ -183,6 +183,16 @@ export function latestContextTokens(messages: any[]) {
     if (value > 0) return value
   }
   return 0
+}
+
+// latestCacheRate 返回会话当前的缓存率：取最后一条带真值的消息，与消息行同一来源。
+export function latestCacheRate(messages: any[]) {
+  const list = Array.isArray(messages) ? messages : []
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const value = normalizeCacheRate(list[index]?.cacheRate)
+    if (value !== null) return value
+  }
+  return null
 }
 
 function normalizeMessageTokenCount(input: any) {

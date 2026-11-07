@@ -50,20 +50,9 @@ import {
 import { normalizeRequestRecordViewOptions } from './requestRecordViewOptions'
 import { normalizeSettingsNavOrder } from './settingsNavigation'
 import { normalizeSessionFacts } from './sessionFacts'
-import { normalizeTokenUsage } from './messageTokenUsage'
-import { normalizeCacheRate } from './sessionCacheRate'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 import { COLOR_THEME_SETTING_KEY, normalizeColorThemeSettings } from './colorTheme'
 import { migrateSidebarLayout } from './sidebarLayout'
-
-// applySessionUsage 把会话级用量真值与缓存率真值透传到归一后的会话：
-// 有真值才带上，无真值即缺席（客户端据此显示未知）。
-function applySessionUsage(out: any, source: any) {
-  const tokenUsage = normalizeTokenUsage(source?.tokenUsage)
-  if (tokenUsage) out.tokenUsage = tokenUsage
-  const cacheRate = normalizeCacheRate(source?.cacheRate)
-  if (cacheRate !== null) out.cacheRate = cacheRate
-}
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
   const v = String(v0 || '').trim()
@@ -395,7 +384,6 @@ export function normalizeData(raw: any) {
 		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
 		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
-		applySessionUsage(out, cc)
 
         // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
         const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
@@ -499,7 +487,6 @@ export function normalizeData(raw: any) {
 		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
 		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
-		applySessionUsage(out, cc)
 
         // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
         const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)
@@ -584,7 +571,6 @@ export function normalizeData(raw: any) {
 		// 列表事实（条数 / 摘要）仍以索引为准，不能被窗口切片覆盖。
 		if ((cc as any).windowPartial === true) out.windowPartial = true
 		Object.assign(out, normalizeSessionFacts(cc))
-		applySessionUsage(out, cc)
 
         // 父子拓扑只由后台事实决定：这里只读取 head 事实，绝不按数组顺序重建拓扑。
         const headMid = normalizedBranchHeadMid(out.branching?.branches, activeBranchId, out.messages, fallbackHeadMid, hasBranching)

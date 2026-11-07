@@ -80,21 +80,6 @@ describe('normalizeStoredChat', () => {
     })
   })
 
-  it('carries session token usage truth and drops it when absent', () => {
-    const withUsage = normalizeStoredChat({ ...baseSession, roleId: 'role-1', tokenUsage: { inputTokens: 30, outputTokens: 12, totalTokens: 42 } }, 'role')
-    expect(withUsage).toMatchObject({ tokenUsage: { inputTokens: 30, outputTokens: 12, totalTokens: 42 } })
-
-    const withoutUsage = normalizeStoredChat({ ...baseSession, roleId: 'role-1' }, 'role')
-    expect(withoutUsage).not.toHaveProperty('tokenUsage')
-  })
-
-  it('carries session cache rate truth and drops it when absent', () => {
-    const withCacheRate = normalizeStoredChat({ ...baseSession, roleId: 'role-1', cacheRate: 0.8 }, 'role')
-    expect(withCacheRate).toMatchObject({ cacheRate: 0.8 })
-
-    const withoutCacheRate = normalizeStoredChat({ ...baseSession, roleId: 'role-1' }, 'role')
-    expect(withoutCacheRate).not.toHaveProperty('cacheRate')
-  })
 })
 
 describe('normalizeStoredChat 消息树契约', () => {

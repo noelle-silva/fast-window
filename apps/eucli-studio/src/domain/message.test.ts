@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { latestContextTokens, normalizeChatMessage } from './message'
+import { latestCacheRate, latestContextTokens, normalizeChatMessage } from './message'
 import { formatRequestModelText } from './modelRefUtils'
 
 describe('message timing normalization', () => {
@@ -41,6 +41,14 @@ describe('message usage facts normalization', () => {
     expect(latestContextTokens([{ contextTokens: 1000 }])).toBe(1000)
     expect(latestContextTokens([])).toBe(0)
     expect(latestContextTokens(null as any)).toBe(0)
+  })
+
+  it('derives the session cache rate from the last message that carries truth', () => {
+    expect(latestCacheRate([{ cacheRate: 0.2 }, {}, { cacheRate: 0.8 }])).toBe(0.8)
+    expect(latestCacheRate([{ cacheRate: 0.5 }])).toBe(0.5)
+    expect(latestCacheRate([{ cacheRate: 1.5 }])).toBeNull()
+    expect(latestCacheRate([])).toBeNull()
+    expect(latestCacheRate(null as any)).toBeNull()
   })
 
   it('keeps cache rate and context tokens from upstream truth', () => {

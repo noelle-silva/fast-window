@@ -4,7 +4,7 @@
 // 上下文缺上游真值时显示问号，占位保持稳定；时间与耗时缺数据时不占位。
 
 import { formatTokenEstimateShort } from './messageTokenUsage'
-import { formatCacheRate, normalizeCacheRate } from './sessionCacheRate'
+import { formatCacheRate, normalizeCacheRate } from './cacheRate'
 
 export type MessageMetaLineInput = {
   modelText: string

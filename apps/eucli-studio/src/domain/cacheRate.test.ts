@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatCacheRate, normalizeCacheRate } from './sessionCacheRate'
+import { formatCacheRate, normalizeCacheRate } from './cacheRate'
 
-describe('sessionCacheRate', () => {
+describe('cacheRate', () => {
   it('keeps the session cache rate truth only when it is a valid ratio', () => {
     expect(normalizeCacheRate(0)).toBe(0)
     expect(normalizeCacheRate(0.8)).toBe(0.8)
