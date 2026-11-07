@@ -9,6 +9,7 @@ export type SettingsTabValue =
   | 'modelGroups'
   | 'placeholders'
   | 'hookPrompts'
+  | 'promptLibrary'
   | 'session'
   | 'workspaces'
   | 'groups'
@@ -29,6 +30,7 @@ export const SETTINGS_NAVIGATION_VALUES: readonly SettingsTabValue[] = [
   'modelGroups',
   'placeholders',
   'hookPrompts',
+  'promptLibrary',
   'session',
   'workspaces',
   'groups',

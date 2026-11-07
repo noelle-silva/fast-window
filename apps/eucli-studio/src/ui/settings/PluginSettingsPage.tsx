@@ -18,6 +18,7 @@ import { GroupsSettingsPanel } from './GroupsSettingsPanel'
 import { ModelGroupsSettingsPanel } from './ModelGroupsSettingsPanel'
 import { AiToolsSettingsPanel } from './AiToolsSettingsPanel'
 import { HookPromptsSettingsPanel } from './HookPromptsSettingsPanel'
+import { PromptLibrarySettingsPanel } from './PromptLibrarySettingsPanel'
 import { PlaceholderSettingsPanel } from './PlaceholderSettingsPanel'
 import { SystemPluginSettingsPanel } from './SystemPluginSettingsPanel'
 import { EbSettingsPanel, type AiChatEucliBoxConnection } from './EbSettingsPanel'
@@ -94,6 +95,7 @@ export function PluginSettingsPage(props: PluginSettingsPageProps) {
     if (value === 'modelGroups') return <ModelGroupsSettingsPanel controller={controller} loading={state.loading} modelGroups={state.modelGroups} providers={state.providers} />
     if (value === 'tools') return <AiToolsSettingsPanel controller={controller} loading={state.loading} tools={state.tools} toolWorkDirectory={state.toolWorkDirectory} releaseView={releaseViews.tool} onReleaseRefresh={onReleaseRefresh} />
     if (value === 'hookPrompts') return <HookPromptsSettingsPanel controller={controller} loading={state.loading} hookPrompts={state.hookPrompts} />
+    if (value === 'promptLibrary') return <PromptLibrarySettingsPanel controller={controller} roles={state.roles} workspaces={state.workspaces} />
     if (value === 'placeholders') return <PlaceholderSettingsPanel controller={controller} loading={state.loading} placeholders={state.placeholders} systemPlugins={state.systemPlugins} />
     if (value === 'systemPlugins') return <SystemPluginSettingsPanel controller={controller} loading={state.loading} systemPlugins={state.systemPlugins} releaseView={releaseViews.plugin} onReleaseRefresh={onReleaseRefresh} />
     if (value === 'commandSystem') return null
