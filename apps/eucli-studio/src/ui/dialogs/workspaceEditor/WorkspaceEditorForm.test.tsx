@@ -67,6 +67,13 @@ describe('工作区编辑分类切换', () => {
     return !node || node.hasAttribute('hidden')
   }
 
+  // TextareaAutosize 会额外渲染一个 aria-hidden 的测量用 textarea，这里只数真正的输入框。
+  function promptTextareas() {
+    return Array.from(panel('prompt')?.querySelectorAll('textarea') || []).filter(
+      (node) => !node.hasAttribute('aria-hidden'),
+    )
+  }
+
   it('默认落在基本信息，其它分类面板隐藏', () => {
     renderForm()
     expect(tab('基本信息').getAttribute('aria-selected')).toBe('true')
@@ -110,18 +117,20 @@ describe('工作区编辑分类切换', () => {
     expect(String(panel('prompt')?.textContent || '')).toContain('工作区提示词')
   })
 
-  // 实际提示词没有手动刷新按钮：打开预览就该自动生成一次。
-  it('打开实际提示词预览会自动生成，不依赖手动刷新', async () => {
+  // 平时单栏；点「实际提示词」这一下就刷新，同时展开右侧只读栏；再点收起。
+  it('点按钮当场刷新并展开双视图，再点收起', () => {
     const refreshWorkspacePromptPreview = vi.fn()
     renderForm({ refreshWorkspacePromptPreview })
 
-    act(() => tab('提示词').click())
-    act(() => button('实际提示词').click())
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 320))
-    })
+    expect(promptTextareas()).toHaveLength(1)
+    expect(refreshWorkspacePromptPreview).not.toHaveBeenCalled()
 
+    act(() => button('实际提示词').click())
     expect(refreshWorkspacePromptPreview).toHaveBeenCalledTimes(1)
-    expect(Array.from(host!.querySelectorAll('button')).some((node) => String(node.textContent || '').trim() === '刷新')).toBe(false)
+    expect(promptTextareas()).toHaveLength(2)
+
+    act(() => button('返回编辑').click())
+    expect(promptTextareas()).toHaveLength(1)
+    expect(refreshWorkspacePromptPreview).toHaveBeenCalledTimes(1)
   })
 })
