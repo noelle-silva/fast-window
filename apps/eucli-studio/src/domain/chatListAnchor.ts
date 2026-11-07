@@ -1,68 +1,49 @@
-// 列表位置锚点：会话在列表里的位置由「事件时间」决定，而不是由活跃度决定。
+// 列表位置锚点：会话在列表里的位置只由「用户自己的动作时间」决定。
 //
-// 会推进锚点的事件只有四件：
-//   created      会话诞生
-//   user-sent    用户在这个会话里发出消息
-//   run-started  一次 run 开始
-//   run-settled  一次 run 到达终态
+// 会推进锚点的事件只有两件：
+//   created    会话诞生
+//   user-sent  用户在这个会话里发出消息
 //
-// 流式输出、run 内部进度、预览更新、chat.updatedAt 的推进都不在事件之列。
-// 一次输出过程中锚点恒定，所以多个会话并发输出时各自留在原位：
-// 开始时上浮一次、结束时上浮一次，不会互相顶动。
+// 一次用户回合里的所有过程都不得影响位置：流式输出、run 开始与结束、
+// 工具往返产生的中间 run、预览更新、chat.updatedAt 的推进。
+//
+// 为什么连「回合结束」也不作为位置事件：一次回合里模型每调用一次工具就会起
+// 一个新的 run，前一个 run 的终态与新 run 的启动之间存在一个瞬时终态窗口，
+// 任何「以终态时间为位置键」的做法都会在这个窗口里把会话顶动一次。位置只认
+// 用户动作，才能做到整轮零位移；回合是否完成由运行指示器与通知表达。
 //
 // 索引会话（只有 meta、没有正文）拿不到消息级事件，锚点取索引里最后
 // 落盘的活动时间。它是静止快照，作用是在重启后恢复上一次的相对顺序。
 
 import { normalizeTimeMs } from '../core/utils'
-import { normalizeAssistantRunState } from './assistantRunState'
 
 export type ChatListEventTimes = {
   createdAt: number
   userSentAt: number
-  runStartedAt: number
-  runSettledAt: number
 }
 
-// 会话正文里的事件时间。只认消息级事实：
-// 用户消息的创建时间，assistant 消息上 run 的开始时间与终态时间。
-//
-// 消息时间单调递增，每一类事件的最大值都在最近一条同类消息上，
-// 因此从尾部找第一个命中即可，不必全表扫描：输出刷新时这是常驻路径。
 export function chatListEventTimes(chat: any): ChatListEventTimes {
-  let userSentAt = 0
-  let runStartedAt = 0
-  let runSettledAt = 0
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
-  let needUser = true
-  let needRun = true
-  for (let index = messages.length - 1; index >= 0 && (needUser || needRun); index -= 1) {
+  // 消息时间单调递增：最近一条用户消息就是这一类事件的最大值。
+  // 输出刷新时这是常驻路径，不值得全表扫描。
+  let userSentAt = 0
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    const role = String(message?.role || '').trim()
-    if (needUser && role === 'user') {
-      userSentAt = Math.max(userSentAt, normalizeTimeMs(message?.createdAt, 0))
-      needUser = false
-      continue
-    }
-    if (!needRun || role !== 'assistant') continue
-    const run = normalizeAssistantRunState(message?.assistantRun)
-    if (!run) continue
-    runStartedAt = Math.max(runStartedAt, run.startedAt)
-    runSettledAt = Math.max(runSettledAt, run.finishedAt || 0)
-    needRun = false
+    if (String(message?.role || '').trim() !== 'user') continue
+    userSentAt = normalizeTimeMs(message?.createdAt, 0)
+    break
   }
   return {
     createdAt: normalizeTimeMs(chat?.createdAt, 0),
     userSentAt,
-    runStartedAt,
-    runSettledAt,
   }
 }
 
-// 会话正文投影出的锚点：四类事件时间取最大值。
+// 会话正文投影出的锚点：用户动作时间取最大值。
 // 正文里连 createdAt 都没有时才退到 updatedAt，那是唯一的静止时间。
 export function chatListAnchorForChat(chat: any): number {
   const times = chatListEventTimes(chat)
-  const anchor = Math.max(times.createdAt, times.userSentAt, times.runStartedAt, times.runSettledAt)
+  const anchor = Math.max(times.createdAt, times.userSentAt)
   if (anchor > 0) return anchor
   return normalizeTimeMs(chat?.updatedAt, 0)
 }

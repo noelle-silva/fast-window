@@ -14,8 +14,8 @@ export type ChatMeta = {
   hasPending: boolean
   runStatus: ChatSessionRunStatus
   runStatusChangedAt: number
-  // listAnchorAt 是侧边栏排序的唯一位置事实：只随「创建 / 用户发消息 /
-  // run 开始 / run 终态」推进，不随流式输出推进。合并时只前进不后退。
+  // listAnchorAt 是侧边栏排序的唯一位置事实：只随「创建 / 用户发消息」推进。
+  // 输出、run 起落与工具往返都不参与，所以整轮对话期间位置不动。
   listAnchorAt: number
   // partial 表示这份 meta 来自「消息窗口」而不是整份会话：
   // 条数与摘要都是窗口切片的事实，绝不能拿来覆盖索引里的列表事实。
