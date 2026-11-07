@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { latestContextTokens, normalizeChatMessage } from './message'
+import { formatRequestModelText } from './modelRefUtils'
 
 describe('message timing normalization', () => {
   it('keeps duration fields on parts and tool results', () => {
@@ -60,6 +61,26 @@ describe('message usage facts normalization', () => {
 
     expect(message).not.toHaveProperty('cacheRate')
     expect(message.contextTokens).toBe(0)
+  })
+
+  it('keeps the resolved request model and drops one without a model id', () => {
+    const kept = normalizeChatMessage({
+      id: 'm5',
+      type: 'assistant',
+      content: '回答',
+      requestModel: { providerId: 'p1', providerName: '主供应商', modelId: 'gpt-4.1' },
+    })
+    expect(kept.requestModel).toEqual({ providerId: 'p1', providerName: '主供应商', modelId: 'gpt-4.1' })
+
+    const dropped = normalizeChatMessage({ id: 'm6', type: 'assistant', content: '回答', requestModel: { providerId: 'p1' } })
+    expect(dropped).not.toHaveProperty('requestModel')
+  })
+
+  it('formats the request model as provider and model id', () => {
+    expect(formatRequestModelText({ providerId: 'p1', providerName: '主供应商', modelId: 'gpt-4.1' })).toBe('主供应商 / gpt-4.1')
+    expect(formatRequestModelText({ providerId: 'p1', modelId: 'gpt-4.1' })).toBe('p1 / gpt-4.1')
+    expect(formatRequestModelText({})).toBe('')
+    expect(formatRequestModelText(null)).toBe('')
   })
 })
 

@@ -7,6 +7,7 @@ import { formatTokenEstimateShort } from './messageTokenUsage'
 import { formatCacheRate, normalizeCacheRate } from './sessionCacheRate'
 
 export type MessageMetaLineInput = {
+  modelText: string
   cacheRate: unknown
   contextTokens: unknown
   timeText: string
@@ -24,6 +25,7 @@ export function buildUserMetaLine(input: UserMessageMetaLineInput): string {
 
 export function buildAssistantMetaLine(input: MessageMetaLineInput): string {
   return [
+    input.modelText,
     formatCacheRate(normalizeCacheRate(input.cacheRate)),
     formatContextTokens(input.contextTokens),
     input.timeText,

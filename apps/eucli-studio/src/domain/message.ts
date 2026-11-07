@@ -1,7 +1,7 @@
 import { now, uid, normImagePaths, normalizeTimeMs } from '../core/utils'
 import { CHAT_DEFAULT_BRANCH_ID, CHAT_MSG_GROUP_ROLES } from './constants'
 import { normalizeBranchId } from './branching'
-import { normalizeMessageModelRef } from './modelRefUtils'
+import { normalizeMessageModelRef, normalizeRequestModel } from './modelRefUtils'
 import { normalizeDurationMs } from './messageTiming'
 import { normalizeCacheRate } from './sessionCacheRate'
 import { normalizeErrorPayload } from './errorPayload'
@@ -109,6 +109,9 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
   // 缓存率是上游真值：拿不到真值时整项不落地，展示层按「无值」显示问号，绝不补 0。
   const cacheRate = normalizeCacheRate((m as any).cacheRate)
   if (cacheRate !== null) out.cacheRate = cacheRate
+  // 实际请求坐标同样只认真值：缺模型 id 就不落地，展示层退回请求侧引用。
+  const requestModel = normalizeRequestModel((m as any).requestModel)
+  if (requestModel) out.requestModel = requestModel
   if (typeof (m as any).pending === 'boolean') out.pending = !!(m as any).pending
   if (typeof (m as any).streaming === 'boolean') out.streaming = !!(m as any).streaming
   const control = normalizeMessageControl((m as any).control)

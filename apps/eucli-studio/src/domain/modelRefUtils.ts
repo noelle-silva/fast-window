@@ -61,3 +61,25 @@ export function formatModelRefDisplayText(modelRef: unknown, providers: unknown,
   if (!providerText && !modelId) return ''
   return providerText && modelId ? `${providerText} / ${modelId}` : providerText || modelId
 }
+
+// RequestModel 是产出这条回复时实际发往的供应商与模型：模型组也已在服务端落成具体一家。
+export type RequestModel = { providerId: string; providerName: string; modelId: string }
+
+// normalizeRequestModel 归一实际请求坐标：模型 id 缺失即视为没有真值。
+export function normalizeRequestModel(value: unknown): RequestModel | null {
+  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+  const providerId = String(raw?.providerId || '').trim()
+  const providerName = String(raw?.providerName || '').trim()
+  const modelId = String(raw?.modelId || '').trim()
+  if (!modelId) return null
+  return { providerId, providerName, modelId }
+}
+
+// formatRequestModelText 把实际请求坐标显示成「供应商 / 模型 id」：
+// 供应商名优先，名字缺失时退回供应商 id。
+export function formatRequestModelText(value: unknown): string {
+  const model = normalizeRequestModel(value)
+  if (!model) return ''
+  const providerText = model.providerName || model.providerId
+  return providerText ? `${providerText} / ${model.modelId}` : model.modelId
+}

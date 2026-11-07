@@ -9,6 +9,7 @@ import { messageVisibleText } from '../../domain/chatMessageDisplay'
 import { chatMessageMaterialKind, isAsyncToolResultMessage, isCompressionSummaryMessage, isSystemControlMessage } from '../../domain/message'
 import { resolveReplyDurationMs } from '../../domain/messageTiming'
 import { buildAssistantMetaLine, buildUserMetaLine } from '../../domain/messageMetaLine'
+import { formatRequestModelText } from '../../domain/modelRefUtils'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantErrorNotice } from './AssistantErrorNotice'
@@ -372,13 +373,16 @@ function MessageRowImpl(props: MessageRowProps) {
   // 头像与名字用于区分发言人，只有群聊存在多个发言人时才需要显示
   const showSpeakerIdentity = activeTargetKind === 'group'
   const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
+  // 消息头模型文本：保持请求侧引用的原样，实际发出去的模型在底部元信息行展示。
   const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
   const replyDurationText = !isUser ? formatDurationMs(resolveReplyDurationMs(m)) : ''
   const time = controller.fmtTime(Number(m?.createdAt || 0))
-  // 元信息行在操作按钮左侧：用户消息是「上下文 · 时间」，AI 消息是「缓存率 · 上下文 · 时间 · 耗时」。
+  // 元信息行在操作按钮左侧：用户消息是「上下文 · 时间」，
+  // AI 消息是「供应商/模型id · 缓存率 · 上下文 · 时间 · 耗时」。
   const actionMetaText = isUser
     ? buildUserMetaLine({ contextTokens: (m as any)?.contextTokens, timeText: time })
     : buildAssistantMetaLine({
+        modelText: formatRequestModelText((m as any)?.requestModel),
         cacheRate: (m as any)?.cacheRate,
         contextTokens: (m as any)?.contextTokens,
         timeText: time,

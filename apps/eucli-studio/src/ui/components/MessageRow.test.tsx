@@ -163,6 +163,17 @@ describe('MessageRow 操作按钮按需渲染', () => {
     expect(bar?.textContent).toContain('32k · t1000')
   })
 
+  it('底部元信息行在缓存率左边显示实际发出去的供应商与模型', () => {
+    const { bar } = renderRow({
+      message: assistantMessage({
+        requestModel: { providerId: 'openai-main', providerName: '主供应商', modelId: 'gpt-4.1' },
+        cacheRate: 0.857,
+        contextTokens: 32000,
+      }),
+    })
+    expect(bar?.textContent).toContain('主供应商 / gpt-4.1 · 85.7% · 32k · t2000')
+  })
+
   it('鼠标移入整行后按钮出现，移出后按钮消失', () => {
     const { row } = renderRow()
     expect(row).not.toBeNull()
