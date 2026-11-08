@@ -27,6 +27,7 @@ import {
   completeRootEntryOrder,
   applyPromptEntryOrder,
   createLocalId,
+  parsePromptEntryKey,
   promptFolderParentId,
   promptLayerKeys,
   resolveActiveOwnerId,
@@ -38,8 +39,9 @@ import {
   type PromptLibrary,
   type PromptScope,
 } from '../../domain/promptLibrary'
+import { canPlacePromptEntry, planPromptPlacementMove } from '../../domain/promptLibraryPlacement'
 import { moveListItemById } from '../../domain/listOrdering'
-import { resolveSortMovePosition } from '../components/SortableDnd'
+import { resolveSortMovePosition, type SortableDropConfig } from '../components/SortableDnd'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsSurface } from './SettingsSurfaces'
 import { PromptLibrarySidebar } from './PromptLibrarySidebar'
@@ -343,6 +345,57 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     }
   }
 
+  // Ctrl 拖拽的落点：规则由 domain 判定，这里只执行它给出的原子动作。
+  const moveEntryToLayer = React.useCallback(
+    async (activeKey: string, targetFolderId: string) => {
+      const payload = parsePromptEntryKey(activeKey)
+      if (!payload) return
+      const move = planPromptPlacementMove({
+        library: folders,
+        payload,
+        fromFolderId: currentFolderId,
+        toFolderId: targetFolderId,
+      })
+      if (!move) return
+      setLoading(true)
+      try {
+        const saved = await callAction<PromptFolderLibrary>(
+          move.actionName,
+          scope,
+          activeOwnerId,
+          move.id,
+          move.fromFolderId,
+          move.toFolderId,
+        )
+        setFolders(saved)
+      } catch (e: any) {
+        notify(text(e?.message) || '移动失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [activeOwnerId, callAction, currentFolderId, folders, notify, scope],
+  )
+
+  const entryDrop = React.useMemo<SortableDropConfig>(
+    () => ({
+      canDrop: (activeKey, targetFolderId) => {
+        const payload = parsePromptEntryKey(activeKey)
+        return (
+          !!payload &&
+          canPlacePromptEntry({
+            library: folders,
+            payload,
+            fromFolderId: currentFolderId,
+            toFolderId: targetFolderId,
+          })
+        )
+      },
+      onDrop: (activeKey, targetFolderId) => void moveEntryToLayer(activeKey, targetFolderId),
+    }),
+    [currentFolderId, folders, moveEntryToLayer],
+  )
+
   // 打开选择窗时先算出「当前已经收藏在哪些位置」，作为预勾选。
   const initialSelectionFor = (target: { mode: string; id: string }): string[] => {
     if (target.mode === 'collect') return folders.folders.filter((folder) => folder.promptIds.includes(target.id)).map((folder) => folder.id)
@@ -356,29 +409,56 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     setPickerTarget(target)
   }
 
-  // 保存时按差集落地：新勾选的加索引，取消勾选的摘索引。
+  // 收藏模式按差集落地：多选勾选，新勾选的加索引，取消勾选的摘索引。
+  // 移动模式是单选目标，直接走原子动作（一次请求完成「摘原位置 + 加目标」）。
   const applyPicker = async (selectedIds: string[]) => {
     const target = pickerTarget
     const initial = pickerInitialIds
     setPickerTarget(null)
     if (!target) return
+
+    const isMove = target.mode === 'move-prompt' || target.mode === 'move-folder'
+    if (isMove) {
+      const toFolderId = selectedIds[0] ?? ''
+      const fromFolderId = initial[0] ?? ''
+      if (toFolderId === fromFolderId) return
+      const actionName = target.mode === 'move-folder' ? 'movePromptFolder' : 'movePromptToFolder'
+      setLoading(true)
+      try {
+        const saved = await callAction<PromptFolderLibrary>(
+          actionName,
+          scope,
+          activeOwnerId,
+          target.id,
+          fromFolderId,
+          toFolderId,
+        )
+        setFolders(saved)
+      } catch (e: any) {
+        notify(text(e?.message) || '移动失败')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     const next = new Set(selectedIds)
     const toAdd = selectedIds.filter((id) => !initial.includes(id))
     const toRemove = initial.filter((id) => !next.has(id))
     if (!toAdd.length && !toRemove.length) return
-    const promptMode = target.mode === 'collect' || target.mode === 'move-prompt'
+    const folderMode = target.mode === 'collect-folder'
     setLoading(true)
     try {
       for (const id of toAdd) {
-        const saved = promptMode
-          ? await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, id, target.id)
-          : await callAction<PromptFolderLibrary>('addFolderToFolder', scope, activeOwnerId, target.id, id)
+        const saved = folderMode
+          ? await callAction<PromptFolderLibrary>('addFolderToFolder', scope, activeOwnerId, target.id, id)
+          : await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, id, target.id)
         setFolders(saved)
       }
       for (const id of toRemove) {
-        const saved = promptMode
-          ? await callAction<PromptFolderLibrary>('removePromptFromFolder', scope, activeOwnerId, id, target.id)
-          : await callAction<PromptFolderLibrary>('removeFolderFromParent', scope, activeOwnerId, target.id, id)
+        const saved = folderMode
+          ? await callAction<PromptFolderLibrary>('removeFolderFromParent', scope, activeOwnerId, target.id, id)
+          : await callAction<PromptFolderLibrary>('removePromptFromFolder', scope, activeOwnerId, id, target.id)
         setFolders(saved)
       }
     } catch (e: any) {
@@ -507,6 +587,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           selectedPromptId={selectedPromptId}
           loading={loading}
           dragDisabled={Boolean(keyword)}
+          drop={entryDrop}
           onBack={() => setCurrentFolderId(promptFolderParentId(layer))}
           onNavigate={(folderId) => {
             setCurrentFolderId(folderId)
@@ -603,6 +684,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         rootFolderIds={folders.rootFolderIds}
         initialSelectedIds={pickerInitialIds}
         excludedIds={excludedFolderIds}
+        single={pickerTarget?.mode === 'move-prompt' || pickerTarget?.mode === 'move-folder'}
         onClose={() => setPickerTarget(null)}
         onSave={(selectedIds) => void applyPicker(selectedIds)}
       />

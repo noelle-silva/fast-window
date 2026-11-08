@@ -35,6 +35,8 @@ type PromptFolderPickerProps = {
   initialSelectedIds: string[]
   /** 不可选的目标（例如正在移动的收藏夹及其全部后代）。 */
   excludedIds?: string[]
+  /** 单选模式：移动只能落到一个层级，点击即替换当前选择。 */
+  single?: boolean
   onClose: () => void
   onSave: (selectedFolderIds: string[]) => void
 }
@@ -82,7 +84,7 @@ function buildRows(folders: PromptFolder[], rootFolderIds: string[], keyword: st
 }
 
 export function PromptFolderPicker(props: PromptFolderPickerProps) {
-  const { open, folders, rootFolderIds, initialSelectedIds, excludedIds = [], onClose, onSave } = props
+  const { open, folders, rootFolderIds, initialSelectedIds, excludedIds = [], single = false, onClose, onSave } = props
   const [keyword, setKeyword] = React.useState('')
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
 
@@ -100,6 +102,10 @@ export function PromptFolderPicker(props: PromptFolderPickerProps) {
   )
 
   const toggle = (folderId: string) => {
+    if (single) {
+      setSelectedIds([folderId])
+      return
+    }
     setSelectedIds((current) =>
       current.includes(folderId) ? current.filter((id) => id !== folderId) : [...current, folderId],
     )

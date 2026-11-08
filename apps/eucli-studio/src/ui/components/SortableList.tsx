@@ -1,11 +1,16 @@
 import * as React from 'react'
-import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
-import { useSortableClickGuard } from './useSortableClickGuard'
+import {
+  SortableItem,
+  SortableRoot,
+  SortableSection,
+  type SortableItemRenderArgs,
+} from './SortableDnd'
 
 export type SortableListRenderArgs = {
   id: string
   index: number
   drag: SortableItemRenderArgs
+  /** 拖拽刚结束时忽略这一行的点击，避免「拖完顺手触发打开」。 */
   shouldIgnoreClick: () => boolean
 }
 
@@ -16,13 +21,12 @@ export function SortableList(props: {
   children: (args: SortableListRenderArgs) => React.ReactNode
 }) {
   const { ids, onMove, disabled = false, children } = props
-  const clickGuard = useSortableClickGuard()
   return (
-    <SortableRoot onMove={onMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
+    <SortableRoot onMove={onMove}>
       <SortableSection items={ids}>
         {ids.map((id, index) => (
           <SortableItem key={id} id={id} disabled={disabled}>
-            {(drag) => children({ id, index, drag, shouldIgnoreClick: clickGuard.shouldIgnoreClick })}
+            {(drag) => children({ id, index, drag, shouldIgnoreClick: drag.shouldSuppressClick })}
           </SortableItem>
         ))}
       </SortableSection>

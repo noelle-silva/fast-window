@@ -6,6 +6,7 @@ import {
   completeRootEntryOrder,
   normalizePromptFolderLibrary,
   normalizePromptLibrary,
+  rootLayerPromptIds,
   promptFolderParentId,
   promptLayerKeys,
   resolveActiveOwnerId,
@@ -57,28 +58,38 @@ const folders: PromptFolderLibrary = {
 }
 
 describe('resolvePromptFolderLayer', () => {
-  it('根级是收藏夹与全部提示词的混排，顺序按 rootEntryOrder', () => {
+  it('根层级只显示根收藏夹与未归属的提示词', () => {
     const layer = resolvePromptFolderLayer(folders, prompts, '')
-    expect(layer.entries.map((entry) => entry.key)).toEqual([
-      'folder:work',
-      'prompt:p1',
-      'folder:life',
-      'prompt:p2',
-      'prompt:p3',
-    ])
-    expect(layer.crumbs).toEqual([{ id: '', name: '全部提示词' }])
+    // p1/p2 已收进「工作」，p3 已收进「后端」：根层不再显示它们。
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['folder:work', 'folder:life'])
+    expect(layer.crumbs).toEqual([{ id: '', name: '根层级' }])
   })
 
-  it('根级缺顺序时按「收藏夹在前、条目在后」派生', () => {
-    const fallback: PromptFolderLibrary = { ...folders, rootEntryOrder: [] }
-    const layer = resolvePromptFolderLayer(fallback, prompts, '')
-    expect(layer.entries.map((entry) => entry.key)).toEqual([
+  it('未归属的提示词在根层级，收进收藏夹后离开根层级', () => {
+    const unfiledPrompt = { id: 'p4', name: '自由', content: '', description: '', createdAt: '', updatedAt: '' }
+    const withPrompt: PromptLibrary = { prompts: [...prompts.prompts, unfiledPrompt] }
+    const withOrder: PromptFolderLibrary = { ...folders, rootEntryOrder: [...folders.rootEntryOrder, 'prompt:p4'] }
+    expect(resolvePromptFolderLayer(withOrder, withPrompt, '').entries.map((entry) => entry.key)).toEqual([
       'folder:work',
       'folder:life',
-      'prompt:p1',
-      'prompt:p2',
-      'prompt:p3',
+      'prompt:p4',
     ])
+    const collected: PromptFolderLibrary = {
+      ...withOrder,
+      folders: withOrder.folders.map((folder) =>
+        folder.id === 'life' ? { ...folder, promptIds: ['p4'], entryOrder: ['prompt:p4'] } : folder,
+      ),
+    }
+    expect(resolvePromptFolderLayer(collected, withPrompt, '').entries.map((entry) => entry.key)).toEqual([
+      'folder:work',
+      'folder:life',
+    ])
+  })
+
+  it('根级缺顺序时按「收藏夹在前、未归属条目在后」派生', () => {
+    const fallback: PromptFolderLibrary = { ...folders, rootEntryOrder: [] }
+    const layer = resolvePromptFolderLayer(fallback, prompts, '')
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['folder:work', 'folder:life'])
   })
 
   it('夹内按 entryOrder 混排子夹与条目', () => {
@@ -154,22 +165,25 @@ describe('补齐提交顺序', () => {
     expect(completeFolderEntryOrder(folder)).toEqual(['prompt:p1', 'folder:backend', 'prompt:p2'])
   })
 
-  it('根级顺序为空时由根收藏夹与全部提示词派生', () => {
+  it('根级顺序为空时由根收藏夹与未归属提示词派生', () => {
     const empty = { ...folders, rootEntryOrder: [] }
-    expect(completeRootEntryOrder(empty, prompts)).toEqual([
-      'folder:work',
-      'folder:life',
-      'prompt:p1',
-      'prompt:p2',
-      'prompt:p3',
-    ])
+    expect(completeRootEntryOrder(empty, prompts)).toEqual(['folder:work', 'folder:life'])
   })
 
-  it('根级新建收藏夹后提交的顺序包含全部条目', () => {
+  it('根级新建收藏夹后提交的顺序只包含根层直属条目', () => {
     const order = completeRootEntryOrder({ ...folders, rootEntryOrder: [] }, prompts)
     const next = [...order, 'folder:brand-new']
-    expect(next.filter((key) => key.startsWith('prompt:'))).toHaveLength(3)
+    expect(next.filter((key) => key.startsWith('prompt:'))).toHaveLength(0)
     expect(next.filter((key) => key.startsWith('folder:'))).toHaveLength(3)
+  })
+})
+
+describe('rootLayerPromptIds', () => {
+  it('只给出没有被任何收藏夹收录的提示词', () => {
+    const unfiledPrompt = { id: 'p4', name: '自由', content: '', description: '', createdAt: '', updatedAt: '' }
+    const library: PromptLibrary = { prompts: [...prompts.prompts, unfiledPrompt] }
+    expect(rootLayerPromptIds(folders, library)).toEqual(['p4'])
+    expect(rootLayerPromptIds(folders, prompts)).toEqual([])
   })
 })
 

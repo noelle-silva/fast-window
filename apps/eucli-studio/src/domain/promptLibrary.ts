@@ -145,7 +145,18 @@ export type PromptFolderLayer = {
   entries: PromptLayerEntry[]
 }
 
-const ROOT_CRUMB: PromptFolderCrumb = { id: '', name: '全部提示词' }
+// 根层级是收藏夹树的最外层，是路径的起点，不是「全部提示词」总览。
+const ROOT_CRUMB: PromptFolderCrumb = { id: '', name: '根层级' }
+
+// 根层直属的提示词：没有被任何收藏夹收录的那些。
+// 收进收藏夹就从根层离开，摘回根层就重新出现，根层不做全库兜底。
+export function rootLayerPromptIds(folderLibrary: PromptFolderLibrary, promptLibrary: PromptLibrary): string[] {
+  const filed = new Set<string>()
+  for (const folder of folderLibrary.folders) {
+    for (const promptId of folder.promptIds) filed.add(promptId)
+  }
+  return promptLibrary.prompts.map((prompt) => prompt.id).filter((id) => !filed.has(id))
+}
 
 // 从根向下找收藏夹路径；找不到时返回 null（调用方回落到根级）。
 function findFolderPath(library: PromptFolderLibrary, folderId: string): PromptFolder[] | null {
@@ -166,6 +177,8 @@ function findFolderPath(library: PromptFolderLibrary, folderId: string): PromptF
 
 // 按混排顺序合成当前层：顺序里没有的项按「收藏夹在前、条目在后」补齐到末尾，
 // 这样服务端刚新增而顺序还没跟上时也不会丢条目。
+// 顺序只负责排序，归属只认索引：顺序里出现的项必须在 folderIds / promptIds 里，
+// 否则一律忽略（根层尤其不能靠顺序把已收进收藏夹的提示词捞回来）。
 function buildLayerEntries(
   order: string[],
   folderIds: string[],
@@ -175,9 +188,13 @@ function buildLayerEntries(
 ): PromptLayerEntry[] {
   const entries: PromptLayerEntry[] = []
   const used = new Set<string>()
+  const allowed = new Set<string>([
+    ...folderIds.map((id) => promptEntryKey('folder', id)),
+    ...promptIds.map((id) => promptEntryKey('prompt', id)),
+  ])
   for (const key of order) {
     const parsed = parsePromptEntryKey(key)
-    if (!parsed || used.has(key)) continue
+    if (!parsed || used.has(key) || !allowed.has(key)) continue
     if (parsed.kind === 'folder') {
       const folder = folderById.get(parsed.id)
       if (!folder) continue
@@ -231,11 +248,11 @@ export function resolvePromptFolderLayer(
     }
   }
 
-  const allPromptIds = promptLibrary.prompts.map((prompt) => prompt.id)
+  const rootPromptIds = rootLayerPromptIds(folderLibrary, promptLibrary)
   return {
     folderId: '',
     crumbs: [ROOT_CRUMB],
-    entries: buildLayerEntries(folderLibrary.rootEntryOrder, folderLibrary.rootFolderIds, allPromptIds, byFolderId, byPromptId),
+    entries: buildLayerEntries(folderLibrary.rootEntryOrder, folderLibrary.rootFolderIds, rootPromptIds, byFolderId, byPromptId),
   }
 }
 
@@ -300,11 +317,12 @@ export function completeFolderEntryOrder(folder: PromptFolder): string[] {
   return mergeOrderKeys(folder.entryOrder, expected)
 }
 
-// 根级完整混排顺序：根收藏夹加全部提示词。
+// 根级完整混排顺序：根收藏夹加根层直属的提示词（未归属任何收藏夹）。
 export function completeRootEntryOrder(library: PromptFolderLibrary, promptLibrary: PromptLibrary): string[] {
+  const rootPromptIds = rootLayerPromptIds(library, promptLibrary)
   const expected = [
     ...library.rootFolderIds.map((id) => promptEntryKey('folder', id)),
-    ...promptLibrary.prompts.map((prompt) => promptEntryKey('prompt', prompt.id)),
+    ...rootPromptIds.map((id) => promptEntryKey('prompt', id)),
   ]
   return mergeOrderKeys(library.rootEntryOrder, expected)
 }
