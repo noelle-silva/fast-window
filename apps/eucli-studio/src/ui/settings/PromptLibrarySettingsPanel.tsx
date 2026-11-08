@@ -396,6 +396,26 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     [currentFolderId, folders, moveEntryToLayer],
   )
 
+  // 条目最右侧的复制按钮：只复制正文，不改动仓库里的任何事实。
+  const copyPromptContent = React.useCallback(
+    async (promptId: string) => {
+      const prompt = library.prompts.find((item) => item.id === promptId)
+      if (!prompt) return
+      const writeText = controller?.capabilities?.clipboard?.writeText
+      if (typeof writeText !== 'function') {
+        notify('未授权：剪贴板写入')
+        return
+      }
+      try {
+        await writeText(prompt.content)
+        notify('已复制提示词内容', 'success')
+      } catch (e: any) {
+        notify(text(e?.message) || '复制失败')
+      }
+    },
+    [controller, library.prompts, notify],
+  )
+
   // 打开选择窗时先算出「当前已经收藏在哪些位置」，作为预勾选。
   const initialSelectionFor = (target: { mode: string; id: string }): string[] => {
     if (target.mode === 'collect') return folders.folders.filter((folder) => folder.promptIds.includes(target.id)).map((folder) => folder.id)
@@ -595,6 +615,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
             setDraft(null)
           }}
           onSelectPrompt={selectPrompt}
+          onCopyPrompt={(promptId) => void copyPromptContent(promptId)}
           onReorderEntries={(activeKey, overKey) => void moveEntry(activeKey, overKey)}
           onCollectEntry={collectEntry}
           onMoveEntryToFolder={moveEntryToFolder}

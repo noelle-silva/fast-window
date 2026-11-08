@@ -14,6 +14,7 @@ import {
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
@@ -52,6 +53,8 @@ type PromptLibrarySidebarProps = {
   onBack: () => void
   onNavigate: (folderId: string) => void
   onSelectPrompt: (promptId: string) => void
+  /** 行内复制：只把正文写进剪贴板，不影响仓库里的任何事实。 */
+  onCopyPrompt: (promptId: string) => void
   onReorderEntries: (activeKey: string, overKey: string) => void
   onCollectEntry: (entry: PromptLayerEntry) => void
   onMoveEntryToFolder: (entry: PromptLayerEntry) => void
@@ -60,6 +63,11 @@ type PromptLibrarySidebarProps = {
 }
 
 type ContextMenuState = { x: number; y: number; entry: PromptLayerEntry }
+
+// 行内按钮与整行拖拽共用一个指针区域：按钮自己吃掉按下与冒泡，避免被整行拖走或误选中。
+function stopPointerPropagation(event: React.PointerEvent) {
+  event.stopPropagation()
+}
 
 // 行样式 = 共用行常量 + 拖拽态，与实体列表的组装方式保持一致。
 function sortableRowSx(drag: SortableItemRenderArgs | null): SxProps<Theme> {
@@ -113,6 +121,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
     onBack,
     onNavigate,
     onSelectPrompt,
+    onCopyPrompt,
     onReorderEntries,
     onCollectEntry,
     onMoveEntryToFolder,
@@ -211,6 +220,22 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                   primaryTypographyProps={{ fontSize: 13, fontWeight: 600 }}
                                   secondaryTypographyProps={{ fontSize: 11, noWrap: true }}
                                 />
+                                {/* 复制按钮放在条目容器内部最右侧：不选中条目、不触发整行拖拽。 */}
+                                <Tooltip title="复制内容">
+                                  <IconButton
+                                    size="small"
+                                    aria-label="复制提示词内容"
+                                    onPointerDown={stopPointerPropagation}
+                                    onClick={(event) => {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      onCopyPrompt(entry.prompt.id)
+                                    }}
+                                    sx={{ ml: 0.5, flexShrink: 0, color: 'var(--studio-text-secondary)' }}
+                                  >
+                                    <ContentCopyIcon sx={{ fontSize: 15 }} />
+                                  </IconButton>
+                                </Tooltip>
                               </>
                             )}
                           </ListItemButton>
