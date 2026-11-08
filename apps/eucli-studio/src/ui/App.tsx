@@ -73,6 +73,8 @@ import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTh
 import { isTransparentChatBg, normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveSidebarLayout } from '../domain/sidebarLayout'
+import { resolveDeskData, resolveDeskEntries, type DeskEntry } from '../domain/desk'
+import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
@@ -1173,10 +1175,66 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     domainVersion,
   ])
 
-  // 侧边栏 B 的 props：外壳参数与 A 同源；内容是工作区列表，排序落库走工作区顺序动作。
-  const onOpenWorkspaceEditorInSidebar = React.useCallback(
-    (workspaceId: string) => controller.actions.openWorkspaceEditor?.(workspaceId),
+  // 侧边栏 B 是工作桌面：条目来自桌面引用清单，打开会话沿用与收藏夹同一套切换步骤。
+  // 设置对象是就地改写的，依赖里必须带设置版本号，否则桌面增删不会重算。
+  const deskRefs = React.useMemo(
+    () => resolveDeskData(data?.settings).refs,
+    [data?.settings, settingsVersion],
+  )
+  // 桌面条目跨多个目标，按每条引用分别订阅它所在会话列表的刷新地址：
+  // 改名、会话增删都会发这个地址，条目跟着重算，标题不会停在旧值上。
+  const deskChatListVersion = useScopedUiVersions(
+    controller,
+    deskRefs.map((ref) =>
+      refreshScopes.chatList(
+        ref.targetKind,
+        ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId,
+      ),
+    ),
+  )
+  const deskEntries = React.useMemo(
+    () => resolveDeskEntries(data, deskRefs),
+    [data, deskRefs, settingsVersion, domainVersion, deskChatListVersion],
+  )
+
+  const openDeskEntry = React.useCallback(
+    (entry: DeskEntry) => {
+      const targetKey =
+        entry.targetKind === 'workspace' ? workspaceRoleTargetId(entry.targetId, entry.roleId) : entry.targetId
+      clearChatSessionRunNotice(entry.targetKind, targetKey, entry.chatId)
+      if (entry.targetKind === 'group') controller.actions.setActiveGroup?.(entry.targetId)
+      else if (entry.targetKind === 'workspace') {
+        controller.actions.setActiveWorkspace?.(entry.targetId)
+        controller.actions.setWorkspaceRole?.(entry.roleId)
+      } else controller.actions.setActiveRole?.(entry.targetId)
+      chatSwitch.requestSwitch(entry.chatId, { force: true })
+    },
+    [chatSwitch, clearChatSessionRunNotice, controller],
+  )
+
+  const removeDeskEntry = React.useCallback(
+    (entry: DeskEntry) => {
+      controller.actions.removeChatFromDesk?.(entry.targetKind, entry.targetId, entry.roleId, entry.chatId)
+    },
     [controller],
+  )
+
+  // 桌面内拖动：按引用键换位，顺序写回同一份清单。
+  const moveDeskEntry = React.useCallback(
+    (activeKey: string, overKey: string) => {
+      controller.actions.moveDeskChat?.(activeKey, overKey)
+    },
+    [controller],
+  )
+
+  // 桌面条目的右键与会话列表同一个菜单：把引用折成菜单认的目标标识再交给它。
+  const onDeskEntryContextMenu = React.useCallback(
+    (event: React.MouseEvent, entry: DeskEntry) => {
+      const targetId =
+        entry.targetKind === 'workspace' ? workspaceRoleTargetId(entry.targetId, entry.roleId) : entry.targetId
+      onChatContextMenu(event, entry.targetKind, targetId, entry.chatId, entry.title)
+    },
+    [onChatContextMenu],
   )
 
   const sidebarBProps = React.useMemo(
@@ -1187,13 +1245,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onSplitterPointerDown: sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
-      workspaces,
-      activeWorkspaceId,
-      activeTargetKind,
-      openPluginSettings,
-      onSelectWorkspace: onSelectWorkspaceInSidebar,
-      onOpenWorkspaceEditor: onOpenWorkspaceEditorInSidebar,
-      onMoveWorkspace,
+      deskEntries,
+      activeChatId: chatSwitch.selectedChatId,
+      onOpenDeskEntry: openDeskEntry,
+      onRemoveDeskEntry: removeDeskEntry,
+      onMoveDeskEntry: moveDeskEntry,
+      onDeskEntryContextMenu,
     }),
     [
       sidebarLayout.b.width,
@@ -1202,13 +1259,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
-      workspaces,
-      activeWorkspaceId,
-      activeTargetKind,
-      openPluginSettings,
-      onSelectWorkspaceInSidebar,
-      onOpenWorkspaceEditorInSidebar,
-      onMoveWorkspace,
+      deskEntries,
+      chatSwitch.selectedChatId,
+      openDeskEntry,
+      removeDeskEntry,
+      moveDeskEntry,
+      onDeskEntryContextMenu,
     ],
   )
 

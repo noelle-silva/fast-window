@@ -1,11 +1,12 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
+import type { DeskEntry } from '../../domain/desk'
 import { SidebarFrame } from './SidebarFrame'
-import { WorkspaceBList } from './sidebar-b/WorkspaceBList'
+import { DeskChatList } from './sidebar-b/DeskChatList'
 
-// 侧边栏 B：客户端内的第二块侧边栏。
-// 外壳与 A 完全复用（位置、宽度、拖拽把手都由 SidebarFrame 承担），
-// 内容是工作区列表：整套行样式与拖拽排序照搬 apps/hypercortex 的工作区侧边栏。
+// 侧边栏 B：工作桌面。与会话收藏夹并列的另一套会话去处——
+// 收藏夹负责归档分类，桌面只管把眼下要用的会话摆在手边。
+// 外壳与 A 共用 SidebarFrame（位置、宽度、拖拽把手），内容只是会话条目清单。
 export type SidebarBPanelProps = {
   side: SidebarSide
   width: number
@@ -14,13 +15,12 @@ export type SidebarBPanelProps = {
   onSplitterPointerDown: (e: React.PointerEvent) => void
   topbarOpacity: number
   topbarBlur: number
-  workspaces: any[]
-  activeWorkspaceId: string
-  activeTargetKind: 'role' | 'group' | 'workspace'
-  openPluginSettings: (tab: any) => void
-  onSelectWorkspace: (workspaceId: string) => void
-  onOpenWorkspaceEditor: (workspaceId: string) => void
-  onMoveWorkspace: (activeId: string, overId: string) => void
+  deskEntries: DeskEntry[]
+  activeChatId: string
+  onOpenDeskEntry: (entry: DeskEntry) => void
+  onRemoveDeskEntry: (entry: DeskEntry) => void
+  onMoveDeskEntry: (activeKey: string, overKey: string) => void
+  onDeskEntryContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }
 
 export function SidebarBPanel(props: SidebarBPanelProps) {
@@ -32,13 +32,12 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
-    workspaces,
-    activeWorkspaceId,
-    activeTargetKind,
-    openPluginSettings,
-    onSelectWorkspace,
-    onOpenWorkspaceEditor,
-    onMoveWorkspace,
+    deskEntries,
+    activeChatId,
+    onOpenDeskEntry,
+    onRemoveDeskEntry,
+    onMoveDeskEntry,
+    onDeskEntryContextMenu,
   } = props
 
   return (
@@ -53,14 +52,13 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
       topbarOpacity={topbarOpacity}
       topbarBlur={topbarBlur}
     >
-      <WorkspaceBList
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
-        activeTargetKind={activeTargetKind}
-        openPluginSettings={openPluginSettings}
-        onSelectWorkspace={onSelectWorkspace}
-        onOpenWorkspaceEditor={onOpenWorkspaceEditor}
-        onMoveWorkspace={onMoveWorkspace}
+      <DeskChatList
+        entries={deskEntries}
+        activeChatId={activeChatId}
+        onOpen={onOpenDeskEntry}
+        onRemove={onRemoveDeskEntry}
+        onMove={onMoveDeskEntry}
+        onContextMenu={onDeskEntryContextMenu}
       />
     </SidebarFrame>
   )

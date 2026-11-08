@@ -7,6 +7,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
@@ -272,6 +273,20 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
           >
             <StarBorderRoundedIcon fontSize="small" />
             收藏到...
+          </MenuItem>
+          <MenuItem
+            disabled={!chatMenu.chatId || !chatMenu.targetId || loading}
+            onClick={() => {
+              const { targetKind, targetId, chatId } = chatMenu
+              const ids = sessionOperationIds(targetKind, targetId)
+              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
+              closeChatMenu()
+              controller.actions.addChatToDesk?.(targetKind, ids.workspaceId, ids.roleId, chatId)
+            }}
+            sx={{ gap: 1 }}
+          >
+            <PushPinOutlinedIcon fontSize="small" />
+            添加到工作桌面
           </MenuItem>
           <MenuItem
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
