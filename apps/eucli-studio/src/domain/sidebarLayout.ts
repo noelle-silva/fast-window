@@ -1,17 +1,28 @@
-// 侧边栏布局：整块聊天界面只有一份侧边栏，靠左还是靠右、多宽都只有一份配置。
-// 旧的按「角色模式 / 工作区模式」各存一份的结构在归一化时迁移并删除，避免事实源分叉。
+// 侧边栏布局：客户端内部有两个侧边栏身份 A / B。
+// A 是原有的角色 / 工作区侧边栏，B 是预留的另一侧栏；两者各自存侧别与宽度。
+// 唯一不变量：两个侧边栏必须分居窗口两侧，不能同时靠左或同时靠右。
+// 因此「侧别」不按每个栏独立保存的自由值去理解，而是由 applySidebarSide 统一裁决：
+// 指定任一侧的侧别，另一侧必然翻到对侧。
 
+export type SidebarId = 'a' | 'b'
 export type SidebarSide = 'left' | 'right'
 
-export type SidebarLayout = {
+export type SidebarConfig = {
   side: SidebarSide
   width: number
 }
 
+export type SidebarLayout = Record<SidebarId, SidebarConfig>
+
 export const SIDEBAR_LAYOUT_SETTING_KEY = 'sidebarLayout'
+export const SIDEBAR_IDS: readonly SidebarId[] = ['a', 'b']
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 560
 export const SIDEBAR_WIDTH_DEFAULT = 260
+
+export function isSidebarId(raw: unknown): raw is SidebarId {
+  return raw === 'a' || raw === 'b'
+}
 
 export function normalizeSidebarSide(raw: unknown): SidebarSide {
   return String(raw ?? '').trim() === 'right' ? 'right' : 'left'
@@ -23,17 +34,57 @@ export function normalizeSidebarWidth(raw: unknown): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)))
 }
 
-export function normalizeSidebarLayout(raw: any): SidebarLayout {
+export function normalizeSidebarConfig(raw: any, fallbackSide: SidebarSide): SidebarConfig {
   const box = raw && typeof raw === 'object' ? raw : {}
   return {
-    side: normalizeSidebarSide(box.side),
+    side: box.side === undefined ? fallbackSide : normalizeSidebarSide(box.side),
     width: normalizeSidebarWidth(box.width),
+  }
+}
+
+export function oppositeSidebarSide(side: SidebarSide): SidebarSide {
+  return side === 'left' ? 'right' : 'left'
+}
+
+// 扁平形态（历史单侧栏配置）只描述一个侧别与宽度，作为 A 的初值；B 落到对侧。
+function normalizeFromFlat(box: any): SidebarLayout {
+  const a = normalizeSidebarConfig(box, 'left')
+  return { a, b: { side: oppositeSidebarSide(a.side), width: SIDEBAR_WIDTH_DEFAULT } }
+}
+
+// 双栏形态：A 决定基准侧别，B 缺失时落到对侧；B 显式给出的侧别若与 A 相同，判定为 A 的对侧。
+export function normalizeSidebarLayout(raw: any): SidebarLayout {
+  const box = raw && typeof raw === 'object' ? raw : {}
+  const hasIdSections = 'a' in box || 'b' in box
+  if (!hasIdSections) return normalizeFromFlat(box)
+
+  const a = normalizeSidebarConfig(box.a, 'left')
+  const b = normalizeSidebarConfig(box.b, oppositeSidebarSide(a.side))
+  return {
+    a,
+    b: { side: b.side === a.side ? oppositeSidebarSide(a.side) : b.side, width: b.width },
   }
 }
 
 export function resolveSidebarLayout(settings: any): SidebarLayout {
   const box = settings && typeof settings === 'object' ? settings : {}
   return normalizeSidebarLayout(box[SIDEBAR_LAYOUT_SETTING_KEY])
+}
+
+// 侧别裁决：把某一栏放到指定侧，另一栏自动翻到对侧，保证互斥不变量永远成立。
+export function applySidebarSide(layout: SidebarLayout, id: SidebarId, side: SidebarSide): SidebarLayout {
+  const target = normalizeSidebarSide(side)
+  const otherId: SidebarId = id === 'a' ? 'b' : 'a'
+  return {
+    ...layout,
+    [id]: { ...layout[id], side: target },
+    [otherId]: { ...layout[otherId], side: oppositeSidebarSide(target) },
+  } as SidebarLayout
+}
+
+// 宽度只作用于目标栏，互不影响。
+export function applySidebarWidth(layout: SidebarLayout, id: SidebarId, width: number): SidebarLayout {
+  return { ...layout, [id]: { ...layout[id], width: normalizeSidebarWidth(width) } } as SidebarLayout
 }
 
 function legacyConfigToLayout(config: any) {

@@ -28,7 +28,7 @@ describe('外观通知地址', () => {
     })
 
     actions.setChatFontSize(18, false)
-    actions.setSidebarWidth(320)
+    actions.setSidebarWidth('a', 320)
 
     expect(emitScope.mock.calls.map((call) => call[0])).toEqual(['settings', 'settings'])
     expect(emit).not.toHaveBeenCalled()
@@ -64,5 +64,29 @@ describe('模型按钮显示供应商开关', () => {
     expect(state.data.settings.composerModelShowProvider).toBe(false)
     expect(emit).toHaveBeenCalledTimes(2)
     expect(saveMeta).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('侧边栏 A / B 布局动作', () => {
+  it('调整一侧位置会让另一侧翻到对面，并落盘', () => {
+    const { state, saveMeta, actions } = setup()
+
+    actions.setSidebarSide('b', 'left')
+
+    expect(state.data.settings.sidebarLayout).toEqual({
+      a: { side: 'right', width: 260 },
+      b: { side: 'left', width: 260 },
+    })
+    expect(saveMeta).toHaveBeenCalledTimes(1)
+  })
+
+  it('宽度按侧边栏身份分别保存', () => {
+    const { state, actions } = setup()
+
+    actions.setSidebarWidth('b', 380)
+
+    expect(state.data.settings.sidebarLayout.b.width).toBe(380)
+    expect(state.data.settings.sidebarLayout.a.width).toBe(260)
+    expect(state.data.settings.sidebarLayout.b.side).toBe('right')
   })
 })

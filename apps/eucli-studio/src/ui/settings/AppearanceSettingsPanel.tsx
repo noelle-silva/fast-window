@@ -59,7 +59,7 @@ import {
   normalizeComposerWidthPercent,
 } from '../../domain/composerAppearance'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
-import { resolveSidebarLayout } from '../../domain/sidebarLayout'
+import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -80,6 +80,35 @@ function useNumberDraft(value: number, normalize: (raw: unknown) => number, comm
   }
 
   return { draft, setDraft, commitDraft }
+}
+
+// 侧边栏位置行：A / B 各一行。两栏必须分居左右，改一侧时另一侧由领域层翻到对面。
+function SidebarPlacementRow(props: {
+  label: string
+  side: SidebarSide
+  disabled: boolean
+  onChange: (side: SidebarSide) => void
+}) {
+  const { label, side, disabled, onChange } = props
+  return (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+        {label}
+      </Typography>
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        value={side}
+        onChange={(_e, v) => {
+          if (v) onChange(v)
+        }}
+        disabled={disabled}
+      >
+        <ToggleButton value="left">靠左</ToggleButton>
+        <ToggleButton value="right">靠右</ToggleButton>
+      </ToggleButtonGroup>
+    </Stack>
+  )
 }
 
 function ChatTextMetricRow(props: {
@@ -232,27 +261,23 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
             <Box>
               <Typography sx={{ fontWeight: 900 }}>侧边栏</Typography>
               <Typography variant="caption" color="text.secondary">
-                角色与工作区共用同一个侧边栏；侧边栏顶部可切换显示角色或工作区，宽度可拖拽调整。
+                客户端里有两个侧边栏：A 放角色与工作区，B 是预留的另一块。两者必须各占一边，
+                改一侧位置时另一侧会自动换到对面；宽度在界面里拖边缘调整，两边各自独立。
               </Typography>
             </Box>
 
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
-                侧边栏位置
-              </Typography>
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={sidebarLayout.side}
-                onChange={(_e, v) => {
-                  if (v) controller.actions.setSidebarSide?.(v)
-                }}
-                disabled={loading}
-              >
-                <ToggleButton value="left">靠左</ToggleButton>
-                <ToggleButton value="right">靠右</ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
+            <SidebarPlacementRow
+              label="侧边栏 A"
+              side={sidebarLayout.a.side}
+              disabled={loading}
+              onChange={(side) => controller.actions.setSidebarSide?.('a', side)}
+            />
+            <SidebarPlacementRow
+              label="侧边栏 B"
+              side={sidebarLayout.b.side}
+              disabled={loading}
+              onChange={(side) => controller.actions.setSidebarSide?.('b', side)}
+            />
           </Stack>
         </SettingsSection>
 

@@ -79,6 +79,7 @@ import { ChatTreeModal } from './chatTree/ChatTreeModal'
 import { ShellFrame } from './surfaces/ShellFrame'
 import { TopBarSurface } from './surfaces/TopBarSurface'
 import { SidebarSurface } from './surfaces/SidebarSurface'
+import { SidebarBPlaceholder } from './components/SidebarBPlaceholder'
 import { ComposerSurface } from './surfaces/ComposerSurface'
 import { SessionViewport } from './surfaces/SessionViewport'
 import { SettingsSurface } from './surfaces/SettingsSurface'
@@ -433,13 +434,17 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
   const roleSessionControlsEnabled = activeTargetKind !== 'group' && !!activeRole
 
-  // 界面布局：聊天页固定使用一个侧边栏，位置与宽度只有一份配置。
+  // 界面布局：聊天页有两个侧边栏身份 A / B，各自一份宽度，侧别由布局不变量保证互斥。
   // 设置页仍用顶栏返回条。
   const sidebarLayout = resolveSidebarLayout(data?.settings)
   const sidebarVisible = page === 'chat'
-  const sidebarResize = useSidebarResize({
-    side: sidebarLayout.side,
-    onCommit: (w) => controller.actions.setSidebarWidth?.(w),
+  const sidebarResizeA = useSidebarResize({
+    side: sidebarLayout.a.side,
+    onCommit: (w) => controller.actions.setSidebarWidth?.('a', w),
+  })
+  const sidebarResizeB = useSidebarResize({
+    side: sidebarLayout.b.side,
+    onCommit: (w) => controller.actions.setSidebarWidth?.('b', w),
   })
 
   const sidebarNavigation = useSidebarNavigation({
@@ -1083,10 +1088,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     navigationVersion: sidebarMemoryVersion,
     view: sidebarNavigation.view,
     onToggleView: sidebarNavigation.toggleView,
-    width: sidebarLayout.width,
-    sidebarRef: sidebarResize.sidebarRef,
-    resizing: sidebarResize.resizing,
-    onSplitterPointerDown: sidebarResize.onSplitterPointerDown,
+    width: sidebarLayout.a.width,
+    sidebarRef: sidebarResizeA.sidebarRef,
+    resizing: sidebarResizeA.resizing,
+    onSplitterPointerDown: sidebarResizeA.onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
     roles,
@@ -1117,10 +1122,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     sidebarMemoryVersion,
     sidebarNavigation.view,
     sidebarNavigation.toggleView,
-    sidebarLayout.width,
-    sidebarResize.sidebarRef,
-    sidebarResize.resizing,
-    sidebarResize.onSplitterPointerDown,
+    sidebarLayout.a.width,
+    sidebarResizeA.sidebarRef,
+    sidebarResizeA.resizing,
+    sidebarResizeA.onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
     roles,
@@ -1147,6 +1152,26 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     settingsVersion,
     domainVersion,
   ])
+
+  // 侧边栏 B 的 props：与 A 同一套外壳参数，只有宽度与侧别各自担当。
+  const sidebarBProps = React.useMemo(
+    () => ({
+      width: sidebarLayout.b.width,
+      sidebarRef: sidebarResizeB.sidebarRef,
+      resizing: sidebarResizeB.resizing,
+      onSplitterPointerDown: sidebarResizeB.onSplitterPointerDown,
+      topbarOpacity,
+      topbarBlur,
+    }),
+    [
+      sidebarLayout.b.width,
+      sidebarResizeB.sidebarRef,
+      sidebarResizeB.resizing,
+      sidebarResizeB.onSplitterPointerDown,
+      topbarOpacity,
+      topbarBlur,
+    ],
+  )
 
   const composerProps = React.useMemo(() => ({
     controller,
@@ -1944,8 +1969,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       />
 
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'row' }}>
-        {sidebarVisible && sidebarLayout.side === 'left' ? (
+        {sidebarVisible && sidebarLayout.a.side === 'left' ? (
           <SidebarSurface {...sidebarProps} side="left" />
+        ) : null}
+        {sidebarVisible && sidebarLayout.b.side === 'left' ? (
+          <SidebarBPlaceholder {...sidebarBProps} side="left" />
         ) : null}
 
         <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -1990,12 +2018,16 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           />
         </Box>
 
-        {sidebarVisible && sidebarLayout.side === 'right' ? (
+        {sidebarVisible && sidebarLayout.a.side === 'right' ? (
           <SidebarSurface {...sidebarProps} side="right" />
+        ) : null}
+        {sidebarVisible && sidebarLayout.b.side === 'right' ? (
+          <SidebarBPlaceholder {...sidebarBProps} side="right" />
         ) : null}
       </Box>
 
-      <SidebarResizeLine lineRef={sidebarResize.lineRef} active={sidebarResize.resizing} />
+      <SidebarResizeLine lineRef={sidebarResizeA.lineRef} active={sidebarResizeA.resizing} />
+      <SidebarResizeLine lineRef={sidebarResizeB.lineRef} active={sidebarResizeB.resizing} />
 
       <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
       <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />

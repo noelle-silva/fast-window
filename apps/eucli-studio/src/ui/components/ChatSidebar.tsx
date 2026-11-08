@@ -3,8 +3,6 @@ import { Box, IconButton, InputAdornment, Tab, Tabs, TextField, Tooltip } from '
 import CloseIcon from '@mui/icons-material/Close'
 import SearchIcon from '@mui/icons-material/Search'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
-import { colorMixVar } from '../colorThemeStyles'
-import { TOPBAR_H } from '../appConstants'
 import {
   getSidebarNavigationMemory,
   type RoleSidebarTab,
@@ -15,11 +13,12 @@ import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
+import { SidebarFrame } from './SidebarFrame'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
 
-// 侧边栏外壳：位置、宽度、视图切换、页签与搜索。
-// 角色 / 工作区两个面板只负责各自的内容，不再各自维护一套外壳。
+// 侧边栏 A：原有的角色 / 工作区侧边栏。
+// 外壳（位置、宽度、拖拽把手）交给 SidebarFrame，这里只负责 A 的头部页签与两个面板。
 export function ChatSidebar(props: {
   controller: any
   side: 'left' | 'right'
@@ -143,75 +142,52 @@ export function ChatSidebar(props: {
     : [{ value: 'workspaces', label: '工作区' }, { value: 'roles', label: '角色' }, { value: 'session', label: '会话' }]
   const toggleLabel = view === 'role' ? '切换到工作区面板' : '切换到角色面板'
 
-  return (
+  const header = (
     <Box
-      component="nav"
-      aria-label="侧边栏"
-      ref={sidebarRef}
       sx={{
-        position: 'relative',
-        width,
-        flexShrink: 0,
         display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-        pt: `${TOPBAR_H}px`,
-        bgcolor: colorMixVar('--studio-topbar', topbarOpacity),
-        backdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
-        WebkitBackdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
+        alignItems: 'center',
+        flexShrink: 0,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
       }}
     >
-      <Box
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整侧边栏宽度"
-        onPointerDown={onSplitterPointerDown}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          width: 6,
-          zIndex: 2,
-          cursor: 'col-resize',
-          ...(side === 'left' ? { right: 0 } : { left: 0 }),
-          bgcolor: resizing ? 'primary.main' : 'transparent',
-          transition: 'background-color 120ms ease',
-          transitionDelay: '0ms',
-          '&:hover': { bgcolor: 'primary.main', transitionDelay: '150ms' },
-        }}
-      />
-
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          flexShrink: 0,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-        }}
+      <Tooltip title={toggleLabel}>
+        <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
+          <SwapHorizIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tabs
+        value={activeTab}
+        onChange={(_, next) => onTabChange(view, String(next))}
+        variant="fullWidth"
+        sx={{ minHeight: 34, flex: 1, minWidth: 0 }}
       >
-        <Tooltip title={toggleLabel}>
-          <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
-            <SwapHorizIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tabs
-          value={activeTab}
-          onChange={(_, next) => onTabChange(view, String(next))}
-          variant="fullWidth"
-          sx={{ minHeight: 34, flex: 1, minWidth: 0 }}
-        >
-          {tabs.map((item) => (
-            <Tab
-              key={item.value}
-              value={item.value}
-              label={item.label}
-              sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
-            />
-          ))}
-        </Tabs>
-      </Box>
+        {tabs.map((item) => (
+          <Tab
+            key={item.value}
+            value={item.value}
+            label={item.label}
+            sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
+          />
+        ))}
+      </Tabs>
+    </Box>
+  )
 
+  return (
+    <SidebarFrame
+      sidebarId="a"
+      ariaLabel="侧边栏 A"
+      side={side}
+      width={width}
+      sidebarRef={sidebarRef}
+      resizing={resizing}
+      onSplitterPointerDown={onSplitterPointerDown}
+      topbarOpacity={topbarOpacity}
+      topbarBlur={topbarBlur}
+      header={header}
+    >
       {showSessionSearch ? (
         <Box sx={{ flexShrink: 0, px: 1.5, pt: 1, pb: 0.5 }}>
           <TextField
@@ -297,6 +273,6 @@ export function ChatSidebar(props: {
           />
         )}
       </Box>
-    </Box>
+    </SidebarFrame>
   )
 }

@@ -30,12 +30,7 @@ import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
-import {
-  normalizeSidebarSide,
-  normalizeSidebarWidth,
-  resolveSidebarLayout,
-  SIDEBAR_LAYOUT_SETTING_KEY,
-} from '../../domain/sidebarLayout'
+import { applySidebarSide, applySidebarWidth, resolveSidebarLayout, SIDEBAR_LAYOUT_SETTING_KEY } from '../../domain/sidebarLayout'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 
@@ -359,19 +354,17 @@ export function createAppearanceActions(deps: {
       persistMeta()
       notifySettings()
     },
-    // 侧边栏布局只有一份：位置与宽度不再按角色 / 工作区各存一套。
-    setSidebarSide: (side: any) => {
+    // 侧边栏布局是两个身份 A / B 各一份：侧别互斥（改一侧，另一侧翻到对侧），宽度独立。
+    setSidebarSide: (id: any, side: any) => {
       if (!state.data) return
-      const next = resolveSidebarLayout(state.data.settings as any)
-      next.side = normalizeSidebarSide(side)
+      const next = applySidebarSide(resolveSidebarLayout(state.data.settings as any), id, side)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
       persistMeta()
       notifySettings()
     },
-    setSidebarWidth: (width: any) => {
+    setSidebarWidth: (id: any, width: any) => {
       if (!state.data) return
-      const next = resolveSidebarLayout(state.data.settings as any)
-      next.width = normalizeSidebarWidth(width)
+      const next = applySidebarWidth(resolveSidebarLayout(state.data.settings as any), id, width)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
       persistMeta()
       notifySettings()
