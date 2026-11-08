@@ -8,22 +8,13 @@ import { useMessageActions } from './hooks/useMessageActions'
 import { useChatTree } from './hooks/useChatTree'
 import { useChatSending } from './hooks/useChatSending'
 import {
-  initialViewIntentState,
-  onNodeClicked,
-  onRunStarted,
-  onRunRegistered,
-  onChatSwitched,
-  resolveViewFocusMid,
-  resolveFollowTargetMid,
-  runViewFactsFromCards,
-  type ViewIntentState,
-  type ViewFocusContext,
-} from '../domain/viewIntent'
-import {
-  branchViewAncestorTrail,
-  branchViewTopologyFromChat,
-  convergeViewIntentState,
-} from '../domain/branchViewPreference'
+  EMPTY_SELECTION,
+  placeSelection,
+  resolveSelection,
+  sameSelection,
+  selectionAtLatest,
+  type ViewSelection,
+} from '../domain/viewSelection'
 import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
@@ -55,6 +46,7 @@ import { PluginSettingsPage, type SettingsTabSelection } from './settings/Plugin
 import { formatModelRefDisplayText, normalizeModelRef } from '../domain/modelRefUtils'
 import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
+import { resolveRunFocusMid } from '../domain/branching'
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
@@ -291,8 +283,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       ? branchDraftRaw
       : null
   const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
-  // 会话视图意图：决定“当前看哪里”的唯一事实源。转移逻辑全在 viewIntent 纯函数里。
-  const [viewIntentState, setViewIntentState] = React.useState<ViewIntentState>(() => initialViewIntentState())
+  // 视图位置：只记“现在显示到哪个节点”。它由动作直接写入，不参与任何模式判断。
+  const [selection, setSelection] = React.useState<ViewSelection>(() => EMPTY_SELECTION)
   const treeSuppressClickRef = React.useRef(false)
 
   const {
@@ -532,54 +524,45 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeChatTargetId,
   })
 
-  // 活动运行事实：统一经领域转换，交给纯函数挑选跟随对象，保证多分支并行时目标稳定。
-  const runViewFacts = React.useMemo(
-    () => runViewFactsFromCards(activeSessionRunCards),
-    [activeSessionRunCardsKey],
-  )
-  // 分支视图偏好的有效性只按后台会话拓扑核对；拓扑本身绝不因偏好而增删节点。
-  const viewIntentTopology = React.useMemo(
-    () => branchViewTopologyFromChat(activeChat),
-    [activeChat, chatAllMessagesRaw, chatAllMessagesRaw.length, Number((activeChat as any)?.updatedAt || 0), activeSessionVersion],
-  )
-  // 渲染期先得到「已收敛」的偏好：失效选中的那一帧也不会拿悬空 id 去解析视图。
-  const effectiveViewIntentState = React.useMemo(
-    () => convergeViewIntentState(viewIntentState, viewIntentTopology),
-    [viewIntentState, viewIntentTopology],
+  // 位置解析：节点还在就用它；不在了先交回空位置，由下一步的“退回上一条”接管。
+  const effectiveSelection = React.useMemo(
+    () => resolveSelection(activeChat, selection),
+    [selection, activeChat, chatAllMessagesRaw.length, Number((activeChat as any)?.updatedAt || 0)],
   )
   React.useEffect(() => {
-    if (effectiveViewIntentState !== viewIntentState) setViewIntentState(effectiveViewIntentState)
-  }, [effectiveViewIntentState, viewIntentState])
+    if (!sameSelection(effectiveSelection, selection)) setSelection(effectiveSelection)
+  }, [effectiveSelection, selection])
+  const viewFocusMid = effectiveSelection.mid
 
-  const viewFocusContext: ViewFocusContext = React.useMemo(
-    () => ({
-      pendingRunAnchorMid: effectiveViewIntentState.pendingRunAnchorMid,
-      runs: runViewFacts,
-      branchHeadMid: activeBranchHeadMid,
-      chat: activeChat,
-    }),
-    [effectiveViewIntentState.pendingRunAnchorMid, runViewFacts, activeBranchHeadMid, activeChat],
-  )
-  // “最新节点”就是跟随目标本身：点中它→跟随，点其它任何节点（含同级分支）→锚定。
-  const followTargetMid = React.useMemo(() => resolveFollowTargetMid(viewFocusContext), [viewFocusContext])
-  const viewFocusMid = React.useMemo(
-    () => resolveViewFocusMid(effectiveViewIntentState.intent, viewFocusContext),
-    [effectiveViewIntentState.intent, viewFocusContext],
-  )
-  const viewAnchorMid = effectiveViewIntentState.intent.kind === 'anchor' ? effectiveViewIntentState.intent.mid : ''
-
-  // 这次运行被登记后，空窗期的临时跟随目标即失效；切换会话时重置。
+  // 开分叉草稿是一次外部动作：位置直接落到它的分叉点，
+  // 这样“显示的那个节点”和“发送的起点”永远是同一个。
   React.useEffect(() => {
-    setViewIntentState((prev) => {
-      for (const fact of runViewFacts) {
-        const next = onRunRegistered(prev, fact.anchorMid)
-        if (next !== prev) return next
-      }
-      return prev
+    const forkFromMid = String((branchDraft as any)?.forkFromMid || '').trim()
+    if (!forkFromMid) return
+    setSelection(placeSelection(activeChat, forkFromMid))
+  }, [branchDraftKey])
+
+  // 动作一：我发起的那次运行被受理后，位置移到这次运行的节点。
+  // 只搬一次：同一次运行不重复搬；节点还没进正文就等下一帧再试。
+  const followRunId = String((s as any)?.followRun || '')
+  const placedRunRef = React.useRef('')
+  React.useEffect(() => {
+    if (!followRunId || placedRunRef.current === followRunId) return
+    const card = activeSessionRunCards.find((item: any) => String(item?.runId || '') === followRunId)
+    if (!card) return
+    const node = resolveRunFocusMid(activeChat, {
+      anchorMid: String(card?.anchorMessageId || card?.inputMessageId || ''),
+      outputMid: String(card?.lastMessageId || ''),
     })
-  }, [activeSessionRunCardsKey])
+    if (!node) return
+    placedRunRef.current = followRunId
+    setSelection(placeSelection(activeChat, node))
+  }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, activeChat])
+
+  // 切入会话：位置落到这条会话最靠后的一条消息上。
   React.useEffect(() => {
-    setViewIntentState(onChatSwitched())
+    setSelection(selectionAtLatest(activeChat))
+    // 只随会话切换执行：位置本身的变化不触发重新落点。
   }, [String(activeChat?.id || '')])
 
   const getLastMsgId = useEvent(() => String(lastMsgId || ''))
@@ -631,13 +614,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     viewFocusMid,
-    viewAnchorMid,
-    // 点中“跟随目标”才进入跟随；点其它任何节点（含同级分支）都锚定。
-    // 同时捕获点击瞬间的祖先链：节点被后台删除后，偏好据此收敛到最近有效祖先。
-    setViewIntentFromNodeClick: (mid: string) => {
-      const trail = branchViewAncestorTrail(viewIntentTopology, mid)
-      setViewIntentState((prev) => onNodeClicked(prev, mid, followTargetMid, trail))
-    },
+    // 点节点就是一次动作：把位置放到被点的节点上，别处不做判断。
+    setViewIntentFromNodeClick: (mid: string) => setSelection(placeSelection(activeChat, mid)),
     branchDraft,
     branchDraftKey,
     stickToBottomRef,
@@ -670,6 +648,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     activeChatRunCards,
+    followRunId,
     activeChat,
     activeTargetKind,
     branchDraft,
@@ -989,11 +968,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     controller,
     activeChat,
     activeStopRunId,
-    viewAnchorMid,
-    branchDraft,
-    // 发起运行即回到“跟随最新”：用户要看这次运行的新产出。
-    // 空窗期用分叉点兜住，避免闪回旧分支头部。
-    onSendStarted: (runAnchorMid: string) => setViewIntentState((prev) => onRunStarted(prev, runAnchorMid)),
+    displayedMid: effectiveSelection.mid,
   })
   const {
     expandedUserMsgIds,
@@ -1021,7 +996,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     copyMessageText,
     switchBranchSibling,
     openRegenConfirm,
-    regenPathParentMid,
     openDeleteMessageConfirm,
     msgMenuMid,
     msgMenuText,
@@ -1044,7 +1018,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    followLatestView: () => setViewIntentState((prev) => onRunStarted(prev, '')),
+    followLatestView: () => setSelection(selectionAtLatest(activeChat)),
     setBranchNav,
     stickToBottomRef,
     autoScrollBlockUntilRef,
@@ -1063,9 +1037,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
 
   // 稳定 handler：所有内联箭头只在这里创建一次，Surface 的 memo 才能真正生效。
-  const handleRunStarted = useEvent((runAnchorMid: string) => {
-    setViewIntentState((prev) => onRunStarted(prev, runAnchorMid))
-  })
   const onOpenRunningSessions = useEvent(() => setRunningSessionsOpen(true))
   const onCloseRunningSessions = useEvent(() => setRunningSessionsOpen(false))
   const onCreateChat = useEvent(() => controller.actions.createChat())
@@ -1651,8 +1622,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setConfirmDelMsg,
     confirmDelTree,
     setConfirmDelTree,
-    regenPathParentMid,
-    onRunStarted: handleRunStarted,
   }), [
     controller,
     s.loading,
@@ -1679,8 +1648,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setConfirmDelMsg,
     confirmDelTree,
     setConfirmDelTree,
-    regenPathParentMid,
-    handleRunStarted,
   ])
 
   const overlayComposerControls = React.useMemo(() => ({

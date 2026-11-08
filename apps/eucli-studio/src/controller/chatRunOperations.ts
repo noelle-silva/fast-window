@@ -304,6 +304,8 @@ export function createChatRunOperations(
     }
     if (!state.id) throw new Error('e-b 未返回 run id')
     onAccepted?.(state)
+    // 受理是一次外部事实：记下这次运行的身份，视图据此把位置搬到它的节点上（只搬一次）。
+    getState().followRun = String(state.id || '').trim()
     let sessionId = String(state.sessionId || input.sessionId || '').trim()
     let followMessageId = String(state.lastMessageId || '').trim()
     const runAnchorMessageId = String(follow?.ancestorMessageId || input.contextMessageId || input.userMessageId || input.parentMessageId || '').trim()

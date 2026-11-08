@@ -28,7 +28,6 @@ export function useChatTree(deps: {
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
   viewFocusMid: string
-  viewAnchorMid: string
   setViewIntentFromNodeClick: (mid: string) => void
   branchDraft: any
   branchDraftKey: string
@@ -52,7 +51,6 @@ export function useChatTree(deps: {
     activeSessionRunCards,
     activeSessionRunCardsKey,
     viewFocusMid,
-    viewAnchorMid,
     setViewIntentFromNodeClick,
     branchDraft,
     branchDraftKey,

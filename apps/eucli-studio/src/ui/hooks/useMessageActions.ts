@@ -187,16 +187,6 @@ export function useMessageActions(deps: {
     setRegen({ mid: id, role: role === 'user' ? 'user' : 'assistant' })
   })
 
-  const regenPathParentMid = useEvent((mid0: string, role0: MessageRole) => {
-    const mid = String(mid0 || '').trim()
-    if (!mid) return ''
-    if (role0 === 'user') return mid
-    const message = chatAllById.get(mid) || null
-    const parentMid = String((message as any)?.parentMid || '').trim()
-    const parent = parentMid ? chatAllById.get(parentMid) || null : null
-    return parent ? parentMid : ''
-  })
-
   const openDeleteMessageConfirm = useEvent((mid: string, role: MessageRole) => {
     const id = String(mid || '').trim()
     if (!id) return
@@ -260,7 +250,6 @@ export function useMessageActions(deps: {
     copyMessageText,
     switchBranchSibling,
     openRegenConfirm,
-    regenPathParentMid,
     openDeleteMessageConfirm,
     msgMenuMid,
     msgMenuText,

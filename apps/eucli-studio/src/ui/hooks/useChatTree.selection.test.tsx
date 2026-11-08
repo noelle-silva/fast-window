@@ -54,7 +54,6 @@ function renderTreeHook(chat: any) {
       activeSessionRunCards: [],
       activeSessionRunCardsKey: '',
       viewFocusMid: 'a2',
-      viewAnchorMid: '',
       setViewIntentFromNodeClick,
       branchDraft: null,
       branchDraftKey: '',

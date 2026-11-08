@@ -43,8 +43,6 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
   setConfirmDelMsg: React.Dispatch<React.SetStateAction<ConfirmMessageState>>
   confirmDelTree: ConfirmMessageState
   setConfirmDelTree: React.Dispatch<React.SetStateAction<ConfirmMessageState>>
-  regenPathParentMid: (mid: string, role: MessageRole) => string
-  onRunStarted: (runAnchorMid: string) => void
 }) {
   const {
     controller,
@@ -72,8 +70,6 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
     setConfirmDelMsg,
     confirmDelTree,
     setConfirmDelTree,
-    regenPathParentMid,
-    onRunStarted,
   } = props
 
   // 消息菜单 / 删除确认只关心具体消息：打开时订阅消息地址与运行卡，关闭时不订阅。
@@ -349,8 +345,6 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
               const mid = regen.mid
               const role = regen.role
               setRegen({ mid: '', role: 'assistant' })
-              // 重新回复即发起运行：回到“跟随最新”，用户要看这次运行的新产出。
-              onRunStarted(regenPathParentMid(mid, role))
               Promise.resolve()
                 .then(() => {
                   if (role === 'assistant') return controller.actions.regenerateAssistant?.(mid)

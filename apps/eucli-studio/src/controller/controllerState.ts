@@ -37,6 +37,8 @@ export function createInitialControllerState() {
     // 并发失败互不覆盖；任何一次成功加载只清空自己这一格。
     chatLoadFailures: {} as Record<string, { kind: 'role' | 'group' | 'workspace'; targetId: string; chatId: string; reason: string }>,
     branchDraft: null as any,
+    // 最后一次由我发起的运行身份：受理时写入。视图据此把位置搬到这次运行的节点，只搬一次。
+    followRun: '',
     draft: {
       input: '',
       images: [] as DraftImageItem[],

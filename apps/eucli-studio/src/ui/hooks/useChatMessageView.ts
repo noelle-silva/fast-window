@@ -18,6 +18,8 @@ export function useChatMessageView(deps: {
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
   activeChatRunCards: any[]
+  // 我最后一次发起的那次运行：它的消息可能还没落进当前显示的这一串。
+  followRunId: string
   activeChat: any
   activeTargetKind: TargetKind
   branchDraft: any
@@ -33,6 +35,7 @@ export function useChatMessageView(deps: {
     activeSessionRunCards,
     activeSessionRunCardsKey,
     activeChatRunCards,
+    followRunId,
     activeChat,
     activeTargetKind,
     branchDraft,
@@ -77,11 +80,23 @@ export function useChatMessageView(deps: {
     () => filterEbRoleRunCardsOnMessagePath(activeSessionRunCards, activeVisibleMessageIds, activeVisibleHeadMid),
     [activeSessionRunCardsKey, activeVisibleMessageIds, activeVisibleHeadMid],
   )
-  const latestActiveVisibleRunCard = activeVisibleRunCards.length ? activeVisibleRunCards[activeVisibleRunCards.length - 1] : null
+  // 占位圈不看我这次运行在不在当前这一串里：我刚发出去，它下面的内容还没到，
+  // 这时底下就该有圈。别人的运行仍然只按当前这一串筛，不会串到别的分支上。
+  const ownedRunCard = React.useMemo(() => {
+    const runId = String(followRunId || '').trim()
+    if (!runId) return null
+    return activeSessionRunCards.find((card: any) => String(card?.runId || '').trim() === runId) || null
+  }, [activeSessionRunCardsKey, followRunId])
+  const runCardsForView = React.useMemo(() => {
+    if (!ownedRunCard) return activeVisibleRunCards
+    if (activeVisibleRunCards.some((card: any) => String(card?.runId || '').trim() === String(ownedRunCard.runId || '').trim())) return activeVisibleRunCards
+    return [...activeVisibleRunCards, ownedRunCard]
+  }, [activeSessionRunCardsKey, activeVisibleRunCards, ownedRunCard])
+  const latestActiveVisibleRunCard = runCardsForView.length ? runCardsForView[runCardsForView.length - 1] : null
   const activeStopRunCard = activeChatRunCards.length ? activeChatRunCards[activeChatRunCards.length - 1] : null
   const activeStopRunId = String(activeStopRunCard?.runId || latestActiveVisibleRunCard?.runId || '').trim()
   const activeRunCardForMessage = (message: any) => {
-    return activeRunCardForAssistantMessage(activeVisibleRunCards, message)
+    return activeRunCardForAssistantMessage(runCardsForView, message)
   }
 
   const assistantSiblingsByPrevAiMid = React.useMemo(() => {
@@ -125,7 +140,7 @@ export function useChatMessageView(deps: {
       out.push(m)
     }
     return out
-  }, [allMessages, activeSessionRunCardsKey, activeVisibleRunCards])
+  }, [allMessages, activeSessionRunCardsKey, runCardsForView])
   const showActiveRunTailPending = shouldShowActiveRunTailPending(latestActiveVisibleRunCard, renderMessages, activeRunCardForMessage)
   const activeRunTailPendingMessage = React.useMemo(() => {
     if (!showActiveRunTailPending || !latestActiveVisibleRunCard) return null
@@ -167,7 +182,7 @@ export function useChatMessageView(deps: {
     allMessages,
     activeVisibleMessageIds,
     activeVisibleHeadMid,
-    activeVisibleRunCards,
+    activeVisibleRunCards: runCardsForView,
     latestActiveVisibleRunCard,
     activeStopRunCard,
     activeStopRunId,
