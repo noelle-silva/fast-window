@@ -1,38 +1,21 @@
 // 视图位置：客户端只保留一个值——现在显示到哪个节点。
 //
-// 这里没有任何模式：不记“要不要跟随”，不记“锚定在哪”，不记“在等哪次运行”，
-// 也不比对任何编号。位置只由外部事件触发的一次性动作写入，规则只依据 Agent 端
-// 的事实做一次比较。
+// 没有意图，没有锚定，没有等待，也不比对任何编号。位置只由外部事件触发的一次性动作写入：
+//   点节点 → 位置放到被点的节点
+//   切会话 / 会话首次进入 → 位置放到这条会话最晚创建的那条
+//   我发起的运行被受理 → 位置放到这次运行的输入消息
+//   我删掉自己正在看的那一支 → 位置退回它的上一条
 //
-// 两条早期版本都在这里收敛：
-//   动作一（我发起的运行被受理）→ 位置移到这次运行的节点（由控制器给出运行身份，App 执行一次）。
-//   动作二（事实里出现新节点，挂在我显示的这个末尾节点下面）→ 位置往下推进一格。
-//     “先到先得”：一次长出多个子节点时，取最先产生的那一个；推过去之后我人已在那条上，
-//     它的兄弟不挂在我脚下，不会再把位置带走。
+// 解析只做一件事：位置当时放在末尾，就顺着最先产生的子节点一路走到新的末尾。
 
 export type ViewSelection = {
   mid: string
-  // atEnd 记录的是「把位置放进来时，这个节点下面是空的」。
-  // 它不是模式，只是那次放置的事实：只有当时是末尾，之后长出新节点才往下推。
-  // 看着中间节点（下面早有内容）时，位置不动。
+  // atEnd 是「把位置放进来时，这个节点下面是空的」这次放置的事实。
+  // 它让「看中间节点」与「看着末尾」区分开：前者下面早有内容，位置不动。
   atEnd: boolean
-  // chain 是放进来时显示的那一串（近 → 远）。
-  // 它只服务于一件事：节点被删掉之后，沿这一串退回最近一个还在的节点，绝不悬空。
-  chain: string[]
 }
 
-export const EMPTY_SELECTION: ViewSelection = { mid: '', atEnd: false, chain: [] }
-
-// sameSelection 是位置是否相同的唯一判定：UI 用它决定要不要把解析结果写回去。
-export function sameSelection(left: ViewSelection, right: ViewSelection): boolean {
-  if (left === right) return true
-  if (left.mid !== right.mid || left.atEnd !== right.atEnd) return false
-  if (left.chain.length !== right.chain.length) return false
-  for (let i = 0; i < left.chain.length; i++) {
-    if (left.chain[i] !== right.chain[i]) return false
-  }
-  return true
-}
+export const EMPTY_SELECTION: ViewSelection = { mid: '', atEnd: false }
 
 function text(value: unknown) {
   return String(value || '').trim()
@@ -54,7 +37,6 @@ type TreeIndex = {
   children: Map<string, string[]>
 }
 
-// buildTreeIndex 只做一次遍历：编号到消息、父节点到有序子节点。
 function buildTreeIndex(chat: any): TreeIndex {
   const byId = new Map<string, any>()
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
@@ -78,16 +60,10 @@ function buildTreeIndex(chat: any): TreeIndex {
   return { byId, children }
 }
 
-function childrenOf(tree: TreeIndex, mid: string): string[] {
-  return tree.children.get(mid) || []
-}
-
-// latestMessageMid 取这条会话里最靠后的一条消息；会话为空时返回空串。
-export function latestMessageMid(chat: any): string {
-  const { byId } = buildTreeIndex(chat)
+function latestMidOf(tree: TreeIndex): string {
   let pick = ''
   let pickMessage: any = null
-  for (const [id, message] of byId.entries()) {
+  for (const [id, message] of tree.byId.entries()) {
     if (!pickMessage || messageOrder(message, pickMessage) > 0) {
       pick = id
       pickMessage = message
@@ -96,61 +72,53 @@ export function latestMessageMid(chat: any): string {
   return pick
 }
 
-// ancestorChain 返回 mid 的上级链（近 → 远），只收录当前确实存在的节点。
-function ancestorChain(tree: TreeIndex, mid: string): string[] {
-  const out: string[] = []
-  const seen = new Set<string>([mid])
-  let current = text((tree.byId.get(mid) as any)?.parentMid)
-  while (current && !seen.has(current) && tree.byId.has(current)) {
-    seen.add(current)
-    out.push(current)
-    current = text((tree.byId.get(current) as any)?.parentMid)
-  }
-  return out
+// latestMessageMid 取这条会话里最晚创建的一条消息；会话为空时返回空串。
+export function latestMessageMid(chat: any): string {
+  return latestMidOf(buildTreeIndex(chat))
 }
 
-// placeSelection 是「把位置放到某个节点」的唯一入口：
-// 点节点、切会话落点、我这次发送的落点，全部走这里。
+// placeSelection 是「把位置放到某个节点」的唯一入口。
 export function placeSelection(chat: any, midRaw: unknown): ViewSelection {
   const mid = text(midRaw)
   if (!mid) return EMPTY_SELECTION
   const tree = buildTreeIndex(chat)
   if (!tree.byId.has(mid)) return EMPTY_SELECTION
-  return { mid, atEnd: childrenOf(tree, mid).length === 0, chain: ancestorChain(tree, mid) }
+  return { mid, atEnd: (tree.children.get(mid) || []).length === 0 }
 }
 
-// selectionAtLatest 把位置放到这条会话最靠后的一条消息上（切入会话时的落点）。
-export function selectionAtLatest(chat: any): ViewSelection {
-  return placeSelection(chat, latestMessageMid(chat))
-}
-
-// resolveSelection 把存下来的位置解析成当前真正显示的位置。
+// followFrom 是「跟到这个节点」的唯一入口：后续它下面长出子节点就一直往下走。
 //
-// 只有一件事要做：当时放在末尾，现在下面长出节点了 → 沿最先产生的那个往下走，
-// 一直走到没有子节点为止。看着中间节点时位置不动，历史才看得住。
+// 与 placeSelection 的区别只有一条：是否跟随由**动作**决定，绝不看“当时下面有没有孩子”。
+// 回复比运行卡先到的那一瞬，用 placeSelection 会算出“有孩子 → 不跟随”，于是永久停住。
+export function followFrom(midRaw: unknown): ViewSelection {
+  const mid = text(midRaw)
+  return mid ? { mid, atEnd: true } : EMPTY_SELECTION
+}
+
+// selectionAtLatest 把位置放到这条会话最晚创建的一条消息上。
+export function selectionAtLatest(chat: any): ViewSelection {
+  const mid = latestMessageMid(chat)
+  return mid ? { mid, atEnd: true } : EMPTY_SELECTION
+}
+
+// resolveSelection 是唯一的解析函数。
+//
+//   位置有效且当时在末尾 → 顺着最先产生的子节点一路走到新的末尾（长一层走一格）；
+//   位置有效但当时不在末尾 → 原样，看历史就看历史；
+//   位置为空或已经失效 → 这条会话最晚创建的那条，绝不留悬空、也不按数组顺序猜。
 export function resolveSelection(chat: any, selection: ViewSelection): ViewSelection {
-  const mid = text(selection?.mid)
-  if (!mid) return EMPTY_SELECTION
   const tree = buildTreeIndex(chat)
+  if (!tree.byId.size) return EMPTY_SELECTION
 
-  // 节点没了：沿放进来时的那一串退回最近一个还在的节点，然后停在那儿。
-  if (!tree.byId.has(mid)) {
-    for (const candidate of Array.isArray(selection?.chain) ? selection.chain : []) {
-      const ancestorMid = text(candidate)
-      if (!ancestorMid || ancestorMid === mid || !tree.byId.has(ancestorMid)) continue
-      return { mid: ancestorMid, atEnd: false, chain: ancestorChain(tree, ancestorMid) }
-    }
-    return EMPTY_SELECTION
-  }
+  const mid = text(selection?.mid)
+  if (!mid || !tree.byId.has(mid)) return { mid: latestMidOf(tree), atEnd: true }
+  if (!selection.atEnd) return { mid, atEnd: false }
 
-  if (!selection.atEnd) return { mid, atEnd: false, chain: ancestorChain(tree, mid) }
-
-  // 当时放在末尾：每长出一层子节点就往下推进一格，取最先产生的那一个。
   let current = mid
   for (;;) {
-    const kids = childrenOf(tree, current)
+    const kids = tree.children.get(current) || []
     if (!kids.length) break
     current = kids[0]
   }
-  return { mid: current, atEnd: true, chain: ancestorChain(tree, current) }
+  return { mid: current, atEnd: true }
 }

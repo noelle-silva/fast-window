@@ -9,9 +9,9 @@ import { useChatTree } from './hooks/useChatTree'
 import { useChatSending } from './hooks/useChatSending'
 import {
   EMPTY_SELECTION,
+  followFrom,
   placeSelection,
   resolveSelection,
-  sameSelection,
   selectionAtLatest,
   type ViewSelection,
 } from '../domain/viewSelection'
@@ -46,7 +46,6 @@ import { PluginSettingsPage, type SettingsTabSelection } from './settings/Plugin
 import { formatModelRefDisplayText, normalizeModelRef } from '../domain/modelRefUtils'
 import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
-import { resolveRunFocusMid } from '../domain/branching'
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
@@ -518,7 +517,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeBranchIdUi,
-    activeBranchHeadMid,
   } = useChatMessageIndex({
     s,
     renderChat,
@@ -529,14 +527,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeChatTargetId,
   })
 
-  // 位置解析：节点还在就用它；不在了先交回空位置，由下一步的“退回上一条”接管。
+  // 位置解析只决定“这一帧显示什么”，绝不写回位置：位置只由动作写入。
+  // 否则任何一帧陈旧的会话快照都会把位置永久改坏，看起来就是“闪一下又回原地”。
   const effectiveSelection = React.useMemo(
-    () => resolveSelection(activeChat, selection),
-    [selection, activeChat, chatAllMessagesRaw.length, Number((activeChat as any)?.updatedAt || 0)],
+    () => resolveSelection(renderChat, selection),
+    [selection, renderChat, renderChatId, chatAllMessagesRaw.length, Number((renderChat as any)?.updatedAt || 0)],
   )
-  React.useEffect(() => {
-    if (!sameSelection(effectiveSelection, selection)) setSelection(effectiveSelection)
-  }, [effectiveSelection, selection])
   const viewFocusMid = effectiveSelection.mid
 
   // 开分叉草稿是一次外部动作：位置直接落到它的分叉点，
@@ -544,7 +540,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   React.useEffect(() => {
     const forkFromMid = String((branchDraft as any)?.forkFromMid || '').trim()
     if (!forkFromMid) return
-    setSelection(placeSelection(activeChat, forkFromMid))
+    setSelection(placeSelection(renderChat, forkFromMid))
   }, [branchDraftKey])
 
   // 动作一：我发起的那次运行被受理后，位置移到这次运行的节点。
@@ -555,20 +551,40 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (!followRunId || placedRunRef.current === followRunId) return
     const card = activeSessionRunCards.find((item: any) => String(item?.runId || '') === followRunId)
     if (!card) return
-    const node = resolveRunFocusMid(activeChat, {
-      anchorMid: String(card?.anchorMessageId || card?.inputMessageId || ''),
-      outputMid: String(card?.lastMessageId || ''),
-    })
-    if (!node) return
+    // 我发了哪条，位置就落到哪条：这次运行的输入消息。
+    // 不猜“末尾”，不用产出字段，不做任何推断。
+    const inputMid = String(card?.inputMessageId || '')
+    if (!inputMid || !chatAllById.has(inputMid)) return
     placedRunRef.current = followRunId
-    setSelection(placeSelection(activeChat, node))
-  }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, activeChat])
+    // 我发了哪条就跟到哪条：跟随由这个动作决定，不看“此刻它下面有没有孩子”。
+    setSelection(followFrom(inputMid))
+  }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, renderChat])
 
-  // 切入会话：位置落到这条会话最靠后的一条消息上。
+  // 我自己删掉正在看的那一支时，位置退回它的上一条；删的是别处，位置不动。
+  const onNodeRemoving = useEvent((midRaw: string) => {
+    const target = String(midRaw || '').trim()
+    if (!target) return
+    let cursor = effectiveSelection.mid
+    let guard = 0
+    while (cursor && guard++ < 6000) {
+      if (cursor === target) {
+        const parentMid = String(chatAllById.get(target)?.parentMid || '')
+        if (parentMid) setSelection(followFrom(parentMid))
+        return
+      }
+      cursor = String(chatAllById.get(cursor)?.parentMid || '')
+    }
+  })
+
+  // 切入会话：会话真的换了、而且位置不属于这份会话时，才落点。
+  // 同一会话刷新让 id 抖一下不落点——落点会把刚发出去、刚落到新消息上的位置盖回旧末尾。
+  const lastChatIdRef = React.useRef('')
   React.useEffect(() => {
-    setSelection(selectionAtLatest(activeChat))
-    // 只随会话切换执行：位置本身的变化不触发重新落点。
-  }, [String(activeChat?.id || '')])
+    const id = String(renderChatId || '')
+    if (!id || lastChatIdRef.current === id) return
+    lastChatIdRef.current = id
+    setSelection((prev) => (chatAllById.has(String(prev.mid || '')) ? prev : selectionAtLatest(renderChat)))
+  }, [renderChatId, chatAllById, renderChat])
 
   const getLastMsgId = useEvent(() => String(lastMsgId || ''))
 
@@ -620,7 +636,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCardsKey,
     viewFocusMid,
     // 点节点就是一次动作：把位置放到被点的节点上，别处不做判断。
-    setViewIntentFromNodeClick: (mid: string) => setSelection(placeSelection(activeChat, mid)),
+    setViewIntentFromNodeClick: (mid: string) => setSelection(placeSelection(renderChat, mid)),
     branchDraft,
     branchDraftKey,
     stickToBottomRef,
@@ -656,8 +672,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     followRunId,
     activeChat,
     activeTargetKind,
-    branchDraft,
-    branchDraftKey,
   })
   // 会话页面是否可装：只由「目标实体与数据」决定。
   // 切换中（switching）不是阻塞项——旧页会继续垫底，新页在下面完成绘制。
@@ -1023,7 +1037,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    followLatestView: () => setSelection(selectionAtLatest(activeChat)),
+    onBranchSiblingSelected: (mid: string) => setSelection(followFrom(mid)),
     setBranchNav,
     stickToBottomRef,
     autoScrollBlockUntilRef,
@@ -1647,6 +1661,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setConfirmDelMsg,
     confirmDelTree,
     setConfirmDelTree,
+    onNodeRemoving,
   }), [
     controller,
     s.loading,
@@ -1673,6 +1688,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setConfirmDelMsg,
     confirmDelTree,
     setConfirmDelTree,
+    onNodeRemoving,
   ])
 
   const overlayComposerControls = React.useMemo(() => ({

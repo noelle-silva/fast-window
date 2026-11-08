@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { readActiveEbRunCardsForTarget } from '../../domain/activeRunCards'
-import { activeBranchHeadMid } from '../../domain/branching'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -59,12 +58,6 @@ export function useChatMessageIndex(deps: {
     .join('|')
   const activeChatRunCards = renderChatId === activeChatId ? activeSessionRunCards : readActiveEbRunCardsForTarget(s, activeTargetKind, String(activeChatTargetId || ''), activeChatId)
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
-  // 活动分支头部读取统一走领域定义，避免各处各写一遍。
-  const activeBranchHead = React.useMemo(
-    () => activeBranchHeadMid(activeChat),
-    [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), activeBranchIdUi],
-  )
-
   return {
     chatAllMessagesRaw,
     chatAllById,
@@ -74,6 +67,5 @@ export function useChatMessageIndex(deps: {
     activeSessionRunCardsKey,
     activeChatRunCards,
     activeBranchIdUi,
-    activeBranchHeadMid: activeBranchHead,
   }
 }

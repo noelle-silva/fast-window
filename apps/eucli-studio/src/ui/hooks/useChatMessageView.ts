@@ -22,8 +22,6 @@ export function useChatMessageView(deps: {
   followRunId: string
   activeChat: any
   activeTargetKind: TargetKind
-  branchDraft: any
-  branchDraftKey: string
 }) {
   const {
     renderChat,
@@ -38,8 +36,6 @@ export function useChatMessageView(deps: {
     followRunId,
     activeChat,
     activeTargetKind,
-    branchDraft,
-    branchDraftKey,
   } = deps
 
   const allMessages: any[] = React.useMemo(() => {
@@ -47,11 +43,10 @@ export function useChatMessageView(deps: {
     const msgs = chatAllMessagesRaw
     if (!chat || !Array.isArray(msgs) || msgs.length === 0) return []
 
-    // 视图焦点由唯一意图解析得出；分叉草稿只是临时的编辑落点，优先于意图。
-    let headMid = String(viewFocusMid || '').trim()
-    if (branchDraft) headMid = String(branchDraft?.forkFromMid || '').trim() || headMid
-    if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
-    if (!headMid) return msgs
+    // 显示的就是位置解析出来的那个节点：不再接受第二个来源。
+    // 没有位置就没有可显示的内容，绝不拿“数组最后一条”或“整份消息”顶上。
+    const headMid = String(viewFocusMid || '').trim()
+    if (!headMid) return []
 
     const byId = new Map<string, any>()
     for (const m of msgs) {
@@ -72,8 +67,8 @@ export function useChatMessageView(deps: {
     }
 
     out.reverse()
-    return out.length ? out : msgs
-  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), activeBranchIdUi, branchDraftKey, viewFocusMid, chatAllMessagesRaw, chatAllMessagesRaw.length])
+    return out
+  }, [renderChatId, Number((renderChat as any)?.updatedAt || 0), activeBranchIdUi, viewFocusMid, chatAllMessagesRaw, chatAllMessagesRaw.length])
   const activeVisibleMessageIds = React.useMemo(() => new Set(allMessages.map((message: any) => String(message?.id || '').trim()).filter(Boolean)), [allMessages])
   const activeVisibleHeadMid = allMessages.length ? String(allMessages[allMessages.length - 1]?.id || '').trim() : ''
   const activeVisibleRunCards = React.useMemo(

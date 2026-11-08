@@ -19,7 +19,8 @@ export function useMessageActions(deps: {
   activeSessionRunCards: any[]
   activeSessionRunCardsKey: string
   chatAllById: Map<string, any>
-  followLatestView: () => void
+  // 切到同级分支后：落到被选中的那条分支并继续跟随（不用“会话最新”去猜）。
+  onBranchSiblingSelected: (mid: string) => void
   setBranchNav: React.Dispatch<React.SetStateAction<{ mid: string; at: number }>>
   stickToBottomRef: React.MutableRefObject<boolean>
   autoScrollBlockUntilRef: React.MutableRefObject<number>
@@ -39,7 +40,7 @@ export function useMessageActions(deps: {
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    followLatestView,
+    onBranchSiblingSelected,
     setBranchNav,
     stickToBottomRef,
     autoScrollBlockUntilRef,
@@ -175,9 +176,11 @@ export function useMessageActions(deps: {
     if (!id) return
     stickToBottomRef.current = false
     autoScrollBlockUntilRef.current = Date.now() + 1200
-    followLatestView()
     const followMid = String(nextMid || '').trim()
-    if (followMid) setBranchNav({ mid: followMid, at: Date.now() })
+    if (followMid) {
+      onBranchSiblingSelected(followMid)
+      setBranchNav({ mid: followMid, at: Date.now() })
+    }
     controller.actions.switchBranchSibling?.(id, direction)
   })
 
