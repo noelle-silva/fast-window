@@ -348,10 +348,30 @@ export function newestLeafDescendantMid(chat: any, ancestorMessageId?: any, pref
 export function resolveRunFocusMid(chat: any, run: { anchorMid?: any; outputMid?: any } | null | undefined, exclude?: Set<string>): string {
   if (!chat || !run) return ''
   const skip = exclude instanceof Set ? exclude : null
-  const outputMid = String(run.outputMid || '').trim()
-  if (outputMid && !(skip && skip.has(outputMid)) && isLeafMessage(chat, outputMid)) return outputMid
   const anchorMid = String(run.anchorMid || '').trim()
-  return newestLeafDescendantMid(chat, anchorMid, outputMid, exclude)
+  const outputMid = String(run.outputMid || '').trim()
+  // 产出必须长在这条运行的输入下面（输入本身，或输入的后代）。
+  // 少了这条约束，后端把「会话最后一条」填进产出字段时，视线会被拽到别的分支末尾。
+  const outputBelongs = !!outputMid && !(skip && skip.has(outputMid)) && isMessageUnder(chat, outputMid, anchorMid)
+  if (outputBelongs && isLeafMessage(chat, outputMid)) return outputMid
+  return newestLeafDescendantMid(chat, anchorMid, outputBelongs ? outputMid : '', exclude)
+}
+
+// isMessageUnder 判断 mid 是不是 ancestor 本身或它的后代；ancestor 为空表示不限制。
+function isMessageUnder(chat: any, midRaw: any, ancestorRaw: any) {
+  const mid = String(midRaw || '').trim()
+  const ancestor = String(ancestorRaw || '').trim()
+  if (!mid) return false
+  if (!ancestor) return true
+  if (mid === ancestor) return true
+  const { byId } = chatMessageTree(chat)
+  let current = String((byId.get(mid) as any)?.parentMid || '').trim()
+  let guard = 0
+  while (current && guard++ < 6000) {
+    if (current === ancestor) return true
+    current = String((byId.get(current) as any)?.parentMid || '').trim()
+  }
+  return false
 }
 
 // isLeafMessage 判断某节点是否存在且没有任何子节点。

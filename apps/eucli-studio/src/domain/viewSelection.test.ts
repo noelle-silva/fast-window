@@ -90,4 +90,17 @@ describe('viewSelection 位置解析', () => {
     const placed = placeSelection(chat(oldLine()), 'a1')
     expect(placed.atEnd).toBe(false)
   })
+  it('删除后回退：父节点还有别的孩子时，停在父节点，不滑到底部', () => {
+    // 链：u1 → a1 → u2；a1 下面还有一条兄弟 a1b（删掉的不是它）
+    const messages = [
+      { id: 'u1', parentMid: '', createdAt: 1 },
+      { id: 'a1', parentMid: 'u1', createdAt: 2 },
+      { id: 'u2', parentMid: 'a1', createdAt: 3 },
+      { id: 'a1b', parentMid: 'u1', createdAt: 4 },
+    ]
+    // 退回用的是 placeSelection：父节点此刻还有孩子，所以“停住”
+    const retreated = placeSelection(chat(messages), 'u1')
+    expect(retreated).toEqual({ mid: 'u1', atEnd: false })
+    expect(resolveSelection(chat(messages), retreated).mid).toBe('u1')
+  })
 })

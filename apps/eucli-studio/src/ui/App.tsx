@@ -46,6 +46,7 @@ import { PluginSettingsPage, type SettingsTabSelection } from './settings/Plugin
 import { formatModelRefDisplayText, normalizeModelRef } from '../domain/modelRefUtils'
 import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
+import { resolveRunFocusMid } from '../domain/branching'
 import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
@@ -551,16 +552,21 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (!followRunId || placedRunRef.current === followRunId) return
     const card = activeSessionRunCards.find((item: any) => String(item?.runId || '') === followRunId)
     if (!card) return
-    // 我发了哪条，位置就落到哪条：这次运行的输入消息。
-    // 不猜“末尾”，不用产出字段，不做任何推断。
-    const inputMid = String(card?.inputMessageId || '')
-    if (!inputMid || !chatAllById.has(inputMid)) return
-    placedRunRef.current = followRunId
-    // 我发了哪条就跟到哪条：跟随由这个动作决定，不看“此刻它下面有没有孩子”。
-    setSelection(followFrom(inputMid))
+    // 跟到这次运行真正生成的那条：产出节点（必须长在本次输入之下，函数里已守）。
+    // 产出推进就跟着推进；这次运行结束后卡片消失，自然停住。
+    const node = resolveRunFocusMid(renderChat, {
+      anchorMid: String(card?.inputMessageId || ''),
+      outputMid: String(card?.lastMessageId || ''),
+    })
+    if (!node || !chatAllById.has(node)) return
+    const placedKey = `${followRunId}:${node}`
+    if (placedRunRef.current === placedKey) return
+    placedRunRef.current = placedKey
+    setSelection(followFrom(node))
   }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, renderChat])
 
-  // 我自己删掉正在看的那一支时，位置退回它的上一条；删的是别处，位置不动。
+  // 我自己删掉正在看的那一支时，位置退回它的上一条并停在那儿（不往下走）；
+  // 删的是别处，位置不动。
   const onNodeRemoving = useEvent((midRaw: string) => {
     const target = String(midRaw || '').trim()
     if (!target) return
@@ -569,7 +575,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     while (cursor && guard++ < 6000) {
       if (cursor === target) {
         const parentMid = String(chatAllById.get(target)?.parentMid || '')
-        if (parentMid) setSelection(followFrom(parentMid))
+        if (parentMid) setSelection(placeSelection(renderChat, parentMid))
         return
       }
       cursor = String(chatAllById.get(cursor)?.parentMid || '')
