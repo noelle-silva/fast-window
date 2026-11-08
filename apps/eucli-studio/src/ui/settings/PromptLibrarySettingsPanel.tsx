@@ -92,6 +92,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const [folderDialog, setFolderDialog] = React.useState<{ mode: 'create' | 'rename'; folderId: string; name: string } | null>(null)
   const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(null)
   const [pickerTarget, setPickerTarget] = React.useState<{ mode: 'collect' | 'collect-folder' | 'move-prompt' | 'move-folder'; id: string } | null>(null)
+  const [pickerInitialIds, setPickerInitialIds] = React.useState<string[]>([])
 
   const ownerOptions = scope === 'role' ? roles : scope === 'workspace' ? workspaces : []
   const ownerIds = React.useMemo(() => ownerOptions.map((item: any) => text(item?.id)).filter(Boolean), [ownerOptions])
@@ -177,8 +178,6 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         savedEntry.content !== draft.content ||
         savedEntry.description !== draft.description),
   )
-  const currentFolder = currentFolderId ? allFolders.find((folder) => folder.id === currentFolderId) ?? null : null
-  const collectedHere = Boolean(draft && currentFolder?.promptIds.includes(draft.id))
 
   const selectPrompt = (promptId: string) => {
     setSelectedPromptId(promptId)
@@ -344,40 +343,59 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     }
   }
 
-  // 收藏到只加索引；移动到既加目标索引，也摘掉当前位置。
-  const pickFolder = async (folderId: string) => {
+  // 打开选择窗时先算出「当前已经收藏在哪些位置」，作为预勾选。
+  const initialSelectionFor = (target: { mode: string; id: string }): string[] => {
+    if (target.mode === 'collect') return folders.folders.filter((folder) => folder.promptIds.includes(target.id)).map((folder) => folder.id)
+    if (target.mode === 'collect-folder') return folders.folders.filter((folder) => folder.folderIds.includes(target.id)).map((folder) => folder.id)
+    // 移动模式只勾住当前所在这一处。
+    return currentFolderId ? [currentFolderId] : []
+  }
+
+  const openPicker = (target: { mode: 'collect' | 'collect-folder' | 'move-prompt' | 'move-folder'; id: string }) => {
+    setPickerInitialIds(initialSelectionFor(target))
+    setPickerTarget(target)
+  }
+
+  // 保存时按差集落地：新勾选的加索引，取消勾选的摘索引。
+  const applyPicker = async (selectedIds: string[]) => {
     const target = pickerTarget
+    const initial = pickerInitialIds
     setPickerTarget(null)
     if (!target) return
+    const next = new Set(selectedIds)
+    const toAdd = selectedIds.filter((id) => !initial.includes(id))
+    const toRemove = initial.filter((id) => !next.has(id))
+    if (!toAdd.length && !toRemove.length) return
+    const promptMode = target.mode === 'collect' || target.mode === 'move-prompt'
     setLoading(true)
     try {
-      let saved: PromptFolderLibrary
-      if (target.mode === 'collect') {
-        saved = await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, folderId, target.id)
-      } else if (target.mode === 'collect-folder') {
-        saved = await callAction<PromptFolderLibrary>('addFolderToFolder', scope, activeOwnerId, target.id, folderId)
-      } else if (target.mode === 'move-prompt') {
-        saved = await callAction<PromptFolderLibrary>('movePromptToFolder', scope, activeOwnerId, target.id, currentFolderId, folderId)
-      } else {
-        saved = await callAction<PromptFolderLibrary>('movePromptFolder', scope, activeOwnerId, target.id, currentFolderId, folderId)
+      for (const id of toAdd) {
+        const saved = promptMode
+          ? await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, id, target.id)
+          : await callAction<PromptFolderLibrary>('addFolderToFolder', scope, activeOwnerId, target.id, id)
+        setFolders(saved)
       }
-      setFolders(saved)
+      for (const id of toRemove) {
+        const saved = promptMode
+          ? await callAction<PromptFolderLibrary>('removePromptFromFolder', scope, activeOwnerId, id, target.id)
+          : await callAction<PromptFolderLibrary>('removeFolderFromParent', scope, activeOwnerId, target.id, id)
+        setFolders(saved)
+      }
     } catch (e: any) {
-      notify(text(e?.message) || '操作失败')
+      notify(text(e?.message) || '保存收藏位置失败')
     } finally {
       setLoading(false)
     }
   }
 
-  // 提示词的「收藏到」只加索引；收藏夹只能有一个上级，落到目标夹就是挂载位置变化。
   const collectEntry = (entry: PromptLayerEntry) => {
-    setPickerTarget(
+    openPicker(
       entry.kind === 'folder' ? { mode: 'collect-folder', id: entry.folder.id } : { mode: 'collect', id: entry.prompt.id },
     )
   }
 
   const moveEntryToFolder = (entry: PromptLayerEntry) => {
-    setPickerTarget(
+    openPicker(
       entry.kind === 'folder' ? { mode: 'move-folder', id: entry.folder.id } : { mode: 'move-prompt', id: entry.prompt.id },
     )
   }
@@ -392,18 +410,6 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     return []
   }, [pickerTarget, folders, currentFolderId])
 
-  const removeFromCurrentFolder = async () => {
-    if (!draft || !currentFolderId) return
-    setLoading(true)
-    try {
-      const saved = await callAction<PromptFolderLibrary>('removePromptFromFolder', scope, activeOwnerId, currentFolderId, draft.id)
-      setFolders(saved)
-    } catch (e: any) {
-      notify(text(e?.message) || '移出收藏夹失败')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
@@ -545,7 +551,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                   variant="contained"
                   disableElevation
                   startIcon={<BookmarkAddOutlinedIcon />}
-                  onClick={() => setPickerTarget({ mode: 'collect', id: draft.id })}
+                  onClick={() => openPicker({ mode: 'collect', id: draft.id })}
                   disabled={loading || !isSaved}
                   sx={FILLED_SECONDARY_SX}
                 >
@@ -554,13 +560,6 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                 <MoreActionsMenu
                   ariaLabel="提示词操作"
                   items={[
-                    {
-                      key: 'detach',
-                      label: '从当前夹移出',
-                      icon: <FolderOutlinedIcon fontSize="small" />,
-                      disabled: !collectedHere,
-                      onSelect: () => void removeFromCurrentFolder(),
-                    },
                     {
                       key: 'delete',
                       label: '删除提示词',
@@ -602,9 +601,10 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         open={Boolean(pickerTarget)}
         folders={allFolders}
         rootFolderIds={folders.rootFolderIds}
+        initialSelectedIds={pickerInitialIds}
         excludedIds={excludedFolderIds}
         onClose={() => setPickerTarget(null)}
-        onPick={(folderId) => void pickFolder(folderId)}
+        onSave={(selectedIds) => void applyPicker(selectedIds)}
       />
 
       <Dialog open={Boolean(folderDialog)} onClose={() => setFolderDialog(null)} maxWidth="xs" fullWidth>

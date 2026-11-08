@@ -136,4 +136,12 @@ export async function movePromptToFolder(netRequest: EbNetRequest, scope: Prompt
   return normalizePromptFolderLibrary(response?.body)
 }
 
+// 从指定位置摘掉收藏夹索引：parentId 为空表示根级。
+export async function removeFolderFromParent(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> {
+  const base = `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/collect`
+  const path = `${base}${base.includes('?') ? '&' : '?'}parentId=${encodeURIComponent(text(parentId))}`
+  const response = await netRequest({ method: 'DELETE', path })
+  return normalizePromptFolderLibrary(response?.body)
+}
+
 export { withOwner }

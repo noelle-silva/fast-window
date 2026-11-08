@@ -9,6 +9,7 @@ import {
   addPromptToFolder,
   movePromptFolder,
   movePromptToFolder,
+  removeFolderFromParent,
   removePromptFromFolder,
   renamePromptFolder,
   reorderPromptFolderEntries,
@@ -114,6 +115,9 @@ export function createPromptLibraryController(deps: {
         showToast?.('提示词已移动', { kind: 'success' })
         return saved
       }),
+
+    removeFolderFromParent: (scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> =>
+      run('移出收藏夹失败', () => removeFolderFromParent(requireNetRequest(), scope, ownerId, folderId, parentId)),
 
     removePromptFromFolder: (scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> =>
       run('移出收藏夹失败', async () => {
