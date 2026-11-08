@@ -5,9 +5,13 @@ import {
   deletePromptFolder,
   loadPromptFolders,
   loadPromptLibrary,
+  addFolderToFolder,
+  addPromptToFolder,
+  movePromptFolder,
+  movePromptToFolder,
+  removePromptFromFolder,
   renamePromptFolder,
-  reorderFolderPrompts,
-  reorderPromptFolders,
+  reorderPromptFolderEntries,
   savePromptFolders,
   savePromptLibrary,
 } from './promptLibraryClient'
@@ -38,6 +42,11 @@ export function createPromptLibraryController(deps: {
   }
 
   return {
+    // 面板的提示统一走这里弹出，不在页面上找空地硬塞文字。
+    notifyPromptLibrary: (message: string, kind: 'error' | 'success' = 'error') => {
+      showToast?.(String(message ?? ''), { kind })
+    },
+
     loadPromptLibrary: (scope: PromptScope, ownerId: string): Promise<PromptLibrary> =>
       run('加载提示词失败', () => loadPromptLibrary(requireNetRequest(), scope, ownerId)),
 
@@ -75,10 +84,42 @@ export function createPromptLibraryController(deps: {
         return saved
       }),
 
-    reorderPromptFolders: (scope: PromptScope, ownerId: string, parentId: string, folderIds: string[]): Promise<PromptFolderLibrary> =>
-      run('收藏夹排序失败', () => reorderPromptFolders(requireNetRequest(), scope, ownerId, parentId, folderIds)),
+    reorderPromptFolderEntries: (scope: PromptScope, ownerId: string, parentId: string, entryOrder: string[]): Promise<PromptFolderLibrary> =>
+      run('排序失败', () => reorderPromptFolderEntries(requireNetRequest(), scope, ownerId, parentId, entryOrder)),
 
-    reorderFolderPrompts: (scope: PromptScope, ownerId: string, folderId: string, promptIds: string[]): Promise<PromptFolderLibrary> =>
-      run('条目排序失败', () => reorderFolderPrompts(requireNetRequest(), scope, ownerId, folderId, promptIds)),
+    addPromptToFolder: (scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> =>
+      run('收藏失败', async () => {
+        const saved = await addPromptToFolder(requireNetRequest(), scope, ownerId, folderId, promptId)
+        showToast?.('已收进收藏夹', { kind: 'success' })
+        return saved
+      }),
+
+    movePromptFolder: (scope: PromptScope, ownerId: string, folderId: string, fromParentId: string, toParentId: string): Promise<PromptFolderLibrary> =>
+      run('移动收藏夹失败', async () => {
+        const saved = await movePromptFolder(requireNetRequest(), scope, ownerId, folderId, fromParentId, toParentId)
+        showToast?.('收藏夹已移动', { kind: 'success' })
+        return saved
+      }),
+
+    addFolderToFolder: (scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> =>
+      run('收藏失败', async () => {
+        const saved = await addFolderToFolder(requireNetRequest(), scope, ownerId, folderId, parentId)
+        showToast?.('收藏夹已收藏到目标位置', { kind: 'success' })
+        return saved
+      }),
+
+    movePromptToFolder: (scope: PromptScope, ownerId: string, promptId: string, fromFolderId: string, toFolderId: string): Promise<PromptFolderLibrary> =>
+      run('移动提示词失败', async () => {
+        const saved = await movePromptToFolder(requireNetRequest(), scope, ownerId, promptId, fromFolderId, toFolderId)
+        showToast?.('提示词已移动', { kind: 'success' })
+        return saved
+      }),
+
+    removePromptFromFolder: (scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> =>
+      run('移出收藏夹失败', async () => {
+        const saved = await removePromptFromFolder(requireNetRequest(), scope, ownerId, folderId, promptId)
+        showToast?.('已从收藏夹移出', { kind: 'success' })
+        return saved
+      }),
   }
 }

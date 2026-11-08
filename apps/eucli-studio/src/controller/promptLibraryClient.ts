@@ -79,19 +79,60 @@ export async function renamePromptFolder(netRequest: EbNetRequest, scope: Prompt
   return normalizePromptFolderLibrary(response?.body)
 }
 
-// 兄弟收藏夹排序：parentId 为空表示根级。
-export async function reorderPromptFolders(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, parentId: string, folderIds: string[]): Promise<PromptFolderLibrary> {
+// 混排排序：parentId 为空表示根级；entryOrder 元素形如 folder:<id> / prompt:<id>。
+export async function reorderPromptFolderEntries(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, parentId: string, entryOrder: string[]): Promise<PromptFolderLibrary> {
   const base = `${folderScopePath(scope, ownerId)}/order`
   const path = text(parentId) ? `${base}${base.includes('?') ? '&' : '?'}parentId=${encodeURIComponent(text(parentId))}` : base
-  const response = await netRequest({ method: 'PUT', path, body: { folderIds } })
+  const response = await netRequest({ method: 'PUT', path, body: { entryOrder } })
   return normalizePromptFolderLibrary(response?.body)
 }
 
-// 收藏夹内条目排序。
-export async function reorderFolderPrompts(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, promptIds: string[]): Promise<PromptFolderLibrary> {
-  const base = `${folderScopePath(scope, ownerId)}/prompts/order`
-  const path = `${base}${base.includes('?') ? '&' : '?'}folderId=${encodeURIComponent(text(folderId))}`
-  const response = await netRequest({ method: 'PUT', path, body: { promptIds } })
+// 收进收藏夹：只加索引，不复制提示词内容。
+export async function addPromptToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> {
+  const response = await netRequest({
+    method: 'POST',
+    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/prompts`,
+    body: { promptId: text(promptId) },
+  })
+  return normalizePromptFolderLibrary(response?.body)
+}
+
+// 移出收藏夹：只摘索引，提示词本体保留。
+export async function removePromptFromFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> {
+  const response = await netRequest({
+    method: 'DELETE',
+    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/prompts/${encodeURIComponent(text(promptId))}`,
+  })
+  return normalizePromptFolderLibrary(response?.body)
+}
+
+// 移动收藏夹：parentId 为空表示移到根级。
+export async function movePromptFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, fromParentId: string, toParentId: string): Promise<PromptFolderLibrary> {
+  const response = await netRequest({
+    method: 'POST',
+    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/move`,
+    body: { fromParentId: text(fromParentId), toParentId: text(toParentId) },
+  })
+  return normalizePromptFolderLibrary(response?.body)
+}
+
+// 把收藏夹收藏到某个层：只加一处索引，别处引用不动。
+export async function addFolderToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> {
+  const response = await netRequest({
+    method: 'POST',
+    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/collect`,
+    body: { parentId: text(parentId) },
+  })
+  return normalizePromptFolderLibrary(response?.body)
+}
+
+// 提示词移动到另一个收藏夹：fromFolderId 为空表示原来在根级，toFolderId 为空表示移出到根级。
+export async function movePromptToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, promptId: string, fromFolderId: string, toFolderId: string): Promise<PromptFolderLibrary> {
+  const response = await netRequest({
+    method: 'POST',
+    path: `${folderScopePath(scope, ownerId)}/prompts/${encodeURIComponent(text(promptId))}/move`,
+    body: { fromFolderId: text(fromFolderId), toFolderId: text(toFolderId) },
+  })
   return normalizePromptFolderLibrary(response?.body)
 }
 

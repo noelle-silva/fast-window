@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  collectIndexedPromptIds,
-  mergePromptOrder,
+  applyPromptEntryOrder,
+  collectPromptFolderSubtreeIds,
+  completeFolderEntryOrder,
+  completeRootEntryOrder,
   normalizePromptFolderLibrary,
   normalizePromptLibrary,
   promptFolderParentId,
+  promptLayerKeys,
   resolveActiveOwnerId,
   resolvePromptFolderLayer,
   type PromptFolderLibrary,
@@ -21,34 +24,84 @@ const prompts: PromptLibrary = {
 
 const folders: PromptFolderLibrary = {
   rootFolderIds: ['work', 'life'],
+  rootEntryOrder: ['folder:work', 'prompt:p1', 'folder:life', 'prompt:p2', 'prompt:p3'],
   folders: [
-    { id: 'work', name: '工作', folderIds: ['backend'], promptIds: ['p2', 'p1'], createdAt: '', updatedAt: '' },
-    { id: 'backend', name: '后端', folderIds: [], promptIds: ['p3'], createdAt: '', updatedAt: '' },
-    { id: 'life', name: '生活', folderIds: [], promptIds: ['p1'], createdAt: '', updatedAt: '' },
+    {
+      id: 'work',
+      name: '工作',
+      folderIds: ['backend'],
+      promptIds: ['p1', 'p2'],
+      entryOrder: ['prompt:p1', 'folder:backend', 'prompt:p2'],
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 'backend',
+      name: '后端',
+      folderIds: [],
+      promptIds: ['p3'],
+      entryOrder: ['prompt:p3'],
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 'life',
+      name: '生活',
+      folderIds: [],
+      promptIds: [],
+      entryOrder: [],
+      createdAt: '',
+      updatedAt: '',
+    },
   ],
 }
 
 describe('resolvePromptFolderLayer', () => {
-  it('根级只展示没被任何收藏夹索引的条目', () => {
+  it('根级是收藏夹与全部提示词的混排，顺序按 rootEntryOrder', () => {
     const layer = resolvePromptFolderLayer(folders, prompts, '')
-    expect(layer.folders.map((folder) => folder.id)).toEqual(['work', 'life'])
-    // p1、p2、p3 都已被收藏，根级不再重复出现
-    expect(layer.prompts).toEqual([])
+    expect(layer.entries.map((entry) => entry.key)).toEqual([
+      'folder:work',
+      'prompt:p1',
+      'folder:life',
+      'prompt:p2',
+      'prompt:p3',
+    ])
     expect(layer.crumbs).toEqual([{ id: '', name: '全部提示词' }])
   })
 
-  it('夹内按索引顺序展示子夹与条目', () => {
+  it('根级缺顺序时按「收藏夹在前、条目在后」派生', () => {
+    const fallback: PromptFolderLibrary = { ...folders, rootEntryOrder: [] }
+    const layer = resolvePromptFolderLayer(fallback, prompts, '')
+    expect(layer.entries.map((entry) => entry.key)).toEqual([
+      'folder:work',
+      'folder:life',
+      'prompt:p1',
+      'prompt:p2',
+      'prompt:p3',
+    ])
+  })
+
+  it('夹内按 entryOrder 混排子夹与条目', () => {
     const layer = resolvePromptFolderLayer(folders, prompts, 'work')
-    expect(layer.folders.map((folder) => folder.id)).toEqual(['backend'])
-    expect(layer.prompts.map((prompt) => prompt.id)).toEqual(['p2', 'p1'])
-    expect(layer.crumbs.map((crumb) => crumb.name)).toEqual(['全部提示词', '工作'])
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['prompt:p1', 'folder:backend', 'prompt:p2'])
+  })
+
+  it('顺序里缺的条目补在末尾，不丢数据', () => {
+    const stale: PromptFolderLibrary = {
+      ...folders,
+      folders: folders.folders.map((folder) =>
+        folder.id === 'work' ? { ...folder, entryOrder: ['prompt:p1'] } : folder,
+      ),
+    }
+    const layer = resolvePromptFolderLayer(stale, prompts, 'work')
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['prompt:p1', 'folder:backend', 'prompt:p2'])
   })
 
   it('深层路径给到完整面包屑，并能算出上一级', () => {
     const layer = resolvePromptFolderLayer(folders, prompts, 'backend')
     expect(layer.crumbs.map((crumb) => crumb.id)).toEqual(['', 'work', 'backend'])
     expect(promptFolderParentId(layer)).toBe('work')
-    expect(layer.prompts.map((prompt) => prompt.id)).toEqual(['p3'])
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['prompt:p3'])
   })
 
   it('当前夹不存在时回落到根级', () => {
@@ -58,29 +111,85 @@ describe('resolvePromptFolderLayer', () => {
   })
 
   it('模板里缺失的提示词被跳过，不产生空行', () => {
-    const stale: PromptFolderLibrary = {
+    const missing: PromptFolderLibrary = {
       rootFolderIds: ['work'],
-      folders: [{ id: 'work', name: '工作', folderIds: [], promptIds: ['p1', 'gone'], createdAt: '', updatedAt: '' }],
+      rootEntryOrder: ['folder:work'],
+      folders: [
+        {
+          id: 'work',
+          name: '工作',
+          folderIds: [],
+          promptIds: ['p1', 'gone'],
+          entryOrder: ['prompt:p1', 'prompt:gone'],
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
     }
-    const layer = resolvePromptFolderLayer(stale, prompts, 'work')
-    expect(layer.prompts.map((prompt) => prompt.id)).toEqual(['p1'])
+    const layer = resolvePromptFolderLayer(missing, prompts, 'work')
+    expect(layer.entries.map((entry) => entry.key)).toEqual(['prompt:p1'])
   })
 })
 
-describe('collectIndexedPromptIds', () => {
-  it('汇总所有收藏夹索引过的条目', () => {
-    expect(Array.from(collectIndexedPromptIds(folders)).sort()).toEqual(['p1', 'p2', 'p3'])
+describe('promptLayerKeys', () => {
+  it('给出可直接提交的混排顺序', () => {
+    const layer = resolvePromptFolderLayer(folders, prompts, 'work')
+    expect(promptLayerKeys(layer)).toEqual(['prompt:p1', 'folder:backend', 'prompt:p2'])
   })
 })
 
-describe('mergePromptOrder', () => {
-  it('只重排给定条目的相对位置，其余条目原位不动', () => {
-    const merged = mergePromptOrder(prompts.prompts, ['p3', 'p1'])
-    expect(merged.map((prompt) => prompt.id)).toEqual(['p3', 'p2', 'p1'])
+describe('补齐提交顺序', () => {
+  it('夹内顺序为空时按「收藏夹在前、条目在后」派生', () => {
+    const folder = { ...folders.folders[0], entryOrder: [] }
+    expect(completeFolderEntryOrder(folder)).toEqual(['folder:backend', 'prompt:p1', 'prompt:p2'])
   })
 
-  it('空顺序时原样返回', () => {
-    expect(mergePromptOrder(prompts.prompts, []).map((prompt) => prompt.id)).toEqual(['p1', 'p2', 'p3'])
+  it('夹内顺序只写了部分时，已有项保持原位，缺项补到末尾', () => {
+    const folder = { ...folders.folders[0], entryOrder: ['prompt:p2'] }
+    expect(completeFolderEntryOrder(folder)).toEqual(['prompt:p2', 'folder:backend', 'prompt:p1'])
+  })
+
+  it('顺序里有集合外的项或重复项时被丢弃，不提交给服务端', () => {
+    const folder = { ...folders.folders[0], entryOrder: ['prompt:ghost', 'prompt:p1', 'prompt:p1'] }
+    expect(completeFolderEntryOrder(folder)).toEqual(['prompt:p1', 'folder:backend', 'prompt:p2'])
+  })
+
+  it('根级顺序为空时由根收藏夹与全部提示词派生', () => {
+    const empty = { ...folders, rootEntryOrder: [] }
+    expect(completeRootEntryOrder(empty, prompts)).toEqual([
+      'folder:work',
+      'folder:life',
+      'prompt:p1',
+      'prompt:p2',
+      'prompt:p3',
+    ])
+  })
+
+  it('根级新建收藏夹后提交的顺序包含全部条目', () => {
+    const order = completeRootEntryOrder({ ...folders, rootEntryOrder: [] }, prompts)
+    const next = [...order, 'folder:brand-new']
+    expect(next.filter((key) => key.startsWith('prompt:'))).toHaveLength(3)
+    expect(next.filter((key) => key.startsWith('folder:'))).toHaveLength(3)
+  })
+})
+
+describe('resolveActiveOwnerId', () => {
+  const workspaceIds = ['w1', 'w2']
+
+  it('切换作用域后旧归属不属于当前作用域时回落到第一个', () => {
+    expect(resolveActiveOwnerId('workspace', 'r1', workspaceIds)).toBe('w1')
+  })
+
+  it('归属本身有效时原样返回', () => {
+    expect(resolveActiveOwnerId('workspace', 'w2', workspaceIds)).toBe('w2')
+  })
+
+  it('没有可用归属时返回空串，调用方不再发请求', () => {
+    expect(resolveActiveOwnerId('role', 'r1', [])).toBe('')
+  })
+
+  it('全局作用域不需要归属', () => {
+    expect(resolveActiveOwnerId('global', 'w1', workspaceIds)).toBe('')
   })
 })
 
@@ -96,34 +205,43 @@ describe('normalize', () => {
     expect(library.prompts.map((prompt) => prompt.id)).toEqual(['p1'])
   })
 
-  it('收藏夹库缺字段时按空集合归一', () => {
+  it('收藏夹库缺字段时按空集合归一，并保留混排顺序', () => {
     const normalized = normalizePromptFolderLibrary({
       rootFolderIds: ['a', 'a'],
+      rootEntryOrder: ['folder:a', 'prompt:p1'],
       folders: [{ id: 'a', name: '甲' }],
     })
     expect(normalized.rootFolderIds).toEqual(['a'])
+    expect(normalized.rootEntryOrder).toEqual(['folder:a', 'prompt:p1'])
     expect(normalized.folders[0].folderIds).toEqual([])
     expect(normalized.folders[0].promptIds).toEqual([])
+    expect(normalized.folders[0].entryOrder).toEqual([])
   })
 })
 
-describe('resolveActiveOwnerId', () => {
-  const workspaceIds = ['w1', 'w2']
-
-  it('切换作用域后旧归属不属于当前作用域时回落到第一个', () => {
-    // 角色 id 混进工作区请求的现场：旧值 r1 不在工作区列表里
-    expect(resolveActiveOwnerId('workspace', 'r1', workspaceIds)).toBe('w1')
+describe('collectPromptFolderSubtreeIds', () => {
+  it('包含自身与全部后代', () => {
+    expect(collectPromptFolderSubtreeIds(folders, 'work')).toEqual(['work', 'backend'])
+    expect(collectPromptFolderSubtreeIds(folders, 'life')).toEqual(['life'])
   })
 
-  it('归属本身有效时原样返回', () => {
-    expect(resolveActiveOwnerId('workspace', 'w2', workspaceIds)).toBe('w2')
+  it('不存在的收藏夹返回空数组', () => {
+    expect(collectPromptFolderSubtreeIds(folders, 'ghost')).toEqual([])
+  })
+})
+
+describe('applyPromptEntryOrder', () => {
+  it('根级只替换根顺序，夹内数据不动', () => {
+    const next = applyPromptEntryOrder(folders, '', ['folder:life', 'folder:work'])
+    expect(next.rootEntryOrder).toEqual(['folder:life', 'folder:work'])
+    expect(next.folders).toBe(folders.folders)
   })
 
-  it('没有可用归属时返回空串，调用方不再发请求', () => {
-    expect(resolveActiveOwnerId('role', 'r1', [])).toBe('')
-  })
-
-  it('全局作用域不需要归属', () => {
-    expect(resolveActiveOwnerId('global', 'w1', workspaceIds)).toBe('')
+  it('夹内只替换目标夹的顺序', () => {
+    const order = ['prompt:p2', 'folder:backend', 'prompt:p1']
+    const next = applyPromptEntryOrder(folders, 'work', order)
+    const work = next.folders.find((folder) => folder.id === 'work')
+    expect(work?.entryOrder).toEqual(order)
+    expect(next.rootEntryOrder).toBe(folders.rootEntryOrder)
   })
 })
