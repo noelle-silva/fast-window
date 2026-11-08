@@ -79,7 +79,7 @@ import { ChatTreeModal } from './chatTree/ChatTreeModal'
 import { ShellFrame } from './surfaces/ShellFrame'
 import { TopBarSurface } from './surfaces/TopBarSurface'
 import { SidebarSurface } from './surfaces/SidebarSurface'
-import { SidebarBPlaceholder } from './components/SidebarBPlaceholder'
+import { SidebarBPanel } from './components/SidebarBPanel'
 import { ComposerSurface } from './surfaces/ComposerSurface'
 import { SessionViewport } from './surfaces/SessionViewport'
 import { SettingsSurface } from './surfaces/SettingsSurface'
@@ -1173,7 +1173,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     domainVersion,
   ])
 
-  // 侧边栏 B 的 props：与 A 同一套外壳参数，只有宽度与侧别各自担当。
+  // 侧边栏 B 的 props：外壳参数与 A 同源；内容是工作区列表，排序落库走工作区顺序动作。
+  const onOpenWorkspaceEditorInSidebar = React.useCallback(
+    (workspaceId: string) => controller.actions.openWorkspaceEditor?.(workspaceId),
+    [controller],
+  )
+
   const sidebarBProps = React.useMemo(
     () => ({
       width: sidebarLayout.b.width,
@@ -1182,6 +1187,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onSplitterPointerDown: sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
+      workspaces,
+      activeWorkspaceId,
+      activeTargetKind,
+      openPluginSettings,
+      onSelectWorkspace: onSelectWorkspaceInSidebar,
+      onOpenWorkspaceEditor: onOpenWorkspaceEditorInSidebar,
+      onMoveWorkspace,
     }),
     [
       sidebarLayout.b.width,
@@ -1190,6 +1202,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
+      workspaces,
+      activeWorkspaceId,
+      activeTargetKind,
+      openPluginSettings,
+      onSelectWorkspaceInSidebar,
+      onOpenWorkspaceEditorInSidebar,
+      onMoveWorkspace,
     ],
   )
 
@@ -1995,7 +2014,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           <SidebarSurface {...sidebarProps} side="left" />
         ) : null}
         {sidebarVisible && sidebarLayout.b.side === 'left' ? (
-          <SidebarBPlaceholder {...sidebarBProps} side="left" />
+          <SidebarBPanel {...sidebarBProps} side="left" />
         ) : null}
 
         <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -2044,7 +2063,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
           <SidebarSurface {...sidebarProps} side="right" />
         ) : null}
         {sidebarVisible && sidebarLayout.b.side === 'right' ? (
-          <SidebarBPlaceholder {...sidebarBProps} side="right" />
+          <SidebarBPanel {...sidebarBProps} side="right" />
         ) : null}
       </Box>
 
