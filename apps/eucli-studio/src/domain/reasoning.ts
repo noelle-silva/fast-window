@@ -1,16 +1,34 @@
-export type ReasoningEffort = 'very_low' | 'low' | 'medium' | 'high' | 'very_high'
+// 思考等级词汇表与社区通用命名保持一致（minimal / low / medium / high / xhigh / max / ultra），
+// value 就是存储与网关使用的源字段，label 只做首字母大写的展示形态，不再翻译成中文档位。
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium'
 
 export const REASONING_EFFORT_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [
-  { value: 'very_low', label: '极低' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'very_high', label: '极高' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'X High' },
+  { value: 'max', label: 'Max' },
+  { value: 'ultra', label: 'Ultra' },
 ]
 
-const REASONING_EFFORT_VALUES = new Set(REASONING_EFFORT_OPTIONS.map((option) => option.value))
+// 词汇表统一前落库的旧取值，只在解析入口归一一次。
+const LEGACY_REASONING_EFFORT_ALIASES: Record<string, ReasoningEffort> = {
+  very_low: 'minimal',
+  very_high: 'xhigh',
+}
+
+const REASONING_EFFORT_VALUES = new Set<string>(REASONING_EFFORT_OPTIONS.map((option) => option.value))
+
+export function canonicalReasoningEffort(value: unknown): ReasoningEffort | '' {
+  const effort = String(value || '').trim()
+  if (!effort) return ''
+  const alias = LEGACY_REASONING_EFFORT_ALIASES[effort]
+  if (alias) return alias
+  return REASONING_EFFORT_VALUES.has(effort) ? (effort as ReasoningEffort) : ''
+}
 
 export type ReasoningProfile = {
   supportsReasoning: boolean
@@ -18,13 +36,11 @@ export type ReasoningProfile = {
 }
 
 export function normalizeReasoningEffort(value: unknown, fallback: ReasoningEffort | '' = ''): ReasoningEffort | '' {
-  const effort = String(value || '').trim() as ReasoningEffort
-  if (REASONING_EFFORT_VALUES.has(effort)) return effort
-  return fallback
+  return canonicalReasoningEffort(value) || fallback
 }
 
 export function reasoningEffortLabel(value: unknown) {
-  const effort = normalizeReasoningEffort(value)
+  const effort = canonicalReasoningEffort(value)
   return REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label || ''
 }
 

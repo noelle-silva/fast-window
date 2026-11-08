@@ -31,7 +31,7 @@ describe('normalizeStoredChat', () => {
     expect(chat).toMatchObject({
       id: 'session-1',
       streamEnabled: false,
-      reasoningEffort: 'very_high',
+      reasoningEffort: 'xhigh',
       modelOverride: { kind: 'provider', providerId: 'provider-1', groupId: '', modelId: 'model-1' },
       hookPromptMode: 'none',
     })
