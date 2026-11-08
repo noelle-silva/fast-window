@@ -7,45 +7,46 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
-  IconButton,
   InputLabel,
-  List,
-  ListItemButton,
-  ListItemText,
   MenuItem,
   Select,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import SaveIcon from '@mui/icons-material/Save'
 import {
   EMPTY_PROMPT_FOLDER_LIBRARY,
   EMPTY_PROMPT_LIBRARY,
+  collectPromptFolderSubtreeIds,
+  completeFolderEntryOrder,
+  completeRootEntryOrder,
+  applyPromptEntryOrder,
   createLocalId,
-  mergePromptOrder,
   promptFolderParentId,
+  promptLayerKeys,
   resolveActiveOwnerId,
   resolvePromptFolderLayer,
   type PromptEntry,
   type PromptFolder,
   type PromptFolderLibrary,
+  type PromptLayerEntry,
   type PromptLibrary,
   type PromptScope,
 } from '../../domain/promptLibrary'
 import { moveListItemById } from '../../domain/listOrdering'
 import { resolveSortMovePosition } from '../components/SortableDnd'
-import { SortableList } from '../components/SortableList'
-import { CustomScrollArea } from '../components/CustomScrollArea'
+import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsSurface } from './SettingsSurfaces'
+import { PromptLibrarySidebar } from './PromptLibrarySidebar'
+import { PromptFolderPicker } from './PromptFolderPicker'
 
-// 提示词仓库管理：三段作用域切换 + 收藏夹树侧边栏 + 右侧条目编辑器。
-// 收藏夹与条目分两段各自拖拽：Agent 端的顺序事实本来就是两组数组。
+// 提示词仓库管理：三段作用域切换 + 混排侧边栏 + 右侧条目编辑器。
+// 收藏走「收藏到收藏夹」模态窗；条目与收藏夹的功能入口都在右键菜单里。
 
 const SCOPE_LABELS: Record<PromptScope, string> = {
   global: '全局提示词',
@@ -54,6 +55,16 @@ const SCOPE_LABELS: Record<PromptScope, string> = {
 }
 
 const EMPTY_ENTRY: PromptEntry = { id: '', name: '', content: '', description: '', createdAt: '', updatedAt: '' }
+
+// 次要按钮也用实心底色，不用纯边框或透明样式。
+const FILLED_SECONDARY_SX = {
+  bgcolor: 'var(--studio-field)',
+  color: 'var(--studio-text-primary)',
+  boxShadow: 'var(--studio-shadow-soft)',
+  '&:hover': { bgcolor: 'var(--studio-field-hover)', boxShadow: 'var(--studio-shadow-soft)' },
+}
+
+type PendingDelete = { kind: 'prompt' | 'folder'; id: string; name: string }
 
 type PromptLibrarySettingsPanelProps = {
   controller: any
@@ -78,13 +89,11 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const [draft, setDraft] = React.useState<PromptEntry | null>(null)
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState('')
-  const [renameTarget, setRenameTarget] = React.useState<PromptFolder | null>(null)
-  const [renameDraft, setRenameDraft] = React.useState('')
+  const [folderDialog, setFolderDialog] = React.useState<{ mode: 'create' | 'rename'; folderId: string; name: string } | null>(null)
+  const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(null)
+  const [pickerTarget, setPickerTarget] = React.useState<{ mode: 'collect' | 'collect-folder' | 'move-prompt' | 'move-folder'; id: string } | null>(null)
 
   const ownerOptions = scope === 'role' ? roles : scope === 'workspace' ? workspaces : []
-  // 归属取「当前作用域里真实存在的那个」：切换作用域时不会拿旧的归属 id 去发请求，
-  // 角色 id 混进工作区请求这类错配在发起前就被消除。
   const ownerIds = React.useMemo(() => ownerOptions.map((item: any) => text(item?.id)).filter(Boolean), [ownerOptions])
   const activeOwnerId = resolveActiveOwnerId(scope, ownerId, ownerIds)
 
@@ -97,16 +106,22 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     [controller],
   )
 
+  const notify = React.useCallback(
+    (message: string, kind: 'error' | 'success' = 'error') => {
+      const fn = controller?.actions?.notifyPromptLibrary
+      if (typeof fn === 'function') fn(message, kind)
+    },
+    [controller],
+  )
+
   const reload = React.useCallback(
     async (options?: { keepSelection?: boolean }) => {
       if (scope !== 'global' && !activeOwnerId) {
         setLibrary(EMPTY_PROMPT_LIBRARY)
         setFolders(EMPTY_PROMPT_FOLDER_LIBRARY)
-        setError('')
         return
       }
       setLoading(true)
-      setError('')
       try {
         const [nextLibrary, nextFolders] = await Promise.all([
           callAction<PromptLibrary>('loadPromptLibrary', scope, activeOwnerId),
@@ -118,9 +133,10 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           setCurrentFolderId('')
           setSelectedPromptId('')
           setDraft(null)
+          setPickerTarget(null)
         }
       } catch (e: any) {
-        setError(text(e?.message) || '加载提示词仓库失败')
+        notify(text(e?.message) || '加载提示词仓库失败')
       } finally {
         setLoading(false)
       }
@@ -138,43 +154,51 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   )
 
   const keyword = text(search)
-  const visibleFolders = keyword
-    ? layer.folders.filter((folder) => folder.name.includes(keyword))
-    : layer.folders
-  const visiblePrompts = keyword
-    ? layer.prompts.filter((prompt) => prompt.name.includes(keyword) || prompt.content.includes(keyword))
-    : layer.prompts
+  const visibleLayer = React.useMemo(() => {
+    if (!keyword) return layer
+    return {
+      ...layer,
+      entries: layer.entries.filter((entry) =>
+        entry.kind === 'folder'
+          ? entry.folder.name.includes(keyword)
+          : entry.prompt.name.includes(keyword) || entry.prompt.content.includes(keyword),
+      ),
+    }
+  }, [keyword, layer])
+
+  const allFolders = folders.folders
+  const isSaved = Boolean(draft && library.prompts.some((prompt) => prompt.id === draft.id))
+  // 已保存的条目被改动也算脏：黄点表示「有还没落库的修改」。
+  const savedEntry = draft ? library.prompts.find((prompt) => prompt.id === draft.id) ?? null : null
+  const isDirty = Boolean(
+    draft &&
+      (!savedEntry ||
+        savedEntry.name !== draft.name ||
+        savedEntry.content !== draft.content ||
+        savedEntry.description !== draft.description),
+  )
+  const currentFolder = currentFolderId ? allFolders.find((folder) => folder.id === currentFolderId) ?? null : null
+  const collectedHere = Boolean(draft && currentFolder?.promptIds.includes(draft.id))
 
   const selectPrompt = (promptId: string) => {
     setSelectedPromptId(promptId)
     const found = library.prompts.find((prompt) => prompt.id === promptId)
     setDraft(found ? { ...found } : null)
-    setError('')
   }
 
   const createPrompt = () => {
-    const entry: PromptEntry = {
-      ...EMPTY_ENTRY,
-      id: createLocalId('prompt'),
-      name: '新提示词',
-    }
+    const entry: PromptEntry = { ...EMPTY_ENTRY, id: createLocalId('prompt'), name: '新提示词' }
     setSelectedPromptId(entry.id)
     setDraft(entry)
-    setError('')
   }
 
   const savePrompt = async () => {
     if (!draft) return
     if (!text(draft.name)) {
-      setError('提示词名称必填')
-      return
-    }
-    if (!text(draft.content)) {
-      setError('提示词内容必填')
+      notify('提示词名称必填')
       return
     }
     setLoading(true)
-    setError('')
     try {
       const exists = library.prompts.some((prompt) => prompt.id === draft.id)
       const prompts = exists
@@ -183,136 +207,203 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
       await callAction<PromptLibrary>('savePromptLibrary', scope, activeOwnerId, { prompts })
       await reload({ keepSelection: true })
       setSelectedPromptId(draft.id)
+      // 在当前层级新建的条目直接归入当前收藏夹，不落在根级。
+      if (!exists && currentFolderId) {
+        const savedFolders = await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, currentFolderId, draft.id)
+        setFolders(savedFolders)
+      }
     } catch (e: any) {
-      setError(text(e?.message) || '保存提示词失败')
+      notify(text(e?.message) || '保存提示词失败')
     } finally {
       setLoading(false)
     }
   }
 
-  const deletePrompt = async () => {
-    if (!draft) return
+  const confirmDeletePrompt = async () => {
+    if (!pendingDelete || pendingDelete.kind !== 'prompt') return
     setLoading(true)
-    setError('')
     try {
-      await callAction<PromptLibrary>('deletePromptEntry', scope, activeOwnerId, draft.id)
+      await callAction<PromptLibrary>('deletePromptEntry', scope, activeOwnerId, pendingDelete.id)
+      setPendingDelete(null)
       await reload()
     } catch (e: any) {
-      setError(text(e?.message) || '删除提示词失败')
+      notify(text(e?.message) || '删除提示词失败')
     } finally {
       setLoading(false)
     }
   }
 
-  const createFolder = async () => {
+  const openCreateFolder = () => setFolderDialog({ mode: 'create', folderId: '', name: '' })
+
+  // 名字由对话框给出；确认前不写盘，取消就什么都不发生。
+  const createFolderNamed = async (name: string) => {
     const folder: PromptFolder = {
       id: createLocalId('folder'),
-      name: '新收藏夹',
+      name,
       folderIds: [],
       promptIds: [],
+      entryOrder: [],
       createdAt: '',
       updatedAt: '',
     }
     const parentId = currentFolderId
+    const parentKey = `folder:${folder.id}`
+    // 提交整库前先把每层顺序补齐：服务端只接受「本层全部条目」的完整排列。
+    const base: PromptFolderLibrary = {
+      rootFolderIds: folders.rootFolderIds,
+      rootEntryOrder: completeRootEntryOrder(folders, library),
+      folders: folders.folders.map((item) => ({ ...item, entryOrder: completeFolderEntryOrder(item) })),
+    }
     const next: PromptFolderLibrary = parentId
       ? {
-          rootFolderIds: folders.rootFolderIds,
+          rootFolderIds: base.rootFolderIds,
+          rootEntryOrder: base.rootEntryOrder,
           folders: [
-            ...folders.folders.map((item) =>
-              item.id === parentId ? { ...item, folderIds: [...item.folderIds, folder.id] } : item,
+            ...base.folders.map((item) =>
+              item.id === parentId
+                ? { ...item, folderIds: [...item.folderIds, folder.id], entryOrder: [...item.entryOrder, parentKey] }
+                : item,
             ),
             folder,
           ],
         }
-      : { rootFolderIds: [...folders.rootFolderIds, folder.id], folders: [...folders.folders, folder] }
+      : {
+          rootFolderIds: [...base.rootFolderIds, folder.id],
+          rootEntryOrder: [...base.rootEntryOrder, parentKey],
+          folders: [...base.folders, folder],
+        }
     setLoading(true)
-    setError('')
     try {
       const saved = await callAction<PromptFolderLibrary>('savePromptFolders', scope, activeOwnerId, next)
       setFolders(saved)
     } catch (e: any) {
-      setError(text(e?.message) || '新建收藏夹失败')
+      notify(text(e?.message) || '新建收藏夹失败')
     } finally {
       setLoading(false)
     }
   }
 
   const openRename = (folder: PromptFolder) => {
-    setRenameTarget(folder)
-    setRenameDraft(folder.name)
+    setFolderDialog({ mode: 'rename', folderId: folder.id, name: folder.name })
   }
 
-  const submitRename = async () => {
-    if (!renameTarget) return
-    const name = text(renameDraft)
+  const submitFolderDialog = async () => {
+    if (!folderDialog) return
+    const name = text(folderDialog.name)
     if (!name) {
-      setError('收藏夹名称必填')
+      notify('收藏夹名称必填')
+      return
+    }
+    if (folderDialog.mode === 'create') {
+      setFolderDialog(null)
+      await createFolderNamed(name)
       return
     }
     setLoading(true)
-    setError('')
     try {
-      const saved = await callAction<PromptFolderLibrary>('renamePromptFolder', scope, activeOwnerId, renameTarget.id, name)
+      const saved = await callAction<PromptFolderLibrary>('renamePromptFolder', scope, activeOwnerId, folderDialog.folderId, name)
       setFolders(saved)
-      setRenameTarget(null)
+      setFolderDialog(null)
     } catch (e: any) {
-      setError(text(e?.message) || '重命名收藏夹失败')
+      notify(text(e?.message) || '重命名收藏夹失败')
     } finally {
       setLoading(false)
     }
   }
 
-  const deleteFolder = async (folder: PromptFolder) => {
+  const confirmDeleteFolder = async () => {
+    if (!pendingDelete || pendingDelete.kind !== 'folder') return
     setLoading(true)
-    setError('')
     try {
-      const saved = await callAction<PromptFolderLibrary>('deletePromptFolder', scope, activeOwnerId, folder.id)
+      const saved = await callAction<PromptFolderLibrary>('deletePromptFolder', scope, activeOwnerId, pendingDelete.id)
       setFolders(saved)
-      if (currentFolderId === folder.id) setCurrentFolderId(promptFolderParentId(layer))
+      if (currentFolderId === pendingDelete.id) setCurrentFolderId(promptFolderParentId(layer))
+      setPendingDelete(null)
     } catch (e: any) {
-      setError(text(e?.message) || '删除收藏夹失败')
+      notify(text(e?.message) || '删除收藏夹失败')
     } finally {
       setLoading(false)
     }
   }
 
-  const moveFolder = async (activeId: string, overId: string) => {
-    const ids = layer.folders.map((folder) => folder.id)
-    const position = resolveSortMovePosition(ids, activeId, overId)
+  // 混排拖拽：同一列表内的收藏夹与条目一起挪位置，提交完整层顺序。
+  const moveEntry = async (activeKey: string, overKey: string) => {
+    const keys = promptLayerKeys(layer)
+    const position = resolveSortMovePosition(keys, activeKey, overKey)
     if (!position) return
-    const next = moveListItemById(ids, (id) => id, activeId, overId, position)
+    const next = moveListItemById(keys, (key) => key, activeKey, overKey, position)
+    // 松手瞬间先按新顺序重排本地数据：弹回原位的动画与新顺序在同一帧生效，不会回跳。
+    const previous = folders
+    setFolders(applyPromptEntryOrder(folders, currentFolderId, next))
     try {
-      const saved = await callAction<PromptFolderLibrary>('reorderPromptFolders', scope, activeOwnerId, currentFolderId, next)
+      const saved = await callAction<PromptFolderLibrary>('reorderPromptFolderEntries', scope, activeOwnerId, currentFolderId, next)
       setFolders(saved)
     } catch (e: any) {
-      setError(text(e?.message) || '收藏夹排序失败')
+      setFolders(previous)
+      notify(text(e?.message) || '排序失败')
     }
   }
 
-  const movePrompt = async (activeId: string, overId: string) => {
-    const ids = layer.prompts.map((prompt) => prompt.id)
-    const position = resolveSortMovePosition(ids, activeId, overId)
-    if (!position) return
-    const next = moveListItemById(ids, (id) => id, activeId, overId, position)
+  // 收藏到只加索引；移动到既加目标索引，也摘掉当前位置。
+  const pickFolder = async (folderId: string) => {
+    const target = pickerTarget
+    setPickerTarget(null)
+    if (!target) return
+    setLoading(true)
     try {
-      if (currentFolderId) {
-        const saved = await callAction<PromptFolderLibrary>('reorderFolderPrompts', scope, activeOwnerId, currentFolderId, next)
-        setFolders(saved)
-        return
+      let saved: PromptFolderLibrary
+      if (target.mode === 'collect') {
+        saved = await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, folderId, target.id)
+      } else if (target.mode === 'collect-folder') {
+        saved = await callAction<PromptFolderLibrary>('addFolderToFolder', scope, activeOwnerId, target.id, folderId)
+      } else if (target.mode === 'move-prompt') {
+        saved = await callAction<PromptFolderLibrary>('movePromptToFolder', scope, activeOwnerId, target.id, currentFolderId, folderId)
+      } else {
+        saved = await callAction<PromptFolderLibrary>('movePromptFolder', scope, activeOwnerId, target.id, currentFolderId, folderId)
       }
-      // 根级展示的是「尚未收进收藏夹」的条目：整库保存回写本体顺序。
-      const prompts = mergePromptOrder(library.prompts, next)
-      const saved = await callAction<PromptLibrary>('savePromptLibrary', scope, activeOwnerId, { prompts })
-      setLibrary(saved)
+      setFolders(saved)
     } catch (e: any) {
-      setError(text(e?.message) || '条目排序失败')
+      notify(text(e?.message) || '操作失败')
+    } finally {
+      setLoading(false)
     }
   }
 
-  const ownerCandidates = ownerOptions.filter((item: any) => {
-    if (!keywordOwner(ownerSearch)) return true
-    return text(item?.name).includes(keywordOwner(ownerSearch))
-  })
+  // 提示词的「收藏到」只加索引；收藏夹只能有一个上级，落到目标夹就是挂载位置变化。
+  const collectEntry = (entry: PromptLayerEntry) => {
+    setPickerTarget(
+      entry.kind === 'folder' ? { mode: 'collect-folder', id: entry.folder.id } : { mode: 'collect', id: entry.prompt.id },
+    )
+  }
+
+  const moveEntryToFolder = (entry: PromptLayerEntry) => {
+    setPickerTarget(
+      entry.kind === 'folder' ? { mode: 'move-folder', id: entry.folder.id } : { mode: 'move-prompt', id: entry.prompt.id },
+    )
+  }
+
+  // 移动收藏夹时它自己和后代都不能当目标；移动条目时当前所在夹也不能选。
+  const excludedFolderIds = React.useMemo(() => {
+    if (!pickerTarget) return []
+    if (pickerTarget.mode === 'move-folder' || pickerTarget.mode === 'collect-folder') {
+      return collectPromptFolderSubtreeIds(folders, pickerTarget.id)
+    }
+    if (pickerTarget.mode === 'move-prompt' && currentFolderId) return [currentFolderId]
+    return []
+  }, [pickerTarget, folders, currentFolderId])
+
+  const removeFromCurrentFolder = async () => {
+    if (!draft || !currentFolderId) return
+    setLoading(true)
+    try {
+      const saved = await callAction<PromptFolderLibrary>('removePromptFromFolder', scope, activeOwnerId, currentFolderId, draft.id)
+      setFolders(saved)
+    } catch (e: any) {
+      notify(text(e?.message) || '移出收藏夹失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
@@ -326,9 +417,9 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
               fullWidth
               size="small"
               disableElevation
-              variant={active ? 'contained' : 'text'}
+              variant="contained"
               onClick={() => setScope(value)}
-              sx={{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }}
+              sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
             >
               {SCOPE_LABELS[value]}
             </Button>
@@ -355,19 +446,37 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                 value={activeOwnerId}
                 onChange={(event) => setOwnerId(String(event.target.value))}
               >
-                {ownerCandidates.map((item: any) => (
-                  <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                    {text(item?.name) || text(item?.id)}
-                  </MenuItem>
-                ))}
+                {ownerOptions
+                  .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))
+                  .map((item: any) => (
+                    <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                      {text(item?.name) || text(item?.id)}
+                    </MenuItem>
+                  ))}
               </Select>
             </FormControl>
           </>
         ) : null}
-        <Button size="small" variant="outlined" startIcon={<FolderOutlinedIcon />} onClick={() => void createFolder()} disabled={loading}>
+        <Button
+          size="small"
+          variant="contained"
+          disableElevation
+          startIcon={<FolderOutlinedIcon />}
+          onClick={openCreateFolder}
+          disabled={loading}
+          sx={FILLED_SECONDARY_SX}
+        >
           新建收藏夹
         </Button>
-        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={createPrompt} disabled={loading}>
+        <Button
+          size="small"
+          variant="contained"
+          disableElevation
+          startIcon={<AddIcon />}
+          onClick={createPrompt}
+          disabled={loading}
+          sx={FILLED_SECONDARY_SX}
+        >
           新建提示词
         </Button>
         <Box sx={{ flex: 1 }} />
@@ -386,169 +495,86 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         </Typography>
       ) : null}
 
-      {error ? (
-        <Typography variant="body2" color="error">
-          {error}
-        </Typography>
-      ) : null}
-
       <Stack direction="row" spacing={1.25} sx={{ flex: 1, minHeight: 0 }}>
-        <Box
-          sx={{
-            width: 260,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0,
-            borderRadius: 2,
-            bgcolor: 'var(--studio-field)',
-            p: 0.75,
+        <PromptLibrarySidebar
+          layer={visibleLayer}
+          selectedPromptId={selectedPromptId}
+          loading={loading}
+          dragDisabled={Boolean(keyword)}
+          onBack={() => setCurrentFolderId(promptFolderParentId(layer))}
+          onNavigate={(folderId) => {
+            setCurrentFolderId(folderId)
+            setSelectedPromptId('')
+            setDraft(null)
           }}
-        >
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ px: 0.25, pb: 0.5 }}>
-            <Tooltip title="返回上一级">
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={() => setCurrentFolderId(promptFolderParentId(layer))}
-                  disabled={layer.crumbs.length <= 1}
-                >
-                  <ArrowBackIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
-              <Select
-                value={currentFolderId}
-                onChange={(event) => setCurrentFolderId(String(event.target.value))}
-                displayEmpty
-                // 面包屑：小圆角矩形、无描边，菜单直接出现（不做过渡动画）。
-                MenuProps={{ transitionDuration: 0 }}
-                sx={{
-                  fontSize: 13,
-                  borderRadius: 1,
-                  bgcolor: 'var(--studio-field)',
-                  '& .MuiSelect-select': { py: 0.5 },
-                  '& .MuiOutlinedInput-notchedOutline': { border: 0, borderRadius: 1 },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
-                }}
-              >
-                {layer.crumbs.map((crumb) => (
-                  <MenuItem key={crumb.id || 'root'} value={crumb.id}>
-                    {crumb.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Stack>
-
-          <CustomScrollArea hostSx={{ flex: 1, minHeight: 0 }} scrollSx={{ height: '100%' }} axis="y">
-            <Stack spacing={0.5} sx={{ px: 0.25 }}>
-              {visibleFolders.length ? (
-                <Typography variant="caption" color="text.secondary" sx={{ px: 0.5 }}>
-                  收藏夹
-                </Typography>
-              ) : null}
-              <SortableList ids={visibleFolders.map((folder) => folder.id)} onMove={(activeId, overId) => void moveFolder(activeId, overId)}>
-                {({ id, drag, shouldIgnoreClick }) => {
-                  const folder = visibleFolders.find((item) => item.id === id)
-                  if (!folder) return null
-                  return (
-                    <Box ref={drag.setNodeRef} style={drag.style}>
-                      <ListItemButton
-                        dense
-                        onClick={() => {
-                          if (shouldIgnoreClick()) return
-                          setCurrentFolderId(folder.id)
-                          setSelectedPromptId('')
-                          setDraft(null)
-                        }}
-                        sx={{ borderRadius: 1.5, pr: 0.5 }}
-                      >
-                        <FolderOutlinedIcon fontSize="small" sx={{ mr: 1, color: 'var(--studio-secondary)' }} />
-                        <ListItemText primary={folder.name} primaryTypographyProps={{ fontSize: 13, fontWeight: 700 }} />
-                        <Tooltip title="重命名">
-                          <IconButton
-                            size="small"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openRename(folder)
-                            }}
-                          >
-                            <Typography sx={{ fontSize: 12 }}>改名</Typography>
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="删除收藏夹（子收藏夹上移）">
-                          <IconButton
-                            size="small"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void deleteFolder(folder)
-                            }}
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </ListItemButton>
-                    </Box>
-                  )
-                }}
-              </SortableList>
-
-              {visiblePrompts.length ? (
-                <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, pt: 0.5 }}>
-                  {currentFolderId ? '收藏的提示词' : '未收藏的提示词'}
-                </Typography>
-              ) : null}
-              <SortableList ids={visiblePrompts.map((prompt) => prompt.id)} onMove={(activeId, overId) => void movePrompt(activeId, overId)}>
-                {({ id, drag, shouldIgnoreClick }) => {
-                  const prompt = visiblePrompts.find((item) => item.id === id)
-                  if (!prompt) return null
-                  return (
-                    <Box ref={drag.setNodeRef} style={drag.style}>
-                      <ListItemButton
-                        dense
-                        selected={selectedPromptId === prompt.id}
-                        onClick={() => {
-                          if (shouldIgnoreClick()) return
-                          selectPrompt(prompt.id)
-                        }}
-                        sx={{ borderRadius: 1.5 }}
-                      >
-                        <ListItemText
-                          primary={prompt.name}
-                          secondary={prompt.description || undefined}
-                          primaryTypographyProps={{ fontSize: 13, fontWeight: 600 }}
-                          secondaryTypographyProps={{ fontSize: 11, noWrap: true }}
-                        />
-                      </ListItemButton>
-                    </Box>
-                  )
-                }}
-              </SortableList>
-
-              {!visibleFolders.length && !visiblePrompts.length ? (
-                <Typography variant="body2" color="text.secondary" sx={{ px: 0.5, py: 1 }}>
-                  {loading ? '加载中…' : '这一层还是空的'}
-                </Typography>
-              ) : null}
-            </Stack>
-          </CustomScrollArea>
-        </Box>
+          onSelectPrompt={selectPrompt}
+          onReorderEntries={(activeKey, overKey) => void moveEntry(activeKey, overKey)}
+          onCollectEntry={collectEntry}
+          onMoveEntryToFolder={moveEntryToFolder}
+          onRenameFolder={openRename}
+          onDeleteFolder={(folder) => setPendingDelete({ kind: 'folder', id: folder.id, name: folder.name })}
+        />
 
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {draft ? (
             <Stack spacing={1} sx={{ height: '100%', minHeight: 0 }}>
+              {/* 名称、保存、收藏、更多操作同一行，右侧对齐。 */}
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  label="名称"
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  sx={{ flex: 1 }}
+                />
+                <Button
+                  variant="contained"
+                  size="small"
+                  disableElevation
+                  startIcon={<SaveIcon />}
+                  onClick={() => void savePrompt()}
+                  disabled={loading}
+                >
+                  保存
+                  {isDirty ? (
+                    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', ml: 0.75 }} />
+                  ) : null}
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disableElevation
+                  startIcon={<BookmarkAddOutlinedIcon />}
+                  onClick={() => setPickerTarget({ mode: 'collect', id: draft.id })}
+                  disabled={loading || !isSaved}
+                  sx={FILLED_SECONDARY_SX}
+                >
+                  收藏到收藏夹
+                </Button>
+                <MoreActionsMenu
+                  ariaLabel="提示词操作"
+                  items={[
+                    {
+                      key: 'detach',
+                      label: '从当前夹移出',
+                      icon: <FolderOutlinedIcon fontSize="small" />,
+                      disabled: !collectedHere,
+                      onSelect: () => void removeFromCurrentFolder(),
+                    },
+                    {
+                      key: 'delete',
+                      label: '删除提示词',
+                      icon: <DeleteOutlineIcon fontSize="small" />,
+                      danger: true,
+                      disabled: !isSaved,
+                      onSelect: () => draft && setPendingDelete({ kind: 'prompt', id: draft.id, name: draft.name }),
+                    },
+                  ]}
+                />
+              </Stack>
               <TextField
                 size="small"
-                label="名称"
-                value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              />
-              <TextField
-                size="small"
-                label="备注（给人看，不进提示词）"
+                label="备注"
                 value={draft.description}
                 onChange={(event) => setDraft({ ...draft, description: event.target.value })}
               />
@@ -560,25 +586,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                 onChange={(event) => setDraft({ ...draft, content: event.target.value })}
                 sx={{ flex: 1, minHeight: 0, '& .MuiInputBase-root': { alignItems: 'flex-start', height: '100%' } }}
               />
-              <Stack direction="row" spacing={1}>
-                <Button variant="contained" size="small" startIcon={<SaveIcon />} onClick={() => void savePrompt()} disabled={loading}>
-                  保存
-                </Button>
-                <Button
-                  variant="text"
-                  color="error"
-                  size="small"
-                  startIcon={<DeleteOutlineIcon />}
-                  onClick={() => void deletePrompt()}
-                  disabled={loading || !library.prompts.some((prompt) => prompt.id === draft.id)}
-                >
-                  删除
-                </Button>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                  {library.prompts.some((prompt) => prompt.id === draft.id) ? `ID：${draft.id}` : '新建（未保存）'}
-                </Typography>
-              </Stack>
+
             </Stack>
           ) : (
             <Box sx={{ m: 'auto', textAlign: 'center' }}>
@@ -590,30 +598,64 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         </Box>
       </Stack>
 
-      <Dialog open={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>重命名收藏夹</DialogTitle>
+      <PromptFolderPicker
+        open={Boolean(pickerTarget)}
+        folders={allFolders}
+        rootFolderIds={folders.rootFolderIds}
+        excludedIds={excludedFolderIds}
+        onClose={() => setPickerTarget(null)}
+        onPick={(folderId) => void pickFolder(folderId)}
+      />
+
+      <Dialog open={Boolean(folderDialog)} onClose={() => setFolderDialog(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{folderDialog?.mode === 'create' ? '新建收藏夹' : '重命名收藏夹'}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
             size="small"
-            label="名称"
-            value={renameDraft}
-            onChange={(event) => setRenameDraft(event.target.value)}
+            label="收藏夹名称"
+            value={folderDialog?.name ?? ''}
+            onChange={(event) => setFolderDialog((current) => (current ? { ...current, name: event.target.value } : current))}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameTarget(null)}>取消</Button>
-          <Button variant="contained" onClick={() => void submitRename()}>
-            保存
+          <Button variant="contained" disableElevation onClick={() => setFolderDialog(null)} sx={FILLED_SECONDARY_SX}>
+            取消
+          </Button>
+          <Button variant="contained" disableElevation onClick={() => void submitFolderDialog()}>
+            确认
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(pendingDelete)} onClose={() => setPendingDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{pendingDelete?.kind === 'folder' ? '删除收藏夹' : '删除提示词'}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            确定删除「{pendingDelete?.name}」吗？
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            {pendingDelete?.kind === 'folder'
+              ? '删除后这个收藏夹就不在了，里面的子收藏夹会回到上一级；夹子里的提示词不会被删除。'
+              : '删除后这条提示词会被永久删除，也会从所有收藏夹里一起移除，无法恢复。'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" disableElevation onClick={() => setPendingDelete(null)} sx={FILLED_SECONDARY_SX}>
+            取消
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disableElevation
+            onClick={() => void (pendingDelete?.kind === 'folder' ? confirmDeleteFolder() : confirmDeletePrompt())}
+          >
+            删除
           </Button>
         </DialogActions>
       </Dialog>
     </SettingsSurface>
   )
-}
-
-function keywordOwner(value: string) {
-  return text(value)
 }
