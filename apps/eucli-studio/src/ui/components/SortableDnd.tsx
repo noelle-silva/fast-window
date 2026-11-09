@@ -76,6 +76,65 @@ export type SortableDragStatusRenderArgs = {
   isDropMode: boolean
 }
 
+/**
+ * 松手瞬间的位移快照。
+ *
+ * 数据是异步落盘的：松手时列表还拿不到新顺序，但拖拽位移会立刻消失。
+ * 于是画面先弹回旧位置，等数据回来再跳到落点，松手处的两段跳就是这么来的。
+ *
+ * 这份快照把松手那一刻每个条目的位移与各段的条目签名都记下来，
+ * 在数据落地之前继续沿用这些位移；数据落地的那次提交里再释放，
+ * 让「顺序变化」和「位移归零」发生在同一帧绘制之前。
+ */
+export type SortableSettleSnapshot = {
+  activeId: string
+  /** 条目 id → 松手时的位移值；没有位移的条目不在表里。 */
+  transforms: ReadonlyMap<string, string>
+  /** 段落 id → 松手时的条目签名，用来判断数据是否已经落地。 */
+  sections: ReadonlyMap<string, string>
+}
+
+/** 条目顺序的紧凑签名：只关心顺序是否变化，不关心数组引用。 */
+function itemsSignature(items: readonly string[]): string {
+  return items.join('\u0000')
+}
+
+/** 数据是否已经落地：任一段落的条目顺序与松手时不同，就说明列表拿到了新顺序。 */
+export function settleHasLanded(
+  settle: SortableSettleSnapshot,
+  sectionItems: ReadonlyMap<string, readonly string[]>,
+): boolean {
+  for (const [id, signature] of settle.sections) {
+    if (itemsSignature(sectionItems.get(id) ?? []) !== signature) return true
+  }
+  return false
+}
+
+/**
+ * 排序行的位移样式：拖拽中给让位位移，松手后沿用快照里的位移，
+ * 直到数据落地再交还给 dnd-kit（此时 DOM 已经是新顺序）。
+ */
+export function resolveSortableItemStyle(args: {
+  id: string
+  isDragging: boolean
+  isDropMode: boolean
+  transform: string
+  transition?: string
+  settle: SortableSettleSnapshot | null
+}): React.CSSProperties {
+  const { id, isDragging, isDropMode, transform, transition, settle } = args
+  const settleTransform = settle?.transforms.get(id)
+  const settling = !isDragging && settleTransform !== undefined
+  // 放置模式下这一行不参与让位：列表保持原位，只有目标行高亮。
+  const resting = isDropMode && !isDragging
+  return {
+    transform: settling ? settleTransform : resting ? undefined : transform || undefined,
+    transition: settling || resting ? undefined : transition,
+    // 冻结中的活动行仍压在最上层，避免它与相邻行重叠时被盖住。
+    zIndex: isDragging || (settling && settle?.activeId === id) ? 2 : undefined,
+  }
+}
+
 type SortableRootProps = {
   children: React.ReactNode
   onMove: (activeId: string, overId: string) => void
@@ -120,18 +179,32 @@ type SortableDragStatusProps = {
 type SortableRootContextValue = {
   dragState: SortableDragState | null
   drop: SortableDropConfig | null
+  settle: SortableSettleSnapshot | null
   shouldSuppressClick: (id: string) => boolean
+  /** 条目每次提交渲染时登记自己的实时位移，供松手时抓一份快照。 */
+  trackItemTransform: (id: string, transform: string) => void
+  /** 段落登记自己的条目顺序；传 null 表示段落已卸载。 */
+  trackSectionItems: (id: string, items: readonly string[] | null) => void
 }
 
 const sortableItemRole = 'sortable-item'
 const dropTargetRole = 'drop-target'
 /** 拖拽结束后浏览器仍会补发 click：在这段时间内忽略相关行的点击。 */
 const clickSuppressionMs = 260
+/**
+ * 冻结位移的最长保留时间。
+ * 正常路径由「条目顺序变化」结束冻结；保存失败或顺序没有变化时，
+ * 由这个上限把画面交还给真实数据，避免位移一直挂着。
+ */
+const settleTimeoutMs = 600
 
 const SortableRootContext = React.createContext<SortableRootContextValue>({
   dragState: null,
   drop: null,
+  settle: null,
   shouldSuppressClick: () => false,
+  trackItemTransform: () => {},
+  trackSectionItems: () => {},
 })
 
 function hasCtrlKey(event: Event | undefined | null): boolean {
@@ -187,6 +260,11 @@ export function SortableRoot(props: SortableRootProps) {
   const dragStateRef = React.useRef<SortableDragState | null>(null)
   const clickSuppressionRef = React.useRef<{ ids: string[]; until: number }>({ ids: [], until: 0 })
   const suppressTimerRef = React.useRef<number | null>(null)
+  // 拖拽结束到数据落地之间的位移冻结，细节见 SortableSettleSnapshot。
+  const [settle, setSettle] = React.useState<SortableSettleSnapshot | null>(null)
+  const itemTransformsRef = React.useRef(new Map<string, string>())
+  const sectionItemsRef = React.useRef(new Map<string, readonly string[]>())
+  const settleTimerRef = React.useRef<number | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -231,9 +309,53 @@ export function SortableRoot(props: SortableRootProps) {
     return !!id && current.ids.includes(id) && Date.now() <= current.until
   }, [])
 
+  const trackItemTransform = React.useCallback((id: string, transform: string) => {
+    if (transform) itemTransformsRef.current.set(id, transform)
+    else itemTransformsRef.current.delete(id)
+  }, [])
+
+  const trackSectionItems = React.useCallback((id: string, items: readonly string[] | null) => {
+    if (items) sectionItemsRef.current.set(id, items)
+    else sectionItemsRef.current.delete(id)
+  }, [])
+
+  const clearSettleTimer = React.useCallback(() => {
+    if (settleTimerRef.current === null) return
+    window.clearTimeout(settleTimerRef.current)
+    settleTimerRef.current = null
+  }, [])
+
+  const releaseSettle = React.useCallback(() => {
+    clearSettleTimer()
+    setSettle(null)
+  }, [clearSettleTimer])
+
+  /** 提交前抓一份松手快照：此刻读到的位移与条目顺序都还是拖拽中的那一份。 */
+  const beginSettle = React.useCallback(
+    (activeId: string) => {
+      const sections = new Map<string, string>()
+      for (const [id, items] of sectionItemsRef.current) sections.set(id, itemsSignature(items))
+      setSettle({ activeId, transforms: new Map(itemTransformsRef.current), sections })
+      clearSettleTimer()
+      settleTimerRef.current = window.setTimeout(() => {
+        settleTimerRef.current = null
+        setSettle(null)
+      }, settleTimeoutMs)
+    },
+    [clearSettleTimer],
+  )
+
+  // 数据落地后的那次提交里释放冻结：此时 DOM 已是新顺序，位移归零不会再把行拉回旧位置。
+  // 放在 layout effect 里，与绘制同帧完成，不会露出一帧的中间状态。
+  React.useLayoutEffect(() => {
+    if (!settle) return
+    if (settleHasLanded(settle, sectionItemsRef.current)) releaseSettle()
+  })
+
   React.useEffect(() => {
     return () => {
       if (suppressTimerRef.current !== null) window.clearTimeout(suppressTimerRef.current)
+      if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current)
     }
   }, [])
 
@@ -282,6 +404,8 @@ export function SortableRoot(props: SortableRootProps) {
     (event: DragStartEvent) => {
       const activeId = String(event.active.id ?? '').trim()
       if (!activeId) return
+      // 上一轮冻结如果还挂着（数据迟迟没落地），新一次拖拽从真实数据重新开始。
+      releaseSettle()
       setCurrentDragState({
         activeId,
         overId: null,
@@ -290,7 +414,7 @@ export function SortableRoot(props: SortableRootProps) {
       })
       onDragStart?.()
     },
-    [dropEnabled, onDragStart, setCurrentDragState],
+    [dropEnabled, onDragStart, releaseSettle, setCurrentDragState],
   )
 
   const handleDragOver = React.useCallback(
@@ -314,25 +438,30 @@ export function SortableRoot(props: SortableRootProps) {
       onDragStop?.()
       if (!activeId || overId === null) return
       if (mode === 'drop') {
-        if (targetId !== null && drop?.canDrop(activeId, targetId)) drop.onDrop(activeId, targetId)
+        if (targetId !== null && drop?.canDrop(activeId, targetId)) {
+          beginSettle(activeId)
+          drop.onDrop(activeId, targetId)
+        }
         return
       }
       if (!overId || activeId === overId) return
+      beginSettle(activeId)
       onMove(activeId, overId)
     },
-    [drop, onDragStop, onMove, setCurrentDragState, suppressClick],
+    [beginSettle, drop, onDragStop, onMove, setCurrentDragState, suppressClick],
   )
 
   const handleDragCancel = React.useCallback(() => {
     const activeId = dragStateRef.current?.activeId ?? ''
     setCurrentDragState(null)
+    releaseSettle()
     if (activeId) suppressClick(activeId)
     onDragStop?.()
-  }, [onDragStop, setCurrentDragState, suppressClick])
+  }, [onDragStop, releaseSettle, setCurrentDragState, suppressClick])
 
   const contextValue = React.useMemo<SortableRootContextValue>(
-    () => ({ dragState, drop, shouldSuppressClick }),
-    [dragState, drop, shouldSuppressClick],
+    () => ({ dragState, drop, settle, shouldSuppressClick, trackItemTransform, trackSectionItems }),
+    [dragState, drop, settle, shouldSuppressClick, trackItemTransform, trackSectionItems],
   )
   const autoScroll = dragState?.mode !== 'drop'
 
@@ -355,6 +484,13 @@ export function SortableRoot(props: SortableRootProps) {
 
 export function SortableSection(props: SortableSectionProps) {
   const { items, strategy = verticalListSortingStrategy, children } = props
+  const { trackSectionItems } = React.useContext(SortableRootContext)
+  const sectionId = React.useId()
+  // 登记本段当前的条目顺序：松手快照与落地判定都以此为准。
+  React.useLayoutEffect(() => {
+    trackSectionItems(sectionId, items)
+    return () => trackSectionItems(sectionId, null)
+  }, [items, sectionId, trackSectionItems])
   return (
     <SortableContext items={items} strategy={strategy}>
       {children}
@@ -364,7 +500,8 @@ export function SortableSection(props: SortableSectionProps) {
 
 export function SortableItem(props: SortableItemProps) {
   const { id, disabled = false, dropTargetId, children } = props
-  const { dragState, drop, shouldSuppressClick } = React.useContext(SortableRootContext)
+  const { dragState, drop, settle, shouldSuppressClick, trackItemTransform } =
+    React.useContext(SortableRootContext)
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id,
     disabled,
@@ -379,14 +516,17 @@ export function SortableItem(props: SortableItemProps) {
   const isDropCandidate = !!activeId && isDropMode && !!drop?.canDrop(activeId, targetId)
   const isDropTarget = isDropCandidate && overTargetId === targetId
 
-  // 放置模式下这一行不参与让位：列表保持原位，只有目标行高亮。
+  const transformText = CSS.Transform.toString(transform) ?? ''
+  // 位移登记放在提交之后：onDragEnd 抓快照时读到的仍是拖拽中的那份值。
+  React.useLayoutEffect(() => {
+    trackItemTransform(id, transformText)
+    return () => trackItemTransform(id, '')
+  }, [id, trackItemTransform, transformText])
+
+  // 数据还没落地时沿用松手瞬间的位移：否则位移会先归零把行弹回旧位置，数据回来再跳一次。
   const style = React.useMemo<React.CSSProperties>(
-    () => ({
-      transform: isDropMode && !isDragging ? undefined : CSS.Transform.toString(transform),
-      transition: isDropMode && !isDragging ? undefined : transition,
-      zIndex: isDragging ? 2 : undefined,
-    }),
-    [isDropMode, isDragging, transform, transition],
+    () => resolveSortableItemStyle({ id, isDragging, isDropMode, transform: transformText, transition, settle }),
+    [id, isDragging, isDropMode, settle, transformText, transition],
   )
 
   return (
