@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, IconButton, InputAdornment, Tab, Tabs, TextField, Tooltip } from '@mui/material'
+import { Box, IconButton, InputAdornment, TextField, Tooltip } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import SearchIcon from '@mui/icons-material/Search'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
@@ -14,6 +14,7 @@ import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { SidebarFrame } from './SidebarFrame'
+import { SidebarTabsHeader, type SidebarTabItem } from './SidebarTabsHeader'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
 
@@ -140,42 +141,26 @@ export function ChatSidebar(props: {
   }, [view, activeRoleId, activeWorkspaceId])
 
   const showSessionSearch = view === 'role' ? activeTab === 'history' : activeTab === 'session'
-  const tabs = view === 'role'
-    ? [{ value: 'roles', label: '角色' }, { value: 'history', label: '历史会话' }]
-    : [{ value: 'workspaces', label: '工作区' }, { value: 'roles', label: '角色' }, { value: 'session', label: '会话' }]
+  const tabs: SidebarTabItem<RoleSidebarTab | WorkspaceSidebarTab>[] =
+    view === 'role'
+      ? [{ value: 'roles', label: '角色' }, { value: 'history', label: '历史会话' }]
+      : [{ value: 'workspaces', label: '工作区' }, { value: 'roles', label: '角色' }, { value: 'session', label: '会话' }]
   const toggleLabel = view === 'role' ? '切换到工作区面板' : '切换到角色面板'
 
   const header = (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        flexShrink: 0,
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-      }}
-    >
-      <Tooltip title={toggleLabel}>
-        <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
-          <SwapHorizIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tabs
-        value={activeTab}
-        onChange={(_, next) => onTabChange(view, String(next))}
-        variant="fullWidth"
-        sx={{ minHeight: 34, flex: 1, minWidth: 0 }}
-      >
-        {tabs.map((item) => (
-          <Tab
-            key={item.value}
-            value={item.value}
-            label={item.label}
-            sx={{ minWidth: 0, minHeight: 34, px: 0.5, fontSize: 12, fontWeight: 900 }}
-          />
-        ))}
-      </Tabs>
-    </Box>
+    <SidebarTabsHeader
+      ariaLabel="侧边栏 A 页签"
+      tabs={tabs}
+      value={activeTab}
+      onChange={(tab) => onTabChange(view, tab)}
+      leading={
+        <Tooltip title={toggleLabel}>
+          <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
+            <SwapHorizIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      }
+    />
   )
 
   return (
