@@ -68,6 +68,7 @@ export function createDeskActions(deps: {
         return false
       }
       writeDesk({ ...desk, refs: next })
+      showToast?.('已添加到工作桌面', { kind: 'success' })
       return true
     },
     removeChatFromDesk: (targetKind: any, targetId: any, roleId: any, chatId: any) => {

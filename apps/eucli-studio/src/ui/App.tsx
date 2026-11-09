@@ -74,7 +74,7 @@ import { isTransparentChatBg, normalizeWallpaperSettings, wallpaperVeilAlpha } f
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveSidebarLayout } from '../domain/sidebarLayout'
 import { resolveDeskData, resolveDeskEntries, type DeskEntry } from '../domain/desk'
-import { workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
@@ -1105,6 +1105,21 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     switchSession,
   ])
 
+  // Ctrl / Cmd 点侧边栏会话：直接放进工作桌面。工作区目标的标识是「工作区|角色」合成串，
+  // 这里拆回工作区与角色两段，动作层的引用键才拼得对。
+  const addChatToDeskFromSidebar = React.useCallback(
+    (targetKind: 'role' | 'workspace', targetId: string, chatId: string) => {
+      if (targetKind === 'workspace') {
+        const target = parseWorkspaceRoleTargetId(targetId)
+        if (!target.workspaceId || !target.roleId) return
+        controller.actions.addChatToDesk?.('workspace', target.workspaceId, target.roleId, chatId)
+        return
+      }
+      controller.actions.addChatToDesk?.('role', targetId, '', chatId)
+    },
+    [controller],
+  )
+
   const sidebarProps = React.useMemo(() => ({
     controller,
     navigationVersion: sidebarMemoryVersion,
@@ -1137,6 +1152,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onMoveRole,
     onMoveWorkspace,
     onSelectSession: onSelectSidebarSession,
+    onAddSessionToDesk: addChatToDeskFromSidebar,
     onChatContextMenu,
     onTabChange: onChangeSidebarTab,
   }), [
@@ -1169,6 +1185,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onMoveRole,
     onMoveWorkspace,
     onSelectSidebarSession,
+    addChatToDeskFromSidebar,
     onChatContextMenu,
     onChangeSidebarTab,
     settingsVersion,

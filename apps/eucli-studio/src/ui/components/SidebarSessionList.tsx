@@ -25,6 +25,8 @@ export function SidebarSessionList(props: {
   activeChatId: string
   fmtTime: (value: number) => string
   onSelect: (chatId: string) => void
+  /** 按住 Ctrl / Cmd 点会话时的快捷动作：不切换会话，直接把这条放进工作桌面。 */
+  onAddToDesk?: (targetKind: SidebarSessionTargetKind, targetId: string, chatId: string) => void
   onContextMenu: (
     event: React.MouseEvent,
     targetKind: SidebarSessionTargetKind,
@@ -51,6 +53,7 @@ export function SidebarSessionList(props: {
     activeChatId,
     fmtTime,
     onSelect,
+    onAddToDesk,
     onContextMenu,
     chatSessionRunIndicatorKind,
   } = props
@@ -135,7 +138,15 @@ export function SidebarSessionList(props: {
               <ListItemButton
                 key={chatId}
                 selected={selected}
-                onClick={() => onSelect(chatId)}
+                onClick={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && onAddToDesk) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onAddToDesk(targetKind, targetId, chatId)
+                    return
+                  }
+                  onSelect(chatId)
+                }}
                 onContextMenu={(event) => onContextMenu(
                   event,
                   targetKind,

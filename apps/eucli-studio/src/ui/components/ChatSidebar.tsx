@@ -56,6 +56,8 @@ export function ChatSidebar(props: {
   onMoveRole: (activeId: string, overId: string) => void
   onMoveWorkspace: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
+  /** Ctrl / Cmd 点会话：直接放进工作桌面，不切换当前会话。 */
+  onAddSessionToDesk?: (targetKind: 'role' | 'workspace', targetId: string, chatId: string) => void
   onChatContextMenu: (
     event: React.MouseEvent,
     targetKind: 'role' | 'workspace',
@@ -97,6 +99,7 @@ export function ChatSidebar(props: {
     onMoveRole,
     onMoveWorkspace,
     onSelectSession,
+    onAddSessionToDesk,
     onChatContextMenu,
     onTabChange,
   } = props
@@ -242,6 +245,7 @@ export function ChatSidebar(props: {
             onOpenRoleEditor={(roleId) => controller.actions.openRoleEditor?.(roleId)}
             onMoveRole={onMoveRole}
             onSelectSession={onSelectSession}
+            onAddSessionToDesk={onAddSessionToDesk}
             onChatContextMenu={onChatContextMenu}
           />
         ) : (
@@ -269,6 +273,7 @@ export function ChatSidebar(props: {
             onMoveWorkspace={onMoveWorkspace}
             onMoveRole={onMoveRole}
             onSelectSession={onSelectSession}
+            onAddSessionToDesk={onAddSessionToDesk}
             onChatContextMenu={onChatContextMenu}
           />
         )}

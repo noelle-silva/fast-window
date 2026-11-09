@@ -31,6 +31,7 @@ export function RoleSidebarPanel(props: {
   onOpenRoleEditor: (roleId: string) => void
   onMoveRole: (activeId: string, overId: string) => void
   onSelectSession: (chatId: string) => void
+  onAddSessionToDesk?: (targetKind: SidebarSessionTargetKind, targetId: string, chatId: string) => void
   onChatContextMenu: (
     event: React.MouseEvent,
     targetKind: SidebarSessionTargetKind,
@@ -66,6 +67,7 @@ export function RoleSidebarPanel(props: {
         activeChatId={props.activeChatId}
         fmtTime={props.fmtTime}
         onSelect={props.onSelectSession}
+        onAddToDesk={props.onAddSessionToDesk}
         onContextMenu={props.onChatContextMenu}
         chatSessionRunIndicatorKind={props.chatSessionRunIndicatorKind}
       />

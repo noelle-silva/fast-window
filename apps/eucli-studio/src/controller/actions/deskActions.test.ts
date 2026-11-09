@@ -29,6 +29,7 @@ describe('工作桌面动作', () => {
     const { state, saveMeta, showToast, actions } = setup()
 
     actions.addChatToDesk('role', 'role-a', '', 'chat-1')
+    showToast.mockClear()
     expect(actions.addChatToDesk('role', 'role-a', '', 'chat-1')).toBe(false)
 
     expect(refsOf(state)).toEqual(['chat-1'])
