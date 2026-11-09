@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
 import type { DeskEntry } from '../../domain/desk'
 import type { DeskSidebarTab } from '../../domain/sidebarNavigationMemory'
+import type { SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { SidebarFrame } from './SidebarFrame'
 import { SidebarTabsHeader, type SidebarTabItem } from './SidebarTabsHeader'
 import { FavoriteFoldersBrowser, type FavoriteFoldersBrowserProps } from './favorites/FavoriteFoldersBrowser'
@@ -26,6 +27,7 @@ export type SidebarBPanelProps = {
   topbarBlur: number
   tab: DeskSidebarTab
   onTabChange: (tab: DeskSidebarTab) => void
+  tabsVariant: SidebarTabsVariant
   favoritesBrowser: FavoriteFoldersBrowserProps
   deskEntries: DeskEntry[]
   activeChatId: string
@@ -48,6 +50,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     topbarBlur,
     tab,
     onTabChange,
+    tabsVariant,
     favoritesBrowser,
     deskEntries,
     activeChatId,
@@ -76,6 +79,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
           tabs={DESK_TABS}
           value={tab}
           onChange={onTabChange}
+          variant={tabsVariant}
         />
       }
     >

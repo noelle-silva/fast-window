@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
 import { createStudioMuiTheme } from '../colorThemeStyles'
+import { SIDEBAR_TABS_VARIANT_OPTIONS } from '../../domain/sidebarTabs'
 import { SidebarTabsHeader } from './SidebarTabsHeader'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -126,4 +127,30 @@ describe('侧边栏页签栏', () => {
       '0',
     ])
   })
+
+  it.each(SIDEBAR_TABS_VARIANT_OPTIONS.map((option) => option.value))(
+    '样式 %s 下仍能点、仍带选中标记',
+    (variant) => {
+      const seen: string[] = []
+      renderHeader(
+        <SidebarTabsHeader
+          ariaLabel="测试页签"
+          tabs={[{ value: 'a', label: '甲' }, { value: 'b', label: '乙' }]}
+          value="a"
+          onChange={(next) => seen.push(next)}
+          variant={variant}
+        />,
+      )
+
+      const tabs = Array.from(host!.querySelectorAll('[role="tab"]'))
+      expect(tabs).toHaveLength(2)
+      expect(tabs[0].getAttribute('aria-selected')).toBe('true')
+      expect(tabs[1].getAttribute('aria-selected')).toBe('false')
+
+      act(() => {
+        ;(tabs[1] as HTMLElement).click()
+      })
+      expect(seen).toEqual(['b'])
+    },
+  )
 })

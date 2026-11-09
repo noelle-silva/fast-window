@@ -30,7 +30,13 @@ import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
-import { applySidebarSide, applySidebarWidth, resolveSidebarLayout, SIDEBAR_LAYOUT_SETTING_KEY } from '../../domain/sidebarLayout'
+import {
+  applySidebarSide,
+  applySidebarTabsVariant,
+  applySidebarWidth,
+  resolveSidebarLayout,
+  SIDEBAR_LAYOUT_SETTING_KEY,
+} from '../../domain/sidebarLayout'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 
@@ -365,6 +371,14 @@ export function createAppearanceActions(deps: {
     setSidebarWidth: (id: any, width: any) => {
       if (!state.data) return
       const next = applySidebarWidth(resolveSidebarLayout(state.data.settings as any), id, width)
+      ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
+      persistMeta()
+      notifySettings()
+    },
+    // 顶部切换栏样式：两侧各存一份，互不影响。
+    setSidebarTabsVariant: (id: any, variant: any) => {
+      if (!state.data) return
+      const next = applySidebarTabsVariant(resolveSidebarLayout(state.data.settings as any), id, variant)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
       persistMeta()
       notifySettings()

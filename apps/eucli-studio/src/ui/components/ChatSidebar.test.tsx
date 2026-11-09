@@ -55,6 +55,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof ChatSidebar>
     onSplitterPointerDown: noop,
     topbarOpacity: 100,
     topbarBlur: 0,
+    tabsVariant: 'soft',
     roles,
     workspaceRoles: [],
     workspaces,

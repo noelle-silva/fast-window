@@ -61,6 +61,7 @@ import {
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
 import { resolveDeskData } from '../../domain/desk'
+import { SIDEBAR_TABS_VARIANT_OPTIONS, type SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -81,6 +82,36 @@ function useNumberDraft(value: number, normalize: (raw: unknown) => number, comm
   }
 
   return { draft, setDraft, commitDraft }
+}
+
+// 顶部切换栏样式行：A / B 各挑一份，互不影响。
+function SidebarTabsStyleRow(props: {
+  label: string
+  value: SidebarTabsVariant
+  disabled: boolean
+  onChange: (value: SidebarTabsVariant) => void
+}) {
+  const { label, value, disabled, onChange } = props
+  return (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+        {label}
+      </Typography>
+      <Select
+        size="small"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as SidebarTabsVariant)}
+        sx={{ minWidth: 220, fontSize: 12 }}
+      >
+        {SIDEBAR_TABS_VARIANT_OPTIONS.map((option) => (
+          <MenuItem key={option.value} value={option.value} sx={{ fontSize: 12 }}>
+            {option.label}
+          </MenuItem>
+        ))}
+      </Select>
+    </Stack>
+  )
 }
 
 // 侧边栏位置行：A / B 各一行。两栏必须分居左右，改一侧时另一侧由领域层翻到对面。
@@ -279,6 +310,19 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               side={sidebarLayout.b.side}
               disabled={loading}
               onChange={(side) => controller.actions.setSidebarSide?.('b', side)}
+            />
+
+            <SidebarTabsStyleRow
+              label="A 顶部样式"
+              value={sidebarLayout.a.tabsVariant}
+              disabled={loading}
+              onChange={(next) => controller.actions.setSidebarTabsVariant?.('a', next)}
+            />
+            <SidebarTabsStyleRow
+              label="B 顶部样式"
+              value={sidebarLayout.b.tabsVariant}
+              disabled={loading}
+              onChange={(next) => controller.actions.setSidebarTabsVariant?.('b', next)}
             />
 
             <Stack direction="row" spacing={1} alignItems="center">

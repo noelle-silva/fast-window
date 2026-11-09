@@ -5,6 +5,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   applySidebarSide,
+  applySidebarTabsVariant,
   applySidebarWidth,
   migrateSidebarLayout,
   normalizeSidebarLayout,
@@ -14,25 +15,29 @@ import {
 describe('侧边栏布局配置', () => {
   it('缺失或非法数据回落到默认：A 靠左、B 靠右、默认宽度', () => {
     expect(normalizeSidebarLayout(null)).toEqual({
-      a: { side: 'left', width: SIDEBAR_WIDTH_DEFAULT },
-      b: { side: 'right', width: SIDEBAR_WIDTH_DEFAULT },
+      a: { side: 'left', width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: 'soft' },
+      b: { side: 'right', width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: 'soft' },
     })
     expect(normalizeSidebarLayout({ side: 'middle', width: 'abc' })).toEqual({
-      a: { side: 'left', width: SIDEBAR_WIDTH_DEFAULT },
-      b: { side: 'right', width: SIDEBAR_WIDTH_DEFAULT },
+      a: { side: 'left', width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: 'soft' },
+      b: { side: 'right', width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: 'soft' },
     })
   })
 
   it('宽度夹在上下限之间并取整', () => {
     expect(normalizeSidebarLayout({ side: 'right', width: 10 }).a.width).toBe(SIDEBAR_WIDTH_MIN)
     expect(normalizeSidebarLayout({ side: 'right', width: 9999 }).a.width).toBe(SIDEBAR_WIDTH_MAX)
-    expect(normalizeSidebarLayout({ side: 'right', width: 260.6 }).a).toEqual({ side: 'right', width: 261 })
+    expect(normalizeSidebarLayout({ side: 'right', width: 260.6 }).a).toEqual({
+      side: 'right',
+      width: 261,
+      tabsVariant: 'soft',
+    })
   })
 
   it('历史扁平配置作为 A 的初值，B 落到对侧', () => {
     const layout = normalizeSidebarLayout({ side: 'right', width: 320 })
-    expect(layout.a).toEqual({ side: 'right', width: 320 })
-    expect(layout.b).toEqual({ side: 'left', width: SIDEBAR_WIDTH_DEFAULT })
+    expect(layout.a).toEqual({ side: 'right', width: 320, tabsVariant: 'soft' })
+    expect(layout.b).toEqual({ side: 'left', width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: 'soft' })
   })
 
   it('双栏配置各自保存侧别与宽度', () => {
@@ -43,8 +48,8 @@ describe('侧边栏布局配置', () => {
       },
     }
     expect(resolveSidebarLayout(settings)).toEqual({
-      a: { side: 'right', width: 300 },
-      b: { side: 'left', width: 240 },
+      a: { side: 'right', width: 300, tabsVariant: 'soft' },
+      b: { side: 'left', width: 240, tabsVariant: 'soft' },
     })
   })
 
@@ -69,6 +74,24 @@ describe('侧边栏布局配置', () => {
     expect(movedA.b.side).toBe('right')
   })
 
+  it('顶部样式两侧各存一份，默认落在默认样式上', () => {
+    const base = normalizeSidebarLayout(null)
+    expect(base.a.tabsVariant).toBe('soft')
+    expect(base.b.tabsVariant).toBe('soft')
+
+    const changed = applySidebarTabsVariant(base, 'b', 'pill')
+    expect(changed.b.tabsVariant).toBe('pill')
+    expect(changed.a.tabsVariant).toBe('soft')
+
+    expect(applySidebarTabsVariant(changed, 'a', 'nope').a.tabsVariant).toBe('soft')
+  })
+
+  it('旧配置没有样式字段时补默认值，已有的值原样保留', () => {
+    const migrated = normalizeSidebarLayout({ a: { side: 'left', width: 300 }, b: { side: 'right', width: 240, tabsVariant: 'dot' } })
+    expect(migrated.a.tabsVariant).toBe('soft')
+    expect(migrated.b.tabsVariant).toBe('dot')
+  })
+
   it('宽度只改目标栏，两栏互不影响', () => {
     const base = normalizeSidebarLayout(null)
     const widened = applySidebarWidth(base, 'b', 420)
@@ -87,7 +110,7 @@ describe('侧边栏布局配置', () => {
 
     const layout = migrateSidebarLayout(settings)
 
-    expect(layout.a).toEqual({ side: 'right', width: 340 })
+    expect(layout.a).toEqual({ side: 'right', width: 340, tabsVariant: 'soft' })
     expect(layout.b.side).toBe('left')
     expect((settings as any)[SIDEBAR_LAYOUT_SETTING_KEY]).toEqual(layout)
     expect('uiMode' in settings).toBe(false)
@@ -100,8 +123,8 @@ describe('侧边栏布局配置', () => {
     }
 
     const layout = migrateSidebarLayout(settings)
-    expect(layout.a).toEqual({ side: 'left', width: 300 })
-    expect(layout.b).toEqual({ side: 'right', width: 260 })
+    expect(layout.a).toEqual({ side: 'left', width: 300, tabsVariant: 'soft' })
+    expect(layout.b).toEqual({ side: 'right', width: 260, tabsVariant: 'soft' })
     expect('uiMode' in settings).toBe(false)
   })
 })

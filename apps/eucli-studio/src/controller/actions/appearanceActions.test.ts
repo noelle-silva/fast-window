@@ -74,8 +74,8 @@ describe('侧边栏 A / B 布局动作', () => {
     actions.setSidebarSide('b', 'left')
 
     expect(state.data.settings.sidebarLayout).toEqual({
-      a: { side: 'right', width: 260 },
-      b: { side: 'left', width: 260 },
+      a: { side: 'right', width: 260, tabsVariant: 'soft' },
+      b: { side: 'left', width: 260, tabsVariant: 'soft' },
     })
     expect(saveMeta).toHaveBeenCalledTimes(1)
   })
@@ -88,5 +88,15 @@ describe('侧边栏 A / B 布局动作', () => {
     expect(state.data.settings.sidebarLayout.b.width).toBe(380)
     expect(state.data.settings.sidebarLayout.a.width).toBe(260)
     expect(state.data.settings.sidebarLayout.b.side).toBe('right')
+  })
+
+  it('两侧的顶部样式各存一份', () => {
+    const { state, actions } = setup()
+
+    actions.setSidebarTabsVariant('a', 'pill')
+    actions.setSidebarTabsVariant('b', 'dot')
+
+    expect(state.data.settings.sidebarLayout.a.tabsVariant).toBe('pill')
+    expect(state.data.settings.sidebarLayout.b.tabsVariant).toBe('dot')
   })
 })

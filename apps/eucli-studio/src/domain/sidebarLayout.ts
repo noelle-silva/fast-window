@@ -1,3 +1,5 @@
+import { SIDEBAR_TABS_VARIANT_DEFAULT, normalizeSidebarTabsVariant, type SidebarTabsVariant } from './sidebarTabs'
+
 // 侧边栏布局：客户端内部有两个侧边栏身份 A / B。
 // A 是原有的角色 / 工作区侧边栏，B 是预留的另一侧栏；两者各自存侧别与宽度。
 // 唯一不变量：两个侧边栏必须分居窗口两侧，不能同时靠左或同时靠右。
@@ -10,6 +12,8 @@ export type SidebarSide = 'left' | 'right'
 export type SidebarConfig = {
   side: SidebarSide
   width: number
+  /** 顶部切换栏的样式；两侧各选一份，互不影响。 */
+  tabsVariant: SidebarTabsVariant
 }
 
 export type SidebarLayout = Record<SidebarId, SidebarConfig>
@@ -39,6 +43,7 @@ export function normalizeSidebarConfig(raw: any, fallbackSide: SidebarSide): Sid
   return {
     side: box.side === undefined ? fallbackSide : normalizeSidebarSide(box.side),
     width: normalizeSidebarWidth(box.width),
+    tabsVariant: normalizeSidebarTabsVariant(box.tabsVariant),
   }
 }
 
@@ -49,7 +54,10 @@ export function oppositeSidebarSide(side: SidebarSide): SidebarSide {
 // 扁平形态（历史单侧栏配置）只描述一个侧别与宽度，作为 A 的初值；B 落到对侧。
 function normalizeFromFlat(box: any): SidebarLayout {
   const a = normalizeSidebarConfig(box, 'left')
-  return { a, b: { side: oppositeSidebarSide(a.side), width: SIDEBAR_WIDTH_DEFAULT } }
+  return {
+    a,
+    b: { side: oppositeSidebarSide(a.side), width: SIDEBAR_WIDTH_DEFAULT, tabsVariant: SIDEBAR_TABS_VARIANT_DEFAULT },
+  }
 }
 
 // 双栏形态：A 决定基准侧别，B 缺失时落到对侧；B 显式给出的侧别若与 A 相同，判定为 A 的对侧。
@@ -62,7 +70,7 @@ export function normalizeSidebarLayout(raw: any): SidebarLayout {
   const b = normalizeSidebarConfig(box.b, oppositeSidebarSide(a.side))
   return {
     a,
-    b: { side: b.side === a.side ? oppositeSidebarSide(a.side) : b.side, width: b.width },
+    b: { side: b.side === a.side ? oppositeSidebarSide(a.side) : b.side, width: b.width, tabsVariant: b.tabsVariant },
   }
 }
 
@@ -85,6 +93,14 @@ export function applySidebarSide(layout: SidebarLayout, id: SidebarId, side: Sid
 // 宽度只作用于目标栏，互不影响。
 export function applySidebarWidth(layout: SidebarLayout, id: SidebarId, width: number): SidebarLayout {
   return { ...layout, [id]: { ...layout[id], width: normalizeSidebarWidth(width) } } as SidebarLayout
+}
+
+// 顶部切换栏样式：同样只作用于目标栏，两侧可以各选一种。
+export function applySidebarTabsVariant(layout: SidebarLayout, id: SidebarId, variant: unknown): SidebarLayout {
+  return {
+    ...layout,
+    [id]: { ...layout[id], tabsVariant: normalizeSidebarTabsVariant(variant) },
+  } as SidebarLayout
 }
 
 function legacyConfigToLayout(config: any) {

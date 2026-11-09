@@ -59,6 +59,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     topbarBlur: 0,
     tab: 'desk',
     onTabChange: noop,
+    tabsVariant: 'soft',
     favoritesBrowser: favoritesStub,
     deskEntries,
     activeChatId: '',

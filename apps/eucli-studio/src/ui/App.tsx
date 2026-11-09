@@ -1141,6 +1141,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     view: sidebarNavigation.view,
     onToggleView: sidebarNavigation.toggleView,
     width: sidebarLayout.a.width,
+    tabsVariant: sidebarLayout.a.tabsVariant,
     sidebarRef: sidebarResizeA.sidebarRef,
     resizing: sidebarResizeA.resizing,
     onSplitterPointerDown: sidebarResizeA.onSplitterPointerDown,
@@ -1176,6 +1177,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     sidebarNavigation.view,
     sidebarNavigation.toggleView,
     sidebarLayout.a.width,
+    sidebarLayout.a.tabsVariant,
     sidebarResizeA.sidebarRef,
     sidebarResizeA.resizing,
     sidebarResizeA.onSplitterPointerDown,
@@ -1353,6 +1355,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const sidebarBProps = React.useMemo(
     () => ({
       width: sidebarLayout.b.width,
+      tabsVariant: sidebarLayout.b.tabsVariant,
       sidebarRef: sidebarResizeB.sidebarRef,
       resizing: sidebarResizeB.resizing,
       onSplitterPointerDown: sidebarResizeB.onSplitterPointerDown,
@@ -1372,6 +1375,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     }),
     [
       sidebarLayout.b.width,
+      sidebarLayout.b.tabsVariant,
       sidebarResizeB.sidebarRef,
       sidebarResizeB.resizing,
       sidebarResizeB.onSplitterPointerDown,

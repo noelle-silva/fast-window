@@ -9,6 +9,7 @@ import {
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
 import type { SidebarView } from '../../domain/sidebarView'
+import type { SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
@@ -31,6 +32,7 @@ export function ChatSidebar(props: {
   onSplitterPointerDown: (e: React.PointerEvent) => void
   topbarOpacity: number
   topbarBlur: number
+  tabsVariant: SidebarTabsVariant
   roles: any[]
   workspaceRoles: any[]
   workspaces: any[]
@@ -79,6 +81,7 @@ export function ChatSidebar(props: {
     onSplitterPointerDown,
     topbarOpacity,
     topbarBlur,
+    tabsVariant,
     roles,
     workspaceRoles,
     workspaces,
@@ -153,6 +156,7 @@ export function ChatSidebar(props: {
       tabs={tabs}
       value={activeTab}
       onChange={(tab) => onTabChange(view, tab)}
+      variant={tabsVariant}
       leading={
         <Tooltip title={toggleLabel}>
           <IconButton size="small" aria-label={toggleLabel} onClick={onToggleView} sx={{ mx: 0.25, flexShrink: 0 }}>
