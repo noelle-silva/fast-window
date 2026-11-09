@@ -638,10 +638,10 @@ export function createSplitStorage(deps: {
     })
   }
 
-  async function saveFavoritesOnly() {
+  async function saveFavoritesOnly(nextFavorites?: any) {
     const state = getState?.()
     if (!state?.data) return
-    const favorites = normalizeFavorites((state.data as any).favorites)
+    const favorites = normalizeFavorites(nextFavorites === undefined ? (state.data as any).favorites : nextFavorites)
     const run = () => storage.set(SESSION_FAVORITES_KEY, favorites)
     const next = sessionFavoritesWriteChain.then(run, run)
     sessionFavoritesWriteChain = next.then(

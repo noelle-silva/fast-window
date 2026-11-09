@@ -36,7 +36,7 @@ describe('收藏夹排序动作到层投影', () => {
     host = null
   })
 
-  it('reorderFavoriteFolders 之后，层投影按新顺序返回', () => {
+  it('reorderFavoriteFolders 之后，层投影按新顺序返回', async () => {
     const uiCore = createUiCore()
     const state: any = {
       data: {
@@ -83,8 +83,8 @@ describe('收藏夹排序动作到层投影', () => {
     })
     expect(apiRef.current.buildFavoriteFolderLevel('').folders.map((folder: any) => folder.id)).toEqual(['f1', 'f2'])
 
-    act(() => {
-      ops.reorderFavoriteFolders('', ['f2', 'f1'])
+    await act(async () => {
+      await ops.reorderFavoriteFolders('', ['f2', 'f1'])
       uiCore.emitScope(refreshScopes.entities('favorites'))
     })
 

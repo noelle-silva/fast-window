@@ -293,11 +293,12 @@ export function useFavoriteFolders(deps: {
     controller.actions.setChatFavoriteFolders?.(targetKind, targetId, roleId, chatId, favoriteCheckedFolderIds)
     closeFavoriteDialog()
   })
-  const submitCreateFavoriteFolder = useEvent(() => {
+  // 新建是命令：等后端确认拿到 id 之后，再展开新文件夹并关窗。
+  const submitCreateFavoriteFolder = useEvent(async () => {
     const name = String(createFavoriteFolder.name || '').trim()
     if (!name) return
     const parentId = String(createFavoriteFolder.parentId || '')
-    const id = controller.actions.createFavoriteFolder?.(name, parentId)
+    const id = await controller.actions.createFavoriteFolder?.(name, parentId)
     if (id) {
       setFavoriteFolderExpanded((p) => {
         const next = { ...p, [String(id || '')]: true }

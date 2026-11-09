@@ -6,7 +6,7 @@ import type { AiChatShowToast } from '../gateway/capabilities'
 
 export function createFavoritesOperations(deps: {
   getState: () => any
-  save: () => Promise<void>
+  save: (favorites?: any) => Promise<void>
   emitScope: (scope: string) => void
   showToast?: AiChatShowToast
   activeTargetKind: () => string
@@ -34,8 +34,34 @@ export function createFavoritesOperations(deps: {
     return { kind, targetId: tid, roleId: rid }
   }
 
-  function persistFavorites() {
-    save().catch((e: any) => showToast?.(String(e?.message || e || '保存收藏失败'), { kind: 'error' }))
+  // 与工作桌面同一顺序：只在副本上改，写后端成功后才替换内存并通知。
+  // 写失败一律不生效，界面不会出现「盘上没有、界面却有」。
+  function cloneFavorites(fav: any) {
+    if (!fav) return null
+    const refs: Record<string, any[]> = {}
+    for (const key of Object.keys(fav.chatRefsByFolderId || {})) {
+      const list = Array.isArray(fav.chatRefsByFolderId[key]) ? fav.chatRefsByFolderId[key] : []
+      refs[key] = list.map((ref: any) => ({ ...ref }))
+    }
+    return {
+      ...fav,
+      folders: (Array.isArray(fav.folders) ? fav.folders : []).map((folder: any) => ({ ...folder })),
+      chatRefsByFolderId: refs,
+    }
+  }
+
+  async function commitFavorites(next: any): Promise<boolean> {
+    const data = getState().data
+    if (!data) return false
+    try {
+      await save(next)
+    } catch (error: any) {
+      showToast?.(String(error?.message || error || '保存收藏失败'), { kind: 'error' })
+      return false
+    }
+    data.favorites = next
+    emitFavorites()
+    return true
   }
 
   function ensureFavoritesBare() {
@@ -49,7 +75,7 @@ export function createFavoritesOperations(deps: {
   }
 
   function getFavoriteFolderIdsForChat(targetKind: any, targetId: any, roleId: any, chatId: any) {
-    const fav = ensureFavoritesBare()
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return []
     const target = favoriteRefTarget(targetKind, targetId, roleId)
     if (!target) return []
@@ -65,8 +91,8 @@ export function createFavoritesOperations(deps: {
     return out
   }
 
-  function cleanupFavoriteRefsForChat(targetKind: any, targetId: any, roleId: any, chatId: any) {
-    const fav = ensureFavoritesBare()
+  async function cleanupFavoriteRefsForChat(targetKind: any, targetId: any, roleId: any, chatId: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const target = favoriteRefTarget(targetKind, targetId, roleId)
     if (!target) return
@@ -78,10 +104,11 @@ export function createFavoritesOperations(deps: {
       const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
       fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId) !== key)
     }
+    await commitFavorites(fav)
   }
 
-  function cleanupFavoriteRefsForTarget(targetKind: any, targetId: any) {
-    const fav = ensureFavoritesBare()
+  async function cleanupFavoriteRefsForTarget(targetKind: any, targetId: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const kind = normalizeTargetKind(targetKind)
     const tid = String(targetId || '').trim()
@@ -95,6 +122,7 @@ export function createFavoritesOperations(deps: {
         return String(ref?.targetId || '').trim() !== tid
       })
     }
+    await commitFavorites(fav)
   }
 
   function favoriteFolderNameExists(name: any, excludeId?: any) {
@@ -110,8 +138,8 @@ export function createFavoritesOperations(deps: {
     })
   }
 
-  function createFavoriteFolder(name: any, parentId?: any) {
-    const fav = ensureFavoritesBare()
+  async function createFavoriteFolder(name: any, parentId?: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const v = validateFavoriteFolderName(name)
     if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
@@ -122,13 +150,11 @@ export function createFavoritesOperations(deps: {
     const id = uid('favf')
     fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [id]: [] }
-    persistFavorites()
-    emitFavorites()
-    return id
+    return (await commitFavorites(fav)) ? id : null
   }
 
-  function renameFavoriteFolder(folderId: any, name: any) {
-    const fav = ensureFavoritesBare()
+  async function renameFavoriteFolder(folderId: any, name: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const fid = String(folderId || '').trim()
     if (!fid) return
@@ -138,12 +164,11 @@ export function createFavoritesOperations(deps: {
     if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
     if (favoriteFolderNameExists(v.name, fid)) return showToast?.('文件夹已存在', { kind: 'error' })
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '') === fid ? { ...f, name: v.name, updatedAt: now() } : f))
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
-  function deleteFavoriteFolderKeepContents(folderId: any, targetFolderId?: any) {
-    const fav = ensureFavoritesBare()
+  async function deleteFavoriteFolderKeepContents(folderId: any, targetFolderId?: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const fid = String(folderId || '').trim()
     if (!fid) return
@@ -178,12 +203,11 @@ export function createFavoritesOperations(deps: {
       delete nextRefs[fid]
     } catch (_) {}
     fav.chatRefsByFolderId = nextRefs
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
-  function deleteFavoriteFolderTree(folderId: any) {
-    const fav = ensureFavoritesBare()
+  async function deleteFavoriteFolderTree(folderId: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const ids = new Set(collectFavoriteFolderSubtreeIds(fav.folders, folderId))
     if (!ids.size) return
@@ -195,23 +219,21 @@ export function createFavoritesOperations(deps: {
       } catch (_) {}
     }
     fav.chatRefsByFolderId = nextRefs
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
-  function clearFavoriteFolderRefs(folderId: any) {
-    const fav = ensureFavoritesBare()
+  async function clearFavoriteFolderRefs(folderId: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const fid = String(folderId || '').trim()
     if (!fid) return
     if (!fav.folders.some((f: any) => String(f?.id || '').trim() === fid)) return
     fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [fid]: [] }
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
-  function moveFavoriteFolder(folderId: any, nextParentId?: any) {
-    const fav = ensureFavoritesBare()
+  async function moveFavoriteFolder(folderId: any, nextParentId?: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const fid = String(folderId || '').trim()
     if (!fid) return
@@ -231,12 +253,11 @@ export function createFavoritesOperations(deps: {
     if (curParentId === pid) return
 
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '').trim() === fid ? { ...f, parentId: pid, updatedAt: now() } : f))
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
-  function setChatFavoriteFolders(targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) {
-    const fav = ensureFavoritesBare()
+  async function setChatFavoriteFolders(targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const target = favoriteRefTarget(targetKind, targetId, roleId)
     if (!target) return
@@ -260,13 +281,12 @@ export function createFavoritesOperations(deps: {
       if (validFolderIds.has(fid)) next.push({ targetKind: kind, targetId: tid, roleId: rid, chatId: cid, addedAt })
       fav.chatRefsByFolderId[fid] = next
     }
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
   /** 同一父层下的文件夹重排：只换这些文件夹在扁平表里的占位顺序，其他层不受影响。 */
-  function reorderFavoriteFolders(parentId: any, orderedFolderIds: any) {
-    const fav = ensureFavoritesBare()
+  async function reorderFavoriteFolders(parentId: any, orderedFolderIds: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const pid = String(parentId || '').trim()
     const siblings = fav.folders.filter((f: any) => String(f?.parentId || '').trim() === pid)
@@ -289,13 +309,12 @@ export function createFavoritesOperations(deps: {
       if (String(f?.parentId || '').trim() !== pid) return f
       return next[cursor++] || f
     })
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
   /** 层内会话引用重排：只认界面上看得到的引用，失效引用不参与排序。 */
-  function reorderFavoriteChatRefs(folderId: any, orderedRefKeys: any) {
-    const fav = ensureFavoritesBare()
+  async function reorderFavoriteChatRefs(folderId: any, orderedRefKeys: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const fid = String(folderId || '').trim()
     if (!fid || !fav.folders.some((f: any) => String(f?.id || '') === fid)) return
@@ -318,13 +337,12 @@ export function createFavoritesOperations(deps: {
         ...refs.filter((ref: any) => !orderedSet.has(refKeyOf(ref))),
       ],
     }
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
   /** 把一条会话引用移进目标收藏夹，落在该层末尾；已在目标里则不动。 */
-  function moveFavoriteChatRef(refKey: any, targetFolderId: any) {
-    const fav = ensureFavoritesBare()
+  async function moveFavoriteChatRef(refKey: any, targetFolderId: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const key = String(refKey || '').trim()
     const targetId = String(targetFolderId || '').trim()
@@ -353,8 +371,7 @@ export function createFavoritesOperations(deps: {
     }
     next[targetId] = [...(next[targetId] || []), moving]
     fav.chatRefsByFolderId = next
-    persistFavorites()
-    emitFavorites()
+    await commitFavorites(fav)
   }
 
   return {
