@@ -4,8 +4,9 @@ export function createDeskActions(deps: { deskOps: any }) {
   const { deskOps } = deps
 
   return {
-    addChatToDesk: (targetKind: any, targetId: any, roleId: any, chatId: any) =>
-      deskOps.addChatToDesk(targetKind, targetId, roleId, chatId),
+    addChatToDesk: (targetKind: any, targetId: any, roleId: any, chatId: any, index?: any) =>
+      deskOps.addChatToDesk(targetKind, targetId, roleId, chatId, index),
+    promoteDeskDraft: (pendingChatId: any, chatId: any) => deskOps.promoteDeskDraft(pendingChatId, chatId),
     removeChatFromDesk: (targetKind: any, targetId: any, roleId: any, chatId: any) =>
       deskOps.removeChatFromDesk(targetKind, targetId, roleId, chatId),
     moveDeskChat: (activeKey: any, overKey: any) => deskOps.moveDeskChat(activeKey, overKey),

@@ -859,6 +859,13 @@ export function createWorkspaceManager(deps: {
     activateComposerDraftForCurrentSession(state)
     notifyWorkspaceChatCreated(text((workspace as any).id))
     scrollToBottomSoon()
+    return {
+      pendingChatId: String(pending.chat.id || ''),
+      targetKind: 'workspace' as const,
+      targetId: text((workspace as any).id),
+      roleId: text((role as any).id),
+      title: String(pending.chat.title || ''),
+    }
   }
 
   async function pickChatForActiveWorkspace(chatIdRaw: unknown) {

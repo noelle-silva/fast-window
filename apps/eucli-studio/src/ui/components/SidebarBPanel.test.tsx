@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
 import { DESK_ROOT_FOLDER_ID, normalizeDesks } from '../../domain/desks'
+import { addDeskDraft, resetDeskDrafts } from '../../domain/deskDrafts'
 import { createStudioMuiTheme } from '../colorThemeStyles'
 import { SidebarBPanel } from './SidebarBPanel'
 
@@ -91,6 +92,7 @@ describe('侧边栏 B 的工作桌面', () => {
   let root: any = null
 
   beforeEach(() => {
+    resetDeskDrafts()
     host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
@@ -212,6 +214,26 @@ describe('侧边栏 B 的工作桌面', () => {
       row('乙会话').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
     expect(row('乙会话').querySelector('img')!.getAttribute('src')).toBe(workspaceIcon.dataUrl)
+  })
+
+  it('临时条目按更淡的样子出现，并带自己的移除按钮', () => {
+    addDeskDraft({ pendingChatId: 'draft-1', targetKind: 'role', targetId: 'role-a', title: '待发送会话' })
+    renderPanel()
+
+    const draftRow = host!.querySelector('[data-desk-draft="1"]') as HTMLElement
+    expect(draftRow).toBeTruthy()
+    expect(draftRow.textContent).toContain('待发送会话')
+    expect(host!.querySelector('[aria-label="从工作桌面移除 待发送会话"]')).toBeTruthy()
+    // 真实条目仍在，两者并存
+    expect(host!.textContent).toContain('甲会话')
+  })
+
+  it('临时条目不参与拖拽排序', () => {
+    addDeskDraft({ pendingChatId: 'draft-1', targetKind: 'role', targetId: 'role-a', title: '待发送会话' })
+    renderPanel()
+
+    const draftRow = host!.querySelector('[data-desk-draft="1"]') as HTMLElement
+    expect(draftRow.getAttribute('aria-roledescription')).toBeNull()
   })
 
   it('桌面为空时给出空态提示', () => {

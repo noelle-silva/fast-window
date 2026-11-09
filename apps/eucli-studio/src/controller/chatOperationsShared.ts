@@ -69,6 +69,8 @@ export type ChatOperationsDeps = {
   runProbe?: RunProbe
   // 会话写回代数：删除会话之后，旧刷新不得回写正文 / 选中事实。
   sessionWrites?: SessionWriteGuard
+  // 草稿会话真实建立后：把工作桌面上那条临时条目按原位转成正式引用。
+  promoteDeskDraft?: (pendingChatId: string, chatId: string) => void
 }
 
 export function createChatOperationsShared(deps: ChatOperationsDeps) {

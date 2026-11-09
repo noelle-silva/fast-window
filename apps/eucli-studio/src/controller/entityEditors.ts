@@ -899,6 +899,13 @@ export function createEntityEditors(deps: {
     activateComposerDraftForCurrentSession(state)
     notifyScopes([refreshScopes.navigation(), refreshScopes.composer(), refreshScopes.chatList('role', rid)])
     scrollToBottomSoon()
+    return {
+      pendingChatId: String(pending.chat.id || ''),
+      targetKind: 'role' as const,
+      targetId: rid,
+      roleId: rid,
+      title: String(pending.chat.title || ''),
+    }
   }
 
   function createChatForActiveGroup() {
@@ -915,6 +922,14 @@ export function createEntityEditors(deps: {
     activateComposerDraftForCurrentSession(state)
     notifyScopes([refreshScopes.navigation(), refreshScopes.composer(), refreshScopes.chatList('group', String((group as any).id || ''))])
     scrollToBottomSoon()
+    const gid = String((group as any).id || '')
+    return {
+      pendingChatId: String(pending.chat.id || ''),
+      targetKind: 'group' as const,
+      targetId: gid,
+      roleId: '',
+      title: String(pending.chat.title || ''),
+    }
   }
 
   async function createChatForActiveTarget() {

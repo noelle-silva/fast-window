@@ -81,6 +81,7 @@ import {
   normalizeDeskHoverRoleIcon,
   type DeskEntry,
 } from '../domain/desks'
+import { addDeskDraft } from '../domain/deskDrafts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { createStudioMuiTheme } from './colorThemeStyles'
@@ -1092,7 +1093,19 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   // 稳定 handler：所有内联箭头只在这里创建一次，Surface 的 memo 才能真正生效。
   const onOpenRunningSessions = useEvent(() => setRunningSessionsOpen(true))
   const onCloseRunningSessions = useEvent(() => setRunningSessionsOpen(false))
-  const onCreateChat = useEvent(() => controller.actions.createChat())
+  // 新建会话：按住 Ctrl / Cmd 时，同时在桌面挂一条内存临时条目（后端还不知道这条会话）。
+  const onCreateChat = useEvent(async (event?: React.MouseEvent) => {
+    const created = await controller.actions.createChat?.()
+    if (!event?.ctrlKey && !event?.metaKey) return
+    if (!created?.pendingChatId) return
+    addDeskDraft({
+      pendingChatId: created.pendingChatId,
+      targetKind: created.targetKind,
+      targetId: created.targetId,
+      roleId: created.roleId,
+      title: created.title,
+    })
+  })
   const onToggleTree = useEvent(() => setTreeOpen((v) => !v))
   const onOpenProviders = useEvent(() => controller.actions.openProviders?.())
 

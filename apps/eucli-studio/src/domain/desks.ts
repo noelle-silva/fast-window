@@ -138,7 +138,8 @@ export function setDeskFlatRefs(desks: SessionDesks, refs: readonly any[]): Sess
   }
 }
 
-export function addDeskRef(desks: SessionDesks, raw: any): { desks: SessionDesks; added: boolean } {
+// index 省略时追加到末尾；给出时插在该位置（临时条目转正靠它保住原位）。
+export function addDeskRef(desks: SessionDesks, raw: any, index?: number): { desks: SessionDesks; added: boolean } {
   const ref = normalizeFavoriteChatRef(raw)
   const withRoot = ensureDeskRoot(desks)
   if (!ref) return { desks: withRoot, added: false }
@@ -147,7 +148,10 @@ export function addDeskRef(desks: SessionDesks, raw: any): { desks: SessionDesks
   if (refs.some((it) => favoriteChatRefKey(it.targetKind, it.targetId, it.roleId, it.chatId) === key)) {
     return { desks: withRoot, added: false }
   }
-  return { desks: setDeskFlatRefs(withRoot, refs.concat([ref])), added: true }
+  const next = refs.slice()
+  const at = typeof index === 'number' && isFinite(index) ? Math.max(0, Math.min(Math.floor(index), next.length)) : next.length
+  next.splice(at, 0, ref)
+  return { desks: setDeskFlatRefs(withRoot, next), added: true }
 }
 
 export function removeDeskRef(desks: SessionDesks, raw: any): SessionDesks {

@@ -1,6 +1,13 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
 import { deskFlatRefs, resolveDeskEntries, type DeskEntry } from '../../domain/desks'
+import {
+  getDeskDrafts,
+  getDeskDraftsVersion,
+  removeDeskDraft,
+  subscribeDeskDrafts,
+  type DeskDraft,
+} from '../../domain/deskDrafts'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { useScopedUiVersion, useScopedUiVersions } from '../hooks/useScopedUiVersion'
@@ -19,6 +26,12 @@ const DESK_TABS: readonly SidebarTabItem<DeskSidebarTab>[] = [
   { value: 'desk', label: '工作桌面' },
   { value: 'favorites', label: '会话收藏夹' },
 ]
+
+// 内存草稿是模块级可变状态：订阅版本号，再按版本取快照。
+function useDeskDrafts(): DeskDraft[] {
+  const version = React.useSyncExternalStore(subscribeDeskDrafts, getDeskDraftsVersion, getDeskDraftsVersion)
+  return React.useMemo(() => getDeskDrafts(), [version])
+}
 
 export type SidebarBPanelProps = {
   side: SidebarSide
@@ -87,6 +100,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     () => resolveDeskEntries(data, desks),
     [data, desks, desksVersion, chatListVersion],
   )
+  const deskDrafts = useDeskDrafts()
 
   return (
     <SidebarFrame
@@ -119,6 +133,8 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
           onRemove={onRemoveDeskEntry}
           onMove={onMoveDeskEntry}
           onContextMenu={onDeskEntryContextMenu}
+          drafts={deskDrafts}
+          onRemoveDraft={(draft) => removeDeskDraft(draft.pendingChatId)}
         />
       ) : (
         <FavoriteFoldersBrowser {...favoritesBrowser} />

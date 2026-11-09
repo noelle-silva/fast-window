@@ -16,7 +16,8 @@ export type ChatNavControlsProps = {
   chatNav: { olderId: any; newerId: any; lockedReason: any }
   onOpenFavorites: () => void
   onOpenRunningSessions: () => void
-  onCreateChat: () => void
+  /** 传事件是为了识别 Ctrl / Cmd：按住时新建的会话会同时在工作桌面上挂一条临时条目。 */
+  onCreateChat: (event?: React.MouseEvent) => void
   onToggleTree: () => void
   onOpenProviders: () => void
   onOpenSettings: (tab?: any) => void
@@ -83,7 +84,7 @@ export function ChatNavControls(props: ChatNavControlsProps) {
       tooltip: '新建聊天',
       aria: '新建聊天',
       disabled: !canCreateChat,
-      onClick: () => onCreateChat(),
+      onClick: (event?: React.MouseEvent) => onCreateChat(event),
     },
     {
       key: 'tree',

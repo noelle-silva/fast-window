@@ -33,7 +33,7 @@ export function createChatRunOperations(
   draftOperations: { buildRunImages: (draftImages: any[]) => any[] },
 ) {
   const { deps, sa, cancelledRunIds, startingRoleRunKeys, refreshRoleSession, refreshTargetSession, activeTargetSessionMutationTarget, activeSingleRoleTarget, ensureTargetSessionMessageMutationAllowed, activateResolvedPendingSelection, consumeComposerDraft } = shared
-  const { getState, netRequest, showToast, ensureActiveChatLoaded, scrollToBottomSoon } = deps
+  const { getState, netRequest, showToast, ensureActiveChatLoaded, scrollToBottomSoon, promoteDeskDraft } = deps
   const { buildRunImages } = draftOperations
 
   function workspaceTargetId(workspaceIdRaw: unknown, roleIdRaw?: unknown) {
@@ -311,6 +311,10 @@ export function createChatRunOperations(
     const runAnchorMessageId = String(follow?.ancestorMessageId || input.contextMessageId || input.userMessageId || input.parentMessageId || '').trim()
     const dependencyMessageIds = dependencyMessageIdsForRunStart(sa.activeChatFromData(), runAnchorMessageId)
     noteRunFollowIntent(state, { roleId: input.roleId, groupId, workspaceId, sessionId, startedFromPending, pendingChatId: startedFromPendingChatId })
+    // 草稿会话真实建立：把桌面上那条临时条目按原位转成正式引用。
+    if (startedFromPending && startedFromPendingChatId && sessionId) {
+      promoteDeskDraft?.(startedFromPendingChatId, sessionId)
+    }
     onState?.(state)
     let runSessionLoadedOnce = false
 
@@ -347,6 +351,10 @@ export function createChatRunOperations(
       state = nextState
       followMessageId = String(state.lastMessageId || followMessageId || '').trim()
       noteRunFollowIntent(state, { roleId: input.roleId, groupId, workspaceId, sessionId, startedFromPending, pendingChatId: startedFromPendingChatId })
+    // 草稿会话真实建立：把桌面上那条临时条目按原位转成正式引用。
+    if (startedFromPending && startedFromPendingChatId && sessionId) {
+      promoteDeskDraft?.(startedFromPendingChatId, sessionId)
+    }
       onState?.(state)
       const nextSessionId = String(state.sessionId || sessionId || '').trim()
       if (nextSessionId) {

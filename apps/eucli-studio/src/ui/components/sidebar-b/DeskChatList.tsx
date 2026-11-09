@@ -6,6 +6,7 @@ import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined'
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
+import type { DeskDraft } from '../../../domain/deskDrafts'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
 import { useSortableClickGuard } from '../useSortableClickGuard'
 
@@ -202,8 +203,53 @@ function DeskRow(props: {
   )
 }
 
+// 临时条目（Ctrl 新建、还没发送的会话）：淡一档，不参与拖拽，也不进后端数据。
+function DeskDraftRow(props: { draft: DeskDraft; onRemove: (draft: DeskDraft) => void }) {
+  const { draft, onRemove } = props
+  return (
+    <Tooltip title="尚未发送，发送后转为正式条目" placement="left">
+      <Box
+        role="button"
+        tabIndex={0}
+        aria-label={draft.title}
+        data-desk-draft="1"
+        sx={{
+          position: 'relative',
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 0.75,
+          minHeight: ROW_HEIGHT,
+          py: 0.5,
+          boxSizing: 'border-box',
+          borderRadius: ROW_RADIUS,
+          userSelect: 'none',
+          outline: 'none',
+          cursor: 'default',
+          opacity: 0.55,
+        }}
+      >
+        <DeskEntryIcon kind={draft.targetKind as DeskTargetKind} image="" active={false} />
+        <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: '14px', fontWeight: 600, color: 'text.secondary' }}>
+          {draft.title}
+        </Typography>
+        <IconButton
+          size="small"
+          aria-label={`从工作桌面移除 ${draft.title}`}
+          onClick={() => onRemove(draft)}
+          sx={{ color: 'text.disabled', '&:hover': { bgcolor: 'transparent', color: 'text.primary' } }}
+        >
+          <CloseRoundedIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      </Box>
+    </Tooltip>
+  )
+}
+
 export function DeskChatList(props: {
   entries: DeskEntry[]
+  drafts: DeskDraft[]
   activeChatId: string
   runningChatIds: ReadonlySet<string>
   hoverShowsRoleIcon: boolean
@@ -211,13 +257,25 @@ export function DeskChatList(props: {
   onRemove: (entry: DeskEntry) => void
   onMove: (activeKey: string, overKey: string) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
+  onRemoveDraft: (draft: DeskDraft) => void
 }) {
-  const { entries, activeChatId, runningChatIds, hoverShowsRoleIcon, onOpen, onRemove, onMove, onContextMenu } = props
+  const {
+    entries,
+    drafts,
+    activeChatId,
+    runningChatIds,
+    hoverShowsRoleIcon,
+    onOpen,
+    onRemove,
+    onMove,
+    onContextMenu,
+    onRemoveDraft,
+  } = props
   const clickGuard = useSortableClickGuard()
   const keys = React.useMemo(() => entries.map((it) => it.key), [entries])
   const activeId = String(activeChatId || '').trim()
 
-  if (!entries.length) {
+  if (!entries.length && !drafts.length) {
     return (
       <Box sx={LIST_SX}>
         <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'text.disabled' }}>桌面上还没有会话</Typography>
@@ -227,6 +285,10 @@ export function DeskChatList(props: {
 
   return (
     <Box sx={LIST_SX}>
+      {drafts.map((draft) => (
+        <DeskDraftRow key={draft.pendingChatId} draft={draft} onRemove={onRemoveDraft} />
+      ))}
+      {entries.length ? (
       <SortableRoot onMove={onMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
         <SortableSection items={keys}>
           {entries.map((entry) => (
@@ -248,6 +310,7 @@ export function DeskChatList(props: {
           ))}
         </SortableSection>
       </SortableRoot>
+      ) : null}
     </Box>
   )
 }

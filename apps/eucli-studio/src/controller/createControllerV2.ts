@@ -1081,6 +1081,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     readImageFileAsDataUrl: readFileAsDataUrl,
     runProbe,
     sessionWrites,
+    // 草稿会话真实建立：把桌面上那条临时条目按原位转成正式引用。
+    promoteDeskDraft: (pendingChatId: string, chatId: string) => {
+      void deskOps.promoteDeskDraft(pendingChatId, chatId)
+    },
   }
   const chatOps = createChatOperations(chatOperationsDeps)
   const {
