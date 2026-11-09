@@ -85,4 +85,16 @@ describe('提示词库面板的初始作用域', () => {
 
     expect(calls).toContainEqual(['library', 'workspace', 'ws-1'])
   })
+
+  it('keeps the owner slot mounted and hidden in the global scope', async () => {
+    const calls: any[][] = []
+    await act(async () => {
+      root.render(<PromptLibrarySettingsPanel controller={createController(calls)} />)
+    })
+
+    // 槽位常驻但不可见：切换作用域时，新建按钮与搜索框的横向位置不会跟着跳。
+    const label = host!.querySelector('#prompt-library-owner-label')
+    expect(label).not.toBeNull()
+    expect(label!.closest('[aria-hidden="true"]')).not.toBeNull()
+  })
 })
