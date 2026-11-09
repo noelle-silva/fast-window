@@ -1,7 +1,14 @@
 import { now, uid } from '../core/utils'
-import { VERSION, SPLIT_SCHEMA_VERSION, CLIENT_PREFERENCES_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
+import {
+  VERSION,
+  SPLIT_SCHEMA_VERSION,
+  CLIENT_PREFERENCES_KEY,
+  SESSION_DESKS_KEY,
+  SESSION_FAVORITES_KEY,
+} from '../domain/constants'
 import { normalizeData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
+import { normalizeDesks } from '../domain/desks'
 import {
   projectionOwnedSettings,
   PROJECTION_ASSIST_SETTING_KEYS,
@@ -247,6 +254,7 @@ export function createSplitStorage(deps: {
   let preferenceReadState: ClientPreferencesReadStatus | 'unread' = 'unread'
   let splitMetaWriteChain: Promise<void> = Promise.resolve()
   let sessionFavoritesWriteChain: Promise<void> = Promise.resolve()
+  let sessionDesksWriteChain: Promise<void> = Promise.resolve()
 
   // trackPreferenceRead 是读取状态登记的唯一入口：
   // 视图取值与健康度必须来自同一次读取结果。
@@ -539,6 +547,7 @@ export function createSplitStorage(deps: {
     if (meta) return
     await initializeStickerSettingsStorage(storage)
     await storage.set(SESSION_FAVORITES_KEY, { folders: [], chatRefsByFolderId: {} })
+    await storage.set(SESSION_DESKS_KEY, { folders: [], chatRefsByFolderId: {} })
   }
 
   // saveMetaOnly 的语义已经收敛为「保存客户端偏好」：
@@ -642,6 +651,20 @@ export function createSplitStorage(deps: {
     await next
   }
 
+  // 工作桌面：与收藏夹同一条存储通道模式，各写各的键。
+  async function saveDesksOnly() {
+    const state = getState?.()
+    if (!state?.data) return
+    const desks = normalizeDesks((state.data as any).desks)
+    const run = () => storage.set(SESSION_DESKS_KEY, desks)
+    const next = sessionDesksWriteChain.then(run, run)
+    sessionDesksWriteChain = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    await next
+  }
+
   return {
     loadSplitMeta,
     loadClientPreferencesShell,
@@ -660,5 +683,6 @@ export function createSplitStorage(deps: {
     removeGroupChatEntry,
     saveMetaOnly,
     saveFavoritesOnly,
+    saveDesksOnly,
   }
 }

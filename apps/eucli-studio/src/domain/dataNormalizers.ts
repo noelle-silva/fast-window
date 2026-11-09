@@ -19,6 +19,7 @@ import {
 } from './branching'
 import { normalizeChatMessage } from './message'
 import { normalizeFavorites } from './favorites'
+import { normalizeDesks } from './desks'
 import { chatMetasFromBox } from './chatMeta'
 import { writeChatListProjection } from './chatListProjection'
 import { looksLikeImageDataUrl } from './textProcessing'
@@ -330,6 +331,7 @@ export function normalizeData(raw: any) {
   }
 
   ;(d as any).favorites = normalizeFavorites((d as any).favorites)
+  ;(d as any).desks = normalizeDesks((d as any).desks)
 
   if (!Array.isArray(d.roles)) d.roles = []
 

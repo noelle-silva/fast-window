@@ -5,7 +5,7 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined'
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
-import type { DeskEntry, DeskTargetKind } from '../../../domain/desk'
+import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
 import { useSortableClickGuard } from '../useSortableClickGuard'
 

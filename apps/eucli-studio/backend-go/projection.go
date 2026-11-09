@@ -11,6 +11,8 @@ const (
 	uiVersion           = 7
 	splitSchemaVersion  = 1
 	sessionFavoritesKey = "sessions/favorites"
+	// 工作桌面与收藏夹同构、但各自一份数据：转到 eucli-box 的 /api/sessions/desks。
+	sessionDesksKey = "sessions/desks"
 	runStatusRunning    = "running"
 	runStatusWaiting    = "waiting_confirmation"
 )
@@ -57,6 +59,8 @@ func (p *projectionService) get(ctx context.Context, key string) (any, error) {
 		return p.groupsIndex(ctx)
 	case sessionFavoritesKey:
 		return p.loadFavorites(ctx)
+	case sessionDesksKey:
+		return p.loadDesks(ctx)
 	}
 	if match := roleKeyPattern.FindStringSubmatch(key); match != nil {
 		return p.roleByFolder(ctx, match[1])
@@ -109,6 +113,9 @@ func (p *projectionService) set(ctx context.Context, key string, value any) erro
 	}
 	if key == sessionFavoritesKey {
 		return p.saveFavorites(ctx, objectMap(value))
+	}
+	if key == sessionDesksKey {
+		return p.saveDesks(ctx, objectMap(value))
 	}
 	if key == "providers/index" {
 		return nil
@@ -233,6 +240,9 @@ func (p *projectionService) remove(ctx context.Context, key string) error {
 	if key == sessionFavoritesKey {
 		return p.saveFavorites(ctx, map[string]any{"folders": []any{}, "chatRefsByFolderId": map[string]any{}})
 	}
+	if key == sessionDesksKey {
+		return p.saveDesks(ctx, map[string]any{"folders": []any{}, "chatRefsByFolderId": map[string]any{}})
+	}
 	if key == "meta/index" || key == "chats/index" || key == "providers/index" || key == "model-groups/index" || key == "groups/index" || strings.HasPrefix(key, "runtime/") {
 		return newError("NOT_IMPLEMENTED", "storage key 未接入 e-b 根动作："+key)
 	}
@@ -280,6 +290,23 @@ func (p *projectionService) loadFavorites(ctx context.Context) (map[string]any, 
 		return nil, newError("BAD_RESPONSE", "favorites response must be an object")
 	}
 	return favorites, nil
+}
+
+func (p *projectionService) loadDesks(ctx context.Context) (map[string]any, error) {
+	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: "/api/sessions/desks"})
+	if err != nil {
+		return nil, err
+	}
+	desks, ok := data.(map[string]any)
+	if !ok {
+		return nil, newError("BAD_RESPONSE", "desks response must be an object")
+	}
+	return desks, nil
+}
+
+func (p *projectionService) saveDesks(ctx context.Context, desks map[string]any) error {
+	_, err := p.eb.request(ctx, ebRequest{Method: "PUT", Path: "/api/sessions/desks", Body: mustJSON(desks)})
+	return err
 }
 
 func (p *projectionService) saveFavorites(ctx context.Context, favorites map[string]any) error {

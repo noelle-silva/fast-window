@@ -76,7 +76,11 @@ import { getColorThemeColors, resolveColorThemePreview } from '../domain/colorTh
 import { isTransparentChatBg, normalizeWallpaperSettings, wallpaperVeilAlpha } from '../domain/wallpaper'
 import { useWallpaperImage } from './wallpaper/useWallpaperImage'
 import { resolveSidebarLayout } from '../domain/sidebarLayout'
-import { resolveDeskData, resolveDeskEntries, type DeskEntry } from '../domain/desk'
+import {
+  DESK_HOVER_ROLE_ICON_SETTING_KEY,
+  normalizeDeskHoverRoleIcon,
+  type DeskEntry,
+} from '../domain/desks'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { createStudioMuiTheme } from './colorThemeStyles'
@@ -1216,27 +1220,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     domainVersion,
   ])
 
-  // 侧边栏 B 是工作桌面：条目来自桌面引用清单，打开会话沿用与收藏夹同一套切换步骤。
-  // 设置对象是就地改写的，依赖里必须带设置版本号，否则桌面增删不会重算。
-  const deskData = React.useMemo(
-    () => resolveDeskData(data?.settings),
-    [data?.settings, settingsVersion],
-  )
-  const deskRefs = deskData.refs
-  // 桌面条目跨多个目标，按每条引用分别订阅它所在会话列表的刷新地址：
-  // 改名、会话增删都会发这个地址，条目跟着重算，标题不会停在旧值上。
-  const deskChatListVersion = useScopedUiVersions(
-    controller,
-    deskRefs.map((ref) =>
-      refreshScopes.chatList(
-        ref.targetKind,
-        ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId,
-      ),
-    ),
-  )
-  const deskEntries = React.useMemo(
-    () => resolveDeskEntries(data, deskRefs),
-    [data, deskRefs, settingsVersion, domainVersion, deskChatListVersion],
+  // 侧边栏 B 是工作桌面：数据在后端 sessions/desks.json。
+  // 条目装配与订阅都在面板内部完成（面板自己订阅 entities:desks），根组件不手写实体订阅。
+  const deskHoverShowsRoleIcon = normalizeDeskHoverRoleIcon(
+    (data?.settings as any)?.[DESK_HOVER_ROLE_ICON_SETTING_KEY],
   )
 
   const openDeskEntry = React.useCallback(
@@ -1371,10 +1358,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       tab: deskSidebarTab,
       onTabChange: onChangeDeskTab,
       favoritesBrowser: sidebarBFavorites,
-      deskEntries,
+      controller,
+      data,
       activeChatId: chatSwitch.selectedChatId,
       runningChatIds: runningDeskChatIds,
-      hoverShowsRoleIcon: deskData.hoverShowsRoleIcon,
+      hoverShowsRoleIcon: deskHoverShowsRoleIcon,
       onOpenDeskEntry: openDeskEntry,
       onRemoveDeskEntry: removeDeskEntry,
       onMoveDeskEntry: moveDeskEntry,
@@ -1391,10 +1379,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       deskSidebarTab,
       onChangeDeskTab,
       sidebarBFavorites,
-      deskEntries,
+      controller,
+      data,
       chatSwitch.selectedChatId,
       runningDeskChatIds,
-      deskData.hoverShowsRoleIcon,
+      deskHoverShowsRoleIcon,
       openDeskEntry,
       removeDeskEntry,
       moveDeskEntry,

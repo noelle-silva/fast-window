@@ -61,7 +61,7 @@ import {
 import { normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
-import { resolveDeskData } from '../../domain/desk'
+import { DESK_HOVER_ROLE_ICON_SETTING_KEY, normalizeDeskHoverRoleIcon } from '../../domain/desks'
 import { SIDEBAR_TABS_VARIANT_OPTIONS, type SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { ComposerToolsLayoutSection } from './ComposerToolsLayoutSection'
@@ -285,7 +285,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const branchTreeFollowSelected = branchTree.followSelected
   const branchTreeModalHotkey = normalizeHotkeyString(branchTree.modalHotkey)
   const sidebarLayout = resolveSidebarLayout(settings)
-  const deskHoverShowsRoleIcon = resolveDeskData(settings).hoverShowsRoleIcon
+  const deskHoverShowsRoleIcon = normalizeDeskHoverRoleIcon((settings as any)?.[DESK_HOVER_ROLE_ICON_SETTING_KEY])
 
   return (
     <SettingsSurface>

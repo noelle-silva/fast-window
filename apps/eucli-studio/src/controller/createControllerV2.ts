@@ -49,6 +49,8 @@ import { createAiServices } from '../services/aiServices'
 import { createModelRefresh } from './modelRefresh'
 import { createModelGroupsController } from './modelGroups'
 import { createFavoritesOperations } from './favoritesOperations'
+import { createDeskOperations } from './deskOperations'
+import { createDeskActions } from './actions/deskActions'
 import { createEntityEditors } from './entityEditors'
 import { createEntityAuthorityReader } from './entityAuthority'
 import { createProviderAuthorityReader } from './providerAuthority'
@@ -79,7 +81,6 @@ import { createSystemPluginController } from './systemPluginController'
 import { createChatSessionSettingsBridge } from './chatSessionSettingsBridge'
 import { createControllerBootstrap } from './controllerBootstrap'
 import { createAppearanceActions } from './actions/appearanceActions'
-import { createDeskActions } from './actions/deskActions'
 import { createRequestRecordViewActions } from './actions/requestRecordViewActions'
 import { createAiServiceActions } from './actions/aiServiceActions'
 import { createStickerActions } from './actions/stickerActions'
@@ -261,6 +262,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeGroupChatEntry,
     saveMetaOnly,
     saveFavoritesOnly,
+    saveDesksOnly,
     saveRoleEntity,
     removeRoleEntity,
     saveGroupEntity,
@@ -530,11 +532,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     onChatDeleted: (kind, targetId, chatId) => {
       sessionWrites.invalidateSession(kind, targetId, chatId)
       // 会话从桌面上消失：删除事实只带会话标识，按标识摘除引用即可。
-      deskActions.cleanupDeskRefsByChatId(chatId)
+      deskOps.cleanupDeskRefsByChatId(chatId)
     },
     onWorkspaceDeleted: (workspaceId) => {
       sessionWrites.invalidateWorkspace(workspaceId)
-      deskActions.cleanupDeskRefsForTarget('workspace', workspaceId)
+      deskOps.cleanupDeskRefsForTarget('workspace', workspaceId)
     },
     cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, roleId: string, chatId: string) =>
       favOps.cleanupFavoriteRefsForChat(targetKind, targetId, roleId, chatId),
@@ -856,7 +858,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
 
   // ============================================================
-  // 12. FAVORITES OPERATIONS
+  // 12. FAVORITES / DESKS OPERATIONS
   // ============================================================
   const favOps = createFavoritesOperations({
     getState: () => state,
@@ -869,13 +871,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     activeGroup,
   })
 
-  // 工作桌面：与会话本体解耦的引用清单，存在 settings 里随偏好通道落盘。
-  const deskActions = createDeskActions({
-    state,
+  // 工作桌面：与收藏夹同构的第二份会话去处数据，独立存储通道、独立实体域。
+  const deskOps = createDeskOperations({
+    getState: () => state,
+    save: saveDesksOnly,
     emitScope,
-    saveMeta: savePreferences,
     showToast: api.ui?.showToast,
   })
+  const deskActions = createDeskActions({ deskOps })
 
   // getMessageById 读取当前活动会话中指定消息的实时对象：
   // 流式更新就地改写该对象，局部订阅者据此只重渲染那一条消息。
@@ -986,13 +989,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       // 否则在途的索引读取会把已删除的会话重新写回列表。
       projectionPipeline.invalidateSessionIndex(kind, targetId)
       projectionPipeline.invalidateChatSession({ kind, targetId }, chatId)
-      deskActions.cleanupDeskRefsByChatId(chatId)
+      deskOps.cleanupDeskRefsByChatId(chatId)
     },
     onTargetDeleted: (kind, targetId) => {
       sessionWrites.invalidateTarget(kind, targetId)
       projectionPipeline.invalidateSessionIndex(kind, targetId)
       projectionPipeline.invalidateScopeSessions({ kind, targetId })
-      deskActions.cleanupDeskRefsForTarget(kind, targetId)
+      deskOps.cleanupDeskRefsForTarget(kind, targetId)
     },
     cleanupFavoriteRefsForTarget: favOps.cleanupFavoriteRefsForTarget,
     cleanupFavoriteRefsForChat: favOps.cleanupFavoriteRefsForChat,
@@ -1437,6 +1440,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const actions: Record<string, any> = {
     emit,
     ...appearanceActions,
+    ...deskActions,
     ...deskActions,
     ...chatNavigationActions,
     ...aiServiceActionSet,

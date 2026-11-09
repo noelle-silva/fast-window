@@ -1,6 +1,9 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
-import type { DeskEntry } from '../../domain/desk'
+import { deskFlatRefs, resolveDeskEntries, type DeskEntry } from '../../domain/desks'
+import { refreshScopes } from '../../domain/uiRefreshScope'
+import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import { useScopedUiVersion, useScopedUiVersions } from '../hooks/useScopedUiVersion'
 import type { DeskSidebarTab } from '../../domain/sidebarNavigationMemory'
 import type { SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { SidebarFrame } from './SidebarFrame'
@@ -29,7 +32,8 @@ export type SidebarBPanelProps = {
   onTabChange: (tab: DeskSidebarTab) => void
   tabsVariant: SidebarTabsVariant
   favoritesBrowser: FavoriteFoldersBrowserProps
-  deskEntries: DeskEntry[]
+  controller: any
+  data: any
   activeChatId: string
   runningChatIds: ReadonlySet<string>
   hoverShowsRoleIcon: boolean
@@ -52,7 +56,8 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     onTabChange,
     tabsVariant,
     favoritesBrowser,
-    deskEntries,
+    controller,
+    data,
     activeChatId,
     runningChatIds,
     hoverShowsRoleIcon,
@@ -61,6 +66,27 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     onMoveDeskEntry,
     onDeskEntryContextMenu,
   } = props
+
+  // 面板自己订阅桌面数据域：后端 sessions/desks 变更（增删、清理）就让清单重算；
+  // 再按每条引用所在会话列表订阅，改名与会话增删也能跟上。
+  const desksVersion = useScopedUiVersion(controller, refreshScopes.entities('desks'))
+  const desks = (data as any)?.desks
+  const flatRefs = React.useMemo(() => deskFlatRefs(desks), [desks, desksVersion])
+  const chatListScopes = React.useMemo(
+    () =>
+      flatRefs.map((ref: any) =>
+        refreshScopes.chatList(
+          ref.targetKind,
+          ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId,
+        ),
+      ),
+    [flatRefs],
+  )
+  const chatListVersion = useScopedUiVersions(controller, chatListScopes)
+  const deskEntries = React.useMemo(
+    () => resolveDeskEntries(data, desks),
+    [data, desks, desksVersion, chatListVersion],
+  )
 
   return (
     <SidebarFrame

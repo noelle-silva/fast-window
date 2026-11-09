@@ -38,4 +38,5 @@ export const APP_ROOT_REFRESH_SCOPES: readonly string[] = [
 // 值必须是实际消费者说明，禁止用“暂不需要”之类的空理由占位。
 export const APP_ROOT_EXCLUDED_ENTITY_DOMAINS: Readonly<Record<string, string>> = {
   favorites: '收藏夹树由 useFavoriteFolders 自行订阅 entities:favorites，App 根不重复订阅。',
+  desks: '工作桌面清单由 SidebarBPanel 自行订阅 entities:desks，App 根不重复订阅。',
 }

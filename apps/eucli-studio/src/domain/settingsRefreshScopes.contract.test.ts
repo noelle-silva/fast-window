@@ -11,7 +11,7 @@ import { loadContractSourceFiles } from '../testing/sourceContractScan'
 // 控制器可以发射的实体域不一定都属于设置页（例如收藏夹）。
 // 新增域必须先在这里显式分类：要么进 SETTINGS_PANEL_REFRESH_SCOPES，
 // 要么明确声明它不是设置页数据。禁止靠“没人订阅”静默漏刷。
-const NON_SETTINGS_ENTITY_DOMAINS = new Set(['favorites'])
+const NON_SETTINGS_ENTITY_DOMAINS = new Set(['favorites', 'desks'])
 
 function registeredEntityDomains(): Set<string> {
   const domains = new Set<string>()

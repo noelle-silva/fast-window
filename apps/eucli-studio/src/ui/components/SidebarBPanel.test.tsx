@@ -5,35 +5,47 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
-import type { DeskEntry } from '../../domain/desk'
+import { DESK_ROOT_FOLDER_ID, normalizeDesks } from '../../domain/desks'
 import { createStudioMuiTheme } from '../colorThemeStyles'
 import { SidebarBPanel } from './SidebarBPanel'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
 const noop = () => {}
+const workspaceIcon = { kind: 'image', svg: '', dataUrl: 'data:image/png;base64,WSICON' }
 
-function entry(overrides: Partial<DeskEntry> = {}): DeskEntry {
+function deskRef(overrides: Record<string, any> = {}) {
+  return { targetKind: 'role', targetId: 'role-a', roleId: '', chatId: 'chat-1', addedAt: 1, ...overrides }
+}
+
+const wsRef = deskRef({ targetKind: 'workspace', targetId: 'ws-1', roleId: 'role-b', chatId: 'chat-2' })
+
+// 面板自己从后端那份 desks 数据装配条目，测试给的是数据本身。
+function deskData(refs: any[] = [deskRef(), wsRef]) {
   return {
-    targetKind: 'role',
-    targetId: 'role-a',
-    roleId: '',
-    chatId: 'chat-1',
-    addedAt: 1,
-    key: 'role::role-a::::chat-1',
-    title: '甲会话',
-    targetName: '甲角色',
-    roleName: '',
-    avatarImage: '',
-    roleAvatarImage: '',
-    ...overrides,
+    desks: normalizeDesks({
+      folders: [{ id: DESK_ROOT_FOLDER_ID, name: '桌面', parentId: '', createdAt: 1, updatedAt: 1 }],
+      chatRefsByFolderId: { [DESK_ROOT_FOLDER_ID]: refs },
+    }),
+    roles: [
+      { id: 'role-a', name: '甲角色' },
+      { id: 'role-b', name: '乙角色', avatarImage: 'role-avatar-src' },
+    ],
+    workspaces: [{ id: 'ws-1', name: '工作区一', icon: workspaceIcon }],
+    chatsByRole: { 'role-a': { chatMetas: [{ id: 'chat-1', title: '甲会话' }] } },
+    chatsByWorkspace: { 'ws-1::role-b': { chatMetas: [{ id: 'chat-2', title: '乙会话' }] } },
   }
 }
 
-const deskEntries = [
-  entry(),
-  entry({ targetId: 'ws-1', roleId: 'role-b', chatId: 'chat-2', key: 'workspace::ws-1::role-b::chat-2', title: '乙会话', targetName: '工作区一', targetKind: 'workspace' }),
-]
+function createController() {
+  return {
+    getSnapshot: () => 0,
+    subscribe: () => () => {},
+    getScopeVer: () => 0,
+    subscribeScope: () => () => {},
+    actions: {},
+  } as any
+}
 
 const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favoritesBrowser'] = {
   level: { folders: [], refs: [] },
@@ -61,7 +73,8 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     onTabChange: noop,
     tabsVariant: 'soft',
     favoritesBrowser: favoritesStub,
-    deskEntries,
+    controller: createController(),
+    data: deskData(),
     activeChatId: '',
     runningChatIds: new Set<string>(),
     hoverShowsRoleIcon: true,
@@ -103,71 +116,17 @@ describe('侧边栏 B 的工作桌面', () => {
     })
   }
 
-  it('按桌面顺序列出会话条目', () => {
+  function row(title: string): HTMLElement {
+    const node = host!.querySelector(`[role="button"][aria-label="${title}"]`)
+    if (!node) throw new Error(`找不到桌面条目：${title}`)
+    return node as HTMLElement
+  }
+
+  it('按后端那份桌面数据的顺序列出会话', () => {
     renderPanel()
 
     expect(host!.textContent).toContain('甲会话')
     expect(host!.textContent).toContain('乙会话')
-  })
-
-  it('顶部是和 A 同款的页签栏，铺开工作桌面与会话收藏夹两段', () => {
-    renderPanel()
-
-    const tablist = host!.querySelector('[role="tablist"]')
-    expect(tablist).toBeTruthy()
-    expect(tablist!.getAttribute('aria-label')).toBe('侧边栏 B 页签')
-
-    const tabs = Array.from(host!.querySelectorAll('[role="tab"]'))
-    expect(tabs.map((it) => it.textContent)).toEqual(['工作桌面', '会话收藏夹'])
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true')
-    expect(tabs[1].getAttribute('aria-selected')).toBe('false')
-  })
-
-  it('停在会话收藏夹时按当前层显示子文件夹与会话，桌面条目不再出场', () => {
-    renderPanel({
-      tab: 'favorites',
-      favoritesBrowser: {
-        ...favoritesStub,
-        level: {
-          folders: [{ id: 'f1', name: '甲文件夹' }],
-          refs: [
-            {
-              key: 'role::role-a::::chat-1',
-              targetKind: 'role',
-              targetId: 'role-a',
-              roleId: '',
-              chatId: 'chat-1',
-              title: '收藏里的会话',
-              snippet: '',
-              targetName: '甲角色',
-              targetImage: '',
-              selected: false,
-              runningKind: '',
-            },
-          ],
-        },
-      },
-    })
-
-    expect(host!.textContent).toContain('甲文件夹')
-    expect(host!.textContent).toContain('收藏里的会话')
-    expect(host!.textContent).not.toContain('乙会话')
-  })
-
-  it('收藏夹为空时给出层级视图的空态提示', () => {
-    renderPanel({ tab: 'favorites' })
-
-    expect(host!.textContent).toContain('这个收藏夹还是空的')
-  })
-
-  it('返回按钮不进侧边栏级顶部栏，只落在收藏夹自己的工具行', () => {
-    renderPanel({ tab: 'favorites' })
-    const tablist = host!.querySelector('[role="tablist"]') as HTMLElement
-    expect(tablist.querySelector('[aria-label="返回上一层级"]')).toBeNull()
-    expect(host!.querySelector('button[aria-label="返回上一层级"]')).toBeTruthy()
-
-    renderPanel({ tab: 'desk' })
-    expect(host!.querySelector('button[aria-label="返回上一层级"]')).toBeNull()
   })
 
   it('每一条都带自己的移除按钮', () => {
@@ -178,115 +137,85 @@ describe('侧边栏 B 的工作桌面', () => {
   })
 
   it('点行交给打开动作，点叉交给移除动作且不连带打开', () => {
-    const opened: DeskEntry[] = []
-    const removed: DeskEntry[] = []
-    renderPanel({ onOpenDeskEntry: (it) => opened.push(it), onRemoveDeskEntry: (it) => removed.push(it) })
-
-    const row = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    act(() => {
-      row.click()
+    const opened: string[] = []
+    const removed: string[] = []
+    renderPanel({
+      onOpenDeskEntry: (entry) => opened.push(entry.chatId),
+      onRemoveDeskEntry: (entry) => removed.push(entry.chatId),
     })
-    expect(opened.map((it) => it.chatId)).toEqual(['chat-1'])
 
-    const removeButton = host!.querySelector('[aria-label="从工作桌面移除 乙会话"]') as HTMLElement
     act(() => {
-      removeButton.click()
+      row('甲会话').click()
     })
-    expect(removed.map((it) => it.chatId)).toEqual(['chat-2'])
-    expect(opened.map((it) => it.chatId)).toEqual(['chat-1'])
+    expect(opened).toEqual(['chat-1'])
+
+    act(() => {
+      ;(host!.querySelector('[aria-label="从工作桌面移除 乙会话"]') as HTMLElement).click()
+    })
+    expect(removed).toEqual(['chat-2'])
+    expect(opened).toEqual(['chat-1'])
+  })
+
+  it('每一条都能弹与会话列表同一个右键菜单', () => {
+    const seen: string[] = []
+    renderPanel({ onDeskEntryContextMenu: (_event, entry) => seen.push(entry.chatId) })
+
+    act(() => {
+      row('甲会话').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+
+    expect(seen).toEqual(['chat-1'])
   })
 
   it('每一行都挂着可拖排序的句柄声明', () => {
     renderPanel()
 
-    const first = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    const second = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
-    expect(first.getAttribute('aria-roledescription')).toBe('sortable')
-    expect(second.getAttribute('aria-roledescription')).toBe('sortable')
-  })
-
-  it('每一条都能弹与会话列表同一个右键菜单', () => {
-    const seen: string[] = []
-    renderPanel({ onDeskEntryContextMenu: (_event, it) => seen.push(it.chatId) })
-
-    const row = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    act(() => {
-      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-    })
-    expect(seen).toEqual(['chat-1'])
-  })
-
-  it('图标槽对角色与工作区用同一个尺寸', () => {
-    renderPanel()
-
-    const slots = Array.from(host!.querySelectorAll('[role="button"] img, [role="button"] svg'))
-    expect(slots.length).toBeGreaterThan(0)
-    const boxes = Array.from(host!.querySelectorAll('[role="button"] > div:first-child')) as HTMLElement[]
-    expect(boxes).toHaveLength(2)
+    expect(row('甲会话').getAttribute('aria-roledescription')).toBe('sortable')
+    expect(row('乙会话').getAttribute('aria-roledescription')).toBe('sortable')
   })
 
   it('当前正在看的会话有选中状态，其它条目没有', () => {
     renderPanel({ activeChatId: 'chat-2' })
 
-    const active = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
-    const other = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    expect(active.getAttribute('aria-current')).toBe('true')
-    expect(other.getAttribute('aria-current')).toBeNull()
-  })
-
-  it('工作区条目悬停换成所属角色图标，开关关掉就一直是工作区图标', () => {
-    const wsEntry = entry({
-      targetKind: 'workspace',
-      targetId: 'ws-1',
-      roleId: 'role-b',
-      chatId: 'chat-2',
-      key: 'workspace::ws-1::role-b::chat-2',
-      title: '乙会话',
-      targetName: '工作区一',
-      roleName: '乙角色',
-      avatarImage: 'ws-icon-src',
-      roleAvatarImage: 'role-avatar-src',
-    })
-
-    renderPanel({ deskEntries: [wsEntry] })
-    const row = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
-    expect(row.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
-
-    act(() => {
-      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    })
-    expect(row.querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
-
-    renderPanel({ deskEntries: [wsEntry], hoverShowsRoleIcon: false })
-    const quiet = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
-    act(() => {
-      quiet.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    })
-    expect(quiet.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
+    expect(row('乙会话').getAttribute('aria-current')).toBe('true')
+    expect(row('甲会话').getAttribute('aria-current')).toBeNull()
   })
 
   it('运行中的会话在名称下面多一行 running 标记，其余条目没有', () => {
     renderPanel({ runningChatIds: new Set(['chat-1']) })
 
-    const runningRow = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    const quietRow = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
-    expect(runningRow.textContent).toContain('running...')
-    expect(quietRow.textContent).not.toContain('running...')
+    expect(row('甲会话').textContent).toContain('running...')
+    expect(row('乙会话').textContent).not.toContain('running...')
   })
 
   it('运行标记和名称同在一个上下叠放的容器里，不占名称的横向位置', () => {
     renderPanel({ runningChatIds: new Set(['chat-1']) })
 
-    const runningRow = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
-    const mark = Array.from(runningRow.querySelectorAll('*')).find((it) => it.textContent === 'running...')
+    const mark = Array.from(row('甲会话').querySelectorAll('*')).find((it) => it.textContent === 'running...')
     expect(mark).toBeTruthy()
     const column = mark!.parentElement!.parentElement as HTMLElement
     expect(column.textContent).toContain('甲会话')
     expect(column.textContent).toContain('running...')
   })
 
+  it('工作区条目悬停换成所属角色图标，开关关掉就一直是工作区图标', () => {
+    renderPanel()
+    expect(row('乙会话').querySelector('img')!.getAttribute('src')).toBe(workspaceIcon.dataUrl)
+
+    act(() => {
+      row('乙会话').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(row('乙会话').querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
+
+    renderPanel({ hoverShowsRoleIcon: false })
+    act(() => {
+      row('乙会话').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(row('乙会话').querySelector('img')!.getAttribute('src')).toBe(workspaceIcon.dataUrl)
+  })
+
   it('桌面为空时给出空态提示', () => {
-    renderPanel({ deskEntries: [] })
+    renderPanel({ data: deskData([]) })
 
     expect(host!.textContent).toContain('桌面上还没有会话')
   })

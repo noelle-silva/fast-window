@@ -1,6 +1,7 @@
 import { normalizeData } from '../domain/dataNormalizers'
-import { VERSION, SESSION_FAVORITES_KEY } from '../domain/constants'
+import { VERSION, SESSION_DESKS_KEY, SESSION_FAVORITES_KEY } from '../domain/constants'
 import { normalizeFavorites } from '../domain/favorites'
+import { normalizeDesks } from '../domain/desks'
 import { chatMetasFromBox } from '../domain/chatMeta'
 import { readActiveChatSelection } from '../domain/activeChatSelection'
 import { splitGroupKey, splitRoleKey } from '../domain/storageKeys'
@@ -48,6 +49,14 @@ export async function buildStateFromMeta(options: BuildStateFromMetaOptions): Pr
     favorites = null
   }
 
+  // 工作桌面与收藏夹同构、但各自一份数据：后端 sessions/desks.json。
+  let desks = null
+  try {
+    desks = await storage.get(SESSION_DESKS_KEY)
+  } catch (_) {
+    desks = null
+  }
+
   const providers = await loadProvidersFromStorage(storage, meta)
   // 偏好通道是本地读：缺失 / 损坏 / 读取失败都只能回落到 meta 快照，
   // 不得在这里把失败结果补成默认偏好。
@@ -60,6 +69,7 @@ export async function buildStateFromMeta(options: BuildStateFromMetaOptions): Pr
     version: VERSION,
     settings: preferencesView.settings,
     favorites: normalizeFavorites(favorites),
+    desks: normalizeDesks(desks),
     roles: [],
     chatsByRole: {},
     groups: [],

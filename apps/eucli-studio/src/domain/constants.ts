@@ -5,6 +5,8 @@ export const SPLIT_META_KEY = 'meta/index'
 // meta/index 只作为目录 / 派生字段的只读投影。
 export const CLIENT_PREFERENCES_KEY = 'client-state/preferences'
 export const SESSION_FAVORITES_KEY = 'sessions/favorites'
+// 工作桌面：后端 eucli-box 里的第二份会话去处数据（sessions/desks.json），与收藏夹同构但独立。
+export const SESSION_DESKS_KEY = 'sessions/desks'
 export const STICKERS_KEY = 'stickers/index'
 
 export const MAX_DRAFT_IMAGES = 8
