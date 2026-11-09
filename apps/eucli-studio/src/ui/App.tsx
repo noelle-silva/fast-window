@@ -588,21 +588,32 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setSelection(followFrom(node))
   }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, renderChat])
 
-  // 我自己删掉正在看的那一支时，位置退回它的上一条并停在那儿（不往下走）；
-  // 删的是别处，位置不动。
-  const onNodeRemoving = useEvent((midRaw: string) => {
+  // 只有「我正看着的那条会消失」才退回上一级并停住：
+  //   删单条 → 删的必须正好是当前显示的那条；
+  //   删整棵 → 当前显示的那条必须在这棵里面。
+  // 删别处一律不动：选中的那条没消失，就没有理由改视线。
+  const onNodeRemoving = useEvent((midRaw: string, scope: 'single' | 'subtree') => {
     const target = String(midRaw || '').trim()
     if (!target) return
-    let cursor = effectiveSelection.mid
-    let guard = 0
-    while (cursor && guard++ < 6000) {
-      if (cursor === target) {
-        const parentMid = String(chatAllById.get(target)?.parentMid || '')
-        if (parentMid) setSelection(placeSelection(renderChat, parentMid))
-        return
+    const focused = String(effectiveSelection.mid || '').trim()
+    if (!focused) return
+
+    let affected = scope === 'single' && focused === target
+    if (scope === 'subtree') {
+      let cursor = focused
+      let guard = 0
+      while (cursor && guard++ < 6000) {
+        if (cursor === target) {
+          affected = true
+          break
+        }
+        cursor = String(chatAllById.get(cursor)?.parentMid || '')
       }
-      cursor = String(chatAllById.get(cursor)?.parentMid || '')
     }
+    if (!affected) return
+
+    const parentMid = String(chatAllById.get(target)?.parentMid || '')
+    if (parentMid) setSelection(placeSelection(renderChat, parentMid))
   })
 
   // 切入会话：会话真的换了、而且位置不属于这份会话时，才落点。

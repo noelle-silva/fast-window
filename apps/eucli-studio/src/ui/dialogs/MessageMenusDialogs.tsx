@@ -43,8 +43,9 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
   setConfirmDelMsg: React.Dispatch<React.SetStateAction<ConfirmMessageState>>
   confirmDelTree: ConfirmMessageState
   setConfirmDelTree: React.Dispatch<React.SetStateAction<ConfirmMessageState>>
-  // 删除前把“我要删哪一条”通知出去：视图据此在删到自己这一支时退回上一条。
-  onNodeRemoving: (mid: string) => void
+  // 删除前把“删哪一条、删单条还是整棵”通知出去：
+  // 视图只在「正看着的那条会消失」时退回上一级。
+  onNodeRemoving: (mid: string, scope: 'single' | 'subtree') => void
 }) {
   const {
     controller,
@@ -288,7 +289,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             color="error"
             onClick={async () => {
               const mid = confirmDelMsg.mid
-              onNodeRemoving(mid)
+              onNodeRemoving(mid, 'single')
               const ok = await Promise.resolve(controller.actions.deleteMessage?.(mid))
               if (ok === true) setConfirmDelMsg({ mid: '', role: 'assistant' })
             }}
@@ -318,7 +319,7 @@ export const MessageMenusDialogs = React.memo(function MessageMenusDialogs(props
             color="error"
             onClick={async () => {
               const mid = confirmDelTree.mid
-              onNodeRemoving(mid)
+              onNodeRemoving(mid, 'subtree')
               const ok = await Promise.resolve(controller.actions.deleteMessageSubtree?.(mid))
               if (ok === true) setConfirmDelTree({ mid: '', role: 'assistant' })
             }}
