@@ -1177,10 +1177,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   // 侧边栏 B 是工作桌面：条目来自桌面引用清单，打开会话沿用与收藏夹同一套切换步骤。
   // 设置对象是就地改写的，依赖里必须带设置版本号，否则桌面增删不会重算。
-  const deskRefs = React.useMemo(
-    () => resolveDeskData(data?.settings).refs,
+  const deskData = React.useMemo(
+    () => resolveDeskData(data?.settings),
     [data?.settings, settingsVersion],
   )
+  const deskRefs = deskData.refs
   // 桌面条目跨多个目标，按每条引用分别订阅它所在会话列表的刷新地址：
   // 改名、会话增删都会发这个地址，条目跟着重算，标题不会停在旧值上。
   const deskChatListVersion = useScopedUiVersions(
@@ -1247,6 +1248,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       deskEntries,
       activeChatId: chatSwitch.selectedChatId,
+      hoverShowsRoleIcon: deskData.hoverShowsRoleIcon,
       onOpenDeskEntry: openDeskEntry,
       onRemoveDeskEntry: removeDeskEntry,
       onMoveDeskEntry: moveDeskEntry,
@@ -1261,6 +1263,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       deskEntries,
       chatSwitch.selectedChatId,
+      deskData.hoverShowsRoleIcon,
       openDeskEntry,
       removeDeskEntry,
       moveDeskEntry,

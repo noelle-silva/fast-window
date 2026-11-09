@@ -56,6 +56,16 @@ describe('工作桌面动作', () => {
     expect(refsOf(state)).toEqual(['chat-2', 'chat-1'])
   })
 
+  it('开关悬停换图标不会丢桌面已有的引用', () => {
+    const { state, actions } = setup()
+    actions.addChatToDesk('role', 'role-a', '', 'chat-1')
+
+    actions.setDeskHoverRoleIcon(false)
+
+    expect(state.data.settings.desk.hoverShowsRoleIcon).toBe(false)
+    expect(refsOf(state)).toEqual(['chat-1'])
+  })
+
   it('清理入口摘掉对应引用，没有命中时不落盘', () => {
     const { state, saveMeta, actions } = setup()
     actions.addChatToDesk('role', 'role-a', '', 'chat-1')

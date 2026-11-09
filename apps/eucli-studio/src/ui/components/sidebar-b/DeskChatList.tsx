@@ -81,17 +81,28 @@ type DeskRowDragArgs = {
 function DeskRow(props: {
   entry: DeskEntry
   active: boolean
+  hoverShowsRoleIcon: boolean
   dragArgs: DeskRowDragArgs
   shouldIgnoreClick: () => boolean
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }) {
-  const { entry, active, dragArgs, shouldIgnoreClick, onOpen, onRemove, onContextMenu } = props
+  const { entry, active, hoverShowsRoleIcon, dragArgs, shouldIgnoreClick, onOpen, onRemove, onContextMenu } = props
   const dragging = dragArgs.isDragging
+  const [hovered, setHovered] = React.useState(false)
+
+  // 悬停说明：工作区来源带上所属角色，形如「工作区名/角色名」。
+  const tooltipText =
+    entry.targetKind === 'workspace' && entry.roleName ? `${entry.targetName}/${entry.roleName}` : entry.targetName
+
+  // 悬停换图标只作用于工作区来源；角色没设头像时自然落回角色默认图标。
+  const swapToRole = hoverShowsRoleIcon && entry.targetKind === 'workspace' && hovered
+  const iconKind: DeskTargetKind = swapToRole ? 'role' : entry.targetKind
+  const iconImage = swapToRole ? entry.roleAvatarImage : entry.avatarImage
 
   return (
-    <Tooltip title={entry.targetName} placement="left">
+    <Tooltip title={tooltipText} placement="left">
       <Box
         ref={dragArgs.setNodeRef as any}
         style={dragArgs.style}
@@ -99,6 +110,8 @@ function DeskRow(props: {
         tabIndex={0}
         aria-label={entry.title}
         aria-current={active ? 'true' : undefined}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         onContextMenu={(event) => onContextMenu(event, entry)}
         onClick={() => {
           if (shouldIgnoreClick()) return
@@ -132,7 +145,7 @@ function DeskRow(props: {
           '&:focus-visible': { boxShadow: '0 10px 24px rgba(15,23,42,.14)' },
         }}
       >
-        <DeskEntryIcon kind={entry.targetKind} image={entry.avatarImage} active={active} />
+        <DeskEntryIcon kind={iconKind} image={iconImage} active={active} />
 
         <Typography
           noWrap
@@ -168,12 +181,13 @@ function DeskRow(props: {
 export function DeskChatList(props: {
   entries: DeskEntry[]
   activeChatId: string
+  hoverShowsRoleIcon: boolean
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
   onMove: (activeKey: string, overKey: string) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }) {
-  const { entries, activeChatId, onOpen, onRemove, onMove, onContextMenu } = props
+  const { entries, activeChatId, hoverShowsRoleIcon, onOpen, onRemove, onMove, onContextMenu } = props
   const clickGuard = useSortableClickGuard()
   const keys = React.useMemo(() => entries.map((it) => it.key), [entries])
   const activeId = String(activeChatId || '').trim()
@@ -196,6 +210,7 @@ export function DeskChatList(props: {
                 <DeskRow
                   entry={entry}
                   active={!!activeId && entry.chatId === activeId}
+                  hoverShowsRoleIcon={hoverShowsRoleIcon}
                   dragArgs={dragArgs}
                   shouldIgnoreClick={clickGuard.shouldIgnoreClick}
                   onOpen={onOpen}

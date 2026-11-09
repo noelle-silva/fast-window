@@ -23,7 +23,9 @@ function entry(overrides: Partial<DeskEntry> = {}): DeskEntry {
     key: 'role::role-a::::chat-1',
     title: '甲会话',
     targetName: '甲角色',
+    roleName: '',
     avatarImage: '',
+    roleAvatarImage: '',
     ...overrides,
   }
 }
@@ -44,6 +46,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     topbarBlur: 0,
     deskEntries,
     activeChatId: '',
+    hoverShowsRoleIcon: true,
     onOpenDeskEntry: noop,
     onRemoveDeskEntry: noop,
     onMoveDeskEntry: noop,
@@ -151,6 +154,37 @@ describe('侧边栏 B 的工作桌面', () => {
     const other = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
     expect(active.getAttribute('aria-current')).toBe('true')
     expect(other.getAttribute('aria-current')).toBeNull()
+  })
+
+  it('工作区条目悬停换成所属角色图标，开关关掉就一直是工作区图标', () => {
+    const wsEntry = entry({
+      targetKind: 'workspace',
+      targetId: 'ws-1',
+      roleId: 'role-b',
+      chatId: 'chat-2',
+      key: 'workspace::ws-1::role-b::chat-2',
+      title: '乙会话',
+      targetName: '工作区一',
+      roleName: '乙角色',
+      avatarImage: 'ws-icon-src',
+      roleAvatarImage: 'role-avatar-src',
+    })
+
+    renderPanel({ deskEntries: [wsEntry] })
+    const row = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
+
+    act(() => {
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
+
+    renderPanel({ deskEntries: [wsEntry], hoverShowsRoleIcon: false })
+    const quiet = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
+    act(() => {
+      quiet.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(quiet.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
   })
 
   it('桌面为空时给出空态提示', () => {

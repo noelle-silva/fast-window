@@ -60,6 +60,7 @@ import {
 } from '../../domain/composerAppearance'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
+import { resolveDeskData } from '../../domain/desk'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
@@ -250,6 +251,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const branchTreeFollowSelected = branchTree.followSelected
   const branchTreeModalHotkey = normalizeHotkeyString(branchTree.modalHotkey)
   const sidebarLayout = resolveSidebarLayout(settings)
+  const deskHoverShowsRoleIcon = resolveDeskData(settings).hoverShowsRoleIcon
 
   return (
     <SettingsSurface>
@@ -278,6 +280,21 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               disabled={loading}
               onChange={(side) => controller.actions.setSidebarSide?.('b', side)}
             />
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                悬停图标
+              </Typography>
+              <Switch
+                size="small"
+                checked={deskHoverShowsRoleIcon}
+                onChange={(event) => controller.actions.setDeskHoverRoleIcon?.(event.target.checked)}
+                disabled={loading}
+              />
+              <Typography variant="caption" color="text.secondary">
+                鼠标停在工作区条目上时，图标临时换成所属角色
+              </Typography>
+            </Stack>
           </Stack>
         </SettingsSection>
 

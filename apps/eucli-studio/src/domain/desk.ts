@@ -18,10 +18,20 @@ export type DeskChatRef = {
   addedAt: number
 }
 
-export type DeskData = { refs: DeskChatRef[] }
+export type DeskData = {
+  refs: DeskChatRef[]
+  /** 工作区来源的条目在悬停时把图标换成所属角色的图标；可关。 */
+  hoverShowsRoleIcon: boolean
+}
 
 // 桌面是客户端偏好的一部分：和侧边栏布局一样存在 settings 里，随偏好通道落盘。
 export const DESK_SETTING_KEY = 'desk'
+export const DESK_HOVER_ROLE_ICON_DEFAULT = true
+
+export function normalizeDeskHoverRoleIcon(raw: unknown): boolean {
+  if (raw === undefined || raw === null) return DESK_HOVER_ROLE_ICON_DEFAULT
+  return raw === true
+}
 
 function normalizeTargetKind(raw: unknown): DeskTargetKind {
   const text = String(raw ?? '').trim()
@@ -64,7 +74,7 @@ export function normalizeDesk(raw: any): DeskData {
     refs.push(ref)
     if (refs.length >= 2000) break
   }
-  return { refs }
+  return { refs, hoverShowsRoleIcon: normalizeDeskHoverRoleIcon((src as any).hoverShowsRoleIcon) }
 }
 
 export function resolveDeskData(settings: any): DeskData {
@@ -131,8 +141,13 @@ export function moveDeskChatRef(refs: readonly DeskChatRef[], activeKey: string,
 export type DeskEntry = DeskChatRef & {
   key: string
   title: string
+  /** 悬停说明的主标题：工作区 / 群 / 角色本身的名字。 */
   targetName: string
+  /** 工作区来源时带上所属角色名，供悬停说明拼成「工作区/角色」。 */
+  roleName: string
   avatarImage: string
+  /** 工作区来源时所属角色的头像，供悬停切换图标用。 */
+  roleAvatarImage: string
 }
 
 function chatItemsOf(data: any, ref: DeskChatRef): any[] {
@@ -143,18 +158,43 @@ function chatItemsOf(data: any, ref: DeskChatRef): any[] {
   return chatListItemsOfBox(data?.chatsByRole?.[ref.targetId])
 }
 
-function targetMetaOf(data: any, ref: DeskChatRef): { name: string; avatarImage: string } {
+function findRole(data: any, roleId: string): any {
+  return (Array.isArray(data?.roles) ? data.roles : []).find((it: any) => String(it?.id || '') === roleId) || null
+}
+
+function targetMetaOf(data: any, ref: DeskChatRef): {
+  name: string
+  roleName: string
+  avatarImage: string
+  roleAvatarImage: string
+} {
   if (ref.targetKind === 'workspace') {
     const workspace = (Array.isArray(data?.workspaces) ? data.workspaces : []).find((it: any) => String(it?.id || '') === ref.targetId)
+    const role = findRole(data, ref.roleId)
     // 工作区图标是独立资源，必须经 workspaceIconImageSrc 转成可渲染地址，否则条目左侧一片空白。
-    return { name: String(workspace?.name || '工作区'), avatarImage: workspaceIconImageSrc(workspace?.icon) }
+    return {
+      name: String(workspace?.name || '工作区'),
+      roleName: String(role?.name || ''),
+      avatarImage: workspaceIconImageSrc(workspace?.icon),
+      roleAvatarImage: String(role?.avatarImage || ''),
+    }
   }
   if (ref.targetKind === 'group') {
     const group = (Array.isArray(data?.groups) ? data.groups : []).find((it: any) => String(it?.id || '') === ref.targetId)
-    return { name: String(group?.name || '群聊'), avatarImage: String(group?.avatarImage || '') }
+    return {
+      name: String(group?.name || '群聊'),
+      roleName: '',
+      avatarImage: String(group?.avatarImage || ''),
+      roleAvatarImage: '',
+    }
   }
-  const role = (Array.isArray(data?.roles) ? data.roles : []).find((it: any) => String(it?.id || '') === ref.targetId)
-  return { name: String(role?.name || '角色'), avatarImage: String(role?.avatarImage || '') }
+  const role = findRole(data, ref.targetId)
+  return {
+    name: String(role?.name || '角色'),
+    roleName: '',
+    avatarImage: String(role?.avatarImage || ''),
+    roleAvatarImage: '',
+  }
 }
 
 export function resolveDeskEntries(data: any, refs: readonly DeskChatRef[]): DeskEntry[] {
@@ -169,7 +209,9 @@ export function resolveDeskEntries(data: any, refs: readonly DeskChatRef[]): Des
       key,
       title: String(chat?.title || '').trim() || '新聊天',
       targetName: meta.name,
+      roleName: meta.roleName,
       avatarImage: meta.avatarImage,
+      roleAvatarImage: meta.roleAvatarImage,
     })
   }
   return out

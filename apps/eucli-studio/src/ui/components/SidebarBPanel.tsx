@@ -17,6 +17,7 @@ export type SidebarBPanelProps = {
   topbarBlur: number
   deskEntries: DeskEntry[]
   activeChatId: string
+  hoverShowsRoleIcon: boolean
   onOpenDeskEntry: (entry: DeskEntry) => void
   onRemoveDeskEntry: (entry: DeskEntry) => void
   onMoveDeskEntry: (activeKey: string, overKey: string) => void
@@ -34,6 +35,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     topbarBlur,
     deskEntries,
     activeChatId,
+    hoverShowsRoleIcon,
     onOpenDeskEntry,
     onRemoveDeskEntry,
     onMoveDeskEntry,
@@ -55,6 +57,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
       <DeskChatList
         entries={deskEntries}
         activeChatId={activeChatId}
+        hoverShowsRoleIcon={hoverShowsRoleIcon}
         onOpen={onOpenDeskEntry}
         onRemove={onRemoveDeskEntry}
         onMove={onMoveDeskEntry}

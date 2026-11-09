@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DESK_HOVER_ROLE_ICON_DEFAULT,
   DESK_SETTING_KEY,
   deskChatRefKey,
   moveDeskChatRef,
@@ -34,6 +35,12 @@ describe('工作桌面的引用清单', () => {
     const desk = normalizeDesk({ refs: [roleRef, roleRef] })
 
     expect(desk.refs).toHaveLength(1)
+  })
+
+  it('悬停换图标的开关默认打开，显式关掉会被记住', () => {
+    expect(normalizeDesk({}).hoverShowsRoleIcon).toBe(DESK_HOVER_ROLE_ICON_DEFAULT)
+    expect(normalizeDesk({ hoverShowsRoleIcon: false }).hoverShowsRoleIcon).toBe(false)
+    expect(normalizeDesk({ hoverShowsRoleIcon: true }).hoverShowsRoleIcon).toBe(true)
   })
 
   it('读取时只认 settings 里的这一份', () => {
@@ -74,6 +81,18 @@ describe('工作桌面的引用清单', () => {
     expect(removeDeskRefsForTarget(refs, 'role', 'role-a').map((it) => it.chatId)).toEqual(['chat-2'])
   })
 
+  it('工作区来源的条目带上所属角色名与角色头像', () => {
+    const data = {
+      roles: [{ id: 'role-b', name: '乙角色', avatarImage: 'role-avatar' }],
+      workspaces: [{ id: 'ws-1', name: '工作区一' }],
+      chatsByWorkspace: {},
+    }
+
+    const entries = resolveDeskEntries(data, normalizeDesk({ refs: [wsRef] }).refs)
+
+    expect(entries[0]).toMatchObject({ targetName: '工作区一', roleName: '乙角色', roleAvatarImage: 'role-avatar' })
+  })
+
   it('装配条目时补上会话标题与来源名，会话还没加载也不丢', () => {
     const data = {
       roles: [{ id: 'role-a', name: '甲角色' }],
@@ -85,7 +104,7 @@ describe('工作桌面的引用清单', () => {
 
     const entries = resolveDeskEntries(data, refs)
 
-    expect(entries[0]).toMatchObject({ title: '甲会话', targetName: '甲角色' })
-    expect(entries[1]).toMatchObject({ title: '新聊天', targetName: '工作区一' })
+    expect(entries[0]).toMatchObject({ title: '甲会话', targetName: '甲角色', roleName: '' })
+    expect(entries[1]).toMatchObject({ title: '新聊天', targetName: '工作区一', roleName: '' })
   })
 })
