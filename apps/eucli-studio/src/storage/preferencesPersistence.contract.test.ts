@@ -257,6 +257,21 @@ describe('客户端偏好保存/重载·设置往返', () => {
     expect(data.settings.composerModelShowProvider).toBe(true)
   })
 
+  it('重启后输入区按钮布局保持区域与顺序', async () => {
+    const { storage } = await saveMutation((settings) => {
+      settings.composerToolsLayout = {
+        inline: ['stream-toggle', 'image-picker'],
+        menu: ['clean-reasoning', 'hook-prompt'],
+      }
+    })
+
+    const data = await reloadAfterSave(storage)
+    const layout = data.settings.composerToolsLayout
+    expect(layout.inline.slice(0, 2)).toEqual(['stream-toggle', 'image-picker'])
+    expect(layout.menu.slice(0, 2)).toEqual(['clean-reasoning', 'hook-prompt'])
+    expect(layout.inline).not.toContain('hook-prompt')
+  })
+
   it('重启后 branchTree.dir 仍为 tb', async () => {
     const { storage } = await saveMutation((settings) => {
       settings.branchTree.dir = 'tb'

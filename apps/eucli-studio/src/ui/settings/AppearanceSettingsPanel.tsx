@@ -58,11 +58,13 @@ import {
   normalizeComposerRadius,
   normalizeComposerWidthPercent,
 } from '../../domain/composerAppearance'
+import { normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
 import { resolveDeskData } from '../../domain/desk'
 import { SIDEBAR_TABS_VARIANT_OPTIONS, type SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
+import { ComposerToolsLayoutSection } from './ComposerToolsLayoutSection'
 import { WallpaperSettingsSection } from './WallpaperSettingsSection'
 import { SettingsSection, SettingsSurface } from './SettingsSurfaces'
 
@@ -264,6 +266,7 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const composerMinRows = normalizeComposerMinRows(settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(settings?.composerRadius)
   const composerModelShowProvider = normalizeComposerModelShowProvider(settings?.composerModelShowProvider)
+  const composerToolsLayout = normalizeComposerToolsLayout((settings as any)?.composerToolsLayout)
   const composerWidthDraft = useNumberDraft(composerWidthPercent, normalizeComposerWidthPercent, (next) => controller.actions.setComposerWidthPercent?.(next, true))
   const composerMinRowsDraft = useNumberDraft(composerMinRows, normalizeComposerMinRows, (next) => controller.actions.setComposerMinRows?.(next, true))
   const composerRadiusDraft = useNumberDraft(composerRadius, normalizeComposerRadius, (next) => controller.actions.setComposerRadius?.(next, true))
@@ -501,6 +504,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
             />
           </Stack>
         </SettingsSection>
+
+        <ComposerToolsLayoutSection controller={controller} loading={loading} layout={composerToolsLayout} />
 
         <SettingsSection>
           <Stack spacing={1.25}>
