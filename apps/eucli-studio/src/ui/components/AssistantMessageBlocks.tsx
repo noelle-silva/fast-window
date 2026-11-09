@@ -360,6 +360,16 @@ function ToolBlockCard(props: {
             {TOOL_PHASE_TEXT[phase]}
           </Box>
         </Box>
+        <Stack direction="row" spacing={0.75} alignItems="center" data-tool-meta sx={{ minWidth: 0, overflow: 'hidden' }}>
+          <Box component="span" className="fw-tool-chip" sx={{ flexShrink: 0 }}>
+            {toolName}
+          </Box>
+          {callId ? (
+            <Box component="code" className="fw-tool-call-id" sx={{ minWidth: 0 }}>
+              {callId}
+            </Box>
+          ) : null}
+        </Stack>
         <Box className="fw-tool-spacer" />
         <Stack direction="row" spacing={0.25} alignItems="center">
           {isEditing ? (
@@ -402,17 +412,6 @@ function ToolBlockCard(props: {
           )}
         </Stack>
       </Box>
-
-      <Stack direction="row" spacing={0.75} alignItems="center" data-tool-meta sx={{ mb: 0.75, minWidth: 0 }}>
-        <Box component="span" className="fw-tool-chip">
-          {toolName}
-        </Box>
-        {callId ? (
-          <Box component="code" className="fw-tool-call-id">
-            {callId}
-          </Box>
-        ) : null}
-      </Stack>
 
       {isEditing ? (
         <TextField

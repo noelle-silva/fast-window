@@ -153,8 +153,9 @@ describe('工具块头部结构', () => {
     const title = header?.querySelector('.fw-tool-title')
     expect(title?.textContent).toContain('工具调用')
     expect(title?.textContent).toContain('成功')
-    // 工具名与 callid 并排在同一行。
+    // 工具名与 callid 并排在同一行，且和标题、按钮同处顶行。
     const meta = el.querySelector('[data-tool-meta]')
+    expect(header?.querySelector('[data-tool-meta]')).toBeTruthy()
     expect(meta?.textContent).toContain('shell_command')
     expect(meta?.textContent).toContain('call-9')
   })

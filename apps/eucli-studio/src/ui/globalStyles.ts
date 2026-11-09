@@ -402,7 +402,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
        '.mermaid-error-err': { display: 'none' },
       '.fw-tool-header': {
         display: 'flex',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         gap: 8,
         minWidth: 0,
         marginBottom: 8,
@@ -412,6 +412,7 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         alignItems: 'center',
         gap: 8,
         minWidth: 0,
+        flexShrink: 0,
         fontSize: 14,
         fontWeight: 900,
         color: 'var(--studio-tool-session-title)',
