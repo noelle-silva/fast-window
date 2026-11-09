@@ -1065,6 +1065,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   )
   const activeRunningSessionKey = runningSessionKey(activeTargetKind, activeChatTargetId, activeChatId)
 
+  // 工作桌面条目看运行态：从同一份运行会话清单折出会话标识集合，不另建来源。
+  const runningDeskChatIds = React.useMemo(
+    () => new Set(runningSessions.map((it) => String(it.sessionId || '')).filter(Boolean)),
+    [runningSessions],
+  )
+
   // 稳定 handler：所有内联箭头只在这里创建一次，Surface 的 memo 才能真正生效。
   const onOpenRunningSessions = useEvent(() => setRunningSessionsOpen(true))
   const onCloseRunningSessions = useEvent(() => setRunningSessionsOpen(false))
@@ -1269,6 +1275,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onTabChange: onChangeDeskTab,
       deskEntries,
       activeChatId: chatSwitch.selectedChatId,
+      runningChatIds: runningDeskChatIds,
       hoverShowsRoleIcon: deskData.hoverShowsRoleIcon,
       onOpenDeskEntry: openDeskEntry,
       onRemoveDeskEntry: removeDeskEntry,
@@ -1286,6 +1293,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onChangeDeskTab,
       deskEntries,
       chatSwitch.selectedChatId,
+      runningDeskChatIds,
       deskData.hoverShowsRoleIcon,
       openDeskEntry,
       removeDeskEntry,

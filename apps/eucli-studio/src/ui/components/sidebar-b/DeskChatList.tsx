@@ -81,6 +81,7 @@ type DeskRowDragArgs = {
 function DeskRow(props: {
   entry: DeskEntry
   active: boolean
+  running: boolean
   hoverShowsRoleIcon: boolean
   dragArgs: DeskRowDragArgs
   shouldIgnoreClick: () => boolean
@@ -88,7 +89,7 @@ function DeskRow(props: {
   onRemove: (entry: DeskEntry) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }) {
-  const { entry, active, hoverShowsRoleIcon, dragArgs, shouldIgnoreClick, onOpen, onRemove, onContextMenu } = props
+  const { entry, active, running, hoverShowsRoleIcon, dragArgs, shouldIgnoreClick, onOpen, onRemove, onContextMenu } = props
   const dragging = dragArgs.isDragging
   const [hovered, setHovered] = React.useState(false)
 
@@ -147,19 +148,42 @@ function DeskRow(props: {
       >
         <DeskEntryIcon kind={iconKind} image={iconImage} active={active} />
 
-        <Typography
-          noWrap
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12,
-            lineHeight: 1.2,
-            fontWeight: active ? 900 : 600,
-            color: active ? 'text.primary' : 'text.secondary',
-          }}
-        >
-          {entry.title}
-        </Typography>
+        {/* 名称与运行标记上下叠放：两行都压在 40 点行高内，撑不住也不裁切。
+            运行标记只用一小块自适应宽度，不挤占名称的横向位置。 */}
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
+          <Typography
+            noWrap
+            sx={{
+              fontSize: 12,
+              lineHeight: '14px',
+              fontWeight: active ? 900 : 600,
+              color: active ? 'text.primary' : 'text.secondary',
+            }}
+          >
+            {entry.title}
+          </Typography>
+          {running ? (
+            <Box
+              sx={{
+                alignSelf: 'flex-start',
+                maxWidth: '100%',
+                height: 11,
+                px: '4px',
+                borderRadius: '3px',
+                bgcolor: colorMixVar('--studio-primary', 14),
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <Typography
+                noWrap
+                sx={{ fontSize: 9, lineHeight: '11px', fontWeight: 800, letterSpacing: '.2px', color: 'primary.main' }}
+              >
+                running...
+              </Typography>
+            </Box>
+          ) : null}
+        </Box>
 
         <IconButton
           size="small"
@@ -181,13 +205,14 @@ function DeskRow(props: {
 export function DeskChatList(props: {
   entries: DeskEntry[]
   activeChatId: string
+  runningChatIds: ReadonlySet<string>
   hoverShowsRoleIcon: boolean
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
   onMove: (activeKey: string, overKey: string) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }) {
-  const { entries, activeChatId, hoverShowsRoleIcon, onOpen, onRemove, onMove, onContextMenu } = props
+  const { entries, activeChatId, runningChatIds, hoverShowsRoleIcon, onOpen, onRemove, onMove, onContextMenu } = props
   const clickGuard = useSortableClickGuard()
   const keys = React.useMemo(() => entries.map((it) => it.key), [entries])
   const activeId = String(activeChatId || '').trim()
@@ -210,6 +235,7 @@ export function DeskChatList(props: {
                 <DeskRow
                   entry={entry}
                   active={!!activeId && entry.chatId === activeId}
+                  running={runningChatIds.has(entry.chatId)}
                   hoverShowsRoleIcon={hoverShowsRoleIcon}
                   dragArgs={dragArgs}
                   shouldIgnoreClick={clickGuard.shouldIgnoreClick}

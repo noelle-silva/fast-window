@@ -48,6 +48,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     onTabChange: noop,
     deskEntries,
     activeChatId: '',
+    runningChatIds: new Set<string>(),
     hoverShowsRoleIcon: true,
     onOpenDeskEntry: noop,
     onRemoveDeskEntry: noop,
@@ -200,6 +201,26 @@ describe('侧边栏 B 的工作桌面', () => {
       quiet.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
     expect(quiet.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
+  })
+
+  it('运行中的会话在名称下面多一行 running 标记，其余条目没有', () => {
+    renderPanel({ runningChatIds: new Set(['chat-1']) })
+
+    const runningRow = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
+    const quietRow = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
+    expect(runningRow.textContent).toContain('running...')
+    expect(quietRow.textContent).not.toContain('running...')
+  })
+
+  it('运行标记和名称同在一个上下叠放的容器里，不占名称的横向位置', () => {
+    renderPanel({ runningChatIds: new Set(['chat-1']) })
+
+    const runningRow = host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement
+    const mark = Array.from(runningRow.querySelectorAll('*')).find((it) => it.textContent === 'running...')
+    expect(mark).toBeTruthy()
+    const column = mark!.parentElement!.parentElement as HTMLElement
+    expect(column.textContent).toContain('甲会话')
+    expect(column.textContent).toContain('running...')
   })
 
   it('桌面为空时给出空态提示', () => {
