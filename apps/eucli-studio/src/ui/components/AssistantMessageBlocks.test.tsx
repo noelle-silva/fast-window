@@ -195,3 +195,52 @@ describe('工具块头部结构', () => {
     expect(el.querySelectorAll('.fw-tool-title').length).toBe(2)
   })
 })
+
+// 输入参数按字段渲染；字段本身全部列出，只有超长的值单独折叠。
+describe('工具输入参数字段表', () => {
+  function click(el: Element | null) {
+    act(() => {
+      el?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  }
+
+  const LONG_COMMAND = `pnpm vitest run ${'x'.repeat(160)}`
+
+  function renderInvocation(input: any) {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input,
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    return el
+  }
+
+  it('字段全部列出，只有长值带展开入口', () => {
+    const el = renderInvocation({ command: LONG_COMMAND, description: '短值' })
+    expect(el.querySelectorAll('[data-tool-field]').length).toBe(2)
+    expect(el.querySelector('button[aria-label="展开字段 command"]')).toBeTruthy()
+    expect(el.querySelector('button[aria-label="展开字段 description"]')).toBeNull()
+  })
+
+  it('长值可以单独展开与收起', () => {
+    const el = renderInvocation({ command: LONG_COMMAND })
+    click(el.querySelector('button[aria-label="展开字段 command"]'))
+    expect(el.querySelector('button[aria-label="收起字段 command"]')).toBeTruthy()
+    click(el.querySelector('button[aria-label="收起字段 command"]'))
+    expect(el.querySelector('button[aria-label="展开字段 command"]')).toBeTruthy()
+  })
+
+  it('嵌套对象按格式化文本渲染', () => {
+    const el = renderInvocation({ env: { NODE_ENV: 'test' } })
+    const field = el.querySelector('[data-tool-field="env"]')
+    expect(field?.textContent).toContain('NODE_ENV')
+    expect(field?.textContent).toContain('test')
+  })
+})

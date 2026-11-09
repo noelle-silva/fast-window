@@ -46,8 +46,7 @@ export function toolBlockCallId(part: any, kind: 'invocation' | 'result'): strin
 }
 
 export function renderAssistantToolInvocationBodyHtml(part: any) {
-  const inputText = safePrettyJson(part?.input || {})
-  return [liveOutputBlock(part), preBlock(inputText), decisionLine(part)].join('')
+  return [liveOutputBlock(part), decisionLine(part)].join('')
 }
 
 export function renderAssistantToolResultBodyHtml(part: any) {

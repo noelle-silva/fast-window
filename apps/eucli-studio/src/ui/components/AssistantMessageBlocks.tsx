@@ -19,6 +19,7 @@ import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
 import { ToolCallStatusDot } from './ToolCallStatusDot'
+import { ToolInputFields } from './ToolInputFields'
 import { ToolConfirmationCard, type ToolConfirmationDecision } from './ToolConfirmationCard'
 import { formatDurationMs } from '../utils/time'
 import { useLiveNowMs } from '../hooks/useLiveNowMs'
@@ -419,7 +420,10 @@ function ToolBlockCard(props: {
           sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
         />
       ) : (
-        <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockBodyHtml(block) }} />
+        <>
+          {isResult ? null : <ToolInputFields value={block.part?.input} />}
+          <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockBodyHtml(block) }} />
+        </>
       )}
     </Paper>
   )
