@@ -88,4 +88,42 @@ describe('侧边栏页签栏', () => {
     expect(leading).toBeTruthy()
     expect(leading.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('左右方向键循环切换，Home 与 End 直接到两端', () => {
+    const seen: string[] = []
+    renderHeader(
+      <SidebarTabsHeader
+        ariaLabel="测试页签"
+        tabs={[{ value: 'a', label: '甲' }, { value: 'b', label: '乙' }, { value: 'c', label: '丙' }]}
+        value="a"
+        onChange={(next) => seen.push(next)}
+      />,
+    )
+
+    const first = host!.querySelectorAll('[role="tab"]')[0] as HTMLElement
+    act(() => {
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    })
+
+    expect(seen).toEqual(['b', 'c', 'c', 'a'])
+  })
+
+  it('只有选中的页签进入键盘焦点顺序', () => {
+    renderHeader(
+      <SidebarTabsHeader
+        ariaLabel="测试页签"
+        tabs={[{ value: 'a', label: '甲' }, { value: 'b', label: '乙' }]}
+        value="b"
+        onChange={noop}
+      />,
+    )
+
+    expect(Array.from(host!.querySelectorAll('[role="tab"]')).map((it) => it.getAttribute('tabindex'))).toEqual([
+      '-1',
+      '0',
+    ])
+  })
 })
