@@ -1263,6 +1263,29 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [onChatContextMenu],
   )
 
+  // 收藏夹内容主体：弹窗与侧边栏 B 用的是同一份 props，外壳各自决定。
+  const favoriteFoldersPanel = React.useMemo(() => ({
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
+    favoriteSearchOpen,
+    setFavoriteSearchOpen,
+    favoriteSearchText,
+    setFavoriteSearchText,
+    favoriteSearchInputRef,
+  }), [
+    favoriteFolders,
+    renderFavoriteFolderTree,
+    collapseAllFavoriteFolders,
+    openCreateFavoriteFolder,
+    favoriteSearchOpen,
+    setFavoriteSearchOpen,
+    favoriteSearchText,
+    setFavoriteSearchText,
+    favoriteSearchInputRef,
+  ])
+
   const sidebarBProps = React.useMemo(
     () => ({
       width: sidebarLayout.b.width,
@@ -1273,6 +1296,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       tab: deskSidebarTab,
       onTabChange: onChangeDeskTab,
+      favorites: favoriteFoldersPanel,
       deskEntries,
       activeChatId: chatSwitch.selectedChatId,
       runningChatIds: runningDeskChatIds,
@@ -1291,6 +1315,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       deskSidebarTab,
       onChangeDeskTab,
+      favoriteFoldersPanel,
       deskEntries,
       chatSwitch.selectedChatId,
       runningDeskChatIds,
@@ -1911,27 +1936,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const overlayFavorites = React.useMemo(() => ({
     open: favoritesOpen,
     onClose: () => setFavoritesOpen(false),
-    favoriteFolders,
-    renderFavoriteFolderTree,
-    collapseAllFavoriteFolders,
-    openCreateFavoriteFolder,
-    favoriteSearchOpen,
-    setFavoriteSearchOpen,
-    favoriteSearchText,
-    setFavoriteSearchText,
-    favoriteSearchInputRef,
-  }), [
-    favoritesOpen,
-    favoriteFolders,
-    renderFavoriteFolderTree,
-    collapseAllFavoriteFolders,
-    openCreateFavoriteFolder,
-    favoriteSearchOpen,
-    setFavoriteSearchOpen,
-    favoriteSearchText,
-    setFavoriteSearchText,
-    favoriteSearchInputRef,
-  ])
+    ...favoriteFoldersPanel,
+  }), [favoritesOpen, favoriteFoldersPanel])
 
   const overlayContextMenus = React.useMemo(() => ({
     controller,

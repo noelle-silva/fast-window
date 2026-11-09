@@ -2,9 +2,9 @@ import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 export type RoleSidebarTab = 'roles' | 'history'
 export type WorkspaceSidebarTab = 'workspaces' | 'roles' | 'session'
-// 侧边栏 B 是工作桌面，眼下只有这一段；将来加分类时在这里追加取值，
-// 侧边栏 B 的页签表与面板分派会跟着同一套类型走。
-export type DeskSidebarTab = 'desk'
+// 侧边栏 B 的两段：工作桌面（会话手边清单）与会话收藏夹（收藏夹树）。
+// 加分类时在这里追加取值，侧边栏 B 的页签表与面板分派跟着同一套类型走。
+export type DeskSidebarTab = 'desk' | 'favorites'
 
 export type SidebarNavigationMemory = {
   role: {

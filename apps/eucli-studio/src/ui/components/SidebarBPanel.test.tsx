@@ -35,6 +35,18 @@ const deskEntries = [
   entry({ targetId: 'ws-1', roleId: 'role-b', chatId: 'chat-2', key: 'workspace::ws-1::role-b::chat-2', title: '乙会话', targetName: '工作区一', targetKind: 'workspace' }),
 ]
 
+const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favorites'] = {
+  favoriteFolders: [],
+  renderFavoriteFolderTree: () => null,
+  collapseAllFavoriteFolders: noop,
+  openCreateFavoriteFolder: noop,
+  favoriteSearchOpen: false,
+  setFavoriteSearchOpen: noop as any,
+  favoriteSearchText: '',
+  setFavoriteSearchText: noop as any,
+  favoriteSearchInputRef: { current: null },
+}
+
 function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPanel>> = {}): React.ComponentProps<typeof SidebarBPanel> {
   return {
     side: 'right',
@@ -46,6 +58,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     topbarBlur: 0,
     tab: 'desk',
     onTabChange: noop,
+    favorites: favoritesStub,
     deskEntries,
     activeChatId: '',
     runningChatIds: new Set<string>(),
@@ -95,7 +108,7 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(host!.textContent).toContain('乙会话')
   })
 
-  it('顶部是和 A 同款的页签栏，眼下只有工作桌面一个分类', () => {
+  it('顶部是和 A 同款的页签栏，铺开工作桌面与会话收藏夹两段', () => {
     renderPanel()
 
     const tablist = host!.querySelector('[role="tablist"]')
@@ -103,9 +116,29 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(tablist!.getAttribute('aria-label')).toBe('侧边栏 B 页签')
 
     const tabs = Array.from(host!.querySelectorAll('[role="tab"]'))
-    expect(tabs).toHaveLength(1)
-    expect(tabs[0].textContent).toBe('工作桌面')
+    expect(tabs.map((it) => it.textContent)).toEqual(['工作桌面', '会话收藏夹'])
     expect(tabs[0].getAttribute('aria-selected')).toBe('true')
+    expect(tabs[1].getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('停在会话收藏夹时显示收藏夹树，桌面条目不再出场', () => {
+    renderPanel({
+      tab: 'favorites',
+      favorites: {
+        ...favoritesStub,
+        favoriteFolders: [{ id: 'f1', name: '甲文件夹' }],
+        renderFavoriteFolderTree: () => <div>收藏树节点</div>,
+      },
+    })
+
+    expect(host!.textContent).toContain('收藏树节点')
+    expect(host!.textContent).not.toContain('甲会话')
+  })
+
+  it('收藏夹为空时给出空态提示', () => {
+    renderPanel({ tab: 'favorites' })
+
+    expect(host!.textContent).toContain('还没有收藏夹')
   })
 
   it('每一条都带自己的移除按钮', () => {

@@ -37,10 +37,10 @@ describe('侧边栏导航记忆', () => {
   it('工作桌面的页签记忆与 A 的两套页签互不影响', () => {
     setRoleSidebarTab('history')
     setWorkspaceSidebarTab('session')
-    setDeskSidebarTab('desk')
+    setDeskSidebarTab('favorites')
 
     const memory = getSidebarNavigationMemory()
-    expect(memory.desk.tab).toBe('desk')
+    expect(memory.desk.tab).toBe('favorites')
     expect(memory.role.tab).toBe('history')
     expect(memory.workspace.tab).toBe('session')
   })
@@ -84,7 +84,7 @@ describe('侧边栏导航记忆', () => {
   it('重置后清空全部记忆', () => {
     setRoleSidebarTab('history')
     setWorkspaceSidebarTab('session')
-    setDeskSidebarTab('desk')
+    setDeskSidebarTab('favorites')
     rememberRoleId('role-a')
     rememberRoleSession('role-a', 'chat-a1')
     rememberWorkspaceId('ws-1')
