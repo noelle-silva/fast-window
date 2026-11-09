@@ -9,7 +9,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import CloseIcon from '@mui/icons-material/Close'
 import { planAssistantMessageBlocks, type AssistantMessageBlock } from '../../render/assistantMessagePlan'
-import { renderAssistantToolInvocationHtml, renderAssistantToolResultHtml } from '../../render/assistantToolHtml'
+import { renderAssistantToolInvocationBodyHtml, renderAssistantToolResultBodyHtml, toolBlockHeader } from '../../render/assistantToolHtml'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
@@ -148,9 +148,9 @@ function blockCopyText(block: AssistantMessageBlock) {
   return ''
 }
 
-function renderToolBlockHtml(block: AssistantMessageBlock) {
-  if (block.kind === 'tool_invocation') return renderAssistantToolInvocationHtml(block.part)
-  if (block.kind === 'tool_result') return renderAssistantToolResultHtml(block.part)
+function renderToolBlockBodyHtml(block: AssistantMessageBlock) {
+  if (block.kind === 'tool_invocation') return renderAssistantToolInvocationBodyHtml(block.part)
+  if (block.kind === 'tool_result') return renderAssistantToolResultBodyHtml(block.part)
   return ''
 }
 
@@ -272,61 +272,131 @@ function ToolSessionCard(props: {
       </Stack>
       <Collapse in={expanded} timeout={180} unmountOnExit>
         <Stack spacing={0.75} sx={{ px: 1, pb: 1 }}>
-          {item.blocks.map((block) => {
-            const isEditing = editing.id === block.id
-            const tone = blockTone(block)
-            const canEdit = !disabled
-            const canDelete = !disabled
-            return (
-              <Paper
-                key={block.id}
-                elevation={0}
-                data-mid={mid}
-                data-assistant-block-kind={block.kind}
-                sx={{ bgcolor: tone.bgcolor, borderRadius: 2.5, px: 1.1, py: 0.9, overflow: 'hidden' }}
-              >
-                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.65, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-secondary)', minWidth: 0 }} noWrap>
-                    {blockTitle(block)}
-                  </Typography>
-                  <Box sx={{ flex: 1, minWidth: 8 }} />
-                  {isEditing ? (
-                    <>
-                      <Tooltip title="保存"><span><IconButton size="small" aria-label="保存消息块" disabled={!!disabled} onClick={() => onSaveEdit(block)}><SaveOutlinedIcon fontSize="inherit" /></IconButton></span></Tooltip>
-                      <Tooltip title="取消"><IconButton size="small" aria-label="取消编辑消息块" onClick={() => onSetEditing({ id: '', text: '' })}><CloseIcon fontSize="inherit" /></IconButton></Tooltip>
-                    </>
-                  ) : (
-                    <>
-                      <Tooltip title="编辑"><span><IconButton size="small" aria-label="编辑消息块" disabled={!canEdit} onClick={() => onSetEditing({ id: block.id, text: blockEditText(block) })}><EditOutlinedIcon fontSize="inherit" /></IconButton></span></Tooltip>
-                      <Tooltip title="复制"><IconButton size="small" aria-label="复制消息块" onClick={() => writeClipboard(controller, blockCopyText(block))}><ContentCopyIcon fontSize="inherit" /></IconButton></Tooltip>
-                      <Tooltip title="删除"><span><IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => onSetDeleting(block)}><DeleteOutlineIcon fontSize="inherit" /></IconButton></span></Tooltip>
-                    </>
-                  )}
-                </Stack>
-
-                {isEditing ? (
-                  <TextField
-                    autoFocus
-                    fullWidth
-                    multiline
-                    minRows={5}
-                    size="small"
-                    value={editing.text}
-                    onChange={(event) => onSetEditing((current) => ({ ...current, text: event.target.value }))}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') onSetEditing({ id: '', text: '' })
-                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onSaveEdit(block)
-                    }}
-                    sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
-                  />
-                ) : (
-                  <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockHtml(block) }} />
-                )}
-              </Paper>
-            )
-          })}
+          {item.blocks.map((block) => (
+            <ToolBlockCard
+              key={block.id}
+              controller={controller}
+              block={block}
+              mid={mid}
+              editing={editing}
+              disabled={disabled}
+              onSetEditing={onSetEditing}
+              onSetDeleting={onSetDeleting}
+              onSaveEdit={onSaveEdit}
+            />
+          ))}
         </Stack>
       </Collapse>
+    </Paper>
+  )
+}
+
+// 工具子块：标题、callid 与块操作同处块内头部，正文只渲染工具数据。
+function ToolBlockCard(props: {
+  controller: any
+  block: ToolDetailBlock
+  mid: string
+  editing: EditingBlock
+  disabled?: boolean
+  onSetEditing: React.Dispatch<React.SetStateAction<EditingBlock>>
+  onSetDeleting: (block: AssistantMessageBlock | null) => void
+  onSaveEdit: (block: AssistantMessageBlock) => void | Promise<void>
+}) {
+  const { controller, block, mid, editing, disabled, onSetEditing, onSetDeleting, onSaveEdit } = props
+  const isEditing = editing.id === block.id
+  const tone = blockTone(block)
+  const canEdit = !disabled
+  const canDelete = !disabled
+  const header = toolBlockHeader(block.part, block.kind === 'tool_result' ? 'result' : 'invocation')
+
+  return (
+    <Paper
+      elevation={0}
+      data-mid={mid}
+      data-assistant-block-kind={block.kind}
+      data-stop="1"
+      sx={{
+        bgcolor: tone.bgcolor,
+        borderRadius: 3,
+        px: 1.1,
+        py: 0.9,
+        overflow: 'hidden',
+      }}
+    >
+      {/* 标题、callid 与块操作同处块内头部，不再额外占一条标题行。 */}
+      <Box className="fw-tool-header" sx={{ minWidth: 0 }}>
+        <Box className="fw-tool-title">
+          <Box component="span" className={header.glyphClass} aria-hidden="true" />
+          <Box component="span">{header.title}</Box>
+        </Box>
+        <Box className="fw-tool-spacer" />
+        <Stack alignItems="flex-end" spacing={0.15} sx={{ minWidth: 0, maxWidth: '62%' }}>
+          <Stack direction="row" spacing={0.25} alignItems="center">
+            {isEditing ? (
+              <>
+                <Tooltip title="保存">
+                  <span>
+                    <IconButton size="small" aria-label="保存消息块" disabled={!!disabled} onClick={() => onSaveEdit(block)}>
+                      <SaveOutlinedIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="取消">
+                  <IconButton size="small" aria-label="取消编辑消息块" onClick={() => onSetEditing({ id: '', text: '' })}>
+                    <CloseIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            ) : (
+              <>
+                <Tooltip title="编辑">
+                  <span>
+                    <IconButton size="small" aria-label="编辑消息块" disabled={!canEdit} onClick={() => onSetEditing({ id: block.id, text: blockEditText(block) })}>
+                      <EditOutlinedIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="复制">
+                  <IconButton size="small" aria-label="复制消息块" onClick={() => writeClipboard(controller, blockCopyText(block))}>
+                    <ContentCopyIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="删除">
+                  <span>
+                    <IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => onSetDeleting(block)}>
+                      <DeleteOutlineIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </>
+            )}
+          </Stack>
+          {header.callId ? (
+            <Box component="code" className="fw-tool-call-id" sx={{ textAlign: 'right' }}>
+              {header.callId}
+            </Box>
+          ) : null}
+        </Stack>
+      </Box>
+
+      {isEditing ? (
+        <TextField
+          autoFocus
+          fullWidth
+          multiline
+          minRows={5}
+          size="small"
+          value={editing.text}
+          onChange={(event) => onSetEditing((current) => ({ ...current, text: event.target.value }))}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') onSetEditing({ id: '', text: '' })
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onSaveEdit(block)
+          }}
+          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
+        />
+      ) : (
+        <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockBodyHtml(block) }} />
+      )}
     </Paper>
   )
 }
@@ -452,88 +522,19 @@ export function AssistantMessageBlocks(props: AssistantMessageBlocksProps) {
             />
           )
         }
-        const isEditing = editing.id === block.id
-        const tone = blockTone(block)
-        const canEdit = !disabled
-        const canDelete = !disabled
+        if (!isToolDetailBlock(block)) return null
         return (
-          <Paper
+          <ToolBlockCard
             key={block.id}
-            elevation={0}
-            data-mid={mid}
-            data-assistant-block-kind={block.kind}
-            sx={{
-              bgcolor: tone.bgcolor,
-              borderRadius: 3,
-              px: 1.1,
-              py: 0.9,
-              overflow: 'hidden',
-            }}
-          >
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.65, minWidth: 0 }}>
-              <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-secondary)', minWidth: 0 }} noWrap>
-                {blockTitle(block)}
-              </Typography>
-              <Box sx={{ flex: 1, minWidth: 8 }} />
-              {isEditing ? (
-                <>
-                  <Tooltip title="保存">
-                    <span>
-                      <IconButton size="small" aria-label="保存消息块" disabled={!!disabled} onClick={() => saveEdit(block)}>
-                        <SaveOutlinedIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="取消">
-                    <IconButton size="small" aria-label="取消编辑消息块" onClick={() => setEditing({ id: '', text: '' })}>
-                      <CloseIcon fontSize="inherit" />
-                    </IconButton>
-                  </Tooltip>
-                </>
-              ) : (
-                <>
-                  <Tooltip title="编辑">
-                    <span>
-                      <IconButton size="small" aria-label="编辑消息块" disabled={!canEdit} onClick={() => setEditing({ id: block.id, text: blockEditText(block) })}>
-                        <EditOutlinedIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="复制">
-                    <IconButton size="small" aria-label="复制消息块" onClick={() => writeClipboard(controller, blockCopyText(block))}>
-                      <ContentCopyIcon fontSize="inherit" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="删除">
-                    <span>
-                      <IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => setDeleting(block)}>
-                        <DeleteOutlineIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </>
-              )}
-            </Stack>
-
-            {isEditing ? (
-              <TextField
-                autoFocus
-                fullWidth
-                multiline
-                minRows={5}
-                size="small"
-                value={editing.text}
-                onChange={(event) => setEditing((current) => ({ ...current, text: event.target.value }))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setEditing({ id: '', text: '' })
-                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) saveEdit(block)
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
-              />
-            ) : (
-              <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockHtml(block) }} />
-            )}
-          </Paper>
+            controller={controller}
+            block={block}
+            mid={mid}
+            editing={editing}
+            disabled={disabled}
+            onSetEditing={setEditing}
+            onSetDeleting={setDeleting}
+            onSaveEdit={saveEdit}
+          />
         )
       })}
 

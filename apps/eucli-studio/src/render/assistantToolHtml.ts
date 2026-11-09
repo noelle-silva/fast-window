@@ -1,6 +1,9 @@
 import { esc } from '../core/utils'
 import { toolResultTone, toolStateText, toolStateTone } from '../domain/toolCallState'
 
+// 工具块的头部由 React 渲染（标题、callid、块操作按钮同处一层），
+// 这里只输出正文 HTML：状态胶囊、输入/返回内容、实时输出与权限说明。
+
 function safePrettyJson(value: any) {
   try {
     return JSON.stringify(value ?? {}, null, 2)
@@ -36,62 +39,6 @@ function decisionLine(part: any) {
   return `<div class="fw-tool-meta-line">权限：${esc(status)}${reason ? `，原因：${esc(reason)}` : ''}</div>`
 }
 
-function callIdHtml(part: any) {
-  const callId = String(part?.callId || '').trim()
-  if (!callId) return ''
-  return `<code class="fw-tool-call-id">${esc(callId)}</code>`
-}
-
-function toolSessionSummaryHtml(title: string, name: string, stateText = '', resultStatus = '', callId = '') {
-  return [
-    '<summary class="fw-tool-session-summary">',
-    '<span class="fw-tool-session-mark" aria-hidden="true"></span>',
-    `<span class="fw-tool-session-title">${esc(title)}</span>`,
-    `<span class="fw-tool-session-name">${esc(name)}</span>`,
-    stateText ? `<span class="fw-tool-session-pill">${esc(stateText)}</span>` : '',
-    resultStatus ? `<span class="fw-tool-session-pill">${esc(resultStatus)}</span>` : '',
-    '<span class="fw-tool-session-spacer"></span>',
-    callId ? `<code class="fw-tool-call-id">${esc(callId)}</code>` : '',
-    '<span class="fw-tool-session-chevron" aria-hidden="true"></span>',
-    '</summary>',
-  ].join('')
-}
-
-function toolSessionHtml(summaryHtml: string, bodyHtml: string) {
-  return [
-    '<details class="fw-tool-session" data-stop="1">',
-    summaryHtml,
-    '<div class="fw-tool-session-body">',
-    bodyHtml,
-    '</div>',
-    '</details>',
-  ].join('')
-}
-
-export function renderAssistantToolInvocationHtml(part: any) {
-  const name = String(part?.toolName || 'tool')
-  const state = String(part?.state || '')
-  const inputText = safePrettyJson(part?.input || {})
-
-  return [
-    `<section class="fw-tool-block fw-tool-invocation" data-stop="1" data-tool-kind="invocation" data-tool-name="${esc(name)}" data-tool-call-id="${esc(part?.callId || '')}">`,
-    '<div class="fw-tool-header">',
-    '<div class="fw-tool-title"><span class="fw-tool-glyph" aria-hidden="true"></span>',
-    '<span>工具调用</span></div>',
-    '<div class="fw-tool-spacer"></div>',
-    callIdHtml(part),
-    '</div>',
-    '<div class="fw-tool-chip-row">',
-    chip(name),
-    chip(toolStateText(state, '未知状态'), toolStateTone(state)),
-    '</div>',
-    liveOutputBlock(part),
-    preBlock('输入参数', inputText),
-    decisionLine(part),
-    '</section>',
-  ].join('')
-}
-
 // liveOutputBlock 渲染命令运行中的实时输出预览；仅在没有最终结果且仍在运行时出现。
 function liveOutputBlock(part: any) {
   const live = part?.runtimeOutput && typeof part.runtimeOutput === 'object' ? part.runtimeOutput : null
@@ -111,7 +58,37 @@ function liveOutputBlock(part: any) {
   ].join('')
 }
 
-export function renderAssistantToolResultHtml(part: any) {
+export type ToolBlockHeader = {
+  title: string
+  glyphClass: string
+  callId: string
+}
+
+// 头部元数据：标题与图标随块类型变化，callid 在结果块上回退到 result.actionId。
+export function toolBlockHeader(part: any, kind: 'invocation' | 'result'): ToolBlockHeader {
+  const result = part?.result && typeof part.result === 'object' ? part.result : null
+  const callId = String(part?.callId || (kind === 'result' ? result?.actionId : '') || '').trim()
+  if (kind === 'result') return { title: '工具返回结果', glyphClass: 'fw-tool-glyph fw-tool-glyph-result', callId }
+  return { title: '工具调用', glyphClass: 'fw-tool-glyph', callId }
+}
+
+export function renderAssistantToolInvocationBodyHtml(part: any) {
+  const name = String(part?.toolName || 'tool')
+  const state = String(part?.state || '')
+  const inputText = safePrettyJson(part?.input || {})
+
+  return [
+    '<div class="fw-tool-chip-row">',
+    chip(name),
+    chip(toolStateText(state, '未知状态'), toolStateTone(state)),
+    '</div>',
+    liveOutputBlock(part),
+    preBlock('输入参数', inputText),
+    decisionLine(part),
+  ].join('')
+}
+
+export function renderAssistantToolResultBodyHtml(part: any) {
   const result = part?.result && typeof part.result === 'object' ? part.result : null
   if (!result) return ''
   const name = String(part?.toolName || result?.toolName || 'tool')
@@ -119,31 +96,10 @@ export function renderAssistantToolResultHtml(part: any) {
   const resultText = String(result?.content || result?.error || '') || safePrettyJson(result)
 
   return [
-    `<section class="fw-tool-block fw-tool-result" data-stop="1" data-tool-kind="result" data-tool-name="${esc(name)}" data-tool-call-id="${esc(part?.callId || result?.actionId || '')}">`,
-    '<div class="fw-tool-header">',
-    '<div class="fw-tool-title"><span class="fw-tool-glyph fw-tool-glyph-result" aria-hidden="true"></span>',
-    '<span>工具返回结果</span></div>',
-    '<div class="fw-tool-spacer"></div>',
-    callIdHtml(part),
-    '</div>',
     '<div class="fw-tool-chip-row">',
     chip(name),
     chip(status, toolResultTone(status)),
     '</div>',
     preBlock('返回内容', resultText),
-    '</section>',
   ].join('')
-}
-
-export function renderAssistantToolHtml(part: any) {
-  const name = String(part?.toolName || 'tool')
-  const result = part?.result && typeof part.result === 'object' ? part.result : null
-  const resultHtml = renderAssistantToolResultHtml(part)
-  const stateText = toolStateText(part?.state)
-  const resultStatus = result ? String(result?.status || '').trim() : ''
-  const callId = String(part?.callId || '').trim()
-  return toolSessionHtml(
-    toolSessionSummaryHtml(name, stateText || '工具调用', resultStatus, '', callId),
-    renderAssistantToolInvocationHtml(part) + resultHtml,
-  )
 }

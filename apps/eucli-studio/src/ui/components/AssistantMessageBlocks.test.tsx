@@ -120,3 +120,52 @@ describe('工具调用状态圆', () => {
     expect(phaseOf(el)).toEqual({ phase: 'running', label: '工具调用进行中' })
   })
 })
+
+// 工具子块的头部：标题、块操作与 callid 同处一层，不再另起一条标题行。
+describe('工具块头部结构', () => {
+  function click(el: Element | null) {
+    act(() => {
+      el?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  }
+
+  it('展开后块操作与 callid 都在工具块头部内', () => {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input: { description: '跑一下' },
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    const header = el.querySelector('.fw-tool-header')
+    expect(header).toBeTruthy()
+    expect(header?.querySelector('button[aria-label="复制消息块"]')).toBeTruthy()
+    expect(header?.querySelector('button[aria-label="编辑消息块"]')).toBeTruthy()
+    expect(header?.querySelector('button[aria-label="删除消息块"]')).toBeTruthy()
+    expect(header?.querySelector('.fw-tool-call-id')?.textContent).toBe('call-9')
+  })
+
+  it('工具调用与工具返回各自只有一个头部，没有外层重复标题', () => {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input: {},
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    expect(el.querySelectorAll('.fw-tool-header').length).toBe(2)
+    expect(el.querySelectorAll('.fw-tool-title').length).toBe(2)
+  })
+})
