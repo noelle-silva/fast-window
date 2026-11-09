@@ -8,9 +8,11 @@ import {
   rememberWorkspaceId,
   rememberWorkspaceRole,
   rememberWorkspaceSession,
+  setDeskSidebarTab,
   setRoleSidebarTab,
   setWorkspaceSidebarTab,
   workspaceSessionKey,
+  type DeskSidebarTab,
   type RoleSidebarTab,
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
@@ -320,15 +322,22 @@ export function useSidebarNavigation(input: {
     bumpMemory()
   })
 
+  const changeDeskTab = useEvent((tab: DeskSidebarTab) => {
+    setDeskSidebarTab(tab)
+    bumpMemory()
+  })
+
   return {
     switchSession,
     view,
     memoryVersion,
+    deskTab: getSidebarNavigationMemory().desk.tab,
     toggleView,
     selectRole,
     selectWorkspace,
     selectWorkspaceRole,
     selectSession,
     changeTab,
+    changeDeskTab,
   }
 }

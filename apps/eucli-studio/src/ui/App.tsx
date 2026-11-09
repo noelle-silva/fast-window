@@ -467,11 +467,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const {
     switchSession,
     memoryVersion: sidebarMemoryVersion,
+    deskTab: deskSidebarTab,
     selectRole: onSelectRoleInSidebar,
     selectWorkspace: onSelectWorkspaceInSidebar,
     selectWorkspaceRole: onSelectWorkspaceRoleInSidebar,
     selectSession: onSelectSidebarSession,
     changeTab: onChangeSidebarTab,
+    changeDeskTab: onChangeDeskTab,
   } = sidebarNavigation
 
   const {
@@ -1263,6 +1265,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onSplitterPointerDown: sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
+      tab: deskSidebarTab,
+      onTabChange: onChangeDeskTab,
       deskEntries,
       activeChatId: chatSwitch.selectedChatId,
       hoverShowsRoleIcon: deskData.hoverShowsRoleIcon,
@@ -1278,6 +1282,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       sidebarResizeB.onSplitterPointerDown,
       topbarOpacity,
       topbarBlur,
+      deskSidebarTab,
+      onChangeDeskTab,
       deskEntries,
       chatSwitch.selectedChatId,
       deskData.hoverShowsRoleIcon,

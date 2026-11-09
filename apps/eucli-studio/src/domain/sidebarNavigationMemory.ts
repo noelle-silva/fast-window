@@ -2,6 +2,9 @@ import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 export type RoleSidebarTab = 'roles' | 'history'
 export type WorkspaceSidebarTab = 'workspaces' | 'roles' | 'session'
+// 侧边栏 B 是工作桌面，眼下只有这一段；将来加分类时在这里追加取值，
+// 侧边栏 B 的页签表与面板分派会跟着同一套类型走。
+export type DeskSidebarTab = 'desk'
 
 export type SidebarNavigationMemory = {
   role: {
@@ -14,6 +17,9 @@ export type SidebarNavigationMemory = {
     workspaceId: string
     roleByWorkspace: Record<string, string>
     sessionByWorkspaceRole: Record<string, string>
+  }
+  desk: {
+    tab: DeskSidebarTab
   }
 }
 
@@ -34,6 +40,9 @@ function createMemory(): SidebarNavigationMemory {
       roleByWorkspace: {},
       sessionByWorkspaceRole: {},
     },
+    desk: {
+      tab: 'desk',
+    },
   }
 }
 
@@ -53,6 +62,10 @@ export function setRoleSidebarTab(tab: RoleSidebarTab) {
 
 export function setWorkspaceSidebarTab(tab: WorkspaceSidebarTab) {
   memory.workspace.tab = tab === 'session' ? 'session' : tab === 'roles' ? 'roles' : 'workspaces'
+}
+
+export function setDeskSidebarTab(tab: DeskSidebarTab) {
+  memory.desk.tab = tab
 }
 
 export function rememberRoleId(roleId: unknown) {

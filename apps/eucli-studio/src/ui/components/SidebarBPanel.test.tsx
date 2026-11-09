@@ -44,6 +44,8 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     onSplitterPointerDown: noop,
     topbarOpacity: 100,
     topbarBlur: 0,
+    tab: 'desk',
+    onTabChange: noop,
     deskEntries,
     activeChatId: '',
     hoverShowsRoleIcon: true,
@@ -90,6 +92,19 @@ describe('侧边栏 B 的工作桌面', () => {
 
     expect(host!.textContent).toContain('甲会话')
     expect(host!.textContent).toContain('乙会话')
+  })
+
+  it('顶部是和 A 同款的页签栏，眼下只有工作桌面一个分类', () => {
+    renderPanel()
+
+    const tablist = host!.querySelector('[role="tablist"]')
+    expect(tablist).toBeTruthy()
+    expect(tablist!.getAttribute('aria-label')).toBe('侧边栏 B 页签')
+
+    const tabs = Array.from(host!.querySelectorAll('[role="tab"]'))
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].textContent).toBe('工作桌面')
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true')
   })
 
   it('每一条都带自己的移除按钮', () => {

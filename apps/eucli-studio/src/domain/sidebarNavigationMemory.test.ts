@@ -9,6 +9,7 @@ import {
   rememberWorkspaceRole,
   rememberWorkspaceSession,
   resetSidebarNavigationMemory,
+  setDeskSidebarTab,
   setRoleSidebarTab,
   setWorkspaceSidebarTab,
   workspaceSessionKey,
@@ -23,6 +24,7 @@ describe('侧边栏导航记忆', () => {
     const memory = getSidebarNavigationMemory()
     expect(memory.role.tab).toBe('roles')
     expect(memory.workspace.tab).toBe('workspaces')
+    expect(memory.desk.tab).toBe('desk')
   })
 
   it('按模式分别记住停留段', () => {
@@ -30,6 +32,17 @@ describe('侧边栏导航记忆', () => {
     setWorkspaceSidebarTab('session')
     expect(getSidebarNavigationMemory().role.tab).toBe('history')
     expect(getSidebarNavigationMemory().workspace.tab).toBe('session')
+  })
+
+  it('工作桌面的页签记忆与 A 的两套页签互不影响', () => {
+    setRoleSidebarTab('history')
+    setWorkspaceSidebarTab('session')
+    setDeskSidebarTab('desk')
+
+    const memory = getSidebarNavigationMemory()
+    expect(memory.desk.tab).toBe('desk')
+    expect(memory.role.tab).toBe('history')
+    expect(memory.workspace.tab).toBe('session')
   })
 
   it('角色模式记住角色与各角色的会话', () => {
@@ -71,6 +84,7 @@ describe('侧边栏导航记忆', () => {
   it('重置后清空全部记忆', () => {
     setRoleSidebarTab('history')
     setWorkspaceSidebarTab('session')
+    setDeskSidebarTab('desk')
     rememberRoleId('role-a')
     rememberRoleSession('role-a', 'chat-a1')
     rememberWorkspaceId('ws-1')
@@ -80,6 +94,7 @@ describe('侧边栏导航记忆', () => {
     expect(getSidebarNavigationMemory()).toEqual({
       role: { tab: 'roles', roleId: '', sessionByRole: {} },
       workspace: { tab: 'workspaces', workspaceId: '', roleByWorkspace: {}, sessionByWorkspaceRole: {} },
+      desk: { tab: 'desk' },
     })
   })
 })
