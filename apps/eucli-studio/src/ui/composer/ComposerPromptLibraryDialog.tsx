@@ -22,13 +22,17 @@ export function ComposerPromptLibraryDialog(props: {
       open={!!scope}
       onClose={onClose}
       fullWidth
-      maxWidth="lg"
+      // 面板宽度按内容定：260 侧边栏 + 编辑器 + 顶部一行（含 328 归属槽位），
+      // md（900）刚好放得下；卡片会撑满这个宽度，不会在右侧留白。
+      maxWidth="md"
       PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}
     >
       <DialogTitle>{scope ? promptScopeLibraryTitle(scope) : ''}</DialogTitle>
       <DialogContent sx={{ p: 1.5, height: 'min(76vh, 760px)', display: 'flex', minHeight: 0 }}>
         {scope ? (
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
+          // 竖向 flex：面板在交叉轴上 stretch，宽度撑满对话框。
+          // 横向 flex 会把面板当成 flex item、收缩到内容宽度，右侧留出一条空白。
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <PromptLibrarySettingsPanel
               key={scope}
               controller={controller}
