@@ -22,6 +22,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import {
   EMPTY_PROMPT_FOLDER_LIBRARY,
   EMPTY_PROMPT_LIBRARY,
+  PROMPT_SCOPE_LABELS,
   collectPromptFolderSubtreeIds,
   completeFolderEntryOrder,
   completeRootEntryOrder,
@@ -50,12 +51,6 @@ import { PromptFolderPicker } from './PromptFolderPicker'
 // 提示词仓库管理：三段作用域切换 + 混排侧边栏 + 右侧条目编辑器。
 // 收藏走「收藏到收藏夹」模态窗；条目与收藏夹的功能入口都在右键菜单里。
 
-const SCOPE_LABELS: Record<PromptScope, string> = {
-  global: '全局提示词',
-  role: '角色提示词',
-  workspace: '工作区提示词',
-}
-
 const EMPTY_ENTRY: PromptEntry = { id: '', name: '', content: '', description: '', createdAt: '', updatedAt: '' }
 
 // 次要按钮也用实心底色，不用纯边框或透明样式。
@@ -72,6 +67,10 @@ type PromptLibrarySettingsPanelProps = {
   controller: any
   roles?: any[]
   workspaces?: any[]
+  /** 打开时落在哪一段作用域（输入区模态窗按按钮预置）；面板内仍可自由切换。 */
+  initialScope?: PromptScope
+  /** 打开时优先选中的归属（例如当前角色）；不在列表里时回落到第一个。 */
+  initialOwnerId?: string
 }
 
 function text(value: unknown) {
@@ -79,10 +78,10 @@ function text(value: unknown) {
 }
 
 export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProps) {
-  const { controller, roles = [], workspaces = [] } = props
+  const { controller, roles = [], workspaces = [], initialScope = 'global', initialOwnerId = '' } = props
 
-  const [scope, setScope] = React.useState<PromptScope>('global')
-  const [ownerId, setOwnerId] = React.useState('')
+  const [scope, setScope] = React.useState<PromptScope>(initialScope)
+  const [ownerId, setOwnerId] = React.useState(String(initialOwnerId || ''))
   const [ownerSearch, setOwnerSearch] = React.useState('')
   const [library, setLibrary] = React.useState<PromptLibrary>(EMPTY_PROMPT_LIBRARY)
   const [folders, setFolders] = React.useState<PromptFolderLibrary>(EMPTY_PROMPT_FOLDER_LIBRARY)
@@ -515,7 +514,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。 */}
       <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
-        {(Object.keys(SCOPE_LABELS) as PromptScope[]).map((value) => {
+        {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
           const active = scope === value
           return (
             <Button
@@ -527,7 +526,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
               onClick={() => setScope(value)}
               sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
             >
-              {SCOPE_LABELS[value]}
+              {PROMPT_SCOPE_LABELS[value]}
             </Button>
           )
         })}

@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ComposerToolsLayoutSection } from './ComposerToolsLayoutSection'
-import { normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
+import { COMPOSER_TOOL_IDS, normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -76,7 +76,7 @@ describe('输入区按钮布局设置分区', () => {
     const labels = Array.from(host!.querySelectorAll('input[type="checkbox"]')).map((node) =>
       node.getAttribute('aria-label'),
     )
-    expect(labels).toHaveLength(9)
-    expect(new Set(labels).size).toBe(9)
+    expect(labels).toHaveLength(COMPOSER_TOOL_IDS.length)
+    expect(new Set(labels).size).toBe(COMPOSER_TOOL_IDS.length)
   })
 })
