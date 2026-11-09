@@ -472,8 +472,6 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         color: 'var(--studio-tool-pre-text)',
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
-         maxHeight: 260,
-         overflow: 'auto',
          fontSize: 12,
          lineHeight: 1.55,
          fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace',

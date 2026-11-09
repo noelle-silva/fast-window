@@ -20,6 +20,7 @@ import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
 import { ToolCallStatusDot } from './ToolCallStatusDot'
 import { ToolInputFields } from './ToolInputFields'
+import { CustomScrollArea } from './CustomScrollArea'
 import { ToolConfirmationCard, type ToolConfirmationDecision } from './ToolConfirmationCard'
 import { formatDurationMs } from '../utils/time'
 import { useLiveNowMs } from '../hooks/useLiveNowMs'
@@ -42,6 +43,9 @@ type AssistantMessageBlocksProps = {
 type EditingBlock = { id: string; text: string }
 type ToolDetailBlock = Extract<AssistantMessageBlock, { kind: 'tool_invocation' | 'tool_result' }>
 type DisplayItem = { kind: 'block'; block: AssistantMessageBlock } | { kind: 'tool_session'; id: string; blocks: ToolDetailBlock[] }
+
+// 工具块正文的统一滚动高度：参数、实时输出、返回内容共用一条自定义滚动条。
+const TOOL_BODY_MAX_HEIGHT_PX = 320
 
 function blockTitle(block: AssistantMessageBlock) {
   if (block.kind === 'text') return '消息正文'
@@ -73,6 +77,11 @@ function toolSessionIdentity(block: ToolDetailBlock, index: number) {
   return sessionId && sessionId !== blockId ? sessionId : `tool-session:${index}`
 }
 
+// 因果顺序：调用在前、返回在后。不随后端 parts 的推送顺序摆动。
+function toolBlockOrder(kind: ToolDetailBlock['kind']) {
+  return kind === 'tool_invocation' ? 0 : 1
+}
+
 function buildDisplayItems(blocks: AssistantMessageBlock[]): DisplayItem[] {
   const items: DisplayItem[] = []
   for (let i = 0; i < blocks.length; i++) {
@@ -89,6 +98,7 @@ function buildDisplayItems(blocks: AssistantMessageBlock[]): DisplayItem[] {
       grouped.push(next)
       i += 1
     }
+    grouped.sort((a, b) => toolBlockOrder(a.kind) - toolBlockOrder(b.kind))
     items.push({ kind: 'tool_session', id: `tool-session:${id}`, blocks: grouped })
   }
   return items
@@ -420,10 +430,15 @@ function ToolBlockCard(props: {
           sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'var(--studio-paper)' } }}
         />
       ) : (
-        <>
+        <CustomScrollArea
+          className="fw-tool-body-scroll"
+          axis="y"
+          hostSx={{ maxHeight: TOOL_BODY_MAX_HEIGHT_PX }}
+          scrollSx={{ maxHeight: TOOL_BODY_MAX_HEIGHT_PX, pr: 1.25 }}
+        >
           {isResult ? null : <ToolInputFields value={block.part?.input} />}
           <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockBodyHtml(block) }} />
-        </>
+        </CustomScrollArea>
       )}
     </Paper>
   )

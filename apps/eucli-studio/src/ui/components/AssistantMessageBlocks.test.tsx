@@ -177,6 +177,23 @@ describe('工具块头部结构', () => {
     expect(el.textContent).not.toContain('返回内容')
   })
 
+  it('正文滚动走客户端自定义滚动容器', () => {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input: { command: 'echo hi' },
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    expect(el.querySelector('.fw-tool-body-scroll')).toBeTruthy()
+  })
+
   it('工具调用与工具返回各自只有一个头部，没有外层重复标题', () => {
     const el = renderWithParts([
       {
@@ -242,5 +259,54 @@ describe('工具输入参数字段表', () => {
     const field = el.querySelector('[data-tool-field="env"]')
     expect(field?.textContent).toContain('NODE_ENV')
     expect(field?.textContent).toContain('test')
+  })
+})
+
+// 因果顺序：先调用、再返回；块内先参数、再实时输出。
+describe('工具块顺序', () => {
+  function click(el: Element | null) {
+    act(() => {
+      el?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  }
+
+  it('同一工具会话固定调用在前、返回在后', () => {
+    const el = renderWithParts([
+      {
+        type: 'tool',
+        callId: 'c1',
+        toolName: 'shell_command',
+        state: 'completed',
+        result: { id: 'r1', status: 'success', content: 'ok' },
+        display: { hideInvocation: true },
+      },
+      { type: 'tool', callId: 'c1', toolName: 'shell_command', state: 'completed', input: { command: 'echo hi' } },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    const titles = Array.from(el.querySelectorAll('.fw-tool-title')).map((node) => node.textContent || '')
+    expect(titles[0]).toContain('工具调用')
+    expect(titles[1]).toContain('工具返回结果')
+  })
+
+  it('实时输出排在输入参数字段之后', () => {
+    const el = renderWithParts([
+      {
+        type: 'tool',
+        callId: 'c2',
+        toolName: 'shell_command',
+        state: 'running',
+        input: { command: 'npm run dev' },
+        runtimeOutput: { preview: 'starting...' },
+      },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    const field = el.querySelector('[data-tool-field]')
+    const live = el.querySelector('.fw-tool-pre-live')
+    expect(field).toBeTruthy()
+    expect(live).toBeTruthy()
+    // DOCUMENT_POSITION_FOLLOWING = 4：live 位于 field 之后
+    expect(((field as Element).compareDocumentPosition(live as Element) & 4) !== 0).toBe(true)
   })
 })
