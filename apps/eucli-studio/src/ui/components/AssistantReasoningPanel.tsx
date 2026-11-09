@@ -99,13 +99,11 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
 
   return (
     <Paper
-      variant="outlined"
+      elevation={0}
       sx={{
         mb: 1,
         borderRadius: 3,
-        borderColor: 'var(--studio-border)',
         bgcolor: 'var(--studio-paper)',
-        boxShadow: 'var(--studio-shadow-soft)',
         overflow: 'hidden',
       }}
     >
@@ -136,25 +134,18 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
             {durationText}
           </Typography>
         ) : null}
-        <Tooltip title="清洗思维链">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="清洗思维链"
-              onClick={(event) => {
-                event.stopPropagation()
-                setCleanOpen(true)
-              }}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              <CleaningServicesIcon fontSize="inherit" />
-            </IconButton>
-          </span>
-        </Tooltip>
         {expanded ? <ExpandLessIcon fontSize="inherit" /> : <ExpandMoreIcon fontSize="inherit" />}
       </Stack>
       <Collapse in={expanded} timeout={160} unmountOnExit>
-        <Box sx={{ px: 1.1, pb: 1.05, pt: 0.1 }}>
+        <Box sx={{ px: 1.1, pb: 1.05 }}>
+          {/* 清洗入口只在展开态出现：独占内容第一行，收起时整行随之离场。 */}
+          <Stack direction="row" justifyContent="flex-end" alignItems="center" sx={{ minHeight: 30 }}>
+            <Tooltip title="清洗思维链">
+              <IconButton size="small" aria-label="清洗思维链" onClick={() => setCleanOpen(true)}>
+                <CleaningServicesIcon fontSize="inherit" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
           <CustomScrollArea
             ref={scrollRef}
             axis="y"
