@@ -181,7 +181,10 @@ describe('输入区工具条按布局渲染', () => {
       button.click()
     })
 
-    expect(document.body.textContent).toContain('全局提示词库')
+    // 模态窗没有标题栏：以对话框本身与面板内的作用域切换作为打开标志。
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog!.textContent).toContain('全局提示词')
   })
 
   const promptInlineLayout = () =>

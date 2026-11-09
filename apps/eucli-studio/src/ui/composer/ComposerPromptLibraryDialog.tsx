@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { Box, DialogContent, DialogTitle } from '@mui/material'
+import { Box, DialogContent } from '@mui/material'
 import { DependableDialog } from '../components/DependableOverlay'
 import { PromptLibrarySettingsPanel } from '../settings/PromptLibrarySettingsPanel'
-import { promptScopeLibraryTitle, type PromptScope } from '../../domain/promptLibrary'
+import type { PromptScope } from '../../domain/promptLibrary'
 
-// 输入区的提示词库入口：模态窗里直接挂设置页那套面板，标题按作用域取「xx 提示词库」。
+// 输入区的提示词库入口：模态窗里直接挂设置页那套面板。
+// 不设标题栏：面板顶部就是作用域切换，当前在看哪个库由它自己说明。
 // 面板用 key 绑作用域，换按钮 = 重新挂载，归属选择与草稿不会串到另一段作用域。
 export function ComposerPromptLibraryDialog(props: {
   controller: any
@@ -27,7 +28,6 @@ export function ComposerPromptLibraryDialog(props: {
       maxWidth="md"
       PaperProps={{ sx: { bgcolor: 'var(--studio-paper-muted)' } }}
     >
-      <DialogTitle>{scope ? promptScopeLibraryTitle(scope) : ''}</DialogTitle>
       <DialogContent sx={{ p: 1.5, height: 'min(76vh, 760px)', display: 'flex', minHeight: 0 }}>
         {scope ? (
           // 竖向 flex：面板在交叉轴上 stretch，宽度撑满对话框。
