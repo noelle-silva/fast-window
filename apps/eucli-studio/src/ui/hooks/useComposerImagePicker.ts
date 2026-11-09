@@ -10,7 +10,8 @@ export function useComposerImagePicker(deps: {
   const [imagePickerEl, setImagePickerEl] = React.useState<HTMLElement | null>(null)
 
   const closeImagePicker = useEvent(() => setImagePickerEl(null))
-  const openImagePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setImagePickerEl(e.currentTarget))
+  // 锚点是元素而不是鼠标事件：更多菜单里的按钮项由「更多」按钮代位。
+  const openImagePicker = useEvent((anchor: HTMLElement | null) => setImagePickerEl(anchor))
   const onPickDraftImages = useEvent(() => {
     controller.actions.pickDraftImages()
     closeImagePicker()

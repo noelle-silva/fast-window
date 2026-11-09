@@ -59,6 +59,7 @@ import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen
 import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
+import { normalizeComposerToolsLayout } from '../domain/composerToolsLayout'
 import {
   normalizeChatBgBlur,
   normalizeChatBgOpacity,
@@ -151,6 +152,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerMinRows = normalizeComposerMinRows(data?.settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(data?.settings?.composerRadius)
   const composerModelShowProvider = normalizeComposerModelShowProvider(data?.settings?.composerModelShowProvider)
+  // 按钮布局按字段引用 + 设置版本双保险失效：设置对象可能被原地改写，引用未必变化。
+  const composerToolsLayoutSource = (data?.settings as any)?.composerToolsLayout
+  const composerToolsLayout = React.useMemo(
+    () => normalizeComposerToolsLayout(composerToolsLayoutSource),
+    [composerToolsLayoutSource, settingsVersion],
+  )
   const chatFontSize = normalizeChatFontSize(data?.settings?.chatFontSize)
   const chatFontFamily = normalizeChatFontFamily(data?.settings?.chatFontFamily)
   const chatLetterSpacing = normalizeChatLetterSpacing(data?.settings?.chatLetterSpacing)
@@ -1409,6 +1416,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     composerMinRows,
     composerRadius,
     composerModelShowProvider,
+    composerToolsLayout,
     activeSessionComposerDraftKey: String((s as any).activeSessionComposerDraftKey || ''),
     composerInputRef,
     activeTargetKind,
@@ -1468,6 +1476,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     composerMinRows,
     composerRadius,
     composerModelShowProvider,
+    composerToolsLayout,
     composerInputRef,
     activeTargetKind,
     activeChatTargetId,

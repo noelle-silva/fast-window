@@ -447,7 +447,7 @@ export function ComposerInputControls(props: {
       </DependablePopover>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', px: 0.25 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', flex: 1, minWidth: 0, pl: 1 }}>
+        <Box data-area="composer-toolbar" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', flex: 1, minWidth: 0, pl: 1 }}>
           {toolbarStart}
         </Box>
 

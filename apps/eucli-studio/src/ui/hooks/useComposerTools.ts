@@ -59,7 +59,8 @@ export function useComposerTools(deps: {
   const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
   const closeAsyncToolTasks = useEvent(() => setAsyncToolTasksEl(null))
 
-  const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+  // 弹层打开入口统一接收锚点元素：工具条按钮传自身，更多菜单传「更多」按钮。
+  const openTempModelPicker = useEvent((anchor: HTMLElement | null) => {
     if (!roleSessionControlsEnabled) return
     if (!activeRole) return
     if (!providers.length && !modelGroups.length) return controller?.capabilities?.ui?.showToast?.('暂无供应商', { kind: 'error' })
@@ -81,7 +82,7 @@ export function useComposerTools(deps: {
       const mid = String(current?.modelId || '').trim()
       setTempModelPick(mid && items.some((x: any) => x.id === mid) ? mid : '')
     }
-    setTempModelPickerEl(e.currentTarget)
+    setTempModelPickerEl(anchor)
   })
 
   const refreshAsyncToolTasks = useEvent(async () => {
@@ -103,9 +104,9 @@ export function useComposerTools(deps: {
     }
   })
 
-  const openAsyncToolTasks = useEvent((e: React.MouseEvent<HTMLElement>) => {
+  const openAsyncToolTasks = useEvent((anchor: HTMLElement | null) => {
     if (!activeRole || !activeChatId) return
-    setAsyncToolTasksEl(e.currentTarget)
+    setAsyncToolTasksEl(anchor)
     setAsyncToolTasks(activeAsyncToolTasks)
     refreshAsyncToolTasks()
   })
@@ -170,10 +171,10 @@ export function useComposerTools(deps: {
     closeTempModelPicker()
   })
   const closeReasoningPicker = useEvent(() => setReasoningPickerEl(null))
-  const openReasoningPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+  const openReasoningPicker = useEvent((anchor: HTMLElement | null) => {
     if (!roleSessionControlsEnabled) return
     if (!reasoningProfile.supportsReasoning) return
-    setReasoningPickerEl(e.currentTarget)
+    setReasoningPickerEl(anchor)
   })
   const pickReasoningEffort = useEvent((effort: string) => {
     controller.actions.setChatReasoningEffort?.(effort)

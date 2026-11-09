@@ -1,90 +1,20 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Stack, Tooltip } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import AutorenewIcon from '@mui/icons-material/Autorenew'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
+import { Box, IconButton, Stack } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import { HookPromptSelector } from '../components/HookPromptSelector'
-import { FitTextLabel } from '../components/FitTextLabel'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { HookPromptPopover } from '../components/HookPromptPopover'
 import { ReasoningCleanDialog } from '../components/ReasoningCleanDialog'
 import { composerSideInsetPercent } from '../../domain/composerAppearance'
+import { normalizeComposerToolsLayout, type ComposerToolsLayout } from '../../domain/composerToolsLayout'
 import type { BranchTreeView } from '../../domain/branchTree'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
-
-const composerToolIconButtonSx = {
-  width: 36,
-  height: 36,
-  borderRadius: '999px',
-  bgcolor: 'transparent',
-  color: 'text.secondary',
-  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary' },
-  '&.Mui-disabled': { bgcolor: 'transparent' },
-}
-
-const composerToolTextButtonSx = {
-  minWidth: 0,
-  maxWidth: 220,
-  height: 34,
-  px: 1.25,
-  borderRadius: '999px',
-  bgcolor: 'transparent',
-  color: 'text.secondary',
-  border: 0,
-  textTransform: 'none',
-  fontWeight: 800,
-  fontSize: 12,
-  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
-  '&.Mui-disabled': { bgcolor: 'transparent', border: 0 },
-}
-
-// 模型切换组：一个固定宽度的整体按钮，内部按左中右三段划分。
-// 宽度固定，不随模型标识长短伸缩；三段各自承担自己的悬停反馈。
-const composerModelGroupSx = {
-  display: 'flex',
-  alignItems: 'stretch',
-  width: 220,
-  flexShrink: 0,
-  height: 34,
-  borderRadius: '999px',
-  overflow: 'hidden',
-  bgcolor: 'transparent',
-  '& > span': { display: 'flex', alignItems: 'stretch' },
-}
-
-// 组内单块：没有自己的圆角，悬停只作用于自己这一段。
-const composerModelStepButtonSx = {
-  minWidth: 24,
-  width: 24,
-  height: 34,
-  px: 0,
-  borderRadius: 0,
-  bgcolor: 'transparent',
-  color: 'text.secondary',
-  border: 0,
-  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
-  '&.Mui-disabled': { bgcolor: 'transparent', border: 0 },
-}
-
-// 中间段承载模型标识，占据剩余宽度。
-const composerModelLabelButtonSx = {
-  ...composerToolTextButtonSx,
-  borderRadius: 0,
-  height: 34,
-  maxWidth: 'none',
-  justifyContent: 'center',
-  '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: 'text.primary', border: 0 },
-}
-
-const composerContextButtonSx = {
-  ...composerToolTextButtonSx,
-  borderRadius: 2,
-  maxWidth: 120,
-}
+import {
+  buildComposerToolEntries,
+  composerToolInlineNodes,
+  composerToolMenuItems,
+} from './composerToolEntries'
 
 export function ChatComposer(props: {
   controller: any
@@ -100,6 +30,8 @@ export function ChatComposer(props: {
   composerMinRows: number
   composerRadius: number
   composerModelShowProvider: boolean
+  /** 工具条按钮布局：哪一项直显、哪一项收进更多菜单，以及各自顺序。 */
+  composerToolsLayout: ComposerToolsLayout
   activeSessionComposerDraftKey: string
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   activeTargetKind: 'role' | 'group' | 'workspace'
@@ -110,7 +42,7 @@ export function ChatComposer(props: {
   roles: any[]
   activeStopRunId: string
   formatModelRefText: (modelRef: any) => string
-  openImagePicker: (e: React.MouseEvent<HTMLElement>) => void
+  openImagePicker: (anchor: HTMLElement | null) => void
   hookPrompts: any
   activeHookPromptMode: 'none' | 'preset' | 'inherit'
   activeHookPromptPresetId: string
@@ -122,7 +54,7 @@ export function ChatComposer(props: {
   hasChatOverride: boolean
   effectiveModelId: string
   effectiveModelRef: any
-  openTempModelPicker: (e: React.MouseEvent<HTMLElement>) => void
+  openTempModelPicker: (anchor: HTMLElement | null) => void
   roleModelStepPrevEnabled: boolean
   roleModelStepNextEnabled: boolean
   stepRoleModelCandidate: (delta: number) => void
@@ -131,13 +63,13 @@ export function ChatComposer(props: {
   reasoningProfile: any
   activeReasoningLabel: string
   chatSettingsReasoningSaving: boolean
-  openReasoningPicker: (e: React.MouseEvent<HTMLElement>) => void
+  openReasoningPicker: (anchor: HTMLElement | null) => void
   hasChatReasoningOverride: boolean
   activeContextTokenUsageText: string
   activeContextTokenUsageShortText: string
   activeCacheRateText: string
   activeAsyncToolTaskRunningCount: number
-  openAsyncToolTasks: (e: React.MouseEvent<HTMLElement>) => void
+  openAsyncToolTasks: (anchor: HTMLElement | null) => void
   activeStreamOn: boolean
   chatSettingsStreamSaving: boolean
   activeChat: any
@@ -159,6 +91,7 @@ export function ChatComposer(props: {
     composerMinRows,
     composerRadius,
     composerModelShowProvider,
+    composerToolsLayout,
     activeSessionComposerDraftKey,
     composerInputRef,
     activeTargetKind,
@@ -212,7 +145,7 @@ export function ChatComposer(props: {
   const sideInset = `${composerSideInsetPercent(composerWidthPercent)}%`
 
   // 模型按钮文案：只显示模型标识；开关开启时带上供应商（模型组则带模型组名）。
-  const effectiveModelLabel = (() => {
+  const effectiveModelLabel = React.useMemo(() => {
     const modelId = String(effectiveModelId || '').trim()
     if (!modelId) return ''
     if (!composerModelShowProvider) return modelId
@@ -222,10 +155,92 @@ export function ChatComposer(props: {
       ? String((Array.isArray(modelGroups) ? modelGroups : []).find((item: any) => String(item?.id || '') === String(ref.groupId || ''))?.name || '').trim()
       : String((providers.find((item: any) => String(item?.id || '') === String(ref.providerId || ''))?.name) || '').trim()
     return sourceName ? `${sourceName} / ${modelId}` : modelId
-  })()
+  }, [effectiveModelId, effectiveModelRef, composerModelShowProvider, modelGroups, providers])
 
   const [cleanOpen, setCleanOpen] = React.useState(false)
   const [cleaning, setCleaning] = React.useState(false)
+  // 更多菜单里的 hook 提示词入口：菜单关闭后以「更多」按钮为锚点打开同一份弹层。
+  const [hookPromptMenuAnchor, setHookPromptMenuAnchor] = React.useState<HTMLElement | null>(null)
+
+  const toolLayout = React.useMemo(() => normalizeComposerToolsLayout(composerToolsLayout), [composerToolsLayout])
+
+  const toolEntries = React.useMemo(
+    () =>
+      buildComposerToolEntries({
+        loading: !!loading,
+        activeRole,
+        activeChat,
+        roleSessionControlsEnabled,
+        openImagePicker,
+        hookPrompts,
+        activeHookPromptMode,
+        activeHookPromptPresetId,
+        roleDefaultHookPromptPresetId,
+        hookPromptSelectorDisabled,
+        chatSettingsHookSaving,
+        hookPromptSelectorDisabledReason,
+        onSelectHookPrompt: (mode, presetId) => controller.actions.selectHookPromptForActiveChat?.(mode, presetId),
+        onOpenHookPromptMenu: setHookPromptMenuAnchor,
+        effectiveModelLabel,
+        hasChatOverride,
+        providers,
+        openTempModelPicker,
+        roleModelStepPrevEnabled,
+        roleModelStepNextEnabled,
+        stepRoleModelCandidate,
+        reasoningProfile,
+        activeReasoningLabel,
+        chatSettingsReasoningSaving,
+        hasChatReasoningOverride,
+        openReasoningPicker,
+        activeContextTokenUsageText,
+        activeContextTokenUsageShortText,
+        activeCacheRateText,
+        activeAsyncToolTaskRunningCount,
+        openAsyncToolTasks,
+        activeStreamOn,
+        chatSettingsStreamSaving,
+        onToggleStream: () => controller.actions.toggleChatStreamEnabled?.(),
+        onCleanReasoning: () => setCleanOpen(true),
+      }),
+    [
+      controller,
+      loading,
+      activeRole,
+      activeChat,
+      roleSessionControlsEnabled,
+      openImagePicker,
+      hookPrompts,
+      activeHookPromptMode,
+      activeHookPromptPresetId,
+      roleDefaultHookPromptPresetId,
+      hookPromptSelectorDisabled,
+      chatSettingsHookSaving,
+      hookPromptSelectorDisabledReason,
+      effectiveModelLabel,
+      hasChatOverride,
+      providers,
+      openTempModelPicker,
+      roleModelStepPrevEnabled,
+      roleModelStepNextEnabled,
+      stepRoleModelCandidate,
+      reasoningProfile,
+      activeReasoningLabel,
+      chatSettingsReasoningSaving,
+      hasChatReasoningOverride,
+      openReasoningPicker,
+      activeContextTokenUsageText,
+      activeContextTokenUsageShortText,
+      activeCacheRateText,
+      activeAsyncToolTaskRunningCount,
+      openAsyncToolTasks,
+      activeStreamOn,
+      chatSettingsStreamSaving,
+    ],
+  )
+
+  const inlineToolNodes = React.useMemo(() => composerToolInlineNodes(toolLayout, toolEntries), [toolLayout, toolEntries])
+  const menuToolItems = React.useMemo(() => composerToolMenuItems(toolLayout, toolEntries), [toolLayout, toolEntries])
 
   const confirmClean = async (keywordsText: string) => {
     const action = controller?.actions?.cleanSessionReasoning
@@ -298,158 +313,15 @@ export function ChatComposer(props: {
           radius={composerRadius}
           toolbarStart={(
             <>
-              <Tooltip title="添加图片">
-                <span>
-                  <IconButton
-                    aria-label="添加图片"
-                    onClick={openImagePicker}
-                    disabled={loading || !activeRole}
-                    size="small"
-                    sx={composerToolIconButtonSx}
-                  >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-
-              <HookPromptSelector
-                library={hookPrompts.library || { presets: [] }}
-                selectedMode={activeHookPromptMode as any}
-                selectedPresetId={activeHookPromptPresetId}
-                roleDefaultPresetId={roleDefaultHookPromptPresetId}
-                disabled={hookPromptSelectorDisabled || chatSettingsHookSaving}
-                saving={chatSettingsHookSaving}
-                disabledReason={hookPromptSelectorDisabledReason}
-                onSelect={(mode, presetId) => controller.actions.selectHookPromptForActiveChat?.(mode, presetId)}
-              />
-
-              {roleSessionControlsEnabled ? (
-                // 模型切换组：一个整体按钮，内部左中右三段各自可点。
-                // 三段都不做悬停提示，避免遮挡输入区；保存中也不禁用，避免出现灰色过渡。
-                <Box sx={composerModelGroupSx}>
-                  <Box component="span">
-                    <Button
-                      aria-label="上一个候选模型"
-                      onClick={() => stepRoleModelCandidate(-1)}
-                      disabled={loading || !roleModelStepPrevEnabled}
-                      size="small"
-                      variant="text"
-                      sx={composerModelStepButtonSx}
-                    >
-                      <ChevronLeftIcon fontSize="small" />
-                    </Button>
-                  </Box>
-
-                  <Box component="span" sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch' }}>
-                    <Button
-                      aria-label="临时切换模型"
-                      onClick={openTempModelPicker}
-                      disabled={loading || !activeRole || !providers.length}
-                      size="small"
-                      variant="text"
-                      sx={{ ...composerModelLabelButtonSx, flex: 1, minWidth: 0, color: hasChatOverride ? 'primary.main' : 'text.secondary' }}
-                    >
-                      <FitTextLabel
-                        text={effectiveModelLabel || '未配置模型'}
-                        maxFontSize={12}
-                        minFontSize={8}
-                      />
-                    </Button>
-                  </Box>
-
-                  <Box component="span">
-                    <Button
-                      aria-label="下一个候选模型"
-                      onClick={() => stepRoleModelCandidate(1)}
-                      disabled={loading || !roleModelStepNextEnabled}
-                      size="small"
-                      variant="text"
-                      sx={composerModelStepButtonSx}
-                    >
-                      <ChevronRightIcon fontSize="small" />
-                    </Button>
-                  </Box>
-                </Box>
+              {inlineToolNodes}
+              {menuToolItems.length ? (
+                <MoreActionsMenu
+                  ariaLabel="更多"
+                  tooltip="更多"
+                  disabled={loading || !activeChat}
+                  items={menuToolItems}
+                />
               ) : null}
-
-              {roleSessionControlsEnabled && reasoningProfile.supportsReasoning ? (
-                <Tooltip title={chatSettingsReasoningSaving ? '思考等级保存中…' : `思考等级：${activeReasoningLabel || '默认'}`}>
-                  <span>
-                    <Button
-                      aria-label="选择思考等级"
-                      onClick={openReasoningPicker}
-                      disabled={loading || chatSettingsReasoningSaving || !activeRole}
-                      size="small"
-                      variant="text"
-                      sx={{ ...composerToolTextButtonSx, color: hasChatReasoningOverride ? 'primary.main' : 'text.secondary' }}
-                    >
-                      {activeReasoningLabel || '默认'}
-                    </Button>
-                  </span>
-                </Tooltip>
-              ) : null}
-
-              <Tooltip title={`上下文约 ${activeContextTokenUsageText}`}>
-                <span>
-                  <Button aria-label={`上下文约 ${activeContextTokenUsageText}`} size="small" variant="text" sx={composerContextButtonSx}>
-                    {activeContextTokenUsageShortText}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Tooltip title={`缓存率 ${activeCacheRateText}`}>
-                <span>
-                  <Button aria-label={`缓存率 ${activeCacheRateText}`} size="small" variant="text" sx={composerContextButtonSx}>
-                    {activeCacheRateText}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Tooltip title="异步工具任务">
-                <span>
-                  <Button
-                    aria-label="异步工具任务"
-                    onClick={openAsyncToolTasks}
-                    disabled={!activeRole || !activeChatId}
-                    size="small"
-                    variant="text"
-                    startIcon={<AutorenewIcon fontSize="small" />}
-                    sx={composerToolTextButtonSx}
-                  >
-                    异步 {activeAsyncToolTaskRunningCount}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Tooltip title={activeStreamOn ? '流式输出：已开启（本会话）' : '非流式：已关闭（本会话）'}>
-                <span>
-                  <Button
-                    aria-label="切换会话流式输出"
-                    onClick={() => controller.actions.toggleChatStreamEnabled?.()}
-                    disabled={loading || chatSettingsStreamSaving || !roleSessionControlsEnabled || !activeChat}
-                    size="small"
-                    variant="text"
-                    sx={{ ...composerToolTextButtonSx, width: 88, justifyContent: 'center', color: activeStreamOn ? 'primary.main' : 'text.secondary' }}
-                  >
-                    {activeStreamOn ? '流' : '非流'}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <MoreActionsMenu
-                ariaLabel="更多"
-                tooltip="更多"
-                disabled={loading || !activeChat}
-                items={[
-                  {
-                    key: 'clean-reasoning',
-                    label: '清洗思维链',
-                    icon: <CleaningServicesIcon fontSize="small" />,
-                    disabled: loading || !activeChat,
-                    onSelect: () => setCleanOpen(true),
-                  },
-                ]}
-              />
             </>
           )}
           onSend={onSend}
@@ -457,6 +329,17 @@ export function ChatComposer(props: {
           onPaste={onPaste}
         />
       </Stack>
+
+      <HookPromptPopover
+        anchorEl={hookPromptMenuAnchor}
+        onClose={() => setHookPromptMenuAnchor(null)}
+        library={hookPrompts?.library || { presets: [] }}
+        selectedMode={activeHookPromptMode}
+        selectedPresetId={activeHookPromptPresetId}
+        roleDefaultPresetId={roleDefaultHookPromptPresetId}
+        disabled={hookPromptSelectorDisabled || chatSettingsHookSaving}
+        onSelect={(mode, presetId) => controller.actions.selectHookPromptForActiveChat?.(mode, presetId)}
+      />
 
       <ReasoningCleanDialog open={cleanOpen} busy={cleaning} onClose={() => setCleanOpen(false)} onConfirm={confirmClean} />
     </Box>
