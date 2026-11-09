@@ -17,12 +17,11 @@ import type { ComposerToolId, ComposerToolsLayout } from '../../domain/composerT
 // 布局只决定顺序与位置；每种形态与它的可用性判断都归条目自己，
 // 两种形态共用同一份条件，避免「放在外面能用、收进菜单就不能用」。
 
-export type ComposerToolMenuItem = MoreActionsMenuItem & {
-  /** 当前场景不适用（例如模型不支持推理）：整行不出现，但布局配置仍然保留。 */
-  hidden?: boolean
-}
+export type ComposerToolMenuItem = MoreActionsMenuItem
 
 export type ComposerToolEntry = {
+  /** 当前场景不适用：工具条与菜单一起不出现（布局配置仍然保留）。 */
+  hidden?: boolean
   inline: React.ReactNode
   menuItem: ComposerToolMenuItem
 }
@@ -31,6 +30,7 @@ export type ComposerToolEntriesContext = {
   loading: boolean
   activeRole: any
   activeChat: any
+  activeTargetKind: 'role' | 'group' | 'workspace'
   roleSessionControlsEnabled: boolean
 
   openImagePicker: (anchor: HTMLElement | null) => void
@@ -150,6 +150,7 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     loading,
     activeRole,
     activeChat,
+    activeTargetKind,
     roleSessionControlsEnabled,
     openImagePicker,
     hookPrompts,
@@ -191,7 +192,13 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
   const streamButtonDisabled = loading || chatSettingsStreamSaving || !roleSessionControlsEnabled || !activeChat
 
   // 三个提示词库入口结构一致：直显是短文字按钮，菜单里是一行「xx 提示词库」。
-  const promptLibraryEntry = (id: ComposerToolId, scope: PromptScope, shortLabel: string): ComposerToolEntry => ({
+  const promptLibraryEntry = (
+    id: ComposerToolId,
+    scope: PromptScope,
+    shortLabel: string,
+    hidden = false,
+  ): ComposerToolEntry => ({
+    hidden,
     inline: (
       <Button
         aria-label={PROMPT_SCOPE_LABELS[scope]}
@@ -259,9 +266,11 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     },
 
     'model-switch': {
+      // 非角色会话没有「角色候选模型」这层语义：工具条与菜单一起不出现。
+      hidden: !roleSessionControlsEnabled,
       // 模型切换组：一个整体按钮，内部左中右三段各自可点。
       // 三段都不做悬停提示，避免遮挡输入区；保存中也不禁用，避免出现灰色过渡。
-      inline: roleSessionControlsEnabled ? (
+      inline: (
         <Box sx={composerModelGroupSx}>
           <Box component="span">
             <Button
@@ -302,19 +311,19 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
             </Button>
           </Box>
         </Box>
-      ) : null,
+      ),
       menuItem: {
         key: 'model-switch',
         label: `模型：${effectiveModelLabel || '未配置模型'}`,
-        // 非角色会话没有「角色候选模型」这层语义，工具条与菜单一起不出现。
-        hidden: !roleSessionControlsEnabled,
         disabled: modelButtonDisabled,
         onSelect: (anchor) => openTempModelPicker(anchor),
       },
     },
 
     'reasoning-effort': {
-      inline: roleSessionControlsEnabled && reasoningProfile.supportsReasoning ? (
+      // 模型不支持推理时不适用：工具条与菜单一起不出现。
+      hidden: !(roleSessionControlsEnabled && reasoningProfile.supportsReasoning),
+      inline: (
         <Tooltip title={chatSettingsReasoningSaving ? '思考等级保存中…' : `思考等级：${activeReasoningLabel || '默认'}`}>
           <span>
             <Button
@@ -329,12 +338,10 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
             </Button>
           </span>
         </Tooltip>
-      ) : null,
+      ),
       menuItem: {
         key: 'reasoning-effort',
         label: `思考等级：${activeReasoningLabel || '默认'}`,
-        // 模型不支持推理时这一项不适用，菜单里直接不出现，和工具条保持一致。
-        hidden: !(roleSessionControlsEnabled && reasoningProfile.supportsReasoning),
         disabled: loading || chatSettingsReasoningSaving || !activeRole,
         onSelect: (anchor) => openReasoningPicker(anchor),
       },
@@ -456,16 +463,19 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
 
     'global-prompts': promptLibraryEntry('global-prompts', 'global', '全局'),
     'role-prompts': promptLibraryEntry('role-prompts', 'role', '角色'),
-    'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区'),
+    // 工作区库只在工作区上下文里有意义；不在工作区时连入口一起收掉。
+    'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区', activeTargetKind !== 'workspace'),
   }
 }
 
-/** 工具条直显节点：顺序完全由布局决定。 */
+/** 工具条直显节点：顺序由布局决定，当前不适用的一项不出现。 */
 export function composerToolInlineNodes(
   layout: ComposerToolsLayout,
   entries: Record<ComposerToolId, ComposerToolEntry>,
 ): React.ReactNode[] {
-  return layout.inline.map((id) => <React.Fragment key={id}>{entries[id].inline}</React.Fragment>)
+  return layout.inline
+    .filter((id) => !entries[id].hidden)
+    .map((id) => <React.Fragment key={id}>{entries[id].inline}</React.Fragment>)
 }
 
 /** 更多菜单条目：顺序由布局决定，当前不适用的一行不出现。 */
@@ -473,5 +483,5 @@ export function composerToolMenuItems(
   layout: ComposerToolsLayout,
   entries: Record<ComposerToolId, ComposerToolEntry>,
 ): MoreActionsMenuItem[] {
-  return layout.menu.map((id) => entries[id].menuItem).filter((item) => !item.hidden)
+  return layout.menu.filter((id) => !entries[id].hidden).map((id) => entries[id].menuItem)
 }

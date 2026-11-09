@@ -110,9 +110,16 @@ describe('输入区工具条按布局渲染', () => {
     host = null
   })
 
-  const render = (layout: unknown) => {
+  const render = (layout: unknown, overrides: Record<string, any> = {}) => {
     act(() => {
-      root.render(<ChatComposer {...(baseProps as any)} controller={controller} composerToolsLayout={layout as any} />)
+      root.render(
+        <ChatComposer
+          {...(baseProps as any)}
+          {...overrides}
+          controller={controller}
+          composerToolsLayout={layout as any}
+        />,
+      )
     })
   }
 
@@ -175,5 +182,26 @@ describe('输入区工具条按布局渲染', () => {
     })
 
     expect(document.body.textContent).toContain('全局提示词库')
+  })
+
+  const promptInlineLayout = () =>
+    normalizeComposerToolsLayout({
+      inline: ['global-prompts', 'role-prompts', 'workspace-prompts'],
+      menu: COMPOSER_TOOL_IDS.filter((id) => !['global-prompts', 'role-prompts', 'workspace-prompts'].includes(id)),
+    })
+
+  it('hides the workspace prompt entry outside the workspace context', () => {
+    render(promptInlineLayout(), { activeTargetKind: 'role' })
+
+    const labels = toolbarButtonLabels(host!)
+    expect(labels).toContain('全局提示词')
+    expect(labels).toContain('角色提示词')
+    expect(labels).not.toContain('工作区提示词')
+  })
+
+  it('shows the workspace prompt entry inside the workspace context', () => {
+    render(promptInlineLayout(), { activeTargetKind: 'workspace' })
+
+    expect(toolbarButtonLabels(host!)).toContain('工作区提示词')
   })
 })
