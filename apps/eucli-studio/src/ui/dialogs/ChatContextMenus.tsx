@@ -298,7 +298,7 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             sx={{ gap: 1 }}
           >
             <DeleteOutlineIcon fontSize="small" />
-            删除
+            删除此会话
           </MenuItem>
         </Box>
       </DependablePopover>
