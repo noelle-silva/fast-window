@@ -62,6 +62,10 @@ import { normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { resolveSidebarLayout, type SidebarSide } from '../../domain/sidebarLayout'
 import { DESK_HOVER_ROLE_ICON_SETTING_KEY, normalizeDeskHoverRoleIcon } from '../../domain/desks'
+import {
+  FAVORITE_HOVER_ROLE_ICON_SETTING_KEY,
+  normalizeFavoriteHoverRoleIcon,
+} from '../../domain/favoriteFolderSettings'
 import { SIDEBAR_TABS_VARIANT_OPTIONS, type SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { ColorThemeSettingsSection } from './ColorThemeSettingsSection'
 import { ComposerToolsLayoutSection } from './ComposerToolsLayoutSection'
@@ -286,6 +290,9 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const branchTreeModalHotkey = normalizeHotkeyString(branchTree.modalHotkey)
   const sidebarLayout = resolveSidebarLayout(settings)
   const deskHoverShowsRoleIcon = normalizeDeskHoverRoleIcon((settings as any)?.[DESK_HOVER_ROLE_ICON_SETTING_KEY])
+  const favoriteHoverShowsRoleIcon = normalizeFavoriteHoverRoleIcon(
+    (settings as any)?.[FAVORITE_HOVER_ROLE_ICON_SETTING_KEY],
+  )
 
   return (
     <SettingsSurface>
@@ -340,6 +347,32 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
               />
               <Typography variant="caption" color="text.secondary">
                 鼠标停在工作区条目上时，图标临时换成所属角色
+              </Typography>
+            </Stack>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>收藏夹</Typography>
+              <Typography variant="caption" color="text.secondary">
+                会话收藏夹里，工作区来源的条目在名称下面带上「工作区/角色」；悬停时图标临时换成所属角色。
+              </Typography>
+            </Box>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 76 }}>
+                悬停图标
+              </Typography>
+              <Switch
+                size="small"
+                checked={favoriteHoverShowsRoleIcon}
+                onChange={(event) => controller.actions.setFavoriteHoverRoleIcon?.(event.target.checked)}
+                disabled={loading}
+              />
+              <Typography variant="caption" color="text.secondary">
+                鼠标停在收藏夹的工作区条目上时，图标临时换成所属角色
               </Typography>
             </Stack>
           </Stack>

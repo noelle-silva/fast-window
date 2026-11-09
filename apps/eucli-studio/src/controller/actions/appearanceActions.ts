@@ -38,6 +38,11 @@ import {
   resolveSidebarLayout,
   SIDEBAR_LAYOUT_SETTING_KEY,
 } from '../../domain/sidebarLayout'
+import { DESK_HOVER_ROLE_ICON_SETTING_KEY, normalizeDeskHoverRoleIcon } from '../../domain/desks'
+import {
+  FAVORITE_HOVER_ROLE_ICON_SETTING_KEY,
+  normalizeFavoriteHoverRoleIcon,
+} from '../../domain/favoriteFolderSettings'
 import type { AiChatShowToast } from '../../gateway/capabilities'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 
@@ -405,6 +410,19 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       const next = applySidebarTabsVariant(resolveSidebarLayout(state.data.settings as any), id, variant)
       ;(state.data.settings as any)[SIDEBAR_LAYOUT_SETTING_KEY] = next
+      persistMeta()
+      notifySettings()
+    },
+    // 两类条目的悬停换图标各存一份开关：工作桌面与收藏夹互不影响，默认都开。
+    setDeskHoverRoleIcon: (enabled: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any)[DESK_HOVER_ROLE_ICON_SETTING_KEY] = normalizeDeskHoverRoleIcon(enabled)
+      persistMeta()
+      notifySettings()
+    },
+    setFavoriteHoverRoleIcon: (enabled: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any)[FAVORITE_HOVER_ROLE_ICON_SETTING_KEY] = normalizeFavoriteHoverRoleIcon(enabled)
       persistMeta()
       notifySettings()
     },

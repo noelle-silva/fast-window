@@ -81,6 +81,10 @@ import {
   normalizeDeskHoverRoleIcon,
   type DeskEntry,
 } from '../domain/desks'
+import {
+  FAVORITE_HOVER_ROLE_ICON_SETTING_KEY,
+  normalizeFavoriteHoverRoleIcon,
+} from '../domain/favoriteFolderSettings'
 import { addDeskDraft } from '../domain/deskDrafts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
@@ -1249,6 +1253,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const deskHoverShowsRoleIcon = normalizeDeskHoverRoleIcon(
     (data?.settings as any)?.[DESK_HOVER_ROLE_ICON_SETTING_KEY],
   )
+  // 收藏夹的悬停图标开关与桌面那份各存一份，默认都开。
+  const favoriteHoverShowsRoleIcon = normalizeFavoriteHoverRoleIcon(
+    (data?.settings as any)?.[FAVORITE_HOVER_ROLE_ICON_SETTING_KEY],
+  )
 
   const openDeskEntry = React.useCallback(
     (entry: DeskEntry) => {
@@ -1345,6 +1353,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const onMoveFavoriteRef = useEvent((refKey: string, targetFolderId: string) => {
     controller.actions.moveFavoriteChatRef?.(refKey, targetFolderId)
   })
+  const onRemoveFavoriteRef = useEvent((refKey: string) => {
+    controller.actions.removeFavoriteChatRef?.(favoriteFolderNav.currentFolderId, refKey)
+  })
 
   const sidebarBFavorites = React.useMemo(() => ({
     level: favoriteLevel,
@@ -1357,6 +1368,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onReorderFolders: onReorderFavoriteFolders,
     onReorderRefs: onReorderFavoriteRefs,
     onMoveRef: onMoveFavoriteRef,
+    onRemoveRef: onRemoveFavoriteRef,
+    hoverShowsRoleIcon: favoriteHoverShowsRoleIcon,
   }), [
     favoriteLevel,
     favoriteFolderNav.canGoBack,
@@ -1368,6 +1381,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onReorderFavoriteFolders,
     onReorderFavoriteRefs,
     onMoveFavoriteRef,
+    onRemoveFavoriteRef,
+    favoriteHoverShowsRoleIcon,
   ])
 
   const sidebarBProps = React.useMemo(

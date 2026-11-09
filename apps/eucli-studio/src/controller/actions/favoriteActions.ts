@@ -15,5 +15,6 @@ export function createFavoriteActions(deps: {
     reorderFavoriteFolders: (parentId: any, orderedFolderIds: any) => favOps.reorderFavoriteFolders(parentId, orderedFolderIds),
     reorderFavoriteChatRefs: (folderId: any, orderedRefKeys: any) => favOps.reorderFavoriteChatRefs(folderId, orderedRefKeys),
     moveFavoriteChatRef: (refKey: any, targetFolderId: any) => favOps.moveFavoriteChatRef(refKey, targetFolderId),
+    removeFavoriteChatRef: (folderId: any, refKey: any) => favOps.removeFavoriteChatRef(folderId, refKey),
   }
 }

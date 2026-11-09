@@ -8,7 +8,7 @@ import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { favoriteChatRefKey, favoriteTargetMeta } from '../../domain/favorites'
-import type { FavoriteFolderLevel, FavoriteFolderLevelEntry } from '../../domain/favoriteFolderLevel'
+import type { FavoriteFolderLevel, FavoriteFolderLevelEntry, FavoriteRefStatus } from '../../domain/favoriteFolderLevel'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
@@ -173,11 +173,76 @@ export function useFavoriteFolders(deps: {
     },
     [data],
   )
-
   const getFavoriteTargetMeta = React.useCallback(
     (targetKind: TargetKind, targetId: string) => favoriteTargetMeta(targetKind, targetId, { roles, groups, workspaces }),
     [groups, roles, workspaces],
   )
+  // 一条收藏引用的统一解析：三态、标题、摘要、目标元信息、角色信息一次给出。
+  // 层级视图、弹窗树、搜索都只认这里的结果，不再各自判断「查不到」是什么意思。
+  const resolveFavoriteRef = React.useCallback(
+    (ref: any): FavoriteFolderLevelEntry | null => {
+      const targetKindText = String(ref?.targetKind || '').trim()
+      const targetKind = (targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role') as TargetKind
+      const targetId = String(ref?.targetId || '')
+      const roleId = String(ref?.roleId || '')
+      const chatId = String(ref?.chatId || '')
+      const key = favoriteChatRefKey(targetKind, targetId, roleId, chatId)
+      const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
+      if (!key || !targetKey) return null
+
+      const chat = getChatByFavoriteRef(targetKind, targetId, roleId, chatId)
+      // 只分「已在内存」与「还没加载」两种：本地 chatMetas 可能只是索引的一段旧副本，
+      // 实测中真实存在的会话也会缺项，不能据此判定丢失。
+      const status: FavoriteRefStatus = chat ? 'loaded' : 'pending'
+
+      const targetMeta = getFavoriteTargetMeta(targetKind, targetId)
+      const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区' : '角色'))
+      const role =
+        targetKind === 'workspace' && roleId
+          ? roles.find((item: any) => String(item?.id || '') === roleId) || null
+          : null
+      const selected = targetKind === activeTargetKind && targetKey === activeChatTargetId && chatId === activeChatId
+      const snippet = chat
+        ? snippetText(
+            (chat as any)?.lastMessagePreview ||
+              (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content ||
+              '',
+          )
+        : ''
+      const title = chat
+        ? String(
+            (chat as any)?.title || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'),
+          )
+        : '会话待加载'
+
+      return {
+        key,
+        targetKind,
+        targetId,
+        roleId,
+        chatId,
+        status,
+        title,
+        snippet,
+        targetName,
+        roleName: String(role?.name || ''),
+        targetImage: String(targetMeta?.image || ''),
+        roleAvatarImage: String(role?.avatarImage || ''),
+        selected,
+        runningKind: chat ? chatSessionRunIndicatorKind(targetKind, targetKey, chat, selected) : '',
+      }
+    },
+    [
+      getChatByFavoriteRef,
+      getFavoriteTargetMeta,
+      roles,
+      activeTargetKind,
+      activeChatTargetId,
+      activeChatId,
+      chatSessionRunIndicatorKind,
+    ],
+  )
+
   const openCreateFavoriteFolder = useEvent((parentId = '') => {
     setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
   })
@@ -492,41 +557,43 @@ export function useFavoriteFolders(deps: {
           .map((child: any) => renderNode(child, depth2 + 1))
           .filter(isRenderableNode)
         const visibleRefs = refs
-          .map((ref: any) => {
-            const targetKindText = String(ref?.targetKind || '').trim()
-            const targetKind = targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role'
-            const targetId = String(ref?.targetId || '')
-            const roleId = String(ref?.roleId || '')
-            const chatId = String(ref?.chatId || '')
-            const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
-            if (!targetKey) return null
-            const chat = getChatByFavoriteRef(targetKind as any, targetId, roleId, chatId)
-            if (!chat) return null
-            const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
-            const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区' : '角色'))
-            const snippet = snippetText((chat as any)?.lastMessagePreview || (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
-            const selected = targetKind === activeTargetKind && targetKey === activeChatTargetId && String(chatId || '') === activeChatId
-            const indicatorKind = chatSessionRunIndicatorKind(targetKind as any, targetKey, chat, selected)
-            if (q) {
-              const hay = [String((chat as any)?.title || ''), snippet, targetName].join('\n').toLowerCase()
-              if (!hay.includes(q)) return null
-            }
+          .map((ref: any) => resolveFavoriteRef(ref))
+          .filter((entry: FavoriteFolderLevelEntry | null): entry is FavoriteFolderLevelEntry => !!entry)
+          .filter((entry: FavoriteFolderLevelEntry) => {
+            if (!q) return true
+            const hay = [entry.title, entry.snippet, entry.targetName].join('\n').toLowerCase()
+            return hay.includes(q)
+          })
+          .map((entry: FavoriteFolderLevelEntry) => {
+            const lost = entry.status === 'missing'
             return (
               <ListItemButton
-                key={`${fid}:${targetKind}:${targetKey}:${chatId}`}
-                selected={selected}
-                sx={{ ...SOFT_POPOVER_ITEM_TOP_SX, pl: 3 + depth2 * 2, pr: 1, gap: 1 }}
-                onClick={() => openFavoritedChat(targetKind as any, targetId, roleId, chatId)}
-                onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, roleId, chatId, String((chat as any)?.title || ''))}
+                key={`${fid}:${entry.targetKind}:${entry.key}`}
+                selected={entry.selected}
+                sx={{ ...SOFT_POPOVER_ITEM_TOP_SX, pl: 3 + depth2 * 2, pr: 1, gap: 1, opacity: lost ? 0.72 : 1 }}
+                onClick={() => {
+                  if (lost) return
+                  openFavoritedChat(entry.targetKind, entry.targetId, entry.roleId, entry.chatId)
+                }}
+                onContextMenu={(e) => {
+                  if (entry.status !== 'loaded') return
+                  onFavoriteChatContextMenu(e, fid, entry.targetKind, entry.targetId, entry.roleId, entry.chatId, entry.title)
+                }}
               >
                 <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
-                  <EntityAvatar kind={targetKind} image={String(targetMeta?.image || '')} size={28} />
+                  <EntityAvatar kind={entry.targetKind} image={entry.targetImage} size={28} />
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
-                    {targetName}
+                    {entry.targetName}
                   </Typography>
                 </Stack>
-                <ListItemText sx={{ minWidth: 0, mt: 0.25 }} primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'))} secondary={snippet} />
-                {indicatorKind ? <ChatSessionRunIndicator kind={indicatorKind} /> : null}
+                <ListItemText
+                  sx={{ minWidth: 0, mt: 0.25 }}
+                  primary={entry.title}
+                  secondary={lost ? '会话已不存在，可在侧边栏右键删除' : entry.snippet}
+                />
+                {entry.runningKind ? (
+                  <ChatSessionRunIndicator kind={entry.runningKind as ChatSessionRunIndicatorKind} />
+                ) : null}
               </ListItemButton>
             )
           })
@@ -570,6 +637,7 @@ export function useFavoriteFolders(deps: {
       activeChatTargetId,
       activeChatId,
       chatSessionRunIndicatorKind,
+      resolveFavoriteRef,
       openFavoritedChat,
       toggleFavoriteFolderExpanded,
     ],
@@ -585,42 +653,9 @@ export function useFavoriteFolders(deps: {
         name: String(folder?.name || '未命名文件夹'),
       }))
       const refs0 = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
-      const refs: FavoriteFolderLevelEntry[] = []
-      for (const ref of refs0) {
-        const targetKindText = String(ref?.targetKind || '').trim()
-        const targetKind = (targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role') as TargetKind
-        const targetId = String(ref?.targetId || '')
-        const roleId = String(ref?.roleId || '')
-        const chatId = String(ref?.chatId || '')
-        const key = favoriteChatRefKey(targetKind, targetId, roleId, chatId)
-        const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
-        if (!key || !targetKey) continue
-        const chat = getChatByFavoriteRef(targetKind, targetId, roleId, chatId)
-        if (!chat) continue
-        const targetMeta = getFavoriteTargetMeta(targetKind, targetId)
-        const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区' : '角色'))
-        const snippet = snippetText(
-          (chat as any)?.lastMessagePreview ||
-            (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content ||
-            '',
-        )
-        const selected = targetKind === activeTargetKind && targetKey === activeChatTargetId && String(chatId || '') === activeChatId
-        refs.push({
-          key,
-          targetKind,
-          targetId,
-          roleId,
-          chatId,
-          title: String(
-            (chat as any)?.title || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'),
-          ),
-          snippet,
-          targetName,
-          targetImage: String(targetMeta?.image || ''),
-          selected,
-          runningKind: chatSessionRunIndicatorKind(targetKind, targetKey, chat, selected),
-        })
-      }
+      const refs = refs0
+        .map((ref: any) => resolveFavoriteRef(ref))
+        .filter((entry: FavoriteFolderLevelEntry | null): entry is FavoriteFolderLevelEntry => !!entry)
       return { folders, refs }
     },
     [

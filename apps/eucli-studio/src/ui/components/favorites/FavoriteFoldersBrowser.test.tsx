@@ -23,8 +23,11 @@ function entry(overrides: Partial<FavoriteFolderLevelEntry> = {}): FavoriteFolde
     title: '甲会话',
     snippet: '最后一句',
     targetName: '甲角色',
+    roleName: '',
     targetImage: '',
+    roleAvatarImage: '',
     selected: false,
+    status: 'loaded',
     runningKind: '',
     ...overrides,
   }
@@ -42,6 +45,8 @@ function createProps(overrides: Partial<FavoriteFoldersBrowserProps> = {}): Favo
     onReorderFolders: noop,
     onReorderRefs: noop,
     onMoveRef: noop,
+    onRemoveRef: noop,
+    hoverShowsRoleIcon: true,
     ...overrides,
   }
 }
@@ -130,5 +135,114 @@ describe('会话收藏夹层级浏览', () => {
     expect(back.disabled).toBe(false)
     act(() => back.click())
     expect(seen).toEqual(['back'])
+  })
+
+  it('工作区来源的条目带上「工作区/角色」，悬停换成角色头像', () => {
+    const workspaceEntry = entry({
+      key: 'workspace::ws-1::role-b::chat-2',
+      targetKind: 'workspace',
+      targetId: 'ws-1',
+      roleId: 'role-b',
+      chatId: 'chat-2',
+      title: '乙会话',
+      targetName: '工作区一',
+      roleName: '乙角色',
+      targetImage: 'ws-icon-src',
+      roleAvatarImage: 'role-avatar-src',
+    })
+    renderBrowser({ level: { folders: [], refs: [workspaceEntry] } })
+
+    expect(host!.textContent).toContain('工作区一/乙角色')
+    const row = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
+
+    act(() => {
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
+  })
+
+  it('悬停图标开关关掉后，工作区条目保持工作区图标', () => {
+    const workspaceEntry = entry({
+      key: 'workspace::ws-1::role-b::chat-2',
+      targetKind: 'workspace',
+      targetId: 'ws-1',
+      roleId: 'role-b',
+      chatId: 'chat-2',
+      title: '乙会话',
+      targetName: '工作区一',
+      roleName: '乙角色',
+      targetImage: 'ws-icon-src',
+      roleAvatarImage: 'role-avatar-src',
+    })
+    renderBrowser({ level: { folders: [], refs: [workspaceEntry] }, hoverShowsRoleIcon: false })
+
+    const row = host!.querySelector('[role="button"][aria-label="乙会话"]') as HTMLElement
+    act(() => {
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('ws-icon-src')
+  })
+
+  it('失效条目显示出来，右键可以删除这一条', () => {
+    const removed: string[] = []
+    renderBrowser({
+      level: {
+        folders: [],
+        refs: [
+          entry({
+            key: 'role::role-gone::::chat-gone',
+            targetKind: 'role',
+            targetId: 'role-gone',
+            chatId: 'chat-gone',
+            title: '已丢失的条目',
+            targetName: '已删除的角色',
+            status: 'missing',
+          }),
+        ],
+      },
+      onRemoveRef: (key) => removed.push(key),
+    })
+
+    expect(host!.textContent).toContain('已丢失的条目')
+    const row = host!.querySelector('[role="button"][aria-label="已丢失的条目"]') as HTMLElement
+    act(() => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    })
+
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+      (el) => el.textContent === '删除这条收藏',
+    ) as HTMLElement
+    expect(item).toBeTruthy()
+    act(() => item.click())
+    expect(removed).toEqual(['role::role-gone::::chat-gone'])
+  })
+
+  it('还没加载的会话显示占位，不当作已丢失，右键可以删除这一条', () => {
+    const opened: FavoriteFolderLevelEntry[] = []
+    const removed: string[] = []
+    renderBrowser({
+      level: {
+        folders: [],
+        refs: [entry({ key: 'role::role-a::::chat-9', chatId: 'chat-9', title: '会话待加载', status: 'pending' })],
+      },
+      onOpenRef: (item) => opened.push(item),
+      onRemoveRef: (key) => removed.push(key),
+    })
+
+    expect(host!.textContent).toContain('会话待加载')
+    const row = host!.querySelector('[role="button"][aria-label="会话待加载"]') as HTMLElement
+    act(() => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    })
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+      (el) => el.textContent === '删除这条收藏',
+    ) as HTMLElement
+    expect(item).toBeTruthy()
+    act(() => item.click())
+    expect(removed).toEqual(['role::role-a::::chat-9'])
+
+    act(() => row.click())
+    expect(opened.map((item) => item.chatId)).toEqual(['chat-9'])
   })
 })

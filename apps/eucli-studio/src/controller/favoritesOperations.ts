@@ -374,6 +374,23 @@ export function createFavoritesOperations(deps: {
     await commitFavorites(fav)
   }
 
+  /** 从收藏夹里摘掉一条引用：失效条目的手动清理入口，只动这一条。 */
+  async function removeFavoriteChatRef(folderId: any, refKey: any) {
+    const fav = cloneFavorites(ensureFavoritesBare())
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    const key = String(refKey || '').trim()
+    if (!fid || !key) return
+    const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+    if (!refs.length) return
+    const next = refs.filter(
+      (ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId) !== key,
+    )
+    if (next.length === refs.length) return
+    fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [fid]: next }
+    await commitFavorites(fav)
+  }
+
   return {
     ensureFavoritesBare,
     getFavoriteFolderIdsForChat,
@@ -390,5 +407,6 @@ export function createFavoritesOperations(deps: {
     reorderFavoriteFolders,
     reorderFavoriteChatRefs,
     moveFavoriteChatRef,
+    removeFavoriteChatRef,
   }
 }

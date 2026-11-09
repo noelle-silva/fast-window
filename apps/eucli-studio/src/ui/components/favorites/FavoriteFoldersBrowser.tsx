@@ -1,9 +1,10 @@
 import * as React from 'react'
-import { Box, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import LinkOffRoundedIcon from '@mui/icons-material/LinkOffRounded'
 import { arrayMove } from '@dnd-kit/sortable'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { FavoriteFolderLevel, FavoriteFolderLevelEntry } from '../../../domain/favoriteFolderLevel'
@@ -12,7 +13,7 @@ import { EntityAvatar } from '../avatar/EntityAvatar'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from '../SortableDnd'
 
 // 会话收藏夹的层级浏览：照搬 hypercortex 收藏夹侧边栏的形态——
-// 不展开收起，点文件夹直接进入下一层；返回按钮在侧边栏顶部栏（由外壳给）。
+// 不展开收起，点文件夹直接进入下一层；返回按钮落在分类自己的工具行最左侧。
 // 行样式沿用同一套节奏：36 高、4 点圆角、图标 + 单行标题、悬停与选中用主色淡底。
 // 拖拽：默认同层排序；按住 Ctrl 拖动切到放置模式，悬停文件夹松手把会话移进去。
 const ROW_HEIGHT = 36
@@ -56,6 +57,10 @@ export type FavoriteFoldersBrowserProps = {
   onReorderFolders: (orderedFolderIds: string[]) => void
   onReorderRefs: (orderedRefKeys: string[]) => void
   onMoveRef: (refKey: string, targetFolderId: string) => void
+  /** 失效条目的手动清理：只摘掉这一条引用。 */
+  onRemoveRef: (refKey: string) => void
+  /** 悬停工作区条目时，图标临时换成所属角色（设置页可关）。 */
+  hoverShowsRoleIcon: boolean
 }
 
 function RowShell(props: {
@@ -65,9 +70,21 @@ function RowShell(props: {
   sortable?: SortableItemRenderArgs
   onClick: () => void
   onContextMenu?: (event: React.MouseEvent) => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
   children: React.ReactNode
 }) {
-  const { ariaLabel, active = false, dropTarget = false, sortable, onClick, onContextMenu, children } = props
+  const {
+    ariaLabel,
+    active = false,
+    dropTarget = false,
+    sortable,
+    onClick,
+    onContextMenu,
+    onMouseEnter,
+    onMouseLeave,
+    children,
+  } = props
   const dragging = !!sortable?.isDragging
   return (
     <Box
@@ -82,6 +99,8 @@ function RowShell(props: {
         if (sortable?.shouldSuppressClick()) return
         onClick()
       }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return
@@ -148,11 +167,19 @@ function FolderRow(props: { folder: { id: string; name: string }; sortable: Sort
 
 function ChatRow(props: {
   entry: FavoriteFolderLevelEntry
+  hoverShowsRoleIcon: boolean
   sortable: SortableItemRenderArgs
   onOpen: () => void
   onContextMenu: (event: React.MouseEvent) => void
 }) {
-  const { entry, sortable, onOpen, onContextMenu } = props
+  const { entry, hoverShowsRoleIcon, sortable, onOpen, onContextMenu } = props
+  const [hovered, setHovered] = React.useState(false)
+  const lost = entry.status === 'missing'
+  // 悬停换图标只作用于工作区来源；未加载与丢失都用目标自身的图标。
+  const swapToRole = hoverShowsRoleIcon && !lost && entry.targetKind === 'workspace' && hovered
+  const targetLine =
+    entry.targetKind === 'workspace' && entry.roleName ? `${entry.targetName}/${entry.roleName}` : entry.targetName
+
   return (
     <RowShell
       ariaLabel={entry.title}
@@ -160,8 +187,32 @@ function ChatRow(props: {
       sortable={sortable}
       onClick={onOpen}
       onContextMenu={onContextMenu}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      <EntityAvatar kind={entry.targetKind} image={entry.targetImage} size={ICON_SIZE} />
+      {lost ? (
+        <Box
+          sx={{
+            width: ICON_SIZE,
+            height: ICON_SIZE,
+            flex: '0 0 auto',
+            borderRadius: 0.75,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'text.disabled',
+            bgcolor: colorMixVar('--studio-primary', 6),
+          }}
+        >
+          <LinkOffRoundedIcon sx={{ fontSize: 15 }} />
+        </Box>
+      ) : (
+        <EntityAvatar
+          kind={swapToRole ? 'role' : entry.targetKind}
+          image={swapToRole ? entry.roleAvatarImage : entry.targetImage}
+          size={ICON_SIZE}
+        />
+      )}
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.125 }}>
         <Typography
           noWrap
@@ -169,13 +220,13 @@ function ChatRow(props: {
             fontSize: 12,
             lineHeight: 1.2,
             fontWeight: entry.selected ? 900 : 600,
-            color: entry.selected ? 'text.primary' : 'text.secondary',
+            color: lost ? 'text.disabled' : entry.selected ? 'text.primary' : 'text.secondary',
           }}
         >
           {entry.title}
         </Typography>
         <Typography noWrap sx={{ fontSize: 10.5, lineHeight: 1.2, color: 'text.disabled' }}>
-          {entry.targetName}
+          {targetLine}
         </Typography>
       </Box>
       {entry.runningKind ? (
@@ -197,7 +248,11 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
     onReorderFolders,
     onReorderRefs,
     onMoveRef,
+    onRemoveRef,
+    hoverShowsRoleIcon,
   } = props
+
+  const [missingMenu, setMissingMenu] = React.useState<{ x: number; y: number; key: string } | null>(null)
 
   const folders = level.folders
   const refs = level.refs
@@ -279,17 +334,43 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
                 {(sortable) => (
                   <ChatRow
                     entry={entry}
+                    hoverShowsRoleIcon={hoverShowsRoleIcon}
                     sortable={sortable}
                     onOpen={() => onOpenRef(entry)}
-                    onContextMenu={(event) => onRefContextMenu(event, entry)}
+                    onContextMenu={(event) => {
+                      // 已在内存的走会话菜单；还没加载的也给「删除这条收藏」，真失效的条目只能靠它清理。
+                      if (entry.status === 'loaded') {
+                        onRefContextMenu(event, entry)
+                        return
+                      }
+                      event.preventDefault()
+                      setMissingMenu({ x: event.clientX, y: event.clientY, key: entry.key })
+                    }}
                   />
                 )}
               </SortableItem>
             ))}
           </SortableSection>
-
         </SortableRoot>
       </Box>
+
+      <Menu
+        open={!!missingMenu}
+        onClose={() => setMissingMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={missingMenu ? { top: missingMenu.y, left: missingMenu.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            const key = missingMenu?.key
+            setMissingMenu(null)
+            if (key) onRemoveRef(key)
+          }}
+          sx={{ fontSize: 12 }}
+        >
+          删除这条收藏
+        </MenuItem>
+      </Menu>
     </>
   )
 }

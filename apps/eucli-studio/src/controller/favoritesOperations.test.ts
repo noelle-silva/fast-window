@@ -168,4 +168,15 @@ describe('收藏夹层级排序与会话移动', () => {
       'chat-gone',
     ])
   })
+
+  it('可以单独摘掉一条引用', async () => {
+    const harness = createHarness()
+    await harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-1', ['fav-1'])
+    await harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-2', ['fav-1'])
+    const key1 = favoriteChatRefKey('role', 'role-a', '', 'chat-1')
+
+    await harness.ops.removeFavoriteChatRef('fav-1', key1)
+
+    expect(harness.state.data.favorites.chatRefsByFolderId['fav-1'].map((ref: any) => ref.chatId)).toEqual(['chat-2'])
+  })
 })

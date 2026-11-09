@@ -137,3 +137,26 @@ describe('输入区按钮布局动作', () => {
     expect(state.data.settings.composerToolsLayout).toEqual(before)
   })
 })
+
+describe('条目悬停图标开关', () => {
+  it('工作桌面与收藏夹各存一份', () => {
+    const { state, saveMeta, actions } = setup()
+    const settings = state.data.settings as any
+
+    actions.setFavoriteHoverRoleIcon(false)
+    expect(settings.favoriteHoverShowsRoleIcon).toBe(false)
+    expect(settings.deskHoverShowsRoleIcon).toBeUndefined()
+
+    actions.setDeskHoverRoleIcon(false)
+    expect(settings.deskHoverShowsRoleIcon).toBe(false)
+    expect(saveMeta).toHaveBeenCalledTimes(2)
+  })
+
+  it('再次打开时写成明确的开', () => {
+    const { state, actions } = setup({ favoriteHoverShowsRoleIcon: false })
+
+    actions.setFavoriteHoverRoleIcon(true)
+
+    expect(state.data.settings.favoriteHoverShowsRoleIcon).toBe(true)
+  })
+})

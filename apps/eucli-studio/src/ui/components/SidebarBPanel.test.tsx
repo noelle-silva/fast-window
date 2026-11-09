@@ -59,6 +59,8 @@ const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favoritesBrowse
   onReorderFolders: noop,
   onReorderRefs: noop,
   onMoveRef: noop,
+  onRemoveRef: noop,
+  hoverShowsRoleIcon: true,
 }
 
 function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPanel>> = {}): React.ComponentProps<typeof SidebarBPanel> {
