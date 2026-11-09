@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { favoriteChatRefKey } from '../domain/favorites'
 import { refreshScopes } from '../domain/uiRefreshScope'
 import { createFavoritesOperations } from './favoritesOperations'
 
@@ -88,5 +89,83 @@ describe('工作区会话收藏身份', () => {
     ])
     expect(harness.ops.getFavoriteFolderIdsForChat('role', 'role-a', '', 'session-r1')).toEqual(['fav-1'])
     expect(harness.ops.getFavoriteFolderIdsForChat('group', 'group-a', '', 'session-g1')).toEqual(['fav-1'])
+  })
+})
+
+describe('收藏夹层级排序与会话移动', () => {
+  function rootFolderIds(harness: ReturnType<typeof createHarness>) {
+    return harness.state.data.favorites.folders
+      .filter((folder: any) => String(folder.parentId || '') === '')
+      .map((folder: any) => folder.id)
+  }
+
+  it('同层文件夹按给定顺序重排，其他层不受影响', () => {
+    const harness = createHarness()
+    const a = harness.ops.createFavoriteFolder('甲')
+    const b = harness.ops.createFavoriteFolder('乙')
+    const child = harness.ops.createFavoriteFolder('子', a)
+
+    harness.ops.reorderFavoriteFolders('', [b, a, 'fav-1'])
+
+    expect(rootFolderIds(harness)).toEqual([b, a, 'fav-1'])
+    expect(harness.state.data.favorites.folders.find((folder: any) => folder.id === child).parentId).toBe(a)
+  })
+
+  it('序列只覆盖部分同层文件夹时，未列出的按原顺序补在末尾', () => {
+    const harness = createHarness()
+    const a = harness.ops.createFavoriteFolder('甲')
+    const b = harness.ops.createFavoriteFolder('乙')
+
+    harness.ops.reorderFavoriteFolders('', [b])
+
+    expect(rootFolderIds(harness)).toEqual([b, 'fav-1', a])
+  })
+
+  it('层内会话按给定顺序重排', () => {
+    const harness = createHarness()
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-1', ['fav-1'])
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-2', ['fav-1'])
+    const key1 = favoriteChatRefKey('role', 'role-a', '', 'chat-1')
+    const key2 = favoriteChatRefKey('role', 'role-a', '', 'chat-2')
+
+    harness.ops.reorderFavoriteChatRefs('fav-1', [key2, key1])
+
+    expect(harness.state.data.favorites.chatRefsByFolderId['fav-1'].map((ref: any) => ref.chatId)).toEqual(['chat-2', 'chat-1'])
+  })
+
+  it('把会话移进目标文件夹，落在末尾且不留在原层', () => {
+    const harness = createHarness()
+    const target = String(harness.ops.createFavoriteFolder('目标'))
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-1', ['fav-1'])
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-2', ['fav-1'])
+    const key1 = favoriteChatRefKey('role', 'role-a', '', 'chat-1')
+
+    harness.ops.moveFavoriteChatRef(key1, target)
+
+    expect(harness.state.data.favorites.chatRefsByFolderId['fav-1'].map((ref: any) => ref.chatId)).toEqual(['chat-2'])
+    expect(harness.state.data.favorites.chatRefsByFolderId[target].map((ref: any) => ref.chatId)).toEqual(['chat-1'])
+  })
+
+  it('层内有失效引用时，可见项仍能排序，失效项留在末尾', () => {
+    const harness = createHarness()
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-1', ['fav-1'])
+    harness.ops.setChatFavoriteFolders('role', 'role-a', '', 'chat-2', ['fav-1'])
+    harness.state.data.favorites.chatRefsByFolderId['fav-1'].push({
+      targetKind: 'role',
+      targetId: 'role-gone',
+      roleId: '',
+      chatId: 'chat-gone',
+      addedAt: 3,
+    })
+    const key1 = favoriteChatRefKey('role', 'role-a', '', 'chat-1')
+    const key2 = favoriteChatRefKey('role', 'role-a', '', 'chat-2')
+
+    harness.ops.reorderFavoriteChatRefs('fav-1', [key2, key1])
+
+    expect(harness.state.data.favorites.chatRefsByFolderId['fav-1'].map((ref: any) => ref.chatId)).toEqual([
+      'chat-2',
+      'chat-1',
+      'chat-gone',
+    ])
   })
 })

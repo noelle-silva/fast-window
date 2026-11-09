@@ -35,16 +35,17 @@ const deskEntries = [
   entry({ targetId: 'ws-1', roleId: 'role-b', chatId: 'chat-2', key: 'workspace::ws-1::role-b::chat-2', title: '乙会话', targetName: '工作区一', targetKind: 'workspace' }),
 ]
 
-const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favorites'] = {
-  favoriteFolders: [],
-  renderFavoriteFolderTree: () => null,
-  collapseAllFavoriteFolders: noop,
-  openCreateFavoriteFolder: noop,
-  favoriteSearchOpen: false,
-  setFavoriteSearchOpen: noop as any,
-  favoriteSearchText: '',
-  setFavoriteSearchText: noop as any,
-  favoriteSearchInputRef: { current: null },
+const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favoritesBrowser'] = {
+  level: { folders: [], refs: [] },
+  canGoBack: false,
+  onBack: noop,
+  onCreateFolder: noop,
+  onOpenRef: noop,
+  onRefContextMenu: noop,
+  onNavigate: noop,
+  onReorderFolders: noop,
+  onReorderRefs: noop,
+  onMoveRef: noop,
 }
 
 function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPanel>> = {}): React.ComponentProps<typeof SidebarBPanel> {
@@ -58,7 +59,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     topbarBlur: 0,
     tab: 'desk',
     onTabChange: noop,
-    favorites: favoritesStub,
+    favoritesBrowser: favoritesStub,
     deskEntries,
     activeChatId: '',
     runningChatIds: new Set<string>(),
@@ -121,24 +122,51 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(tabs[1].getAttribute('aria-selected')).toBe('false')
   })
 
-  it('停在会话收藏夹时显示收藏夹树，桌面条目不再出场', () => {
+  it('停在会话收藏夹时按当前层显示子文件夹与会话，桌面条目不再出场', () => {
     renderPanel({
       tab: 'favorites',
-      favorites: {
+      favoritesBrowser: {
         ...favoritesStub,
-        favoriteFolders: [{ id: 'f1', name: '甲文件夹' }],
-        renderFavoriteFolderTree: () => <div>收藏树节点</div>,
+        level: {
+          folders: [{ id: 'f1', name: '甲文件夹' }],
+          refs: [
+            {
+              key: 'role::role-a::::chat-1',
+              targetKind: 'role',
+              targetId: 'role-a',
+              roleId: '',
+              chatId: 'chat-1',
+              title: '收藏里的会话',
+              snippet: '',
+              targetName: '甲角色',
+              targetImage: '',
+              selected: false,
+              runningKind: '',
+            },
+          ],
+        },
       },
     })
 
-    expect(host!.textContent).toContain('收藏树节点')
-    expect(host!.textContent).not.toContain('甲会话')
+    expect(host!.textContent).toContain('甲文件夹')
+    expect(host!.textContent).toContain('收藏里的会话')
+    expect(host!.textContent).not.toContain('乙会话')
   })
 
-  it('收藏夹为空时给出空态提示', () => {
+  it('收藏夹为空时给出层级视图的空态提示', () => {
     renderPanel({ tab: 'favorites' })
 
-    expect(host!.textContent).toContain('还没有收藏夹')
+    expect(host!.textContent).toContain('这个收藏夹还是空的')
+  })
+
+  it('返回按钮不进侧边栏级顶部栏，只落在收藏夹自己的工具行', () => {
+    renderPanel({ tab: 'favorites' })
+    const tablist = host!.querySelector('[role="tablist"]') as HTMLElement
+    expect(tablist.querySelector('[aria-label="返回上一层级"]')).toBeNull()
+    expect(host!.querySelector('button[aria-label="返回上一层级"]')).toBeTruthy()
+
+    renderPanel({ tab: 'desk' })
+    expect(host!.querySelector('button[aria-label="返回上一层级"]')).toBeNull()
   })
 
   it('每一条都带自己的移除按钮', () => {

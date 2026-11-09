@@ -264,6 +264,99 @@ export function createFavoritesOperations(deps: {
     emitFavorites()
   }
 
+  /** 同一父层下的文件夹重排：只换这些文件夹在扁平表里的占位顺序，其他层不受影响。 */
+  function reorderFavoriteFolders(parentId: any, orderedFolderIds: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const pid = String(parentId || '').trim()
+    const siblings = fav.folders.filter((f: any) => String(f?.parentId || '').trim() === pid)
+    if (siblings.length < 2) return
+    const byId = new Map<string, any>(siblings.map((f: any) => [String(f?.id || '').trim(), f]))
+    const order = (Array.isArray(orderedFolderIds) ? orderedFolderIds : [])
+      .map((id: any) => String(id || '').trim())
+      .filter((id: string) => byId.has(id))
+    if (!order.length) return
+
+    // 提交序列以界面上看得到的项为准；同层未列出的文件夹按原顺序补在后面。
+    const orderedSet = new Set(order)
+    const next = [
+      ...order.map((id: string) => byId.get(id)),
+      ...siblings.filter((f: any) => !orderedSet.has(String(f?.id || '').trim())),
+    ]
+
+    let cursor = 0
+    fav.folders = fav.folders.map((f: any) => {
+      if (String(f?.parentId || '').trim() !== pid) return f
+      return next[cursor++] || f
+    })
+    persistFavorites()
+    emitFavorites()
+  }
+
+  /** 层内会话引用重排：只认界面上看得到的引用，失效引用不参与排序。 */
+  function reorderFavoriteChatRefs(folderId: any, orderedRefKeys: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    if (!fid || !fav.folders.some((f: any) => String(f?.id || '') === fid)) return
+    const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+    const refKeyOf = (ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId)
+    const byKey = new Map<string, any>(
+      refs.map((ref: any) => [refKeyOf(ref), ref]),
+    )
+    const order = (Array.isArray(orderedRefKeys) ? orderedRefKeys : [])
+      .map((key: any) => String(key || '').trim())
+      .filter((key: string) => byKey.has(key))
+    if (!refs.length || !order.length) return
+
+    // 界面上看不到的引用（会话已失效）按原顺序补在末尾，不能被它们卡住整层排序。
+    const orderedSet = new Set(order)
+    fav.chatRefsByFolderId = {
+      ...(fav.chatRefsByFolderId || {}),
+      [fid]: [
+        ...order.map((key: string) => byKey.get(key)),
+        ...refs.filter((ref: any) => !orderedSet.has(refKeyOf(ref))),
+      ],
+    }
+    persistFavorites()
+    emitFavorites()
+  }
+
+  /** 把一条会话引用移进目标收藏夹，落在该层末尾；已在目标里则不动。 */
+  function moveFavoriteChatRef(refKey: any, targetFolderId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const key = String(refKey || '').trim()
+    const targetId = String(targetFolderId || '').trim()
+    if (!key || !targetId) return
+    if (!fav.folders.some((f: any) => String(f?.id || '') === targetId)) return
+
+    const refKeyOf = (ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.roleId, ref?.chatId)
+    let moving: any = null
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      const found = refs.find((ref: any) => refKeyOf(ref) === key)
+      if (found) {
+        moving = found
+        break
+      }
+    }
+    if (!moving) return
+
+    const next: Record<string, any[]> = {}
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      if (!fid) continue
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      next[fid] = refs.filter((ref: any) => refKeyOf(ref) !== key)
+    }
+    next[targetId] = [...(next[targetId] || []), moving]
+    fav.chatRefsByFolderId = next
+    persistFavorites()
+    emitFavorites()
+  }
+
   return {
     ensureFavoritesBare,
     getFavoriteFolderIdsForChat,
@@ -277,5 +370,8 @@ export function createFavoritesOperations(deps: {
     clearFavoriteFolderRefs,
     moveFavoriteFolder,
     setChatFavoriteFolders,
+    reorderFavoriteFolders,
+    reorderFavoriteChatRefs,
+    moveFavoriteChatRef,
   }
 }

@@ -83,4 +83,26 @@ describe('收藏夹范围订阅', () => {
     expect(apiRef.current.favoriteChildrenMap[''][0]).toMatchObject({ id: 'f1', name: '工作' })
     expect(uiCore.getVer()).toBe(1)
   })
+
+  it('层内顺序跟着 folders 数组走，不按创建时间重排', () => {
+    const uiCore = createUiCore()
+    const controller = createController(uiCore)
+    const data: any = {
+      favorites: {
+        folders: [
+          { id: 'late', name: '后建', parentId: '', createdAt: 20 },
+          { id: 'early', name: '先建', parentId: '', createdAt: 10 },
+        ],
+        chatRefsByFolderId: { late: [], early: [] },
+      },
+    }
+
+    act(() => {
+      root.render(<Harness deps={createDeps(controller, data)} apiRef={apiRef} />)
+    })
+
+    // 拖拽排序写回的就是数组顺序；这里按 createdAt 重排的话，排好的顺序每次都会被推翻。
+    expect(apiRef.current.favoriteChildrenMap[''].map((folder: any) => folder.id)).toEqual(['late', 'early'])
+    expect(apiRef.current.buildFavoriteFolderLevel('').folders.map((folder: any) => folder.id)).toEqual(['late', 'early'])
+  })
 })

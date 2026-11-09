@@ -12,5 +12,8 @@ export function createFavoriteActions(deps: {
     moveFavoriteFolder: (folderId: any, nextParentId: any) => favOps.moveFavoriteFolder(folderId, nextParentId),
     setChatFavoriteFolders: (targetKind: any, targetId: any, roleId: any, chatId: any, folderIds: any) => favOps.setChatFavoriteFolders(targetKind, targetId, roleId, chatId, folderIds),
     getChatFavoriteFolderIds: (targetKind: any, targetId: any, roleId: any, chatId: any) => favOps.getFavoriteFolderIdsForChat(targetKind, targetId, roleId, chatId),
+    reorderFavoriteFolders: (parentId: any, orderedFolderIds: any) => favOps.reorderFavoriteFolders(parentId, orderedFolderIds),
+    reorderFavoriteChatRefs: (folderId: any, orderedRefKeys: any) => favOps.reorderFavoriteChatRefs(folderId, orderedRefKeys),
+    moveFavoriteChatRef: (refKey: any, targetFolderId: any) => favOps.moveFavoriteChatRef(refKey, targetFolderId),
   }
 }

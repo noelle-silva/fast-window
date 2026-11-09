@@ -7,7 +7,8 @@ import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../co
 import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
-import { favoriteTargetMeta } from '../../domain/favorites'
+import { favoriteChatRefKey, favoriteTargetMeta } from '../../domain/favorites'
+import type { FavoriteFolderLevel, FavoriteFolderLevelEntry } from '../../domain/favoriteFolderLevel'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { snippetText } from '../utils/text'
 import { isRenderableNode } from '../utils/renderable'
@@ -118,9 +119,8 @@ export function useFavoriteFolders(deps: {
       if (!map[pid]) map[pid] = []
       map[pid].push(f)
     }
-    for (const list of Object.values(map)) {
-      list.sort((a: any, b: any) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
-    }
+    // 层内顺序就是 folders 数组本身的顺序。拖拽排序写回的也是这个顺序，
+    // 这里不能再按 createdAt 重排，否则每次渲染都会把用户排好的顺序打回去。
     return map
   }, [favoritesVersion, favoriteFolders])
 
@@ -574,6 +574,66 @@ export function useFavoriteFolders(deps: {
     ],
   )
 
+  // 层级浏览的一层：直接子文件夹 + 该层会话条目。
+  // 与树渲染共用同一批事实（会话、目标元信息、选中、运行态），只是不递归。
+  const buildFavoriteFolderLevel = React.useCallback(
+    (folderId: string): FavoriteFolderLevel => {
+      const fid = String(folderId || '').trim()
+      const folders = (favoriteChildrenMap[fid] || []).map((folder: any) => ({
+        id: String(folder?.id || ''),
+        name: String(folder?.name || '未命名文件夹'),
+      }))
+      const refs0 = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
+      const refs: FavoriteFolderLevelEntry[] = []
+      for (const ref of refs0) {
+        const targetKindText = String(ref?.targetKind || '').trim()
+        const targetKind = (targetKindText === 'group' ? 'group' : targetKindText === 'workspace' ? 'workspace' : 'role') as TargetKind
+        const targetId = String(ref?.targetId || '')
+        const roleId = String(ref?.roleId || '')
+        const chatId = String(ref?.chatId || '')
+        const key = favoriteChatRefKey(targetKind, targetId, roleId, chatId)
+        const targetKey = targetKind === 'workspace' ? workspaceRoleTargetId(targetId, roleId) : targetId
+        if (!key || !targetKey) continue
+        const chat = getChatByFavoriteRef(targetKind, targetId, roleId, chatId)
+        if (!chat) continue
+        const targetMeta = getFavoriteTargetMeta(targetKind, targetId)
+        const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区' : '角色'))
+        const snippet = snippetText(
+          (chat as any)?.lastMessagePreview ||
+            (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content ||
+            '',
+        )
+        const selected = targetKind === activeTargetKind && targetKey === activeChatTargetId && String(chatId || '') === activeChatId
+        refs.push({
+          key,
+          targetKind,
+          targetId,
+          roleId,
+          chatId,
+          title: String(
+            (chat as any)?.title || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'),
+          ),
+          snippet,
+          targetName,
+          targetImage: String(targetMeta?.image || ''),
+          selected,
+          runningKind: chatSessionRunIndicatorKind(targetKind, targetKey, chat, selected),
+        })
+      }
+      return { folders, refs }
+    },
+    [
+      favoriteChildrenMap,
+      favoriteChatRefsByFolderId,
+      getChatByFavoriteRef,
+      getFavoriteTargetMeta,
+      activeTargetKind,
+      activeChatTargetId,
+      activeChatId,
+      chatSessionRunIndicatorKind,
+    ],
+  )
+
   return {
     favoriteFolders,
     favoriteChatRefsByFolderId,
@@ -635,5 +695,6 @@ export function useFavoriteFolders(deps: {
     renderFavoriteFolderPicker,
     renderFavoriteFolderSinglePicker,
     renderFavoriteFolderTree,
+    buildFavoriteFolderLevel,
   }
 }

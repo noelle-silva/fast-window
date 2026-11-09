@@ -4,6 +4,8 @@ import { useScopedUiVersion, useScopedUiVersions } from './hooks/useScopedUiVers
 import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
+import { useFavoriteFolderNavigation } from './hooks/useFavoriteFolderNavigation'
+import type { FavoriteFolderLevelEntry } from '../domain/favoriteFolderLevel'
 import { useMessageActions } from './hooks/useMessageActions'
 import { useChatTree } from './hooks/useChatTree'
 import { useChatSending } from './hooks/useChatSending'
@@ -361,6 +363,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     renderFavoriteFolderPicker,
     renderFavoriteFolderSinglePicker,
     renderFavoriteFolderTree,
+    openFavoritedChat,
+    onFavoriteChatContextMenu,
+    buildFavoriteFolderLevel,
   } = useFavoriteFolders({
     controller,
     data,
@@ -375,6 +380,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeChatTargetId,
     activeChatId,
   })
+
+  const favoriteFolderNav = useFavoriteFolderNavigation({ folders: favoriteFolders })
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const revealMessageRef = React.useRef<((mid: string) => void) | null>(null)
@@ -1286,6 +1293,63 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     favoriteSearchInputRef,
   ])
 
+  // 层级浏览这一层的投影：当前文件夹的直接子级（子文件夹 + 会话条目）。
+  const favoriteLevel = React.useMemo(
+    () => buildFavoriteFolderLevel(favoriteFolderNav.currentFolderId),
+    [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId],
+  )
+
+  const onCreateFavoriteFolderHere = useEvent(() => {
+    openCreateFavoriteFolder(favoriteFolderNav.currentFolderId)
+  })
+  const onOpenFavoriteRef = useEvent((entry: FavoriteFolderLevelEntry) => {
+    openFavoritedChat(entry.targetKind, entry.targetId, entry.roleId, entry.chatId)
+  })
+  const onOpenFavoriteRefMenu = useEvent((event: React.MouseEvent, entry: FavoriteFolderLevelEntry) => {
+    onFavoriteChatContextMenu(
+      event,
+      favoriteFolderNav.currentFolderId,
+      entry.targetKind,
+      entry.targetId,
+      entry.roleId,
+      entry.chatId,
+      entry.title,
+    )
+  })
+  const onReorderFavoriteFolders = useEvent((orderedFolderIds: string[]) => {
+    controller.actions.reorderFavoriteFolders?.(favoriteFolderNav.currentFolderId, orderedFolderIds)
+  })
+  const onReorderFavoriteRefs = useEvent((orderedRefKeys: string[]) => {
+    controller.actions.reorderFavoriteChatRefs?.(favoriteFolderNav.currentFolderId, orderedRefKeys)
+  })
+  const onMoveFavoriteRef = useEvent((refKey: string, targetFolderId: string) => {
+    controller.actions.moveFavoriteChatRef?.(refKey, targetFolderId)
+  })
+
+  const sidebarBFavorites = React.useMemo(() => ({
+    level: favoriteLevel,
+    canGoBack: favoriteFolderNav.canGoBack,
+    onBack: favoriteFolderNav.back,
+    onNavigate: favoriteFolderNav.navigate,
+    onCreateFolder: onCreateFavoriteFolderHere,
+    onOpenRef: onOpenFavoriteRef,
+    onRefContextMenu: onOpenFavoriteRefMenu,
+    onReorderFolders: onReorderFavoriteFolders,
+    onReorderRefs: onReorderFavoriteRefs,
+    onMoveRef: onMoveFavoriteRef,
+  }), [
+    favoriteLevel,
+    favoriteFolderNav.canGoBack,
+    favoriteFolderNav.back,
+    favoriteFolderNav.navigate,
+    onCreateFavoriteFolderHere,
+    onOpenFavoriteRef,
+    onOpenFavoriteRefMenu,
+    onReorderFavoriteFolders,
+    onReorderFavoriteRefs,
+    onMoveFavoriteRef,
+  ])
+
   const sidebarBProps = React.useMemo(
     () => ({
       width: sidebarLayout.b.width,
@@ -1296,7 +1360,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       tab: deskSidebarTab,
       onTabChange: onChangeDeskTab,
-      favorites: favoriteFoldersPanel,
+      favoritesBrowser: sidebarBFavorites,
       deskEntries,
       activeChatId: chatSwitch.selectedChatId,
       runningChatIds: runningDeskChatIds,
@@ -1315,7 +1379,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       topbarBlur,
       deskSidebarTab,
       onChangeDeskTab,
-      favoriteFoldersPanel,
+      sidebarBFavorites,
       deskEntries,
       chatSwitch.selectedChatId,
       runningDeskChatIds,
