@@ -100,3 +100,40 @@ describe('侧边栏 A / B 布局动作', () => {
     expect(state.data.settings.sidebarLayout.b.tabsVariant).toBe('dot')
   })
 })
+
+describe('输入区按钮布局动作', () => {
+  it('勾选迁移会落盘并按区域重新排列', () => {
+    const { state, saveMeta, actions } = setup()
+
+    actions.setComposerToolOnToolbar('image-picker', false)
+    const layout = state.data.settings.composerToolsLayout
+    expect(layout.inline).not.toContain('image-picker')
+    expect(layout.menu).toContain('image-picker')
+    expect(saveMeta).toHaveBeenCalledTimes(1)
+
+    actions.setComposerToolOnToolbar('image-picker', true)
+    expect(state.data.settings.composerToolsLayout.inline).toContain('image-picker')
+    expect(saveMeta).toHaveBeenCalledTimes(2)
+  })
+
+  it('区域内拖拽换位会落盘', () => {
+    const { state, saveMeta, actions } = setup()
+
+    actions.moveComposerToolWithinArea('stream-toggle', 'image-picker')
+
+    const inline = state.data.settings.composerToolsLayout.inline
+    expect(inline[0]).toBe('stream-toggle')
+    expect(inline[1]).toBe('image-picker')
+    expect(saveMeta).toHaveBeenCalledTimes(1)
+  })
+
+  it('跨区域拖拽不改动布局', () => {
+    const { state, actions } = setup()
+    actions.setComposerToolOnToolbar('clean-reasoning', false)
+    const before = JSON.parse(JSON.stringify(state.data.settings.composerToolsLayout))
+
+    actions.moveComposerToolWithinArea('image-picker', 'clean-reasoning')
+
+    expect(state.data.settings.composerToolsLayout).toEqual(before)
+  })
+})

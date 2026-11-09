@@ -13,6 +13,7 @@ import {
 } from '../../domain/colorTheme'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../../domain/composerAppearance'
+import { applyComposerToolPlacement, moveComposerToolWithinArea as relocateComposerTool } from '../../domain/composerToolsLayout'
 import {
   normalizeChatBgBlur,
   normalizeChatBgOpacity,
@@ -146,6 +147,30 @@ export function createAppearanceActions(deps: {
     setComposerModelShowProvider: (enabled: any) => {
       if (!state.data) return
       state.data.settings.composerModelShowProvider = normalizeComposerModelShowProvider(enabled)
+      persistMeta()
+      notifySettings()
+    },
+    // 输入区按钮布局：勾选决定按钮直显还是收进更多菜单，拖拽只在所属区域内换位。
+    // 两个动作都以域层归一化结果落盘，动作层不自己维护默认值或去重规则。
+    setComposerToolOnToolbar: (id: any, onToolbar: any) => {
+      if (!state.data) return
+      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
+      ;(state.data.settings as any).composerToolsLayout = applyComposerToolPlacement(
+        (state.data.settings as any).composerToolsLayout,
+        id,
+        !!onToolbar,
+      )
+      persistMeta()
+      notifySettings()
+    },
+    moveComposerToolWithinArea: (activeId: any, overId: any) => {
+      if (!state.data) return
+      if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {} as any
+      ;(state.data.settings as any).composerToolsLayout = relocateComposerTool(
+        (state.data.settings as any).composerToolsLayout,
+        activeId,
+        overId,
+      )
       persistMeta()
       notifySettings()
     },

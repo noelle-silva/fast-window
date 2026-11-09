@@ -47,6 +47,7 @@ import {
   normalizeComposerRadius,
   normalizeComposerWidthPercent,
 } from './composerAppearance'
+import { normalizeComposerToolsLayout } from './composerToolsLayout'
 import { normalizeRequestRecordViewOptions } from './requestRecordViewOptions'
 import { normalizeSettingsNavOrder } from './settingsNavigation'
 import { normalizeSessionFacts } from './sessionFacts'
@@ -192,6 +193,7 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).composerMinRows = normalizeComposerMinRows((d.settings as any).composerMinRows)
   ;(d.settings as any).composerRadius = normalizeComposerRadius((d.settings as any).composerRadius)
   ;(d.settings as any).composerModelShowProvider = normalizeComposerModelShowProvider((d.settings as any).composerModelShowProvider)
+  ;(d.settings as any).composerToolsLayout = normalizeComposerToolsLayout((d.settings as any).composerToolsLayout)
   ;(d.settings as any).requestRecordViewOptions = normalizeRequestRecordViewOptions((d.settings as any).requestRecordViewOptions)
   ;(d.settings as any).settingsNavOrder = normalizeSettingsNavOrder((d.settings as any).settingsNavOrder)
   ;(d.settings as any).chatFontSize = normalizeChatFontSize((d.settings as any).chatFontSize)
