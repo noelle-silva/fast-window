@@ -5,10 +5,12 @@ import AutorenewIcon from '@mui/icons-material/Autorenew'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
+import LibraryBooksOutlinedIcon from '@mui/icons-material/LibraryBooksOutlined'
 import { HookPromptSelector } from '../components/HookPromptSelector'
 import { FitTextLabel } from '../components/FitTextLabel'
 import type { MoreActionsMenuItem } from '../components/MoreActionsMenu'
 import { hookPromptSelectionLabel, type HookPromptLibrary, type HookPromptSelectionMode } from '../../domain/hookPrompt'
+import { PROMPT_SCOPE_LABELS, promptScopeLibraryTitle, type PromptScope } from '../../domain/promptLibrary'
 import type { ComposerToolId, ComposerToolsLayout } from '../../domain/composerToolsLayout'
 
 // 输入区工具条按钮的两种形态：直显（inline）与更多菜单里的一行（menuItem）。
@@ -69,6 +71,8 @@ export type ComposerToolEntriesContext = {
   onToggleStream: () => void
 
   onCleanReasoning: () => void
+  /** 打开对应作用域的提示词库模态窗。 */
+  onOpenPromptLibrary: (scope: PromptScope) => void
 }
 
 const composerToolIconButtonSx = {
@@ -178,12 +182,34 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     chatSettingsStreamSaving,
     onToggleStream,
     onCleanReasoning,
+    onOpenPromptLibrary,
   } = ctx
 
   const hookLibrary: HookPromptLibrary = hookPrompts.library || { presets: [] }
   const hookLabel = hookPromptSelectionLabel(hookLibrary, activeHookPromptMode, activeHookPromptPresetId, roleDefaultHookPromptPresetId)
   const modelButtonDisabled = loading || !activeRole || !providers.length
   const streamButtonDisabled = loading || chatSettingsStreamSaving || !roleSessionControlsEnabled || !activeChat
+
+  // 三个提示词库入口结构一致：直显是短文字按钮，菜单里是一行「xx 提示词库」。
+  const promptLibraryEntry = (id: ComposerToolId, scope: PromptScope, shortLabel: string): ComposerToolEntry => ({
+    inline: (
+      <Button
+        aria-label={PROMPT_SCOPE_LABELS[scope]}
+        onClick={() => onOpenPromptLibrary(scope)}
+        size="small"
+        variant="text"
+        sx={{ ...composerToolTextButtonSx, px: 1 }}
+      >
+        {shortLabel}
+      </Button>
+    ),
+    menuItem: {
+      key: id,
+      label: promptScopeLibraryTitle(scope),
+      icon: <LibraryBooksOutlinedIcon fontSize="small" />,
+      onSelect: () => onOpenPromptLibrary(scope),
+    },
+  })
 
   return {
     'image-picker': {
@@ -427,6 +453,10 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
         onSelect: () => onCleanReasoning(),
       },
     },
+
+    'global-prompts': promptLibraryEntry('global-prompts', 'global', '全局'),
+    'role-prompts': promptLibraryEntry('role-prompts', 'role', '角色'),
+    'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区'),
   }
 }
 

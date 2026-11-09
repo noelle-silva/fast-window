@@ -30,6 +30,7 @@ const baseProps = {
   activeRole: { id: 'role-1' },
   activeGroup: null,
   roles: [],
+  workspaces: [],
   activeStopRunId: '',
   formatModelRefText: () => '',
   openImagePicker: () => {},
@@ -145,5 +146,34 @@ describe('输入区工具条按布局渲染', () => {
     expect(labels).toContain('添加图片')
     expect(labels).not.toContain('更多')
     expect(host!.querySelector('[aria-label="更多"]')).toBeNull()
+  })
+
+  it('keeps the three prompt library entries in the menu by default', () => {
+    render(normalizeComposerToolsLayout(undefined))
+
+    const labels = toolbarButtonLabels(host!)
+    expect(labels).not.toContain('全局提示词')
+    expect(labels).not.toContain('角色提示词')
+    expect(labels).not.toContain('工作区提示词')
+    expect(host!.querySelector('[aria-label="更多"]')).not.toBeNull()
+  })
+
+  it('opens the matching prompt library dialog from an inline entry', async () => {
+    render(
+      normalizeComposerToolsLayout({
+        inline: ['global-prompts', 'role-prompts', 'workspace-prompts'],
+        menu: COMPOSER_TOOL_IDS.filter((id) => !['global-prompts', 'role-prompts', 'workspace-prompts'].includes(id)),
+      }),
+    )
+
+    const button = host!.querySelector('[aria-label="全局提示词"]') as HTMLButtonElement
+    expect(button).not.toBeNull()
+
+    // 面板挂载后自己会异步加载库，用 async act 把这轮微任务一起收掉。
+    await act(async () => {
+      button.click()
+    })
+
+    expect(document.body.textContent).toContain('全局提示词库')
   })
 })

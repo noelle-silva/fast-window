@@ -6,10 +6,12 @@ import { HookPromptPopover } from '../components/HookPromptPopover'
 import { ReasoningCleanDialog } from '../components/ReasoningCleanDialog'
 import { composerSideInsetPercent } from '../../domain/composerAppearance'
 import { normalizeComposerToolsLayout, type ComposerToolsLayout } from '../../domain/composerToolsLayout'
+import type { PromptScope } from '../../domain/promptLibrary'
 import type { BranchTreeView } from '../../domain/branchTree'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
+import { ComposerPromptLibraryDialog } from './ComposerPromptLibraryDialog'
 import {
   buildComposerToolEntries,
   composerToolInlineNodes,
@@ -40,6 +42,7 @@ export function ChatComposer(props: {
   activeRole: any
   activeGroup: any
   roles: any[]
+  workspaces: any[]
   activeStopRunId: string
   formatModelRefText: (modelRef: any) => string
   openImagePicker: (anchor: HTMLElement | null) => void
@@ -100,6 +103,7 @@ export function ChatComposer(props: {
     activeRole,
     activeGroup,
     roles,
+    workspaces,
     activeStopRunId,
     formatModelRefText,
     openImagePicker,
@@ -161,6 +165,8 @@ export function ChatComposer(props: {
   const [cleaning, setCleaning] = React.useState(false)
   // 更多菜单里的 hook 提示词入口：菜单关闭后以「更多」按钮为锚点打开同一份弹层。
   const [hookPromptMenuAnchor, setHookPromptMenuAnchor] = React.useState<HTMLElement | null>(null)
+  // 提示词库模态窗：null 表示关闭；否则是当前作用域（global / role / workspace）。
+  const [promptLibraryScope, setPromptLibraryScope] = React.useState<PromptScope | null>(null)
 
   const toolLayout = React.useMemo(() => normalizeComposerToolsLayout(composerToolsLayout), [composerToolsLayout])
 
@@ -202,6 +208,7 @@ export function ChatComposer(props: {
         chatSettingsStreamSaving,
         onToggleStream: () => controller.actions.toggleChatStreamEnabled?.(),
         onCleanReasoning: () => setCleanOpen(true),
+        onOpenPromptLibrary: (scope) => setPromptLibraryScope(scope),
       }),
     [
       controller,
@@ -318,7 +325,9 @@ export function ChatComposer(props: {
                 <MoreActionsMenu
                   ariaLabel="更多"
                   tooltip="更多"
-                  disabled={loading || !activeChat}
+                  // 菜单里现在也有与会话无关的入口（提示词库），开关只跟加载态走；
+                  // 需要会话的单项由各自的 disabled 判断。
+                  disabled={!!loading}
                   items={menuToolItems}
                 />
               ) : null}
@@ -342,6 +351,15 @@ export function ChatComposer(props: {
       />
 
       <ReasoningCleanDialog open={cleanOpen} busy={cleaning} onClose={() => setCleanOpen(false)} onConfirm={confirmClean} />
+
+      <ComposerPromptLibraryDialog
+        controller={controller}
+        scope={promptLibraryScope}
+        onClose={() => setPromptLibraryScope(null)}
+        roles={roles}
+        workspaces={workspaces}
+        activeRoleId={String(activeRole?.id || '')}
+      />
     </Box>
   )
 }
