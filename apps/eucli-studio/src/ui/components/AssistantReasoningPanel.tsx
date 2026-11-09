@@ -104,6 +104,7 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
         mb: 1,
         borderRadius: 3,
         bgcolor: 'var(--studio-paper)',
+        boxShadow: 'var(--studio-shadow-soft)',
         overflow: 'hidden',
       }}
     >
