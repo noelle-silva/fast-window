@@ -68,6 +68,8 @@ describe('提示词库面板的初始作用域', () => {
 
     expect(calls).toContainEqual(['library', 'role', 'role-1'])
     expect(host!.textContent).toContain('甲角色')
+    // 归属控件只对角色 / 工作区出现；新建按钮在它左边、搜索固定在右侧。
+    expect(host!.querySelector('#prompt-library-owner-label')).not.toBeNull()
   })
 
   it('falls back to the first owner when the requested one is missing', async () => {
@@ -86,15 +88,15 @@ describe('提示词库面板的初始作用域', () => {
     expect(calls).toContainEqual(['library', 'workspace', 'ws-1'])
   })
 
-  it('keeps the owner slot mounted and hidden in the global scope', async () => {
+  it('does not render the owner controls in the global scope', async () => {
     const calls: any[][] = []
     await act(async () => {
       root.render(<PromptLibrarySettingsPanel controller={createController(calls)} />)
     })
 
-    // 槽位常驻但不可见：切换作用域时，新建按钮与搜索框的横向位置不会跟着跳。
-    const label = host!.querySelector('#prompt-library-owner-label')
-    expect(label).not.toBeNull()
-    expect(label!.closest('[aria-hidden="true"]')).not.toBeNull()
+    // 两端锚定：新建按钮在左、搜索在右，中间不渲染归属控件也不会让它们换位。
+    expect(host!.querySelector('#prompt-library-owner-label')).toBeNull()
+    expect(host!.textContent).toContain('新建收藏夹')
+    expect(host!.querySelector('input[placeholder="搜索当前层"]')).not.toBeNull()
   })
 })

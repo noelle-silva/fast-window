@@ -533,44 +533,9 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
       </Box>
 
       {/* 归属选择、两个新建动作与当前层搜索共用一行。
-          全局没有归属可选，但保留同宽槽位：切换作用域时，新建按钮与搜索框不会横向跳位。 */}
+          新建按钮固定在左、搜索固定在右，归属控件只对角色 / 工作区有意义：
+          中间放什么都不会让两端换位，所以不需要占位。 */}
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            width: 328,
-            flexShrink: 0,
-            visibility: scope === 'global' ? 'hidden' : 'visible',
-          }}
-          aria-hidden={scope === 'global'}
-        >
-          <TextField
-            size="small"
-            placeholder={scope === 'role' ? '搜索角色' : '搜索工作区'}
-            value={ownerSearch}
-            onChange={(event) => setOwnerSearch(event.target.value)}
-            sx={{ width: 150 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 170, flex: 1 }}>
-            <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
-            <Select
-              labelId="prompt-library-owner-label"
-              label={scope === 'role' ? '选择角色' : '选择工作区'}
-              value={activeOwnerId}
-              onChange={(event) => setOwnerId(String(event.target.value))}
-            >
-              {ownerOptions
-                .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))
-                .map((item: any) => (
-                  <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                    {text(item?.name) || text(item?.id)}
-                  </MenuItem>
-                ))}
-            </Select>
-          </FormControl>
-        </Box>
         <Button
           size="small"
           variant="contained"
@@ -593,6 +558,34 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         >
           新建提示词
         </Button>
+        {scope !== 'global' ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: 328, flexShrink: 0 }}>
+            <TextField
+              size="small"
+              placeholder={scope === 'role' ? '搜索角色' : '搜索工作区'}
+              value={ownerSearch}
+              onChange={(event) => setOwnerSearch(event.target.value)}
+              sx={{ width: 150 }}
+            />
+            <FormControl size="small" sx={{ minWidth: 170, flex: 1 }}>
+              <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
+              <Select
+                labelId="prompt-library-owner-label"
+                label={scope === 'role' ? '选择角色' : '选择工作区'}
+                value={activeOwnerId}
+                onChange={(event) => setOwnerId(String(event.target.value))}
+              >
+                {ownerOptions
+                  .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))
+                  .map((item: any) => (
+                    <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                      {text(item?.name) || text(item?.id)}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          </Box>
+        ) : null}
         <Box sx={{ flex: 1 }} />
         <TextField
           size="small"
