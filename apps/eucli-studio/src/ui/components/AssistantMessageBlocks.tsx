@@ -17,6 +17,7 @@ import { normalizeDurationMs } from '../../domain/messageTiming'
 import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
+import { ToolCallStatusDot } from './ToolCallStatusDot'
 import { ToolConfirmationCard, type ToolConfirmationDecision } from './ToolConfirmationCard'
 import { formatDurationMs } from '../utils/time'
 import { useLiveNowMs } from '../hooks/useLiveNowMs'
@@ -237,7 +238,7 @@ function ToolSessionCard(props: {
         }}
         sx={{ px: 1.25, py: 1, cursor: 'pointer', userSelect: 'none', minWidth: 0 }}
       >
-        <Box sx={{ width: 10, height: 28, borderRadius: 999, background: 'var(--studio-border)' }} />
+        <ToolCallStatusDot part={part} />
         <Stack spacing={0.15} sx={{ minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 950, color: 'var(--studio-text-primary)' }} noWrap>
             {name}

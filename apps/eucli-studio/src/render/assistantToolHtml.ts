@@ -1,4 +1,5 @@
 import { esc } from '../core/utils'
+import { toolResultTone, toolStateText, toolStateTone } from '../domain/toolCallState'
 
 function safePrettyJson(value: any) {
   try {
@@ -8,40 +9,11 @@ function safePrettyJson(value: any) {
   }
 }
 
-function toolPartStateText(state0: any) {
-  const state = String(state0 || '').trim()
-  if (state === 'requested') return '已请求'
-  if (state === 'needs_confirmation') return '等待确认'
-  if (state === 'approved') return '已同意'
-  if (state === 'rejected') return '已拒绝'
-  if (state === 'running') return '运行中'
-  if (state === 'completed') return '已完成'
-  if (state === 'error') return '失败'
-  if (state === 'denied') return '已拒绝'
-  if (state === 'cancelled') return '已取消'
-  return state || '未知状态'
-}
-
 function chip(label: unknown, tone = '') {
   const text = String(label || '').trim()
   if (!text) return ''
   const toneClass = tone ? ` fw-tool-chip-${esc(tone)}` : ''
   return `<span class="fw-tool-chip${toneClass}">${esc(text)}</span>`
-}
-
-function stateTone(state0: any) {
-  const state = String(state0 || '').trim()
-  if (state === 'completed' || state === 'approved') return 'success'
-  if (state === 'error' || state === 'denied' || state === 'rejected' || state === 'cancelled') return 'danger'
-  if (state === 'running' || state === 'needs_confirmation') return 'warning'
-  return ''
-}
-
-function resultTone(status0: any) {
-  const status = String(status0 || '').trim().toLowerCase()
-  if (status === 'success' || status === 'completed' || status === 'ok') return 'success'
-  if (status === 'error' || status === 'failed' || status === 'failure') return 'danger'
-  return ''
 }
 
 function preBlock(label: string, text: unknown, className = '') {
@@ -111,7 +83,7 @@ export function renderAssistantToolInvocationHtml(part: any) {
     '</div>',
     '<div class="fw-tool-chip-row">',
     chip(name),
-    chip(toolPartStateText(state), stateTone(state)),
+    chip(toolStateText(state, '未知状态'), toolStateTone(state)),
     '</div>',
     liveOutputBlock(part),
     preBlock('输入参数', inputText),
@@ -156,7 +128,7 @@ export function renderAssistantToolResultHtml(part: any) {
     '</div>',
     '<div class="fw-tool-chip-row">',
     chip(name),
-    chip(status, resultTone(status)),
+    chip(status, toolResultTone(status)),
     '</div>',
     preBlock('返回内容', resultText),
     '</section>',
@@ -167,7 +139,7 @@ export function renderAssistantToolHtml(part: any) {
   const name = String(part?.toolName || 'tool')
   const result = part?.result && typeof part.result === 'object' ? part.result : null
   const resultHtml = renderAssistantToolResultHtml(part)
-  const stateText = toolPartStateText(part?.state)
+  const stateText = toolStateText(part?.state)
   const resultStatus = result ? String(result?.status || '').trim() : ''
   const callId = String(part?.callId || '').trim()
   return toolSessionHtml(

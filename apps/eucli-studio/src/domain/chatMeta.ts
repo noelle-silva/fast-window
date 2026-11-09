@@ -3,6 +3,7 @@ import { chatListAnchorForChat, chatListAnchorForIndex } from './chatListAnchor'
 import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
 import { factSourceRank, type FactSource } from './factPrecedence'
 import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
+import { toolResultStatusText, toolStateText } from './toolCallState'
 
 export type ChatMeta = {
   id: string
@@ -29,28 +30,6 @@ function normalizeWhitespace(value: unknown): string {
 function clampPreview(value: unknown): string {
   const text = normalizeWhitespace(value)
   return text.length > 80 ? `${text.slice(0, 80).trim()}...` : text
-}
-
-function toolStateText(value: unknown): string {
-  const state = String(value || '').trim()
-  if (state === 'requested') return '已请求'
-  if (state === 'needs_confirmation') return '等待确认'
-  if (state === 'approved') return '已同意'
-  if (state === 'rejected') return '已拒绝'
-  if (state === 'running') return '运行中'
-  if (state === 'completed') return '已完成'
-  if (state === 'error') return '失败'
-  if (state === 'denied') return '已拒绝'
-  if (state === 'cancelled') return '已取消'
-  return state
-}
-
-function toolResultStatusText(value: unknown): string {
-  const status = String(value || '').trim()
-  const lower = status.toLowerCase()
-  if (lower === 'success' || lower === 'completed' || lower === 'ok') return '成功'
-  if (lower === 'error' || lower === 'failed' || lower === 'failure') return '失败'
-  return status
 }
 
 function toolPartPreview(part: any): string {
