@@ -27,7 +27,7 @@ function decisionLine(part: any) {
   return `<div class="fw-tool-meta-line">权限：${esc(status)}${reason ? `，原因：${esc(reason)}` : ''}</div>`
 }
 
-// liveOutputBlock 渲染命令运行中的实时输出预览；仅在没有最终结果且仍在运行时出现。
+// 实时输出是一份还没定稿的返回内容：只输出内容本身，标题与状态由返回块承担。
 function liveOutputBlock(part: any) {
   const live = part?.runtimeOutput && typeof part.runtimeOutput === 'object' ? part.runtimeOutput : null
   if (!live) return ''
@@ -35,8 +35,8 @@ function liveOutputBlock(part: any) {
   if (state !== 'running' && state !== 'requested') return ''
   if (part?.result && typeof part.result === 'object') return ''
   const preview = String(live.preview || '').trim()
-  const previewHtml = preview ? `<pre class="fw-tool-pre fw-tool-pre-live">${esc(preview)}</pre>` : ''
-  return `<div class="fw-tool-field"><div class="fw-tool-field-label">实时输出</div>${previewHtml}</div>`
+  if (!preview) return ''
+  return `<div class="fw-tool-field"><pre class="fw-tool-pre fw-tool-pre-live">${esc(preview)}</pre></div>`
 }
 
 // callid 在结果块上回退到 result.actionId。
@@ -46,12 +46,12 @@ export function toolBlockCallId(part: any, kind: 'invocation' | 'result'): strin
 }
 
 export function renderAssistantToolInvocationBodyHtml(part: any) {
-  return [liveOutputBlock(part), decisionLine(part)].join('')
+  return decisionLine(part)
 }
 
 export function renderAssistantToolResultBodyHtml(part: any) {
   const result = part?.result && typeof part.result === 'object' ? part.result : null
-  if (!result) return ''
+  if (!result) return liveOutputBlock(part)
   const resultText = String(result?.content || result?.error || '') || safePrettyJson(result)
   return preBlock(resultText)
 }

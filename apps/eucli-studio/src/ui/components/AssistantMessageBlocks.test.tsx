@@ -289,7 +289,7 @@ describe('工具块顺序', () => {
     expect(titles[1]).toContain('工具返回结果')
   })
 
-  it('实时输出排在输入参数字段之后', () => {
+  it('实时输出归入工具返回块，不再塞在调用块里', () => {
     const el = renderWithParts([
       {
         type: 'tool',
@@ -302,11 +302,13 @@ describe('工具块顺序', () => {
     ])
 
     click(el.querySelector('[aria-label="展开工具会话"]'))
-    const field = el.querySelector('[data-tool-field]')
+    const titles = Array.from(el.querySelectorAll('.fw-tool-title')).map((node) => node.textContent || '')
+    expect(titles[0]).toContain('工具调用')
+    expect(titles[1]).toContain('工具返回结果')
+
     const live = el.querySelector('.fw-tool-pre-live')
-    expect(field).toBeTruthy()
     expect(live).toBeTruthy()
-    // DOCUMENT_POSITION_FOLLOWING = 4：live 位于 field 之后
-    expect(((field as Element).compareDocumentPosition(live as Element) & 4) !== 0).toBe(true)
+    expect(live?.closest('[data-assistant-block-kind="tool_result"]')).toBeTruthy()
+    expect(el.querySelector('[data-assistant-block-kind="tool_invocation"] .fw-tool-pre-live')).toBeNull()
   })
 })

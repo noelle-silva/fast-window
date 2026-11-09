@@ -29,13 +29,19 @@ export function isToolResultHidden(part: any) {
   return !!toolPartDisplay(part).hideResult
 }
 
+// 实时输出是「还没定稿的返回」：有它就产出返回块，等正式 result 到了再换成最终内容。
+function hasToolLiveOutput(part: any) {
+  return !!(part?.runtimeOutput && typeof part.runtimeOutput === 'object')
+}
+
 function pushToolBlocks(blocks: AssistantMessageBlock[], part: any, opts?: { start?: number; end?: number; index?: number }) {
   const id = assistantToolPartId(part, opts?.index || blocks.length)
   const start = typeof opts?.start === 'number' ? opts.start : undefined
   const end = typeof opts?.end === 'number' ? opts.end : undefined
   if (isPendingToolConfirmationPart(part)) blocks.push({ kind: 'tool_confirmation', id: `tool-confirmation:${id}`, part })
   if (!isToolInvocationHidden(part)) blocks.push({ kind: 'tool_invocation', id: `tool-invocation:${id}`, part, start, end })
-  if (part?.result && typeof part.result === 'object' && !isToolResultHidden(part)) blocks.push({ kind: 'tool_result', id: `tool-result:${id}`, part, start, end })
+  const hasResult = !!(part?.result && typeof part.result === 'object')
+  if ((hasResult || hasToolLiveOutput(part)) && !isToolResultHidden(part)) blocks.push({ kind: 'tool_result', id: `tool-result:${id}`, part, start, end })
 }
 
 export function planAssistantMessageBlocks(contentRaw: unknown, partsRaw: any[]): AssistantMessageBlock[] {
