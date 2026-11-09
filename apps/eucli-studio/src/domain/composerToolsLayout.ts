@@ -14,6 +14,9 @@ export const COMPOSER_TOOL_IDS = [
   'async-tasks',
   'stream-toggle',
   'clean-reasoning',
+  'global-prompts',
+  'role-prompts',
+  'workspace-prompts',
 ] as const
 
 export type ComposerToolId = (typeof COMPOSER_TOOL_IDS)[number]
@@ -37,6 +40,9 @@ export const COMPOSER_TOOL_META: readonly ComposerToolMeta[] = [
   { id: 'async-tasks', name: '异步工具任务', description: '后台工具任务的运行情况' },
   { id: 'stream-toggle', name: '流式输出', description: '切换本会话的流式输出' },
   { id: 'clean-reasoning', name: '清洗思维链', description: '按关键词清理会话里的思维链' },
+  { id: 'global-prompts', name: '全局提示词', description: '打开全局提示词库' },
+  { id: 'role-prompts', name: '角色提示词', description: '打开角色提示词库' },
+  { id: 'workspace-prompts', name: '工作区提示词', description: '打开工作区提示词库' },
 ]
 
 export type ComposerToolsLayout = {
@@ -57,7 +63,7 @@ export const COMPOSER_TOOLS_DEFAULT_LAYOUT: ComposerToolsLayout = {
     'async-tasks',
     'stream-toggle',
   ],
-  menu: ['clean-reasoning'],
+  menu: ['clean-reasoning', 'global-prompts', 'role-prompts', 'workspace-prompts'],
 }
 
 const COMPOSER_TOOL_ID_SET: ReadonlySet<string> = new Set(COMPOSER_TOOL_IDS)

@@ -3,6 +3,17 @@
 
 export type PromptScope = 'global' | 'role' | 'workspace'
 
+// 作用域中文名的单一事实源：设置页面板与输入区模态窗共用同一套文案。
+export const PROMPT_SCOPE_LABELS: Record<PromptScope, string> = {
+  global: '全局提示词',
+  role: '角色提示词',
+  workspace: '工作区提示词',
+}
+
+export function promptScopeLibraryTitle(scope: PromptScope): string {
+  return `${PROMPT_SCOPE_LABELS[scope]}库`
+}
+
 export type PromptEntry = {
   id: string
   name: string

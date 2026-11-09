@@ -33,7 +33,9 @@ describe('normalizeComposerToolsLayout', () => {
       menu: ['image-picker', 'clean-reasoning'],
     })
     expect(layout.inline.filter((id) => id === 'image-picker')).toHaveLength(1)
-    expect(layout.menu).toEqual(['clean-reasoning'])
+    // 菜单首项仍是用户写的项；缺失的已知按钮按默认区域补在它后面。
+    expect(layout.menu[0]).toBe('clean-reasoning')
+    expect(layout.menu).not.toContain('image-picker')
   })
 
   it('puts every known button back exactly once', () => {
@@ -47,6 +49,25 @@ describe('normalizeComposerToolsLayout', () => {
     const layout = normalizeComposerToolsLayout({ inline: ['image-picker'], menu: [] })
     expect(layout.menu).toContain('clean-reasoning')
     expect(layout.inline).toContain('stream-toggle')
+  })
+
+  it('ships the prompt library entries inside the menu by default', () => {
+    expect(COMPOSER_TOOLS_DEFAULT_LAYOUT.menu).toEqual([
+      'clean-reasoning',
+      'global-prompts',
+      'role-prompts',
+      'workspace-prompts',
+    ])
+  })
+
+  it('restores the prompt library entries into the menu for older layouts', () => {
+    const layout = normalizeComposerToolsLayout({
+      inline: COMPOSER_TOOLS_DEFAULT_LAYOUT.inline,
+      menu: ['clean-reasoning'],
+    })
+
+    expect(layout.menu).toEqual(['clean-reasoning', 'global-prompts', 'role-prompts', 'workspace-prompts'])
+    expect(layout.inline).not.toContain('global-prompts')
   })
 })
 
