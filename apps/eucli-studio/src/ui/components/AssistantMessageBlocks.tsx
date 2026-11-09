@@ -9,11 +9,12 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import CloseIcon from '@mui/icons-material/Close'
 import { planAssistantMessageBlocks, type AssistantMessageBlock } from '../../render/assistantMessagePlan'
-import { renderAssistantToolInvocationBodyHtml, renderAssistantToolResultBodyHtml, toolBlockHeader } from '../../render/assistantToolHtml'
+import { renderAssistantToolInvocationBodyHtml, renderAssistantToolResultBodyHtml, toolBlockCallId } from '../../render/assistantToolHtml'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
 import { normalizeDurationMs } from '../../domain/messageTiming'
+import { toolCallPhase } from '../../domain/toolCallState'
 import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
@@ -291,7 +292,21 @@ function ToolSessionCard(props: {
   )
 }
 
-// 工具子块：标题、callid 与块操作同处块内头部，正文只渲染工具数据。
+// 工具块状态文字：与左侧圆点同源（toolCallPhase），块标题右侧只留一句结论。
+const TOOL_PHASE_TEXT: Record<string, string> = {
+  success: '成功',
+  error: '失败',
+  pending: '等待确认',
+  running: '运行中',
+}
+const TOOL_PHASE_COLOR: Record<string, string> = {
+  success: 'var(--studio-success-text)',
+  error: 'var(--studio-danger-text)',
+  pending: 'var(--studio-warning-text)',
+  running: 'var(--studio-text-secondary)',
+}
+
+// 工具子块：标题、状态、工具名 / callid 与块操作同处块内头部，正文只渲染工具数据。
 function ToolBlockCard(props: {
   controller: any
   block: ToolDetailBlock
@@ -307,7 +322,11 @@ function ToolBlockCard(props: {
   const tone = blockTone(block)
   const canEdit = !disabled
   const canDelete = !disabled
-  const header = toolBlockHeader(block.part, block.kind === 'tool_result' ? 'result' : 'invocation')
+  const isResult = block.kind === 'tool_result'
+  const phase = toolCallPhase(block.part)
+  const title = isResult ? '工具返回结果' : '工具调用'
+  const callId = toolBlockCallId(block.part, isResult ? 'result' : 'invocation')
+  const toolName = String(block.part?.toolName || block.part?.result?.toolName || 'tool')
 
   return (
     <Paper
@@ -323,61 +342,66 @@ function ToolBlockCard(props: {
         overflow: 'hidden',
       }}
     >
-      {/* 标题、callid 与块操作同处块内头部，不再额外占一条标题行。 */}
       <Box className="fw-tool-header" sx={{ minWidth: 0 }}>
         <Box className="fw-tool-title">
-          <Box component="span" className={header.glyphClass} aria-hidden="true" />
-          <Box component="span">{header.title}</Box>
+          <Box component="span">{title}</Box>
+          <Box component="span" sx={{ fontSize: 12, fontWeight: 800, color: TOOL_PHASE_COLOR[phase] }}>
+            {TOOL_PHASE_TEXT[phase]}
+          </Box>
         </Box>
         <Box className="fw-tool-spacer" />
-        <Stack alignItems="flex-end" spacing={0.15} sx={{ minWidth: 0, maxWidth: '62%' }}>
-          <Stack direction="row" spacing={0.25} alignItems="center">
-            {isEditing ? (
-              <>
-                <Tooltip title="保存">
-                  <span>
-                    <IconButton size="small" aria-label="保存消息块" disabled={!!disabled} onClick={() => onSaveEdit(block)}>
-                      <SaveOutlinedIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="取消">
-                  <IconButton size="small" aria-label="取消编辑消息块" onClick={() => onSetEditing({ id: '', text: '' })}>
-                    <CloseIcon fontSize="inherit" />
+        <Stack direction="row" spacing={0.25} alignItems="center">
+          {isEditing ? (
+            <>
+              <Tooltip title="保存">
+                <span>
+                  <IconButton size="small" aria-label="保存消息块" disabled={!!disabled} onClick={() => onSaveEdit(block)}>
+                    <SaveOutlinedIcon fontSize="inherit" />
                   </IconButton>
-                </Tooltip>
-              </>
-            ) : (
-              <>
-                <Tooltip title="编辑">
-                  <span>
-                    <IconButton size="small" aria-label="编辑消息块" disabled={!canEdit} onClick={() => onSetEditing({ id: block.id, text: blockEditText(block) })}>
-                      <EditOutlinedIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="复制">
-                  <IconButton size="small" aria-label="复制消息块" onClick={() => writeClipboard(controller, blockCopyText(block))}>
-                    <ContentCopyIcon fontSize="inherit" />
+                </span>
+              </Tooltip>
+              <Tooltip title="取消">
+                <IconButton size="small" aria-label="取消编辑消息块" onClick={() => onSetEditing({ id: '', text: '' })}>
+                  <CloseIcon fontSize="inherit" />
+                </IconButton>
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip title="编辑">
+                <span>
+                  <IconButton size="small" aria-label="编辑消息块" disabled={!canEdit} onClick={() => onSetEditing({ id: block.id, text: blockEditText(block) })}>
+                    <EditOutlinedIcon fontSize="inherit" />
                   </IconButton>
-                </Tooltip>
-                <Tooltip title="删除">
-                  <span>
-                    <IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => onSetDeleting(block)}>
-                      <DeleteOutlineIcon fontSize="inherit" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </>
-            )}
-          </Stack>
-          {header.callId ? (
-            <Box component="code" className="fw-tool-call-id" sx={{ textAlign: 'right' }}>
-              {header.callId}
-            </Box>
-          ) : null}
+                </span>
+              </Tooltip>
+              <Tooltip title="复制">
+                <IconButton size="small" aria-label="复制消息块" onClick={() => writeClipboard(controller, blockCopyText(block))}>
+                  <ContentCopyIcon fontSize="inherit" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="删除">
+                <span>
+                  <IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => onSetDeleting(block)}>
+                    <DeleteOutlineIcon fontSize="inherit" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
+          )}
         </Stack>
       </Box>
+
+      <Stack direction="row" spacing={0.75} alignItems="center" data-tool-meta sx={{ mb: 0.75, minWidth: 0 }}>
+        <Box component="span" className="fw-tool-chip">
+          {toolName}
+        </Box>
+        {callId ? (
+          <Box component="code" className="fw-tool-call-id">
+            {callId}
+          </Box>
+        ) : null}
+      </Stack>
 
       {isEditing ? (
         <TextField

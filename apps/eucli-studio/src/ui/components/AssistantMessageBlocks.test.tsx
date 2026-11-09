@@ -129,7 +129,7 @@ describe('工具块头部结构', () => {
     })
   }
 
-  it('展开后块操作与 callid 都在工具块头部内', () => {
+  it('块操作与状态在头部，工具名与 callid 同一行', () => {
     const el = renderWithParts([
       {
         id: 'p1',
@@ -148,7 +148,33 @@ describe('工具块头部结构', () => {
     expect(header?.querySelector('button[aria-label="复制消息块"]')).toBeTruthy()
     expect(header?.querySelector('button[aria-label="编辑消息块"]')).toBeTruthy()
     expect(header?.querySelector('button[aria-label="删除消息块"]')).toBeTruthy()
-    expect(header?.querySelector('.fw-tool-call-id')?.textContent).toBe('call-9')
+    // 左侧小方块移除，状态文字落在标题右侧。
+    expect(header?.querySelector('.fw-tool-glyph')).toBeNull()
+    const title = header?.querySelector('.fw-tool-title')
+    expect(title?.textContent).toContain('工具调用')
+    expect(title?.textContent).toContain('成功')
+    // 工具名与 callid 并排在同一行。
+    const meta = el.querySelector('[data-tool-meta]')
+    expect(meta?.textContent).toContain('shell_command')
+    expect(meta?.textContent).toContain('call-9')
+  })
+
+  it('正文不再显示输入参数与返回内容标签', () => {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input: { description: '跑一下' },
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    expect(el.textContent).not.toContain('输入参数')
+    expect(el.textContent).not.toContain('返回内容')
   })
 
   it('工具调用与工具返回各自只有一个头部，没有外层重复标题', () => {

@@ -416,18 +416,6 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         fontWeight: 900,
         color: 'var(--studio-tool-session-title)',
       },
-       '.fw-tool-glyph': {
-         width: 18,
-         height: 18,
-         borderRadius: 4,
-         background: 'var(--studio-tool-glyph-bg)',
-         boxShadow: 'none',
-         flex: '0 0 auto',
-       },
-       '.fw-tool-glyph-result': {
-         background: 'var(--studio-tool-glyph-result-bg)',
-         boxShadow: 'none',
-       },
       '.fw-tool-spacer': { flex: 1, minWidth: 8 },
       '.fw-tool-call-id': {
         maxWidth: '100%',
@@ -438,12 +426,6 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         fontSize: 12,
         color: 'var(--studio-tool-call-id)',
         background: 'transparent',
-      },
-      '.fw-tool-chip-row': {
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 8,
-        marginBottom: 8,
       },
        '.fw-tool-chip': {
          display: 'inline-flex',
