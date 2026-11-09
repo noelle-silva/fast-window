@@ -7,65 +7,92 @@ import {
 } from '../domain/promptLibrary'
 
 type EbNetRequest = (req: any) => Promise<any>
+type Query = Record<string, string>
 
 function text(value: unknown) {
   return String(value ?? '').trim()
 }
 
-// 三个作用域共用一组端点：scope 走路径，归属 id 走查询参数，全局不需要归属。
-function scopePath(scope: PromptScope, ownerId: string) {
-  const path = `/api/prompt-library/${encodeURIComponent(scope)}`
-  if (scope === 'global') return path
-  const owner = text(ownerId)
-  if (!owner) throw new Error('请先选择归属')
-  return `${path}?ownerId=${encodeURIComponent(owner)}`
+// 三个作用域共用一组端点：scope 走路径段，归属 id 走查询参数。
+//
+// 路径与查询必须分开累加：先拼完所有路径段，最后才合并查询串。
+// 把 ?ownerId=… 塞在中间再拼子路径，会把子路径并进 query，
+// 服务端只看得到作用域根路径，非 GET 的方法就变成 405。
+function scopePath(kind: 'prompt-library' | 'prompt-folders', scope: PromptScope): string {
+  return `/api/${kind}/${encodeURIComponent(scope)}`
 }
 
-function folderScopePath(scope: PromptScope, ownerId: string) {
-  const path = `/api/prompt-folders/${encodeURIComponent(scope)}`
-  if (scope === 'global') return path
+function scopeQuery(scope: PromptScope, ownerId: string): Query {
+  if (scope === 'global') return {}
   const owner = text(ownerId)
   if (!owner) throw new Error('请先选择归属')
-  return `${path}?ownerId=${encodeURIComponent(owner)}`
+  return { ownerId: owner }
 }
 
-function withOwner(path: string, ownerId: string) {
-  const owner = text(ownerId)
-  return owner ? `${path}?ownerId=${encodeURIComponent(owner)}` : path
+function withQuery(path: string, query: Query): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    const next = text(value)
+    if (next) params.set(key, next)
+  }
+  const search = params.toString()
+  return search ? `${path}?${search}` : path
+}
+
+function libraryPath(scope: PromptScope): string {
+  return scopePath('prompt-library', scope)
+}
+
+function folderPath(scope: PromptScope): string {
+  return scopePath('prompt-folders', scope)
 }
 
 export async function loadPromptLibrary(netRequest: EbNetRequest, scope: PromptScope, ownerId: string): Promise<PromptLibrary> {
-  const response = await netRequest({ method: 'GET', path: scopePath(scope, ownerId) })
+  const response = await netRequest({
+    method: 'GET',
+    path: withQuery(libraryPath(scope), scopeQuery(scope, ownerId)),
+  })
   return normalizePromptLibrary(response?.body)
 }
 
 export async function savePromptLibrary(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, library: PromptLibrary): Promise<PromptLibrary> {
-  const response = await netRequest({ method: 'PUT', path: scopePath(scope, ownerId), body: library })
+  const response = await netRequest({
+    method: 'PUT',
+    path: withQuery(libraryPath(scope), scopeQuery(scope, ownerId)),
+    body: library,
+  })
   return normalizePromptLibrary(response?.body)
 }
 
 export async function deletePromptEntry(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, promptId: string): Promise<PromptLibrary> {
   const response = await netRequest({
     method: 'DELETE',
-    path: `${scopePath(scope, ownerId)}/prompts/${encodeURIComponent(text(promptId))}`,
+    path: withQuery(`${libraryPath(scope)}/prompts/${encodeURIComponent(text(promptId))}`, scopeQuery(scope, ownerId)),
   })
   return normalizePromptLibrary(response?.body)
 }
 
 export async function loadPromptFolders(netRequest: EbNetRequest, scope: PromptScope, ownerId: string): Promise<PromptFolderLibrary> {
-  const response = await netRequest({ method: 'GET', path: folderScopePath(scope, ownerId) })
+  const response = await netRequest({
+    method: 'GET',
+    path: withQuery(folderPath(scope), scopeQuery(scope, ownerId)),
+  })
   return normalizePromptFolderLibrary(response?.body)
 }
 
 export async function savePromptFolders(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, library: PromptFolderLibrary): Promise<PromptFolderLibrary> {
-  const response = await netRequest({ method: 'PUT', path: folderScopePath(scope, ownerId), body: library })
+  const response = await netRequest({
+    method: 'PUT',
+    path: withQuery(folderPath(scope), scopeQuery(scope, ownerId)),
+    body: library,
+  })
   return normalizePromptFolderLibrary(response?.body)
 }
 
 export async function deletePromptFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'DELETE',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}`,
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}`, scopeQuery(scope, ownerId)),
   })
   return normalizePromptFolderLibrary(response?.body)
 }
@@ -73,7 +100,7 @@ export async function deletePromptFolder(netRequest: EbNetRequest, scope: Prompt
 export async function renamePromptFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, name: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'PATCH',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}`,
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}`, scopeQuery(scope, ownerId)),
     body: { name: text(name) },
   })
   return normalizePromptFolderLibrary(response?.body)
@@ -81,9 +108,11 @@ export async function renamePromptFolder(netRequest: EbNetRequest, scope: Prompt
 
 // 混排排序：parentId 为空表示根级；entryOrder 元素形如 folder:<id> / prompt:<id>。
 export async function reorderPromptFolderEntries(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, parentId: string, entryOrder: string[]): Promise<PromptFolderLibrary> {
-  const base = `${folderScopePath(scope, ownerId)}/order`
-  const path = text(parentId) ? `${base}${base.includes('?') ? '&' : '?'}parentId=${encodeURIComponent(text(parentId))}` : base
-  const response = await netRequest({ method: 'PUT', path, body: { entryOrder } })
+  const response = await netRequest({
+    method: 'PUT',
+    path: withQuery(`${folderPath(scope)}/order`, { ...scopeQuery(scope, ownerId), parentId: text(parentId) }),
+    body: { entryOrder },
+  })
   return normalizePromptFolderLibrary(response?.body)
 }
 
@@ -91,7 +120,7 @@ export async function reorderPromptFolderEntries(netRequest: EbNetRequest, scope
 export async function addPromptToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'POST',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/prompts`,
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}/prompts`, scopeQuery(scope, ownerId)),
     body: { promptId: text(promptId) },
   })
   return normalizePromptFolderLibrary(response?.body)
@@ -101,7 +130,10 @@ export async function addPromptToFolder(netRequest: EbNetRequest, scope: PromptS
 export async function removePromptFromFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, promptId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'DELETE',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/prompts/${encodeURIComponent(text(promptId))}`,
+    path: withQuery(
+      `${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}/prompts/${encodeURIComponent(text(promptId))}`,
+      scopeQuery(scope, ownerId),
+    ),
   })
   return normalizePromptFolderLibrary(response?.body)
 }
@@ -110,7 +142,7 @@ export async function removePromptFromFolder(netRequest: EbNetRequest, scope: Pr
 export async function movePromptFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, fromParentId: string, toParentId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'POST',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/move`,
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}/move`, scopeQuery(scope, ownerId)),
     body: { fromParentId: text(fromParentId), toParentId: text(toParentId) },
   })
   return normalizePromptFolderLibrary(response?.body)
@@ -120,7 +152,7 @@ export async function movePromptFolder(netRequest: EbNetRequest, scope: PromptSc
 export async function addFolderToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'POST',
-    path: `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/collect`,
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}/collect`, scopeQuery(scope, ownerId)),
     body: { parentId: text(parentId) },
   })
   return normalizePromptFolderLibrary(response?.body)
@@ -130,7 +162,7 @@ export async function addFolderToFolder(netRequest: EbNetRequest, scope: PromptS
 export async function movePromptToFolder(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, promptId: string, fromFolderId: string, toFolderId: string): Promise<PromptFolderLibrary> {
   const response = await netRequest({
     method: 'POST',
-    path: `${folderScopePath(scope, ownerId)}/prompts/${encodeURIComponent(text(promptId))}/move`,
+    path: withQuery(`${folderPath(scope)}/prompts/${encodeURIComponent(text(promptId))}/move`, scopeQuery(scope, ownerId)),
     body: { fromFolderId: text(fromFolderId), toFolderId: text(toFolderId) },
   })
   return normalizePromptFolderLibrary(response?.body)
@@ -138,10 +170,12 @@ export async function movePromptToFolder(netRequest: EbNetRequest, scope: Prompt
 
 // 从指定位置摘掉收藏夹索引：parentId 为空表示根级。
 export async function removeFolderFromParent(netRequest: EbNetRequest, scope: PromptScope, ownerId: string, folderId: string, parentId: string): Promise<PromptFolderLibrary> {
-  const base = `${folderScopePath(scope, ownerId)}/folders/${encodeURIComponent(text(folderId))}/collect`
-  const path = `${base}${base.includes('?') ? '&' : '?'}parentId=${encodeURIComponent(text(parentId))}`
-  const response = await netRequest({ method: 'DELETE', path })
+  const response = await netRequest({
+    method: 'DELETE',
+    path: withQuery(`${folderPath(scope)}/folders/${encodeURIComponent(text(folderId))}/collect`, {
+      ...scopeQuery(scope, ownerId),
+      parentId: text(parentId),
+    }),
+  })
   return normalizePromptFolderLibrary(response?.body)
 }
-
-export { withOwner }
