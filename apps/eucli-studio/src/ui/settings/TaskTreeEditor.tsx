@@ -1,21 +1,32 @@
 import * as React from 'react'
-import { Box, Button, Stack, TextField } from '@mui/material'
+import { Box, IconButton, Stack, TextField, Tooltip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import SaveIcon from '@mui/icons-material/Save'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
+import { FillTextarea } from '../components/FillTextarea'
 import { UNNAMED_TASK_LABEL, type TaskDraft } from '../../domain/taskTree'
 
 // 当前节点的编辑位：名字 / 描述 / 可复制文本，加上这一层能做的全部动作。
 // 只负责画与回调，脏判断、保存与结构动作由面板决定。
+//
+// 保存、复制、移动到名字右侧，只占图标；
+// 可复制文本吃满剩余高度并在框内自滚，外层不再整列滚动，滑块用项目自制的那一套。
 
 const FILLED_SECONDARY_SX = {
   bgcolor: 'var(--studio-field)',
   color: 'var(--studio-text-primary)',
   boxShadow: 'var(--studio-shadow-soft)',
   '&:hover': { bgcolor: 'var(--studio-field-hover)', boxShadow: 'var(--studio-shadow-soft)' },
+}
+
+const PRIMARY_ICON_SX = {
+  bgcolor: 'primary.main',
+  color: '#fff',
+  boxShadow: 'var(--studio-shadow-soft)',
+  '&:hover': { bgcolor: 'primary.dark' },
 }
 
 export function TaskTreeEditor(props: {
@@ -45,58 +56,56 @@ export function TaskTreeEditor(props: {
         bgcolor: 'var(--studio-paper)',
         boxShadow: 'var(--studio-shadow-soft)',
         minHeight: 0,
-        overflowY: 'auto',
       }}
     >
-      <TextField
-        size="small"
-        label="名字"
-        placeholder={UNNAMED_TASK_LABEL}
-        value={draft?.name ?? ''}
-        onChange={(event) => onDraftChange({ name: event.target.value })}
-      />
-      <TextField
-        size="small"
-        label="描述"
-        multiline
-        minRows={2}
-        value={draft?.description ?? ''}
-        onChange={(event) => onDraftChange({ description: event.target.value })}
-      />
-      <TextField
-        size="small"
-        label="可复制文本"
-        multiline
-        minRows={6}
-        value={draft?.content ?? ''}
-        onChange={(event) => onDraftChange({ content: event.target.value })}
-        sx={{ '& textarea': { minHeight: 120 } }}
-      />
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Button size="small" variant="contained" disableElevation startIcon={<SaveIcon />} disabled={!dirty || saving} onClick={onSave}>
-          保存
-        </Button>
-        <Button
+      {/* 名字与这一层的动作同一行：动作只留图标，把宽度让给名字。 */}
+      <Stack direction="row" spacing={0.75} alignItems="center">
+        <TextField
           size="small"
-          variant="contained"
-          disableElevation
-          startIcon={<ContentCopyIcon />}
-          disabled={!canCopy}
-          onClick={onCopy}
-          sx={FILLED_SECONDARY_SX}
-        >
-          复制
-        </Button>
-        <Button
-          size="small"
-          variant="contained"
-          disableElevation
-          startIcon={<DriveFileMoveOutlinedIcon />}
-          onClick={onMove}
-          sx={FILLED_SECONDARY_SX}
-        >
-          移动
-        </Button>
+          label="名字"
+          placeholder={UNNAMED_TASK_LABEL}
+          value={draft?.name ?? ''}
+          onChange={(event) => onDraftChange({ name: event.target.value })}
+          sx={{ flex: 1, minWidth: 0 }}
+        />
+        <Tooltip title="保存">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="保存任务"
+              disabled={!dirty || saving}
+              onClick={onSave}
+              sx={{ ...PRIMARY_ICON_SX, borderRadius: 1.5 }}
+            >
+              <SaveIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="复制文本">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="复制任务文本"
+              disabled={!canCopy}
+              onClick={onCopy}
+              sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+            >
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="移动到…">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="移动任务"
+              onClick={onMove}
+              sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+            >
+              <DriveFileMoveOutlinedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
         <MoreActionsMenu
           ariaLabel="任务操作"
           items={[
@@ -121,6 +130,21 @@ export function TaskTreeEditor(props: {
           ]}
         />
       </Stack>
+
+      <TextField
+        size="small"
+        label="描述"
+        multiline
+        minRows={2}
+        value={draft?.description ?? ''}
+        onChange={(event) => onDraftChange({ description: event.target.value })}
+      />
+
+      <FillTextarea
+        label="可复制文本"
+        value={draft?.content ?? ''}
+        onChange={(next) => onDraftChange({ content: next })}
+      />
     </Box>
   )
 }

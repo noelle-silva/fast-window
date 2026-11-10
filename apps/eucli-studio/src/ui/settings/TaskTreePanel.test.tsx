@@ -38,8 +38,16 @@ function createController(calls: any[][]) {
   }
 }
 
+// 按钮既有纯文字的（切换栏），也有只留图标的（返回 / 新建 / 保存 / 复制 / 移动），
+// 所以文案与 aria-label 都算命中。
 function findButton(host: HTMLElement, label: string) {
-  return Array.from(host.querySelectorAll('button')).find((button) => String(button.textContent || '').includes(label)) || null
+  return (
+    Array.from(host.querySelectorAll('button')).find(
+      (button) =>
+        String(button.textContent || '').includes(label) ||
+        String(button.getAttribute('aria-label') || '').includes(label),
+    ) || null
+  )
 }
 
 function click(element: Element | null) {

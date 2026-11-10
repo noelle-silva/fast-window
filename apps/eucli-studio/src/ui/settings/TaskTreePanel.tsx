@@ -3,11 +3,12 @@ import {
   Box,
   Button,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
-  TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
@@ -104,7 +105,6 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   const initialBrowse = browseState[initialScope] || {}
   const [scope, setScope] = React.useState<TaskScope>(lockedScope ?? initialScope)
   const [ownerId, setOwnerId] = React.useState(String(initialBrowse.ownerId || initialOwnerId || ''))
-  const [ownerSearch, setOwnerSearch] = React.useState('')
   const [tree, setTree] = React.useState<TaskTree>(EMPTY_TASK_TREE)
   const [pathIds, setPathIds] = React.useState<string[]>(initialBrowse.pathIds || [])
   const [draft, setDraft] = React.useState<TaskDraft | null>(null)
@@ -349,6 +349,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     <TaskTreeCard
       key={node.id}
       title={taskLabel(node)}
+      description={node.description}
       copied={copiedId === node.id}
       canCopy={Boolean(node.content.trim())}
       menuItems={cardMenu(node)}
@@ -359,50 +360,93 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {/* 作用域：任务只有角色与工作区，没有全局。
-          从输入区的两个入口进来时作用域已经由按钮定死，这里不再给切换。 */}
-      {lockedScope ? null : (
-        <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
-          {TASK_SCOPES.map((value) => {
-            const active = scope === value
-            return (
-              <Button
-                key={value}
-                fullWidth
+      {/* 顶部行：面包屑在左，归属下拉固定在右；设置页多出来的作用域切换夹在两者之间。 */}
+      <Stack direction="row" spacing={1.25} alignItems="center">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
+          <Tooltip title="返回上一级">
+            <span>
+              <IconButton
                 size="small"
-                disableElevation
-                variant="contained"
-                onClick={() => switchScope(value)}
-                sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+                aria-label="返回上一级"
+                disabled={!path.length || loading}
+                onClick={() => setPathIds(pathIds.slice(0, -1))}
+                sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
               >
-                {TASK_SCOPE_LABELS[value]}
-              </Button>
-            )
-          })}
+                <ArrowBackIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              minWidth: 0,
+              overflowX: 'auto',
+              whiteSpace: 'nowrap',
+              scrollbarWidth: 'none',
+              '&::-webkit-scrollbar': { display: 'none' },
+            }}
+          >
+            <Typography
+              component="span"
+              variant="body2"
+              onClick={() => setPathIds([])}
+              sx={{ cursor: 'pointer', fontWeight: path.length ? 400 : 600, color: path.length ? 'var(--studio-text-secondary)' : 'var(--studio-text-primary)' }}
+            >
+              根路径
+            </Typography>
+            {path.map((node, index) => {
+              const isCurrent = index === path.length - 1
+              return (
+                <React.Fragment key={node.id}>
+                  <Typography component="span" variant="body2" sx={{ color: 'var(--studio-text-tertiary)' }}>
+                    /
+                  </Typography>
+                  <Typography
+                    component="span"
+                    variant="body2"
+                    onClick={() => {
+                      if (isCurrent) return
+                      setPathIds(path.slice(0, index + 1).map((item) => item.id))
+                    }}
+                    sx={{
+                      cursor: isCurrent ? 'default' : 'pointer',
+                      fontWeight: isCurrent ? 600 : 400,
+                      color: isCurrent ? 'var(--studio-text-primary)' : 'var(--studio-text-secondary)',
+                    }}
+                  >
+                    {taskLabel(node)}
+                  </Typography>
+                </React.Fragment>
+              )
+            })}
+          </Box>
         </Box>
-      )}
 
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Button
-          size="small"
-          variant="contained"
-          disableElevation
-          startIcon={<AddIcon />}
-          onClick={createInCurrentLayer}
-          disabled={loading || !activeOwnerId}
-          sx={FILLED_SECONDARY_SX}
-        >
-          新建任务
-        </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: 328, flexShrink: 0 }}>
-          <TextField
-            size="small"
-            placeholder={scope === 'role' ? '搜索角色' : '搜索工作区'}
-            value={ownerSearch}
-            onChange={(event) => setOwnerSearch(event.target.value)}
-            sx={{ width: 150 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 170, flex: 1 }}>
+        {lockedScope ? null : (
+          <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)', width: 240, flexShrink: 0 }}>
+            {TASK_SCOPES.map((value) => {
+              const active = scope === value
+              return (
+                <Button
+                  key={value}
+                  fullWidth
+                  size="small"
+                  disableElevation
+                  variant="contained"
+                  onClick={() => switchScope(value)}
+                  sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+                >
+                  {TASK_SCOPE_LABELS[value]}
+                </Button>
+              )
+            })}
+          </Box>
+        )}
+
+        <Box sx={{ width: 220, flexShrink: 0 }}>
+          <FormControl size="small" fullWidth>
             <InputLabel id="task-tree-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
             <Select
               labelId="task-tree-owner-label"
@@ -414,88 +458,34 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
                 setPathIds([])
               }}
             >
-              {ownerOptions
-                .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))
-                .map((item: any) => (
-                  <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                    {text(item?.name) || text(item?.id)}
-                  </MenuItem>
-                ))}
+              {ownerOptions.map((item: any) => (
+                <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                  {text(item?.name) || text(item?.id)}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Box>
-        <Box sx={{ flex: 1 }} />
-        {dirty ? (
-          <Typography variant="caption" sx={{ color: 'var(--studio-text-tertiary)' }}>
-            当前节点有未保存的修改
-          </Typography>
-        ) : null}
+
+        <Tooltip title="新建任务">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="新建任务"
+              onClick={createInCurrentLayer}
+              disabled={loading || !activeOwnerId}
+              sx={{
+                borderRadius: 1.5,
+                bgcolor: 'primary.main',
+                color: '#fff',
+                '&:hover': { bgcolor: 'primary.dark' },
+              }}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
-
-      {!ownerIds.length ? (
-        <Typography variant="body2" color="text.secondary">
-          {scope === 'role' ? '还没有角色，先去「角色管理」新建一个。' : '还没有工作区，先去「工作区管理」新建一个。'}
-        </Typography>
-      ) : null}
-
-      {/* 层级路径：根叫「任务」，每段可点回跳。 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-        <Button
-          size="small"
-          startIcon={<ArrowBackIcon />}
-          disabled={!path.length || loading}
-          onClick={() => setPathIds(pathIds.slice(0, -1))}
-          sx={FILLED_SECONDARY_SX}
-        >
-          返回
-        </Button>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.75,
-            minWidth: 0,
-            overflowX: 'auto',
-            whiteSpace: 'nowrap',
-            scrollbarWidth: 'none',
-            '&::-webkit-scrollbar': { display: 'none' },
-          }}
-        >
-          <Typography
-            component="span"
-            variant="body2"
-            onClick={() => setPathIds([])}
-            sx={{ cursor: 'pointer', fontWeight: path.length ? 400 : 600, color: path.length ? 'var(--studio-text-secondary)' : 'var(--studio-text-primary)' }}
-          >
-            任务
-          </Typography>
-          {path.map((node, index) => {
-            const isCurrent = index === path.length - 1
-            return (
-              <React.Fragment key={node.id}>
-                <Typography component="span" variant="body2" sx={{ color: 'var(--studio-text-tertiary)' }}>
-                  /
-                </Typography>
-                <Typography
-                  component="span"
-                  variant="body2"
-                  onClick={() => {
-                    if (isCurrent) return
-                    setPathIds(path.slice(0, index + 1).map((item) => item.id))
-                  }}
-                  sx={{
-                    cursor: isCurrent ? 'default' : 'pointer',
-                    fontWeight: isCurrent ? 600 : 400,
-                    color: isCurrent ? 'var(--studio-text-primary)' : 'var(--studio-text-secondary)',
-                  }}
-                >
-                  {taskLabel(node)}
-                </Typography>
-              </React.Fragment>
-            )
-          })}
-        </Box>
-      </Box>
 
       <Box
         sx={{
@@ -525,18 +515,6 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
         ) : null}
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minHeight: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="caption" sx={{ color: 'var(--studio-text-tertiary)' }}>
-              {current ? '子任务' : '根层任务'} · {layerNodes.length}
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            {loading ? (
-              <Typography variant="caption" sx={{ color: 'var(--studio-text-tertiary)' }}>
-                处理中…
-              </Typography>
-            ) : null}
-          </Box>
-
           {layerNodes.length ? (
             <Box
               sx={{
@@ -547,7 +525,8 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
                 gridTemplateColumns: { xs: 'repeat(auto-fill, minmax(150px, 1fr))', sm: 'repeat(auto-fill, minmax(220px, 1fr))' },
                 gap: 2,
                 alignContent: 'start',
-                pr: 0.5,
+                // 留出内边距：hover 的阴影与上浮位移都落在这段空间里，不会被滚动容器裁掉。
+                p: 2,
               }}
             >
               {layerNodes.map(renderCard)}
@@ -562,15 +541,16 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 1.5,
-                borderRadius: 3,
-                border: '1px dashed var(--studio-border)',
                 color: 'var(--studio-text-tertiary)',
               }}
             >
-              <Typography variant="body2">这一层还没有任务</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={createInCurrentLayer} disabled={loading || !activeOwnerId} sx={FILLED_SECONDARY_SX}>
-                新建
-              </Button>
+              <Typography variant="body2">
+                {!ownerIds.length
+                  ? scope === 'role'
+                    ? '还没有角色，先去「角色管理」新建一个。'
+                    : '还没有工作区，先去「工作区管理」新建一个。'
+                  : '这一层还没有任务'}
+              </Typography>
             </Box>
           )}
         </Box>
