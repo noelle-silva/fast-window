@@ -382,6 +382,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     openFavoritedChat,
     onFavoriteChatContextMenu,
     buildFavoriteFolderLevel,
+    bumpChatIndex,
   } = useFavoriteFolders({
     controller,
     data,
@@ -1322,12 +1323,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   ])
 
   // 层级浏览这一层的投影：当前文件夹的直接子级（子文件夹 + 会话条目）。
-  // 预取写完会话索引后要有一枚滴答，让层级投影重算：
-  // 索引是就地写进 box 的，memo 的其它依赖引用都没变。
-  const [favoriteChatsTick, setFavoriteChatsTick] = React.useState(0)
   const favoriteLevel = React.useMemo(
     () => buildFavoriteFolderLevel(favoriteFolderNav.currentFolderId),
-    [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId, favoriteChatsTick],
+    [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId],
   )
 
   // 收藏夹跨 target 展示：进某一层时，按该层引用涉及的 target 预取会话索引，
@@ -1350,7 +1348,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       for (const target of targets) {
         try {
           const ok = await controller.actions.ensureTargetChatIndex?.(target.kind, target.targetId)
-          if (ok) setFavoriteChatsTick((value) => value + 1)
+          if (ok) bumpChatIndex()
         } catch {
           // 预取失败不影响收藏夹展示，保持待加载占位即可。
         }

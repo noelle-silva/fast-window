@@ -26,7 +26,7 @@ import { refreshScopes } from '../domain/uiRefreshScope'
 // ---- storage ----
 import { createStickerStorage } from '../storage/stickerStorage'
 import { createFactoryClientData, createSplitStorage } from '../storage/splitStorage'
-import { createLazyChatStore } from '../storage/lazyChatStore'
+import { applyChatIndexSnapshot, createLazyChatStore } from '../storage/lazyChatStore'
 import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { createProjectionPipeline } from './projectionPipeline'
@@ -587,16 +587,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const tid = String(targetId || '').trim()
     if (!tid) return false
     const snapshot = await projectionPipeline.loadChatIndex({ kind, targetId: tid } as any)
-    if (!snapshot) return false
-    const data = state.data
-    if (!data) return false
-    const rootKey = kind === 'group' ? 'chatsByGroup' : kind === 'workspace' ? 'chatsByWorkspace' : 'chatsByRole'
-    const root = ((data as any)[rootKey] ||= {})
-    const box = root[tid] && typeof root[tid] === 'object' ? root[tid] : { activeChatId: '', chatMetas: [], chats: [] }
-    root[tid] = {
-      ...box,
-      chatMetas: Array.isArray(snapshot.chatMetas) ? snapshot.chatMetas : Array.isArray(box.chatMetas) ? box.chatMetas : [],
-    }
+    if (!applyChatIndexSnapshot(state.data, { kind, targetId: tid }, snapshot)) return false
     emitScope(refreshScopes.chatList(kind, tid))
     return true
   }

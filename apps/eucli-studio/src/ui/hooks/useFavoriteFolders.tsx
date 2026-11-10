@@ -112,6 +112,10 @@ export function useFavoriteFolders(deps: {
   // 收藏夹树的失效依据：favorites 实体地址版本。
   // 收藏数据可能异步后到并就地写入，不允许依赖 folders 数组引用比对重算。
   const favoritesVersion = useScopedUiVersion(controller, refreshScopes.entities('favorites'))
+  // 会话索引是就地写进盒子的：预取补完标题后要有一枚版本号，让层级投影重算。
+  // 版本归投影所有者（本 hook）管，调用方只负责在补完时 bump 一下。
+  const [chatIndexVersion, setChatIndexVersion] = React.useState(0)
+  const bumpChatIndex = useEvent(() => setChatIndexVersion((value) => value + 1))
   const favoriteChildrenMap = React.useMemo(() => {
     const map: Record<string, any[]> = {}
     for (const f of favoriteFolders) {
@@ -661,12 +665,8 @@ export function useFavoriteFolders(deps: {
     [
       favoriteChildrenMap,
       favoriteChatRefsByFolderId,
-      getChatByFavoriteRef,
-      getFavoriteTargetMeta,
-      activeTargetKind,
-      activeChatTargetId,
-      activeChatId,
-      chatSessionRunIndicatorKind,
+      resolveFavoriteRef,
+      chatIndexVersion,
     ],
   )
 
@@ -732,5 +732,6 @@ export function useFavoriteFolders(deps: {
     renderFavoriteFolderSinglePicker,
     renderFavoriteFolderTree,
     buildFavoriteFolderLevel,
+    bumpChatIndex,
   }
 }

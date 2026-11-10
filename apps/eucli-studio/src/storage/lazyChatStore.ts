@@ -31,6 +31,28 @@ function targetBox(data: any, kind: LazyChatKind, targetId: string) {
   return box
 }
 
+// applyChatIndexSnapshot 把一份索引快照落进内存盒子：只补 chatMetas，
+// 不动已有正文与 activeChatId。收藏夹这类跨 target 视图的预取统一走这里，
+// 避免在调用方再写一份「怎么建盒、怎么写」的副本。
+export function applyChatIndexSnapshot(
+  data: any,
+  scope: { kind: LazyChatKind | 'workspace'; targetId: string },
+  snapshot: { chatMetas?: unknown } | null,
+) {
+  if (!data) return false
+  const targetId = String(scope.targetId || '').trim()
+  if (!targetId || !Array.isArray(snapshot?.chatMetas)) return false
+  const rootKey =
+    scope.kind === 'group' ? 'chatsByGroup' : scope.kind === 'workspace' ? 'chatsByWorkspace' : 'chatsByRole'
+  const root = ((data as any)[rootKey] ||= {})
+  const box =
+    root[targetId] && typeof root[targetId] === 'object'
+      ? root[targetId]
+      : { activeChatId: '', chatMetas: [], chats: [] }
+  root[targetId] = { ...box, chatMetas: snapshot.chatMetas }
+  return true
+}
+
 function folderForTarget(meta: any, kind: LazyChatKind, targetId: string): string {
   const folders = kind === 'group' ? meta?.groupFolders : meta?.roleFolders
   return String(folders?.[targetId] || '').trim()
