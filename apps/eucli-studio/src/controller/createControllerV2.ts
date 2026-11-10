@@ -581,6 +581,26 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return chatLoadFailure.track(kind, targetId, chatId, () => ensureStoredChatLoaded(kind, targetId, chatId))
   }
 
+  // 只拉某个 target 的会话索引并写回内存：收藏夹这类跨 target 视图用它提前补齐标题，
+  // 事实仍来自后端 sessionIndex，这里不造字段、不动正文。
+  async function ensureTargetChatIndex(kind: 'role' | 'group' | 'workspace', targetId: string) {
+    const tid = String(targetId || '').trim()
+    if (!tid) return false
+    const snapshot = await projectionPipeline.loadChatIndex({ kind, targetId: tid } as any)
+    if (!snapshot) return false
+    const data = state.data
+    if (!data) return false
+    const rootKey = kind === 'group' ? 'chatsByGroup' : kind === 'workspace' ? 'chatsByWorkspace' : 'chatsByRole'
+    const root = ((data as any)[rootKey] ||= {})
+    const box = root[tid] && typeof root[tid] === 'object' ? root[tid] : { activeChatId: '', chatMetas: [], chats: [] }
+    root[tid] = {
+      ...box,
+      chatMetas: Array.isArray(snapshot.chatMetas) ? snapshot.chatMetas : Array.isArray(box.chatMetas) ? box.chatMetas : [],
+    }
+    emitScope(refreshScopes.chatList(kind, tid))
+    return true
+  }
+
   // 往上翻一窗：返回 true 表示确实加载了新消息，false 表示已经到顶。
   // UI 只依赖这个二值结果，不关心 cursor 的形状。
   async function loadOlderMessages() {
@@ -1443,6 +1463,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const actions: Record<string, any> = {
     emit,
+    ensureTargetChatIndex: (kind: 'role' | 'group' | 'workspace', targetId: string) =>
+      ensureTargetChatIndex(kind, targetId),
     ...appearanceActions,
     ...deskActions,
     ...deskActions,

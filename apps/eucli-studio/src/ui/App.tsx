@@ -1322,10 +1322,41 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   ])
 
   // 层级浏览这一层的投影：当前文件夹的直接子级（子文件夹 + 会话条目）。
+  // 预取写完会话索引后要有一枚滴答，让层级投影重算：
+  // 索引是就地写进 box 的，memo 的其它依赖引用都没变。
+  const [favoriteChatsTick, setFavoriteChatsTick] = React.useState(0)
   const favoriteLevel = React.useMemo(
     () => buildFavoriteFolderLevel(favoriteFolderNav.currentFolderId),
-    [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId],
+    [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId, favoriteChatsTick],
   )
+
+  // 收藏夹跨 target 展示：进某一层时，按该层引用涉及的 target 预取会话索引，
+  // 让条目直接带真实标题，而不是一排「待加载」。按需触发、去重、串行、失败静默。
+  const prefetchedFavoriteTargetsRef = React.useRef(new Set<string>())
+  React.useEffect(() => {
+    const targets: Array<{ kind: 'role' | 'group' | 'workspace'; targetId: string }> = []
+    const seen = new Set<string>()
+    for (const ref of favoriteLevel.refs) {
+      if (ref.status !== 'pending') continue
+      const targetId = ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId
+      const key = `${ref.targetKind}:${targetId}`
+      if (!targetId || seen.has(key) || prefetchedFavoriteTargetsRef.current.has(key)) continue
+      seen.add(key)
+      targets.push({ kind: ref.targetKind, targetId })
+    }
+    if (!targets.length) return
+    for (const key of seen) prefetchedFavoriteTargetsRef.current.add(key)
+    void (async () => {
+      for (const target of targets) {
+        try {
+          const ok = await controller.actions.ensureTargetChatIndex?.(target.kind, target.targetId)
+          if (ok) setFavoriteChatsTick((value) => value + 1)
+        } catch {
+          // 预取失败不影响收藏夹展示，保持待加载占位即可。
+        }
+      }
+    })()
+  }, [favoriteLevel, controller])
 
   const onCreateFavoriteFolderHere = useEvent(() => {
     openCreateFavoriteFolder(favoriteFolderNav.currentFolderId)
