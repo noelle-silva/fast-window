@@ -94,9 +94,10 @@ describe('提示词库面板的初始作用域', () => {
       root.render(<PromptLibrarySettingsPanel controller={createController(calls)} />)
     })
 
-    // 两端锚定：新建按钮在左、搜索在右，中间不渲染归属控件也不会让它们换位。
+    // 全局库没有归属可选；两个新建动作收在左侧栏顶部，搜索常驻在它下面。
     expect(host!.querySelector('#prompt-library-owner-label')).toBeNull()
-    expect(host!.textContent).toContain('新建收藏夹')
+    expect(host!.querySelector('[aria-label="新建收藏夹"]')).not.toBeNull()
+    expect(host!.querySelector('[aria-label="新建提示词"]')).not.toBeNull()
     expect(host!.querySelector('input[placeholder="搜索当前层"]')).not.toBeNull()
   })
 

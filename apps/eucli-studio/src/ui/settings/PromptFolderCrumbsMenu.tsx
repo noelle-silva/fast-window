@@ -177,13 +177,11 @@ export function PromptFolderCrumbsMenu(props: PromptFolderCrumbsMenuProps) {
           onMouseLeave={scheduleClose}
           sx={{ width: 268, borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: 380 }}
         >
-          <Typography variant="caption" sx={{ px: 1.25, pt: 1, color: 'text.secondary' }}>
-            {isDropMode
-              ? hasOtherLayer
-                ? '松手落到高亮的这一层'
-                : '已在根层级，可移入列表里的收藏夹'
-              : '当前所在的收藏夹路径'}
-          </Typography>
+          {isDropMode ? (
+            <Typography variant="caption" sx={{ px: 1.25, pt: 1, color: 'text.secondary' }}>
+              {hasOtherLayer ? '松手落到高亮的这一层' : '已在根层级，可移入列表里的收藏夹'}
+            </Typography>
+          ) : null}
           <List dense disablePadding sx={[SOFT_POPOVER_LIST_SX, { overflowY: 'auto' }]}>
             {crumbs.map((crumb) => (
               <SortableDropTarget

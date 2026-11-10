@@ -7,14 +7,17 @@ import {
   ListItemText,
   MenuItem,
   Stack,
+  TextField,
   Tooltip,
   Typography,
   type SxProps,
   type Theme,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import AddIcon from '@mui/icons-material/Add'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
@@ -60,6 +63,12 @@ type PromptLibrarySidebarProps = {
   onMoveEntryToFolder: (entry: PromptLayerEntry) => void
   onRenameFolder: (folder: PromptFolder) => void
   onDeleteFolder: (folder: PromptFolder) => void
+  /** 当前层搜索词：输入框常驻在顶部栏下面，不随列表滚动。 */
+  search: string
+  onSearchChange: (value: string) => void
+  /** 顶部栏右侧的两个新建动作，只留图标。 */
+  onCreatePrompt: () => void
+  onCreateFolder: () => void
 }
 
 type ContextMenuState = { x: number; y: number; entry: PromptLayerEntry }
@@ -106,7 +115,6 @@ function dropRowSx(drag: Pick<SortableItemRenderArgs, 'isDropCandidate' | 'isDro
 }
 
 function dragHintText(status: SortableDragStatusRenderArgs): string {
-  if (!status.isDragging) return '提示：按住 Ctrl 拖动，可移动任意层级'
   if (!status.isDropMode) return '拖拽排序中；按住 Ctrl 切换为移动'
   return status.overTargetId === null ? '移到收藏夹或上方层级上松手' : '松手即移动到这一层'
 }
@@ -127,6 +135,10 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
     onMoveEntryToFolder,
     onRenameFolder,
     onDeleteFolder,
+    search,
+    onSearchChange,
+    onCreatePrompt,
+    onCreateFolder,
   } = props
 
   const [menu, setMenu] = React.useState<ContextMenuState | null>(null)
@@ -146,7 +158,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
     <SortableRoot onMove={onReorderEntries} drop={dropConfig}>
       <Box
         sx={{
-          width: 260,
+          width: 325,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
@@ -172,7 +184,32 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
               drop={dropConfig}
             />
           </Box>
+          <Tooltip title="新建提示词">
+            <span>
+              <IconButton size="small" aria-label="新建提示词" onClick={onCreatePrompt} disabled={loading}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="新建收藏夹">
+            <span>
+              <IconButton size="small" aria-label="新建收藏夹" onClick={onCreateFolder} disabled={loading}>
+                <CreateNewFolderRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
+
+        {/* 搜索常驻在顶部栏下面，列表自己滚，它不跟着走。 */}
+        <Box sx={{ px: 0.25, pb: 0.5 }}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="搜索当前层"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </Box>
 
         {/* 列表自己滚，但不画滚动条：滚动条只留给右侧编辑器，两块区域各滚各的。 */}
         <CustomScrollArea hostSx={{ flex: 1, minHeight: 0 }} scrollSx={{ height: '100%' }} axis="y" showThumbs={false}>
@@ -209,7 +246,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                 <FolderOutlinedIcon fontSize="small" sx={{ mr: 1, color: 'var(--studio-secondary)' }} />
                                 <ListItemText
                                   primary={entry.folder.name}
-                                  primaryTypographyProps={{ fontSize: 13, fontWeight: 700 }}
+                                  primaryTypographyProps={{ fontSize: 13, fontWeight: 700, noWrap: true }}
                                 />
                               </>
                             ) : (
@@ -218,7 +255,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                 <ListItemText
                                   primary={entry.prompt.name}
                                   secondary={entry.prompt.description || undefined}
-                                  primaryTypographyProps={{ fontSize: 13, fontWeight: 600 }}
+                                  primaryTypographyProps={{ fontSize: 13, fontWeight: 600, noWrap: true }}
                                   secondaryTypographyProps={{ fontSize: 11, noWrap: true }}
                                 />
                                 {/* 复制按钮放在条目容器内部最右侧：不选中条目、不触发整行拖拽。 */}
@@ -256,17 +293,19 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
 
         <SortableDragStatus>
           {(status) => (
-            <Typography
-              variant="caption"
-              sx={{
-                px: 0.5,
-                pt: 0.5,
-                color: status.isDropMode ? 'var(--studio-primary)' : 'var(--studio-text-secondary)',
-                fontWeight: status.isDropMode ? 700 : 400,
-              }}
-            >
-              {dragHintText(status)}
-            </Typography>
+            status.isDragging ? (
+              <Typography
+                variant="caption"
+                sx={{
+                  px: 0.5,
+                  pt: 0.5,
+                  color: status.isDropMode ? 'var(--studio-primary)' : 'var(--studio-text-secondary)',
+                  fontWeight: status.isDropMode ? 700 : 400,
+                }}
+              >
+                {dragHintText(status)}
+              </Typography>
+            ) : null
           )}
         </SortableDragStatus>
 

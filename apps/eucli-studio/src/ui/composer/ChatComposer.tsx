@@ -391,6 +391,8 @@ export function ChatComposer(props: {
         activeWorkspaceId={String(activeWorkspaceId || '')}
         browseState={promptLibraryBrowse}
         onBrowseStateChange={rememberPromptLibraryBrowse}
+        composerDraftKey={String(activeSessionComposerDraftKey || `${activeTargetKind}:${activeChatTargetId}:${activeChatId || '__new__'}`)}
+        onPaste={onPaste}
       />
 
       <ComposerTaskTreeDialog

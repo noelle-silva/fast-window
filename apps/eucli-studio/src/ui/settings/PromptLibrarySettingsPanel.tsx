@@ -14,7 +14,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
@@ -50,6 +49,7 @@ import { PromptLibrarySidebar } from './PromptLibrarySidebar'
 import { PromptFolderPicker } from './PromptFolderPicker'
 
 // 提示词仓库管理：三段作用域切换 + 混排侧边栏 + 右侧条目编辑器。
+// 最右侧留了附加栏插槽：输入区的模态窗挂当前输入框，设置页不传就保持两栏。
 // 收藏走「收藏到收藏夹」模态窗；条目与收藏夹的功能入口都在右键菜单里。
 
 const EMPTY_ENTRY: PromptEntry = { id: '', name: '', content: '', description: '', createdAt: '', updatedAt: '' }
@@ -90,6 +90,11 @@ type PromptLibrarySettingsPanelProps = {
   browseState?: Partial<Record<PromptScope, PromptLibraryBrowseState>>
   /** 浏览位置变化时上报，由调用方按会话保存。 */
   onBrowseStateChange?: (scope: PromptScope, state: Required<PromptLibraryBrowseState>) => void
+  /**
+   * 最右侧附加栏：调用方按场景注入（输入区的模态窗挂当前输入框）。
+   * 设置页不传，面板保持原来的两栏。
+   */
+  sidePane?: React.ReactNode
 }
 
 function text(value: unknown) {
@@ -106,12 +111,12 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     preferredOwnerIds = {},
     browseState = {},
     onBrowseStateChange,
+    sidePane,
   } = props
 
   const initialBrowse = browseState[initialScope] || {}
   const [scope, setScope] = React.useState<PromptScope>(initialScope)
   const [ownerId, setOwnerId] = React.useState(String(initialBrowse.ownerId || initialOwnerId || ''))
-  const [ownerSearch, setOwnerSearch] = React.useState('')
   const [library, setLibrary] = React.useState<PromptLibrary>(EMPTY_PROMPT_LIBRARY)
   const [folders, setFolders] = React.useState<PromptFolderLibrary>(EMPTY_PROMPT_FOLDER_LIBRARY)
   const [currentFolderId, setCurrentFolderId] = React.useState(String(initialBrowse.folderId || ''))
@@ -564,62 +569,31 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。 */}
-      <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
-        {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
-          const active = scope === value
-          return (
-            <Button
-              key={value}
-              fullWidth
-              size="small"
-              disableElevation
-              variant="contained"
-              onClick={() => switchScope(value)}
-              sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
-            >
-              {PROMPT_SCOPE_LABELS[value]}
-            </Button>
-          )
-        })}
-      </Box>
-
-      {/* 归属选择、两个新建动作与当前层搜索共用一行。
-          新建按钮固定在左、搜索固定在右，归属控件只对角色 / 工作区有意义：
-          中间放什么都不会让两端换位，所以不需要占位。 */}
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Button
-          size="small"
-          variant="contained"
-          disableElevation
-          startIcon={<FolderOutlinedIcon />}
-          onClick={openCreateFolder}
-          disabled={loading}
-          sx={FILLED_SECONDARY_SX}
-        >
-          新建收藏夹
-        </Button>
-        <Button
-          size="small"
-          variant="contained"
-          disableElevation
-          startIcon={<AddIcon />}
-          onClick={createPrompt}
-          disabled={loading}
-          sx={FILLED_SECONDARY_SX}
-        >
-          新建提示词
-        </Button>
-        {scope !== 'global' ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: 328, flexShrink: 0 }}>
-            <TextField
-              size="small"
-              placeholder={scope === 'role' ? '搜索角色' : '搜索工作区'}
-              value={ownerSearch}
-              onChange={(event) => setOwnerSearch(event.target.value)}
-              sx={{ width: 150 }}
-            />
-            <FormControl size="small" sx={{ minWidth: 170, flex: 1 }}>
+      {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。
+          归属下拉挂在同一行的右侧，只占固定宽度，切换按钮仍留足点击区域。 */}
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
+          {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
+            const active = scope === value
+            return (
+              <Button
+                key={value}
+                fullWidth
+                size="small"
+                disableElevation
+                variant="contained"
+                onClick={() => switchScope(value)}
+                sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+              >
+                {PROMPT_SCOPE_LABELS[value]}
+              </Button>
+            )
+          })}
+        </Box>
+        {/* 归属槽位始终占同一段宽度：切到全局只是清空内容，切换按钮的宽度不跟着跳。 */}
+        <Box sx={{ width: 220, flexShrink: 0 }}>
+          {scope !== 'global' ? (
+            <FormControl size="small" fullWidth>
               <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
               <Select
                 labelId="prompt-library-owner-label"
@@ -631,25 +605,15 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                   setCurrentFolderId('')
                 }}
               >
-                {ownerOptions
-                  .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))
-                  .map((item: any) => (
-                    <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                      {text(item?.name) || text(item?.id)}
-                    </MenuItem>
-                  ))}
+                {ownerOptions.map((item: any) => (
+                  <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                    {text(item?.name) || text(item?.id)}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
-          </Box>
-        ) : null}
-        <Box sx={{ flex: 1 }} />
-        <TextField
-          size="small"
-          placeholder="搜索当前层"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          sx={{ width: 180 }}
-        />
+          ) : null}
+        </Box>
       </Stack>
 
       {scope !== 'global' && !ownerIds.length ? (
@@ -678,6 +642,10 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           onMoveEntryToFolder={moveEntryToFolder}
           onRenameFolder={openRename}
           onDeleteFolder={(folder) => setPendingDelete({ kind: 'folder', id: folder.id, name: folder.name })}
+          search={search}
+          onSearchChange={setSearch}
+          onCreatePrompt={createPrompt}
+          onCreateFolder={openCreateFolder}
         />
 
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -752,6 +720,8 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
             </Box>
           )}
         </Box>
+
+        {sidePane}
       </Stack>
 
       <PromptFolderPicker
