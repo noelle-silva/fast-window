@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatMetaFromChat, chatMetasFromBox, resolveChatMetaFact, type ChatMeta } from './chatMeta'
+import { chatMetaFromChat, chatMetaShapeKey, chatMetasFromBox, resolveChatMetaFact, type ChatMeta } from './chatMeta'
 
 describe('chatMeta window partiality', () => {
   it('marks metas derived from a window slice as partial', () => {
@@ -106,5 +106,45 @@ describe('chatMeta 时间归一化', () => {
     expect(older?.updatedAt).toBe(Date.parse('2026-10-31T17:32:31.8294373Z'))
     expect(newer?.updatedAt).toBe(Date.parse('2026-10-31T17:39:14.4078946Z'))
     expect(newer!.updatedAt).toBeGreaterThan(older!.updatedAt)
+  })
+})
+
+describe('chatMetaShapeKey：列表结构签名', () => {
+  function meta(partial: Partial<ChatMeta> = {}): ChatMeta {
+    return {
+      id: 'chat-1',
+      title: '标题',
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessagePreview: '摘要',
+      messageCount: 2,
+      hasPending: false,
+      runStatus: 'idle',
+      runStatusChangedAt: 1,
+      listAnchorAt: 1,
+      ...partial,
+    }
+  }
+
+  it('忽略 updatedAt：时间推进不是列表结构变化', () => {
+    expect(chatMetaShapeKey(meta({ updatedAt: 5000 }))).toBe(chatMetaShapeKey(meta({ updatedAt: 1 })))
+  })
+
+  it('对 runStatus / lastMessagePreview / listAnchorAt 敏感', () => {
+    const base = chatMetaShapeKey(meta())
+    expect(chatMetaShapeKey(meta({ runStatus: 'running', hasPending: true }))).not.toBe(base)
+    expect(chatMetaShapeKey(meta({ lastMessagePreview: '新的摘要' }))).not.toBe(base)
+    expect(chatMetaShapeKey(meta({ listAnchorAt: 99 }))).not.toBe(base)
+  })
+
+  it('对条数与来源（partial）敏感：它们是侧边栏显示与合并规则的输入', () => {
+    const base = chatMetaShapeKey(meta())
+    expect(chatMetaShapeKey(meta({ messageCount: 3 }))).not.toBe(base)
+    expect(chatMetaShapeKey(meta({ partial: true }))).not.toBe(base)
+  })
+
+  it('缺失事实得到空签名', () => {
+    expect(chatMetaShapeKey(null)).toBe('')
+    expect(chatMetaShapeKey(undefined)).toBe(chatMetaShapeKey(null))
   })
 })

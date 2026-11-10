@@ -237,3 +237,45 @@ export function chatMetaUpdatedAtMap(listRaw: any): Record<string, number> {
   }
   return out
 }
+
+// chatMetaShapeKey 是「列表要重新显示的事实」的结构签名。
+//
+// 收录字段只有列表真正读的那些：身份（id）、标题、条数、摘要、运行指示
+// （hasPending / runStatus / runStatusChangedAt）、位置（listAnchorAt）与来源
+// （partial，它决定这份事实能不能覆盖索引里的既有事实）。
+//
+// 不收录 updatedAt：时间推进不是版本。它只决定列表上的「几点」，不决定显示什么；
+// 一旦收录，任何一次写投影都会变成一次结构变化，列表就被流式帧淹没了。
+//
+// 分隔符用不可打印字符 \u0001：来自内容的值里不会出现，签名不会因为拼接产生歧义。
+const CHAT_META_SHAPE_SEPARATOR = '\u0001'
+
+function shapeText(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value)
+}
+
+function shapeNumber(value: unknown): string {
+  const num = Number(value)
+  return isFinite(num) ? String(num) : '0'
+}
+
+function shapeFlag(value: unknown): string {
+  return value === true ? '1' : '0'
+}
+
+export function chatMetaShapeKey(meta: unknown): string {
+  const obj = meta && typeof meta === 'object' ? (meta as any) : null
+  if (!obj) return ''
+  return [
+    shapeText(obj.id),
+    shapeText(obj.title),
+    shapeNumber(obj.createdAt),
+    shapeText(obj.lastMessagePreview),
+    shapeNumber(obj.messageCount),
+    shapeFlag(obj.hasPending),
+    shapeText(obj.runStatus),
+    shapeNumber(obj.runStatusChangedAt),
+    shapeNumber(obj.listAnchorAt),
+    shapeFlag(obj.partial),
+  ].join(CHAT_META_SHAPE_SEPARATOR)
+}

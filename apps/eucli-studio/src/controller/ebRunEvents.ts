@@ -1,7 +1,7 @@
 import { normalizeTimeMs } from '../core/utils'
 import { ensureChatBranch, normalizeBranchId, setChatBranchHeadMid } from '../domain/branching'
 import { beginAssistantRun, checkpointAssistantRun, finishAssistantRun, hasSettledAssistantToolParts } from '../domain/assistantRunState'
-import { chatMetaFromChat } from '../domain/chatMeta'
+import { chatMetaFromChat, chatMetaShapeKey } from '../domain/chatMeta'
 import { writeChatListProjection } from '../domain/chatListProjection'
 import { appendChatMessage, ensureChatMessages } from '../domain/chatMessageCollection'
 import { writeChatMessageFields, type ChatMessageFields } from '../domain/chatMessageFields'
@@ -50,16 +50,53 @@ export function createEbRunEventConsumer(deps: {
     scheduleScope(refreshScopes.session(targetKind, tid, sid))
   }
 
-  // 列表事实（chat.updatedAt / chatMetas）只惊动该 target 的列表订阅者。
+  // 列表事实（chatMetas）只惊动该 target 的列表订阅者。
   // targetId 缺失时构造器会退化成 global，必须在这里拦住，不能把列表更新放大成全局广播。
+  // 只允许 publishChatListFacts 调用：任何一条路径自己补发列表通知，都会让
+  // 「结构事件才广播」这条唯一规则失效。
   function scheduleChatListChanged(targetKind: RunEventTargetKind, targetId: string) {
     const id = String(targetId || '').trim()
     if (!id) return
     scheduleScope(refreshScopes.chatList(targetKind, id))
   }
 
+  // 列表事实的唯一发布口。
+  //
+  // 调用方判断「这是不是结构事件」，这里判断「列表结构真的变了没有」：
+  // 写投影是内存动作（合并与排序仍由 chatListProjection 裁决），广播才是渲染成本。
+  // 流式正文推进不经过这里，所以侧边栏与 App 根不会跟着每一帧重算重渲染。
+  function publishChatListFacts(box: any, chat: any, targetKind: RunEventTargetKind, targetId: string, fallbackTitle: string) {
+    if (!box || !chat) return
+    const chatId = String(chat.id || '').trim()
+    if (!chatId) return
+    const fallback = String(fallbackTitle || '').trim() || '新聊天'
+    const metaOf = () => (Array.isArray(box.chatMetas) ? box.chatMetas : [])
+      .find((item: any) => String(item?.id || '').trim() === chatId) || null
+    const beforeMeta = metaOf()
+    const meta = chatMetaFromChat(chat, fallback)
+    if (!meta) return
+    writeChatListProjection(box, { kind: 'upsertMeta', meta, fallbackTitle: fallback })
+    // 以「落库后的这条事实」为准：合并规则可能拒绝本次写入（窗口切片不得覆盖索引事实），
+    // 被拒绝时列表事实没变，广播只会白白重渲染一次侧边栏。
+    if (chatMetaShapeKey(metaOf()) === chatMetaShapeKey(beforeMeta)) return
+    scheduleChatListChanged(targetKind, targetId)
+  }
+
   function scheduleRunCardsChanged() {
     scheduleScope(refreshScopes.runCards())
+  }
+
+  // 运行卡写入的唯一出口：执行一次写入，并按「卡片对象身份是否变化」决定是否广播。
+  //
+  // 领域层保证「结构不变时返回同一张卡」，因此对象身份就是唯一的结构版本：
+  // 这里不再维护第二套字段比较，也不会为纯心跳写入惊动整棵 UI。
+  // 写入内容以闭包给出，register（出生）与 update（更新）共用同一套判据。
+  function writeRunCards(state: any, runIdRaw: unknown, write: () => void): void {
+    const runId = String(runIdRaw || '').trim()
+    const before = runId ? findEbRoleRunCard(state, runId) : null
+    write()
+    const after = runId ? findEbRoleRunCard(state, runId) : null
+    if (after !== before) scheduleRunCardsChanged()
   }
 
   function sessionKey(targetKind: RunEventTargetKind, targetId: string, sessionId: string) {
@@ -197,16 +234,17 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       // 终态是权威收口：无论卡片此前是否已被移除，都要收敛一次界面。
       // settleRunInState 同时登记终态闩锁，之后的迟到补丁不会再复活它。
       const card = findEbRoleRunCard(state, runId)
-      settleRunInState(state, {
-        runId,
-        status,
-        roleId: snapshot.roleId,
-        groupId: snapshot.groupId,
-        workspaceId: snapshot.workspaceId,
-        sessionId: snapshot.sessionId,
-        messageIds: [snapshot.lastMessageId, snapshot.inputMessageId],
-      }, card)
-      scheduleRunCardsChanged()
+      writeRunCards(state, runId, () => {
+        settleRunInState(state, {
+          runId,
+          status,
+          roleId: snapshot.roleId,
+          groupId: snapshot.groupId,
+          workspaceId: snapshot.workspaceId,
+          sessionId: snapshot.sessionId,
+          messageIds: [snapshot.lastMessageId, snapshot.inputMessageId],
+        }, card)
+      })
       const target = runEventTarget(snapshot.roleId, snapshot.groupId, snapshot.workspaceId)
       scheduleSession(target.targetKind, target.targetId, snapshot.sessionId)
       return true
@@ -215,21 +253,22 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     if (isRunSettled(state, runId)) return false
     const { roleId, sessionId } = snapshot
     if (!roleId || !sessionId) return false
-    registerEbRoleRunCard(state, {
-      runId,
-      roleId,
-      groupId: snapshot.groupId,
-      workspaceId: snapshot.workspaceId,
-      sessionId,
-      inputMessageId: snapshot.inputMessageId,
-      lastMessageId: snapshot.lastMessageId || snapshot.inputMessageId,
-      anchorMessageId: snapshot.inputMessageId,
-      dependencyMessageIds: snapshot.dependencyMessageIds,
-      status: status || 'running',
-      stream: snapshot.stream,
-      retry: snapshot.retry,
+    writeRunCards(state, runId, () => {
+      registerEbRoleRunCard(state, {
+        runId,
+        roleId,
+        groupId: snapshot.groupId,
+        workspaceId: snapshot.workspaceId,
+        sessionId,
+        inputMessageId: snapshot.inputMessageId,
+        lastMessageId: snapshot.lastMessageId || snapshot.inputMessageId,
+        anchorMessageId: snapshot.inputMessageId,
+        dependencyMessageIds: snapshot.dependencyMessageIds,
+        status: status || 'running',
+        stream: snapshot.stream,
+        retry: snapshot.retry,
+      })
     })
-    scheduleRunCardsChanged()
     const target = runEventTarget(snapshot.roleId, snapshot.groupId, snapshot.workspaceId)
     scheduleSession(target.targetKind, target.targetId, snapshot.sessionId)
     return true
@@ -303,16 +342,17 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     if (terminalStatus) {
       // 消息级终态同样要收口 run 卡与同 run 的其它消息：
       // 这条 update 的 payload.status 就是权威终态，不允许只收敛当前这一条。
-      settleRunInState(state, {
-        runId,
-        status: String(payload.status || '').trim(),
-        roleId,
-        groupId,
-        workspaceId,
-        sessionId,
-        messageIds: [messageId, parentMid],
-      }, findEbRoleRunCard(state, runId))
-      scheduleRunCardsChanged()
+      writeRunCards(state, runId, () => {
+        settleRunInState(state, {
+          runId,
+          status: String(payload.status || '').trim(),
+          roleId,
+          groupId,
+          workspaceId,
+          sessionId,
+          messageIds: [messageId, parentMid],
+        }, findEbRoleRunCard(state, runId))
+      })
     } else if (!isRunSettled(state, runId)) {
       const patch: any = {
         runId,
@@ -328,8 +368,9 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
         stream: !!payload.stream,
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'retry')) patch.retry = payload.retry
-      updateEbRoleRunCard(state, patch)
-      scheduleRunCardsChanged()
+      writeRunCards(state, runId, () => {
+        updateEbRoleRunCard(state, patch)
+      })
     }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
     const branch = ensureChatBranch(chat, branchId)
@@ -340,16 +381,25 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
 
     // 会话运行状态：终态路径已由 settleRunInState 统一收口，这里只处理运行中推进。
     // 状态怎么算、写到哪里，统一交给 chat.status 的唯一写入口。
+    let runStatusChanged = false
     if (!terminalStatus) {
-      writeChatRunStatus(state, chat, {
+      runStatusChanged = writeChatRunStatus(state, chat, {
         fallbackStatus: payload.status,
         target: { targetKind, targetId },
       })
     }
 
-    const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'
-    if (box) writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, fallbackTitle), fallbackTitle })
-    scheduleChatListChanged(targetKind, targetId)
+    // 列表结构事实：新消息落地、终态、运行状态变化、异步工具返回。
+    // 其余（正文/思考/工具片段的常规推进）只写内存，不写投影、不广播。
+    const listStructureChanged =
+      isNewMessage ||
+      !!terminalStatus ||
+      runStatusChanged ||
+      messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT
+    if (listStructureChanged) {
+      const fallbackTitle = targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'
+      publishChatListFacts(box, chat, targetKind, targetId, fallbackTitle)
+    }
 
     scheduleRuntimeChatChanged(targetKind, targetId, chat, messageType === CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT)
 
@@ -489,26 +539,32 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
     const deltaTerminalStatus = assistantRunStatusFromRunStatus(delta.status)
     if (deltaTerminalStatus) {
       finishAssistantRun(message, message.content, deltaTerminalStatus, message.updatedAt)
-      settleRunInState(state, {
-        runId,
-        status: String(delta.status || '').trim(),
-        roleId,
-        groupId,
-        workspaceId,
-        sessionId,
-        messageIds: [messageId, parentMid],
-      }, findEbRoleRunCard(state, runId))
-      scheduleRunCardsChanged()
+      writeRunCards(state, runId, () => {
+        settleRunInState(state, {
+          runId,
+          status: String(delta.status || '').trim(),
+          roleId,
+          groupId,
+          workspaceId,
+          sessionId,
+          messageIds: [messageId, parentMid],
+        }, findEbRoleRunCard(state, runId))
+      })
     } else {
       markRuntimeMessageInFlight(message)
       checkpointAssistantRun(message, message.content, message.updatedAt)
     }
 
-    if (box) {
-      const fallbackTitle = targetKind === 'group' ? '群聊' : '新聊天'
-      writeChatListProjection(box, { kind: 'upsertMeta', meta: chatMetaFromChat(chat, fallbackTitle), fallbackTitle })
-    }
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), eventTime)
+    // 列表结构事实：新消息第一次落地、终态、工具片段变化（列表摘要会从正文变成
+    // 「工具调用」）。纯正文/思考推进只走消息范围，等这一轮收口时再刷新列表摘要。
+    const listStructureChanged =
+      isNewMessage ||
+      !!deltaTerminalStatus ||
+      (Array.isArray(delta.partsDelta) && delta.partsDelta.length > 0)
+    if (listStructureChanged) {
+      publishChatListFacts(box, chat, targetKind, targetId, targetKind === 'group' ? '群聊' : '新聊天')
+    }
     const branch = ensureChatBranch(chat, branchId)
     if (branch) {
       if (!String(branch.forkFromMid || '').trim() && parentMid) branch.forkFromMid = parentMid
@@ -527,10 +583,10 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       stream: !!delta.stream,
     }
     if (!deltaTerminalStatus) {
-      updateEbRoleRunCard(state, patch)
-      scheduleRunCardsChanged()
+      writeRunCards(state, runId, () => {
+        updateEbRoleRunCard(state, patch)
+      })
     }
-    scheduleChatListChanged(targetKind, targetId)
     scheduleRuntimeChatChanged(targetKind, targetId, chat)
 
     if (isNewMessage) scheduleSession(targetKind, targetId, sessionId)
@@ -599,8 +655,8 @@ function restorePartLiveOutputs(partsRaw: unknown, liveOutputs: Map<string, any>
       updatedAt: Math.max(Number(message.updatedAt || 0), normalizeTimeMs(update.createdAt)),
     })
     chat.updatedAt = Math.max(Number(chat.updatedAt || 0), normalizeTimeMs(update.createdAt))
-    // 工具实时输出改消息片段与会话时间：消息走消息范围，列表时间走 chatList 范围。
-    scheduleChatListChanged(targetKind, targetId)
+    // 工具实时输出只改消息片段：走消息范围。
+    // 它不是列表结构事实（摘要、条数、位置都没变），写投影与广播都省掉。
     scheduleScope(messageRefreshScope(messageId))
     return true
   }
