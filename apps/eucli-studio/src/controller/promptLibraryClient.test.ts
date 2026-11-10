@@ -15,6 +15,7 @@ import {
   savePromptFolders,
   savePromptLibrary,
 } from './promptLibraryClient'
+import { PROMPT_LIBRARY_ENDPOINTS } from './promptLibraryEndpoints'
 
 const EMPTY_LIBRARY = { prompts: [] }
 const EMPTY_FOLDERS = { rootFolderIds: [], rootEntryOrder: [], folders: [] }
@@ -122,5 +123,24 @@ describe('提示词库请求路径', () => {
       'GET /api/prompt-folders/workspace?ownerId=ws-1',
       'PUT /api/prompt-folders/workspace?ownerId=ws-1',
     ])
+  })
+})
+
+describe('提示词库端点表', () => {
+  it('declares a method and a scoped api path for every endpoint', () => {
+    const entries = Object.entries(PROMPT_LIBRARY_ENDPOINTS)
+    expect(entries).toHaveLength(14)
+
+    for (const [, endpoint] of entries) {
+      expect(['GET', 'PUT', 'POST', 'PATCH', 'DELETE']).toContain(endpoint.method)
+      expect(endpoint.path.startsWith('prompt-')).toBe(true)
+      expect(endpoint.path).toContain(':scope')
+    }
+  })
+
+  it('fails fast when a path parameter is missing', async () => {
+    const { netRequest } = createRecorder()
+
+    await expect(deletePromptEntry(netRequest, 'role', 'role-1', '')).rejects.toThrow('缺少路径参数：promptId')
   })
 })
