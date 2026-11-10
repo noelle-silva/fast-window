@@ -56,6 +56,10 @@ export type ProjectionPipeline = {
   versions: () => ProjectionVersions
   applyVersions: (next: Partial<ProjectionVersions>) => void
   loadChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
+  // 批量索引读取：一次要多个 target 的场景（启动预热、进层预取）走这里。
+  loadChatIndexes: (
+    scopes: SessionIndexScope[],
+  ) => Promise<Array<{ scope: SessionIndexScope; snapshot: ChatIndexSnapshot }>>
   // 版本门数据源：即使缓存命中也要向服务端确认最新 revision。
   refreshChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
   // 版本门守卫：只有仍被缓存承认的快照才允许驱动对账。
@@ -192,6 +196,53 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     },
     getVersions: versions,
   })
+
+  // loadChatIndexes 是「一次要多个 target」的唯一入口：
+  // 一次 sessionIndex.get 带回全部 scope，逐个落进缓存，返回真正落地的那些。
+  // 后端不支持时回落到旧 storage key（工作区没有旧形态，天然落空）。
+  async function loadChatIndexes(
+    scopesRaw: SessionIndexScope[],
+  ): Promise<Array<{ scope: SessionIndexScope; snapshot: ChatIndexSnapshot }>> {
+    const scopes: SessionIndexScope[] = []
+    const seen = new Set<string>()
+    for (const scope of Array.isArray(scopesRaw) ? scopesRaw : []) {
+      const key = projectionScopeKey(scope)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      scopes.push({ kind: scope.kind, targetId: String(scope.targetId || '').trim() })
+    }
+    const loaded: Array<{ scope: SessionIndexScope; snapshot: ChatIndexSnapshot }> = []
+    if (!scopes.length) return loaded
+    if (sessionSwitch?.hasFeature('sessionIndex.get')) {
+      const bundle = await sessionSwitch.sessionIndexGet(scopes)
+      applyVersions(bundle)
+      const byKey = new Map(bundle.indexes.map((item) => [item.scope, item]))
+      for (const scope of scopes) {
+        const item = byKey.get(projectionScopeKey(scope))
+        if (!item) continue
+        const snapshot: ChatIndexSnapshot = {
+          scope: item.scope,
+          activeChatId: item.activeChatId,
+          chatIds: item.chatIds,
+          chatUpdatedAt: item.chatUpdatedAt,
+          chatVersions: item.chatVersions,
+          chatMetas: item.chatMetas as any,
+          updatedAt: item.updatedAt,
+          revision: item.revision,
+        }
+        cache.applyChatIndex(snapshot)
+        loaded.push({ scope, snapshot })
+      }
+      return loaded
+    }
+    for (const scope of scopes) {
+      const snapshot = await readStoredChatIndex(scope).catch(() => null)
+      if (!snapshot) continue
+      cache.applyChatIndex(snapshot)
+      loaded.push({ scope, snapshot })
+    }
+    return loaded
+  }
 
   // 迁移垫片：后端还没有 setActiveChat 时，只写 activeChatId 一格。
   async function writeLegacySelection(scope: ProjectionScope, chatId: string) {
@@ -385,6 +436,7 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     versions,
     applyVersions,
     loadChatIndex: (scope) => cache.loadChatIndex(scope),
+    loadChatIndexes,
     refreshChatIndex: (scope) => cache.refreshChatIndex(scope),
     isChatIndexSnapshotCurrent: (scope, snapshot) => cache.isChatIndexSnapshotCurrent(scope, snapshot),
     loadOlderMessages,

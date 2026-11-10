@@ -2,8 +2,8 @@ import { now } from '../core/utils'
 import { chatListItemsOfBox } from './chatListOrdering'
 import { favoriteChatRefKey, normalizeFavoriteChatRef, normalizeFavoriteFolder } from './favorites'
 import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
+import { sessionRefBox, sessionRefIdentity } from './sessionRefScope'
 import { workspaceIconImageSrc } from './workspaceIcon'
-import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
 // 工作桌面：后端 eucli-box 里的 sessions/desks.json（类型 SessionDesks），
 // 与会话收藏夹（sessions/favorites.json / SessionFavorites）逐字段同构，但两类数据各自独立。
@@ -235,11 +235,8 @@ function chatFallbackTitle(kind: DeskTargetKind): string {
 }
 
 function chatItemsOf(data: any, ref: any): any[] {
-  if (ref.targetKind === 'workspace') {
-    return chatListItemsOfBox(data?.chatsByWorkspace?.[workspaceRoleTargetId(ref.targetId, ref.roleId)])
-  }
-  if (ref.targetKind === 'group') return chatListItemsOfBox(data?.chatsByGroup?.[ref.targetId])
-  return chatListItemsOfBox(data?.chatsByRole?.[ref.targetId])
+  const identity = sessionRefIdentity(ref)
+  return chatListItemsOfBox(identity ? sessionRefBox(data, identity) : null)
 }
 
 function findRole(data: any, roleId: string): any {
