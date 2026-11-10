@@ -92,6 +92,7 @@ import { createModelActions } from './actions/modelActions'
 import { createAccessActions } from './actions/accessActions'
 import { createLibraryActions } from './actions/libraryActions'
 import { createPromptLibraryController } from './promptLibraryController'
+import { createTaskTreeController } from './taskTreeController'
 import { createChatNavigationActions } from './actions/chatNavigationActions'
 import { createChatInteractionActions } from './actions/chatInteractionActions'
 import { createViewerActions } from './actions/viewerActions'
@@ -1367,6 +1368,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getNetRequest: () => capabilities.net?.request,
     showToast: api.ui?.showToast,
   })
+  const taskTreeActions = createTaskTreeController({
+    getNetRequest: () => capabilities.net?.request,
+    showToast: api.ui?.showToast,
+  })
   const libraryActions = createLibraryActions({
     refreshHookPromptLibrary,
     persistHookPromptLibrary,
@@ -1473,6 +1478,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ...accessActions,
     ...libraryActions,
     ...promptLibraryActions,
+    ...taskTreeActions,
     ...chatInteractionActions,
     ...viewerActions,
     // UI event bridge
