@@ -7,6 +7,7 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
 import type { DeskDraft } from '../../../domain/deskDrafts'
+import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
 import { useSortableClickGuard } from '../useSortableClickGuard'
 
@@ -94,9 +95,8 @@ function DeskRow(props: {
   const dragging = dragArgs.isDragging
   const [hovered, setHovered] = React.useState(false)
 
-  // 悬停说明：工作区来源带上所属角色，形如「工作区名/角色名」。
-  const tooltipText =
-    entry.targetKind === 'workspace' && entry.roleName ? `${entry.targetName}/${entry.roleName}` : entry.targetName
+  // 悬停说明与第二行的来源字样同源：工作区会话写作「工作区名/角色名」，角色会话只有角色名。
+  const sourceLabel = sessionSourceLabel(entry)
 
   // 悬停换图标只作用于工作区来源；角色没设头像时自然落回角色默认图标。
   const swapToRole = hoverShowsRoleIcon && entry.targetKind === 'workspace' && hovered
@@ -104,7 +104,7 @@ function DeskRow(props: {
   const iconImage = swapToRole ? entry.roleAvatarImage : entry.avatarImage
 
   return (
-    <Tooltip title={tooltipText} placement="left">
+    <Tooltip title={sourceLabel} placement="left">
       <Box
         ref={dragArgs.setNodeRef as any}
         style={dragArgs.style}
@@ -149,8 +149,8 @@ function DeskRow(props: {
       >
         <DeskEntryIcon kind={iconKind} image={iconImage} active={active} />
 
-        {/* 名称与运行标记上下叠放：两行都压在 40 点行高内，撑不住也不裁切。
-            运行标记只用一小块自适应宽度，不挤占名称的横向位置。 */}
+        {/* 名称在上，来源与运行标记并排在下一行：来源常驻（工作区名/角色名，角色只有角色名），
+            跑起来时在它右边接上 running。两行压在 40 点行高内；来源过长时让位给运行标记。 */}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
           <Typography
             noWrap
@@ -163,27 +163,43 @@ function DeskRow(props: {
           >
             {entry.title}
           </Typography>
-          {running ? (
-            <Box
-              sx={{
-                alignSelf: 'flex-start',
-                maxWidth: '100%',
-                height: 11,
-                px: '4px',
-                borderRadius: '3px',
-                bgcolor: colorMixVar('--studio-primary', 14),
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+            {sourceLabel ? (
               <Typography
                 noWrap
-                sx={{ fontSize: 9, lineHeight: '11px', fontWeight: 800, letterSpacing: '.2px', color: 'primary.main' }}
+                sx={{
+                  flex: '0 1 auto',
+                  minWidth: 0,
+                  fontSize: 10,
+                  lineHeight: '12px',
+                  fontWeight: 600,
+                  color: active ? 'text.secondary' : 'text.disabled',
+                }}
               >
-                running...
+                {sourceLabel}
               </Typography>
-            </Box>
-          ) : null}
+            ) : null}
+            {running ? (
+              <Box
+                sx={{
+                  flex: '0 0 auto',
+                  height: 11,
+                  px: '4px',
+                  borderRadius: '3px',
+                  bgcolor: colorMixVar('--studio-primary', 14),
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Typography
+                  noWrap
+                  sx={{ fontSize: 9, lineHeight: '11px', fontWeight: 800, letterSpacing: '.2px', color: 'primary.main' }}
+                >
+                  running...
+                </Typography>
+              </Box>
+            ) : null}
+          </Box>
         </Box>
 
         <IconButton
