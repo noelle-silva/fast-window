@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { Box, Stack } from '@mui/material'
+import { Box, Stack, Typography } from '@mui/material'
 import { isAssistantGenerating } from '../../domain/assistantRunState'
 import type { MessageBatchGroup } from '../../domain/messageBatchMount'
 import { messageOffscreenContentKey } from '../../domain/messageOffscreen'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
+import { findToolProcessRanges } from '../../domain/toolProcessDivider'
 import type { MessageOffscreenHandle } from '../hooks/useMessageOffscreen'
 import { buildChatListIndex } from './ChatListIndex'
 import { MessageRow, type MessageRowActions, type MessageRowUiPolicy } from './MessageRow'
@@ -261,6 +262,51 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     ],
   )
 
+  // 每一段工具过程渲染成一块：上下两根绿线之间铺主题色半透明底板。
+  // 消息仍然由 renderRow 原样产出，只是被放在这层底板里。
+  // 每一段工具过程可手动收起：展开时铺主题色底板，收起时只剩一条统计。
+  const [collapsedToolProcess, setCollapsedToolProcess] = React.useState<Set<string>>(() => new Set())
+  const toggleToolProcess = React.useCallback((key: string) => {
+    setCollapsedToolProcess((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+  React.useEffect(() => setCollapsedToolProcess(new Set()), [cacheScope])
+
+  const messageRows = React.useMemo(() => {
+    const rows: React.ReactNode[] = []
+    let cursor = 0
+    for (const range of findToolProcessRanges(messages)) {
+      for (let index = cursor; index < range.start; index++) rows.push(renderRow(messages[index]))
+      const key = `tool-process:${messageId(messages[range.start]) || range.start}`
+      const onToggle = () => toggleToolProcess(key)
+      rows.push(
+        collapsedToolProcess.has(key) ? (
+          <Box key={key}>{toolProcessBar('collapsed', range, onToggle)}</Box>
+        ) : (
+          <Box
+            key={key}
+            sx={{
+              borderRadius: 2,
+              overflow: 'hidden',
+              bgcolor: 'color-mix(in srgb, var(--studio-primary) 10%, transparent)',
+            }}
+          >
+            {range.start > 0 ? toolProcessBar('start', range, onToggle) : null}
+            <Stack spacing={1.25}>{messages.slice(range.start, range.end + 1).map(renderRow)}</Stack>
+            {toolProcessBar('end', range, onToggle)}
+          </Box>
+        ),
+      )
+      cursor = range.end + 1
+    }
+    for (let index = cursor; index < messages.length; index++) rows.push(renderRow(messages[index]))
+    return rows
+  }, [messages, renderRow, collapsedToolProcess, toggleToolProcess])
+
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>
       {messageBatchGroups.map((batch) => (
@@ -273,7 +319,53 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
           <Stack spacing={1.25} useFlexGap>{batch.messages.map(renderRow)}</Stack>
         </Box>
       ))}
-      {messages.map(renderRow)}
+      {messageRows}
     </Stack>
   )
 })
+
+// 工具过程的上界 / 下界 / 收起态：都显示轮数与工具调用次数，整条可点击切换。
+function toolProcessBar(
+  edge: 'start' | 'end' | 'collapsed',
+  range: { rounds: number; toolCalls: number },
+  onToggle: () => void,
+) {
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      data-tool-process-divider={edge}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onToggle()
+        }
+      }}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.75,
+        px: 1.1,
+        py: 0.6,
+        cursor: 'pointer',
+        userSelect: 'none',
+        bgcolor: 'color-mix(in srgb, var(--studio-primary) 14%, transparent)',
+        '&:hover': { bgcolor: 'color-mix(in srgb, var(--studio-primary) 20%, transparent)' },
+      }}
+    >
+      <Box
+        aria-hidden
+        sx={{ width: 7, height: 7, flexShrink: 0, borderRadius: '50%', bgcolor: 'var(--studio-success)', opacity: 0.9 }}
+      />
+      {edge === 'collapsed' ? null : (
+        <Typography variant="caption" sx={{ fontWeight: 900, color: 'var(--studio-text-primary)' }}>
+          工作过程
+        </Typography>
+      )}
+      <Typography variant="caption" sx={{ color: 'var(--studio-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+        {range.rounds} 轮 · {range.toolCalls} 次工具调用
+      </Typography>
+    </Box>
+  )
+}
