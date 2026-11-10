@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { readActiveEbRunCardsForTarget } from '../../domain/activeRunCards'
+import { ebRoleRunCardShapeKey, readActiveEbRunCardsForTarget } from '../../domain/activeRunCards'
 
 type TargetKind = 'role' | 'group' | 'workspace'
 
@@ -53,9 +53,9 @@ export function useChatMessageIndex(deps: {
     return out
   }, [chatAllMessagesRaw, chatAllMessagesRaw.length, Number((renderChat as any)?.updatedAt || 0), chatAllById])
   const activeSessionRunCards = readActiveEbRunCardsForTarget(s, activeTargetKind, String(activeChatTargetId || ''), renderChatId)
-  const activeSessionRunCardsKey = activeSessionRunCards
-    .map((card: any) => `${String(card?.runId || '')}:${String(card?.lastMessageId || '')}:${String(card?.status || '')}:${String(card?.retry?.attempt || '')}:${String(card?.retry?.retryAt || '')}:${String(card?.retry?.failure?.message || '')}:${Number(card?.updatedAt || 0)}`)
-    .join('|')
+  // 结构版本：只由卡片的结构字段决定（定义见 domain/activeRunCards 的 ebRoleRunCardShapeKey）。
+  // 纯心跳推进不会改变它，因此流式输出不会让整张消息列表失效。
+  const activeSessionRunCardsKey = activeSessionRunCards.map(ebRoleRunCardShapeKey).join('|')
   const activeChatRunCards = renderChatId === activeChatId ? activeSessionRunCards : readActiveEbRunCardsForTarget(s, activeTargetKind, String(activeChatTargetId || ''), activeChatId)
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
   return {

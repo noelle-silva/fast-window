@@ -1,6 +1,24 @@
 import { normalizeErrorPayload, type ErrorPayload } from './errorPayload'
 import { parseWorkspaceRoleTargetId } from './workspaceRoleTarget'
 
+// ============================================================================
+// 运行卡：对象身份 = 结构版本
+//
+// 一张卡片有两类字段：
+//   - 结构字段：决定界面要不要重新计算（身份、归属、目标消息、状态、重试、取消）。
+//   - updatedAt：最后一次「结构变化」的时间戳，不是心跳。
+//
+// 三条不变量（改本文件前先读）：
+//   1. 读路径不重建对象：ensureActiveRunCards 正常情况返回原数组与原对象，
+//      只有集合形状损坏时才整表归一化修复一次。
+//   2. 写路径结构等价即不落地：register / update 构造出的下一张卡若结构签名
+//      与当前卡相同，直接丢弃本次构造，卡片对象与集合元素保持原样。
+//   3. 通知只认身份：控制器比较写入前后的卡片对象身份，变了才广播。
+//      因此「对象身份」就是唯一的结构版本，禁止在别处另建一套字段比较。
+//
+// 结构签名的定义只在本文件的 ebRoleRunCardShapeKey：控制器通知与 UI 失效共用它。
+// ============================================================================
+
 export type EbRoleRunCard = {
   kind: 'eb-role-run'
   runId: string
@@ -68,6 +86,51 @@ function normalizeEbRoleRunRetryInfo(value: unknown): EbRoleRunRetryInfo | null 
     message: text(raw.message),
     failure: normalizeErrorPayload(raw.failure),
   }
+}
+
+// 结构签名的分隔符使用不可打印字符：卡片里的正文字段（id / 状态 / 消息）不会包含它们，
+// 拼接因此没有歧义，也不需要额外的转义层。
+const SHAPE_FIELD_SEP = '\u0001'
+const SHAPE_ITEM_SEP = '\u0002'
+
+// retryShapeKey 只表达「重试这件事的结构」。
+// 进入卡片集合的 retry 都由 normalizeEbRoleRunRetryInfo 产出，字段与顺序固定，
+// 因此直接序列化即可得到稳定签名；retry 常为 null，这条路径基本零开销。
+function retryShapeKey(value: unknown): string {
+  return isObject(value) ? JSON.stringify(value) : ''
+}
+
+// ebRoleRunCardShapeKey 是「什么算结构变化」的唯一答案。
+//
+// 约定：
+//   - 只收录会影响界面派生结果的字段，不收录 updatedAt（心跳不是版本）。
+//   - 参数接受 unknown：UI 侧可能拿到尚未经过本模块归一化的读取结果。
+//   - 返回值只用于相等比较，不参与反解析。
+export function ebRoleRunCardShapeKey(card: unknown): string {
+  const raw = isObject(card) ? card : {}
+  return [
+    text(raw.runId),
+    text(raw.roleId),
+    text(raw.groupId),
+    text(raw.workspaceId),
+    text(raw.sessionId),
+    text(raw.inputMessageId),
+    text(raw.lastMessageId),
+    text(raw.anchorMessageId),
+    textList(raw.dependencyMessageIds).join(SHAPE_ITEM_SEP),
+    text(raw.status),
+    raw.stream ? '1' : '0',
+    retryShapeKey(raw.retry),
+    raw.cancelledByUser ? '1' : '0',
+    String(Number(raw.createdAt || 0) || 0),
+  ].join(SHAPE_FIELD_SEP)
+}
+
+// isEbRoleRunCardShaped 是读路径的轻量形状闸门：只回答「这张卡能不能直接读」，
+// 不做字段归一化。字段规范化由写原语（register / update）在入口完成。
+function isEbRoleRunCardShaped(value: unknown): value is EbRoleRunCard {
+  const raw = isObject(value) ? value : null
+  return !!raw && raw.kind === 'eb-role-run' && !!text(raw.runId)
 }
 
 export function isTerminalEbRunStatus(value: unknown) {
@@ -183,17 +246,23 @@ export function markRunSettled(state: any, runIdRaw: unknown, status?: unknown, 
   return true
 }
 
+// ensureActiveRunCards 只保证「集合可用」，不重建卡片。
+//
+// 正常路径（集合由写原语维护）直接返回原数组与原对象：卡片身份就是结构版本，
+// 读一次就换一批新对象等于每次读都制造新版本。只有集合形状损坏
+// （字段缺失 / 非数组 / 混入其它卡片类型）时才整表修复一次。
 export function ensureActiveRunCards(state: any): EbRoleRunCard[] {
   if (!state || typeof state !== 'object') return []
-  const source = Array.isArray(state.activeRunCards) ? state.activeRunCards : []
-  const cards = source.map(normalizeEbRoleRunCard).filter(Boolean) as EbRoleRunCard[]
+  const source = Array.isArray(state.activeRunCards) ? (state.activeRunCards as unknown[]) : null
+  if (source && source.every(isEbRoleRunCardShaped)) return source as EbRoleRunCard[]
+  const cards = (source || []).map(normalizeEbRoleRunCard).filter(Boolean) as EbRoleRunCard[]
   state.activeRunCards = cards
   return cards
 }
 
+// readActiveRunCards 返回集合副本（调用方不得原地改集合），但不重建卡片对象。
 export function readActiveRunCards(state: any): EbRoleRunCard[] {
-  const source = Array.isArray(state?.activeRunCards) ? state.activeRunCards : []
-  return source.map(normalizeEbRoleRunCard).filter(Boolean) as EbRoleRunCard[]
+  return ensureActiveRunCards(state).slice()
 }
 
 export function readActiveEbRoleRunCards(state: any) {
@@ -313,6 +382,8 @@ function buildEbRoleRunCard(
 ): EbRoleRunCard {
   const t = timeNow()
   const hasRetryPatch = Object.prototype.hasOwnProperty.call(patchRaw, 'retry')
+  // 补丁里的依赖消息只归一化一次（原实现调用了两次 textList）。
+  const patchedDependencies = textList(patchRaw.dependencyMessageIds)
   return {
     kind: 'eb-role-run',
     runId,
@@ -359,7 +430,11 @@ export function registerEbRoleRunCard(state: any, patchRaw: EbRoleRunCardPatch) 
     removeEbRoleRunCardAt(state, index)
     return null
   }
-  const next = buildEbRoleRunCard(runId, patchRaw, index >= 0 ? cards[index] : null)
+  const current = index >= 0 ? cards[index] : null
+  const next = buildEbRoleRunCard(runId, patchRaw, current)
+  // 幂等重放：同一份运行事实又到了一次，结构没有任何变化。
+  // 保持卡片对象与集合元素原样，界面因此不会被无意义地惊动。
+  if (current && ebRoleRunCardShapeKey(next) === ebRoleRunCardShapeKey(current)) return current
   if (index >= 0) cards[index] = next
   else cards.push(next)
   return next
@@ -383,7 +458,11 @@ export function updateEbRoleRunCard(state: any, patchRaw: EbRoleRunCardPatch) {
     removeEbRoleRunCardAt(state, index)
     return null
   }
-  const next = buildEbRoleRunCard(runId, patchRaw, cards[index])
+  const current = cards[index]
+  const next = buildEbRoleRunCard(runId, patchRaw, current)
+  // 结构等价：正文 / 思考 / 工具输出推进不改变卡片结构，
+  // 因此不替换对象、不推进 updatedAt。对象身份就是结构版本。
+  if (ebRoleRunCardShapeKey(next) === ebRoleRunCardShapeKey(current)) return current
   cards[index] = next
   return next
 }

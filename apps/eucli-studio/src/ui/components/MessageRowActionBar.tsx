@@ -28,7 +28,9 @@ export type MessageRowActionBarProps = {
   loading: boolean
   uiBusy: boolean
   mid: string
-  content: string
+  // 动作期取文本：流式推进不会重渲染消息行，渲染期快照会过期。
+  // 编辑 / 复制在点击时向消息事实源要最新值，而不是复用某一帧的产物。
+  readContent: () => string
   displayRole: MessageRowActionRole
   canEdit: boolean
   canDeleteMessage: boolean
@@ -49,7 +51,7 @@ export const MessageRowActionBar = React.memo(function MessageRowActionBar(props
     loading,
     uiBusy,
     mid,
-    content,
+    readContent,
     displayRole,
     canEdit,
     canDeleteMessage,
@@ -144,14 +146,14 @@ export const MessageRowActionBar = React.memo(function MessageRowActionBar(props
             <>
               <Tooltip title="编辑">
                 <span>
-                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, content)}>
+                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, readContent())}>
                     <EditOutlinedIcon fontSize="inherit" />
                   </IconButton>
                 </span>
               </Tooltip>
 
               <Tooltip title="复制">
-                <IconButton aria-label="复制内容" size="small" disabled={!mid} onClick={() => onCopyMessageText(content)}>
+                <IconButton aria-label="复制内容" size="small" disabled={!mid} onClick={() => onCopyMessageText(readContent())}>
                   <ContentCopyIcon fontSize="inherit" />
                 </IconButton>
               </Tooltip>
@@ -170,14 +172,14 @@ export const MessageRowActionBar = React.memo(function MessageRowActionBar(props
             <>
               <Tooltip title="编辑">
                 <span>
-                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, content)}>
+                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => onStartEditMessage(mid, readContent())}>
                     <EditOutlinedIcon fontSize="inherit" />
                   </IconButton>
                 </span>
               </Tooltip>
 
               <Tooltip title="复制">
-                <IconButton aria-label="复制内容" size="small" onClick={() => onCopyMessageText(content)}>
+                <IconButton aria-label="复制内容" size="small" onClick={() => onCopyMessageText(readContent())}>
                   <ContentCopyIcon fontSize="inherit" />
                 </IconButton>
               </Tooltip>

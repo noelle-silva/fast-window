@@ -162,6 +162,12 @@ function MessageRowImpl(props: MessageRowProps) {
   const actionBarRevealed = isRowHovered || isRowFocusWithin
 
   const content = messageVisibleText(m)
+  // 动作期取文本：流式推进只刷新正文宿主（LiveAssistantBody），不会重渲染消息行，
+  // 因此编辑 / 复制必须向消息事实源要最新值，不能复用渲染期快照。
+  const readTimelyContent = React.useCallback(() => {
+    const live = mid ? controller?.getMessageById?.(mid) : null
+    return live ? messageVisibleText(live) : content
+  }, [controller, mid, content])
   const isAsyncToolResult = isAsyncToolResultMessage(m)
   const isToolResponse = isAsyncToolResult || content.startsWith('<<<[TOOL_RESPONSE]>>>')
   const isDisplayOnlyPendingRunTail = !!(m as any)?.displayOnlyPendingRunTail
@@ -579,7 +585,7 @@ function MessageRowImpl(props: MessageRowProps) {
             loading={loading}
             uiBusy={uiBusy}
             mid={mid}
-            content={content}
+            readContent={readTimelyContent}
             displayRole={displayRole}
             canEdit={canEdit}
             canDeleteMessage={canDeleteMessage}
