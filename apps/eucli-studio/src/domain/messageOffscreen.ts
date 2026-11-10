@@ -2,6 +2,7 @@ import { messageVisibleText } from './chatMessageDisplay'
 
 // 屏外消息跳过与高度记忆：纯数据规则，不依赖 React/DOM。
 // 高度只在本进程内记忆，按「消息身份 + 布局条件 + 内容条件」校验，任一变化即作废。
+// 「内容条件」（contentKey）只服务占位高度的失效判断，是结构摘要，取舍见 messageOffscreenContentKey。
 export const MESSAGE_OFFSCREEN_OVERSCAN_VIEWPORTS = 1
 export const MESSAGE_OFFSCREEN_DEFAULT_VIEWPORT_WIDTH = 720
 export const MESSAGE_OFFSCREEN_HEIGHT_MEMORY_LIMIT = 4000
@@ -72,31 +73,39 @@ export function messageLayoutKey(layoutSignature: string, viewportWidth: number)
   return `${String(layoutSignature || '')}@${width}`
 }
 
-function hashText(value: unknown): number {
-  const text = String(value ?? '')
-  let hash = 0x811c9dc5
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
+// 只读长度，绝不遍历内容本身：String(x) 对字符串是恒等、对其它类型是常量级转换。
+function textLength(value: unknown): number {
+  return String(value || '').length
 }
 
+// part 结构摘要：固定字段顺序、固定分隔符 ':'，只读结构与长度，不读正文。
+// 顺序：type : state : toolName|name : toolCallId|callId|id : 正文长度 : result 摘要 : runtimeOutput 摘要。
 function partSignature(part: any): string {
   if (!part || typeof part !== 'object') return ''
-  const result = part.result && typeof part.result === 'object' ? Object.keys(part.result).length : hashText(part.result)
+  const result = part.result && typeof part.result === 'object' ? part.result : null
+  const runtime = part.runtimeOutput && typeof part.runtimeOutput === 'object' ? part.runtimeOutput : null
   return [
     String(part.type || ''),
     String(part.state || ''),
     String(part.toolName || part.name || ''),
-    String(part.toolCallId || part.callId || ''),
-    String(part.text || '').length,
-    hashText(part.text),
-    result,
+    String(part.toolCallId || part.callId || part.id || ''),
+    textLength(part.text),
+    result ? `r:${String(result.status || '')}:${textLength(result.content || result.error)}` : '',
+    runtime ? `o:${Number(runtime.bytes || 0)}:${textLength(runtime.preview)}` : '',
   ].join(':')
 }
 
-// 内容键只做轻量结构摘要：updatedAt 覆盖流式/编辑更新，文本哈希兜住同时间戳、同长度的内容改动。
+// 内容键：屏外占位高度记忆的「内容条件」指纹，每次列表渲染对每条已上屏消息都会求值，
+// 所以它必须是 O(1) + O(parts) 的结构摘要 —— 只读长度与结构字段，绝不对正文做哈希/扫描。
+//
+// 取舍：它刻意不具备「同 updatedAt、同长度的内容改动」识别能力，因为它只服务屏外占位高度的失效。
+// 判错一次的全部代价是占位高度差一行，消息可见后会立刻被实测高度修正，不产生可见错误；
+// 而消息的任何一次写入都会推进 updatedAt，真实编辑必然被 updatedAt 字段捕获。
+//
+// 字段顺序（分隔符 '|'）：
+// role / type / updatedAt / 正文长度 / parts 摘要 / images / toolImages / speakerRoleId /
+// 模型标识 / 错误标记 / control 摘要 / assistantRun.status / streaming / pending /
+// displayOnlyPendingRunTail / editing / userExpanded / toolExpanded。
 export function messageOffscreenContentKey(message: any, presentation?: MessageOffscreenPresentation): string {
   const m = message && typeof message === 'object' ? message : {}
   const parts = Array.isArray(m.parts) ? m.parts : []
@@ -109,7 +118,6 @@ export function messageOffscreenContentKey(message: any, presentation?: MessageO
     String(m.type || ''),
     Number(m.updatedAt || 0),
     content.length,
-    hashText(content),
     parts.map(partSignature).join(','),
     images.join(','),
     toolImages.join(','),
