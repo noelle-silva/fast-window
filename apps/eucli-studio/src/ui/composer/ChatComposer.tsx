@@ -12,6 +12,8 @@ import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
 import { ComposerPromptLibraryDialog } from './ComposerPromptLibraryDialog'
+import { useEvent } from '../hooks/useEvent'
+import type { PromptLibraryBrowseState } from '../settings/PromptLibrarySettingsPanel'
 import {
   buildComposerToolEntries,
   composerToolInlineNodes,
@@ -169,6 +171,15 @@ export function ChatComposer(props: {
   const [hookPromptMenuAnchor, setHookPromptMenuAnchor] = React.useState<HTMLElement | null>(null)
   // 提示词库模态窗：null 表示关闭；否则是当前作用域（global / role / workspace）。
   const [promptLibraryScope, setPromptLibraryScope] = React.useState<PromptScope | null>(null)
+  // 每个会话一份提示词库浏览位置：作用域 → 归属 + 收藏夹层级。
+  // 存在 ref 里：上报不触发渲染，重新打开模态窗时读最新值即可。
+  const promptLibraryBrowseRef = React.useRef<Map<string, Partial<Record<PromptScope, PromptLibraryBrowseState>>>>(new Map())
+  const promptLibraryBrowseKey = String(activeChatId || activeSessionComposerDraftKey || '__default__')
+  const promptLibraryBrowse = promptLibraryBrowseRef.current.get(promptLibraryBrowseKey) || {}
+  const rememberPromptLibraryBrowse = useEvent((scope: PromptScope, state: Required<PromptLibraryBrowseState>) => {
+    const current = promptLibraryBrowseRef.current.get(promptLibraryBrowseKey) || {}
+    promptLibraryBrowseRef.current.set(promptLibraryBrowseKey, { ...current, [scope]: state })
+  })
 
   const toolLayout = React.useMemo(() => normalizeComposerToolsLayout(composerToolsLayout), [composerToolsLayout])
 
@@ -364,6 +375,8 @@ export function ChatComposer(props: {
         workspaces={workspaces}
         activeRoleId={String(activeRole?.id || '')}
         activeWorkspaceId={String(activeWorkspaceId || '')}
+        browseState={promptLibraryBrowse}
+        onBrowseStateChange={rememberPromptLibraryBrowse}
       />
     </Box>
   )

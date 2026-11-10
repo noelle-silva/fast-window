@@ -1,12 +1,13 @@
 import * as React from 'react'
 import { Box, DialogContent } from '@mui/material'
 import { DependableDialog } from '../components/DependableOverlay'
-import { PromptLibrarySettingsPanel } from '../settings/PromptLibrarySettingsPanel'
+import { PromptLibrarySettingsPanel, type PromptLibraryBrowseState } from '../settings/PromptLibrarySettingsPanel'
 import type { PromptScope } from '../../domain/promptLibrary'
 
 // 输入区的提示词库入口：模态窗里直接挂设置页那套面板。
 // 不设标题栏：面板顶部就是作用域切换，当前在看哪个库由它自己说明。
 // 面板用 key 绑作用域，换按钮 = 重新挂载，归属选择与草稿不会串到另一段作用域。
+// 浏览位置（各段停留的归属与收藏夹层级）由调用方按会话保存，开关窗口不丢。
 export function ComposerPromptLibraryDialog(props: {
   controller: any
   scope: PromptScope | null
@@ -17,8 +18,20 @@ export function ComposerPromptLibraryDialog(props: {
   activeRoleId: string
   /** 工作区库优先选中的归属：当前会话的工作区（不在工作区时为空）。 */
   activeWorkspaceId: string
+  browseState?: Partial<Record<PromptScope, PromptLibraryBrowseState>>
+  onBrowseStateChange?: (scope: PromptScope, state: Required<PromptLibraryBrowseState>) => void
 }) {
-  const { controller, scope, onClose, roles = [], workspaces = [], activeRoleId = '', activeWorkspaceId = '' } = props
+  const {
+    controller,
+    scope,
+    onClose,
+    roles = [],
+    workspaces = [],
+    activeRoleId = '',
+    activeWorkspaceId = '',
+    browseState,
+    onBrowseStateChange,
+  } = props
 
   return (
     <DependableDialog
@@ -43,6 +56,8 @@ export function ComposerPromptLibraryDialog(props: {
               initialScope={scope}
               initialOwnerId={scope === 'role' ? activeRoleId : scope === 'workspace' ? activeWorkspaceId : ''}
               preferredOwnerIds={{ role: activeRoleId, workspace: activeWorkspaceId }}
+              browseState={browseState}
+              onBrowseStateChange={onBrowseStateChange}
             />
           </Box>
         ) : null}

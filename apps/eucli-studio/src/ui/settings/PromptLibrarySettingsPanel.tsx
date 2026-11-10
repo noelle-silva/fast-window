@@ -63,6 +63,12 @@ const FILLED_SECONDARY_SX = {
 
 type PendingDelete = { kind: 'prompt' | 'folder'; id: string; name: string }
 
+/** 一个作用域上次停留的位置：归属 + 收藏夹层级。 */
+export type PromptLibraryBrowseState = {
+  ownerId?: string
+  folderId?: string
+}
+
 type PromptLibrarySettingsPanelProps = {
   controller: any
   roles?: any[]
@@ -76,6 +82,13 @@ type PromptLibrarySettingsPanelProps = {
    * 传了它就按会话上下文走；不传则各段都回落到列表第一个。
    */
   preferredOwnerIds?: { role?: string; workspace?: string }
+  /**
+   * 各作用域上次停留的位置（调用方按会话保存）。
+   * 打开与切段时优先恢复这里记录的归属与收藏夹层级。
+   */
+  browseState?: Partial<Record<PromptScope, PromptLibraryBrowseState>>
+  /** 浏览位置变化时上报，由调用方按会话保存。 */
+  onBrowseStateChange?: (scope: PromptScope, state: Required<PromptLibraryBrowseState>) => void
 }
 
 function text(value: unknown) {
@@ -90,14 +103,17 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     initialScope = 'global',
     initialOwnerId = '',
     preferredOwnerIds = {},
+    browseState = {},
+    onBrowseStateChange,
   } = props
 
+  const initialBrowse = browseState[initialScope] || {}
   const [scope, setScope] = React.useState<PromptScope>(initialScope)
-  const [ownerId, setOwnerId] = React.useState(String(initialOwnerId || ''))
+  const [ownerId, setOwnerId] = React.useState(String(initialBrowse.ownerId || initialOwnerId || ''))
   const [ownerSearch, setOwnerSearch] = React.useState('')
   const [library, setLibrary] = React.useState<PromptLibrary>(EMPTY_PROMPT_LIBRARY)
   const [folders, setFolders] = React.useState<PromptFolderLibrary>(EMPTY_PROMPT_FOLDER_LIBRARY)
-  const [currentFolderId, setCurrentFolderId] = React.useState('')
+  const [currentFolderId, setCurrentFolderId] = React.useState(String(initialBrowse.folderId || ''))
   const [selectedPromptId, setSelectedPromptId] = React.useState('')
   const [draft, setDraft] = React.useState<PromptEntry | null>(null)
   const [search, setSearch] = React.useState('')
@@ -111,13 +127,28 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const ownerIds = React.useMemo(() => ownerOptions.map((item: any) => text(item?.id)).filter(Boolean), [ownerOptions])
   const activeOwnerId = resolveActiveOwnerId(scope, ownerId, ownerIds)
 
-  // 切换作用域时把归属带到会话上下文那一个：角色段跟当前角色、工作区段跟当前工作区；
-  // 没有对应上下文（例如不在工作区）就留空，由列表回落到第一个。
+  // 切换作用域时把归属带到上一次停留的位置：优先恢复该段的记忆，
+  // 没有记忆才用会话上下文（当前角色 / 工作区），两者都没有就留空回落第一个。
   const switchScope = (nextScope: PromptScope) => {
     if (nextScope === scope) return
+    const remembered = browseState[nextScope] || {}
     setScope(nextScope)
-    setOwnerId(nextScope === 'role' ? text(preferredOwnerIds.role) : nextScope === 'workspace' ? text(preferredOwnerIds.workspace) : '')
+    setOwnerId(
+      remembered.ownerId ||
+        (nextScope === 'role'
+          ? text(preferredOwnerIds.role)
+          : nextScope === 'workspace'
+            ? text(preferredOwnerIds.workspace)
+            : ''),
+    )
+    setCurrentFolderId(remembered.folderId || '')
   }
+
+  // 浏览位置按作用域上报，调用方按会话保存；下次打开或切段时从这里恢复。
+  React.useEffect(() => {
+    if (!onBrowseStateChange) return
+    onBrowseStateChange(scope, { ownerId: activeOwnerId, folderId: currentFolderId })
+  }, [scope, activeOwnerId, currentFolderId, onBrowseStateChange])
 
   const callAction = React.useCallback(
     async <T,>(name: string, ...args: any[]): Promise<T> => {
@@ -152,7 +183,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
         setLibrary(nextLibrary)
         setFolders(nextFolders)
         if (!options?.keepSelection) {
-          setCurrentFolderId('')
+          // 只清选中项；收藏夹层级由作用域 / 归属切换显式管理，避免把恢复的位置冲掉。
           setSelectedPromptId('')
           setDraft(null)
           setPickerTarget(null)
@@ -593,7 +624,11 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                 labelId="prompt-library-owner-label"
                 label={scope === 'role' ? '选择角色' : '选择工作区'}
                 value={activeOwnerId}
-                onChange={(event) => setOwnerId(String(event.target.value))}
+                onChange={(event) => {
+                  setOwnerId(String(event.target.value))
+                  // 换归属等于换一份库，回到根层。
+                  setCurrentFolderId('')
+                }}
               >
                 {ownerOptions
                   .filter((item: any) => !text(ownerSearch) || text(item?.name).includes(text(ownerSearch)))

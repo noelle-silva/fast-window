@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PromptLibrarySettingsPanel } from './PromptLibrarySettingsPanel'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -141,5 +141,44 @@ describe('提示词库面板的初始作用域', () => {
 
     await switchScope('角色提示词')
     expect(calls).toContainEqual(['library', 'role', 'role-1'])
+  })
+
+  it('restores the remembered owner and folder for the opening scope', async () => {
+    const calls: any[][] = []
+    const browse = vi.fn()
+    await act(async () => {
+      root.render(
+        <PromptLibrarySettingsPanel
+          controller={createController(calls)}
+          roles={[{ id: 'role-1', name: '甲角色' }, { id: 'role-2', name: '乙角色' }]}
+          initialScope="role"
+          browseState={{ role: { ownerId: 'role-2', folderId: 'f1' } }}
+          onBrowseStateChange={browse}
+        />,
+      )
+    })
+
+    expect(calls).toContainEqual(['library', 'role', 'role-2'])
+    expect(browse).toHaveBeenCalledWith('role', { ownerId: 'role-2', folderId: 'f1' })
+  })
+
+  it('restores the remembered position when switching scopes', async () => {
+    const calls: any[][] = []
+    const browse = vi.fn()
+    await act(async () => {
+      root.render(
+        <PromptLibrarySettingsPanel
+          controller={createController(calls)}
+          workspaces={[{ id: 'ws-1', name: '甲工作区' }, { id: 'ws-2', name: '乙工作区' }]}
+          browseState={{ workspace: { ownerId: 'ws-2', folderId: 'f9' } }}
+          onBrowseStateChange={browse}
+        />,
+      )
+    })
+
+    await switchScope('工作区提示词')
+
+    expect(calls).toContainEqual(['library', 'workspace', 'ws-2'])
+    expect(browse).toHaveBeenCalledWith('workspace', { ownerId: 'ws-2', folderId: 'f9' })
   })
 })
