@@ -7,6 +7,7 @@ import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
 import { DESK_ROOT_FOLDER_ID, normalizeDesks } from '../../domain/desks'
 import { addDeskDraft, resetDeskDrafts } from '../../domain/deskDrafts'
+import { SESSION_REF_PENDING_TITLE } from '../../domain/sessionRefPlaceholder'
 import { createStudioMuiTheme } from '../colorThemeStyles'
 import { SidebarBPanel } from './SidebarBPanel'
 
@@ -278,5 +279,22 @@ describe('侧边栏 B 的工作桌面', () => {
     renderPanel({ data: deskData([]) })
 
     expect(host!.textContent).toContain('桌面上还没有会话')
+  })
+
+  it('没加载过的组合先显示待加载，并按 target 预取一次索引', () => {
+    const calls: Array<[string, string]> = []
+    const controller = createController()
+    controller.actions.ensureTargetChatIndex = (kind: string, targetId: string) => {
+      calls.push([kind, targetId])
+      return Promise.resolve(true)
+    }
+
+    renderPanel({
+      controller,
+      data: deskData([deskRef({ targetKind: 'workspace', targetId: 'ws-9', roleId: 'role-z', chatId: 'chat-z' })]),
+    })
+
+    expect(host!.textContent).toContain(SESSION_REF_PENDING_TITLE)
+    expect(calls).toEqual([['workspace', 'ws-9::role-z']])
   })
 })

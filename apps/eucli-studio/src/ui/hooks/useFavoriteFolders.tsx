@@ -8,6 +8,7 @@ import { EntityAvatar } from '../components/avatar/EntityAvatar'
 import { SOFT_POPOVER_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX } from '../softPopoverStyles'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
 import { favoriteChatRefKey, favoriteTargetMeta } from '../../domain/favorites'
+import { SESSION_REF_PENDING_TITLE } from '../../domain/sessionRefPlaceholder'
 import type { FavoriteFolderLevel, FavoriteFolderLevelEntry, FavoriteRefStatus } from '../../domain/favoriteFolderLevel'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { snippetText } from '../utils/text'
@@ -217,7 +218,7 @@ export function useFavoriteFolders(deps: {
         ? String(
             (chat as any)?.title || (targetKind === 'group' ? '群聊' : targetKind === 'workspace' ? '工作区会话' : '新聊天'),
           )
-        : '会话待加载'
+        : SESSION_REF_PENDING_TITLE
 
       return {
         key,

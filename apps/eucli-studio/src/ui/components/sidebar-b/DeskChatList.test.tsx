@@ -22,6 +22,7 @@ function entry(overrides: Partial<DeskEntry> = {}): DeskEntry {
     chatId: 'chat-1',
     addedAt: 0,
     key: 'role::role-a::::chat-1',
+    status: 'loaded',
     title: '甲会话',
     targetName: '甲角色',
     roleName: '',

@@ -1,6 +1,7 @@
 import { now } from '../core/utils'
 import { chatListItemsOfBox } from './chatListOrdering'
 import { favoriteChatRefKey, normalizeFavoriteChatRef, normalizeFavoriteFolder } from './favorites'
+import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
 import { workspaceIconImageSrc } from './workspaceIcon'
 import { workspaceRoleTargetId } from './workspaceRoleTarget'
 
@@ -204,6 +205,13 @@ export function removeDeskRefsForTarget(desks: SessionDesks, targetKind: unknown
 }
 
 // 桌面条目：引用 + 渲染所需的标题、来源与头像（会话本体可能还没加载，标题从索引取）。
+//
+// status 是「这条引用的事实到位了吗」的唯一判据：
+//   loaded  该 target 的会话索引已在内存，title 是真实标题；
+//   pending 会话事实还没进内存（典型是别的工作区 / 别的角色组合），title 只是占位。
+// 判据只认「盒子里有没有这条会话」，绝不用标题值反推——「新聊天」本身也是合法标题。
+export type DeskEntryStatus = 'loaded' | 'pending'
+
 export type DeskEntry = {
   targetKind: DeskTargetKind
   targetId: string
@@ -211,11 +219,19 @@ export type DeskEntry = {
   chatId: string
   addedAt: number
   key: string
+  status: DeskEntryStatus
   title: string
   targetName: string
   roleName: string
   avatarImage: string
   roleAvatarImage: string
+}
+
+// 会话事实缺失时的标题兜底，口径与后端 buildSessionIndex 的 fallbackTitle 一致。
+function chatFallbackTitle(kind: DeskTargetKind): string {
+  if (kind === 'group') return '群聊'
+  if (kind === 'workspace') return '工作区会话'
+  return '新聊天'
 }
 
 function chatItemsOf(data: any, ref: any): any[] {
@@ -268,6 +284,7 @@ export function resolveDeskEntries(data: any, desks: SessionDesks | null | undef
     if (!key) continue
     const chat = chatItemsOf(data, ref).find((it: any) => String(it?.id || '') === ref.chatId)
     const meta = targetMetaOf(data, ref)
+    const status: DeskEntryStatus = chat ? 'loaded' : 'pending'
     out.push({
       targetKind: ref.targetKind,
       targetId: ref.targetId,
@@ -275,7 +292,11 @@ export function resolveDeskEntries(data: any, desks: SessionDesks | null | undef
       chatId: ref.chatId,
       addedAt: Number(ref.addedAt || 0),
       key,
-      title: String(chat?.title || '').trim() || '新聊天',
+      status,
+      title:
+        status === 'loaded'
+          ? String(chat?.title || '').trim() || chatFallbackTitle(ref.targetKind)
+          : SESSION_REF_PENDING_TITLE,
       targetName: meta.name,
       roleName: meta.roleName,
       avatarImage: meta.avatarImage,

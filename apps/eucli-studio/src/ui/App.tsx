@@ -1327,6 +1327,9 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   // 桌面条目的右键与会话列表同一个菜单：把引用折成菜单认的目标标识再交给它。
   const onDeskEntryContextMenu = React.useCallback(
     (event: React.MouseEvent, entry: DeskEntry) => {
+      // 会话事实还没进内存时，菜单里「编辑标题 / 收藏 / 删除」都拿不到正确初值：
+      // 把占位文案当标题喂进去只会写坏数据。行尾已有移除入口，这里直接不响应。
+      if (entry.status === 'pending') return
       const targetId =
         entry.targetKind === 'workspace' ? workspaceRoleTargetId(entry.targetId, entry.roleId) : entry.targetId
       onChatContextMenu(event, entry.targetKind, targetId, entry.chatId, entry.title)
