@@ -7,9 +7,9 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import DownloadIcon from '@mui/icons-material/Download'
 import UpdateIcon from '@mui/icons-material/Update'
 import CancelIcon from '@mui/icons-material/Cancel'
-import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, isArtifactCancelable, type ArtifactInstallState, type ArtifactReleaseCandidate, type InstallSourceStatus, type ReleaseArtifactIdentity, type ReleaseCandidatesView, type Shelf, type ShelfOutcome } from '../../domain/release'
+import { artifactStatusLabels, compatibilityRangeText, isArtifactBusy, isArtifactCancelable, type ArtifactInstallState, type ArtifactReleaseCandidate, type InstallSourceStatus, type ReleaseArtifactIdentity, type ReleaseCandidatesView, type ReleaseSource, type ReleaseSourceProvider, type SourceOutcome } from '../../domain/release'
 import { SettingsPill } from './SettingsSurfaces'
-import { ShelfManagerDialog } from './ShelfManagerDialog'
+import { SourceManagerDialog } from './SourceManagerDialog'
 
 type ArtifactStoreDialogProps = {
   open: boolean
@@ -24,26 +24,26 @@ type ArtifactStoreDialogProps = {
   onRefresh: (kind?: string) => Promise<void> | void
   getInstallSource?: () => Promise<InstallSourceStatus | null>
   setInstallSource?: (source: string) => Promise<{ ok: boolean; error?: string }>
-  getShelves?: () => Promise<{ shelves: Shelf[]; problem: string } | null>
-  addShelf?: (name: string, path: string) => Promise<ShelfOutcome | null | undefined>
-  updateShelf?: (name: string, newName?: string, newPath?: string) => Promise<ShelfOutcome | null | undefined>
-  removeShelf?: (name: string) => Promise<ShelfOutcome | null | undefined>
+  getSources?: () => Promise<{ sources: ReleaseSource[]; problem: string } | null>
+  addSource?: (source: ReleaseSource) => Promise<SourceOutcome | null | undefined>
+  updateSource?: (name: string, patch: { newName?: string; newKind?: ReleaseSourceProvider; newPath?: string; newIndexUrl?: string }) => Promise<SourceOutcome | null | undefined>
+  removeSource?: (name: string) => Promise<SourceOutcome | null | undefined>
 }
 
 export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
-  const { open, onClose, kind, title, releaseView, installStates, onAction, onCancel, onSync, onRefresh, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = props
+  const { open, onClose, kind, title, releaseView, installStates, onAction, onCancel, onSync, onRefresh, getInstallSource, setInstallSource, getSources, addSource, updateSource, removeSource } = props
   const [refreshing, setRefreshing] = React.useState(false)
   const [sourceKey, setSourceKey] = React.useState('official')
   const [sourceProblem, setSourceProblem] = React.useState('')
-  const [shelves, setShelves] = React.useState<Shelf[]>([])
+  const [sources, setSources] = React.useState<ReleaseSource[]>([])
   const [pendingSource, setPendingSource] = React.useState<string | null>(null)
   const [sourceError, setSourceError] = React.useState('')
   const [manageOpen, setManageOpen] = React.useState(false)
   // 回调统一经引用读取最新值：父级重渲染不会更换副作用依赖，打开读取只触发一次。
-  const callbacksRef = React.useRef({ onSync, onRefresh, getInstallSource, getShelves })
-  callbacksRef.current = { onSync, onRefresh, getInstallSource, getShelves }
+  const callbacksRef = React.useRef({ onSync, onRefresh, getInstallSource, getSources })
+  callbacksRef.current = { onSync, onRefresh, getInstallSource, getSources }
 
-  const sourceOptions = React.useMemo(() => ['official', ...shelves.map((item) => item.name)], [shelves])
+  const sourceOptions = React.useMemo(() => ['official', ...sources.map((item) => item.name)], [sources])
   const sourceCandidates = sourceKey
     ? releaseView?.sourceCandidates?.[sourceKey] || []
     : releaseView?.candidates || []
@@ -52,9 +52,9 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
     .sort((a, b) => String(a.artifact?.id || '').localeCompare(String(b.artifact?.id || '')))
   const busy = pendingSource !== null || refreshing
 
-  const loadShelves = async () => {
-    const view = await Promise.resolve(callbacksRef.current.getShelves?.()).catch(() => null)
-    setShelves(view && Array.isArray(view.shelves) ? view.shelves : [])
+  const loadSources = async () => {
+    const view = await Promise.resolve(callbacksRef.current.getSources?.()).catch(() => null)
+    setSources(view && Array.isArray(view.sources) ? view.sources : [])
   }
 
   // 打开弹窗时：恢复进行中任务事实，读取当前来源与货架注册表，并强制刷新当前分类清单。
@@ -68,7 +68,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
         if (cancelled || !status) return
         setSourceKey(String(status.source || ''))
         setSourceProblem(String(status.problem || ''))
-        await loadShelves()
+        await loadSources()
         if (cancelled) return
         setRefreshing(true)
         await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
@@ -112,14 +112,14 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
     }
   }
 
-  // 货架注册表变更后：重建列表、跟随业务端回落的选择值，并刷新清单（淘汰旧来源键缓存）。
-  const handleShelvesChanged = async () => {
+  // 来源注册表变更后：重建列表、跟随业务端回落的选择值，并刷新清单（淘汰旧来源键缓存）。
+  const handleSourcesChanged = async () => {
     const status = await Promise.resolve(callbacksRef.current.getInstallSource?.()).catch(() => null)
     if (status) {
       setSourceKey(String(status.source || ''))
       setSourceProblem(String(status.problem || ''))
     }
-    await loadShelves()
+    await loadSources()
     await Promise.resolve(callbacksRef.current.onRefresh(kind)).catch(() => {})
   }
 
@@ -143,7 +143,7 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
             </Button>
           ))}
           <Button size="small" variant="text" disabled={busy} onClick={() => setManageOpen(true)}>
-            管理货架
+            管理商店来源
           </Button>
         </Stack>
         <Button startIcon={<RefreshIcon />} size="small" variant="text" onClick={() => void refresh()} disabled={busy}>
@@ -202,14 +202,14 @@ export function ArtifactStoreDialog(props: ArtifactStoreDialogProps) {
         </Typography>
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
-      <ShelfManagerDialog
+      <SourceManagerDialog
         open={manageOpen}
         onClose={() => setManageOpen(false)}
-        shelves={shelves}
-        addShelf={addShelf}
-        updateShelf={updateShelf}
-        removeShelf={removeShelf}
-        onChanged={handleShelvesChanged}
+        sources={sources}
+        addSource={addSource}
+        updateSource={updateSource}
+        removeSource={removeSource}
+        onChanged={handleSourcesChanged}
       />
     </DependableDialog>
   )

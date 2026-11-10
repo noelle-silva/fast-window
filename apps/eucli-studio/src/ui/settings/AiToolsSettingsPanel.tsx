@@ -293,10 +293,10 @@ export function AiToolsSettingsPanel(props: AiToolsSettingsPanelProps) {
         onRefresh={(kind) => onReleaseRefresh?.(kind)}
         getInstallSource={() => controller.actions.getInstallSource?.('tool')}
         setInstallSource={(source) => controller.actions.setInstallSource?.('tool', source)}
-        getShelves={() => controller.actions.getShelves?.('tool')}
-        addShelf={(name, path) => controller.actions.addShelf?.('tool', name, path)}
-        updateShelf={(name, newName, newPath) => controller.actions.updateShelf?.('tool', name, newName, newPath)}
-        removeShelf={(name) => controller.actions.removeShelf?.('tool', name)}
+        getSources={() => controller.actions.getSources?.('tool')}
+        addSource={(source) => controller.actions.addSource?.('tool', source)}
+        updateSource={(name, patch) => controller.actions.updateSource?.('tool', name, patch)}
+        removeSource={(name) => controller.actions.removeSource?.('tool', name)}
       />
     </SettingsSurface>
   )

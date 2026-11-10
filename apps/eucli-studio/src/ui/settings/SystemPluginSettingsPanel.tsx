@@ -254,10 +254,10 @@ export function SystemPluginSettingsPanel(props: SystemPluginSettingsPanelProps)
         onRefresh={(kind) => onReleaseRefresh?.(kind)}
         getInstallSource={() => controller.actions.getInstallSource?.('plugin')}
         setInstallSource={(source) => controller.actions.setInstallSource?.('plugin', source)}
-        getShelves={() => controller.actions.getShelves?.('plugin')}
-        addShelf={(name, path) => controller.actions.addShelf?.('plugin', name, path)}
-        updateShelf={(name, newName, newPath) => controller.actions.updateShelf?.('plugin', name, newName, newPath)}
-        removeShelf={(name) => controller.actions.removeShelf?.('plugin', name)}
+        getSources={() => controller.actions.getSources?.('plugin')}
+        addSource={(source) => controller.actions.addSource?.('plugin', source)}
+        updateSource={(name, patch) => controller.actions.updateSource?.('plugin', name, patch)}
+        removeSource={(name) => controller.actions.removeSource?.('plugin', name)}
       />
     </SettingsSurface>
   )
