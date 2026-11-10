@@ -25,6 +25,7 @@ const baseProps = {
   activeSessionComposerDraftKey: 'role:role-1:chat-1',
   composerInputRef: { current: null },
   activeTargetKind: 'role' as const,
+  activeWorkspaceId: '',
   activeChatTargetId: 'role-1',
   activeChatId: 'chat-1',
   activeRole: { id: 'role-1' },

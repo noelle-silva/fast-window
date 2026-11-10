@@ -37,6 +37,7 @@ export function ChatComposer(props: {
   activeSessionComposerDraftKey: string
   composerInputRef: React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>
   activeTargetKind: 'role' | 'group' | 'workspace'
+  activeWorkspaceId: string
   activeChatTargetId: string
   activeChatId: string
   activeRole: any
@@ -98,6 +99,7 @@ export function ChatComposer(props: {
     activeSessionComposerDraftKey,
     composerInputRef,
     activeTargetKind,
+    activeWorkspaceId,
     activeChatTargetId,
     activeChatId,
     activeRole,
@@ -361,6 +363,7 @@ export function ChatComposer(props: {
         roles={roles}
         workspaces={workspaces}
         activeRoleId={String(activeRole?.id || '')}
+        activeWorkspaceId={String(activeWorkspaceId || '')}
       />
     </Box>
   )

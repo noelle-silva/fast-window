@@ -71,6 +71,11 @@ type PromptLibrarySettingsPanelProps = {
   initialScope?: PromptScope
   /** 打开时优先选中的归属（例如当前角色）；不在列表里时回落到第一个。 */
   initialOwnerId?: string
+  /**
+   * 切换作用域时优先选中的归属：当前会话的角色 / 工作区。
+   * 传了它就按会话上下文走；不传则各段都回落到列表第一个。
+   */
+  preferredOwnerIds?: { role?: string; workspace?: string }
 }
 
 function text(value: unknown) {
@@ -78,7 +83,14 @@ function text(value: unknown) {
 }
 
 export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProps) {
-  const { controller, roles = [], workspaces = [], initialScope = 'global', initialOwnerId = '' } = props
+  const {
+    controller,
+    roles = [],
+    workspaces = [],
+    initialScope = 'global',
+    initialOwnerId = '',
+    preferredOwnerIds = {},
+  } = props
 
   const [scope, setScope] = React.useState<PromptScope>(initialScope)
   const [ownerId, setOwnerId] = React.useState(String(initialOwnerId || ''))
@@ -98,6 +110,14 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const ownerOptions = scope === 'role' ? roles : scope === 'workspace' ? workspaces : []
   const ownerIds = React.useMemo(() => ownerOptions.map((item: any) => text(item?.id)).filter(Boolean), [ownerOptions])
   const activeOwnerId = resolveActiveOwnerId(scope, ownerId, ownerIds)
+
+  // 切换作用域时把归属带到会话上下文那一个：角色段跟当前角色、工作区段跟当前工作区；
+  // 没有对应上下文（例如不在工作区）就留空，由列表回落到第一个。
+  const switchScope = (nextScope: PromptScope) => {
+    if (nextScope === scope) return
+    setScope(nextScope)
+    setOwnerId(nextScope === 'role' ? text(preferredOwnerIds.role) : nextScope === 'workspace' ? text(preferredOwnerIds.workspace) : '')
+  }
 
   const callAction = React.useCallback(
     async <T,>(name: string, ...args: any[]): Promise<T> => {
@@ -523,7 +543,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
               size="small"
               disableElevation
               variant="contained"
-              onClick={() => setScope(value)}
+              onClick={() => switchScope(value)}
               sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
             >
               {PROMPT_SCOPE_LABELS[value]}

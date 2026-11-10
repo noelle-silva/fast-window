@@ -99,4 +99,47 @@ describe('提示词库面板的初始作用域', () => {
     expect(host!.textContent).toContain('新建收藏夹')
     expect(host!.querySelector('input[placeholder="搜索当前层"]')).not.toBeNull()
   })
+
+  const switchScope = async (label: string) => {
+    const button = Array.from(host!.querySelectorAll('button')).find((node) => String(node.textContent || '') === label)
+    expect(button).not.toBeUndefined()
+    await act(async () => {
+      button!.click()
+    })
+  }
+
+  it('follows the preferred owner when switching scopes', async () => {
+    const calls: any[][] = []
+    await act(async () => {
+      root.render(
+        <PromptLibrarySettingsPanel
+          controller={createController(calls)}
+          roles={[{ id: 'role-1', name: '甲角色' }, { id: 'role-2', name: '乙角色' }]}
+          workspaces={[{ id: 'ws-1', name: '甲工作区' }, { id: 'ws-2', name: '乙工作区' }]}
+          preferredOwnerIds={{ role: 'role-2', workspace: 'ws-2' }}
+        />,
+      )
+    })
+
+    await switchScope('角色提示词')
+    expect(calls).toContainEqual(['library', 'role', 'role-2'])
+
+    await switchScope('工作区提示词')
+    expect(calls).toContainEqual(['library', 'workspace', 'ws-2'])
+  })
+
+  it('falls back to the first owner when no preferred id exists', async () => {
+    const calls: any[][] = []
+    await act(async () => {
+      root.render(
+        <PromptLibrarySettingsPanel
+          controller={createController(calls)}
+          roles={[{ id: 'role-1', name: '甲角色' }, { id: 'role-2', name: '乙角色' }]}
+        />,
+      )
+    })
+
+    await switchScope('角色提示词')
+    expect(calls).toContainEqual(['library', 'role', 'role-1'])
+  })
 })

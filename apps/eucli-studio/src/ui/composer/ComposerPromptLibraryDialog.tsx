@@ -15,8 +15,10 @@ export function ComposerPromptLibraryDialog(props: {
   workspaces: any[]
   /** 角色库优先选中的归属：当前会话的角色。 */
   activeRoleId: string
+  /** 工作区库优先选中的归属：当前会话的工作区（不在工作区时为空）。 */
+  activeWorkspaceId: string
 }) {
-  const { controller, scope, onClose, roles = [], workspaces = [], activeRoleId = '' } = props
+  const { controller, scope, onClose, roles = [], workspaces = [], activeRoleId = '', activeWorkspaceId = '' } = props
 
   return (
     <DependableDialog
@@ -39,7 +41,8 @@ export function ComposerPromptLibraryDialog(props: {
               roles={roles}
               workspaces={workspaces}
               initialScope={scope}
-              initialOwnerId={scope === 'role' ? activeRoleId : ''}
+              initialOwnerId={scope === 'role' ? activeRoleId : scope === 'workspace' ? activeWorkspaceId : ''}
+              preferredOwnerIds={{ role: activeRoleId, workspace: activeWorkspaceId }}
             />
           </Box>
         ) : null}
