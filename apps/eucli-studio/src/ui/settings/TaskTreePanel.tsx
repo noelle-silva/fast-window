@@ -107,6 +107,8 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   const [scope, setScope] = React.useState<TaskScope>(lockedScope ?? initialScope)
   const [ownerId, setOwnerId] = React.useState(String(initialBrowse.ownerId || initialOwnerId || ''))
   const [tree, setTree] = React.useState<TaskTree>(EMPTY_TASK_TREE)
+  /** 树是不是已经和当前作用域/归属对齐了：没对齐之前不做路径校正。 */
+  const [treeReady, setTreeReady] = React.useState(false)
   const [pathIds, setPathIds] = React.useState<string[]>(initialBrowse.pathIds || [])
   const [draft, setDraft] = React.useState<TaskDraft | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -157,8 +159,10 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       return
     }
     setLoading(true)
+    setTreeReady(false)
     try {
       const next = await callAction<TaskTree>('loadTaskTree', scope, activeOwnerId)
+      setTreeReady(true)
       setTree(next)
     } catch (error: any) {
       notify(text(error?.message) || '加载任务失败')
@@ -176,9 +180,12 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   const layerNodes = React.useMemo(() => taskLayerNodes(tree, path), [tree, path])
 
   // 路径里被删掉的那一段会在解析时截断，这里把状态同步成截断后的真实路径。
+  // 树还没对齐时不能校正：那一刻解析出来的是空路径，会把刚恢复的浏览位置抹掉——
+  // 重开窗口「总是回到根层」就是这里造成的。
   React.useEffect(() => {
+    if (!treeReady) return
     if (pathIds.length !== path.length) setPathIds(taskPathIds(path))
-  }, [path, pathIds])
+  }, [path, pathIds, treeReady])
 
   // 换节点时先看有没有没保存的草稿：有就接着改，没有才用服务端这份。
   // 依赖只认节点 id：树里别的节点变了不该把正在改的内容冲掉。
