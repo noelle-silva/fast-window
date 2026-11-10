@@ -12,9 +12,9 @@ const (
 	splitSchemaVersion  = 1
 	sessionFavoritesKey = "sessions/favorites"
 	// 工作桌面与收藏夹同构、但各自一份数据：转到 eucli-box 的 /api/sessions/desks。
-	sessionDesksKey = "sessions/desks"
-	runStatusRunning    = "running"
-	runStatusWaiting    = "waiting_confirmation"
+	sessionDesksKey  = "sessions/desks"
+	runStatusRunning = "running"
+	runStatusWaiting = "waiting_confirmation"
 )
 
 var (
@@ -491,6 +491,15 @@ func (p *projectionService) ensureSessionIndex(ctx context.Context, scope sessio
 				return nil, err
 			}
 			return buildSessionIndex(sessions, "新聊天", projection.UpdatedAt), nil
+		})
+	}
+	if scope.Kind == sessionScopeKindWorkspace {
+		return p.model.sessions.load(ctx, scope, func(loadCtx context.Context) (map[string]any, error) {
+			sessions, err := p.listWorkspaceSessions(loadCtx, scope.WorkspaceID, scope.RoleID)
+			if err != nil {
+				return nil, err
+			}
+			return buildSessionIndex(sessions, "工作区会话", projection.UpdatedAt), nil
 		})
 	}
 	return p.model.sessions.load(ctx, scope, func(loadCtx context.Context) (map[string]any, error) {

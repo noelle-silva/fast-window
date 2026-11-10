@@ -23,8 +23,9 @@ import (
 //  3. meta() 只做组装，不做任何 I/O；预热由显式 ensure 完成。
 
 const (
-	sessionScopeKindRole  = "role"
-	sessionScopeKindGroup = "group"
+	sessionScopeKindRole      = "role"
+	sessionScopeKindGroup     = "group"
+	sessionScopeKindWorkspace = "workspace"
 )
 
 // ---- singleflight：同键并发只执行一次，失败不缓存 ----
@@ -285,19 +286,28 @@ func (c *objectCache) invalidate() {
 // ---- SessionIndex ----
 
 type sessionScope struct {
-	Kind     string
-	TargetID string
+	Kind        string
+	TargetID    string
+	WorkspaceID string
+	RoleID      string
 }
 
 func (s sessionScope) key() string {
+	if s.Kind == sessionScopeKindWorkspace {
+		return s.Kind + ":" + s.WorkspaceID + "::" + s.RoleID
+	}
 	return s.Kind + ":" + s.TargetID
 }
 
 func (s sessionScope) valid() bool {
-	if s.Kind != sessionScopeKindRole && s.Kind != sessionScopeKindGroup {
+	switch s.Kind {
+	case sessionScopeKindRole, sessionScopeKindGroup:
+		return strings.TrimSpace(s.TargetID) != ""
+	case sessionScopeKindWorkspace:
+		return strings.TrimSpace(s.WorkspaceID) != "" && strings.TrimSpace(s.RoleID) != ""
+	default:
 		return false
 	}
-	return strings.TrimSpace(s.TargetID) != ""
 }
 
 // parseSessionScope 接受 {kind,targetId} 对象或 "role:xxx" 字符串两种形态。
@@ -307,11 +317,31 @@ func parseSessionScope(raw any) (sessionScope, bool) {
 		if len(parts) != 2 {
 			return sessionScope{}, false
 		}
-		scope := sessionScope{Kind: strings.TrimSpace(parts[0]), TargetID: strings.TrimSpace(parts[1])}
-		return scope, scope.valid()
+		return normalizeSessionScope(sessionScope{Kind: parts[0], TargetID: parts[1]})
 	}
 	value := objectMap(raw)
-	scope := sessionScope{Kind: stringField(value, "kind"), TargetID: stringField(value, "targetId")}
+	return normalizeSessionScope(sessionScope{
+		Kind:        stringField(value, "kind"),
+		TargetID:    stringField(value, "targetId"),
+		WorkspaceID: stringField(value, "workspaceId"),
+		RoleID:      stringField(value, "roleId"),
+	})
+}
+
+// normalizeSessionScope 把 workspace 的两段身份补齐：
+// 显式字段优先，其次拆 targetId 里的合成键（workspaceId::roleId），
+// 让旧调用方不必立刻换传参形态。
+func normalizeSessionScope(scope sessionScope) (sessionScope, bool) {
+	scope.Kind = strings.TrimSpace(scope.Kind)
+	scope.TargetID = strings.TrimSpace(scope.TargetID)
+	scope.WorkspaceID = strings.TrimSpace(scope.WorkspaceID)
+	scope.RoleID = strings.TrimSpace(scope.RoleID)
+	if scope.Kind == sessionScopeKindWorkspace && (scope.WorkspaceID == "" || scope.RoleID == "") {
+		if parts := strings.SplitN(scope.TargetID, "::", 2); len(parts) == 2 {
+			scope.WorkspaceID = strings.TrimSpace(parts[0])
+			scope.RoleID = strings.TrimSpace(parts[1])
+		}
+	}
 	return scope, scope.valid()
 }
 

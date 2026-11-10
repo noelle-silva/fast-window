@@ -301,6 +301,18 @@ func (p *projectionService) listGroupSessions(ctx context.Context, groupID strin
 	return decodeJSONObjectList(payload)
 }
 
+// listWorkspaceSessions 与角色/群聊同形：workspace 的会话挂在「工作区 + 角色」两段身份下。
+func (p *projectionService) listWorkspaceSessions(ctx context.Context, workspaceID string, roleID string) ([]map[string]any, error) {
+	payload, err := p.eb.requestRaw(ctx, ebRequest{
+		Method: "GET",
+		Path:   fmt.Sprintf("/api/workspaces/%s/roles/%s/sessions", workspaceID, roleID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSONObjectList(payload)
+}
+
 func (p *projectionService) loadRoleAvatar(ctx context.Context, roleID string) (string, error) {
 	data, err := p.eb.request(ctx, ebRequest{Method: "GET", Path: fmt.Sprintf("/api/roles/%s/avatar", roleID)})
 	if err != nil {
