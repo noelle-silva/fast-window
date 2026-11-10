@@ -93,12 +93,12 @@ describe('会话收藏夹工具按钮', () => {
     expect((host!.querySelector('button[aria-label="折叠全部"]') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('新建文件夹落在根层', () => {
+  it('新建收藏夹落在根层', () => {
     const seen: string[] = []
     renderActions({ openCreateFavoriteFolder: (parentId) => seen.push(String(parentId)) as any })
 
     act(() => {
-      ;(host!.querySelector('button[aria-label="新建文件夹"]') as HTMLElement).click()
+      ;(host!.querySelector('button[aria-label="新建收藏夹"]') as HTMLElement).click()
     })
 
     expect(seen).toEqual([''])

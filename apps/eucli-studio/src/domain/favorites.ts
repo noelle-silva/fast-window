@@ -16,8 +16,8 @@ export function normalizeFavoriteFolder(input: any) {
   const raw = input && typeof input === 'object' ? input : {}
   const id = String((raw as any).id || uid('favf')).trim() || uid('favf')
   let name = String((raw as any).name || '').replace(/\s+/g, ' ').trim()
-  if (!name) name = '未命名文件夹'
-  if (name.length > 60) name = name.slice(0, 60).trim() || '未命名文件夹'
+  if (!name) name = '未命名收藏夹'
+  if (name.length > 60) name = name.slice(0, 60).trim() || '未命名收藏夹'
   const createdAt = Number((raw as any).createdAt || now())
   const updatedAt = Number((raw as any).updatedAt || createdAt || now())
   const parentId0 = String((raw as any).parentId || '').trim()

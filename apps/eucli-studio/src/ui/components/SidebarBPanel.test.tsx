@@ -60,6 +60,7 @@ const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favoritesBrowse
   onReorderRefs: noop,
   onMoveRef: noop,
   onRemoveRef: noop,
+  onAddToDesk: noop,
   hoverShowsRoleIcon: true,
 }
 
@@ -80,9 +81,12 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     data: deskData(),
     activeChatId: '',
     runningChatIds: new Set<string>(),
+    chatSessionRunNotices: {},
+    waitingConfirmationKeys: new Set<string>(),
     hoverShowsRoleIcon: true,
     onOpenDeskEntry: noop,
     onRemoveDeskEntry: noop,
+    onDismissDeskNotice: noop,
     onMoveDeskEntry: noop,
     onDeskEntryContextMenu: noop,
     ...overrides,
@@ -169,6 +173,38 @@ describe('侧边栏 B 的工作桌面', () => {
     })
 
     expect(seen).toEqual(['chat-1'])
+  })
+
+  it('会话通知按同一把键换成行尾绿点，点它就标记已读', () => {
+    const dismissed: string[] = []
+    renderPanel({
+      chatSessionRunNotices: { 'role:role-a:chat-1': { kind: 'completed', changedAt: 10 } },
+      onDismissDeskNotice: (entry) => dismissed.push(entry.chatId),
+    })
+
+    const dot = row('甲会话').querySelector('[aria-label="会话已完成，点一下标记已读"]') as HTMLElement
+    expect(dot).toBeTruthy()
+    act(() => dot.click())
+    expect(dismissed).toEqual(['chat-1'])
+  })
+
+  it('工作区条目用「工作区|角色」合成键认状态，等待确认压过已完成', () => {
+    renderPanel({
+      chatSessionRunNotices: { 'workspace:ws-1::role-b:chat-2': { kind: 'completed', changedAt: 10 } },
+      waitingConfirmationKeys: new Set<string>(['workspace:ws-1::role-b:chat-2']),
+    })
+
+    expect(row('乙会话').querySelector('[aria-label="有工具请求等待确认，点一下去处理"]')).toBeTruthy()
+    expect(row('甲会话').querySelector('[aria-label="会话已完成，点一下标记已读"]')).toBeNull()
+  })
+
+  it('正在看的会话不画点，提醒只给不在眼前的条目', () => {
+    renderPanel({
+      activeChatId: 'chat-1',
+      chatSessionRunNotices: { 'role:role-a:chat-1': { kind: 'completed', changedAt: 10 } },
+    })
+
+    expect(row('甲会话').querySelector('[aria-label="会话已完成，点一下标记已读"]')).toBeNull()
   })
 
   it('每一行都挂着可拖排序的句柄声明', () => {

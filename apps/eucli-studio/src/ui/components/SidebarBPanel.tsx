@@ -10,6 +10,8 @@ import {
 } from '../../domain/deskDrafts'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { workspaceRoleTargetId } from '../../domain/workspaceRoleTarget'
+import type { ChatSessionRunNotice } from '../chatSessionRunObservations'
+import { deskEntryNoticeKey, resolveDeskNoticeDot, type DeskNoticeDotKind } from '../deskNotice'
 import { useScopedUiVersion, useScopedUiVersions } from '../hooks/useScopedUiVersion'
 import type { DeskSidebarTab } from '../../domain/sidebarNavigationMemory'
 import type { SidebarTabsVariant } from '../../domain/sidebarTabs'
@@ -19,7 +21,7 @@ import { FavoriteFoldersBrowser, type FavoriteFoldersBrowserProps } from './favo
 import { DeskChatList } from './sidebar-b/DeskChatList'
 
 // 侧边栏 B：工作桌面 / 会话收藏夹。两段都是会话的去处——
-// 桌面只管把眼下要用的会话摆在手边，收藏夹按文件夹层级浏览。
+// 桌面只管把眼下要用的会话摆在手边，收藏夹按收藏夹层级浏览。
 // 外壳与 A 共用 SidebarFrame，顶部切换栏与 A 共用 SidebarTabsHeader。
 // 返回上一层属于收藏夹分类自己的工具行，落在 FavoriteFoldersBrowser 里，不占侧边栏级顶部栏。
 const DESK_TABS: readonly SidebarTabItem<DeskSidebarTab>[] = [
@@ -49,9 +51,14 @@ export type SidebarBPanelProps = {
   data: any
   activeChatId: string
   runningChatIds: ReadonlySet<string>
+  /** 会话运行通知（键 ＝ targetKind:targetId:chatId）：桌面行尾的红 / 绿点看它。 */
+  chatSessionRunNotices: Readonly<Record<string, ChatSessionRunNotice>>
+  /** 正卡在「等待确认」的会话键：桌面行尾的黄点看它。 */
+  waitingConfirmationKeys: ReadonlySet<string>
   hoverShowsRoleIcon: boolean
   onOpenDeskEntry: (entry: DeskEntry) => void
   onRemoveDeskEntry: (entry: DeskEntry) => void
+  onDismissDeskNotice: (entry: DeskEntry) => void
   onMoveDeskEntry: (activeKey: string, overKey: string) => void
   onDeskEntryContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }
@@ -73,9 +80,12 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     data,
     activeChatId,
     runningChatIds,
+    chatSessionRunNotices,
+    waitingConfirmationKeys,
     hoverShowsRoleIcon,
     onOpenDeskEntry,
     onRemoveDeskEntry,
+    onDismissDeskNotice,
     onMoveDeskEntry,
     onDeskEntryContextMenu,
   } = props
@@ -101,6 +111,23 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     [data, desks, desksVersion, chatListVersion],
   )
   const deskDrafts = useDeskDrafts()
+
+  // 通知点按桌面引用键落表：条目一旦挪位置 / 增删，跟着桌面清单重算。
+  // 正在看的会话不画点——提醒的意义在于「不在眼前」，切走时运行通知那边也会销账。
+  const noticeDotByKey = React.useMemo(() => {
+    const out: Record<string, DeskNoticeDotKind> = {}
+    for (const entry of deskEntries) {
+      if (entry.chatId === activeChatId) continue
+      const key = deskEntryNoticeKey(entry)
+      if (!key) continue
+      const dot = resolveDeskNoticeDot({
+        notice: chatSessionRunNotices[key],
+        waitingConfirmation: waitingConfirmationKeys.has(key),
+      })
+      if (dot) out[entry.key] = dot
+    }
+    return out
+  }, [deskEntries, activeChatId, chatSessionRunNotices, waitingConfirmationKeys])
 
   return (
     <SidebarFrame
@@ -128,9 +155,11 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
           entries={deskEntries}
           activeChatId={activeChatId}
           runningChatIds={runningChatIds}
+          noticeDotByKey={noticeDotByKey}
           hoverShowsRoleIcon={hoverShowsRoleIcon}
           onOpen={onOpenDeskEntry}
           onRemove={onRemoveDeskEntry}
+          onDismissNotice={onDismissDeskNotice}
           onMove={onMoveDeskEntry}
           onContextMenu={onDeskEntryContextMenu}
           drafts={deskDrafts}

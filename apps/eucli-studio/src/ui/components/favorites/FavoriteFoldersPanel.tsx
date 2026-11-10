@@ -4,7 +4,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import { CustomScrollArea } from '../CustomScrollArea'
 import { SOFT_POPOVER_LIST_SX } from '../../softPopoverStyles'
 
-// 会话收藏夹的内容主体：搜索框 + 文件夹树。
+// 会话收藏夹的内容主体：搜索框 + 收藏夹树。
 // 弹窗与侧边栏共用这一份，外壳（标题栏、关闭按钮、位置）由各自的调用方决定。
 export type FavoriteFoldersPanelProps = {
   favoriteFolders: any[]

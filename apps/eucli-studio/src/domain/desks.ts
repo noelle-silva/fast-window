@@ -7,7 +7,7 @@ import { workspaceRoleTargetId } from './workspaceRoleTarget'
 // 工作桌面：后端 eucli-box 里的 sessions/desks.json（类型 SessionDesks），
 // 与会话收藏夹（sessions/favorites.json / SessionFavorites）逐字段同构，但两类数据各自独立。
 // 客户端只负责读写这一份数据，不另存副本：增删改之后写回同一条存储通道。
-// 眼下的用法是平铺——所有引用挂在一个固定的根文件夹下；结构本身支持层级，用的时候加文件夹即可。
+// 眼下的用法是平铺——所有引用挂在一个固定的根收藏夹下；结构本身支持层级，用的时候加收藏夹即可。
 
 export const DESK_ROOT_FOLDER_ID = 'desk-root'
 export const DESK_ROOT_FOLDER_NAME = '桌面'
@@ -32,7 +32,7 @@ export function defaultDesks(): SessionDesks {
   return { folders: [], chatRefsByFolderId: {} }
 }
 
-// 归一化：与收藏夹同一套规则（文件夹去重、父子关系自愈、引用校验与去重）。
+// 归一化：与收藏夹同一套规则（收藏夹去重、父子关系自愈、引用校验与去重）。
 export function normalizeDesks(raw: any): SessionDesks {
   const src = raw && typeof raw === 'object' ? raw : {}
   const folders0 = Array.isArray((src as any).folders) ? (src as any).folders : []
@@ -93,7 +93,7 @@ export function normalizeDesks(raw: any): SessionDesks {
   return { folders, chatRefsByFolderId }
 }
 
-// 平铺用法需要一个根文件夹承载引用；第一次写入时补上，之后原样复用。
+// 平铺用法需要一个根收藏夹承载引用；第一次写入时补上，之后原样复用。
 export function ensureDeskRoot(desks: SessionDesks): SessionDesks {
   if (desks.folders.some((f) => String(f?.id || '') === DESK_ROOT_FOLDER_ID)) {
     const next = {
@@ -117,7 +117,7 @@ export function ensureDeskRoot(desks: SessionDesks): SessionDesks {
   }
 }
 
-// 顶层清单：眼下桌面就是根文件夹下这一串引用。
+// 顶层清单：眼下桌面就是根收藏夹下这一串引用。
 export function deskFlatRefs(desks: SessionDesks | null | undefined): any[] {
   const list = Array.isArray(desks?.chatRefsByFolderId?.[DESK_ROOT_FOLDER_ID])
     ? desks!.chatRefsByFolderId[DESK_ROOT_FOLDER_ID]

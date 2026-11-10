@@ -88,13 +88,13 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
   return (
     <>
       <DependableDialog open={createFavoriteFolder.open} onClose={closeCreateFavoriteFolder} maxWidth="xs" fullWidth>
-        <DialogTitle>{createFavoriteFolder.parentId ? '新建子文件夹' : '新建文件夹'}</DialogTitle>
+        <DialogTitle>{createFavoriteFolder.parentId ? '新建子收藏夹' : '新建收藏夹'}</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
             <TextField
               autoFocus
               size="small"
-              label="文件夹名"
+              label="收藏夹名"
               value={createFavoriteFolder.name}
               onChange={(e) => setCreateFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
               placeholder="例如：工作 / 灵感 / 需求"
@@ -117,13 +117,13 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
       </DependableDialog>
 
       <DependableDialog open={renameFavoriteFolder.open} onClose={closeRenameFavoriteFolder} maxWidth="xs" fullWidth>
-        <DialogTitle>重命名文件夹</DialogTitle>
+        <DialogTitle>重命名收藏夹</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
             <TextField
               autoFocus
               size="small"
-              label="文件夹名"
+              label="收藏夹名"
               value={renameFavoriteFolder.name}
               onChange={(e) => setRenameFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
               fullWidth
@@ -145,12 +145,12 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
       </DependableDialog>
 
       <DependableDialog open={confirmDeleteFavoriteFolder.open} onClose={closeDeleteFavoriteFolderConfirm} maxWidth="xs" fullWidth>
-        <DialogTitle>{confirmDeleteFavoriteFolder.mode === 'tree' ? '删除文件夹及其子内容？' : '删除文件夹（内容保留）？'}</DialogTitle>
+        <DialogTitle>{confirmDeleteFavoriteFolder.mode === 'tree' ? '删除收藏夹及其子内容？' : '删除收藏夹（内容保留）？'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
             {confirmDeleteFavoriteFolder.mode === 'tree'
-              ? '这会删除当前文件夹、它的子文件夹，以及这一整棵树里的收藏关系。'
-              : '这会删除当前文件夹，并尽量保留内容：子文件夹会上移到上一层；当前文件夹里的收藏会移动到父文件夹。若它是带收藏的顶层文件夹，下一步会让你选择迁移目标。'}
+              ? '这会删除当前收藏夹、它的子收藏夹，以及这一整棵树里的收藏关系。'
+              : '这会删除当前收藏夹，并尽量保留内容：子收藏夹会上移到上一层；当前收藏夹里的收藏会移动到上级收藏夹。若它是带收藏的顶层收藏夹，下一步会让你选择迁移目标。'}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -166,12 +166,12 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
-              这个顶层文件夹里有收藏内容。删除前，请先选择一个文件夹来承接这些内容和子文件夹。
+              这个顶层收藏夹里有收藏内容。删除前，请先选择一个收藏夹来承接这些内容和子收藏夹。
             </Typography>
             {!favoriteFolders.filter((f: any) => String(f?.id || '') !== String(moveFavoriteFolderContents.folderId || '')).length ? (
               <Box sx={{ py: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  当前没有可承接内容的其他文件夹。
+                  当前没有可承接内容的其他收藏夹。
                 </Typography>
               </Box>
             ) : (
@@ -184,7 +184,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
               </List>
             )}
             <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
-              新建文件夹
+              新建收藏夹
             </Button>
           </Stack>
         </DialogContent>
@@ -201,10 +201,10 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
       </DependableDialog>
 
       <DependableDialog open={confirmClearFavoriteFolder.open} onClose={closeConfirmClearFavoriteFolder} maxWidth="xs" fullWidth>
-        <DialogTitle>清空当前文件夹收藏？</DialogTitle>
+        <DialogTitle>清空当前收藏夹的收藏？</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
-            只会清空这个文件夹里直接挂着的聊天收藏，不会删除文件夹本身，也不会影响子文件夹。
+            只会清空这个收藏夹里直接挂着的聊天收藏，不会删除收藏夹本身，也不会影响子收藏夹。
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -220,7 +220,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
-              选择这个文件夹的新父文件夹。点“顶层”就是把它移动回最外层。
+              选择这个收藏夹的新上级收藏夹。点“顶层”就是把它移动回最外层。
             </Typography>
             <List dense sx={{ py: 0 }}>
               {renderFavoriteFolderSinglePicker(
@@ -237,7 +237,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
               )}
             </List>
             <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
-              新建文件夹
+              新建收藏夹
             </Button>
           </Stack>
         </DialogContent>
@@ -250,7 +250,7 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
       </DependableDialog>
 
       <DependableDialog open={favoriteDialog.open} onClose={closeFavoriteDialog} maxWidth="xs" fullWidth>
-        <DialogTitle>收藏到文件夹</DialogTitle>
+        <DialogTitle>收藏到收藏夹</DialogTitle>
         <DialogContent>
           <Stack spacing={1.25} sx={{ pt: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
@@ -259,14 +259,14 @@ export const FavoriteFoldersDialogs = React.memo(function FavoriteFoldersDialogs
             {!favoriteFolders.length ? (
               <Box sx={{ py: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  还没有收藏夹，请先新建文件夹。
+                  还没有收藏夹，请先新建收藏夹。
                 </Typography>
               </Box>
             ) : (
               <List dense sx={{ py: 0 }}>{renderFavoriteFolderPicker('', 0)}</List>
             )}
             <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
-              新建文件夹
+              新建收藏夹
             </Button>
           </Stack>
         </DialogContent>

@@ -14,9 +14,10 @@ import { EntityAvatar } from '../avatar/EntityAvatar'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from '../SortableDnd'
 
 // 会话收藏夹的层级浏览：照搬 hypercortex 收藏夹侧边栏的形态——
-// 不展开收起，点文件夹直接进入下一层；返回按钮落在分类自己的工具行最左侧。
+// 不展开收起，点收藏夹直接进入下一层；返回按钮落在分类自己的工具行最左侧。
 // 行样式沿用同一套节奏：36 高、4 点圆角、图标 + 单行标题、悬停与选中用主色淡底。
-// 拖拽：默认同层排序；按住 Ctrl 拖动切到放置模式，悬停文件夹松手把会话移进去。
+// 拖拽：默认同层排序；按住 Ctrl 拖动切到放置模式，悬停收藏夹松手把会话移进去。
+// 点击：普通点击打开会话；按住 Ctrl / Cmd 点击把这一条直接放进工作桌面（与会话列表同一手感）。
 const ROW_HEIGHT = 36
 const ROW_RADIUS = 1
 const ICON_SIZE = 22
@@ -60,6 +61,8 @@ export type FavoriteFoldersBrowserProps = {
   onMoveRef: (refKey: string, targetFolderId: string) => void
   /** 失效条目的手动清理：只摘掉这一条引用。 */
   onRemoveRef: (refKey: string) => void
+  /** 会话条目进工作桌面：右键菜单之外，Ctrl / Cmd 点击也能直接放进去。 */
+  onAddToDesk: (entry: FavoriteFolderLevelEntry) => void
   /** 悬停工作区条目时，图标临时换成所属角色（设置页可关）。 */
   hoverShowsRoleIcon: boolean
 }
@@ -69,7 +72,8 @@ function RowShell(props: {
   active?: boolean
   dropTarget?: boolean
   sortable?: SortableItemRenderArgs
-  onClick: () => void
+  /** 行被激活；withModifier 表示同时按住了 Ctrl / Cmd（会话行用它走「放进工作桌面」）。 */
+  onActivate: (withModifier: boolean) => void
   onContextMenu?: (event: React.MouseEvent) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -80,7 +84,7 @@ function RowShell(props: {
     active = false,
     dropTarget = false,
     sortable,
-    onClick,
+    onActivate,
     onContextMenu,
     onMouseEnter,
     onMouseLeave,
@@ -96,9 +100,9 @@ function RowShell(props: {
       aria-label={ariaLabel}
       aria-current={active ? 'true' : undefined}
       style={sortable?.style}
-      onClick={() => {
+      onClick={(event) => {
         if (sortable?.shouldSuppressClick()) return
-        onClick()
+        onActivate(event.ctrlKey || event.metaKey)
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -106,7 +110,7 @@ function RowShell(props: {
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
-        onClick()
+        onActivate(false)
       }}
       sx={{
         position: 'relative',
@@ -139,7 +143,7 @@ function RowShell(props: {
 function FolderRow(props: { folder: { id: string; name: string }; sortable: SortableItemRenderArgs; onNavigate: () => void }) {
   const { folder, sortable, onNavigate } = props
   return (
-    <RowShell ariaLabel={folder.name} dropTarget={sortable.isDropTarget} sortable={sortable} onClick={onNavigate}>
+    <RowShell ariaLabel={folder.name} dropTarget={sortable.isDropTarget} sortable={sortable} onActivate={() => onNavigate()}>
       <Box
         sx={{
           width: ICON_SIZE,
@@ -171,9 +175,10 @@ function ChatRow(props: {
   hoverShowsRoleIcon: boolean
   sortable: SortableItemRenderArgs
   onOpen: () => void
+  onAddToDesk: () => void
   onContextMenu: (event: React.MouseEvent) => void
 }) {
-  const { entry, hoverShowsRoleIcon, sortable, onOpen, onContextMenu } = props
+  const { entry, hoverShowsRoleIcon, sortable, onOpen, onAddToDesk, onContextMenu } = props
   const [hovered, setHovered] = React.useState(false)
   const lost = entry.status === 'missing'
   // 悬停换图标只作用于工作区来源；未加载与丢失都用目标自身的图标。
@@ -185,7 +190,15 @@ function ChatRow(props: {
       ariaLabel={entry.title}
       active={entry.selected}
       sortable={sortable}
-      onClick={onOpen}
+      onActivate={(withModifier) => {
+        // Ctrl / Cmd 直接点：把这一条放进工作桌面，与会话列表那边同一个手感。
+        // 失效条目不参与：目标都没了，桌面也不需要它。
+        if (withModifier && !lost) {
+          onAddToDesk()
+          return
+        }
+        onOpen()
+      }}
       onContextMenu={onContextMenu}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -249,6 +262,7 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
     onReorderRefs,
     onMoveRef,
     onRemoveRef,
+    onAddToDesk,
     hoverShowsRoleIcon,
   } = props
 
@@ -304,8 +318,8 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
           </span>
         </Tooltip>
         <Box sx={{ flex: 1, minWidth: 0 }} />
-        <Tooltip title="新建文件夹">
-          <IconButton size="small" aria-label="新建文件夹" onClick={onCreateFolder}>
+        <Tooltip title="新建收藏夹">
+          <IconButton size="small" aria-label="新建收藏夹" onClick={onCreateFolder}>
             <CreateNewFolderRoundedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -317,7 +331,7 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
         ) : null}
 
         <SortableRoot onMove={handleMove} drop={drop}>
-          {/* 文件夹与会话各自成段：两类实体的顺序分别落盘，跨类拖动不会出现「换了位又弹回」。 */}
+          {/* 收藏夹与会话各自成段：两类实体的顺序分别落盘，跨类拖动不会出现「换了位又弹回」。 */}
           <SortableSection items={folderIds}>
             {folders.map((folder) => (
               <SortableItem key={folderItemId(folder.id)} id={folderItemId(folder.id)}>
@@ -337,6 +351,7 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
                     hoverShowsRoleIcon={hoverShowsRoleIcon}
                     sortable={sortable}
                     onOpen={() => onOpenRef(entry)}
+                    onAddToDesk={() => onAddToDesk(entry)}
                     onContextMenu={(event) => {
                       // 已在内存的走会话菜单；还没加载的也给「删除这条收藏」，真失效的条目只能靠它清理。
                       if (entry.status === 'loaded') {

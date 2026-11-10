@@ -7,6 +7,7 @@ import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../../domain/colorTheme'
 import type { DeskEntry } from '../../../domain/desks'
 import { createStudioMuiTheme } from '../../colorThemeStyles'
+import type { DeskNoticeDotKind } from '../../deskNotice'
 import { DeskChatList } from './DeskChatList'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -49,7 +50,15 @@ describe('侧边栏 B 会话行', () => {
     host = null
   })
 
-  function renderList(entries: DeskEntry[], runningChatIds: readonly string[] = []) {
+  function renderList(
+    entries: DeskEntry[],
+    runningChatIds: readonly string[] = [],
+    options: {
+      noticeDotByKey?: Record<string, DeskNoticeDotKind>
+      onOpen?: (entry: DeskEntry) => void
+      onDismissNotice?: (entry: DeskEntry) => void
+    } = {},
+  ) {
     const theme = createStudioMuiTheme('light', getColorThemeColors(resolveColorThemePreview(undefined, null)))
     act(() => {
       root.render(
@@ -59,9 +68,11 @@ describe('侧边栏 B 会话行', () => {
             drafts={[]}
             activeChatId=""
             runningChatIds={new Set(runningChatIds)}
+            noticeDotByKey={options.noticeDotByKey || {}}
             hoverShowsRoleIcon
-            onOpen={noop}
+            onOpen={options.onOpen || noop}
             onRemove={noop}
+            onDismissNotice={options.onDismissNotice || noop}
             onMove={noop}
             onContextMenu={noop}
             onRemoveDraft={noop}
@@ -110,5 +121,52 @@ describe('侧边栏 B 会话行', () => {
     const text = rowTextOf('丙会话')
     expect(text).toContain('甲角色')
     expect(text).not.toContain('running...')
+  })
+
+  it('没有通知时不画点', () => {
+    renderList([entry()])
+    expect(document.querySelector('[role="button"][aria-label="甲会话"] [aria-label="会话已完成，点一下标记已读"]')).toBeNull()
+  })
+
+  it('完成未读画绿点，点一下标记已读而不打开会话', () => {
+    const dismissed: DeskEntry[] = []
+    const opened: DeskEntry[] = []
+    const target = entry()
+    renderList([target], [], {
+      noticeDotByKey: { [target.key]: 'completed' },
+      onOpen: (item) => opened.push(item),
+      onDismissNotice: (item) => dismissed.push(item),
+    })
+
+    const dot = document.querySelector('[aria-label="会话已完成，点一下标记已读"]') as HTMLElement
+    expect(dot).not.toBeNull()
+    act(() => dot.click())
+
+    expect(dismissed.map((item) => item.chatId)).toEqual(['chat-1'])
+    expect(opened).toEqual([])
+  })
+
+  it('异常中断画红点', () => {
+    const target = entry()
+    renderList([target], [], { noticeDotByKey: { [target.key]: 'error' } })
+    expect(document.querySelector('[aria-label="会话异常中断，点一下标记已读"]')).not.toBeNull()
+  })
+
+  it('等待确认画黄点，点一下进会话去处理', () => {
+    const dismissed: DeskEntry[] = []
+    const opened: DeskEntry[] = []
+    const target = entry()
+    renderList([target], [], {
+      noticeDotByKey: { [target.key]: 'waiting_confirmation' },
+      onOpen: (item) => opened.push(item),
+      onDismissNotice: (item) => dismissed.push(item),
+    })
+
+    const dot = document.querySelector('[aria-label="有工具请求等待确认，点一下去处理"]') as HTMLElement
+    expect(dot).not.toBeNull()
+    act(() => dot.click())
+
+    expect(opened.map((item) => item.chatId)).toEqual(['chat-1'])
+    expect(dismissed).toEqual([])
   })
 })

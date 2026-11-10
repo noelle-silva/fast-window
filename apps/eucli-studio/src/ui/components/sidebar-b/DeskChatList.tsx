@@ -8,11 +8,13 @@ import { colorMixVar } from '../../colorThemeStyles'
 import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
 import type { DeskDraft } from '../../../domain/deskDrafts'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
+import type { DeskNoticeDotKind } from '../../deskNotice'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
 import { useSortableClickGuard } from '../useSortableClickGuard'
 
 // 工作桌面的会话列表：行高、圆角、图标槽、间距与悬停底色沿用侧边栏同一套节奏，
 // 行尾放一个叉，点它只把这条会话从桌面上摘掉，不动会话本体。
+// 叉的左边是通知点：等待确认（黄）/ 异常中断（红）/ 已完成未读（绿），点它就清掉这条提醒。
 // 整行可拖：拖完按前后关系交回桌面顺序动作，顺序真正落盘。
 // 图标槽统一成圆角方块，角色 / 群 / 工作区三者同尺寸，有自定义图就显示图，没有就显示线性图标。
 const ROW_HEIGHT = 40
@@ -20,6 +22,12 @@ const ICON_SIZE = 27
 // 圆角矩形而不是胶囊：40 高的行配 8 点圆角，四角是方的、只是打磨过。
 const ROW_RADIUS = 1
 const ICON_RADIUS = 1
+
+const NOTICE_DOT: Record<DeskNoticeDotKind, { color: string; palette: 'success' | 'warning' | 'error'; label: string }> = {
+  waiting_confirmation: { color: 'warning.main', palette: 'warning', label: '有工具请求等待确认，点一下去处理' },
+  error: { color: 'error.main', palette: 'error', label: '会话异常中断，点一下标记已读' },
+  completed: { color: 'success.main', palette: 'success', label: '会话已完成，点一下标记已读' },
+}
 
 const LIST_SX = {
   flex: 1,
@@ -80,18 +88,64 @@ type DeskRowDragArgs = {
   style: React.CSSProperties
 }
 
+// 通知点本身可点：绿 / 红是未读，点了标记已读；黄是有人要你确认，点了直接进会话。
+// 点击不冒泡给整行，避免「清提醒」被当成「打开会话」。
+// 说明文字走原生 title：整行已经挂了 MUI Tooltip，这里再套一个会在悬停时双层弹窗。
+function DeskNoticeDot(props: { kind: DeskNoticeDotKind; onActivate: () => void }) {
+  const meta = NOTICE_DOT[props.kind]
+  return (
+    <IconButton
+      size="small"
+      title={meta.label}
+      aria-label={meta.label}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onActivate()
+      }}
+      sx={{ p: 0.5, minWidth: 0, color: 'inherit', '&:hover': { bgcolor: 'transparent' } }}
+    >
+      <Box
+        component="span"
+        sx={{
+          display: 'block',
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          bgcolor: meta.color,
+          boxShadow: (theme) => `0 0 0 3px ${theme.palette[meta.palette].main}1f`,
+        }}
+      />
+    </IconButton>
+  )
+}
+
 function DeskRow(props: {
   entry: DeskEntry
   active: boolean
   running: boolean
+  noticeDot: DeskNoticeDotKind | ''
   hoverShowsRoleIcon: boolean
   dragArgs: DeskRowDragArgs
   shouldIgnoreClick: () => boolean
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
+  onDismissNotice: (entry: DeskEntry) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }) {
-  const { entry, active, running, hoverShowsRoleIcon, dragArgs, shouldIgnoreClick, onOpen, onRemove, onContextMenu } = props
+  const {
+    entry,
+    active,
+    running,
+    noticeDot,
+    hoverShowsRoleIcon,
+    dragArgs,
+    shouldIgnoreClick,
+    onOpen,
+    onRemove,
+    onDismissNotice,
+    onContextMenu,
+  } = props
   const dragging = dragArgs.isDragging
   const [hovered, setHovered] = React.useState(false)
 
@@ -202,6 +256,16 @@ function DeskRow(props: {
           </Box>
         </Box>
 
+        {noticeDot ? (
+          <DeskNoticeDot
+            kind={noticeDot}
+            onActivate={() => {
+              if (noticeDot === 'waiting_confirmation') onOpen(entry)
+              else onDismissNotice(entry)
+            }}
+          />
+        ) : null}
+
         <IconButton
           size="small"
           aria-label={`从工作桌面移除 ${entry.title}`}
@@ -268,9 +332,12 @@ export function DeskChatList(props: {
   drafts: DeskDraft[]
   activeChatId: string
   runningChatIds: ReadonlySet<string>
+  /** 每条桌面条目的通知点，键是桌面引用键（DeskEntry.key）。 */
+  noticeDotByKey: Readonly<Record<string, DeskNoticeDotKind>>
   hoverShowsRoleIcon: boolean
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
+  onDismissNotice: (entry: DeskEntry) => void
   onMove: (activeKey: string, overKey: string) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
   onRemoveDraft: (draft: DeskDraft) => void
@@ -280,9 +347,11 @@ export function DeskChatList(props: {
     drafts,
     activeChatId,
     runningChatIds,
+    noticeDotByKey,
     hoverShowsRoleIcon,
     onOpen,
     onRemove,
+    onDismissNotice,
     onMove,
     onContextMenu,
     onRemoveDraft,
@@ -314,11 +383,13 @@ export function DeskChatList(props: {
                   entry={entry}
                   active={!!activeId && entry.chatId === activeId}
                   running={runningChatIds.has(entry.chatId)}
+                  noticeDot={noticeDotByKey[entry.key] || ''}
                   hoverShowsRoleIcon={hoverShowsRoleIcon}
                   dragArgs={dragArgs}
                   shouldIgnoreClick={clickGuard.shouldIgnoreClick}
                   onOpen={onOpen}
                   onRemove={onRemove}
+                  onDismissNotice={onDismissNotice}
                   onContextMenu={onContextMenu}
                 />
               )}

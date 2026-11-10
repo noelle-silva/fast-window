@@ -6,7 +6,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
 import type { FavoriteFoldersPanelProps } from './FavoriteFoldersPanel'
 
-// 会话收藏夹的三个工具动作：搜索开关 / 折叠全部 / 新建文件夹。
+// 会话收藏夹的三个工具动作：搜索开关 / 折叠全部 / 新建收藏夹。
 // 弹窗把它们放进标题栏右侧，侧边栏把它们放在内容顶部右侧；动作语义只在这里写一份。
 export type FavoriteFolderActionsProps = Pick<
   FavoriteFoldersPanelProps,
@@ -51,8 +51,8 @@ export function FavoriteFolderActions(props: FavoriteFolderActionsProps) {
         </span>
       </Tooltip>
 
-      <Tooltip title="新建文件夹">
-        <IconButton size="small" aria-label="新建文件夹" onClick={() => openCreateFavoriteFolder('')}>
+      <Tooltip title="新建收藏夹">
+        <IconButton size="small" aria-label="新建收藏夹" onClick={() => openCreateFavoriteFolder('')}>
           <AddIcon fontSize="inherit" />
         </IconButton>
       </Tooltip>

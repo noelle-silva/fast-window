@@ -309,6 +309,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const treeSuppressClickRef = React.useRef(false)
 
   const {
+    chatSessionRunNotices,
     clearChatSessionRunNotice,
     chatSessionRunIndicatorKind,
     isSendingThisChat,
@@ -1112,6 +1113,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [runningSessions],
   )
 
+  // 桌面行尾黄点：运行卡停在「等待确认」的会话。这批键与会话运行通知同一把
+  // （targetKind:targetId:chatId），桌面条目算出来的键可以直接比。
+  const waitingConfirmationSessionKeys = React.useMemo(
+    () => new Set(runningSessions.filter((it) => it.statusKey === 'waiting_confirmation').map((it) => it.key)),
+    [runningSessions],
+  )
+
   // 稳定 handler：所有内联箭头只在这里创建一次，Surface 的 memo 才能真正生效。
   const onOpenRunningSessions = useEvent(() => setRunningSessionsOpen(true))
   const onCloseRunningSessions = useEvent(() => setRunningSessionsOpen(false))
@@ -1177,6 +1185,17 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
         return
       }
       controller.actions.addChatToDesk?.('role', targetId, '', chatId)
+    },
+    [controller],
+  )
+
+  // 收藏夹条目进桌面：条目本身就是拆好的三段（工作区已经是 workspaceId），
+  // 直接交给同一个动作。右键菜单与 Ctrl / Cmd 点击都走这里。
+  const addFavoriteRefToDesk = React.useCallback(
+    (entry: FavoriteFolderLevelEntry) => {
+      if (!entry.targetId || !entry.chatId) return
+      if (entry.targetKind === 'workspace' && !entry.roleId) return
+      controller.actions.addChatToDesk?.(entry.targetKind, entry.targetId, entry.roleId, entry.chatId)
     },
     [controller],
   )
@@ -1287,6 +1306,16 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [controller],
   )
 
+  // 点掉桌面条目的通知点：把这条会话的运行通知标记已读。黄点不走这里（它是带人去处理确认）。
+  const dismissDeskEntryNotice = React.useCallback(
+    (entry: DeskEntry) => {
+      const targetKey =
+        entry.targetKind === 'workspace' ? workspaceRoleTargetId(entry.targetId, entry.roleId) : entry.targetId
+      clearChatSessionRunNotice(entry.targetKind, targetKey, entry.chatId)
+    },
+    [clearChatSessionRunNotice],
+  )
+
   // 桌面内拖动：按引用键换位，顺序写回同一份清单。
   const moveDeskEntry = React.useCallback(
     (activeKey: string, overKey: string) => {
@@ -1328,7 +1357,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     favoriteSearchInputRef,
   ])
 
-  // 层级浏览这一层的投影：当前文件夹的直接子级（子文件夹 + 会话条目）。
+  // 层级浏览这一层的投影：当前收藏夹的直接子级（子收藏夹 + 会话条目）。
   const favoriteLevel = React.useMemo(
     () => buildFavoriteFolderLevel(favoriteFolderNav.currentFolderId),
     [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId],
@@ -1400,6 +1429,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onCreateFolder: onCreateFavoriteFolderHere,
     onOpenRef: onOpenFavoriteRef,
     onRefContextMenu: onOpenFavoriteRefMenu,
+    onAddToDesk: addFavoriteRefToDesk,
     onReorderFolders: onReorderFavoriteFolders,
     onReorderRefs: onReorderFavoriteRefs,
     onMoveRef: onMoveFavoriteRef,
@@ -1413,6 +1443,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onCreateFavoriteFolderHere,
     onOpenFavoriteRef,
     onOpenFavoriteRefMenu,
+    addFavoriteRefToDesk,
     onReorderFavoriteFolders,
     onReorderFavoriteRefs,
     onMoveFavoriteRef,
@@ -1436,9 +1467,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       data,
       activeChatId: chatSwitch.selectedChatId,
       runningChatIds: runningDeskChatIds,
+      chatSessionRunNotices,
+      waitingConfirmationKeys: waitingConfirmationSessionKeys,
       hoverShowsRoleIcon: deskHoverShowsRoleIcon,
       onOpenDeskEntry: openDeskEntry,
       onRemoveDeskEntry: removeDeskEntry,
+      onDismissDeskNotice: dismissDeskEntryNotice,
       onMoveDeskEntry: moveDeskEntry,
       onDeskEntryContextMenu,
     }),
@@ -1457,9 +1491,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       data,
       chatSwitch.selectedChatId,
       runningDeskChatIds,
+      chatSessionRunNotices,
+      waitingConfirmationSessionKeys,
       deskHoverShowsRoleIcon,
       openDeskEntry,
       removeDeskEntry,
+      dismissDeskEntryNotice,
       moveDeskEntry,
       onDeskEntryContextMenu,
     ],

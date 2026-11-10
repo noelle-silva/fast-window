@@ -142,10 +142,10 @@ export function createFavoritesOperations(deps: {
     const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
     const v = validateFavoriteFolderName(name)
-    if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
+    if (!v.ok) return showToast?.(v.error || '收藏夹名无效', { kind: 'error' })
     const pid = String(parentId || '').trim()
-    if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return showToast?.('父文件夹不存在', { kind: 'error' })
-    if (favoriteFolderNameExists(v.name)) return showToast?.('文件夹已存在', { kind: 'error' })
+    if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return showToast?.('上级收藏夹不存在', { kind: 'error' })
+    if (favoriteFolderNameExists(v.name)) return showToast?.('收藏夹已存在', { kind: 'error' })
     const t = now()
     const id = uid('favf')
     fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
@@ -161,8 +161,8 @@ export function createFavoritesOperations(deps: {
     const folder = fav.folders.find((f: any) => String(f?.id || '') === fid) || null
     if (!folder) return
     const v = validateFavoriteFolderName(name)
-    if (!v.ok) return showToast?.(v.error || '文件夹名无效', { kind: 'error' })
-    if (favoriteFolderNameExists(v.name, fid)) return showToast?.('文件夹已存在', { kind: 'error' })
+    if (!v.ok) return showToast?.(v.error || '收藏夹名无效', { kind: 'error' })
+    if (favoriteFolderNameExists(v.name, fid)) return showToast?.('收藏夹已存在', { kind: 'error' })
     fav.folders = fav.folders.map((f: any) => (String(f?.id || '') === fid ? { ...f, name: v.name, updatedAt: now() } : f))
     await commitFavorites(fav)
   }
@@ -178,9 +178,9 @@ export function createFavoritesOperations(deps: {
     const ownRefs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
     const targetIdRaw = String(targetFolderId || '').trim()
     const moveTargetId = parentId || targetIdRaw
-    if (!parentId && ownRefs.length && (!moveTargetId || moveTargetId === fid)) return showToast?.('请选择一个目标文件夹来承接内容', { kind: 'error' })
+    if (!parentId && ownRefs.length && (!moveTargetId || moveTargetId === fid)) return showToast?.('请选择一个目标收藏夹来承接内容', { kind: 'error' })
     if (moveTargetId && !fav.folders.some((f: any) => String(f?.id || '') === moveTargetId && String(f?.id || '') !== fid)) {
-      return showToast?.('目标文件夹不存在', { kind: 'error' })
+      return showToast?.('目标收藏夹不存在', { kind: 'error' })
     }
 
     fav.folders = fav.folders
@@ -238,15 +238,15 @@ export function createFavoritesOperations(deps: {
     const fid = String(folderId || '').trim()
     if (!fid) return
     const folder = fav.folders.find((f: any) => String(f?.id || '').trim() === fid) || null
-    if (!folder) return showToast?.('文件夹不存在', { kind: 'error' })
+    if (!folder) return showToast?.('收藏夹不存在', { kind: 'error' })
 
     const pid = String(nextParentId || '').trim()
     if (pid === fid) return showToast?.('不能移动到自己下面', { kind: 'error' })
     if (pid) {
       const parent = fav.folders.find((f: any) => String(f?.id || '').trim() === pid) || null
-      if (!parent) return showToast?.('目标文件夹不存在', { kind: 'error' })
+      if (!parent) return showToast?.('目标收藏夹不存在', { kind: 'error' })
       const subtree = new Set(collectFavoriteFolderSubtreeIds(fav.folders, fid))
-      if (subtree.has(pid)) return showToast?.('不能移动到自己的子文件夹下面', { kind: 'error' })
+      if (subtree.has(pid)) return showToast?.('不能移动到自己的子收藏夹下面', { kind: 'error' })
     }
 
     const curParentId = String(folder?.parentId || '').trim()
@@ -284,7 +284,7 @@ export function createFavoritesOperations(deps: {
     await commitFavorites(fav)
   }
 
-  /** 同一父层下的文件夹重排：只换这些文件夹在扁平表里的占位顺序，其他层不受影响。 */
+  /** 同一父层下的收藏夹重排：只换这些收藏夹在扁平表里的占位顺序，其他层不受影响。 */
   async function reorderFavoriteFolders(parentId: any, orderedFolderIds: any) {
     const fav = cloneFavorites(ensureFavoritesBare())
     if (!fav) return
@@ -297,7 +297,7 @@ export function createFavoritesOperations(deps: {
       .filter((id: string) => byId.has(id))
     if (!order.length) return
 
-    // 提交序列以界面上看得到的项为准；同层未列出的文件夹按原顺序补在后面。
+    // 提交序列以界面上看得到的项为准；同层未列出的收藏夹按原顺序补在后面。
     const orderedSet = new Set(order)
     const next = [
       ...order.map((id: string) => byId.get(id)),

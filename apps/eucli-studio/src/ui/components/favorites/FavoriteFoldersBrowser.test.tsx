@@ -46,6 +46,7 @@ function createProps(overrides: Partial<FavoriteFoldersBrowserProps> = {}): Favo
     onReorderRefs: noop,
     onMoveRef: noop,
     onRemoveRef: noop,
+    onAddToDesk: noop,
     hoverShowsRoleIcon: true,
     ...overrides,
   }
@@ -111,6 +112,55 @@ describe('会话收藏夹层级浏览', () => {
     })
 
     expect(opened.map((item) => item.chatId)).toEqual(['chat-1'])
+  })
+
+  it('普通点击只把会话打开，不碰工作桌面', () => {
+    const added: FavoriteFolderLevelEntry[] = []
+    renderBrowser({ level: { folders: [], refs: [entry()] }, onAddToDesk: (item) => added.push(item) })
+
+    act(() => {
+      ;(host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement).click()
+    })
+
+    expect(added).toEqual([])
+  })
+
+  it('Ctrl 点会话直接放进工作桌面，不再打开会话', () => {
+    const opened: FavoriteFolderLevelEntry[] = []
+    const added: FavoriteFolderLevelEntry[] = []
+    renderBrowser({
+      level: { folders: [], refs: [entry()] },
+      onOpenRef: (item) => opened.push(item),
+      onAddToDesk: (item) => added.push(item),
+    })
+
+    act(() => {
+      ;(host!.querySelector('[role="button"][aria-label="甲会话"]') as HTMLElement).dispatchEvent(
+        new MouseEvent('click', { bubbles: true, ctrlKey: true }),
+      )
+    })
+
+    expect(added.map((item) => item.chatId)).toEqual(['chat-1'])
+    expect(opened).toEqual([])
+  })
+
+  it('失效条目 Ctrl 点不进工作桌面：目标都没了', () => {
+    const added: FavoriteFolderLevelEntry[] = []
+    renderBrowser({
+      level: {
+        folders: [],
+        refs: [entry({ key: 'role::role-gone::::chat-gone', targetId: 'role-gone', chatId: 'chat-gone', title: '已丢失的条目', status: 'missing' })],
+      },
+      onAddToDesk: (item) => added.push(item),
+    })
+
+    act(() => {
+      ;(host!.querySelector('[role="button"][aria-label="已丢失的条目"]') as HTMLElement).dispatchEvent(
+        new MouseEvent('click', { bubbles: true, ctrlKey: true }),
+      )
+    })
+
+    expect(added).toEqual([])
   })
 
   it('当前会话落在选中态', () => {

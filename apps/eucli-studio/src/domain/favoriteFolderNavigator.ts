@@ -54,7 +54,7 @@ export function goBackFavoriteFolder(state: FavoriteFolderNav): FavoriteFolderNa
 
 /**
  * 与现存收藏夹集合调和：当前层失效则回到根并清空来路；
- * 来路里失效的层剔除，避免返回落到已不存在的文件夹。
+ * 来路里失效的层剔除，避免返回落到已不存在的收藏夹。
  */
 export function reconcileFavoriteFolderNav(state: FavoriteFolderNav, existingFolderIds: ReadonlySet<string>): FavoriteFolderNav {
   const exists = (id: string) => id === FAVORITE_FOLDER_ROOT || existingFolderIds.has(id)

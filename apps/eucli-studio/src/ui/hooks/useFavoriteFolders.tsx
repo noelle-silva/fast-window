@@ -362,7 +362,7 @@ export function useFavoriteFolders(deps: {
     controller.actions.setChatFavoriteFolders?.(targetKind, targetId, roleId, chatId, favoriteCheckedFolderIds)
     closeFavoriteDialog()
   })
-  // 新建是命令：等后端确认拿到 id 之后，再展开新文件夹并关窗。
+  // 新建是命令：等后端确认拿到 id 之后，再展开新收藏夹并关窗。
   const submitCreateFavoriteFolder = useEvent(async () => {
     const name = String(createFavoriteFolder.name || '').trim()
     if (!name) return
@@ -468,7 +468,7 @@ export function useFavoriteFolders(deps: {
                 <Box sx={{ width: 28 }} />
               )}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
-              <ListItemText primary={String(folder?.name || '未命名文件夹')} />
+              <ListItemText primary={String(folder?.name || '未命名收藏夹')} />
             </ListItemButton>
             {children.length ? <Collapse in={expanded}>{renderFavoriteFolderPicker(fid, depth + 1)}</Collapse> : null}
           </React.Fragment>
@@ -516,7 +516,7 @@ export function useFavoriteFolders(deps: {
                 <Box sx={{ width: 28 }} />
               )}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
-              <ListItemText primary={String(folder?.name || '未命名文件夹')} />
+              <ListItemText primary={String(folder?.name || '未命名收藏夹')} />
             </ListItemButton>
             {visibleChildren.length ? <Collapse in={expanded}>{renderFavoriteFolderSinglePicker(selectedId, onSelect, options, fid, depth + 1)}</Collapse> : null}
           </React.Fragment>,
@@ -618,7 +618,7 @@ export function useFavoriteFolders(deps: {
             >
               {visibleChildren.length || visibleRefs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
-              <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={visibleRefs.length ? `${visibleRefs.length} 条收藏` : undefined} />
+              <ListItemText primary={String(folder?.name || '未命名收藏夹')} secondary={visibleRefs.length ? `${visibleRefs.length} 条收藏` : undefined} />
             </ListItemButton>
             <Collapse in={expanded}>
               {visibleChildren}
@@ -647,14 +647,14 @@ export function useFavoriteFolders(deps: {
     ],
   )
 
-  // 层级浏览的一层：直接子文件夹 + 该层会话条目。
+  // 层级浏览的一层：直接子收藏夹 + 该层会话条目。
   // 与树渲染共用同一批事实（会话、目标元信息、选中、运行态），只是不递归。
   const buildFavoriteFolderLevel = React.useCallback(
     (folderId: string): FavoriteFolderLevel => {
       const fid = String(folderId || '').trim()
       const folders = (favoriteChildrenMap[fid] || []).map((folder: any) => ({
         id: String(folder?.id || ''),
-        name: String(folder?.name || '未命名文件夹'),
+        name: String(folder?.name || '未命名收藏夹'),
       }))
       const refs0 = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
       const refs = refs0

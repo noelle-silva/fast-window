@@ -20,6 +20,35 @@ function sessionOperationIds(targetKind: TargetKind, targetId: string) {
   return { workspaceId: target.workspaceId, roleId: target.roleId }
 }
 
+// 会话进工作桌面的菜单项：侧边栏会话菜单与收藏夹会话菜单都要有，
+// 差异只在 targetId 的口径（前者是「工作区|角色」合成串，后者本来就是拆好的三段）。
+// 口径由调用方折成同一份 target，菜单项与动作调用只写一遍。
+type DeskMenuTarget = { targetKind: TargetKind; targetId: string; roleId: string; chatId: string }
+
+function AddToDeskMenuItem(props: {
+  controller: any
+  target: DeskMenuTarget
+  disabled: boolean
+  onDone: () => void
+}) {
+  const { controller, target, disabled, onDone } = props
+  const ready =
+    !!target.chatId && !!target.targetId && (target.targetKind !== 'workspace' || !!target.roleId)
+  return (
+    <MenuItem
+      disabled={disabled || !ready}
+      onClick={() => {
+        onDone()
+        controller.actions.addChatToDesk?.(target.targetKind, target.targetId, target.roleId, target.chatId)
+      }}
+      sx={{ gap: 1 }}
+    >
+      <PushPinOutlinedIcon fontSize="small" />
+      添加到工作桌面
+    </MenuItem>
+  )
+}
+
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
   controller: any
@@ -68,6 +97,22 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
     ? workspaceRoleTargetId(favoriteChatMenu.targetId, favoriteChatMenu.roleId)
     : favoriteChatMenu.targetId
 
+  // 两份菜单的 target 口径不同，这里各自折成动作层认的三段；
+  // 侧边栏会话菜单拿的 targetId 是「工作区|角色」合成串，收藏夹菜单本来就是拆好的。
+  const chatMenuIds = sessionOperationIds(chatMenu.targetKind, chatMenu.targetId)
+  const favoriteChatDeskTarget: DeskMenuTarget = {
+    targetKind: favoriteChatMenu.targetKind,
+    targetId: favoriteChatMenu.targetId,
+    roleId: favoriteChatMenu.roleId,
+    chatId: favoriteChatMenu.chatId,
+  }
+  const chatMenuDeskTarget: DeskMenuTarget = {
+    targetKind: chatMenu.targetKind,
+    targetId: chatMenuIds.workspaceId,
+    roleId: chatMenuIds.roleId,
+    chatId: chatMenu.chatId,
+  }
+
   return (
     <>
       <DependablePopover
@@ -88,7 +133,7 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             sx={{ gap: 1 }}
           >
             <AddIcon fontSize="small" />
-            新建子文件夹
+            新建子收藏夹
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -98,7 +143,7 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             sx={{ gap: 1 }}
           >
             <AddIcon fontSize="small" />
-            新建同级文件夹
+            新建同级收藏夹
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -124,15 +169,15 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             sx={{ gap: 1 }}
           >
             <DeleteOutlineIcon fontSize="small" />
-            清空当前文件夹收藏
+            清空当前收藏夹的收藏
           </MenuItem>
           <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'keep')} sx={{ gap: 1 }}>
             <DeleteOutlineIcon fontSize="small" />
-            删除文件夹（内容保留）
+            删除收藏夹（内容保留）
           </MenuItem>
           <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'tree')} sx={{ gap: 1 }}>
             <DeleteOutlineIcon fontSize="small" />
-            删除文件夹及其子内容
+            删除收藏夹及其子内容
           </MenuItem>
         </Box>
       </DependablePopover>
@@ -177,8 +222,14 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             sx={{ gap: 1 }}
           >
             <DeleteOutlineIcon fontSize="small" />
-            从当前文件夹移除
+            从当前收藏夹移除
           </MenuItem>
+          <AddToDeskMenuItem
+            controller={controller}
+            target={favoriteChatDeskTarget}
+            disabled={loading}
+            onDone={closeFavoriteChatMenu}
+          />
           <MenuItem
             disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || loading}
             onClick={() => {
@@ -244,13 +295,12 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
             onClick={() => {
               const { targetKind, targetId, chatId } = chatMenu
-              const ids = sessionOperationIds(targetKind, targetId)
-              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
+              if (!chatMenuIds.workspaceId || (targetKind === 'workspace' && !chatMenuIds.roleId)) return
               closeChatMenu()
               Promise.resolve()
                 .then(() => {
                   if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
-                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(ids.workspaceId, ids.roleId, chatId)
+                  if (targetKind === 'workspace') return controller.actions.aiGenerateWorkspaceChatTitle?.(chatMenuIds.workspaceId, chatMenuIds.roleId, chatId)
                   return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
                 })
                 .catch(() => {})
@@ -263,31 +313,22 @@ export const ChatContextMenus = React.memo(function ChatContextMenus(props: {
           <MenuItem
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading}
             onClick={() => {
-              const { targetKind, targetId, chatId, title } = chatMenu
-              const ids = sessionOperationIds(targetKind, targetId)
-              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
+              const { targetKind, chatId, title } = chatMenu
+              if (!chatMenuIds.workspaceId || (targetKind === 'workspace' && !chatMenuIds.roleId)) return
               closeChatMenu()
-              openFavoriteDialog(targetKind, ids.workspaceId, ids.roleId, chatId, title)
+              openFavoriteDialog(targetKind, chatMenuIds.workspaceId, chatMenuIds.roleId, chatId, title)
             }}
             sx={{ gap: 1 }}
           >
             <StarBorderRoundedIcon fontSize="small" />
             收藏到...
           </MenuItem>
-          <MenuItem
-            disabled={!chatMenu.chatId || !chatMenu.targetId || loading}
-            onClick={() => {
-              const { targetKind, targetId, chatId } = chatMenu
-              const ids = sessionOperationIds(targetKind, targetId)
-              if (!ids.workspaceId || (targetKind === 'workspace' && !ids.roleId)) return
-              closeChatMenu()
-              controller.actions.addChatToDesk?.(targetKind, ids.workspaceId, ids.roleId, chatId)
-            }}
-            sx={{ gap: 1 }}
-          >
-            <PushPinOutlinedIcon fontSize="small" />
-            添加到工作桌面
-          </MenuItem>
+          <AddToDeskMenuItem
+            controller={controller}
+            target={chatMenuDeskTarget}
+            disabled={loading}
+            onDone={closeChatMenu}
+          />
           <MenuItem
             disabled={!chatMenu.chatId || !chatMenu.targetId || loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
             onClick={() => {
