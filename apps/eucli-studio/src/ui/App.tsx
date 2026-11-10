@@ -404,6 +404,27 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const revealMessageRef = React.useRef<((mid: string) => void) | null>(null)
   const stickToBottomRef = React.useRef(true)
   const autoScrollBlockUntilRef = React.useRef(0)
+  // 跟底滚动的唯一调度入口：一帧最多写一次，目标元素在帧回调里重新读取。
+  const stickFrameRef = React.useRef(0)
+  const scheduleStickToBottom = React.useCallback(() => {
+    if (stickFrameRef.current) return
+    stickFrameRef.current = requestAnimationFrame(() => {
+      stickFrameRef.current = 0
+      const el = chatRootRef.current
+      if (!el) return
+      try {
+        el.scrollTop = el.scrollHeight
+      } catch (_) {}
+    })
+  }, [chatRootRef])
+  React.useEffect(
+    () => () => {
+      if (!stickFrameRef.current) return
+      cancelAnimationFrame(stickFrameRef.current)
+      stickFrameRef.current = 0
+    },
+    [],
+  )
   const composerRef = React.useRef<HTMLDivElement | null>(null)
   const [composerHeight, setComposerHeight] = React.useState(0)
   const chatPaneRef = React.useRef<HTMLDivElement | null>(null)
@@ -935,30 +956,20 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   React.useEffect(() => {
     if (page !== 'chat' || !pageVisible) return
-    const el = chatRootRef.current
-    if (!el) return
+    if (!chatRootRef.current) return
     if (Date.now() < autoScrollBlockUntilRef.current) return
     if (branchNav.mid) return
     stickToBottomRef.current = true
-    requestAnimationFrame(() => {
-      try {
-        el.scrollTop = el.scrollHeight
-      } catch (_) {}
-    })
-  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
+    scheduleStickToBottom()
+  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid, scheduleStickToBottom])
 
   React.useEffect(() => {
     if (page !== 'chat' || !pageVisible) return
-    const el = chatRootRef.current
-    if (!el) return
+    if (!chatRootRef.current) return
     if (Date.now() < autoScrollBlockUntilRef.current) return
     if (!stickToBottomRef.current) return
-    requestAnimationFrame(() => {
-      try {
-        el.scrollTop = el.scrollHeight
-      } catch (_) {}
-    })
-  }, [page, pageVisible, sessionPageKey, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+    scheduleStickToBottom()
+  }, [page, pageVisible, sessionPageKey, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey, scheduleStickToBottom])
 
   // 流式推进走范围刷新，不再触发整页渲染；这里单独订阅最后一条消息的范围，
   // 只做“跟随到底部”的滚动副作用，不引起 React 重渲染。
@@ -968,17 +979,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     const mid = String(lastMsgId || '').trim()
     if (!mid || typeof controller?.subscribeScope !== 'function') return
     return controller.subscribeScope(messageRefreshScope(mid), () => {
-      const el = chatRootRef.current
-      if (!el) return
+      if (!chatRootRef.current) return
       if (Date.now() < autoScrollBlockUntilRef.current) return
       if (!stickToBottomRef.current) return
-      requestAnimationFrame(() => {
-        try {
-          el.scrollTop = el.scrollHeight
-        } catch (_) {}
-      })
+      scheduleStickToBottom()
     })
-  }, [page, pageVisible, sessionPageKey, lastMsgId, activeBranchIdUi, branchDraftKey, controller])
+  }, [page, pageVisible, sessionPageKey, lastMsgId, activeBranchIdUi, branchDraftKey, controller, scheduleStickToBottom])
 
   React.useEffect(() => {
     if (page !== 'chat') return

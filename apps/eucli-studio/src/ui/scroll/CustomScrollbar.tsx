@@ -74,21 +74,35 @@ export function useCustomScrollbar(options: {
     onScrollPositionChange?.(el as HTMLDivElement)
   }, [axis, onScrollPositionChange, scrollRef, containerRef])
 
+  // 观测回调统一合并到下一帧：一次 resize / 一串 scroll 只测一次，测量不再由回调频率驱动。
+  const measureFrameRef = React.useRef(0)
+  const scheduleMeasure = React.useCallback(() => {
+    if (measureFrameRef.current) return
+    measureFrameRef.current = requestAnimationFrame(() => {
+      measureFrameRef.current = 0
+      updateMetrics()
+    })
+  }, [updateMetrics])
+
   React.useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
     const content = contentRef?.current
 
-    updateMetrics()
-    const observer = new ResizeObserver(updateMetrics)
+    updateMetrics() // 首帧同步测量，保证滑块位置一开始就是对的
+    const observer = new ResizeObserver(scheduleMeasure)
     observer.observe(el)
     if (content) observer.observe(content)
-    el.addEventListener('scroll', updateMetrics, { passive: true })
+    el.addEventListener('scroll', scheduleMeasure, { passive: true })
     return () => {
       observer.disconnect()
-      el.removeEventListener('scroll', updateMetrics)
+      el.removeEventListener('scroll', scheduleMeasure)
+      if (measureFrameRef.current) {
+        cancelAnimationFrame(measureFrameRef.current)
+        measureFrameRef.current = 0
+      }
     }
-  }, [updateMetrics, scrollRef, contentRef])
+  }, [scheduleMeasure, updateMetrics, scrollRef, contentRef])
 
   const onPointerMove = React.useCallback((event: PointerEvent) => {
     const drag = dragRef.current

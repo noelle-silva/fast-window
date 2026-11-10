@@ -49,6 +49,10 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
     return () => el.removeEventListener('scroll', onScroll)
   }, [expanded])
 
+  // 吸附滚动推迟到下一帧：本帧提交后再写 scrollTop，避免在提交阶段强读 scrollHeight；
+  // 多次增量只会保留最后一次调度，一帧最多一次滚动写入。
+  const stickFrameRef = React.useRef(0)
+
   React.useLayoutEffect(() => {
     const justExpanded = expanded && !wasExpandedRef.current
     wasExpandedRef.current = expanded
@@ -57,7 +61,17 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
     // 展开瞬间：思考仍在输出就回到最新一行并恢复跟随；已结束则从开头阅读。
     if (justExpanded) stickToBottomRef.current = isActive
     if (!stickToBottomRef.current) return
-    el.scrollTop = el.scrollHeight
+    if (stickFrameRef.current) cancelAnimationFrame(stickFrameRef.current)
+    stickFrameRef.current = requestAnimationFrame(() => {
+      stickFrameRef.current = 0
+      el.scrollTop = el.scrollHeight
+    })
+    return () => {
+      if (stickFrameRef.current) {
+        cancelAnimationFrame(stickFrameRef.current)
+        stickFrameRef.current = 0
+      }
+    }
   }, [text, expanded, isActive])
 
   React.useEffect(() => {
