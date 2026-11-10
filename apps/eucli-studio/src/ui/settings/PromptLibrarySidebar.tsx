@@ -23,6 +23,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import InputIcon from '@mui/icons-material/Input'
 import { type PromptFolder, type PromptFolderLayer, type PromptLayerEntry } from '../../domain/promptLibrary'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import {
@@ -58,6 +59,8 @@ type PromptLibrarySidebarProps = {
   onSelectPrompt: (promptId: string) => void
   /** 行内复制：只把正文写进剪贴板，不影响仓库里的任何事实。 */
   onCopyPrompt: (promptId: string) => void
+  /** 行内填入：把正文插到输入框当前光标位置。没有可填的输入框时不给这个回调。 */
+  onInsertPrompt?: (promptId: string) => void
   onReorderEntries: (activeKey: string, overKey: string) => void
   onCollectEntry: (entry: PromptLayerEntry) => void
   onMoveEntryToFolder: (entry: PromptLayerEntry) => void
@@ -80,7 +83,8 @@ function stopPointerPropagation(event: React.PointerEvent) {
 
 // 行样式 = 共用行常量 + 拖拽态，与实体列表的组装方式保持一致。
 function sortableRowSx(drag: SortableItemRenderArgs | null): SxProps<Theme> {
-  const parts: unknown[] = [SOFT_POPOVER_ITEM_SX]
+  // 圆角收到 10：行高 50 上下时 18 的圆角已经接近胶囊，这里要的是圆角矩形。
+  const parts: unknown[] = [SOFT_POPOVER_ITEM_SX, { borderRadius: 1.25 }]
   if (drag) {
     parts.push({
       cursor: drag.isDragging ? 'grabbing' : 'grab',
@@ -130,6 +134,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
     onNavigate,
     onSelectPrompt,
     onCopyPrompt,
+    onInsertPrompt,
     onReorderEntries,
     onCollectEntry,
     onMoveEntryToFolder,
@@ -274,6 +279,24 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                     <ContentCopyIcon sx={{ fontSize: 15 }} />
                                   </IconButton>
                                 </Tooltip>
+                                {/* 填入：不动剪贴板，直接写进输入框的光标处。没有输入框的地方不出现。 */}
+                                {onInsertPrompt ? (
+                                  <Tooltip title="填入输入框">
+                                    <IconButton
+                                      size="small"
+                                      aria-label="填入提示词内容"
+                                      onPointerDown={stopPointerPropagation}
+                                      onClick={(event) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        onInsertPrompt(entry.prompt.id)
+                                      }}
+                                      sx={{ ml: 0.5, flexShrink: 0, color: 'var(--studio-text-secondary)' }}
+                                    >
+                                      <InputIcon sx={{ fontSize: 15 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                ) : null}
                               </>
                             )}
                           </ListItemButton>

@@ -7,16 +7,18 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined'
 import SaveIcon from '@mui/icons-material/Save'
 import {
   EMPTY_PROMPT_FOLDER_LIBRARY,
@@ -95,6 +97,8 @@ type PromptLibrarySettingsPanelProps = {
    * 设置页不传，面板保持原来的两栏。
    */
   sidePane?: React.ReactNode
+  /** 行内「填入」的去处：把提示词正文插到聊天输入框当前光标处。 */
+  onInsertPromptText?: (text: string) => void
 }
 
 function text(value: unknown) {
@@ -112,6 +116,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     browseState = {},
     onBrowseStateChange,
     sidePane,
+    onInsertPromptText,
   } = props
 
   const initialBrowse = browseState[initialScope] || {}
@@ -122,6 +127,8 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const [currentFolderId, setCurrentFolderId] = React.useState(String(initialBrowse.folderId || ''))
   const [selectedPromptId, setSelectedPromptId] = React.useState('')
   const [draft, setDraft] = React.useState<PromptEntry | null>(null)
+  /** 备注平时收在「更多」菜单里，点了才在编辑器里占一行。 */
+  const [remarkOpen, setRemarkOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [folderDialog, setFolderDialog] = React.useState<{ mode: 'create' | 'rename'; folderId: string; name: string } | null>(null)
@@ -472,6 +479,24 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     [controller, library.prompts, notify],
   )
 
+  // 填入：把正文交给调用方，由它在聊天输入框的光标处落字。
+  // 面板只认「这条提示词写了什么」，不知道输入框在哪。
+  const insertPromptContent = React.useCallback(
+    (promptId: string) => {
+      const prompt = library.prompts.find((item) => item.id === promptId)
+      if (!prompt) return
+      const body = String(prompt.content || '')
+      if (!body) {
+        // 空提示词插进去等于什么都没发生，直接说清楚，别让人以为按钮坏了。
+        notify('这条提示词还没有内容')
+        return
+      }
+      onInsertPromptText?.(body)
+      notify('已填入输入框', 'success')
+    },
+    [library.prompts, notify, onInsertPromptText],
+  )
+
   // 打开选择窗时先算出「当前已经收藏在哪些位置」，作为预勾选。
   const initialSelectionFor = (target: { mode: string; id: string }): string[] => {
     if (target.mode === 'collect') return folders.folders.filter((folder) => folder.promptIds.includes(target.id)).map((folder) => folder.id)
@@ -571,7 +596,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。
           归属下拉挂在同一行的右侧，只占固定宽度，切换按钮仍留足点击区域。 */}
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1.25} alignItems="center">
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
           {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
             const active = scope === value
@@ -591,7 +616,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           })}
         </Box>
         {/* 归属槽位始终占同一段宽度：切到全局只是清空内容，切换按钮的宽度不跟着跳。 */}
-        <Box sx={{ width: 220, flexShrink: 0 }}>
+        <Box sx={{ width: 280, flexShrink: 0 }}>
           {scope !== 'global' ? (
             <FormControl size="small" fullWidth>
               <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
@@ -637,6 +662,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           }}
           onSelectPrompt={selectPrompt}
           onCopyPrompt={(promptId) => void copyPromptContent(promptId)}
+          onInsertPrompt={onInsertPromptText ? insertPromptContent : undefined}
           onReorderEntries={(activeKey, overKey) => void moveEntry(activeKey, overKey)}
           onCollectEntry={collectEntry}
           onMoveEntryToFolder={moveEntryToFolder}
@@ -673,20 +699,29 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                     <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', ml: 0.75 }} />
                   ) : null}
                 </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  disableElevation
-                  startIcon={<BookmarkAddOutlinedIcon />}
-                  onClick={() => openPicker({ mode: 'collect', id: draft.id })}
-                  disabled={loading || !isSaved}
-                  sx={FILLED_SECONDARY_SX}
-                >
-                  收藏到收藏夹
-                </Button>
+                {/* 收藏只留图标：省下的横向空间归名称输入框。 */}
+                <Tooltip title="收藏到收藏夹">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="收藏到收藏夹"
+                      onClick={() => openPicker({ mode: 'collect', id: draft.id })}
+                      disabled={loading || !isSaved}
+                      sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+                    >
+                      <BookmarkAddOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
                 <MoreActionsMenu
                   ariaLabel="提示词操作"
                   items={[
+                    {
+                      key: 'remark',
+                      label: remarkOpen ? '隐藏备注' : '显示备注',
+                      icon: <NotesOutlinedIcon fontSize="small" />,
+                      onSelect: () => setRemarkOpen((current) => !current),
+                    },
                     {
                       key: 'delete',
                       label: '删除提示词',
@@ -698,12 +733,14 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                   ]}
                 />
               </Stack>
-              <TextField
-                size="small"
-                label="备注"
-                value={draft.description}
-                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-              />
+              {remarkOpen ? (
+                <TextField
+                  size="small"
+                  label="备注"
+                  value={draft.description}
+                  onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                />
+              ) : null}
               {/* 内容框吃满剩余高度，内容再长也只在框内滚，滑块用项目自制的那一套。 */}
               <FillTextarea
                 label="内容"
