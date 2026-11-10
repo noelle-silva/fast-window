@@ -313,3 +313,42 @@ describe('工具块顺序', () => {
     expect(el.querySelector('[data-assistant-block-kind="tool_invocation"] .fw-tool-pre-live')).toBeNull()
   })
 })
+
+// 权限信息收进一个小圆 i：点开才展示，不再平铺在块底。
+describe('工具权限信息', () => {
+  function click(el: Element | null) {
+    act(() => {
+      el?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  }
+
+  function renderDecisionTool() {
+    const el = renderWithParts([
+      {
+        id: 'p1',
+        type: 'tool',
+        callId: 'call-9',
+        toolName: 'shell_command',
+        state: 'completed',
+        input: { command: 'git status' },
+        decision: { status: 'allowed', reason: 'tool is allowed by role whitelist' },
+        result: { id: 'r1', status: 'success', content: 'ok' },
+      },
+    ])
+    click(el.querySelector('[aria-label="展开工具会话"]'))
+    return el
+  }
+
+  it('权限入口在块操作里，不再平铺在块底', () => {
+    const el = renderDecisionTool()
+    expect(el.textContent).not.toContain('权限：allowed')
+    expect(el.querySelector('button[aria-label="查看权限信息"]')).toBeTruthy()
+  })
+
+  it('点击后弹出权限与原因', () => {
+    const el = renderDecisionTool()
+    click(el.querySelector('button[aria-label="查看权限信息"]'))
+    expect(document.body.textContent).toContain('allowed')
+    expect(document.body.textContent).toContain('tool is allowed by role whitelist')
+  })
+})

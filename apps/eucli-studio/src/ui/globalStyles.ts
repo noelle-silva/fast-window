@@ -484,11 +484,6 @@ export function createChatGlobalStyles(params: ChatGlobalStylesParams) {
         background: 'var(--studio-tool-pre-live-bg)',
         color: 'var(--studio-tool-pre-live-text)',
       },
-      '.fw-tool-meta-line': {
-        marginTop: 8,
-        fontSize: 12,
-        color: 'var(--studio-tool-meta-text)',
-      },
       '.fw-tool-diagnostic': {
         margin: '10px 0',
         borderRadius: 16,

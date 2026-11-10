@@ -1,7 +1,7 @@
 import { esc } from '../core/utils'
 
-// 工具块的头部由 React 渲染（标题、状态、工具名 / callid、块操作按钮同处一层），
-// 这里只输出正文 HTML：输入/返回内容、实时输出与权限说明。
+// 工具块的头部由 React 渲染（标题、状态、工具名 / callid、块操作与权限入口同处一层），
+// 这里只输出正文 HTML：输入/返回内容与实时输出。
 
 function safePrettyJson(value: any) {
   try {
@@ -17,14 +17,6 @@ function preBlock(text: unknown, className = '') {
   if (!raw.trim()) return ''
   const cls = className ? ` ${esc(className)}` : ''
   return `<div class="fw-tool-field"><pre class="fw-tool-pre${cls}">${esc(raw)}</pre></div>`
-}
-
-function decisionLine(part: any) {
-  const decision = part?.decision && typeof part.decision === 'object' ? part.decision : null
-  if (!decision) return ''
-  const status = String(decision?.status || '') || '未知'
-  const reason = String(decision?.reason || '').trim()
-  return `<div class="fw-tool-meta-line">权限：${esc(status)}${reason ? `，原因：${esc(reason)}` : ''}</div>`
 }
 
 // 实时输出是一份还没定稿的返回内容：只输出内容本身，标题与状态由返回块承担。
@@ -45,8 +37,8 @@ export function toolBlockCallId(part: any, kind: 'invocation' | 'result'): strin
   return String(part?.callId || (kind === 'result' ? result?.actionId : '') || '').trim()
 }
 
-export function renderAssistantToolInvocationBodyHtml(part: any) {
-  return decisionLine(part)
+export function renderAssistantToolInvocationBodyHtml(_part: any) {
+  return ''
 }
 
 export function renderAssistantToolResultBodyHtml(part: any) {

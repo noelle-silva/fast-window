@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, Collapse, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Collapse, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Popover, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { DependableDialog } from './DependableOverlay'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -7,6 +7,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import CloseIcon from '@mui/icons-material/Close'
 import { planAssistantMessageBlocks, type AssistantMessageBlock } from '../../render/assistantMessagePlan'
 import { renderAssistantToolInvocationBodyHtml, renderAssistantToolResultBodyHtml, toolBlockCallId } from '../../render/assistantToolHtml'
@@ -338,6 +339,10 @@ function ToolBlockCard(props: {
   const title = isResult ? '工具返回结果' : '工具调用'
   const callId = toolBlockCallId(block.part, isResult ? 'result' : 'invocation')
   const toolName = String(block.part?.toolName || block.part?.result?.toolName || 'tool')
+  const [infoAnchorEl, setInfoAnchorEl] = React.useState<HTMLElement | null>(null)
+  const decision = block.part?.decision && typeof block.part.decision === 'object' ? block.part.decision : null
+  const decisionStatus = String(decision?.status || '').trim()
+  const decisionReason = String(decision?.reason || '').trim()
 
   return (
     <Paper
@@ -401,6 +406,13 @@ function ToolBlockCard(props: {
                   <ContentCopyIcon fontSize="inherit" />
                 </IconButton>
               </Tooltip>
+              {!isResult && decision ? (
+                <Tooltip title="权限信息">
+                  <IconButton size="small" aria-label="查看权限信息" onClick={(event) => setInfoAnchorEl(event.currentTarget)}>
+                    <InfoOutlinedIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
               <Tooltip title="删除">
                 <span>
                   <IconButton size="small" aria-label="删除消息块" disabled={!canDelete} onClick={() => onSetDeleting(block)}>
@@ -439,6 +451,33 @@ function ToolBlockCard(props: {
           <Box className="prose" dangerouslySetInnerHTML={{ __html: renderToolBlockBodyHtml(block) }} />
         </CustomScrollArea>
       )}
+
+      <Popover
+        open={!!infoAnchorEl}
+        anchorEl={infoAnchorEl}
+        onClose={() => setInfoAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Box sx={{ px: 1.5, py: 1.1, maxWidth: 320 }}>
+          <Typography variant="caption" component="div" sx={{ fontWeight: 800, mb: 0.4 }}>
+            权限
+          </Typography>
+          <Typography variant="caption" component="div" sx={{ color: 'var(--studio-text-primary)', wordBreak: 'break-word' }}>
+            {decisionStatus || '未知'}
+          </Typography>
+          {decisionReason ? (
+            <>
+              <Typography variant="caption" component="div" sx={{ fontWeight: 800, mt: 0.8, mb: 0.4 }}>
+                原因
+              </Typography>
+              <Typography variant="caption" component="div" sx={{ color: 'var(--studio-text-secondary)', wordBreak: 'break-word' }}>
+                {decisionReason}
+              </Typography>
+            </>
+          ) : null}
+        </Box>
+      </Popover>
     </Paper>
   )
 }
