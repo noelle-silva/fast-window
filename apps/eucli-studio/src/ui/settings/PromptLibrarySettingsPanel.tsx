@@ -45,6 +45,7 @@ import { moveListItemById } from '../../domain/listOrdering'
 import { resolveSortMovePosition, type SortableDropConfig } from '../components/SortableDnd'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsSurface } from './SettingsSurfaces'
+import { FillTextarea } from '../components/FillTextarea'
 import { PromptLibrarySidebar } from './PromptLibrarySidebar'
 import { PromptFolderPicker } from './PromptFolderPicker'
 
@@ -735,13 +736,11 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                 value={draft.description}
                 onChange={(event) => setDraft({ ...draft, description: event.target.value })}
               />
-              <TextField
+              {/* 内容框吃满剩余高度，内容再长也只在框内滚，滑块用项目自制的那一套。 */}
+              <FillTextarea
                 label="内容"
-                multiline
-                minRows={8}
                 value={draft.content}
-                onChange={(event) => setDraft({ ...draft, content: event.target.value })}
-                sx={{ flex: 1, minHeight: 0, '& .MuiInputBase-root': { alignItems: 'flex-start', height: '100%' } }}
+                onChange={(next) => setDraft({ ...draft, content: next })}
               />
 
             </Stack>

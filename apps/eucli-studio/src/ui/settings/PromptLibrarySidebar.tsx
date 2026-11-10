@@ -174,7 +174,8 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
           </Box>
         </Stack>
 
-        <CustomScrollArea hostSx={{ flex: 1, minHeight: 0 }} scrollSx={{ height: '100%' }} axis="y">
+        {/* 列表自己滚，但不画滚动条：滚动条只留给右侧编辑器，两块区域各滚各的。 */}
+        <CustomScrollArea hostSx={{ flex: 1, minHeight: 0 }} scrollSx={{ height: '100%' }} axis="y" showThumbs={false}>
           <List dense disablePadding sx={SOFT_POPOVER_LIST_SX}>
             {entryKeys.length ? (
               <SortableSection items={entryKeys}>
