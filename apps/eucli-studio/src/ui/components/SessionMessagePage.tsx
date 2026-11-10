@@ -74,12 +74,21 @@ export function SessionMessagePage(props: {
   // 首屏提交且浏览器真正完成一次绘制（双 rAF）之后，再请求后台预计算：
   // 首屏 5 条由同步引擎直接渲染，绝不等后台；预计算只负责把后续批次提前算好。
   // 会话切换、页面隐藏/卸载时立即取消，旧会话的产物不会再写入缓存。
+  //
+  // 失效键是「会话」而不是「消息条数」：预计算只负责把会话的后续批次提前算好，
+  // 与消息条数无关，因此会话内新增消息不推翻已发起的预热（否则每来一条消息都要
+  // 重算全窗口渲染缓存键、取消在途 Worker、重投批次，白付一次 O(会话文本) 的开销）。
+  // 标记在发起预热时写入，在 cleanup 里按会话身份清除：被取消的预热不算已预热，
+  // 页面重新激活或切回该会话时会补跑（缓存已热，成本极低）。
   const messagesRef = React.useRef(messages)
   messagesRef.current = messages
   const prewarmRenderCache = messageListProps.controller?.actions?.prewarmRenderCache
+  const prewarmedSessionRef = React.useRef('')
   React.useEffect(() => {
     if (!pageActive || !sessionKey || !hasMessages) return
     if (typeof prewarmRenderCache !== 'function') return
+    if (prewarmedSessionRef.current === sessionKey) return
+    prewarmedSessionRef.current = sessionKey
     let handle: { cancel?: () => void } | null = null
     let secondFrame = 0
     const firstFrame = requestAnimationFrame(() => {
@@ -91,8 +100,10 @@ export function SessionMessagePage(props: {
       cancelAnimationFrame(firstFrame)
       cancelAnimationFrame(secondFrame)
       handle?.cancel?.()
+      // 只清自己的标记：旧会话的 cleanup 不得抹掉新会话的记录。
+      if (prewarmedSessionRef.current === sessionKey) prewarmedSessionRef.current = ''
     }
-  }, [pageActive, sessionKey, hasMessages, messages.length, prewarmRenderCache])
+  }, [pageActive, sessionKey, hasMessages, prewarmRenderCache])
 
   // 切换观测的绘制三边界（design-5 P0）：
   //   第一次 commit 之后 → painted；
