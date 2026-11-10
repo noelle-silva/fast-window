@@ -42,6 +42,7 @@ import {
   type TaskScope,
   type TaskTree,
 } from '../../domain/taskTree'
+import { dropTaskDraft, readTaskDraft, writeTaskDraft } from '../../domain/taskTreeDrafts'
 
 // 任务树面板：设置页分类与输入区模态窗共用同一份。
 //
@@ -179,10 +180,28 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     if (pathIds.length !== path.length) setPathIds(taskPathIds(path))
   }, [path, pathIds])
 
-  // 换节点（或服务端把树换了一份）时，编辑副本跟着当前节点走。
+  // 换节点时先看有没有没保存的草稿：有就接着改，没有才用服务端这份。
+  // 依赖只认节点 id：树里别的节点变了不该把正在改的内容冲掉。
   React.useEffect(() => {
-    setDraft(taskDraftOf(current))
-  }, [current])
+    if (!current) {
+      setDraft(null)
+      return
+    }
+    setDraft(readTaskDraft(scope, activeOwnerId, current.id) ?? taskDraftOf(current))
+  }, [current?.id, scope, activeOwnerId])
+
+  // 改到一半的文字随手写进草稿缓存：换层级、关模态窗都不会丢。
+  const onDraftChange = React.useCallback(
+    (patch: Partial<TaskDraft>) => {
+      setDraft((prev) => {
+        if (!prev) return prev
+        const next = { ...prev, ...patch }
+        writeTaskDraft(scope, activeOwnerId, next.id, next)
+        return next
+      })
+    },
+    [scope, activeOwnerId],
+  )
 
   // 浏览位置按作用域上报，调用方按会话保存；下次打开或切段时从这里恢复。
   React.useEffect(() => {
@@ -225,6 +244,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     try {
       const saved = await callAction<TaskTree>('saveTaskTree', scope, activeOwnerId, applyTaskDraft(tree, draft))
       setTree(saved)
+      dropTaskDraft(scope, activeOwnerId, draft.id)
     } catch (error: any) {
       notify(text(error?.message) || '保存任务失败')
     } finally {
@@ -505,7 +525,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
             saving={saving}
             canCopy={Boolean(current.content.trim())}
             hasChildren={current.children.length > 0}
-            onDraftChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+            onDraftChange={onDraftChange}
             onSave={() => void saveDraft()}
             onCopy={() => void copyContent(current)}
             onMove={() => openMove(current)}

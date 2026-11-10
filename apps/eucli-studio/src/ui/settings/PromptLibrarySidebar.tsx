@@ -61,6 +61,8 @@ type PromptLibrarySidebarProps = {
   onCopyPrompt: (promptId: string) => void
   /** 行内填入：把正文插到输入框当前光标位置。没有可填的输入框时不给这个回调。 */
   onInsertPrompt?: (promptId: string) => void
+  /** 这些条目挂着没保存的草稿：标题旁点一个黄点。 */
+  dirtyPromptIds?: ReadonlySet<string>
   onReorderEntries: (activeKey: string, overKey: string) => void
   onCollectEntry: (entry: PromptLayerEntry) => void
   onMoveEntryToFolder: (entry: PromptLayerEntry) => void
@@ -75,6 +77,8 @@ type PromptLibrarySidebarProps = {
 }
 
 type ContextMenuState = { x: number; y: number; entry: PromptLayerEntry }
+
+const NO_DIRTY_IDS: ReadonlySet<string> = new Set()
 
 // 行内按钮与整行拖拽共用一个指针区域：按钮自己吃掉按下与冒泡，避免被整行拖走或误选中。
 function stopPointerPropagation(event: React.PointerEvent) {
@@ -142,6 +146,7 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
     onSelectPrompt,
     onCopyPrompt,
     onInsertPrompt,
+    dirtyPromptIds = NO_DIRTY_IDS,
     onReorderEntries,
     onCollectEntry,
     onMoveEntryToFolder,
@@ -270,6 +275,14 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                   primaryTypographyProps={{ fontSize: 13, fontWeight: 600, noWrap: true }}
                                   secondaryTypographyProps={{ fontSize: 11, noWrap: true }}
                                 />
+                                {/* 有未保存的草稿：标题旁点一个黄点，关窗再回来还认得它。 */}
+                                {dirtyPromptIds.has(entry.prompt.id) ? (
+                                  <Box
+                                    component="span"
+                                    aria-label="有未保存的修改"
+                                    sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'warning.main', flexShrink: 0, ml: 0.5 }}
+                                  />
+                                ) : null}
                                 {/* 复制按钮放在条目容器内部最右侧：不选中条目、不触发整行拖拽。 */}
                                 <Tooltip title="复制内容">
                                   <IconButton

@@ -160,7 +160,7 @@ describe('提示词库面板的初始作用域', () => {
     })
 
     expect(calls).toContainEqual(['library', 'role', 'role-2'])
-    expect(browse).toHaveBeenCalledWith('role', { ownerId: 'role-2', folderId: 'f1' })
+    expect(browse).toHaveBeenCalledWith('role', expect.objectContaining({ ownerId: 'role-2', folderId: 'f1' }))
   })
 
   it('restores the remembered position when switching scopes', async () => {
@@ -180,6 +180,6 @@ describe('提示词库面板的初始作用域', () => {
     await switchScope('工作区提示词')
 
     expect(calls).toContainEqual(['library', 'workspace', 'ws-2'])
-    expect(browse).toHaveBeenCalledWith('workspace', { ownerId: 'ws-2', folderId: 'f9' })
+    expect(browse).toHaveBeenCalledWith('workspace', expect.objectContaining({ ownerId: 'ws-2', folderId: 'f9' }))
   })
 })

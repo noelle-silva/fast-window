@@ -42,6 +42,16 @@ import {
   type PromptScope,
 } from '../../domain/promptLibrary'
 import { canPlacePromptEntry, planPromptPlacementMove } from '../../domain/promptLibraryPlacement'
+import {
+  NEW_PROMPT_DRAFT_ID,
+  dropPromptDraft,
+  promptDraftIds,
+  readNewPromptDraft,
+  readPromptDraft,
+  usePromptDraftVersion,
+  writeNewPromptDraft,
+  writePromptDraft,
+} from '../../domain/promptDrafts'
 import { moveListItemById } from '../../domain/listOrdering'
 import { resolveSortMovePosition, type SortableDropConfig } from '../components/SortableDnd'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
@@ -70,6 +80,8 @@ type PendingDelete = { kind: 'prompt' | 'folder'; id: string; name: string }
 export type PromptLibraryBrowseState = {
   ownerId?: string
   folderId?: string
+  /** 上次打开的那条提示词：重开窗口直接回到它的编辑位。 */
+  selectedPromptId?: string
 }
 
 type PromptLibrarySettingsPanelProps = {
@@ -140,6 +152,13 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   const ownerIds = React.useMemo(() => ownerOptions.map((item: any) => text(item?.id)).filter(Boolean), [ownerOptions])
   const activeOwnerId = resolveActiveOwnerId(scope, ownerId, ownerIds)
 
+  // 哪些条目还挂着没保存的草稿：列表靠它在条目标题旁点一个黄点。
+  const promptDraftVersion = usePromptDraftVersion()
+  const dirtyPromptIds = React.useMemo(
+    () => promptDraftIds(scope, activeOwnerId),
+    [scope, activeOwnerId, promptDraftVersion],
+  )
+
   // 切换作用域时把归属带到上一次停留的位置：优先恢复该段的记忆，
   // 没有记忆才用会话上下文（当前角色 / 工作区），两者都没有就留空回落第一个。
   const switchScope = (nextScope: PromptScope) => {
@@ -160,8 +179,22 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
   // 浏览位置按作用域上报，调用方按会话保存；下次打开或切段时从这里恢复。
   React.useEffect(() => {
     if (!onBrowseStateChange) return
-    onBrowseStateChange(scope, { ownerId: activeOwnerId, folderId: currentFolderId })
-  }, [scope, activeOwnerId, currentFolderId, onBrowseStateChange])
+    onBrowseStateChange(scope, { ownerId: activeOwnerId, folderId: currentFolderId, selectedPromptId })
+  }, [scope, activeOwnerId, currentFolderId, selectedPromptId, onBrowseStateChange])
+
+  // 重开窗口时直接回到上次打开的那条提示词：库到位后补一次选中，之后不再抢。
+  const restoredPromptRef = React.useRef(false)
+  React.useEffect(() => {
+    if (restoredPromptRef.current) return
+    if (!library.prompts.length) return
+    restoredPromptRef.current = true
+    const wanted = String(browseState[scope]?.selectedPromptId || '')
+    if (!wanted) return
+    const found = library.prompts.find((prompt) => prompt.id === wanted)
+    if (!found) return
+    setSelectedPromptId(found.id)
+    setDraft(readPromptDraft(scope, activeOwnerId, found.id) ?? { ...found })
+  }, [activeOwnerId, browseState, library.prompts, scope])
 
   const callAction = React.useCallback(
     async <T,>(name: string, ...args: any[]): Promise<T> => {
@@ -246,15 +279,38 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
 
   const selectPrompt = (promptId: string) => {
     setSelectedPromptId(promptId)
+    // 有没保存的草稿就接着改，缓存里没有才用库里这份。
+    const cached = readPromptDraft(scope, activeOwnerId, promptId)
     const found = library.prompts.find((prompt) => prompt.id === promptId)
-    setDraft(found ? { ...found } : null)
+    setDraft(cached ?? (found ? { ...found } : null))
   }
 
   const createPrompt = () => {
+    // 上一条新建还没保存，就先接着它写，不要另起一条把它顶掉。
+    const cached = readNewPromptDraft(scope, activeOwnerId)
+    if (cached) {
+      setSelectedPromptId(cached.id)
+      setDraft(cached)
+      return
+    }
     const entry: PromptEntry = { ...EMPTY_ENTRY, id: createLocalId('prompt'), name: '新提示词' }
     setSelectedPromptId(entry.id)
     setDraft(entry)
   }
+
+  // 改到一半的内容随手写进草稿缓存：换条目、关模态窗都不会丢。
+  const updateDraft = React.useCallback(
+    (patch: Partial<PromptEntry>) => {
+      setDraft((prev) => {
+        if (!prev) return prev
+        const next = { ...prev, ...patch }
+        if (library.prompts.some((prompt) => prompt.id === next.id)) writePromptDraft(scope, activeOwnerId, next)
+        else writeNewPromptDraft(scope, activeOwnerId, next)
+        return next
+      })
+    },
+    [activeOwnerId, library.prompts, scope],
+  )
 
   const savePrompt = async () => {
     if (!draft) return
@@ -271,6 +327,9 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
       await callAction<PromptLibrary>('savePromptLibrary', scope, activeOwnerId, { prompts })
       await reload({ keepSelection: true })
       setSelectedPromptId(draft.id)
+      // 保存成功，这份草稿就不再是「未保存」了。
+      dropPromptDraft(scope, activeOwnerId, draft.id)
+      dropPromptDraft(scope, activeOwnerId, NEW_PROMPT_DRAFT_ID)
       // 在当前层级新建的条目直接归入当前收藏夹，不落在根级。
       if (!exists && currentFolderId) {
         const savedFolders = await callAction<PromptFolderLibrary>('addPromptToFolder', scope, activeOwnerId, currentFolderId, draft.id)
@@ -610,6 +669,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           onSelectPrompt={selectPrompt}
           onCopyPrompt={(promptId) => void copyPromptContent(promptId)}
           onInsertPrompt={onInsertPromptText ? insertPromptContent : undefined}
+          dirtyPromptIds={dirtyPromptIds}
           onReorderEntries={(activeKey, overKey) => void moveEntry(activeKey, overKey)}
           onCollectEntry={collectEntry}
           onMoveEntryToFolder={moveEntryToFolder}
@@ -686,7 +746,7 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                       size="small"
                       label="名称"
                       value={draft.name}
-                      onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                      onChange={(event) => updateDraft({ name: event.target.value })}
                       sx={{ flex: 1 }}
                     />
                     <Button
@@ -741,14 +801,14 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                       size="small"
                       label="备注"
                       value={draft.description}
-                      onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                      onChange={(event) => updateDraft({ description: event.target.value })}
                     />
                   ) : null}
                   {/* 内容框吃满剩余高度，内容再长也只在框内滚，滑块用项目自制的那一套。 */}
                   <FillTextarea
                     label="内容"
                     value={draft.content}
-                    onChange={(next) => setDraft({ ...draft, content: next })}
+                    onChange={(next) => updateDraft({ content: next })}
                   />
     
                 </Stack>

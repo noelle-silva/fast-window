@@ -15,6 +15,12 @@ import { ComposerPromptLibraryDialog } from './ComposerPromptLibraryDialog'
 import { ComposerTaskTreeDialog } from './ComposerTaskTreeDialog'
 import type { TaskTreeBrowseState } from '../settings/TaskTreePanel'
 import type { TaskScope } from '../../domain/taskTree'
+import {
+  readPromptLibraryMemory,
+  readTaskTreeMemory,
+  writePromptLibraryMemory,
+  writeTaskTreeMemory,
+} from '../../domain/sessionViewMemory'
 import { useEvent } from '../hooks/useEvent'
 import type { PromptLibraryBrowseState } from '../settings/PromptLibrarySettingsPanel'
 import {
@@ -193,24 +199,23 @@ export function ChatComposer(props: {
   const [hookPromptMenuAnchor, setHookPromptMenuAnchor] = React.useState<HTMLElement | null>(null)
   // 提示词库模态窗：null 表示关闭；否则是当前作用域（global / role / workspace）。
   const [promptLibraryScope, setPromptLibraryScope] = React.useState<PromptScope | null>(null)
-  // 每个会话一份提示词库浏览位置：作用域 → 归属 + 收藏夹层级。
-  // 存在 ref 里：上报不触发渲染，重新打开模态窗时读最新值即可。
-  const promptLibraryBrowseRef = React.useRef<Map<string, Partial<Record<PromptScope, PromptLibraryBrowseState>>>>(new Map())
-  const promptLibraryBrowseKey = String(activeChatId || activeSessionComposerDraftKey || '__default__')
-  const promptLibraryBrowse = promptLibraryBrowseRef.current.get(promptLibraryBrowseKey) || {}
+  // 会话级的浏览记忆存在模块缓存里，不放在组件 ref：
+  // 组件重建（换会话、重挂载）之后，「上次停在哪」还得在。
+  const sessionViewKey = String(activeChatId || activeSessionComposerDraftKey || '__default__')
+  const promptLibraryBrowse = readPromptLibraryMemory(sessionViewKey)
   const rememberPromptLibraryBrowse = useEvent((scope: PromptScope, state: Required<PromptLibraryBrowseState>) => {
-    const current = promptLibraryBrowseRef.current.get(promptLibraryBrowseKey) || {}
-    promptLibraryBrowseRef.current.set(promptLibraryBrowseKey, { ...current, [scope]: state })
+    writePromptLibraryMemory(sessionViewKey, scope, {
+      ownerId: state.ownerId,
+      folderId: state.folderId,
+      selectedPromptId: state.selectedPromptId,
+    })
   })
 
   // 任务清单模态窗：null 表示关闭；否则是当前作用域（role / workspace）。
   const [taskTreeScope, setTaskTreeScope] = React.useState<TaskScope | null>(null)
-  // 每个会话一份任务浏览位置：作用域 → 归属 + 层级路径。
-  const taskTreeBrowseRef = React.useRef<Map<string, Partial<Record<TaskScope, TaskTreeBrowseState>>>>(new Map())
-  const taskTreeBrowse = taskTreeBrowseRef.current.get(promptLibraryBrowseKey) || {}
+  const taskTreeBrowse = readTaskTreeMemory(sessionViewKey)
   const rememberTaskTreeBrowse = useEvent((scope: TaskScope, state: Required<TaskTreeBrowseState>) => {
-    const current = taskTreeBrowseRef.current.get(promptLibraryBrowseKey) || {}
-    taskTreeBrowseRef.current.set(promptLibraryBrowseKey, { ...current, [scope]: state })
+    writeTaskTreeMemory(sessionViewKey, scope, { ownerId: state.ownerId, pathIds: state.pathIds })
   })
 
   const toolLayout = React.useMemo(() => normalizeComposerToolsLayout(composerToolsLayout), [composerToolsLayout])
