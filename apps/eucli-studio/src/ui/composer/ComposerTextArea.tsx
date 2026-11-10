@@ -50,6 +50,11 @@ const FILL_INPUT_SX = {
 // 粘贴与键盘行为都在这里。聊天输入区和提示词库模态窗的右栏共用同一份，
 // 两边的打字、选中、复制粘贴手感才真的一致。
 // 工具条与发送按钮不在这份里：那是聊天输入区自己的编排。
+export type ComposerTextAreaInsertApi = {
+  /** 在光标处插入一段文字；有选中就替换选中段。返回是否插进去了。 */
+  insertAtCaret: (text: string) => boolean
+}
+
 export function ComposerTextArea(props: {
   value: string
   onChange: (next: string) => void
@@ -69,6 +74,8 @@ export function ComposerTextArea(props: {
   resetKey?: string
   /** 撑满模式：吃掉父级剩余高度，内容超出就框内滚（右栏编辑区用）。 */
   fill?: boolean
+  /** 把「光标处插入」的能力交出去，按钮抢走焦点后也能落准位置。 */
+  insertApi?: (api: ComposerTextAreaInsertApi | null) => void
 }) {
   const {
     value,
@@ -86,11 +93,61 @@ export function ComposerTextArea(props: {
     onEnter,
     resetKey,
     fill = false,
+    insertApi,
   } = props
   const localInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
   const inputBoxRef = React.useRef<HTMLDivElement | null>(null)
   const [atPicker, setAtPicker] = React.useState<null | { triggerIndex: number; cursorIndex: number; query: string }>(null)
   const [slashPicker, setSlashPicker] = React.useState<null | { query: string; selectedIndex: number }>(null)
+
+  // 记住最后一次选区：点按钮时焦点离开输入框，selectionStart 会退回起点甚至 0。
+  const caretRef = React.useRef<{ start: number; end: number }>({ start: 0, end: 0 })
+  React.useEffect(() => {
+    const el = localInputRef.current
+    if (!el) return
+    const record = () => {
+      const start = typeof el.selectionStart === 'number' ? el.selectionStart : null
+      const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : null
+      if (start === null || end === null) return
+      caretRef.current = { start, end }
+    }
+    record()
+    el.addEventListener('keyup', record)
+    el.addEventListener('mouseup', record)
+    el.addEventListener('blur', record)
+    return () => {
+      el.removeEventListener('keyup', record)
+      el.removeEventListener('mouseup', record)
+      el.removeEventListener('blur', record)
+    }
+  }, [])
+
+  const insertAtCaret = useEvent((text: string) => {
+    const body = String(text || '')
+    if (!body) return false
+    const el = localInputRef.current
+    const current = String(value || '')
+    const clamp = (value: number) => Math.max(0, Math.min(value, current.length))
+    const focused = el != null && document.activeElement === el
+    const start = clamp(focused && typeof el.selectionStart === 'number' ? el.selectionStart : caretRef.current.start)
+    const end = clamp(focused && typeof el.selectionEnd === 'number' ? el.selectionEnd : caretRef.current.end)
+    onChange(current.slice(0, start) + body + current.slice(end))
+    const caret = start + body.length
+    caretRef.current = { start: caret, end: caret }
+    // 定位放到下一次绘制之后：这一步的 onChange 会重渲染输入框，选区会被重置。
+    requestAnimationFrame(() => {
+      try {
+        el?.focus()
+        el?.setSelectionRange?.(caret, caret)
+      } catch (_) {}
+    })
+    return true
+  })
+
+  React.useEffect(() => {
+    insertApi?.({ insertAtCaret })
+    return () => insertApi?.(null)
+  }, [insertApi, insertAtCaret])
 
   const { metrics, viewport, dragging, beginDrag, updateMetrics } = useCustomScrollbar({
     scrollRef: localInputRef,

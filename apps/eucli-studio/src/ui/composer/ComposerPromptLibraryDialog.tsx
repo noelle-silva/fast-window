@@ -4,6 +4,7 @@ import { DependableDialog } from '../components/DependableOverlay'
 import { PromptLibrarySettingsPanel, type PromptLibraryBrowseState } from '../settings/PromptLibrarySettingsPanel'
 import type { PromptScope } from '../../domain/promptLibrary'
 import { ComposerDraftPane } from './ComposerDraftPane'
+import type { ComposerTextAreaInsertApi } from './ComposerTextArea'
 
 // 输入区的提示词库入口：模态窗里直接挂设置页那套面板。
 // 不设标题栏：面板顶部就是作用域切换，当前在看哪个库由它自己说明。
@@ -28,6 +29,8 @@ export function ComposerPromptLibraryDialog(props: {
   composerDraftKey?: string
   /** 输入区的粘贴处理：右栏粘贴图片时也走同一条通路。 */
   onPaste?: (e: React.ClipboardEvent) => void
+  /** 行内「填入」：把提示词正文插到输入框当前光标处。 */
+  onInsertPromptText?: (text: string) => void
 }) {
   const {
     controller,
@@ -41,7 +44,22 @@ export function ComposerPromptLibraryDialog(props: {
     onBrowseStateChange,
     composerDraftKey = '',
     onPaste,
+    onInsertPromptText,
   } = props
+
+  // 右栏优先：模态窗开着时它是唯一可见的输入框，填入与光标都落在那里。
+  // 右栏还没挂起来时回落到调用方给的外部入口。
+  const paneApiRef = React.useRef<ComposerTextAreaInsertApi | null>(null)
+  const handlePaneReady = React.useCallback((api: ComposerTextAreaInsertApi | null) => {
+    paneApiRef.current = api
+  }, [])
+  const insertPromptText = React.useCallback(
+    (text: string) => {
+      if (paneApiRef.current?.insertAtCaret(text)) return
+      onInsertPromptText?.(text)
+    },
+    [onInsertPromptText],
+  )
 
   return (
     <DependableDialog
@@ -68,7 +86,15 @@ export function ComposerPromptLibraryDialog(props: {
               preferredOwnerIds={{ role: activeRoleId, workspace: activeWorkspaceId }}
               browseState={browseState}
               onBrowseStateChange={onBrowseStateChange}
-              sidePane={<ComposerDraftPane controller={controller} draftKey={composerDraftKey} onPaste={onPaste} />}
+              sidePane={
+                <ComposerDraftPane
+                  controller={controller}
+                  draftKey={composerDraftKey}
+                  onPaste={onPaste}
+                  onReady={handlePaneReady}
+                />
+              }
+              onInsertPromptText={insertPromptText}
             />
           </Box>
         ) : null}

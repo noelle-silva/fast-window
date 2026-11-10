@@ -3,6 +3,7 @@ import { Box } from '@mui/material'
 import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerTextArea } from './ComposerTextArea'
+import type { ComposerTextAreaInsertApi } from './ComposerTextArea'
 import { useComposerDraftValue } from './useComposerDraftValue'
 
 // 提示词库模态窗的最右一栏：直接编辑当前输入框的那段文字。
@@ -16,9 +17,11 @@ export function ComposerDraftPane(props: {
   controller: any
   draftKey: string
   onPaste?: (e: React.ClipboardEvent) => void
+  /** 把「在光标处插入」交给调用方：侧边栏的填入按钮靠它落字。 */
+  onReady?: (api: ComposerTextAreaInsertApi | null) => void
   width?: number
 }) {
-  const { controller, draftKey, onPaste, width = 280 } = props
+  const { controller, draftKey, onPaste, onReady, width = 280 } = props
   const revision = useScopedUiVersion(controller, COMPOSER_REFRESH_SCOPE)
   const initialValue = String(controller.getComposerDraft()?.input || '')
   const [value, onChange] = useComposerDraftValue({
@@ -56,6 +59,7 @@ export function ComposerDraftPane(props: {
         placeholder=""
         onPaste={onPaste}
         resetKey={draftKey}
+        insertApi={onReady}
         fill
       />
     </Box>
