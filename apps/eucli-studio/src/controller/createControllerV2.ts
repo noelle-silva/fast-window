@@ -31,6 +31,7 @@ import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { createProjectionPipeline } from './projectionPipeline'
 import { loadSessionEditSnapshot } from './sessionEditSnapshot'
+import type { SessionIndexScopeKind } from '../storage/splitProjectionCache'
 
 // ---- state ----
 import { createStateAccessors } from '../state/stateAccessors'
@@ -584,10 +585,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   // 只拉某个 target 的会话索引并写回内存：收藏夹这类跨 target 视图用它提前补齐标题，
   // 事实仍来自后端 sessionIndex，这里不造字段、不动正文。
-  async function ensureTargetChatIndex(kind: 'role' | 'group' | 'workspace', targetId: string) {
+  async function ensureTargetChatIndex(kind: SessionIndexScopeKind, targetId: string) {
     const tid = String(targetId || '').trim()
     if (!tid) return false
-    const snapshot = await projectionPipeline.loadChatIndex({ kind, targetId: tid } as any)
+    const snapshot = await projectionPipeline.loadChatIndex({ kind, targetId: tid })
     if (!applyChatIndexSnapshot(state.data, { kind, targetId: tid }, snapshot)) return false
     emitScope(refreshScopes.chatList(kind, tid))
     return true

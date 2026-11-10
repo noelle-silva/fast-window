@@ -244,6 +244,9 @@ export function createSessionWindowLoader(deps: SessionWindowLoaderDeps): Sessio
   // 静默吞掉只会让标题与时间退化成兜底值，正是这次要修的问题。
   async function resolveIdentity(scope: SessionScope, chatId: string): Promise<ChatSessionIdentity | null> {
     if (typeof deps.resolveIdentity !== 'function') return null
+    // 会话索引身份解析只服务 role / group：
+    // 工作区会话的正文与身份由 workspaceManager 自己的通道负责，不进这条窗口通道。
+    if (scope.kind === 'workspace') return null
     const resolved = await deps.resolveIdentity({ kind: scope.kind, targetId: String(scope.targetId || '').trim() }, chatId)
     return resolved || null
   }

@@ -14,8 +14,19 @@ import { createGenerationGuard, createInflightRegistry } from './cacheGuard'
 
 export type ProjectionScopeKind = 'role' | 'group'
 
+// 正文 / 偏好 / 窗口这三条通道只认 role 与 group。
 export type ProjectionScope = {
   kind: ProjectionScopeKind
+  targetId: string
+}
+
+// 会话索引通道多一类 workspace：它的 targetId 是「工作区::角色」合成键，
+// 与盒子键（chatsByWorkspace）和桌面引用键同一口径；后端按两段身份解释。
+// 缓存只把 scope 当字符串键用，所以索引层可以比正文层宽一档。
+export type SessionIndexScopeKind = ProjectionScopeKind | 'workspace'
+
+export type SessionIndexScope = {
+  kind: SessionIndexScopeKind
   targetId: string
 }
 
@@ -56,7 +67,7 @@ export type ChatIndexScopeToken = {
   epoch: number
 }
 
-export function projectionScopeKey(scope: ProjectionScope): string {
+export function projectionScopeKey(scope: { kind: string; targetId: string }): string {
   return `${scope.kind}:${String(scope.targetId || '').trim()}`
 }
 
@@ -122,10 +133,10 @@ export function normalizeCatalogSnapshot(raw: any): CatalogSnapshot {
   }
 }
 
-export function normalizeChatIndexSnapshot(raw: any, scope: ProjectionScope): ChatIndexSnapshot | null {
+export function normalizeChatIndexSnapshot(raw: any, scope: SessionIndexScope): ChatIndexSnapshot | null {
   if (!raw || typeof raw !== 'object') return null
   const key = projectionScopeKey(scope)
-  const fallbackTitle = scope.kind === 'group' ? '群聊' : '新聊天'
+  const fallbackTitle = scope.kind === 'group' ? '群聊' : scope.kind === 'workspace' ? '工作区会话' : '新聊天'
   const chatIds = normalizeStringList((raw as any).chatIds)
   const chatMetas = chatMetasFromBox(raw, fallbackTitle)
   const updatedRaw = (raw as any).chatUpdatedAt && typeof (raw as any).chatUpdatedAt === 'object' ? (raw as any).chatUpdatedAt : {}
@@ -151,7 +162,7 @@ export function normalizeChatIndexSnapshot(raw: any, scope: ProjectionScope): Ch
 export type SplitProjectionCacheDeps = {
   // catalog 的 4 个 index key 由调用方注入（迁移期一次 storageGetMany，之后是 sessionIndex.get）
   loadCatalog: () => Promise<CatalogSnapshot>
-  loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  loadChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
   getVersions: () => ProjectionVersions
 }
 
@@ -183,7 +194,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
   }
 
   // invalidateScope 只作废单个 target 的索引：切换会话不会波及别的 target。
-  function invalidateScope(scope: ProjectionScope) {
+  function invalidateScope(scope: SessionIndexScope) {
     const key = projectionScopeKey(scope)
     // 代数先推进：条目本来不存在时，在途的旧读取也必须作废。
     guard.advance(key)
@@ -231,7 +242,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     return promise
   }
 
-  function peekChatIndex(scope: ProjectionScope): ChatIndexSnapshot | null {
+  function peekChatIndex(scope: SessionIndexScope): ChatIndexSnapshot | null {
     const key = projectionScopeKey(scope)
     const snapshot = indexes.get(key)
     if (!snapshot) return null
@@ -239,7 +250,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     return snapshot
   }
 
-  async function loadChatIndex(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
+  async function loadChatIndex(scope: SessionIndexScope): Promise<ChatIndexSnapshot | null> {
     const cached = peekChatIndex(scope)
     if (cached) return cached
     return refreshChatIndex(scope)
@@ -251,7 +262,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
   //
   // 它仍然单飞：同一 scope 的并发确认共享一次请求。合流条件同时包含代数与 epoch，
   // 上一代 / 上一 epoch 的在途请求不会被新一代复用。
-  async function refreshChatIndex(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
+  async function refreshChatIndex(scope: SessionIndexScope): Promise<ChatIndexSnapshot | null> {
     const key = projectionScopeKey(scope)
     const generation = guard.current(key)
     const epoch = currentEpoch()
@@ -279,7 +290,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
 
   // captureChatIndexScope 记录「发起读取时」的代数与 epoch。
   // 异步读取落地前用它确认期间没有发生过失效 / 换代。
-  function captureChatIndexScope(scope: ProjectionScope): ChatIndexScopeToken {
+  function captureChatIndexScope(scope: SessionIndexScope): ChatIndexScopeToken {
     const key = projectionScopeKey(scope)
     return { key, generation: guard.current(key), epoch: currentEpoch() }
   }
@@ -300,7 +311,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
 
   // isChatIndexSnapshotCurrent 判断一份快照是否仍是当前缓存的权威事实。
   // 版本门在应用快照前调用它：被失效挡下、只返回未回填的旧快照不能驱动对账。
-  function isChatIndexSnapshotCurrent(scope: ProjectionScope, snapshot: ChatIndexSnapshot | null): boolean {
+  function isChatIndexSnapshotCurrent(scope: SessionIndexScope, snapshot: ChatIndexSnapshot | null): boolean {
     if (!snapshot) return false
     const current = peekChatIndex(scope)
     if (!current) return false
@@ -332,7 +343,7 @@ export function createSplitProjectionCache(deps: SplitProjectionCacheDeps) {
     indexes.set(key, withActiveChatSelection(snapshot, next))
   }
 
-  function chatIndexIds(scope: ProjectionScope): string[] {
+  function chatIndexIds(scope: SessionIndexScope): string[] {
     return peekChatIndex(scope)?.chatIds.slice() || []
   }
 
@@ -363,7 +374,7 @@ export type SplitProjectionCache = ReturnType<typeof createSplitProjectionCache>
 
 // buildChatIndexSnapshot 把「旧 storage key 形状」的一次性读取结果转成快照。
 // 迁移期专用：一旦后端 sessionIndex.get 可用，就只走协议快照。
-export function buildChatIndexSnapshot(raw: any, scope: ProjectionScope): ChatIndexSnapshot | null {
+export function buildChatIndexSnapshot(raw: any, scope: SessionIndexScope): ChatIndexSnapshot | null {
   const snapshot = normalizeChatIndexSnapshot(raw, scope)
   if (!snapshot) return null
   return { ...snapshot, updatedAt: snapshot.updatedAt || now() }

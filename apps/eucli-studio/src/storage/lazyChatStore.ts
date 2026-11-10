@@ -2,7 +2,7 @@ import { writeChatListProjection } from '../domain/chatListProjection'
 import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 import { buildStateFromMeta } from './buildStateFromMeta'
 import { normalizeStoredChat } from './normalizeStoredChat'
-import type { ChatIndexSnapshot, ProjectionScope } from './splitProjectionCache'
+import type { ChatIndexSnapshot, ProjectionScope, SessionIndexScope } from './splitProjectionCache'
 import { projectionScopeKey } from './splitProjectionCache'
 import { applyLoadedSessionVersion, staleSessionPayload } from '../domain/sessionVersion'
 import type { SessionWriteGuard, SessionWriteToken } from './sessionWriteGuard'
@@ -87,7 +87,7 @@ export function createLazyChatStore(deps: {
   loadSplitMeta: () => Promise<any>
   getSplitMetaCache?: () => any
   // 会话索引已经不属于 meta：按 scope 从投影缓存读取（带 revision 的完整快照）。
-  loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  loadChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
   // 会话正文：单飞 + LRU 的加载器（优先走它，缺省时才直读 storage）。
   chatBodies?: {
     load: (scope: ProjectionScope, chatId: string) => Promise<any>

@@ -1,6 +1,9 @@
 import type { AI_CHAT_DIRECT_FEATURE } from '../protocol/aiChatProtocol'
 
-export type SessionScopeKind = 'role' | 'group'
+// workspace 不是特例：工作区会话挂在「工作区 + 角色」两段身份下，
+// targetId 用 workspaceId::roleId 合成键表达（与盒子键、桌面引用键同一口径）。
+// 后端 parseSessionScope 会把合成键拆回两段身份。
+export type SessionScopeKind = 'role' | 'group' | 'workspace'
 
 // scope 是 scope 化协议的寻址单位：{kind,targetId}，与 storage key 无关。
 export type SessionScope = {
@@ -85,7 +88,9 @@ export function scopeFromKey(key: unknown): SessionScope | null {
   const raw = String(key || '').trim()
   const separator = raw.indexOf(':')
   if (separator <= 0) return null
-  const kind = raw.slice(0, separator) === 'group' ? 'group' : raw.slice(0, separator) === 'role' ? 'role' : ''
+  const kindText = raw.slice(0, separator)
+  const kind: SessionScopeKind | '' =
+    kindText === 'role' || kindText === 'group' || kindText === 'workspace' ? kindText : ''
   const targetId = raw.slice(separator + 1).trim()
   if (!kind || !targetId) return null
   return { kind, targetId }

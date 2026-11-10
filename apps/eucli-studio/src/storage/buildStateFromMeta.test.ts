@@ -42,7 +42,7 @@ function memoryStorage(initial: Record<string, any> = {}) {
 }
 
 function indexLoader() {
-  return vi.fn(async ({ kind, targetId }: { kind: 'role' | 'group'; targetId: string }): Promise<any> => {
+  return vi.fn(async ({ kind, targetId }: { kind: 'role' | 'group' | 'workspace'; targetId: string }): Promise<any> => {
     if (kind === 'role' && targetId === 'role-1') {
       return { activeChatId: 'chat-1', chatMetas: [{ id: 'chat-1', title: '会话' }] }
     }

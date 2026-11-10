@@ -7,6 +7,7 @@ import {
   type ChatIndexSnapshot,
   type ProjectionScope,
   type ProjectionVersions,
+  type SessionIndexScope,
 } from '../storage/splitProjectionCache'
 import { createActiveSelectionWriter, type ActiveSelectionWriter } from '../storage/activeSelectionWriter'
 import { createChatBodyLoader, type ChatBodyLoader } from '../storage/chatBodyLoader'
@@ -54,11 +55,11 @@ export type ProjectionPipeline = {
   sessionWindows: SessionWindowLoader
   versions: () => ProjectionVersions
   applyVersions: (next: Partial<ProjectionVersions>) => void
-  loadChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  loadChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
   // 版本门数据源：即使缓存命中也要向服务端确认最新 revision。
-  refreshChatIndex: (scope: ProjectionScope) => Promise<ChatIndexSnapshot | null>
+  refreshChatIndex: (scope: SessionIndexScope) => Promise<ChatIndexSnapshot | null>
   // 版本门守卫：只有仍被缓存承认的快照才允许驱动对账。
-  isChatIndexSnapshotCurrent: (scope: ProjectionScope, snapshot: ChatIndexSnapshot | null) => boolean
+  isChatIndexSnapshotCurrent: (scope: SessionIndexScope, snapshot: ChatIndexSnapshot | null) => boolean
   loadOlderMessages: (scope: ProjectionScope, chatId: string) => Promise<any>
   reloadChatBody: (scope: ProjectionScope, chatId: string, options?: SessionWindowRefreshOptions) => Promise<any>
   invalidateSessionIndex: (kind: 'role' | 'group', targetId: string) => void
@@ -142,14 +143,18 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
   }
 
   // 迁移期：读 chats/<folder>/index。纯读，不修复、不回写。
-  async function readStoredChatIndex(scope: ProjectionScope): Promise<ChatIndexSnapshot | null> {
+  async function readStoredChatIndex(scope: SessionIndexScope): Promise<ChatIndexSnapshot | null> {
+    // 工作区索引只有新协议通道：旧的 chats/<folder>/index 形态从来不存在。
+    if (scope.kind === 'workspace') return null
+    // 收敛成正文通道认的 scope：下面这段只服务 role / group 的旧 storage key。
+    const storedScope: ProjectionScope = { kind: scope.kind, targetId: scope.targetId }
     const meta = await loadMetaDoc()
-    const folders = scope.kind === 'group' ? meta?.groupFolders : meta?.roleFolders
-    const folder = String(folders?.[scope.targetId] || '').trim()
+    const folders = storedScope.kind === 'group' ? meta?.groupFolders : meta?.roleFolders
+    const folder = String(folders?.[storedScope.targetId] || '').trim()
     if (!folder) return null
-    const raw = await storage.get(chatIndexKeyFor(folder, scope)).catch(() => null)
+    const raw = await storage.get(chatIndexKeyFor(folder, storedScope)).catch(() => null)
     if (!raw || typeof raw !== 'object') return null
-    const stored = normalizeStoredChatIndex(raw, scope, scope.kind === 'group' ? '群聊' : '新聊天')
+    const stored = normalizeStoredChatIndex(raw, storedScope, storedScope.kind === 'group' ? '群聊' : '新聊天')
     return {
       scope: stored.scope,
       activeChatId: stored.activeChatId,
@@ -249,6 +254,8 @@ export function createProjectionPipeline(deps: ProjectionPipelineDeps): Projecti
     // 由上层注入（从本地会话的活动分支读），拿不到就退回业务端默认路径。
     headFor: (scope, chatId) => {
       try {
+        // 正文窗口只服务 role / group：workspace 的正文由 workspaceManager 自己的通道加载。
+        if (scope.kind === 'workspace') return ''
         return String(deps.resolveBranchHead?.({ kind: scope.kind, targetId: scope.targetId }, chatId) || '').trim()
       } catch (_) {
         return ''
