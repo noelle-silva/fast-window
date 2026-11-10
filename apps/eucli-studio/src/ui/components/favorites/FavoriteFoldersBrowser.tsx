@@ -8,6 +8,7 @@ import LinkOffRoundedIcon from '@mui/icons-material/LinkOffRounded'
 import { arrayMove } from '@dnd-kit/sortable'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { FavoriteFolderLevel, FavoriteFolderLevelEntry } from '../../../domain/favoriteFolderLevel'
+import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../ChatSessionRunIndicator'
 import { EntityAvatar } from '../avatar/EntityAvatar'
 import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from '../SortableDnd'
@@ -177,8 +178,7 @@ function ChatRow(props: {
   const lost = entry.status === 'missing'
   // 悬停换图标只作用于工作区来源；未加载与丢失都用目标自身的图标。
   const swapToRole = hoverShowsRoleIcon && !lost && entry.targetKind === 'workspace' && hovered
-  const targetLine =
-    entry.targetKind === 'workspace' && entry.roleName ? `${entry.targetName}/${entry.roleName}` : entry.targetName
+  const targetLine = sessionSourceLabel(entry)
 
   return (
     <RowShell
