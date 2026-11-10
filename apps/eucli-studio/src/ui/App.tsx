@@ -87,6 +87,7 @@ import {
 } from '../domain/favoriteFolderSettings'
 import { addDeskDraft } from '../domain/deskDrafts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
+import { sessionRefScopes } from '../domain/sessionRefScope'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
@@ -1366,30 +1367,24 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [buildFavoriteFolderLevel, favoriteFolderNav.currentFolderId],
   )
 
-  // 收藏夹跨 target 展示：进某一层时，按该层引用涉及的 target 预取会话索引，
-  // 让条目直接带真实标题，而不是一排「待加载」。按需触发、去重、串行、失败静默。
-  const prefetchedFavoriteTargetsRef = React.useRef(new Set<string>())
+  // 收藏夹跨 target 展示：进某一层时，把该层「会话事实还没进内存」的 target 一次批量补齐，
+  // 让条目直接带真实标题，而不是一排「待加载」。按需触发、去重、失败静默。
+  const prefetchedFavoriteScopesRef = React.useRef(new Set<string>())
   React.useEffect(() => {
-    const targets: Array<{ kind: 'role' | 'group' | 'workspace'; targetId: string }> = []
-    const seen = new Set<string>()
-    for (const ref of favoriteLevel.refs) {
-      if (ref.status !== 'pending') continue
-      const targetId = ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId
-      const key = `${ref.targetKind}:${targetId}`
-      if (!targetId || seen.has(key) || prefetchedFavoriteTargetsRef.current.has(key)) continue
-      seen.add(key)
-      targets.push({ kind: ref.targetKind, targetId })
-    }
-    if (!targets.length) return
-    for (const key of seen) prefetchedFavoriteTargetsRef.current.add(key)
+    const pendingRefs = favoriteLevel.refs.filter((ref) => ref.status === 'pending')
+    if (!pendingRefs.length) return
+    // 同一层的多个条目经常落在同一个 target 上：一次批量拉回，不再逐个往返。
+    const scopes = sessionRefScopes(pendingRefs).filter(
+      (scope) => !prefetchedFavoriteScopesRef.current.has(`${scope.kind}:${scope.targetId}`),
+    )
+    if (!scopes.length) return
+    for (const scope of scopes) prefetchedFavoriteScopesRef.current.add(`${scope.kind}:${scope.targetId}`)
     void (async () => {
-      for (const target of targets) {
-        try {
-          const ok = await controller.actions.ensureTargetChatIndex?.(target.kind, target.targetId)
-          if (ok) bumpChatIndex()
-        } catch {
-          // 预取失败不影响收藏夹展示，保持待加载占位即可。
-        }
+      try {
+        const ok = await controller.actions.hydrateSessionIndexScopes?.(scopes)
+        if (ok) bumpChatIndex()
+      } catch {
+        // 预取失败不影响收藏夹展示，保持待加载占位即可。
       }
     })()
   }, [favoriteLevel, controller])

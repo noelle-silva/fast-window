@@ -31,13 +31,15 @@ export function createControllerBootstrap(deps: {
   refreshWorkspaces: (activeWorkspaceId?: any) => Promise<any>
   ensureActiveWorkspaceChatLoaded: () => Promise<any>
   ensureStoredActiveChatLoaded: () => Promise<any>
+  // 桌面条目的会话事实预热：首帧之前一次批量补齐，避免首屏先画一排占位。
+  hydrateStartupChatIndexes: () => Promise<any>
   refreshHookPromptLibrary: (force?: boolean) => Promise<any>
   refreshPlaceholderLibrary: (force?: boolean) => Promise<any>
   reloadRoleSession: (roleId: any, sessionId: any) => Promise<any>
   reloadGroupSession: (groupId: any, sessionId: any) => Promise<any>
   reloadWorkspaceSession: (workspaceId: any, roleId: any, sessionId: any) => Promise<any>
 }) {
-  const { state, emitScope, showToast, getNetRequest, isDisposed, runProbe, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
+  const { state, emitScope, showToast, getNetRequest, isDisposed, runProbe, ensureSplitStoreReady, loadShell, refreshWorkspaces, ensureActiveWorkspaceChatLoaded, ensureStoredActiveChatLoaded, hydrateStartupChatIndexes, refreshHookPromptLibrary, refreshPlaceholderLibrary, reloadRoleSession, reloadGroupSession, reloadWorkspaceSession } = deps
   const restoringRunIds = new Set<string>()
 
   async function load() {
@@ -52,8 +54,15 @@ export function createControllerBootstrap(deps: {
       const targetKind = String((split?.ui as any)?.activeTargetKind || 'role').trim()
       state.draft.activeTargetKind = targetKind === 'group' ? 'group' : targetKind === 'workspace' ? 'workspace' : 'role'
       await refreshWorkspaces((state.draft as any).activeWorkspaceId || undefined).catch(() => null)
-      if (state.draft.activeTargetKind === 'workspace') await ensureActiveWorkspaceChatLoaded().catch(() => null)
-      else await ensureStoredActiveChatLoaded()
+      // 当前会话正文与桌面索引并行：桌面条目的会话事实必须在首帧之前就位，
+      // 否则首屏会先画一排「会话待加载」，等面板预取回来再逐个跳名。
+      await Promise.all([
+        state.draft.activeTargetKind === 'workspace'
+          ? ensureActiveWorkspaceChatLoaded().catch(() => null)
+          : ensureStoredActiveChatLoaded(),
+        // 预热失败只影响标题是否立刻可见，不该拖垮整个启动。
+        hydrateStartupChatIndexes().catch(() => null),
+      ])
       await refreshHookPromptLibrary(false).catch(() => null)
       await refreshPlaceholderLibrary(false).catch(() => null)
     } catch (e: any) {

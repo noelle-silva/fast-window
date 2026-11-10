@@ -281,20 +281,24 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(host!.textContent).toContain('桌面上还没有会话')
   })
 
-  it('没加载过的组合先显示待加载，并按 target 预取一次索引', () => {
-    const calls: Array<[string, string]> = []
+  it('没加载过的组合先显示待加载，并按 target 批量预取一次索引', () => {
+    const calls: any[][] = []
     const controller = createController()
-    controller.actions.ensureTargetChatIndex = (kind: string, targetId: string) => {
-      calls.push([kind, targetId])
+    controller.actions.hydrateSessionIndexScopes = (scopes: any[]) => {
+      calls.push(scopes)
       return Promise.resolve(true)
     }
 
     renderPanel({
       controller,
-      data: deskData([deskRef({ targetKind: 'workspace', targetId: 'ws-9', roleId: 'role-z', chatId: 'chat-z' })]),
+      data: deskData([
+        deskRef({ targetKind: 'workspace', targetId: 'ws-9', roleId: 'role-z', chatId: 'chat-z' }),
+        deskRef({ targetKind: 'workspace', targetId: 'ws-9', roleId: 'role-z', chatId: 'chat-z2' }),
+      ]),
     })
 
     expect(host!.textContent).toContain(SESSION_REF_PENDING_TITLE)
-    expect(calls).toEqual([['workspace', 'ws-9::role-z']])
+    // 同一组合的两条引用只算一个 scope：一次请求把所有 target 拉齐。
+    expect(calls).toEqual([[{ kind: 'workspace', targetId: 'ws-9::role-z' }]])
   })
 })

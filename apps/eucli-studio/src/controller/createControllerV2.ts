@@ -19,6 +19,8 @@ import {
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { writeChatListProjection } from '../domain/chatListProjection'
+import { deskFlatRefs } from '../domain/desks'
+import { missingSessionRefScopes } from '../domain/sessionRefScope'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
 import { refreshScopes } from '../domain/uiRefreshScope'
@@ -31,7 +33,7 @@ import { createSessionWriteGuard } from '../storage/sessionWriteGuard'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { createProjectionPipeline } from './projectionPipeline'
 import { loadSessionEditSnapshot } from './sessionEditSnapshot'
-import type { SessionIndexScopeKind } from '../storage/splitProjectionCache'
+import type { SessionIndexScope } from '../storage/splitProjectionCache'
 
 // ---- state ----
 import { createStateAccessors } from '../state/stateAccessors'
@@ -583,15 +585,26 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     return chatLoadFailure.track(kind, targetId, chatId, () => ensureStoredChatLoaded(kind, targetId, chatId))
   }
 
-  // 只拉某个 target 的会话索引并写回内存：收藏夹这类跨 target 视图用它提前补齐标题，
+  // 跨 target 视图（工作桌面 / 会话收藏夹）的会话事实预热：
+  // 一次批量拉回多个 target 的索引，逐个写回内存并通知各自的 chatList 地址。
   // 事实仍来自后端 sessionIndex，这里不造字段、不动正文。
-  async function ensureTargetChatIndex(kind: SessionIndexScopeKind, targetId: string) {
-    const tid = String(targetId || '').trim()
-    if (!tid) return false
-    const snapshot = await projectionPipeline.loadChatIndex({ kind, targetId: tid })
-    if (!applyChatIndexSnapshot(state.data, { kind, targetId: tid }, snapshot)) return false
-    emitScope(refreshScopes.chatList(kind, tid))
-    return true
+  async function hydrateSessionIndexScopes(scopes: SessionIndexScope[]) {
+    const loaded = await projectionPipeline.loadChatIndexes(scopes)
+    for (const { scope, snapshot } of loaded) {
+      applyChatIndexSnapshot(state.data, { kind: scope.kind, targetId: scope.targetId }, snapshot)
+      emitScope(refreshScopes.chatList(scope.kind, scope.targetId))
+    }
+    return loaded.length > 0
+  }
+
+  // 启动预热：首帧渲染之前，把工作桌面上「事实还没进内存」的会话索引一次补齐。
+  // 桌面引用数量有界（不是工作区 × 角色的笛卡尔积）；当前工作区已经拉过的部分自然被排除。
+  async function hydrateStartupChatIndexes() {
+    const data = state.data
+    if (!data) return false
+    const scopes = missingSessionRefScopes(data, deskFlatRefs(data.desks))
+    if (!scopes.length) return false
+    return hydrateSessionIndexScopes(scopes)
   }
 
   // 往上翻一窗：返回 true 表示确实加载了新消息，false 表示已经到顶。
@@ -763,6 +776,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     refreshWorkspaces,
     ensureActiveWorkspaceChatLoaded,
     ensureStoredActiveChatLoaded,
+    hydrateStartupChatIndexes,
     refreshHookPromptLibrary,
     refreshPlaceholderLibrary,
     reloadRoleSession,
@@ -1460,8 +1474,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const actions: Record<string, any> = {
     emit,
-    ensureTargetChatIndex: (kind: 'role' | 'group' | 'workspace', targetId: string) =>
-      ensureTargetChatIndex(kind, targetId),
+    hydrateSessionIndexScopes: (scopes: SessionIndexScope[]) => hydrateSessionIndexScopes(scopes),
     ...appearanceActions,
     ...deskActions,
     ...deskActions,

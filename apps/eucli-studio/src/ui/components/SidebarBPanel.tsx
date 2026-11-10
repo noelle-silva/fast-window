@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
-import { deskFlatRefs, resolveDeskEntries, type DeskEntry, type DeskTargetKind } from '../../domain/desks'
+import { deskFlatRefs, resolveDeskEntries, type DeskEntry } from '../../domain/desks'
+import { sessionRefScopes } from '../../domain/sessionRefScope'
 import {
   getDeskDrafts,
   getDeskDraftsVersion,
@@ -112,42 +113,30 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
   )
 
   // 桌面是跨 target 的引用清单：会话标题这类事实不在引用里，得靠各 target 的会话索引。
-  // 当前激活的工作区/角色组合会自然带索引，其余组合（别的工作区、别的角色）从来没人拉过，
-  // 条目就会停在「会话待加载」。这里按引用自己的 target 预取一次索引，把它们补齐。
-  // 去重 + 串行 + 失败静默：一个 target 拉不到不影响桌面其余条目，也不会打散会话切换的请求节奏。
-  const prefetchedDeskTargetsRef = React.useRef(new Set<string>())
-  const pendingDeskTargets = React.useMemo(() => {
-    const out: Array<{ kind: DeskTargetKind; targetId: string; key: string }> = []
-    const seen = new Set<string>()
-    for (const entry of deskEntries) {
-      if (entry.status !== 'pending') continue
-      // 工作区的身份是「工作区 + 角色」两段：索引与盒子都认这个合成键。
-      const targetId =
-        entry.targetKind === 'workspace' ? workspaceRoleTargetId(entry.targetId, entry.roleId) : entry.targetId
-      if (!targetId) continue
-      const key = `${entry.targetKind}:${targetId}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      out.push({ kind: entry.targetKind, targetId, key })
-    }
-    return out
-  }, [deskEntries])
+  // 启动阶段已按桌面引用批量预热过一轮，首帧就是真标题；
+  // 这里只负责运行期新增的条目——同一批 pending 引用一次批量拉回，不再逐个往返。
+  // 去重 + 失败静默：一个 target 拉不到不影响桌面其余条目。
+  const prefetchedDeskScopesRef = React.useRef(new Set<string>())
+  const pendingDeskScopes = React.useMemo(
+    () => sessionRefScopes(deskEntries.filter((entry) => entry.status === 'pending')),
+    [deskEntries],
+  )
   React.useEffect(() => {
     if (tab !== 'desk') return
-    const pending = pendingDeskTargets.filter((target) => !prefetchedDeskTargetsRef.current.has(target.key))
-    if (!pending.length) return
+    const scopes = pendingDeskScopes.filter(
+      (scope) => !prefetchedDeskScopesRef.current.has(`${scope.kind}:${scope.targetId}`),
+    )
+    if (!scopes.length) return
     // 先记账再发请求：失败的 target 本代不再重试，避免每次渲染都打一遍后端。
-    for (const target of pending) prefetchedDeskTargetsRef.current.add(target.key)
+    for (const scope of scopes) prefetchedDeskScopesRef.current.add(`${scope.kind}:${scope.targetId}`)
     void (async () => {
-      for (const target of pending) {
-        try {
-          await controller.actions?.ensureTargetChatIndex?.(target.kind, target.targetId)
-        } catch {
-          // 预取失败保持占位：索引下一轮刷新时条目自会恢复真标题。
-        }
+      try {
+        await controller.actions?.hydrateSessionIndexScopes?.(scopes)
+      } catch {
+        // 预取失败保持占位：索引下一轮刷新时条目自会恢复真标题。
       }
     })()
-  }, [controller, pendingDeskTargets, tab])
+  }, [controller, pendingDeskScopes, tab])
   const deskDrafts = useDeskDrafts()
 
   // 通知点按桌面引用键落表：条目一旦挪位置 / 增删，跟着桌面清单重算。
