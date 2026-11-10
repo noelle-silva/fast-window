@@ -594,59 +594,6 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。
-          归属下拉挂在同一行的右侧，只占固定宽度，切换按钮仍留足点击区域。 */}
-      <Stack direction="row" spacing={1.25} alignItems="center">
-        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
-          {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
-            const active = scope === value
-            return (
-              <Button
-                key={value}
-                fullWidth
-                size="small"
-                disableElevation
-                variant="contained"
-                onClick={() => switchScope(value)}
-                sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
-              >
-                {PROMPT_SCOPE_LABELS[value]}
-              </Button>
-            )
-          })}
-        </Box>
-        {/* 归属槽位始终占同一段宽度：切到全局只是清空内容，切换按钮的宽度不跟着跳。 */}
-        <Box sx={{ width: 280, flexShrink: 0 }}>
-          {scope !== 'global' ? (
-            <FormControl size="small" fullWidth>
-              <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
-              <Select
-                labelId="prompt-library-owner-label"
-                label={scope === 'role' ? '选择角色' : '选择工作区'}
-                value={activeOwnerId}
-                onChange={(event) => {
-                  setOwnerId(String(event.target.value))
-                  // 换归属等于换一份库，回到根层。
-                  setCurrentFolderId('')
-                }}
-              >
-                {ownerOptions.map((item: any) => (
-                  <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                    {text(item?.name) || text(item?.id)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          ) : null}
-        </Box>
-      </Stack>
-
-      {scope !== 'global' && !ownerIds.length ? (
-        <Typography variant="body2" color="text.secondary">
-          {scope === 'role' ? '还没有角色，先去「角色管理」新建一个。' : '还没有工作区，先去「工作区管理」新建一个。'}
-        </Typography>
-      ) : null}
-
       <Stack direction="row" spacing={1.25} sx={{ flex: 1, minHeight: 0 }}>
         <PromptLibrarySidebar
           layer={visibleLayer}
@@ -674,91 +621,149 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
           onCreateFolder={openCreateFolder}
         />
 
-        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {draft ? (
-            <Stack spacing={1} sx={{ height: '100%', minHeight: 0 }}>
-              {/* 名称、保存、收藏、更多操作同一行，右侧对齐。 */}
-              <Stack direction="row" spacing={1} alignItems="center">
-                <TextField
-                  size="small"
-                  label="名称"
-                  value={draft.name}
-                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  sx={{ flex: 1 }}
-                />
-                <Button
-                  variant="contained"
-                  size="small"
-                  disableElevation
-                  startIcon={<SaveIcon />}
-                  onClick={() => void savePrompt()}
-                  disabled={loading}
-                >
-                  保存
-                  {isDirty ? (
-                    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', ml: 0.75 }} />
-                  ) : null}
-                </Button>
-                {/* 收藏只留图标：省下的横向空间归名称输入框。 */}
-                <Tooltip title="收藏到收藏夹">
-                  <span>
-                    <IconButton
-                      size="small"
-                      aria-label="收藏到收藏夹"
-                      onClick={() => openPicker({ mode: 'collect', id: draft.id })}
-                      disabled={loading || !isSaved}
-                      sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-                    >
-                      <BookmarkAddOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <MoreActionsMenu
-                  ariaLabel="提示词操作"
-                  items={[
-                    {
-                      key: 'remark',
-                      label: remarkOpen ? '隐藏备注' : '显示备注',
-                      icon: <NotesOutlinedIcon fontSize="small" />,
-                      onSelect: () => setRemarkOpen((current) => !current),
-                    },
-                    {
-                      key: 'delete',
-                      label: '删除提示词',
-                      icon: <DeleteOutlineIcon fontSize="small" />,
-                      danger: true,
-                      disabled: !isSaved,
-                      onSelect: () => draft && setPendingDelete({ kind: 'prompt', id: draft.id, name: draft.name }),
-                    },
-                  ]}
-                />
-              </Stack>
-              {remarkOpen ? (
-                <TextField
-                  size="small"
-                  label="备注"
-                  value={draft.description}
-                  onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                />
-              ) : null}
-              {/* 内容框吃满剩余高度，内容再长也只在框内滚，滑块用项目自制的那一套。 */}
-              <FillTextarea
-                label="内容"
-                value={draft.content}
-                onChange={(next) => setDraft({ ...draft, content: next })}
-              />
-
-            </Stack>
-          ) : (
-            <Box sx={{ m: 'auto', textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                选择左侧的提示词查看与编辑，或点「新建提示词」
-              </Typography>
+        {/* 顶部切换栏与编辑器同宽：左上那一整块让给列表，下拉仍与下方输入框对齐。 */}
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1.25, minHeight: 0 }}>
+          {/* 分段切换：实心底座 + 选中块，不用轮廓线描边。
+              归属下拉挂在同一行的右侧，只占固定宽度，切换按钮仍留足点击区域。 */}
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
+              {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((value) => {
+                const active = scope === value
+                return (
+                  <Button
+                    key={value}
+                    fullWidth
+                    size="small"
+                    disableElevation
+                    variant="contained"
+                    onClick={() => switchScope(value)}
+                    sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+                  >
+                    {PROMPT_SCOPE_LABELS[value]}
+                  </Button>
+                )
+              })}
             </Box>
-          )}
-        </Box>
+            {/* 归属槽位始终占同一段宽度：切到全局只是清空内容，切换按钮的宽度不跟着跳。 */}
+            <Box sx={{ width: 280, flexShrink: 0 }}>
+              {scope !== 'global' ? (
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="prompt-library-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
+                  <Select
+                    labelId="prompt-library-owner-label"
+                    label={scope === 'role' ? '选择角色' : '选择工作区'}
+                    value={activeOwnerId}
+                    onChange={(event) => {
+                      setOwnerId(String(event.target.value))
+                      // 换归属等于换一份库，回到根层。
+                      setCurrentFolderId('')
+                    }}
+                  >
+                    {ownerOptions.map((item: any) => (
+                      <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                        {text(item?.name) || text(item?.id)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              ) : null}
+            </Box>
+          </Stack>
 
-        {sidePane}
+          {scope !== 'global' && !ownerIds.length ? (
+            <Typography variant="body2" color="text.secondary">
+              {scope === 'role' ? '还没有角色，先去「角色管理」新建一个。' : '还没有工作区，先去「工作区管理」新建一个。'}
+            </Typography>
+          ) : null}
+
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', gap: 1.25, minHeight: 0 }}>
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              {draft ? (
+                <Stack spacing={1} sx={{ height: '100%', minHeight: 0 }}>
+                  {/* 名称、保存、收藏、更多操作同一行，右侧对齐。 */}
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <TextField
+                      size="small"
+                      label="名称"
+                      value={draft.name}
+                      onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                      sx={{ flex: 1 }}
+                    />
+                    <Button
+                      variant="contained"
+                      size="small"
+                      disableElevation
+                      startIcon={<SaveIcon />}
+                      onClick={() => void savePrompt()}
+                      disabled={loading}
+                    >
+                      保存
+                      {isDirty ? (
+                        <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', ml: 0.75 }} />
+                      ) : null}
+                    </Button>
+                    {/* 收藏只留图标：省下的横向空间归名称输入框。 */}
+                    <Tooltip title="收藏到收藏夹">
+                      <span>
+                        <IconButton
+                          size="small"
+                          aria-label="收藏到收藏夹"
+                          onClick={() => openPicker({ mode: 'collect', id: draft.id })}
+                          disabled={loading || !isSaved}
+                          sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+                        >
+                          <BookmarkAddOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <MoreActionsMenu
+                      ariaLabel="提示词操作"
+                      items={[
+                        {
+                          key: 'remark',
+                          label: remarkOpen ? '隐藏备注' : '显示备注',
+                          icon: <NotesOutlinedIcon fontSize="small" />,
+                          onSelect: () => setRemarkOpen((current) => !current),
+                        },
+                        {
+                          key: 'delete',
+                          label: '删除提示词',
+                          icon: <DeleteOutlineIcon fontSize="small" />,
+                          danger: true,
+                          disabled: !isSaved,
+                          onSelect: () => draft && setPendingDelete({ kind: 'prompt', id: draft.id, name: draft.name }),
+                        },
+                      ]}
+                    />
+                  </Stack>
+                  {remarkOpen ? (
+                    <TextField
+                      size="small"
+                      label="备注"
+                      value={draft.description}
+                      onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                    />
+                  ) : null}
+                  {/* 内容框吃满剩余高度，内容再长也只在框内滚，滑块用项目自制的那一套。 */}
+                  <FillTextarea
+                    label="内容"
+                    value={draft.content}
+                    onChange={(next) => setDraft({ ...draft, content: next })}
+                  />
+    
+                </Stack>
+              ) : (
+                <Box sx={{ m: 'auto', textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    选择左侧的提示词查看与编辑，或点「新建提示词」
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+
+            {sidePane}
+          </Box>
+        </Box>
       </Stack>
 
       <PromptFolderPicker
